@@ -406,15 +406,37 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
 }
 
 // Helper: upload SPPA-00 PDF to Google Drive and update the task_document row with Drive refs
+// Replaces existing SPPA-00 file in Drive if one exists (avoids duplicates)
 async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
   if (!isGoogleDriveConfigured()) return null;
   try {
     var folderId = await ensureGPDriveFolder(caseId, null, null);
     if (!folderId) return null;
-    var driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, 'application/pdf');
+    var drive = await getGoogleDriveClient();
+    if (!drive) return null;
+    // Check for existing SPPA-00 file in this folder
+    var existingFiles = await drive.files.list({
+      q: "'" + folderId + "' in parents and name contains 'SPPA-00' and trashed = false",
+      fields: 'files(id,name)', pageSize: 5
+    });
+    var existingFile = (existingFiles.data.files || [])[0];
+    var driveFile;
+    if (existingFile) {
+      // Replace existing file content and rename
+      var updateRes = await drive.files.update({
+        fileId: existingFile.id,
+        requestBody: { name: fileName },
+        media: { mimeType: 'application/pdf', body: require('stream').Readable.from(buffer) },
+        fields: 'id,name,webViewLink'
+      });
+      driveFile = updateRes.data;
+      console.log('[SPPA Drive] Replaced existing file:', existingFile.name, '→', fileName);
+    } else {
+      // No existing file — create new
+      driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, 'application/pdf');
+    }
     if (!driveFile || !driveFile.id) return null;
     var driveUrl = 'https://drive.google.com/file/d/' + driveFile.id + '/view';
-    // Update the task_document row with Drive references
     if (taskDocId) {
       await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(taskDocId), {
         method: 'PATCH', body: { google_drive_file_id: driveFile.id, google_drive_url: driveUrl }
@@ -1802,15 +1824,37 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 sppaMeta.gp_returned_via = 'email_auto';
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
-                // Sync practice_doc_ops: gp_returned → awaiting_practice
                 _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                   return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
                 }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
-                // Upload GP-returned SPPA to Google Drive
                 if (_earlyStoredDocIds.length > 0) {
                   var _sppaPdfDoc = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('.pdf') > -1; }) || _earlyStoredDocIds[0];
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
+                }
+              } else if (sppaMeta && sppaMeta.sppa_state === 'sent_to_practice') {
+                sppaMeta.sppa_state = 'practice_returned';
+                sppaMeta.practice_returned_at = new Date().toISOString();
+                sppaMeta.practice_returned_via = 'email_auto';
+                // Tag attachments: first PDF = SPPA, others = alt supervisor CVs
+                if (_earlyStoredDocIds.length > 1) {
+                  var _mainSppa = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
+                  for (var _aDoc of _earlyStoredDocIds) {
+                    if (_aDoc.id !== _mainSppa.id) {
+                      await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(_aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
+                    }
+                  }
+                  sppaMeta.has_alt_supervisor_cvs = true;
+                }
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
+                  { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
+                _ensurePracticeDocOps(earlyGpCase.id).then(function () {
+                  return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
+                }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
+                if (_earlyStoredDocIds.length > 0) {
+                  var _sppaPdfDoc2 = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
+                  var _sppaBuf2 = Buffer.from((_sppaPdfDoc2.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+                  _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc2.id, _sppaBuf2, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
               } else {
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
@@ -25583,7 +25627,13 @@ Return ONLY valid JSON with no markdown formatting:
           result[key] = { ready: true, url: dlUrl, fileName: match.file_name || '' };
         }
       });
-      sendJson(res, 200, { ok: true, docs: result });
+      // Check for alt supervisor CVs
+      var altCvs = _glDocs.filter(function(d) { return d.document_key && d.document_key.startsWith('alt_supervisor_cv_') && (d.status === 'approved' || d.status === 'uploaded'); });
+      var altCvList = altCvs.map(function(d) {
+        var dlUrl = d.google_drive_file_id ? 'https://drive.google.com/file/d/' + d.google_drive_file_id + '/view' : (d.file_url || '');
+        return { key: d.document_key, url: dlUrl, fileName: d.file_name || '' };
+      });
+      sendJson(res, 200, { ok: true, docs: result, altSupervisorCvs: altCvList });
     } catch (e) {
       sendJson(res, 500, { ok: false });
     }
@@ -29277,6 +29327,7 @@ Return ONLY valid JSON with no markdown formatting:
     var returnedFrom = String((body && body.from) || '').toLowerCase();
     var fileDataUrl = String((body && body.file_data_url) || '');
     var fileName = String((body && body.file_name) || 'SPPA-00.pdf');
+    var altSupervisorCvs = Array.isArray(body && body.alt_supervisor_cvs) ? body.alt_supervisor_cvs : [];
     if (returnedFrom !== 'candidate' && returnedFrom !== 'practice') { sendJson(res, 400, { error: 'from must be candidate or practice' }); return; }
     if (!fileDataUrl) { sendJson(res, 400, { error: 'file_data_url required' }); return; }
 
@@ -29341,6 +29392,28 @@ Return ONLY valid JSON with no markdown formatting:
         return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
       }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
       await _logCaseEvent(task.case_id, taskId, 'system', 'Practice returned completed SPPA-00', null, admin.email);
+      // Store alt supervisor CVs if provided
+      if (altSupervisorCvs.length > 0) {
+        for (var aCv of altSupervisorCvs) {
+          if (!aCv.file_data_url) continue;
+          var aCvComma = aCv.file_data_url.indexOf(',');
+          var aCvMime = (aCv.file_data_url.substring(0, aCvComma).match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+          var aCvB64 = aCv.file_data_url.substring(aCvComma + 1);
+          await supabaseDbRequest('task_documents', '', {
+            method: 'POST', body: [{
+              task_id: task.id, case_id: task.case_id,
+              filename: aCv.file_name || 'Alternate Supervisor CV.pdf',
+              mime_type: aCvMime, size_bytes: Math.ceil(aCvB64.length * 3 / 4),
+              version: 1, is_current: true, uploaded_by: 'admin_manual_practice_return',
+              attachment_url: aCv.file_data_url, category: 'alt_supervisor_cv'
+            }]
+          });
+        }
+        taskMeta.has_alt_supervisor_cvs = true;
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+          { method: 'PATCH', body: { metadata: taskMeta, updated_at: new Date().toISOString() } });
+        await _logCaseEvent(task.case_id, taskId, 'system', altSupervisorCvs.length + ' alternate supervisor CV(s) uploaded', null, admin.email);
+      }
     }
 
     sendJson(res, 200, { ok: true, state: taskMeta.sppa_state });
@@ -29361,8 +29434,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
     if (!taskMeta || taskMeta.sppa_state !== 'practice_returned') { sendJson(res, 400, { error: 'SPPA not in practice_returned state' }); return; }
 
+    // Get SPPA PDF (exclude alt supervisor CVs)
     const docRes = await supabaseDbRequest('task_documents',
-      'select=attachment_url&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
+      'select=attachment_url&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
     const doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
     if (!doc || !doc.attachment_url) { sendJson(res, 400, { error: 'No SPPA PDF found' }); return; }
 
@@ -29378,6 +29452,57 @@ Return ONLY valid JSON with no markdown formatting:
 
     var delivery = await deliverToMyDocuments(userId, task.case_id, 'sppa_00', 'SPPA-00 Completed.pdf', pdfBuffer, 'application/pdf');
 
+    // Deliver alt supervisor CVs if any
+    var altCvDelivery = [];
+    var altCvRes = await supabaseDbRequest('task_documents',
+      'select=id,filename,attachment_url,mime_type&task_id=eq.' + encodeURIComponent(taskId) + '&category=eq.alt_supervisor_cv&is_current=eq.true');
+    if (altCvRes.ok && Array.isArray(altCvRes.data) && altCvRes.data.length > 0) {
+      // Create alt supervisor CV subfolder in Drive
+      var altFolderId = null;
+      try {
+        var caseFolderId = await ensureGPDriveFolder(task.case_id, null, null);
+        if (caseFolderId) {
+          var altFolder = await createGoogleDriveFolder('Alternative Supervisor CVs', caseFolderId);
+          if (altFolder) altFolderId = altFolder.id;
+        }
+      } catch (e) { console.error('[SPPA] Alt CV folder creation error:', e.message); }
+
+      for (var aci = 0; aci < altCvRes.data.length; aci++) {
+        var altDoc = altCvRes.data[aci];
+        var altDocKey = 'alt_supervisor_cv_' + (aci + 1);
+        // Upload to Drive subfolder
+        if (altFolderId && altDoc.attachment_url) {
+          try {
+            var altComma = altDoc.attachment_url.indexOf(',');
+            var altB64Raw = altDoc.attachment_url.substring(altComma + 1).replace(/-/g, '+').replace(/_/g, '/');
+            while (altB64Raw.length % 4 !== 0) altB64Raw += '=';
+            var altBuf = Buffer.from(altB64Raw, 'base64');
+            var altDriveFile = await uploadToGoogleDrive(altFolderId, altDoc.filename || ('Alt Supervisor CV ' + (aci + 1) + '.pdf'), altBuf, altDoc.mime_type || 'application/pdf');
+            if (altDriveFile) {
+              altCvDelivery.push({ filename: altDoc.filename, driveFileId: altDriveFile.id });
+              // Store in user_documents for GP access
+              var altDriveUrl = 'https://drive.google.com/file/d/' + altDriveFile.id + '/view';
+              var existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(altDocKey) + '&limit=1');
+              var altUserDoc = {
+                user_id: userId, document_key: altDocKey,
+                file_name: altDoc.filename || ('Alt Supervisor CV ' + (aci + 1)),
+                status: 'approved', reviewed_at: new Date().toISOString(),
+                google_drive_file_id: altDriveFile.id
+              };
+              if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+                await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: altUserDoc });
+              } else {
+                await supabaseDbRequest('user_documents', '', { method: 'POST', body: [altUserDoc] });
+              }
+            }
+          } catch (altErr) { console.error('[SPPA] Alt CV delivery error:', altErr.message); }
+        }
+      }
+      if (altCvDelivery.length > 0) {
+        await _logCaseEvent(task.case_id, taskId, 'system', altCvDelivery.length + ' alternate supervisor CV(s) delivered to MyDocuments', null, admin.email);
+      }
+    }
+
     try {
       await supabaseDbRequest('practice_doc_ops',
         'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00',
@@ -29391,7 +29516,7 @@ Return ONLY valid JSON with no markdown formatting:
       { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), metadata: taskMeta, updated_at: new Date().toISOString() } });
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 approved and delivered to GP MyDocuments', null, admin.email);
-    sendJson(res, 200, { ok: true, delivery: delivery });
+    sendJson(res, 200, { ok: true, delivery: delivery, altCvs: altCvDelivery });
     return;
   }
 

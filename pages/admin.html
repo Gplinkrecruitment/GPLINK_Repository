@@ -4413,7 +4413,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + '1. Complete <strong>Sections B through H</strong> (Supervisor details, practice arrangement, goals)<br>'
         + '2. Sign <strong>Section J</strong> (Primary supervisor\'s declaration)<br>'
         + '3. Have any alternate supervisor(s) sign <strong>Section K</strong> if applicable<br><br>'
-        + '<strong>Note:</strong> You do not need to attach any supporting documents that the SPPA-00 refers to \u2014 we have already collected these separately.<br><br>'
+        + '<strong>Note:</strong> You do not need to attach any supporting documents that the SPPA-00 refers to \u2014 we have already collected these separately. However, if you add alternate supervisors in Section K, please attach their CVs with your reply.<br><br>'
         + 'Once completed, please reply to this email with the signed document attached.<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
@@ -4448,7 +4448,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
       h += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
       h += '</div>';
-      h += opsRenderDocs(docs);
+      h += opsRenderThread(msgs);
+      // Split docs into SPPA and alt supervisor CVs
+      var sppaDocs = (docs||[]).filter(function(d) { return d.category !== 'alt_supervisor_cv'; });
+      var altCvDocs = (docs||[]).filter(function(d) { return d.category === 'alt_supervisor_cv'; });
+      h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">SPPA-00 Document</div>';
+      h += opsRenderDocs(sppaDocs);
+      if (altCvDocs.length > 0) {
+        h += '<div style="font-weight:700;font-size:12px;margin:12px 0 4px">Alternate Supervisor CVs</div>';
+        h += opsRenderDocs(altCvDocs);
+      }
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';

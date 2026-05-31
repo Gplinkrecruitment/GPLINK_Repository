@@ -2112,6 +2112,19 @@
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
+      // Alt Supervisor CVs section — only shown if they exist
+      if (window._altSupervisorCvs && window._altSupervisorCvs.length > 0) {
+        var altSection = document.createElement("div");
+        altSection.innerHTML = '<div class="doc-panel-header" style="margin-top:16px"><p>Alternative Supervisor CVs</p></div><div class="doc-card-grid" id="altCvCardGrid"></div>';
+        panel3.appendChild(altSection);
+        var altGrid = altSection.querySelector("#altCvCardGrid");
+        window._altSupervisorCvs.forEach(function(cv) {
+          var card = document.createElement("div");
+          card.className = "doc-card";
+          card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + (cv.fileName || cv.key) + '</span><span class="pill done">Ready</span></div><div class="doc-card-desc">Ready to download</div><div class="doc-card-actions"><a class="btn btn-soft" href="' + (cv.url || "#") + '" target="_blank" rel="noopener">Download</a></div>';
+          altGrid.appendChild(card);
+        });
+      }
     }
 
     function renderAll(country, state) {
@@ -2131,6 +2144,8 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (!data || !data.ok || !data.docs) return;
+          // Store alt supervisor CVs for rendering
+          window._altSupervisorCvs = Array.isArray(data.altSupervisorCvs) ? data.altSupervisorCvs : [];
           var prepared = loadPreparedDocs(country);
           var changed = false;
           Object.keys(data.docs).forEach(function(key) {
@@ -2139,9 +2154,11 @@
               changed = true;
             }
           });
-          if (changed) {
-            prepared.updatedAt = new Date().toISOString();
-            localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(prepared));
+          if (changed || window._altSupervisorCvs.length > 0) {
+            if (changed) {
+              prepared.updatedAt = new Date().toISOString();
+              localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(prepared));
+            }
             renderAll(country, state);
           }
         }).catch(function() {});
