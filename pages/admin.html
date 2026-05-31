@@ -261,6 +261,9 @@
     .ops-expand-section{margin-bottom:14px}
     .ops-expand-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px}
     .ops-email-composer{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:6px}
+    .ops-cc-row{margin:4px 0;display:flex;align-items:center;gap:6px}
+    .ops-cc-row select{flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px;max-width:300px}
+    .ops-cc-row .ops-email-label{min-width:60px;font-size:11px;color:var(--muted);font-weight:600}
     .ops-email-field{display:flex;align-items:center;gap:6px;margin-bottom:6px}
     .ops-email-label{font-size:11px;font-weight:700;color:var(--muted);min-width:52px;text-align:right}
     .ops-email-field input{flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;font-family:inherit}
@@ -4359,6 +4362,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
+      h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(gpName) + ',<br><br>'
@@ -4410,6 +4414,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The GP-completed SPPA-00 PDF will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
+      h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + ' \u2014 Please Complete and Sign" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
@@ -4654,6 +4659,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     h3+='<div class="ops-email-composer">';
     h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(practiceEmail)+'" /></div>';
+    h3+='<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="'+esc(task.id)+'" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
     if (isOfferContractWithDoc) {
       h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="Signed Offer/Contract needed for Dr '+esc(gpName)+' - GP Link" /></div>';
       h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
@@ -4983,6 +4989,34 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ── Load GP Profile task detail (reuses Ops Queue renderer) ── */
+  async function loadCcContacts(caseId) {
+    var selects = document.querySelectorAll('[data-email-cc]');
+    if (!selects.length || !caseId) return;
+    try {
+      var resp = await fetch('/api/admin/va/case/' + encodeURIComponent(caseId) + '/email-contacts', { credentials: 'include' });
+      var data = await resp.json();
+      selects.forEach(function(sel) {
+        sel.innerHTML = '';
+        if (data.ok && data.contacts && data.contacts.length > 0) {
+          data.contacts.forEach(function(c) {
+            var opt = document.createElement('option');
+            opt.value = c.email_address;
+            opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address) + ' (seen ' + c.seen_count + 'x)';
+            sel.appendChild(opt);
+          });
+        } else {
+          var opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No contacts detected yet';
+          opt.disabled = true;
+          sel.appendChild(opt);
+        }
+      });
+    } catch (e) {
+      console.error('[CC Contacts]', e);
+    }
+  }
+
   async function loadGpTaskDetail(taskId){
     var container=document.querySelector('[data-gp-task-detail="'+taskId+'"] .gp-task-detail-inner');
     if(!container)return;
@@ -5016,6 +5050,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }
+    // Load CC contacts for any email composers rendered above
+    setTimeout(function() { loadCcContacts(adapted.case_id || S.selectedCaseId); }, 100);
   }
 
 
@@ -5707,11 +5743,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var toVal=toEl?toEl.value.trim():'';
         var subVal=subEl?subEl.value.trim():'';
         var bodyHtml=bodyEl?bodyEl.innerHTML:'';
+        var ccEl=document.querySelector('[data-email-cc="'+tid+'"]');
+        var ccVal=ccEl?Array.from(ccEl.selectedOptions).map(function(o){return o.value;}).filter(Boolean).join(', '):'';
         if(!toVal){showOpsToast('Recipient email required','red');return;}
         if(!subVal){showOpsToast('Subject required','red');return;}
         sendEmailBtn.disabled=true;sendEmailBtn.textContent='Sending\u2026';
         try{
-          var emailPayload={to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId};
+          var emailPayload={to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId,cc:ccVal};
           // Auto-attach contract document if flagged
           if(sendEmailBtn.hasAttribute('data-ops-auto-attach')){
             var taskDocs=S._opsDocCache&&S._opsDocCache[tid]?S._opsDocCache[tid]:[];
