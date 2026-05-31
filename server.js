@@ -449,6 +449,93 @@ async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
   }
 }
 
+// Helper: disambiguate which GP an email from a multi-GP practice contact is about
+// Returns the matched case object or null if ambiguous
+async function _disambiguatePracticeEmail(appRows, emailMeta) {
+  // First: get GP names for all candidates
+  var candidates = [];
+  for (var app of appRows) {
+    var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+    var profile = (profileRes.ok && profileRes.data && profileRes.data[0]) ? profileRes.data[0] : {};
+    var gpName = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim();
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(app.user_id) + '&status=eq.active&limit=1');
+    var gpCase = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0] : null;
+    if (gpCase) candidates.push({ case: gpCase, gpName: gpName, userId: app.user_id });
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].case;
+
+  // Quick check: does the email subject or body mention a specific GP name?
+  var emailText = ((emailMeta.subject || '') + ' ' + (emailMeta.bodyText || '')).toLowerCase();
+  var nameMatches = candidates.filter(function(c) {
+    var parts = c.gpName.toLowerCase().split(/\s+/).filter(function(p) { return p.length > 2; });
+    // Match if last name appears in email text
+    var lastName = parts[parts.length - 1] || '';
+    return lastName && emailText.indexOf(lastName) > -1;
+  });
+  if (nameMatches.length === 1) {
+    console.log('[Gmail] Disambiguated practice email to', nameMatches[0].gpName, 'via name mention in email');
+    return nameMatches[0].case;
+  }
+
+  // Thread-based: check if this email's threadId matches any task for any candidate
+  if (emailMeta.threadId) {
+    for (var cand of candidates) {
+      var threadCheck = await supabaseDbRequest('task_messages',
+        'select=task_id&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) + '&case_id=eq.' + encodeURIComponent(cand.case.id) + '&limit=1');
+      if (threadCheck.ok && Array.isArray(threadCheck.data) && threadCheck.data.length > 0) {
+        console.log('[Gmail] Disambiguated practice email to', cand.gpName, 'via thread match');
+        return cand.case;
+      }
+    }
+  }
+
+  // AI fallback: ask Claude to determine which GP based on email content
+  if (process.env.ANTHROPIC_API_KEY && candidates.length <= 5) {
+    try {
+      var budgetOk = await checkAnthropicBudget();
+      if (budgetOk) {
+        var gpList = candidates.map(function(c, i) { return (i + 1) + '. Dr ' + c.gpName; }).join('\n');
+        var prompt = 'An email was received from a practice contact. This practice has multiple GPs. Determine which GP this email is about.\n\n'
+          + 'GPs at this practice:\n' + gpList + '\n\n'
+          + 'Email subject: ' + (emailMeta.subject || '(none)') + '\n'
+          + 'Email body: ' + (emailMeta.bodyText || '').substring(0, 2000) + '\n'
+          + 'Attachment filenames: ' + (emailMeta.attachments || []).map(function(a) { return a.filename; }).join(', ') + '\n\n'
+          + 'Return JSON only: {"matched_gp_index": 1-based index or null, "confidence": 0.0-1.0, "reason": "brief"}\n'
+          + 'If you cannot determine which GP, return matched_gp_index: null.';
+        var controller = new AbortController();
+        var timeout = setTimeout(function() { controller.abort(); }, 15000);
+        var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: controller.signal,
+          headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+        });
+        clearTimeout(timeout);
+        var aiData = await aiRes.json();
+        if (typeof recordAnthropicSpend === 'function' && aiData.usage) {
+          recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0, aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+        }
+        var aiText = aiData.content && aiData.content[0] ? aiData.content[0].text : '';
+        var aiMatch = aiText.match(/\{[\s\S]*\}/);
+        if (aiMatch) {
+          var aiResult = JSON.parse(aiMatch[0]);
+          if (aiResult.matched_gp_index && aiResult.confidence > 0.6) {
+            var idx = aiResult.matched_gp_index - 1;
+            if (idx >= 0 && idx < candidates.length) {
+              console.log('[Gmail] AI disambiguated practice email to', candidates[idx].gpName, '(confidence:', aiResult.confidence, ', reason:', aiResult.reason, ')');
+              return candidates[idx].case;
+            }
+          }
+        }
+      }
+    } catch (aiErr) { console.error('[Gmail] AI disambiguation error:', aiErr.message); }
+  }
+
+  // Cannot disambiguate — log warning and return null (email will fall to standard triage)
+  console.warn('[Gmail] Could not disambiguate practice email from', emailMeta.sender, '— practice has', candidates.length, 'GPs:', candidates.map(function(c) { return c.gpName; }).join(', '));
+  return null;
+}
+
 // Helper: create placeholder alt supervisor CV entries when SPPA-00 reveals alt supervisors
 // Creates user_documents (pending) and updates gp_prepared_docs state (ready: false → "Preparing")
 async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
@@ -1819,10 +1906,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
           // Also check if sender matches a practice contact email in gp_applications
           if (!earlyGpCase) {
-            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired&limit=1');
-            if (appLookup.ok && Array.isArray(appLookup.data) && appLookup.data[0]) {
-              var caseLookup2 = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(appLookup.data[0].user_id) + '&status=eq.active&limit=1');
-              if (caseLookup2.ok && Array.isArray(caseLookup2.data) && caseLookup2.data[0]) earlyGpCase = caseLookup2.data[0];
+            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id,practice_name&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+            if (appLookup.ok && Array.isArray(appLookup.data) && appLookup.data.length > 0) {
+              if (appLookup.data.length === 1) {
+                // Single GP — safe to match directly
+                var caseLookup2 = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(appLookup.data[0].user_id) + '&status=eq.active&limit=1');
+                if (caseLookup2.ok && Array.isArray(caseLookup2.data) && caseLookup2.data[0]) earlyGpCase = caseLookup2.data[0];
+              } else {
+                // Multiple GPs at this practice — disambiguate
+                earlyGpCase = await _disambiguatePracticeEmail(appLookup.data, emailMeta);
+              }
             }
           }
         }
@@ -1944,20 +2037,28 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         var senderEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
         if (senderEmail) {
           // Check if sender is a practice contact
-          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired&limit=1');
-          if (_appLookup.ok && Array.isArray(_appLookup.data) && _appLookup.data[0]) {
-            var _altCvUserId = _appLookup.data[0].user_id;
-            var _altCvCaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(_altCvUserId) + '&status=eq.active&limit=1');
-            var _altCvCaseId = (_altCvCaseRes.ok && _altCvCaseRes.data && _altCvCaseRes.data[0]) ? _altCvCaseRes.data[0].id : null;
-            if (_altCvCaseId) {
-              // Find completed/in-progress SPPA-00 with alt_supervisor_names
-              var _sppaLookup = await supabaseDbRequest('registration_tasks',
-                'select=id,metadata,case_id&case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&related_document_key=eq.sppa_00&limit=1');
-              var _sppaTask = (_sppaLookup.ok && _sppaLookup.data && _sppaLookup.data[0]) ? _sppaLookup.data[0] : null;
-              var _sppaMd = _sppaTask ? _sppaTask.metadata : null;
-              if (typeof _sppaMd === 'string') try { _sppaMd = JSON.parse(_sppaMd); } catch (e) { _sppaMd = {}; }
-              var _altNames = (_sppaMd && Array.isArray(_sppaMd.alt_supervisor_names)) ? _sppaMd.alt_supervisor_names : [];
-              if (_altNames.length > 0) {
+          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id,practice_name&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+          if (_appLookup.ok && Array.isArray(_appLookup.data) && _appLookup.data.length > 0) {
+            // For alt CV matching, try ALL GPs at this practice — match CVs against each one's alt supervisors
+            var _altCvCandidates = [];
+            for (var _acApp of _appLookup.data) {
+              var _acCaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(_acApp.user_id) + '&status=eq.active&limit=1');
+              var _acCaseId = (_acCaseRes.ok && _acCaseRes.data && _acCaseRes.data[0]) ? _acCaseRes.data[0].id : null;
+              if (_acCaseId) {
+                var _acSppa = await supabaseDbRequest('registration_tasks', 'select=id,metadata,case_id&case_id=eq.' + encodeURIComponent(_acCaseId) + '&related_document_key=eq.sppa_00&limit=1');
+                var _acTask = (_acSppa.ok && _acSppa.data && _acSppa.data[0]) ? _acSppa.data[0] : null;
+                var _acMd = _acTask ? _acTask.metadata : null;
+                if (typeof _acMd === 'string') try { _acMd = JSON.parse(_acMd); } catch (e) { _acMd = {}; }
+                var _acNames = (_acMd && Array.isArray(_acMd.alt_supervisor_names)) ? _acMd.alt_supervisor_names : [];
+                if (_acNames.length > 0) _altCvCandidates.push({ caseId: _acCaseId, sppaTask: _acTask, altNames: _acNames });
+              }
+            }
+            // Process each candidate — CVs will match to the correct GP's alt supervisors
+            for (var _cand of _altCvCandidates) {
+            var _altCvCaseId = _cand.caseId;
+            var _sppaTask = _cand.sppaTask;
+            var _altNames = _cand.altNames;
+            if (_altCvCaseId && _altNames.length > 0) {
                 var { matchCvToAltSupervisor } = require('./lib/alt-supervisor-cv-match.js');
                 // Fetch attachments and try matching
                 try {
@@ -2024,7 +2125,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   }
                 } catch (_altCvErr) { console.error('[Gmail] Alt supervisor CV matching error:', _altCvErr.message); }
               }
-            }
+            } // end for _cand
           }
         }
         if (_altCvMatched) continue;
