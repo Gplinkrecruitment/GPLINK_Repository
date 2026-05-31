@@ -541,8 +541,16 @@
         <div class="check-item" data-key="medical_indemnity">
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <div class="check-copy">
-            <div class="check-title">Medical indemnity insurance</div>
+            <div class="check-title">Professional indemnity insurance</div>
+            <div class="check-desc" style="font-size:12px;color:var(--muted);margin-top:2px">Upload your certificate of currency as proof of coverage</div>
             <div class="check-due" data-due-offset="-7">Due 1 week before start</div>
+            <div class="check-upload" style="margin-top:6px">
+              <label class="btn btn-soft btn-sm" style="cursor:pointer;font-size:12px;display:inline-block">
+                Upload Certificate
+                <input type="file" data-indemnity-upload accept=".pdf,.png,.jpg,.jpeg" style="display:none">
+              </label>
+              <span class="indemnity-status" style="font-size:11px;margin-left:8px;color:var(--muted)"></span>
+            </div>
           </div>
         </div>
         <div class="check-item" data-key="bank_account">
@@ -676,6 +684,8 @@
 
     function setupChecklist() {
       document.addEventListener("click", function (e) {
+        // Don't toggle checkbox when clicking upload button/input
+        if (e.target.closest(".check-upload") || e.target.closest("label") || e.target.tagName === "INPUT") return;
         var item = e.target.closest(".check-item[data-key]");
         if (!item) return;
         var key = item.getAttribute("data-key");
@@ -683,6 +693,40 @@
         state[key] = !state[key];
         saveCheckedState(state);
         syncCheckItems();
+      });
+
+      // Professional indemnity insurance upload handler
+      document.addEventListener("change", function (e) {
+        var input = e.target.closest("[data-indemnity-upload]");
+        if (!input || !input.files || !input.files[0]) return;
+        var file = input.files[0];
+        var statusEl = input.closest(".check-upload").querySelector(".indemnity-status");
+        if (statusEl) statusEl.textContent = "Uploading...";
+        var reader = new FileReader();
+        reader.onload = function () {
+          fetch("/api/commencement/upload-indemnity", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_name: file.name, file_data_url: reader.result, mime_type: file.type })
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.ok) {
+              if (statusEl) statusEl.textContent = file.name + " uploaded";
+              statusEl.style.color = "#059669";
+              // Auto-check the checkbox
+              var state = getCheckedState();
+              state.medical_indemnity = true;
+              saveCheckedState(state);
+              syncCheckItems();
+            } else {
+              if (statusEl) statusEl.textContent = "Upload failed: " + (d.error || "unknown error");
+              statusEl.style.color = "#dc2626";
+            }
+          }).catch(function () {
+            if (statusEl) statusEl.textContent = "Upload failed";
+            statusEl.style.color = "#dc2626";
+          });
+        };
+        reader.readAsDataURL(file);
       });
     }
 
@@ -793,7 +837,7 @@
       var steps = [
         { key: "travel_booked", label: "Travel booked" },
         { key: "accommodation_confirmed", label: "Accommodation confirmed" },
-        { key: "medical_indemnity", label: "Medical indemnity insurance" },
+        { key: "medical_indemnity", label: "Professional indemnity insurance" },
         { key: "bank_account", label: "Bank account opened" },
         { key: "tfn_obtained", label: "TFN obtained" },
         { key: "orientation_scheduled", label: "Practice orientation" },

@@ -25850,6 +25850,52 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Upload professional indemnity insurance certificate ──
+  if (pathname === '/api/commencement/upload-indemnity' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 409, { ok: false, error: 'User not found' }); return; }
+    const body = await readJsonBody(req);
+    var fileName = String((body && body.file_name) || 'Professional Indemnity Insurance.pdf');
+    var fileDataUrl = String((body && body.file_data_url) || '');
+    if (!fileDataUrl) { sendJson(res, 400, { ok: false, error: 'file_data_url required' }); return; }
+
+    // Store in user_documents
+    var docKey = 'professional_indemnity_insurance';
+    var existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+    var docRecord = { user_id: userId, document_key: docKey, file_name: fileName, status: 'uploaded', updated_at: new Date().toISOString() };
+    if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: docRecord });
+    } else {
+      await supabaseDbRequest('user_documents', '', { method: 'POST', body: [docRecord] });
+    }
+
+    // Upload to Google Drive if configured
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=1');
+    var caseId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].id : null;
+    if (caseId && isGoogleDriveConfigured()) {
+      try {
+        var commaIdx = fileDataUrl.indexOf(',');
+        var b64 = fileDataUrl.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4 !== 0) b64 += '=';
+        var buf = Buffer.from(b64, 'base64');
+        var folderId = await ensureGPDriveFolder(caseId, null, null);
+        if (folderId) {
+          var driveFile = await uploadToGoogleDrive(folderId, fileName, buf, body.mime_type || 'application/pdf');
+          if (driveFile) {
+            await supabaseDbRequest('user_documents', 'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+              { method: 'PATCH', body: { google_drive_file_id: driveFile.id } });
+          }
+        }
+      } catch (driveErr) { console.error('[Commencement] Drive upload error:', driveErr.message); }
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // ── GP LINK prepared docs status (authoritative server source) ──
   if (pathname === '/api/gplink-docs-status' && req.method === 'GET') {
     const session = requireSession(req, res);
