@@ -53,7 +53,10 @@
     .guide-detail-header h3{margin:0;font-size:14px;font-weight:700}
     .guide-detail-body{flex:1;overflow:hidden;position:relative}
     .guide-detail-body iframe{width:100%;height:calc(100% + 56px);border:none;margin-top:-56px}
-    .guide-folder{margin-bottom:8px}
+    .guide-folder{margin-bottom:8px;position:relative}
+    .guide-folder.dragging{opacity:.4}
+    .guide-folder.drag-over-above::before{content:'';position:absolute;top:-4px;left:0;right:0;height:3px;background:var(--blue);border-radius:2px;z-index:10}
+    .guide-folder.drag-over-below::after{content:'';position:absolute;bottom:-4px;left:0;right:0;height:3px;background:var(--blue);border-radius:2px;z-index:10}
     .guide-folder-header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text);background:var(--bg2);transition:background .15s}
     .guide-folder-header:hover{background:var(--bg3)}
     .guide-folder-header.active{background:#e8f0fe;color:var(--blue)}
@@ -6367,11 +6370,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             (sa?'<button class="guide-add-btn" data-add-item-folder="'+f.id+'">+ Add Guide</button>':'')+
           '</div>';
         }
-        return '<div class="guide-folder" style="margin-left:'+(depth*16)+'px">'+
+        return '<div class="guide-folder" style="margin-left:'+(depth*16)+'px" draggable="true" data-drag-folder="'+f.id+'">'+
           '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
+            (sa?'<span class="guide-drag-handle" title="Drag to reorder" style="cursor:grab;opacity:.35;font-size:11px;margin-right:2px;">&#9776;</span>':'')+
             '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+esc(f.name)+
             '<span class="guide-folder-count">'+totalCount+'</span>'+
-            (sa?'<button class="guide-mgmt-btn" data-move-folder="'+f.id+'" title="Move">&#8693;</button><button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
+            (sa?'<button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
           '</div>'+itemsHtml+
         '</div>';
       }).join('');
@@ -6398,10 +6402,65 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       '<div class="guide-detail">'+detailHtml+'</div>'+
     '</div>';
   }
+  // ── Guide Drag-and-Drop Reorder ──────────────────────────
+  var guideDragState={draggingId:null};
+  document.addEventListener('dragstart',function(e){
+    var folder=e.target.closest('[data-drag-folder]');
+    if(!folder)return;
+    guideDragState.draggingId=folder.getAttribute('data-drag-folder');
+    folder.classList.add('dragging');
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',guideDragState.draggingId);
+  });
+  document.addEventListener('dragend',function(e){
+    var folder=e.target.closest('[data-drag-folder]');
+    if(folder)folder.classList.remove('dragging');
+    document.querySelectorAll('.guide-folder').forEach(function(el){el.classList.remove('drag-over-above','drag-over-below');});
+    guideDragState.draggingId=null;
+  });
+  document.addEventListener('dragover',function(e){
+    var folder=e.target.closest('[data-drag-folder]');
+    if(!folder||!guideDragState.draggingId)return;
+    if(folder.getAttribute('data-drag-folder')===guideDragState.draggingId)return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect='move';
+    var rect=folder.getBoundingClientRect();
+    var midY=rect.top+rect.height/2;
+    folder.classList.toggle('drag-over-above',e.clientY<midY);
+    folder.classList.toggle('drag-over-below',e.clientY>=midY);
+  });
+  document.addEventListener('dragleave',function(e){
+    var folder=e.target.closest('[data-drag-folder]');
+    if(folder){folder.classList.remove('drag-over-above','drag-over-below');}
+  });
+  document.addEventListener('drop',function(e){
+    var folder=e.target.closest('[data-drag-folder]');
+    if(!folder||!guideDragState.draggingId)return;
+    var targetId=folder.getAttribute('data-drag-folder');
+    if(targetId===guideDragState.draggingId)return;
+    e.preventDefault();
+    var rect=folder.getBoundingClientRect();
+    var above=e.clientY<rect.top+rect.height/2;
+    var topFolders=S.guide.folders||[];
+    var dragIdx=topFolders.findIndex(function(f){return f.id===guideDragState.draggingId;});
+    var targetIdx=topFolders.findIndex(function(f){return f.id===targetId;});
+    if(dragIdx===-1||targetIdx===-1)return;
+    var moved=topFolders.splice(dragIdx,1)[0];
+    var insertIdx=topFolders.findIndex(function(f){return f.id===targetId;});
+    if(!above)insertIdx++;
+    topFolders.splice(insertIdx,0,moved);
+    S.guide.folders=topFolders;
+    renderGuidePanel();
+    var order=topFolders.map(function(f,i){return{id:f.id,sort_order:i};});
+    fetch('/api/admin/guide/folders/reorder',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:order})})
+      .then(function(r){return r.json();}).then(function(d){if(!d.ok)alert('Failed to save order');});
+    document.querySelectorAll('.guide-folder').forEach(function(el){el.classList.remove('drag-over-above','drag-over-below');});
+    guideDragState.draggingId=null;
+  });
   // ── Guide Tab Event Handlers ──────────────────────────────
   document.addEventListener('click',function(e){
     var fh=e.target.closest('[data-guide-folder]');
-    if(fh&&!e.target.closest('.guide-mgmt-btn')){
+    if(fh&&!e.target.closest('.guide-mgmt-btn')&&!e.target.closest('.guide-drag-handle')){
       var fid=fh.getAttribute('data-guide-folder');
       if(S.guide.expandedFolderIds[fid]){delete S.guide.expandedFolderIds[fid];}else{S.guide.expandedFolderIds[fid]=true;}
       renderGuidePanel();return;
@@ -6425,22 +6484,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var raw=prompt('Paste Scribe embed code:');if(!raw)return;
       var url=parseScribeEmbed(raw);
       fetch('/api/admin/guide/items',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder_id:folderId,title:title,scribe_url:url})})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var moveFolderBtn=e.target.closest('[data-move-folder]');
-    if(moveFolderBtn){
-      var mfid=moveFolderBtn.getAttribute('data-move-folder');
-      var allFlat=guideFlatFolders(S.guide.folders||[]);
-      var self=allFlat.find(function(f){return f.id===mfid;});
-      var options=allFlat.filter(function(f){return f.id!==mfid;});
-      var msg='Move "'+((self&&self.name)||'folder')+'" into:\n\n0. Top level (no parent)\n'+options.map(function(f,i){return (i+1)+'. '+f.name;}).join('\n')+'\n\nEnter number:';
-      var choice=prompt(msg);
-      if(choice===null)return;
-      var idx=parseInt(choice,10);
-      var newParentId=null;
-      if(idx>0&&idx<=options.length){newParentId=options[idx-1].id;}
-      fetch('/api/admin/guide/folders/'+encodeURIComponent(mfid),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({parent_id:newParentId})})
         .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
       return;
     }

@@ -21498,6 +21498,26 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (req.method === 'PUT' && pathname === '/api/admin/guide/folders/reorder') {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    try {
+      var body = await readJsonBody(req);
+      if (!body || !Array.isArray(body.order)) { sendJson(res, 400, { ok: false, message: 'order array is required.' }); return; }
+      for (var i = 0; i < body.order.length; i++) {
+        var entry = body.order[i];
+        await supabaseDbRequest('guide_folders', 'id=eq.' + encodeURIComponent(entry.id), {
+          method: 'PATCH',
+          body: { sort_order: entry.sort_order }
+        });
+      }
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
   if (req.method === 'PUT' && pathname.match(/^\/api\/admin\/guide\/folders\/[^/]+$/)) {
     var adminCtx = requireCeoSession(req, res);
     if (!adminCtx) return;
