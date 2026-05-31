@@ -29511,16 +29511,23 @@ Return ONLY valid JSON with no markdown formatting:
         doc.on('data', function (c) { chunks.push(c); });
         doc.on('end', function () { resolve(Buffer.concat(chunks)); });
 
-        var _pdfText = finalHtml.replace(/<[^>]*>/g, function (tag) {
-          if (tag.match(/^<h2/i)) return '\n##HEADING2##';
-          if (tag.match(/^<h3/i)) return '\n##HEADING3##';
-          if (tag.match(/^<li/i)) return '\n• ';
-          if (tag.match(/^<p/i)) return '\n';
-          if (tag.match(/^<\/p|^<\/ul|^<\/ol|^<\/li|^<\/h/i)) return '\n';
-          return '';
-        });
-        var _pp; do { _pp = _pdfText; _pdfText = _pdfText.replace(/<[^>]*>/g, ''); } while (_pdfText !== _pp);
-        _pdfText = _pdfText.replace(/</g, '');
+        // Split HTML into tag vs text segments — only keep text segments
+        var _pdfParts = [];
+        var _tagRe = /<[^>]*>/g;
+        var _lastIdx = 0;
+        var _tm;
+        while ((_tm = _tagRe.exec(finalHtml)) !== null) {
+          if (_tm.index > _lastIdx) _pdfParts.push(finalHtml.substring(_lastIdx, _tm.index));
+          var _tag = _tm[0];
+          if (/^<h2\b/i.test(_tag)) _pdfParts.push('\n##HEADING2##');
+          else if (/^<h3\b/i.test(_tag)) _pdfParts.push('\n##HEADING3##');
+          else if (/^<li\b/i.test(_tag)) _pdfParts.push('\n• ');
+          else if (/^<p\b/i.test(_tag)) _pdfParts.push('\n');
+          else if (/^<\/(p|ul|ol|li|h\d)\b/i.test(_tag)) _pdfParts.push('\n');
+          _lastIdx = _tagRe.lastIndex;
+        }
+        if (_lastIdx < finalHtml.length) _pdfParts.push(finalHtml.substring(_lastIdx));
+        var _pdfText = _pdfParts.join('').replace(/[<>]/g, '');
         const stripped = decodeXmlEntities(_pdfText);
 
         const lines = stripped.split('\n');
