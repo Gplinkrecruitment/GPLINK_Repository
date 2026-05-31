@@ -4224,6 +4224,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsAhpraActionItem(task,msgs,docs);
     }else if(tt==='email_triage'){
       html=renderOpsEmailTriage(task,msgs,docs);
+    }else if(tt==='alt_supervisor_cv_review'){
+      html=renderOpsAltSupervisorCvReview(task,msgs,docs);
     }else{
       html=renderOpsGeneric(task,msgs,docs);
     }
@@ -4478,6 +4480,37 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     // Fallback
     h += '<div class="ops-expand-section">' + renderSppaTaskCard(task) + '</div>';
+    return h;
+  }
+
+  /* ── Alt Supervisor CV Review ── */
+  function renderOpsAltSupervisorCvReview(task,msgs,docs){
+    var meta = task.metadata || {};
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    var matchedCvs = Array.isArray(meta.matched_cvs) ? meta.matched_cvs : [];
+    var h = '<div class="ops-expand-section">';
+    h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+    h += '<span style="color:#1d4ed8">\ud83d\udcc4 Alternate supervisor CV(s) received from practice \u2014 review against SPPA-00</span>';
+    h += '</div>';
+    // Show matched names
+    if (matchedCvs.length > 0) {
+      h += '<div style="margin-bottom:10px">';
+      matchedCvs.forEach(function(cv) {
+        h += '<div style="font-size:12px;margin:4px 0;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">'
+          + '<strong>' + esc(cv.cvName || '') + '</strong> \u2192 matched to SPPA-00 alt supervisor: <strong>' + esc(cv.matchedSupervisor || '') + '</strong>'
+          + '<span style="margin-left:8px;font-size:10px;color:#64748b">(' + Math.round((cv.confidence || 0) * 100) + '% confidence)</span>'
+          + '</div>';
+      });
+      h += '</div>';
+    }
+    h += opsRenderThread(msgs);
+    h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">CV Documents</div>';
+    h += opsRenderDocs(docs);
+    h += '<div class="ops-action-row">';
+    h += '<button class="ops-btn-green" onclick="altCvSubmit(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
+    h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(meta.sppa_task_id || '') + '\')">Review SPPA-00</button>';
+    h += '</div>';
+    h += '</div>';
     return h;
   }
 
@@ -7044,6 +7077,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
+  async function altCvSubmit(taskId) {
+    if (!confirm('Submit alternate supervisor CV(s) and deliver to the GP?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/alt-cv-submit', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('Alternate supervisor CV(s) delivered to GP (' + (d.delivered || 0) + ' file' + ((d.delivered || 0) === 1 ? '' : 's') + ')'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to submit', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
   /* renderTodayPanel removed — replaced by renderInboxPanel */
 
 
@@ -7770,6 +7813,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaOverrideQ7 = sppaOverrideQ7;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
+  window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
   window.assignIncomingQuestion = assignIncomingQuestion;

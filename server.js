@@ -87,7 +87,7 @@ const {
   pickCorrectionRecipient
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
-const { fillSppaQ7 } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractAltSupervisorNames } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -1837,14 +1837,22 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 sppaMeta.practice_returned_at = new Date().toISOString();
                 sppaMeta.practice_returned_via = 'email_auto';
                 // Tag attachments: first PDF = SPPA, others = alt supervisor CVs
+                var _mainSppa = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
                 if (_earlyStoredDocIds.length > 1) {
-                  var _mainSppa = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
                   for (var _aDoc of _earlyStoredDocIds) {
                     if (_aDoc.id !== _mainSppa.id) {
                       await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(_aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
                     }
                   }
                   sppaMeta.has_alt_supervisor_cvs = true;
+                }
+                // Extract alt supervisor names from the SPPA PDF
+                if (_mainSppa && _mainSppa.b64) {
+                  try {
+                    var _sppaPdfBuf = Buffer.from((_mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+                    var _altNames = await extractAltSupervisorNames(_sppaPdfBuf);
+                    if (_altNames.length > 0) { sppaMeta.alt_supervisor_names = _altNames; console.log('[Gmail] Extracted alt supervisor names:', _altNames); }
+                  } catch (exErr) { console.error('[Gmail] Alt supervisor name extraction error:', exErr.message); }
                 }
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
@@ -1875,6 +1883,98 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         }
       }
       if (earlyResponseMatched) continue;
+
+      // ── Alt supervisor CV detection (practice sends CVs in separate thread) ──
+      if (!earlyResponseMatched && emailMeta.hasAttachments && filterResult.track === 'attachments') {
+        var _altCvMatched = false;
+        var senderEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+        if (senderEmail) {
+          // Check if sender is a practice contact
+          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired&limit=1');
+          if (_appLookup.ok && Array.isArray(_appLookup.data) && _appLookup.data[0]) {
+            var _altCvUserId = _appLookup.data[0].user_id;
+            var _altCvCaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(_altCvUserId) + '&status=eq.active&limit=1');
+            var _altCvCaseId = (_altCvCaseRes.ok && _altCvCaseRes.data && _altCvCaseRes.data[0]) ? _altCvCaseRes.data[0].id : null;
+            if (_altCvCaseId) {
+              // Find completed/in-progress SPPA-00 with alt_supervisor_names
+              var _sppaLookup = await supabaseDbRequest('registration_tasks',
+                'select=id,metadata,case_id&case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&related_document_key=eq.sppa_00&limit=1');
+              var _sppaTask = (_sppaLookup.ok && _sppaLookup.data && _sppaLookup.data[0]) ? _sppaLookup.data[0] : null;
+              var _sppaMd = _sppaTask ? _sppaTask.metadata : null;
+              if (typeof _sppaMd === 'string') try { _sppaMd = JSON.parse(_sppaMd); } catch (e) { _sppaMd = {}; }
+              var _altNames = (_sppaMd && Array.isArray(_sppaMd.alt_supervisor_names)) ? _sppaMd.alt_supervisor_names : [];
+              if (_altNames.length > 0) {
+                var { matchCvToAltSupervisor } = require('./lib/alt-supervisor-cv-match.js');
+                // Fetch attachments and try matching
+                try {
+                  var _altFullMsg = await gmail.users.messages.get({ userId: emailAddress, id: currentMsgId, format: 'full' });
+                  var _altAttParts = ((_altFullMsg.data.payload && _altFullMsg.data.payload.parts) || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
+                  var _matchedCvs = [];
+                  for (var _atp of _altAttParts) {
+                    var _attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: _atp.body.attachmentId });
+                    var _cvBuf = Buffer.from((_attData.data.data || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+                    var _matchResult = await matchCvToAltSupervisor(_cvBuf, _atp.mimeType, _altNames);
+                    if (_matchResult && _matchResult.matched) {
+                      _matchedCvs.push({ filename: _atp.filename, mimeType: _atp.mimeType, b64: _attData.data.data, cvName: _matchResult.cvName, matchedSupervisor: _matchResult.matchedSupervisor, confidence: _matchResult.confidence });
+                    }
+                  }
+                  if (_matchedCvs.length > 0) {
+                    console.log('[Gmail] Matched', _matchedCvs.length, 'alt supervisor CV(s) for case', _altCvCaseId);
+                    // Create alt_supervisor_cv_review task
+                    var _reviewTaskRes = await supabaseDbRequest('registration_tasks', '', {
+                      method: 'POST', headers: { Prefer: 'return=representation' },
+                      body: [{
+                        case_id: _altCvCaseId, task_type: 'alt_supervisor_cv_review',
+                        related_document_key: 'sppa_00',
+                        title: 'Review alternate supervisor CV(s)',
+                        description: _matchedCvs.map(function(c) { return c.cvName + ' → ' + c.matchedSupervisor; }).join(', '),
+                        status: 'open', priority: 'normal',
+                        metadata: {
+                          sppa_task_id: _sppaTask.id,
+                          matched_cvs: _matchedCvs.map(function(c) { return { cvName: c.cvName, matchedSupervisor: c.matchedSupervisor, confidence: c.confidence, filename: c.filename }; })
+                        }
+                      }]
+                    });
+                    var _reviewTask = (_reviewTaskRes.ok && _reviewTaskRes.data && _reviewTaskRes.data[0]) ? _reviewTaskRes.data[0] : null;
+                    if (_reviewTask) {
+                      // Store CVs as task_documents
+                      for (var _mc of _matchedCvs) {
+                        await supabaseDbRequest('task_documents', '', {
+                          method: 'POST', body: [{
+                            task_id: _reviewTask.id, case_id: _altCvCaseId,
+                            filename: _mc.filename, mime_type: _mc.mimeType, size_bytes: Math.ceil((_mc.b64 || '').length * 3 / 4),
+                            version: 1, is_current: true, uploaded_by: 'email_auto_alt_cv',
+                            attachment_url: 'data:' + (_mc.mimeType || 'application/octet-stream') + ';base64,' + (_mc.b64 || ''),
+                            category: 'alt_supervisor_cv'
+                          }]
+                        });
+                      }
+                      // Store inbound message
+                      var _altHeaders = (_altFullMsg.data.payload.headers || []);
+                      var _altSubject = (_altHeaders.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '';
+                      await supabaseDbRequest('task_messages', '', {
+                        method: 'POST', body: [{
+                          task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
+                          sender: emailMeta.sender || '', subject: _altSubject,
+                          body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                          gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || '',
+                          is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
+                        }]
+                      });
+                      await _logCaseEvent(_altCvCaseId, _reviewTask.id, 'system',
+                        _matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
+                        _matchedCvs.map(function(c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
+                    }
+                    await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'alt_cv_matched', matched_task_id: _reviewTask ? _reviewTask.id : null, processed_at: new Date().toISOString() }] });
+                    _altCvMatched = true;
+                  }
+                } catch (_altCvErr) { console.error('[Gmail] Alt supervisor CV matching error:', _altCvErr.message); }
+              }
+            }
+          }
+        }
+        if (_altCvMatched) continue;
+      }
 
       // Route by track: attachments (existing AI matching) or triage (email classifier)
       if (filterResult.track === 'attachments') {
@@ -29384,6 +29484,14 @@ Return ONLY valid JSON with no markdown formatting:
     } else {
       taskMeta.sppa_state = 'practice_returned';
       taskMeta.practice_returned_at = new Date().toISOString();
+      // Extract alt supervisor names from the returned SPPA PDF
+      try {
+        var altNames = await extractAltSupervisorNames(pdfBuf);
+        if (altNames.length > 0) {
+          taskMeta.alt_supervisor_names = altNames;
+          console.log('[SPPA] Extracted alt supervisor names:', altNames);
+        }
+      } catch (exErr) { console.error('[SPPA] Alt supervisor name extraction error:', exErr.message); }
       await supabaseDbRequest('registration_tasks',
         'id=eq.' + encodeURIComponent(taskId),
         { method: 'PATCH', body: { status: 'in_progress', metadata: taskMeta, updated_at: new Date().toISOString() } });
@@ -29517,6 +29625,92 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 approved and delivered to GP MyDocuments', null, admin.email);
     sendJson(res, 200, { ok: true, delivery: delivery, altCvs: altCvDelivery });
+    return;
+  }
+
+  // ── Submit alt supervisor CVs — deliver to MyDocuments + complete task ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/alt-cv-submit')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.alt_supervisor_cv_review&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+
+    const caseRes = await supabaseDbRequest('registration_cases',
+      'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    const userId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { error: 'case not found' }); return; }
+
+    // Get alt CV documents
+    var altDocs = await supabaseDbRequest('task_documents',
+      'select=id,filename,attachment_url,mime_type&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true');
+    var cvDocs = (altDocs.ok && Array.isArray(altDocs.data)) ? altDocs.data : [];
+    if (cvDocs.length === 0) { sendJson(res, 400, { error: 'No CV documents found' }); return; }
+
+    // Create Drive subfolder
+    var altFolderId = null;
+    try {
+      var caseFolderId = await ensureGPDriveFolder(task.case_id, null, null);
+      if (caseFolderId) {
+        // Check if folder already exists
+        var drive = await getGoogleDriveClient();
+        if (drive) {
+          var existingFolders = await drive.files.list({
+            q: "'" + caseFolderId + "' in parents and name = 'Alternative Supervisor CVs' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+            fields: 'files(id)', pageSize: 1
+          });
+          if (existingFolders.data.files && existingFolders.data.files[0]) {
+            altFolderId = existingFolders.data.files[0].id;
+          } else {
+            var altFolder = await createGoogleDriveFolder('Alternative Supervisor CVs', caseFolderId);
+            if (altFolder) altFolderId = altFolder.id;
+          }
+        }
+      }
+    } catch (e) { console.error('[AltCV] folder creation error:', e.message); }
+
+    var delivered = 0;
+    for (var ci = 0; ci < cvDocs.length; ci++) {
+      var cvDoc = cvDocs[ci];
+      if (!cvDoc.attachment_url) continue;
+      var altDocKey = 'alt_supervisor_cv_' + (ci + 1);
+
+      if (altFolderId) {
+        try {
+          var cvComma = cvDoc.attachment_url.indexOf(',');
+          var cvB64 = cvDoc.attachment_url.substring(cvComma + 1).replace(/-/g, '+').replace(/_/g, '/');
+          while (cvB64.length % 4 !== 0) cvB64 += '=';
+          var cvBuf = Buffer.from(cvB64, 'base64');
+          var cvDriveFile = await uploadToGoogleDrive(altFolderId, cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1) + '.pdf'), cvBuf, cvDoc.mime_type || 'application/pdf');
+          if (cvDriveFile) {
+            var cvDriveUrl = 'https://drive.google.com/file/d/' + cvDriveFile.id + '/view';
+            var existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(altDocKey) + '&limit=1');
+            var userDoc = {
+              user_id: userId, document_key: altDocKey,
+              file_name: cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1)),
+              status: 'approved', reviewed_at: new Date().toISOString(),
+              google_drive_file_id: cvDriveFile.id
+            };
+            if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+              await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: userDoc });
+            } else {
+              await supabaseDbRequest('user_documents', '', { method: 'POST', body: [userDoc] });
+            }
+            delivered++;
+          }
+        } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
+      }
+    }
+
+    // Complete the task
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+      { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', delivered + ' alternate supervisor CV(s) delivered to GP MyDocuments', null, admin.email);
+    sendJson(res, 200, { ok: true, delivered: delivered });
     return;
   }
 
