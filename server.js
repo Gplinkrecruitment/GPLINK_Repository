@@ -1882,8 +1882,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
     historyResponse = await gmail.users.history.list({
       userId: emailAddress,
       startHistoryId: storedHistoryId,
-      historyTypes: ['messageAdded'],
-      labelId: 'INBOX'
+      historyTypes: ['messageAdded']
     });
   } catch (histErr) {
     // historyId too old — reset and fetch recent inbox messages directly as fallback
@@ -2844,7 +2843,7 @@ async function setupGmailWatch(userEmail) {
   try {
     var watchRes = await gmail.users.watch({
       userId: userEmail,
-      requestBody: { topicName: GOOGLE_PUBSUB_TOPIC, labelIds: ['INBOX'] }
+      requestBody: { topicName: GOOGLE_PUBSUB_TOPIC, labelIds: ['INBOX', 'SENT'] }
     });
     var expiry = watchRes.data.expiration ? new Date(parseInt(watchRes.data.expiration)) : null;
     var historyId = String(watchRes.data.historyId);
