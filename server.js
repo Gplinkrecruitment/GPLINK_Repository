@@ -1274,7 +1274,7 @@ async function matchResponseToTask(caseId, emailMeta) {
   // Signal 1: Thread matching via gmail_thread_id on registration_tasks
   if (emailMeta.threadId) {
     var threadMatch = await supabaseDbRequest('registration_tasks',
-      'select=id,task_type,title,status,gmail_thread_id&case_id=eq.' + encodeURIComponent(caseId) +
+      'select=id,task_type,title,status,gmail_thread_id,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
       '&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) +
       '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
     if (threadMatch.ok && Array.isArray(threadMatch.data) && threadMatch.data.length > 0) {
@@ -1289,7 +1289,7 @@ async function matchResponseToTask(caseId, emailMeta) {
     if (msgMatch.ok && Array.isArray(msgMatch.data) && msgMatch.data.length > 0) {
       var taskId = msgMatch.data[0].task_id;
       var taskRes = await supabaseDbRequest('registration_tasks',
-        'select=id,task_type,title,status&id=eq.' + encodeURIComponent(taskId) +
+        'select=id,task_type,title,status,related_document_key&id=eq.' + encodeURIComponent(taskId) +
         '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
       if (taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0) {
         return { task: taskRes.data[0], confidence: 0.93, method: 'message_thread_match' };
@@ -1765,9 +1765,30 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 }
               } catch (attErr) { console.error('[Gmail] Early match attachment extraction failed:', attErr.message); }
             }
+            // SPPA-00 lifecycle: transition to gp_returned when GP replies with document
+            if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc) {
+              var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
+              var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
+              if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
+              if (sppaMeta && sppaMeta.sppa_state === 'sent_to_candidate') {
+                sppaMeta.sppa_state = 'gp_returned';
+                sppaMeta.gp_returned_at = new Date().toISOString();
+                sppaMeta.gp_returned_via = 'email_auto';
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
+                  { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
+                // Sync practice_doc_ops: gp_returned → awaiting_practice
+                _ensurePracticeDocOps(earlyGpCase.id).then(function () {
+                  return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
+                }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
+              } else {
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
+                  { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+              }
+            } else {
             // Flip task status to open (Hazel's ball) for review
             await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
               { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+            }
             await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'status_change',
               (earlyIsDoc ? 'Document received — review needed' : 'New message on task'),
               'From: ' + (emailMeta.sender || '') + ' — matched via ' + earlyMatch.method + ' (' + Math.round(earlyMatch.confidence * 100) + '%)', 'system');
