@@ -28911,6 +28911,16 @@ Return ONLY valid JSON with no markdown formatting:
       const ageMs = Number.isFinite(createdMs) ? (nowMs - createdMs) : 0;
       const isUrgent = ageMs >= URGENT_AGE_MS;
       const isOverdue = !!(t.due_date && new Date(t.due_date).getTime() < nowMs);
+      // Extract AHPRA officer info from metadata for correspondence tasks
+      var _tMd = t.metadata || {};
+      if (typeof _tMd === 'string') try { _tMd = JSON.parse(_tMd); } catch (e) { _tMd = {}; }
+      var ahpraExtra = {};
+      if (t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item') {
+        ahpraExtra.ahpra_officer_name = _tMd.ahpra_officer_name || '';
+        ahpraExtra.ahpra_officer_email = _tMd.ahpra_officer_email || '';
+        ahpraExtra.source_gmail_message_id = _tMd.source_gmail_message_id || '';
+        ahpraExtra.ahpra_application_number = _tMd.ahpra_application_number || '';
+      }
       return Object.assign({}, t, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
@@ -28930,7 +28940,7 @@ Return ONLY valid JSON with no markdown formatting:
         zoho_attachment_id: t.zoho_attachment_id || '',
         google_drive_file_id: t.google_drive_file_id || '',
         document_html: (t.related_document_key === 'position_description') ? (t.document_html || '') : ''
-      });
+      }, ahpraExtra);
     });
 
     // Augment SPPA-00 tasks with Zoho Sign envelope data
@@ -31213,6 +31223,81 @@ Return ONLY valid JSON with no markdown formatting:
       'id=eq.' + encodeURIComponent(id),
       { method: 'PATCH', body: { resolved_at: new Date().toISOString(), resolved_by: adminUserId } });
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Register VA Gmail account ──
+  if (pathname === '/api/admin/va/gmail/setup' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const vaUserId = body && body.user_id ? String(body.user_id).trim() : '';
+    const vaEmailAddr = body && body.email_address ? String(body.email_address).trim().toLowerCase() : '';
+    const vaDisplayName = body && body.display_name ? String(body.display_name).trim() : '';
+    if (!vaUserId || !vaEmailAddr || !vaDisplayName) {
+      sendJson(res, 400, { ok: false, message: 'Missing user_id, email_address, or display_name.' }); return;
+    }
+    var upsertRes = await supabaseDbRequest('va_gmail_accounts', '', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: { user_id: vaUserId, email_address: vaEmailAddr, display_name: vaDisplayName, watch_active: true }
+    });
+    if (!upsertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to register VA Gmail account.' }); return; }
+    var watchRes = await setupGmailWatch(vaEmailAddr);
+    sendJson(res, 200, { ok: true, account: upsertRes.data && upsertRes.data[0] ? upsertRes.data[0] : null, watch: watchRes });
+    return;
+  }
+
+  // ── Remove VA Gmail watch ──
+  if (pathname === '/api/admin/va/gmail/teardown' && req.method === 'DELETE') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const emailToRemove = url.searchParams.get('email');
+    if (!emailToRemove) { sendJson(res, 400, { ok: false, message: 'Missing email param.' }); return; }
+    var gmail = await getGmailClient(emailToRemove);
+    if (gmail) {
+      try { await gmail.users.stop({ userId: emailToRemove }); } catch (e) { /* ignore */ }
+    }
+    await supabaseDbRequest('va_gmail_accounts', 'email_address=eq.' + encodeURIComponent(emailToRemove), {
+      method: 'PATCH', body: { watch_active: false }
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── VA Gmail status ──
+  if (pathname === '/api/admin/va/gmail/status' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var vaListRes = await supabaseDbRequest('va_gmail_accounts', 'select=*&order=created_at.asc');
+    var vaList = vaListRes.ok && Array.isArray(vaListRes.data) ? vaListRes.data : [];
+    var watchStateRes = await supabaseDbRequest('gmail_watch_state', 'select=email_address,watch_expiry,updated_at');
+    var watchMap = {};
+    if (watchStateRes.ok && Array.isArray(watchStateRes.data)) {
+      watchStateRes.data.forEach(function(w) { watchMap[w.email_address] = w; });
+    }
+    var enriched = vaList.map(function(va) {
+      var ws = watchMap[va.email_address] || {};
+      return Object.assign({}, va, { watch_expiry: ws.watch_expiry || null, watch_updated: ws.updated_at || null });
+    });
+    sendJson(res, 200, { ok: true, accounts: enriched, master_email: MASTER_ARCHIVE_EMAIL });
+    return;
+  }
+
+  // ── Get detected contacts for a case (CC dropdown) ──
+  if (req.method === 'GET' && pathname.startsWith('/api/admin/va/case/') && pathname.endsWith('/email-contacts')) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const contactsCaseId = pathname.split('/')[5];
+    if (!contactsCaseId) { sendJson(res, 400, { ok: false }); return; }
+    var contactsRes = await supabaseDbRequest('practice_detected_contacts',
+      'select=*&case_id=eq.' + encodeURIComponent(contactsCaseId) + '&order=seen_count.desc');
+    var contacts = contactsRes.ok && Array.isArray(contactsRes.data) ? contactsRes.data : [];
+    sendJson(res, 200, { ok: true, contacts: contacts });
     return;
   }
 

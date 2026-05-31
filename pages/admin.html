@@ -5006,8 +5006,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!S._opsDocCache)S._opsDocCache={};
       S._opsDocCache[taskId]=docs;
     }catch(e){}
-    if(adapted.related_document_key==='sppa_00'){
+    var tt2=adapted.task_type||'';
+    if(adapted.related_document_key==='sppa_00'&&tt2==='practice_pack_child'){
       container.innerHTML=renderOpsSppa00(adapted,msgs,docs);
+    }else if(tt2==='ahpra_correspondence'||tt2==='ahpra_action_item'){
+      container.innerHTML=renderOpsAhpraActionItem(adapted,msgs,docs);
+    }else if(tt2==='alt_supervisor_cv_review'){
+      container.innerHTML=renderOpsAltSupervisorCvReview(adapted,msgs,docs);
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }
