@@ -1191,7 +1191,11 @@ async function getGmailClient(userEmail) {
 async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
   try {
     var gmail = await getGmailClient(from);
-    if (!gmail) return { ok: false, error: 'Gmail client not available for ' + from };
+    if (!gmail) {
+      var diagErr = _gmailClientErrors[from] || 'unknown (isGmailConfigured=' + isGmailConfigured() + ')';
+      console.error('[Gmail send] Client not available for', from, '— diag:', diagErr);
+      return { ok: false, error: 'Gmail client not available for ' + from + ' — ' + diagErr };
+    }
 
     var boundary = 'gplink_' + Date.now() + '_' + Math.random().toString(36).slice(2);
     var hasAttachments = Array.isArray(attachments) && attachments.length > 0;
