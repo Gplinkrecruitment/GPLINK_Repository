@@ -2052,7 +2052,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
-              } else if (sppaMeta && sppaMeta.sppa_state === 'sent_to_practice') {
+              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested')) {
                 sppaMeta.sppa_state = 'practice_returned';
                 sppaMeta.practice_returned_at = new Date().toISOString();
                 sppaMeta.practice_returned_via = 'email_auto';
@@ -11239,90 +11239,6 @@ async function processZohoSignWebhookEvent(payload) {
       received_at: new Date().toISOString()
     }]
   });
-}
-
-/**
- * Create + send the SPPA-00 envelope for a practice pack task.
- * @returns {Promise<{ok: boolean, envelopeId?: string, error?: string}>}
- */
-async function sendSppa00Envelope(taskId) {
-  if (!ZOHO_SIGN_SPPA_TEMPLATE_ID) {
-    return { ok: false, error: 'ZOHO_SIGN_SPPA_TEMPLATE_ID not configured' };
-  }
-  const conn = await getZohoSignConnection();
-  if (!conn || conn.status !== 'connected') {
-    return { ok: false, error: 'Zoho Sign not connected' };
-  }
-
-  const taskRes = await supabaseDbRequest('registration_tasks',
-    'select=id,case_id,related_document_key,zoho_sign_envelope_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
-  if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) return { ok: false, error: 'task not found' };
-  const task = taskRes.data[0];
-  if (task.related_document_key !== 'sppa_00') return { ok: false, error: 'task is not SPPA-00' };
-
-  const caseRes = await supabaseDbRequest('registration_cases',
-    'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
-  if (!caseRes.ok || !caseRes.data || !caseRes.data[0]) return { ok: false, error: 'case not found' };
-  const userId = caseRes.data[0].user_id;
-
-  // Fetch user profile for candidate info
-  const profRes = await supabaseDbRequest('user_profiles',
-    'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-  const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
-  const candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
-  const candidateEmail = String(prof.email || '').trim();
-
-  // Fetch career state for practice contact
-  const stateRes = await supabaseDbRequest('user_state',
-    'select=state&user_id=eq.' + encodeURIComponent(userId) + '&key=eq.gp_career_state&limit=1');
-  let careerState = {};
-  if (stateRes.ok && stateRes.data && stateRes.data[0]) {
-    try { careerState = typeof stateRes.data[0].state === 'string' ? JSON.parse(stateRes.data[0].state) : stateRes.data[0].state; }
-    catch (e) {}
-  }
-  const secured = careerState.career_secured ? careerState : (Array.isArray(careerState.applications) ? careerState.applications.find(a => a && a.isPlacementSecured) : null);
-  const placement = (secured && secured.placement) || secured || {};
-  const pc = (placement.practiceContact) || {};
-  if (!pc.email) return { ok: false, error: 'practice contact email missing' };
-  if (!candidateEmail) return { ok: false, error: 'candidate email missing' };
-
-  // Role names must match the SPPA-00 template roles in Zoho Sign exactly
-  const recipients = [
-    { email: pc.email, name: pc.name || 'Medical Practice Contact', role: 'Medical Practice Contact', signing_order: 1 },
-    { email: candidateEmail, name: candidateName, role: 'Candidate', signing_order: 2 }
-  ];
-
-  const result = await createEnvelopeFromTemplate({
-    templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID,
-    recipients,
-    note: 'Please sign the Supervisory Practice Placement Agreement for ' + candidateName
-  });
-  if (!result.ok) return { ok: false, error: result.error || 'create envelope failed' };
-
-  // Persist envelope record
-  await supabaseDbRequest('zoho_sign_envelopes', '', {
-    method: 'POST',
-    body: [{
-      envelope_id: result.envelopeId,
-      task_id: task.id,
-      user_id: userId,
-      case_id: task.case_id,
-      template_id: ZOHO_SIGN_SPPA_TEMPLATE_ID,
-      status: 'sent_to_contact',
-      recipient_contact: { email: pc.email, name: pc.name || '' },
-      recipient_candidate: { email: candidateEmail, name: candidateName },
-      sent_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }]
-  });
-
-  // Link envelope to task
-  await supabaseDbRequest('registration_tasks',
-    'id=eq.' + encodeURIComponent(task.id),
-    { method: 'PATCH', body: { zoho_sign_envelope_id: result.envelopeId, status: 'in_progress', updated_at: new Date().toISOString() } });
-
-  return { ok: true, envelopeId: result.envelopeId };
 }
 
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
@@ -27887,7 +27803,7 @@ Return ONLY valid JSON with no markdown formatting:
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Sync practice_doc_ops for SPPA-00 state changes
     if (updated && updated.related_document_key === 'sppa_00' && patch.metadata && patch.metadata.sppa_state) {
-      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', practice_returned: 'under_review', completed: 'completed' };
+      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', corrections_requested: 'needs_correction', practice_returned: 'under_review', completed: 'completed' };
       var opsVal = sppaOpsMap[patch.metadata.sppa_state];
       if (opsVal) {
         _ensurePracticeDocOps(updated.case_id).then(function () {
@@ -29569,6 +29485,14 @@ Return ONLY valid JSON with no markdown formatting:
     var pc = placement.practiceContact || {};
     var practiceEmail = String(pc.email || '').trim();
     var practiceName = String(pc.name || 'Practice Contact').trim();
+    // Fallback: check gp_applications if user_state doesn't have practice contact
+    if (!practiceEmail) {
+      var _appFallback = await supabaseDbRequest('gp_applications', 'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+      if (_appFallback.ok && _appFallback.data && _appFallback.data[0]) {
+        practiceEmail = String(_appFallback.data[0].practice_contact_email || '').trim();
+        if (!practiceName || practiceName === 'Practice Contact') practiceName = String(_appFallback.data[0].practice_contact_name || 'Practice Contact').trim();
+      }
+    }
     if (!practiceEmail) { sendJson(res, 400, { error: 'practice contact email missing' }); return; }
 
     const commaIdx = doc.attachment_url.indexOf(',');
@@ -29884,7 +29808,93 @@ Return ONLY valid JSON with no markdown formatting:
       { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), metadata: taskMeta, updated_at: new Date().toISOString() } });
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 approved and delivered to GP MyDocuments', null, admin.email);
+
+    // Check if all practice pack tasks are now complete → update AHPRA progress
+    try {
+      var allTasksRes = await supabaseDbRequest('registration_tasks',
+        'select=status,related_document_key&case_id=eq.' + encodeURIComponent(task.case_id) + '&task_type=eq.practice_pack_child');
+      if (allTasksRes.ok && Array.isArray(allTasksRes.data)) {
+        var allComplete = allTasksRes.data.length > 0 && allTasksRes.data.every(function(t) { return t.status === 'completed'; });
+        if (allComplete) {
+          // All practice pack docs done — update AHPRA stage 3
+          var _progCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+          var _progUserId = (_progCaseRes.ok && _progCaseRes.data && _progCaseRes.data[0]) ? _progCaseRes.data[0].user_id : null;
+          if (_progUserId) {
+            var _progStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(_progUserId) + '&limit=1');
+            var _progState = (_progStateRes.ok && _progStateRes.data && _progStateRes.data[0]) ? _progStateRes.data[0].state : {};
+            if (typeof _progState === 'string') try { _progState = JSON.parse(_progState); } catch (e) { _progState = {}; }
+            var ahpra = _progState.gp_ahpra_progress;
+            if (typeof ahpra === 'string') try { ahpra = JSON.parse(ahpra); } catch (e) { ahpra = {}; }
+            if (!ahpra || typeof ahpra !== 'object') ahpra = {};
+            if (!ahpra.stage_3) ahpra.stage_3 = {};
+            ahpra.stage_3.practice_pack_completed = true;
+            ahpra.stage_3.practice_pack_completed_at = new Date().toISOString();
+            _progState.gp_ahpra_progress = JSON.stringify(ahpra);
+            await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(_progUserId), {
+              method: 'PATCH', body: { state: _progState, updated_at: new Date().toISOString() }
+            });
+            await _logCaseEvent(task.case_id, null, 'system', 'All practice pack documents completed — AHPRA stage 3 updated', null, 'system');
+            console.log('[SPPA] All practice pack tasks complete for case', task.case_id, '— AHPRA progress updated');
+          }
+        }
+      }
+    } catch (progErr) { console.error('[SPPA] AHPRA progress update error:', progErr.message); }
+
     sendJson(res, 200, { ok: true, delivery: delivery, altCvs: altCvDelivery });
+    return;
+  }
+
+  // ── Request corrections on returned SPPA-00 ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-request-corrections')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const body = await readJsonBody(req);
+    var corrections = String((body && body.corrections) || '').trim();
+    var corrPracticeEmail = String((body && body.practice_email) || '').trim();
+    var corrContactName = String((body && body.contact_name) || 'Practice Contact').trim();
+    var corrGpName = String((body && body.gp_name) || 'the GP').trim();
+    if (!corrections) { sendJson(res, 400, { error: 'corrections text required' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+    var taskMeta = task.metadata;
+    if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
+    if (!taskMeta) taskMeta = {};
+
+    // Send corrections email to practice
+    var corrSubject = 'SPPA-00 for Dr ' + corrGpName + ' \u2014 Corrections Needed';
+    var corrBody = 'Dear ' + corrContactName + ',<br><br>'
+      + 'Thank you for returning the SPPA-00 for Dr ' + corrGpName + '. However, we need the following corrections before we can submit it:<br><br>'
+      + '<strong>' + corrections.replace(/\n/g, '<br>') + '</strong><br><br>'
+      + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
+      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
+
+    if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
+
+    var emailResult = await sendGmailEmail({
+      from: 'hazel@mygplink.com.au', to: corrPracticeEmail,
+      subject: corrSubject, bodyHtml: corrBody,
+      threadId: task.gmail_thread_id || undefined
+    });
+    if (!emailResult.ok) { sendJson(res, 502, { error: 'Failed to send email: ' + (emailResult.error || '') }); return; }
+
+    // Update state
+    taskMeta.sppa_state = 'corrections_requested';
+    taskMeta.corrections_requested_at = new Date().toISOString();
+    taskMeta.corrections_note = corrections;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+      { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() } });
+
+    // Sync practice_doc_ops
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'needs_correction' } });
+    }).catch(function (err) { console.error('[ADMIN] sppa corrections ops sync error:', err.message); });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'Corrections requested on SPPA-00: ' + corrections.substring(0, 200), corrPracticeEmail, admin.email);
+    sendJson(res, 200, { ok: true });
     return;
   }
 

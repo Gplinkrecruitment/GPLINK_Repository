@@ -4379,17 +4379,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
 
-    // ── SENT TO CANDIDATE: show thread + waiting ──
+    // ── SENT TO CANDIDATE: show thread + waiting + resend + nudge ──
     if (sppaState === 'sent_to_candidate') {
       h += '<div class="ops-expand-section">';
       h += '<div class="ops-expand-label">Sent to candidate \u2014 awaiting return</div>';
       if (meta.sent_to_candidate_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
         h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_candidate_email || '') + '</div>';
+        if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since sent \u2014 consider a follow-up</div>';
       }
       h += opsRenderThread(msgs);
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'candidate\')">Upload GP Return</button>';
+      h += '<button class="ops-btn-secondary" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Resend to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
@@ -4428,17 +4430,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
 
-    // ── SENT TO PRACTICE: show thread + waiting ──
+    // ── SENT TO PRACTICE: show thread + waiting + resend + nudge ──
     if (sppaState === 'sent_to_practice') {
       h += '<div class="ops-expand-section">';
       h += '<div class="ops-expand-label">Sent to practice \u2014 awaiting return</div>';
       if (meta.sent_to_practice_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_practice_at).getTime()) / 86400000);
         h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_practice_email || '') + '</div>';
+        if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since sent \u2014 consider a follow-up</div>';
       }
       h += opsRenderThread(msgs);
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Practice Return</button>';
+      h += '<button class="ops-btn-secondary" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Resend to Practice</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
@@ -4464,6 +4468,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';
+      h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(practiceEmail) + '\',\'' + escAttr(contactName || 'Practice Contact') + '\',\'' + escAttr(gpName) + '\')">Request Corrections</button>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── CORRECTIONS REQUESTED: show thread + waiting (reuses sent_to_practice pattern) ──
+    if (sppaState === 'corrections_requested') {
+      h += '<div class="ops-expand-section">';
+      h += '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      h += '<span style="color:#dc2626">Corrections requested \u2014 awaiting revised SPPA from practice</span>';
+      h += '</div>';
+      if (meta.corrections_requested_at) {
+        var days = Math.floor((Date.now() - new Date(meta.corrections_requested_at).getTime()) / 86400000);
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Requested ' + days + ' day' + (days === 1 ? '' : 's') + ' ago</div>';
+        if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since corrections requested \u2014 consider a follow-up</div>';
+      }
+      h += opsRenderThread(msgs);
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Corrected Return</button>';
+      h += '<button class="ops-btn-secondary" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Resend Request</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
       return h;
@@ -7067,6 +7093,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     input.click();
   }
 
+  async function sppaRequestCorrections(taskId, practiceEmail, contactName, gpName) {
+    var corrections = prompt('What corrections are needed? (This will be included in the email to the practice)');
+    if (!corrections) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-request-corrections', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ corrections: corrections, practice_email: practiceEmail, contact_name: contactName, gp_name: gpName })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('Corrections requested — email sent to practice'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to send', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
   async function sppaSubmitFinal(taskId) {
     if (!confirm('Submit final SPPA-00 and deliver to the GP?')) return;
     try {
@@ -7813,6 +7854,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaOverrideQ7 = sppaOverrideQ7;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
+  window.sppaRequestCorrections = sppaRequestCorrections;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
