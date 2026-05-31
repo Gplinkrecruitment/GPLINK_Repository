@@ -1134,6 +1134,7 @@ const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@myg
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
 const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
+const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim();
 
 function isGmailConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
@@ -1161,7 +1162,7 @@ async function getGmailClient(userEmail) {
         client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
         private_key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
       },
-      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
+      scopes: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.labels', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
       clientOptions: { subject: userEmail }
     });
     var jwtClient = await authClient.getClient();
@@ -2842,6 +2843,130 @@ async function setupGmailWatch(userEmail) {
     console.error('[Gmail] setupWatch error for', userEmail, ':', errorDetail);
     return { ok: false, error: errorDetail };
   }
+}
+
+// ── Gmail Label Management ──
+async function ensureGmailLabel(gmailAccount, labelName) {
+  var gmail = await getGmailClient(gmailAccount);
+  if (!gmail) return null;
+  try {
+    var listRes = await gmail.users.labels.list({ userId: gmailAccount });
+    var labels = (listRes.data && listRes.data.labels) || [];
+    var existing = labels.find(function(l) { return l.name === labelName; });
+    if (existing) return existing.id;
+    var createRes = await gmail.users.labels.create({
+      userId: gmailAccount,
+      requestBody: {
+        name: labelName,
+        labelListVisibility: 'labelShow',
+        messageListVisibility: 'show'
+      }
+    });
+    console.log('[Gmail Labels] Created label "' + labelName + '" on', gmailAccount);
+    return createRes.data.id;
+  } catch (err) {
+    console.error('[Gmail Labels] ensureGmailLabel failed for "' + labelName + '" on', gmailAccount, ':', err.message);
+    return null;
+  }
+}
+
+async function renameGmailLabel(gmailAccount, labelId, newName) {
+  var gmail = await getGmailClient(gmailAccount);
+  if (!gmail || !labelId) return false;
+  try {
+    await gmail.users.labels.patch({
+      userId: gmailAccount,
+      id: labelId,
+      requestBody: { name: newName }
+    });
+    console.log('[Gmail Labels] Renamed label', labelId, 'to "' + newName + '" on', gmailAccount);
+    return true;
+  } catch (err) {
+    console.error('[Gmail Labels] rename failed:', err.message);
+    return false;
+  }
+}
+
+async function applyGmailLabel(gmailAccount, messageId, labelId) {
+  var gmail = await getGmailClient(gmailAccount);
+  if (!gmail || !messageId || !labelId) return false;
+  try {
+    await gmail.users.messages.modify({
+      userId: gmailAccount,
+      id: messageId,
+      requestBody: { addLabelIds: [labelId] }
+    });
+    return true;
+  } catch (err) {
+    console.error('[Gmail Labels] applyLabel failed:', err.message);
+    return false;
+  }
+}
+
+async function insertSilentCopy(targetAccount, labelId, rawMessage) {
+  var gmail = await getGmailClient(targetAccount);
+  if (!gmail || !labelId) return null;
+  try {
+    var rawBase64 = Buffer.from(rawMessage).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    var result = await gmail.users.messages.insert({
+      userId: targetAccount,
+      requestBody: {
+        raw: rawBase64,
+        labelIds: [labelId]
+      }
+    });
+    return result.data && result.data.id ? result.data.id : null;
+  } catch (err) {
+    console.error('[Gmail Labels] insertSilentCopy failed:', err.message);
+    return null;
+  }
+}
+
+function buildCandidateLabelName(gpName, practiceName) {
+  var label = 'Expedited Specialist Pathway/Dr ' + (gpName || 'Unknown');
+  if (practiceName && practiceName.trim()) {
+    label += ' - ' + practiceName.trim();
+  }
+  return label;
+}
+
+function buildHelloLabelName(vaDisplayName, gpName, practiceName) {
+  var gpPart = 'Dr ' + (gpName || 'Unknown');
+  if (practiceName && practiceName.trim()) {
+    gpPart += ' - ' + practiceName.trim();
+  }
+  return 'Expedited Specialist Pathway/' + vaDisplayName + '/' + gpPart;
+}
+
+async function createLabelsForCase(caseId, vaEmail, vaDisplayName, gpName, practiceName) {
+  var vaLabelName = buildCandidateLabelName(gpName, practiceName);
+  var helloLabelName = buildHelloLabelName(vaDisplayName, gpName, practiceName);
+  var vaLabelId = await ensureGmailLabel(vaEmail, vaLabelName);
+  var helloLabelId = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, helloLabelName);
+  var patch = {};
+  if (vaLabelId) patch.gmail_label_id = vaLabelId;
+  if (helloLabelId) patch.gmail_label_hello_id = helloLabelId;
+  patch.gmail_label_name = vaLabelName;
+  if (Object.keys(patch).length > 0) {
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+      method: 'PATCH', body: patch
+    });
+  }
+  console.log('[Gmail Labels] Created labels for case', caseId, '— VA:', vaLabelId, 'hello@:', helloLabelId);
+  return { vaLabelId: vaLabelId, helloLabelId: helloLabelId };
+}
+
+async function archiveLabelForVA(vaEmail, caseId) {
+  var caseRes = await supabaseDbRequest('registration_cases',
+    'select=gmail_label_id,gmail_label_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  if (!caseRes.ok || !caseRes.data || !caseRes.data[0]) return;
+  var currentLabelId = caseRes.data[0].gmail_label_id;
+  var currentLabelName = caseRes.data[0].gmail_label_name || '';
+  if (!currentLabelId || !currentLabelName) return;
+  var gpPart = currentLabelName.replace(/^Expedited Specialist Pathway\//, '');
+  var archivedName = 'Archived/' + gpPart;
+  await renameGmailLabel(vaEmail, currentLabelId, archivedName);
 }
 
 async function searchGmailForGP(gpEmail, gpName, practiceEmail, daysBack) {
