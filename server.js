@@ -27471,6 +27471,120 @@ Return ONLY valid JSON with no markdown formatting:
     if (changes.length > 0) {
       await _logCaseEvent(caseId, null, changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change', 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
     }
+
+    // ── Gmail Label Management on VA assignment ──
+    if (patch.assigned_va) {
+      (async function() {
+        try {
+          var labelCaseRes = await supabaseDbRequest('registration_cases',
+            'select=user_id,practice_name,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+          var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
+          if (!labelCase) return;
+
+          var gpProfileRes = await supabaseDbRequest('user_profiles',
+            'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+          var gpProfile = gpProfileRes.ok && gpProfileRes.data && gpProfileRes.data[0] ? gpProfileRes.data[0] : {};
+          var gpName = [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() || 'Unknown';
+
+          var vaAccRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address,display_name&user_id=eq.' + encodeURIComponent(patch.assigned_va) + '&limit=1');
+          var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
+          if (!vaAcc) {
+            console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va);
+            return;
+          }
+
+          // Archive old VA's label if this is a reassignment
+          var historyMessages = [];
+          if (body._old_assigned_va && body._old_assigned_va !== patch.assigned_va) {
+            var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
+              'select=email_address&user_id=eq.' + encodeURIComponent(body._old_assigned_va) + '&limit=1');
+            var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
+            if (oldVaAcc && labelCase.gmail_label_id) {
+              await archiveLabelForVA(oldVaAcc.email_address, caseId);
+
+              // Copy email history to new VA
+              var oldGmail = await getGmailClient(oldVaAcc.email_address);
+              if (oldGmail) {
+                try {
+                  var oldMsgs = await oldGmail.users.messages.list({
+                    userId: oldVaAcc.email_address, labelIds: [labelCase.gmail_label_id], maxResults: 100
+                  });
+                  var msgList = (oldMsgs.data && oldMsgs.data.messages) || [];
+                  for (var mIdx = 0; mIdx < msgList.length; mIdx++) {
+                    var rawMsg = await oldGmail.users.messages.get({
+                      userId: oldVaAcc.email_address, id: msgList[mIdx].id, format: 'raw'
+                    });
+                    if (rawMsg.data && rawMsg.data.raw) {
+                      historyMessages.push(Buffer.from(rawMsg.data.raw, 'base64'));
+                    }
+                  }
+                } catch (copyErr) {
+                  console.error('[Gmail Labels] History fetch failed:', copyErr.message);
+                }
+              }
+
+              // Move hello@ sub-label to new VA's folder
+              if (labelCase.gmail_label_hello_id) {
+                var newHelloName = buildHelloLabelName(vaAcc.display_name, gpName, labelCase.practice_name || '');
+                await renameGmailLabel(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, newHelloName);
+              }
+            }
+          }
+
+          // Create labels for the new VA
+          var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
+
+          // Insert history messages into new VA's label
+          if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
+            for (var hi = 0; hi < historyMessages.length; hi++) {
+              await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
+            }
+            console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
+          }
+        } catch (err) {
+          console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
+        }
+      })();
+    }
+
+    // ── Gmail Label Rename on practice_name change ──
+    if (patch.practice_name) {
+      (async function() {
+        try {
+          var rnCaseRes = await supabaseDbRequest('registration_cases',
+            'select=user_id,gmail_label_id,gmail_label_hello_id,assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+          var rnCase = rnCaseRes.ok && rnCaseRes.data && rnCaseRes.data[0] ? rnCaseRes.data[0] : null;
+          if (!rnCase || !rnCase.assigned_va) return;
+
+          var gpProfRes = await supabaseDbRequest('user_profiles',
+            'select=first_name,last_name&user_id=eq.' + encodeURIComponent(rnCase.user_id) + '&limit=1');
+          var gpProf = gpProfRes.ok && gpProfRes.data && gpProfRes.data[0] ? gpProfRes.data[0] : {};
+          var gpN = [(gpProf.first_name || ''), (gpProf.last_name || '')].join(' ').trim() || 'Unknown';
+
+          var vaRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address,display_name&user_id=eq.' + encodeURIComponent(rnCase.assigned_va) + '&limit=1');
+          var va = vaRes.ok && vaRes.data && vaRes.data[0] ? vaRes.data[0] : null;
+          if (!va) return;
+
+          var newVaLabel = buildCandidateLabelName(gpN, patch.practice_name);
+          var newHelloLabel = buildHelloLabelName(va.display_name, gpN, patch.practice_name);
+
+          if (rnCase.gmail_label_id) {
+            await renameGmailLabel(va.email_address, rnCase.gmail_label_id, newVaLabel);
+          }
+          if (rnCase.gmail_label_hello_id) {
+            await renameGmailLabel(MASTER_ARCHIVE_EMAIL, rnCase.gmail_label_hello_id, newHelloLabel);
+          }
+          await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+            method: 'PATCH', body: { gmail_label_name: newVaLabel }
+          });
+        } catch (err) {
+          console.error('[Gmail Labels] Rename on practice_name change failed:', err.message);
+        }
+      })();
+    }
+
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
     return;
   }
