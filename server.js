@@ -1824,7 +1824,13 @@ async function getPlacedGPsForTriage() {
 }
 
 async function processGmailNotification(emailAddress, notifiedHistoryId) {
-  if (!MONITORED_VA_EMAILS.includes(emailAddress)) {
+  var isRegisteredVA = MONITORED_VA_EMAILS.includes(emailAddress);
+  if (!isRegisteredVA) {
+    var vaAccountRes = await supabaseDbRequest('va_gmail_accounts',
+      'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
+    isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
+  }
+  if (!isRegisteredVA && emailAddress !== MASTER_ARCHIVE_EMAIL) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
     return;
   }
@@ -1966,6 +1972,42 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         lowerHeaders[rawHeaders[hi].name.toLowerCase()] = rawHeaders[hi].value;
       }
       emailMeta.headers = lowerHeaders;
+
+      // ── Gmail Label Auto-Filing ──
+      var allAddresses = extractAllAddresses(lowerHeaders);
+      var caseMatches = await matchEmailToCase(allAddresses, emailAddress);
+      if (caseMatches.length > 0) {
+        for (var mi = 0; mi < caseMatches.length; mi++) {
+          var match = caseMatches[mi];
+          if (match.labelId) {
+            await applyGmailLabel(emailAddress, currentMsgId, match.labelId);
+          }
+          if (match.helloLabelId && emailAddress !== MASTER_ARCHIVE_EMAIL) {
+            try {
+              var fullMsgRaw = await gmail.users.messages.get({
+                userId: emailAddress, id: currentMsgId, format: 'raw'
+              });
+              if (fullMsgRaw.data && fullMsgRaw.data.raw) {
+                var rawBytes = Buffer.from(fullMsgRaw.data.raw, 'base64');
+                await insertSilentCopy(MASTER_ARCHIVE_EMAIL, match.helloLabelId, rawBytes);
+              }
+            } catch (copyErr) {
+              console.error('[Gmail Labels] hello@ copy failed for msg', currentMsgId, ':', copyErr.message);
+            }
+          }
+          // Detect new practice contacts
+          var matchCaseRes = await supabaseDbRequest('registration_cases',
+            'select=practice_contact&id=eq.' + encodeURIComponent(match.caseId) + '&limit=1');
+          if (matchCaseRes.ok && matchCaseRes.data && matchCaseRes.data[0]) {
+            var pc = (matchCaseRes.data[0].practice_contact || '').toLowerCase();
+            var domain = pc ? pc.split('@')[1] : '';
+            if (domain) {
+              await detectAndStoreContacts(match.caseId, allAddresses, domain);
+            }
+          }
+        }
+        console.log('[Gmail Labels] Auto-filed message', currentMsgId, 'into', caseMatches.length, 'case label(s)');
+      }
 
       // Run pre-filter
       var filterResult = preFilterEmail(emailMeta);
