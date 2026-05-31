@@ -2038,7 +2038,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
               var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
               var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
               if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
-              if (sppaMeta && sppaMeta.sppa_state === 'sent_to_candidate') {
+              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested')) {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
                 sppaMeta.gp_returned_via = 'email_auto';
@@ -27803,7 +27803,7 @@ Return ONLY valid JSON with no markdown formatting:
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Sync practice_doc_ops for SPPA-00 state changes
     if (updated && updated.related_document_key === 'sppa_00' && patch.metadata && patch.metadata.sppa_state) {
-      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', corrections_requested: 'needs_correction', practice_returned: 'under_review', completed: 'completed' };
+      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_corrections_requested: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', corrections_requested: 'needs_correction', practice_returned: 'under_review', completed: 'completed' };
       var opsVal = sppaOpsMap[patch.metadata.sppa_state];
       if (opsVal) {
         _ensurePracticeDocOps(updated.case_id).then(function () {
@@ -29844,7 +29844,57 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── Request corrections on returned SPPA-00 ──
+  // ── Request GP corrections on returned SPPA-00 ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-request-gp-corrections')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const body = await readJsonBody(req);
+    var corrections = String((body && body.corrections) || '').trim();
+    var corrCandidateEmail = String((body && body.candidate_email) || '').trim();
+    var corrGpName = String((body && body.gp_name) || 'Doctor').trim();
+    if (!corrections) { sendJson(res, 400, { error: 'corrections text required' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata,gmail_thread_id&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+    var taskMeta = task.metadata;
+    if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
+    if (!taskMeta) taskMeta = {};
+
+    if (!corrCandidateEmail) { sendJson(res, 400, { error: 'candidate email missing' }); return; }
+
+    var corrSubject = 'SPPA-00 \u2014 Corrections Needed';
+    var corrBody = 'Dear ' + corrGpName + ',<br><br>'
+      + 'Thank you for returning your SPPA-00. However, we need the following corrections before we can proceed:<br><br>'
+      + '<strong>' + corrections.replace(/\n/g, '<br>') + '</strong><br><br>'
+      + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
+      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
+
+    var emailResult = await sendGmailEmail({
+      from: 'hazel@mygplink.com.au', to: corrCandidateEmail,
+      subject: corrSubject, bodyHtml: corrBody,
+      threadId: task.gmail_thread_id || undefined
+    });
+    if (!emailResult.ok) { sendJson(res, 502, { error: 'Failed to send email: ' + (emailResult.error || '') }); return; }
+
+    taskMeta.sppa_state = 'gp_corrections_requested';
+    taskMeta.gp_corrections_requested_at = new Date().toISOString();
+    taskMeta.gp_corrections_note = corrections;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+      { method: 'PATCH', body: { status: 'waiting_on_gp', metadata: taskMeta, updated_at: new Date().toISOString() } });
+
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_gp' } });
+    }).catch(function (err) { console.error('[ADMIN] sppa gp corrections ops sync error:', err.message); });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'GP corrections requested on SPPA-00: ' + corrections.substring(0, 200), corrCandidateEmail, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Request corrections on returned SPPA-00 (from practice) ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-request-corrections')) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;

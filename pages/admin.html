@@ -4425,8 +4425,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-email-actions">';
       h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice" data-ops-auto-attach="true" data-ops-sppa-state="sent_to_practice">Send to Practice</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestGpCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(candidateEmail) + '\',\'' + escAttr(gpName) + '\')">Request GP Corrections</button>';
       h += '</div>';
       h += '</div></div>';
+      return h;
+    }
+
+    // ── GP CORRECTIONS REQUESTED: waiting for GP to resend ──
+    if (sppaState === 'gp_corrections_requested') {
+      h += '<div class="ops-expand-section">';
+      h += '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      h += '<span style="color:#dc2626">Corrections requested from GP \u2014 awaiting revised SPPA</span>';
+      h += '</div>';
+      if (meta.gp_corrections_requested_at) {
+        var days = Math.floor((Date.now() - new Date(meta.gp_corrections_requested_at).getTime()) / 86400000);
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Requested ' + days + ' day' + (days === 1 ? '' : 's') + ' ago</div>';
+        if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since corrections requested \u2014 consider a follow-up</div>';
+      }
+      if (meta.gp_corrections_note) {
+        h += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px"><strong>Corrections requested:</strong> ' + esc(meta.gp_corrections_note) + '</div>';
+      }
+      h += opsRenderThread(msgs);
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'candidate\')">Upload Corrected Return</button>';
+      h += '<button class="ops-btn-secondary" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Resend Request</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '</div>';
+      h += '</div>';
       return h;
     }
 
@@ -7093,6 +7118,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     input.click();
   }
 
+  async function sppaRequestGpCorrections(taskId, candidateEmail, gpName) {
+    var corrections = prompt('What corrections does the GP need to make? (This will be included in the email)');
+    if (!corrections) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-request-gp-corrections', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ corrections: corrections, candidate_email: candidateEmail, gp_name: gpName })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('Corrections requested — email sent to GP'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to send', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
   async function sppaRequestCorrections(taskId, practiceEmail, contactName, gpName) {
     var corrections = prompt('What corrections are needed? (This will be included in the email to the practice)');
     if (!corrections) return;
@@ -7855,6 +7895,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
   window.sppaRequestCorrections = sppaRequestCorrections;
+  window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
