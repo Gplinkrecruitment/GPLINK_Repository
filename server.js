@@ -1188,7 +1188,7 @@ async function getGmailClient(userEmail) {
 }
 
 // ── Gmail send helper ──
-async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo }) {
+async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
   try {
     var gmail = await getGmailClient(from);
     if (!gmail) return { ok: false, error: 'Gmail client not available for ' + from };
@@ -1303,6 +1303,26 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var gmailMessageId = result.data && result.data.id ? result.data.id : '';
     var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (threadId || '');
     console.log('[Gmail] Email sent from', from, 'to', to, '— messageId:', gmailMessageId, 'threadId:', resultThreadId);
+
+    // Apply Gmail labels if case is linked
+    if (caseId && gmailMessageId) {
+      try {
+        var labelCaseRes = await supabaseDbRequest('registration_cases',
+          'select=gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
+        if (labelCase) {
+          if (labelCase.gmail_label_id) {
+            await applyGmailLabel(from, gmailMessageId, labelCase.gmail_label_id);
+          }
+          if (labelCase.gmail_label_hello_id) {
+            await insertSilentCopy(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, rawMessage);
+          }
+        }
+      } catch (labelErr) {
+        console.error('[Gmail Labels] Post-send labeling failed:', labelErr.message);
+      }
+    }
+
     return { ok: true, gmailMessageId: gmailMessageId, threadId: resultThreadId };
   } catch (err) {
     var detail = err && err.message ? err.message : String(err);
@@ -29648,7 +29668,8 @@ Return ONLY valid JSON with no markdown formatting:
         filename: 'SPPA-00.pdf',
         mimeType: 'application/pdf',
         content: pdfBase64
-      }]
+      }],
+      caseId: task.case_id
     });
     if (!emailResult.ok) { sendJson(res, 502, { error: 'Failed to send email: ' + (emailResult.error || '') }); return; }
 
@@ -29766,7 +29787,8 @@ Return ONLY valid JSON with no markdown formatting:
         filename: 'SPPA-00.pdf',
         mimeType: 'application/pdf',
         content: pdfBase64
-      }]
+      }],
+      caseId: task.case_id
     });
     if (!emailResult.ok) { sendJson(res, 502, { error: 'Failed to send email: ' + (emailResult.error || '') }); return; }
 
