@@ -4390,12 +4390,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
 
-    // ── GP RETURNED: show email composer to practice ──
+    // ── GP RETURNED: show thread + returned doc + email composer to practice ──
     if (sppaState === 'gp_returned') {
       h += '<div class="ops-expand-section">';
       h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
       h += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
       h += '</div>';
+      h += opsRenderThread(msgs);
+      h += opsRenderDocs(docs);
       h += '<div class="ops-expand-label">Send SPPA-00 to practice</div>';
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The GP-completed SPPA-00 PDF will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
