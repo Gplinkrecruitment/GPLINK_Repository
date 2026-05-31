@@ -531,6 +531,83 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
     } catch (aiErr) { console.error('[Gmail] AI disambiguation error:', aiErr.message); }
   }
 
+  // Deep context: pull recent email history with this practice and use Opus for strong disambiguation
+  if (process.env.ANTHROPIC_API_KEY && candidates.length <= 10) {
+    try {
+      var budgetOk2 = await checkAnthropicBudget();
+      if (budgetOk2) {
+        var practiceEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+        // Fetch last 10 sent + 10 received task_messages involving this practice email across all candidate cases
+        var caseIds = candidates.map(function(c) { return c.case.id; });
+        var recentMsgsRes = await supabaseDbRequest('task_messages',
+          'select=case_id,direction,sender,recipient,subject,body_text,created_at'
+          + '&case_id=in.(' + caseIds.map(function(id) { return '"' + id + '"'; }).join(',') + ')'
+          + '&channel=eq.email'
+          + '&order=created_at.desc&limit=20');
+        var recentMsgs = (recentMsgsRes.ok && Array.isArray(recentMsgsRes.data)) ? recentMsgsRes.data : [];
+        // Also get recent messages where sender/recipient matches the practice email
+        var practiceThreadMsgs = recentMsgs.filter(function(m) {
+          var s = (m.sender || '').toLowerCase();
+          var r = (m.recipient || '').toLowerCase();
+          return s.indexOf(practiceEmail) > -1 || r.indexOf(practiceEmail) > -1 || true; // include all case emails for context
+        });
+        // Map case_id to GP name for context
+        var caseToGp = {};
+        candidates.forEach(function(c) { caseToGp[c.case.id] = c.gpName; });
+        var historyLines = practiceThreadMsgs.slice(0, 20).reverse().map(function(m) {
+          var gpLabel = caseToGp[m.case_id] ? ' [GP: ' + caseToGp[m.case_id] + ']' : '';
+          var dir = m.direction === 'outbound' ? 'SENT' : 'RECEIVED';
+          return dir + gpLabel + ' | ' + (m.created_at || '').substring(0, 16) + ' | Subject: ' + (m.subject || '(none)') + ' | ' + (m.body_text || '').substring(0, 300);
+        });
+
+        var gpList2 = candidates.map(function(c, i) { return (i + 1) + '. Dr ' + c.gpName; }).join('\n');
+        var deepPrompt = 'You are an expert at determining which GP a practice email is about. '
+          + 'This practice has multiple GPs registered with us. A new email has arrived and we need to match it to the correct GP.\n\n'
+          + 'GPs at this practice:\n' + gpList2 + '\n\n'
+          + '--- RECENT EMAIL HISTORY WITH THIS PRACTICE (oldest first) ---\n'
+          + (historyLines.length > 0 ? historyLines.join('\n') : '(no previous email history)')
+          + '\n--- END HISTORY ---\n\n'
+          + '--- NEW EMAIL (needs matching) ---\n'
+          + 'From: ' + (emailMeta.sender || '') + '\n'
+          + 'Subject: ' + (emailMeta.subject || '(none)') + '\n'
+          + 'Body: ' + (emailMeta.bodyText || '').substring(0, 3000) + '\n'
+          + 'Attachments: ' + (emailMeta.attachments || []).map(function(a) { return a.filename; }).join(', ') + '\n'
+          + '--- END NEW EMAIL ---\n\n'
+          + 'Based on the conversation history and the new email content, which GP is this email about?\n'
+          + 'Look for: name mentions, references to previous conversations, document names, context clues.\n\n'
+          + 'Return JSON only: {"matched_gp_index": 1-based index or null, "confidence": 0.0-1.0, "reason": "explain your reasoning"}\n'
+          + 'Only return null if you genuinely cannot determine which GP after considering all context.';
+
+        var ctrl2 = new AbortController();
+        var to2 = setTimeout(function() { ctrl2.abort(); }, 30000);
+        var opusRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: ctrl2.signal,
+          headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
+        });
+        clearTimeout(to2);
+        var opusData = await opusRes.json();
+        if (typeof recordAnthropicSpend === 'function' && opusData.usage) {
+          recordAnthropicSpend(opusData.usage.input_tokens || 0, opusData.usage.output_tokens || 0, opusData.usage.cache_read_input_tokens || 0, opusData.usage.cache_creation_input_tokens || 0);
+        }
+        var opusText = opusData.content && opusData.content[0] ? opusData.content[0].text : '';
+        var opusMatch = opusText.match(/\{[\s\S]*\}/);
+        if (opusMatch) {
+          var opusResult = JSON.parse(opusMatch[0]);
+          if (opusResult.matched_gp_index && opusResult.confidence > 0.5) {
+            var oidx = opusResult.matched_gp_index - 1;
+            if (oidx >= 0 && oidx < candidates.length) {
+              console.log('[Gmail] Opus deep-context disambiguated practice email to', candidates[oidx].gpName,
+                '(confidence:', opusResult.confidence, ', reason:', opusResult.reason, ')');
+              return candidates[oidx].case;
+            }
+          }
+        }
+        console.log('[Gmail] Opus deep-context could not disambiguate:', opusText.substring(0, 200));
+      }
+    } catch (opusErr) { console.error('[Gmail] Opus disambiguation error:', opusErr.message); }
+  }
+
   // Cannot disambiguate — log warning and return null (email will fall to standard triage)
   console.warn('[Gmail] Could not disambiguate practice email from', emailMeta.sender, '— practice has', candidates.length, 'GPs:', candidates.map(function(c) { return c.gpName; }).join(', '));
   return null;
