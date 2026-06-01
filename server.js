@@ -87,7 +87,7 @@ const {
   pickCorrectionRecipient
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
-const { fillSppaQ7, extractAltSupervisorNames } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractAltSupervisorNames, amendSppaField } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -30590,6 +30590,77 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'AHPRA status update acknowledged — GP notified', taskMeta.summary || '', admin.email);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Amend RSO-owned SPPA field and re-upload ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-amend-field')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const body = await readJsonBody(req);
+    var fieldName = String((body && body.field_name) || '').trim();
+    var newValue = String((body && body.new_value) || '').trim();
+    if (!fieldName || !newValue) { sendJson(res, 400, { error: 'field_name and new_value required' }); return; }
+
+    // Get the AHPRA task to find the case
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+
+    // Find the SPPA-00 task for this case to get the current PDF
+    var sppaTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&related_document_key=eq.sppa_00&limit=1');
+    var sppaTaskId = (sppaTaskRes.ok && sppaTaskRes.data && sppaTaskRes.data[0]) ? sppaTaskRes.data[0].id : null;
+    if (!sppaTaskId) { sendJson(res, 404, { error: 'SPPA-00 task not found for this case' }); return; }
+
+    // Get the current SPPA PDF
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=id,attachment_url&task_id=eq.' + encodeURIComponent(sppaTaskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+    var doc = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url) { sendJson(res, 400, { error: 'No SPPA PDF found' }); return; }
+
+    // Extract buffer from data URL
+    var commaIdx = doc.attachment_url.indexOf(',');
+    var b64 = doc.attachment_url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+    var pdfBuffer = Buffer.from(b64, 'base64');
+
+    // Amend the field
+    var amendedBuffer;
+    try {
+      amendedBuffer = await amendSppaField(pdfBuffer, fieldName, newValue);
+    } catch (amendErr) {
+      sendJson(res, 400, { error: 'Amendment failed: ' + amendErr.message });
+      return;
+    }
+
+    // Mark old doc as not current
+    await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(doc.id), { method: 'PATCH', body: { is_current: false } });
+
+    // Store amended PDF
+    var amendedDataUrl = 'data:application/pdf;base64,' + amendedBuffer.toString('base64');
+    var newDocRes = await supabaseDbRequest('task_documents', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{
+        task_id: sppaTaskId, case_id: task.case_id,
+        filename: 'SPPA-00 (Amended).pdf', mime_type: 'application/pdf',
+        size_bytes: amendedBuffer.length,
+        is_current: true, uploaded_by: 'admin_field_amendment',
+        attachment_url: amendedDataUrl
+      }]
+    });
+    var newDocId = (newDocRes.ok && newDocRes.data && newDocRes.data[0]) ? newDocRes.data[0].id : null;
+
+    // Upload to Google Drive (replace existing)
+    _uploadSppaDocToDrive(task.case_id, newDocId, amendedBuffer, 'SPPA-00 (Amended).pdf').catch(function (e) { console.error('[SPPA Amend] Drive upload error:', e.message); });
+
+    await _logCaseEvent(task.case_id, taskId, 'system',
+      'RSO amended SPPA field: ' + fieldName + ' → ' + newValue.substring(0, 100),
+      null, admin.email);
+
+    sendJson(res, 200, { ok: true, field: fieldName });
     return;
   }
 
