@@ -3066,7 +3066,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-loading"><span class="ai-spinner"></span>Generating AI summary\u2026</div></div>';
 
-    fetch('/api/admin/candidate-summary?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' })
+    fetch('/api/admin/candidate-summary?case_id=' + encodeURIComponent(caseId) + (force ? '&force=1' : ''), { credentials: 'same-origin' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.ok || !data.summary) {

@@ -27335,6 +27335,20 @@ Return ONLY valid JSON with no markdown formatting:
       const regCase = caseRes.data[0];
       const userId = regCase.user_id;
 
+      // Return cached summary if less than 24 hours old (unless ?force=1)
+      var forceRefresh = url.searchParams.get('force') === '1';
+      if (!forceRefresh && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
+        var cacheAge = Date.now() - new Date(regCase.ai_handover_summary.generated_at).getTime();
+        if (cacheAge < 86400000) { // 24 hours
+          sendJson(res, 200, {
+            ok: true,
+            summary: regCase.ai_handover_summary,
+            meta: { cached: true, generated_at: regCase.ai_handover_summary.generated_at }
+          });
+          return;
+        }
+      }
+
       const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number,country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : {};
       const gpName = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || regCase.gp_name || regCase.gp_email || 'Unknown';
