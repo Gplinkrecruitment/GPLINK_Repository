@@ -1974,7 +1974,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 
       // ── Gmail Label Auto-Filing ──
       var allAddresses = extractAllAddresses(lowerHeaders);
-      var caseMatches = await matchEmailToCase(allAddresses, emailAddress);
+      var msgThreadId = fullMsg.data.threadId || null;
+      var caseMatches = await matchEmailToCase(allAddresses, emailAddress, msgThreadId);
       if (caseMatches.length > 0) {
         for (var mi = 0; mi < caseMatches.length; mi++) {
           var match = caseMatches[mi];
@@ -3038,7 +3039,7 @@ async function archiveLabelForVA(vaEmail, caseId) {
 }
 
 // ── Email-to-Candidate Matching Engine ──
-async function matchEmailToCase(emailAddresses, vaEmail) {
+async function matchEmailToCase(emailAddresses, vaEmail, threadId) {
   if (!emailAddresses || emailAddresses.length === 0) return [];
   var normalized = emailAddresses.map(function(e) { return e.toLowerCase().trim(); });
 
@@ -3061,18 +3062,38 @@ async function matchEmailToCase(emailAddresses, vaEmail) {
     var gpEmail = profileMap[c.user_id] || '';
     var practiceContact = (c.practice_contact || '').toLowerCase().trim();
     var practiceDomain = practiceContact ? practiceContact.split('@')[1] : '';
+    // Skip overly generic domains for practice matching
+    var genericDomains = ['gmail.com','yahoo.com','hotmail.com','outlook.com','icloud.com','live.com'];
+    var isGenericDomain = genericDomains.indexOf(practiceDomain) >= 0;
 
     for (var ei = 0; ei < normalized.length; ei++) {
       var addr = normalized[ei];
       if (addr === (vaEmail || '').toLowerCase() || addr === MASTER_ARCHIVE_EMAIL.toLowerCase()) continue;
 
+      // Direct GP email match — always label
       if (gpEmail && addr === gpEmail) {
         matches.push({ caseId: c.id, matchType: 'gp_email', matchedAddress: addr, labelId: c.gmail_label_id, helloLabelId: c.gmail_label_hello_id });
         break;
       }
-      if (practiceDomain && addr.endsWith('@' + practiceDomain)) {
-        matches.push({ caseId: c.id, matchType: 'practice_domain', matchedAddress: addr, labelId: c.gmail_label_id, helloLabelId: c.gmail_label_hello_id });
-        break;
+      // Practice domain match — only if same thread as a GP email (check if thread already has the label)
+      if (practiceDomain && !isGenericDomain && addr.endsWith('@' + practiceDomain)) {
+        if (threadId && c.gmail_label_id && vaEmail) {
+          // Check if any message in this thread already has the case label
+          try {
+            var gmail = await getGmailClient(vaEmail);
+            if (gmail) {
+              var threadRes = await gmail.users.threads.get({ userId: vaEmail, id: threadId, format: 'minimal' });
+              var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
+              var threadHasLabel = threadMsgs.some(function(m) {
+                return m.labelIds && m.labelIds.indexOf(c.gmail_label_id) >= 0;
+              });
+              if (threadHasLabel) {
+                matches.push({ caseId: c.id, matchType: 'practice_thread', matchedAddress: addr, labelId: c.gmail_label_id, helloLabelId: c.gmail_label_hello_id });
+                break;
+              }
+            }
+          } catch (tErr) { /* thread check failed, skip practice match */ }
+        }
       }
     }
   }
@@ -27500,6 +27521,12 @@ Return ONLY valid JSON with no markdown formatting:
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
     patch.last_va_action_at = new Date().toISOString();
+    // Fetch old assigned_va before patching (needed for label reassignment)
+    var oldAssignedVa = null;
+    if (patch.assigned_va) {
+      var oldCaseRes = await supabaseDbRequest('registration_cases', 'select=assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      oldAssignedVa = oldCaseRes.ok && oldCaseRes.data && oldCaseRes.data[0] ? oldCaseRes.data[0].assigned_va : null;
+    }
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
     // Log timeline
@@ -27512,7 +27539,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (patch.assigned_va) {
       try {
           var labelCaseRes = await supabaseDbRequest('registration_cases',
-            'select=user_id,practice_name,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+            'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
           if (!labelCase) return;
 
@@ -27531,9 +27558,9 @@ Return ONLY valid JSON with no markdown formatting:
 
           // Archive old VA's label if this is a reassignment
           var historyMessages = [];
-          if (body._old_assigned_va && body._old_assigned_va !== patch.assigned_va) {
+          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
             var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
-              'select=email_address&user_id=eq.' + encodeURIComponent(body._old_assigned_va) + '&limit=1');
+              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
             var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
             if (oldVaAcc && labelCase.gmail_label_id) {
               await archiveLabelForVA(oldVaAcc.email_address, caseId);
@@ -27579,46 +27606,62 @@ Return ONLY valid JSON with no markdown formatting:
           }
 
           // Backfill: search VA's inbox for existing emails matching this GP
+          // Only matches GP email directly, then labels all messages in those threads
+          // (so practice emails in the same conversation are included)
           if (result.vaLabelId) {
             try {
               var gpEmailRes = await supabaseDbRequest('user_profiles',
                 'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
               var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
-              var practiceContact = (labelCase.practice_name ? (r.data && r.data[0] ? r.data[0].practice_contact : '') : '') || '';
-              var practiceDomain = practiceContact ? practiceContact.split('@')[1] : '';
 
-              var searchQueries = [];
-              if (gpEmail) searchQueries.push('from:' + gpEmail + ' OR to:' + gpEmail);
-              if (practiceDomain) searchQueries.push('from:@' + practiceDomain + ' OR to:@' + practiceDomain);
-
-              if (searchQueries.length > 0) {
+              if (gpEmail) {
                 var vaGmail = await getGmailClient(vaAcc.email_address);
                 if (vaGmail) {
-                  var searchQ = searchQueries.join(' OR ');
+                  // Search for emails directly involving the GP
                   var searchRes = await vaGmail.users.messages.list({
-                    userId: vaAcc.email_address, q: searchQ, maxResults: 50
+                    userId: vaAcc.email_address, q: 'from:' + gpEmail + ' OR to:' + gpEmail, maxResults: 50
                   });
-                  var foundMsgs = (searchRes.data && searchRes.data.messages) || [];
-                  var labeledCount = 0;
-                  for (var si = 0; si < foundMsgs.length; si++) {
-                    await applyGmailLabel(vaAcc.email_address, foundMsgs[si].id, result.vaLabelId);
-                    labeledCount++;
-                  }
-                  // Also copy to hello@
-                  if (result.helloLabelId && labeledCount > 0) {
-                    for (var si2 = 0; si2 < foundMsgs.length; si2++) {
-                      try {
-                        var rawM = await vaGmail.users.messages.get({
-                          userId: vaAcc.email_address, id: foundMsgs[si2].id, format: 'raw'
-                        });
-                        if (rawM.data && rawM.data.raw) {
-                          await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
-                        }
-                      } catch (hErr) { /* skip individual message errors */ }
+                  var gpMsgs = (searchRes.data && searchRes.data.messages) || [];
+
+                  // Collect unique thread IDs from GP emails
+                  var gpThreadIds = {};
+                  for (var si = 0; si < gpMsgs.length; si++) {
+                    var msgMeta = await vaGmail.users.messages.get({
+                      userId: vaAcc.email_address, id: gpMsgs[si].id, format: 'metadata', metadataHeaders: ['From']
+                    });
+                    if (msgMeta.data && msgMeta.data.threadId) {
+                      gpThreadIds[msgMeta.data.threadId] = true;
                     }
                   }
+
+                  // Label all messages in those threads (includes practice replies in same thread)
+                  var labeledCount = 0;
+                  var threadKeys = Object.keys(gpThreadIds);
+                  for (var ti = 0; ti < threadKeys.length; ti++) {
+                    try {
+                      var threadRes = await vaGmail.users.threads.get({
+                        userId: vaAcc.email_address, id: threadKeys[ti], format: 'minimal'
+                      });
+                      var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
+                      for (var tmi = 0; tmi < threadMsgs.length; tmi++) {
+                        await applyGmailLabel(vaAcc.email_address, threadMsgs[tmi].id, result.vaLabelId);
+                        labeledCount++;
+                        // Copy to hello@
+                        if (result.helloLabelId) {
+                          try {
+                            var rawM = await vaGmail.users.messages.get({
+                              userId: vaAcc.email_address, id: threadMsgs[tmi].id, format: 'raw'
+                            });
+                            if (rawM.data && rawM.data.raw) {
+                              await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
+                            }
+                          } catch (hErr) { /* skip */ }
+                        }
+                      }
+                    } catch (thErr) { /* skip thread errors */ }
+                  }
                   if (labeledCount > 0) {
-                    console.log('[Gmail Labels] Backfilled', labeledCount, 'existing emails for', gpName);
+                    console.log('[Gmail Labels] Backfilled', labeledCount, 'emails across', threadKeys.length, 'threads for', gpName);
                   }
                 }
               }
