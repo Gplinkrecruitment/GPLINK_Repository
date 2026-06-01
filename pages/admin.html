@@ -1851,7 +1851,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function loadAll(force,silent){
     if(S.loading&&!force)return;
     S.loading=true;
-    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments(),loadIncomingQuestions()];
+    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments(),loadIncomingQuestions(),loadVaAccounts()];
     if(isSA())jobs.push(loadAgentStatus(force));
     await Promise.all(jobs);
     S.loading=false;
@@ -2297,7 +2297,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderCaseManagementForm(c){
+    var vaOpts='<option value=""'+((!c.assigned_va)?' selected':'')+'>Unassigned</option>';
+    if(S._vaAccounts&&S._vaAccounts.length){
+      S._vaAccounts.forEach(function(va){
+        vaOpts+='<option value="'+esc(va.user_id)+'"'+(c.assigned_va===va.user_id?' selected':'')+'>'+esc(va.display_name)+' ('+esc(va.email_address)+')</option>';
+      });
+    }
     return`<div class="case-mgmt">
+      <div class="case-field"><label>Assigned RSO</label><select data-case-field="assigned_va">
+        ${vaOpts}
+      </select></div>
       <div class="case-field"><label>Status</label><select data-case-field="status">
         ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
@@ -3113,12 +3122,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const hasDt=isDtUrl(dtUrl);
 
       const practiceName=u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||"";
+      const assignedVaName=c.assigned_va&&S._vaAccounts?((S._vaAccounts.find(function(va){return va.user_id===c.assigned_va;})||{}).display_name||''):'';
       const profileBarHtml=`
         <div class="profile-bar">
           <div class="pb-avatar">${esc(ini(gpName))}</div>
           <div class="pb-info">
             <div class="pb-name">${esc(gpName)}</div>
-            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}</div>
+            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}</span>
@@ -6329,6 +6339,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var d=await r.json().catch(function(){return {};});
       S.va.incomingQuestions=(d&&d.ok&&Array.isArray(d.todos))?d.todos:[];
     }catch(err){console.error("[VA] loadIncomingQuestions failed",err);S.va.incomingQuestions=[];}
+  }
+  async function loadVaAccounts(){
+    try{
+      var r=await fetch("/api/admin/va/gmail/status",{credentials:"same-origin"});
+      var d=await r.json().catch(function(){return {};});
+      S._vaAccounts=(d&&d.ok&&Array.isArray(d.accounts))?d.accounts:[];
+    }catch(err){S._vaAccounts=[];}
   }
   async function assignIncomingQuestion(id){
     var userId=prompt("Enter user_id of the GP to assign this to:");
