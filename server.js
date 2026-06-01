@@ -3002,7 +3002,15 @@ function buildHelloLabelName(vaDisplayName, gpName, practiceName) {
 async function createLabelsForCase(caseId, vaEmail, vaDisplayName, gpName, practiceName) {
   var vaLabelName = buildCandidateLabelName(gpName, practiceName);
   var helloLabelName = buildHelloLabelName(vaDisplayName, gpName, practiceName);
+
+  // Create parent labels explicitly to ensure Gmail shows proper nesting
+  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway');
+  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Assigned');
+  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Archived');
   var vaLabelId = await ensureGmailLabel(vaEmail, vaLabelName);
+
+  await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway');
+  await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway/' + vaDisplayName);
   var helloLabelId = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, helloLabelName);
   var patch = {};
   if (vaLabelId) patch.gmail_label_id = vaLabelId;
