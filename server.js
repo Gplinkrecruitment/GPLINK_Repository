@@ -28216,7 +28216,6 @@ Return ONLY valid JSON with no markdown formatting:
       var gdOpsMap = {};
       gdPracticeOps.forEach(function(op) { if (op && op.document_key) gdOpsMap[op.document_key] = op; });
 
-      var gdPendingDriveUploads = [];
       GP_LINK_DOCUMENT_META.forEach(function(doc) {
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
         var driveFile = null;
@@ -28239,11 +28238,6 @@ Return ONLY valid JSON with no markdown formatting:
               break;
             }
           }
-        }
-        // If no Drive file found, queue a background upload check after the response
-        if (!driveFile && gdCaseId && doc.key) {
-          if (!gdPendingDriveUploads) gdPendingDriveUploads = [];
-          gdPendingDriveUploads.push({ caseId: gdCaseId, docKey: doc.key, label: doc.label });
         }
         gdPreparedByGpLink.push({
           key: doc.key, label: doc.label,
@@ -28287,30 +28281,6 @@ Return ONLY valid JSON with no markdown formatting:
         otherFiles: gdOtherFiles
       });
 
-      // Background: auto-upload missing docs to Drive (fire-and-forget, after response sent)
-      if (gdPendingDriveUploads.length > 0) {
-        (async function() {
-          for (var _pdu of gdPendingDriveUploads) {
-            try {
-              var _tdLookup = await supabaseDbRequest('registration_tasks',
-                'select=id&case_id=eq.' + encodeURIComponent(_pdu.caseId) + '&related_document_key=eq.' + encodeURIComponent(_pdu.docKey) + '&limit=1');
-              var _tdTaskId = (_tdLookup.ok && _tdLookup.data && _tdLookup.data[0]) ? _tdLookup.data[0].id : null;
-              if (!_tdTaskId) continue;
-              var _tdDoc = await supabaseDbRequest('task_documents',
-                'select=id,attachment_url,google_drive_file_id&task_id=eq.' + encodeURIComponent(_tdTaskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
-              var _tdEntry = (_tdDoc.ok && _tdDoc.data && _tdDoc.data[0]) ? _tdDoc.data[0] : null;
-              if (_tdEntry && _tdEntry.attachment_url && !_tdEntry.google_drive_file_id) {
-                var _ci2 = _tdEntry.attachment_url.indexOf(',');
-                var _b2 = _tdEntry.attachment_url.substring(_ci2 + 1).replace(/-/g, '+').replace(/_/g, '/');
-                while (_b2.length % 4 !== 0) _b2 += '=';
-                var _buf2 = Buffer.from(_b2, 'base64');
-                await _uploadSppaDocToDrive(_pdu.caseId, _tdEntry.id, _buf2, _pdu.label + '.pdf');
-                console.log('[GP Docs] Auto-uploaded', _pdu.docKey, 'to Drive for case', _pdu.caseId);
-              }
-            } catch (e) { console.error('[GP Docs] Auto-upload error for', _pdu.docKey, ':', e.message); }
-          }
-        })();
-      }
     } catch (gdErr) {
       console.error('[gp-documents] Error:', gdErr.message);
       sendJson(res, 500, { ok: false, message: 'Failed to load documents.' });
