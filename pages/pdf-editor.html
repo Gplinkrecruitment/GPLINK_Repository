@@ -47,6 +47,13 @@ body { background:#64748b; font-family:-apple-system,BlinkMacSystemFont,'Segoe U
 .pdf-text-field:hover { background:#fffde6; border-color:#93c5fd; }
 .pdf-text-field:focus { background:#fffde6; border-color:#3b82f6; outline:none; z-index:10; }
 textarea.pdf-text-field { resize:none; overflow:auto; }
+.pdf-comb-char {
+  background:#fff; border:1px solid #cbd5e1;
+  text-align:center; font-family:Helvetica,Arial,sans-serif;
+  color:#000; padding:0; line-height:1.15;
+}
+.pdf-comb-char:hover { background:#fffde6; border-color:#93c5fd; }
+.pdf-comb-char:focus { background:#fffde6; border-color:#3b82f6; outline:none; z-index:10; }
 .pdf-checkbox-field, .pdf-radio-field {
   cursor:pointer; opacity:0.6; accent-color:#3b82f6;
 }
@@ -201,6 +208,45 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
 
       var el;
       if (annot.fieldType === 'Tx') {
+        // Comb field — render individual character boxes (e.g. DD/MM/YYYY)
+        if (annot.comb && annot.maxLen && annot.maxLen > 0 && !annot.multiLine) {
+          var charWidth = width / annot.maxLen;
+          var val = annot.fieldValue || '';
+          for (var ci = 0; ci < annot.maxLen; ci++) {
+            var ce = document.createElement('input');
+            ce.type = 'text';
+            ce.maxLength = 1;
+            ce.className = 'pdf-field pdf-comb-char';
+            ce.value = val.charAt(ci) || '';
+            ce.dataset.fieldName = annot.fieldName || '';
+            ce.dataset.combIndex = ci;
+            ce.dataset.combTotal = annot.maxLen;
+            ce.dataset.originalValue = val;
+            ce.style.position = 'absolute';
+            ce.style.left = (left + ci * charWidth) + 'px';
+            ce.style.top = top + 'px';
+            ce.style.width = charWidth + 'px';
+            ce.style.height = height + 'px';
+            ce.style.fontSize = fontSize + 'px';
+            ce.title = (annot.fieldName || '') + ' [' + (ci + 1) + '/' + annot.maxLen + ']';
+            // Auto-advance to next char on input
+            ce.addEventListener('input', function (e) {
+              if (e.target.value.length >= 1) {
+                var next = e.target.nextElementSibling;
+                if (next && next.classList.contains('pdf-comb-char')) next.focus();
+              }
+            });
+            // Backspace goes to previous char
+            ce.addEventListener('keydown', function (e) {
+              if (e.key === 'Backspace' && e.target.value === '') {
+                var prev = e.target.previousElementSibling;
+                if (prev && prev.classList.contains('pdf-comb-char')) { prev.focus(); prev.select(); }
+              }
+            });
+            overlay.appendChild(ce);
+          }
+          return; // Skip normal element — comb chars already added
+        }
         if (annot.multiLine) {
           el = document.createElement('textarea');
           el.className = 'pdf-field pdf-text-field';
@@ -289,6 +335,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
   function extractChangedFields() {
     var fields = [];
     var seen = {};
+    // Regular text fields
     document.querySelectorAll('.pdf-text-field').forEach(function (el) {
       var name = el.dataset.fieldName;
       if (!name) return;
@@ -296,12 +343,28 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
       var orig = (el.dataset.originalValue || '').trim();
       if (val !== orig) fields.push({ name: name, value: val });
     });
+    // Comb fields — reassemble characters into one value per field
+    var combGroups = {};
+    document.querySelectorAll('.pdf-comb-char').forEach(function (el) {
+      var name = el.dataset.fieldName;
+      if (!name) return;
+      if (!combGroups[name]) combGroups[name] = { chars: [], orig: el.dataset.originalValue || '', total: parseInt(el.dataset.combTotal) };
+      combGroups[name].chars[parseInt(el.dataset.combIndex)] = el.value || '';
+    });
+    Object.keys(combGroups).forEach(function (name) {
+      var g = combGroups[name];
+      var val = '';
+      for (var i = 0; i < g.total; i++) val += (g.chars[i] || '');
+      if (val !== g.orig) fields.push({ name: name, value: val });
+    });
+    // Checkboxes
     document.querySelectorAll('.pdf-checkbox-field').forEach(function (el) {
       var name = el.dataset.fieldName;
       if (!name) return;
       var val = el.checked ? 'Yes' : 'Off';
       if (val !== (el.dataset.originalValue || 'Off')) fields.push({ name: name, value: val });
     });
+    // Radio buttons
     document.querySelectorAll('.pdf-radio-field:checked').forEach(function (el) {
       var name = el.dataset.fieldName;
       if (!name || seen[name]) return;
