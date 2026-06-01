@@ -1160,7 +1160,7 @@ async function getGmailClient(userEmail) {
     var jwtClient = new google.auth.JWT({
       email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
       key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
+      scopes: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.labels', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
       subject: userEmail
     });
     await jwtClient.authorize();
