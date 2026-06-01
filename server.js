@@ -30831,7 +30831,6 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Don't upload to Drive/MyDocuments yet — only when RSO sends to AHPRA
     // Drive + MyDocuments update happens via the send-to-AHPRA handler
-    } catch (e) {}
 
     await _logCaseEvent(caseId, taskId, 'system', 'RSO edited ' + result.amended + ' SPPA field(s) inline', fieldUpdates.map(function(u) { return u.name; }).join(', '), admin.email);
     sendJson(res, 200, { ok: true, amended: result.amended });
