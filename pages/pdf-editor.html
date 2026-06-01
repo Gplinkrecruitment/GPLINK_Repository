@@ -54,6 +54,18 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
 }
 .pdf-comb-char:hover { background:#fffde6; border-color:#93c5fd; }
 .pdf-comb-char:focus { background:#fffde6; border-color:#3b82f6; outline:none; z-index:10; }
+.pdf-comb-sep {
+  position:absolute; color:#666; font-weight:700; pointer-events:none;
+  display:flex; align-items:center; justify-content:center;
+}
+.pdf-highlight-field {
+  outline:3px solid #f59e0b; outline-offset:2px; border-radius:3px;
+  animation: highlight-pulse 1.5s ease-in-out 3;
+}
+@keyframes highlight-pulse {
+  0%,100% { outline-color:#f59e0b; }
+  50% { outline-color:#ef4444; }
+}
 .pdf-checkbox-field, .pdf-radio-field {
   cursor:pointer; opacity:0.6; accent-color:#3b82f6;
 }
@@ -118,6 +130,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
     throw new Error('No taskId');
   }
 
+  var highlightField = new URLSearchParams(location.search).get('highlight') || '';
   var currentScale = 1.5;
   var pdf = null;
   var renderedPages = {};
@@ -149,6 +162,21 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
     container.style.width = vp.width + 'px';
     container.style.height = vp.height + 'px';
     viewer.appendChild(container);
+  }
+
+  // ── Find highlight target page (if amendment field specified) ──
+  var highlightPageNum = 0;
+  if (highlightField) {
+    var hf = highlightField.toLowerCase();
+    for (var hp = 1; hp <= pdf.numPages; hp++) {
+      var hPage = await pdf.getPage(hp);
+      var hAnnots = await hPage.getAnnotations();
+      for (var ha = 0; ha < hAnnots.length; ha++) {
+        var fn = (hAnnots[ha].fieldName || '').toLowerCase();
+        if (fn && fn.indexOf(hf) !== -1) { highlightPageNum = hp; break; }
+      }
+      if (highlightPageNum) break;
+    }
   }
 
   // ── Lazy rendering via IntersectionObserver ──
@@ -214,6 +242,8 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
         // Debug: log text fields with maxLen to help identify comb fields
         if (maxLen > 0) console.log('[PDF Field]', annot.fieldName, 'maxLen=' + maxLen, 'comb=' + annot.comb, 'flags=' + annot.fieldFlags, 'isComb=' + isComb);
         if (isComb && maxLen > 0 && !annot.multiLine) {
+          // Date fields (8 chars = DDMMYYYY): add "/" separators after DD and MM
+          var isDate8 = (maxLen === 8);
           var charWidth = width / maxLen;
           var val = annot.fieldValue || '';
           for (var ci = 0; ci < maxLen; ci++) {
@@ -233,23 +263,36 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
             ce.style.height = height + 'px';
             ce.style.fontSize = fontSize + 'px';
             ce.title = (annot.fieldName || '') + ' [' + (ci + 1) + '/' + maxLen + ']';
-            // Auto-advance to next char on input
             ce.addEventListener('input', function (e) {
               if (e.target.value.length >= 1) {
                 var next = e.target.nextElementSibling;
-                if (next && next.classList.contains('pdf-comb-char')) next.focus();
+                // Skip separator spans
+                while (next && !next.classList.contains('pdf-comb-char')) next = next.nextElementSibling;
+                if (next) next.focus();
               }
             });
-            // Backspace goes to previous char
             ce.addEventListener('keydown', function (e) {
               if (e.key === 'Backspace' && e.target.value === '') {
                 var prev = e.target.previousElementSibling;
-                if (prev && prev.classList.contains('pdf-comb-char')) { prev.focus(); prev.select(); }
+                while (prev && !prev.classList.contains('pdf-comb-char')) prev = prev.previousElementSibling;
+                if (prev) { prev.focus(); prev.select(); }
               }
             });
             overlay.appendChild(ce);
+            // Add "/" separator after DD (index 1) and MM (index 3) for 8-char date fields
+            if (isDate8 && (ci === 1 || ci === 3)) {
+              var sep = document.createElement('span');
+              sep.className = 'pdf-comb-sep';
+              sep.textContent = '/';
+              sep.style.left = (left + (ci + 1) * charWidth - 2) + 'px';
+              sep.style.top = top + 'px';
+              sep.style.width = (charWidth * 0.5) + 'px';
+              sep.style.height = height + 'px';
+              sep.style.fontSize = fontSize + 'px';
+              overlay.appendChild(sep);
+            }
           }
-          return; // Skip normal element — comb chars already added
+          return;
         }
         if (annot.multiLine) {
           el = document.createElement('textarea');
@@ -301,6 +344,33 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
     });
 
     container.appendChild(overlay);
+
+    // Highlight amendment field if this is the target page
+    if (highlightField && num === highlightPageNum) {
+      var hf = highlightField.toLowerCase();
+      var target = overlay.querySelector('[data-field-name]');
+      // Find the first field whose name contains the highlight string
+      var allFields = overlay.querySelectorAll('[data-field-name]');
+      for (var fi = 0; fi < allFields.length; fi++) {
+        if ((allFields[fi].dataset.fieldName || '').toLowerCase().indexOf(hf) !== -1) {
+          target = allFields[fi];
+          break;
+        }
+      }
+      if (target) {
+        target.classList.add('pdf-highlight-field');
+        setTimeout(function () {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 200);
+        // Remove highlight after animation completes (4.5s = 3 x 1.5s)
+        setTimeout(function () { target.classList.remove('pdf-highlight-field'); }, 5000);
+      }
+    }
+  }
+
+  // If we have a highlight target, force-render that page immediately
+  if (highlightPageNum > 0) {
+    await renderPage(highlightPageNum);
   }
 
   // ── Zoom controls ──

@@ -4906,7 +4906,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         // Open PDF editor modal button
         h3 += '<div style="margin:10px 0">';
-        h3 += '<button class="ops-btn-secondary" onclick="openPdfEditor(\'' + escAttr(task.id) + '\')">Edit SPPA-00</button>';
+        h3 += '<button class="ops-btn-secondary" onclick="openPdfEditor(\'' + escAttr(task.id) + '\',\'' + escAttr(amendTarget.field || amendTarget.section || '') + '\')">Edit SPPA-00</button>';
         h3 += '</div>';
         // Save + AHPRA reply
         h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound,
@@ -8204,10 +8204,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── PDF Editor Modal ──
   var _pdfEditorTaskId = null;
 
-  function openPdfEditor(taskId) {
+  function openPdfEditor(taskId, amendField) {
     _pdfEditorTaskId = taskId;
     var iframe = document.getElementById('pdfEditorIframe');
-    iframe.src = '/pages/pdf-editor?taskId=' + encodeURIComponent(taskId);
+    var url = '/pages/pdf-editor?taskId=' + encodeURIComponent(taskId);
+    if (amendField) url += '&highlight=' + encodeURIComponent(amendField);
+    iframe.src = url;
     document.getElementById('pdfEditorOverlay').classList.add('open');
   }
 
