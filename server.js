@@ -27502,8 +27502,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // ── Gmail Label Management on VA assignment ──
     if (patch.assigned_va) {
-      (async function() {
-        try {
+      try {
           var labelCaseRes = await supabaseDbRequest('registration_cases',
             'select=user_id,practice_name,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
@@ -27570,16 +27569,14 @@ Return ONLY valid JSON with no markdown formatting:
             }
             console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
           }
-        } catch (err) {
-          console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
-        }
-      })();
+      } catch (err) {
+        console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
+      }
     }
 
     // ── Gmail Label Rename on practice_name change ──
     if (patch.practice_name) {
-      (async function() {
-        try {
+      try {
           var rnCaseRes = await supabaseDbRequest('registration_cases',
             'select=user_id,gmail_label_id,gmail_label_hello_id,assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var rnCase = rnCaseRes.ok && rnCaseRes.data && rnCaseRes.data[0] ? rnCaseRes.data[0] : null;
@@ -27607,10 +27604,9 @@ Return ONLY valid JSON with no markdown formatting:
           await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
             method: 'PATCH', body: { gmail_label_name: newVaLabel }
           });
-        } catch (err) {
-          console.error('[Gmail Labels] Rename on practice_name change failed:', err.message);
-        }
-      })();
+      } catch (err) {
+        console.error('[Gmail Labels] Rename on practice_name change failed:', err.message);
+      }
     }
 
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
