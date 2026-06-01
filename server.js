@@ -5705,7 +5705,7 @@ async function isStageAccessAllowed(email, pathname) {
   if (!stage) return true; // Not a gated page
 
   var bypassEmails = new Set(
-    String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au,smithmiller1234@gmail.com')
+    String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')
       .split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean)
   );
   if (bypassEmails.has(email.toLowerCase())) return true;
@@ -26833,7 +26833,7 @@ Return ONLY valid JSON with no markdown formatting:
     const incoming = sanitizeUserStateInput(body);
 
     // ── AHPRA locking: block AHPRA progress unless career is secured ──
-    const BYPASS_LOCK_EMAILS = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au,smithmiller1234@gmail.com').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
+    const BYPASS_LOCK_EMAILS = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
     if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email)) {
       // Need to check current state for career_secured
       const preCheckRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
@@ -32350,7 +32350,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    const BYPASS_LOCK_EMAILS_REG = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au,smithmiller1234@gmail.com').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
+    const BYPASS_LOCK_EMAILS_REG = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
     const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email);
     const steps = {
       career: { accessible: true, completed: careerSecured },

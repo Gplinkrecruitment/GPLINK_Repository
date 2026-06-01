@@ -3,6 +3,5 @@
  * Server-side reads from process.env.BYPASS_LOCK_EMAILS.
  */
 var BYPASS_LOCK_EMAILS = {
-  "hello@mygplink.com.au": true,
-  "smithmiller1234@gmail.com": true
+  "hello@mygplink.com.au": true
 };
