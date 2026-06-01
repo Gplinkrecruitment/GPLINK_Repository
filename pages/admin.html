@@ -5205,7 +5205,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var container=document.querySelector('[data-gp-task-detail="'+taskId+'"] .gp-task-detail-inner');
     if(!container)return;
     container.innerHTML='<div style="padding:12px;font-size:12px;color:var(--muted)">Loading\u2026</div>';
-    var task=(S.tasks||[]).find(function(t){return t.id===taskId;});
+    var task=(S.tasks||[]).find(function(t){return t.id===taskId;})||((S.va&&S.va.dashboard&&S.va.dashboard.todays_tasks)||[]).find(function(t){return t.id===taskId;});
     if(!task){container.innerHTML='<div style="padding:12px;color:var(--red)">Task not found</div>';return;}
     var pc=task.practice_contact||{};
     // Extract metadata fields for AHPRA tasks (enrichment may not have hoisted them)
