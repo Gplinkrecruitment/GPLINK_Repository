@@ -1829,7 +1829,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
   }
-  if (!isRegisteredVA && emailAddress !== MASTER_ARCHIVE_EMAIL) {
+  // Master archive email is receive-only — never process or create tasks from it
+  if (emailAddress === MASTER_ARCHIVE_EMAIL) {
+    console.log('[Gmail] Skipping task processing for master archive email:', emailAddress);
+    return;
+  }
+  if (!isRegisteredVA) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
     return;
   }
