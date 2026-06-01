@@ -30614,6 +30614,75 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── Amend RSO-owned SPPA field and re-upload ──
+  // ── Upload corrected SPPA-00 (RSO edited the PDF externally) ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-upload-corrected')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const body = await readJsonBody(req);
+    var fileDataUrl = String((body && body.file_data_url) || '');
+    var fileName = String((body && body.file_name) || 'SPPA-00 (Corrected).pdf');
+    if (!fileDataUrl) { sendJson(res, 400, { error: 'file_data_url required' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+
+    // Find the SPPA-00 task for this case
+    var sppaTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&related_document_key=eq.sppa_00&limit=1');
+    var sppaTaskId = (sppaTaskRes.ok && sppaTaskRes.data && sppaTaskRes.data[0]) ? sppaTaskRes.data[0].id : null;
+    if (!sppaTaskId) { sendJson(res, 404, { error: 'SPPA-00 task not found' }); return; }
+
+    // Mark old docs as not current on the SPPA task
+    await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(sppaTaskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv',
+      { method: 'PATCH', body: { is_current: false } });
+
+    // Extract buffer
+    var commaIdx = fileDataUrl.indexOf(',');
+    var b64 = fileDataUrl.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+    var pdfBuffer = Buffer.from(b64, 'base64');
+
+    // Store on the SPPA task
+    var newDocRes = await supabaseDbRequest('task_documents', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{
+        task_id: sppaTaskId, case_id: task.case_id,
+        filename: fileName, mime_type: 'application/pdf', size_bytes: pdfBuffer.length,
+        is_current: true, uploaded_by: 'admin_rso_correction',
+        attachment_url: fileDataUrl
+      }]
+    });
+    var newDocId = (newDocRes.ok && newDocRes.data && newDocRes.data[0]) ? newDocRes.data[0].id : null;
+
+    // Also store on the AHPRA task so the send-to-AHPRA handler can attach it
+    await supabaseDbRequest('task_documents', '', {
+      method: 'POST', body: [{
+        task_id: taskId, case_id: task.case_id,
+        filename: fileName, mime_type: 'application/pdf', size_bytes: pdfBuffer.length,
+        is_current: true, uploaded_by: 'admin_rso_correction',
+        attachment_url: fileDataUrl
+      }]
+    });
+
+    // Upload to Drive (replace existing SPPA)
+    _uploadSppaDocToDrive(task.case_id, newDocId, pdfBuffer, 'SPPA-00 (Corrected).pdf').catch(function (e) { console.error('[SPPA Upload] Drive error:', e.message); });
+
+    // Deliver to GP MyDocuments
+    try {
+      var _cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      var _uid = (_cRes.ok && _cRes.data && _cRes.data[0]) ? _cRes.data[0].user_id : null;
+      if (_uid) await deliverToMyDocuments(_uid, task.case_id, 'sppa_00', 'SPPA-00 Completed.pdf', pdfBuffer, 'application/pdf');
+    } catch (delErr) { console.error('[SPPA Upload] MyDocuments error:', delErr.message); }
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'RSO uploaded corrected SPPA-00: ' + fileName, null, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Amend RSO-owned SPPA field programmatically ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-amend-field')) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
