@@ -30209,9 +30209,29 @@ Return ONLY valid JSON with no markdown formatting:
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     const taskId = pathname.split('/')[5];
-    const docRes = await supabaseDbRequest('task_documents',
-      'select=attachment_url&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
-    const doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
+
+    // Try direct task_id first
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+    var doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
+
+    // Fallback: resolve SPPA task via case_id (for AHPRA amendment tasks)
+    if (!doc || !doc.attachment_url) {
+      var taskRes = await supabaseDbRequest('registration_tasks',
+        'select=case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      if (taskRes.ok && taskRes.data && taskRes.data[0]) {
+        var caseId = taskRes.data[0].case_id;
+        var sppaTaskRes = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.sppa_00&limit=1');
+        var sppaTaskId = (sppaTaskRes.ok && sppaTaskRes.data && sppaTaskRes.data[0]) ? sppaTaskRes.data[0].id : null;
+        if (sppaTaskId) {
+          docRes = await supabaseDbRequest('task_documents',
+            'select=attachment_url&task_id=eq.' + encodeURIComponent(sppaTaskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+          doc = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0] : null;
+        }
+      }
+    }
+
     if (!doc || !doc.attachment_url) { sendJson(res, 404, { error: 'No SPPA PDF found' }); return; }
 
     const commaIdx = doc.attachment_url.indexOf(',');
