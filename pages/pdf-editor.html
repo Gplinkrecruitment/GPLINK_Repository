@@ -40,12 +40,12 @@ body { background:#64748b; font-family:-apple-system,BlinkMacSystemFont,'Segoe U
 
 .pdf-field { position:absolute; box-sizing:border-box; }
 .pdf-text-field {
-  background:rgba(255,255,200,0.25); border:1px solid transparent;
-  font-size:10px; padding:1px 3px; font-family:Arial,Helvetica,sans-serif;
-  color:#1e293b; line-height:1.2;
+  background:#fff; border:1px solid transparent;
+  padding:1px 3px; font-family:Helvetica,Arial,sans-serif;
+  color:#000; line-height:1.15;
 }
-.pdf-text-field:hover { background:rgba(255,255,200,0.5); border-color:#93c5fd; }
-.pdf-text-field:focus { background:rgba(255,255,200,0.7); border-color:#3b82f6; outline:none; z-index:10; }
+.pdf-text-field:hover { background:#fffde6; border-color:#93c5fd; }
+.pdf-text-field:focus { background:#fffde6; border-color:#3b82f6; outline:none; z-index:10; }
 textarea.pdf-text-field { resize:none; overflow:hidden; }
 .pdf-checkbox-field, .pdf-radio-field {
   cursor:pointer; opacity:0.6; accent-color:#3b82f6;
@@ -187,6 +187,11 @@ textarea.pdf-text-field { resize:none; overflow:hidden; }
       var width = Math.abs(p2[0] - p1[0]);
       var height = Math.abs(p2[1] - p1[1]);
 
+      // Calculate font size from annotation data or field height
+      var fontSize = annot.fontSize && annot.fontSize > 0
+        ? Math.round(annot.fontSize * currentScale)
+        : Math.max(8, Math.round(height * 0.65));
+
       var el;
       if (annot.fieldType === 'Tx') {
         if (annot.multiLine) {
@@ -201,6 +206,7 @@ textarea.pdf-text-field { resize:none; overflow:hidden; }
         el.dataset.fieldName = annot.fieldName || '';
         el.dataset.originalValue = annot.fieldValue || '';
         el.title = annot.fieldName || '';
+        el.style.fontSize = fontSize + 'px';
       } else if (annot.fieldType === 'Btn' && annot.checkBox) {
         el = document.createElement('input');
         el.type = 'checkbox';
