@@ -27850,6 +27850,12 @@ Return ONLY valid JSON with no markdown formatting:
               ahpraProgress.completed.verification_issued = false;
             }
 
+            // Set fresh timestamps so state-sync treats these as authoritative
+            var nowIso = new Date().toISOString();
+            epicProgress.updatedAt = nowIso;
+            amcProgress.updatedAt = nowIso;
+            ahpraProgress.updatedAt = nowIso;
+
             userState.gp_epic_progress = JSON.stringify(epicProgress);
             userState.gp_amc_progress = JSON.stringify(amcProgress);
             userState.gp_ahpra_progress = JSON.stringify(ahpraProgress);
