@@ -4727,7 +4727,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var defaultBody = draftBody || ('Dear ' + esc(ahpraOfficerName || 'AHPRA Officer') + ',<br><br>'
       + 'Please find the requested information/document(s) attached for Dr ' + esc(gpName) + '\'s application.<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team');
-    var h = '<div class="ops-email-composer-ahpra" id="opsAhpraComposer_' + esc(task.id) + '">';
+    var h = '<div class="ops-email-composer-ahpra" id="opsAhpraComposer_' + esc(task.id) + '" style="display:block">';
     h += '<div class="ops-expand-label">Reply to AHPRA Officer</div>';
     h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-ahpra-to="' + esc(task.id) + '" value="' + esc(ahpraOfficerEmail) + '" /></div>';
     h += '<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-ahpra-cc="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
