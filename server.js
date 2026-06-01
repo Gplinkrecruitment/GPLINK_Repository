@@ -30850,18 +30850,17 @@ Return ONLY valid JSON with no markdown formatting:
     });
     var newDocId = (newDocRes.ok && newDocRes.data && newDocRes.data[0]) ? newDocRes.data[0].id : null;
 
-    // Also store on the AHPRA task
+    // Mark any previous edited docs on the AHPRA task as not-current, then store new one
+    await supabaseDbRequest('task_documents',
+      'task_id=eq.' + encodeURIComponent(taskId) + '&uploaded_by=in.(admin_inline_edit,admin_field_amendment,admin_rso_correction)&is_current=eq.true',
+      { method: 'PATCH', body: { is_current: false } });
     await supabaseDbRequest('task_documents', '', {
       method: 'POST', body: [{ task_id: taskId, case_id: caseId, filename: 'SPPA-00 (Edited).pdf', mime_type: 'application/pdf',
         size_bytes: result.buffer.length, is_current: true, uploaded_by: 'admin_inline_edit', attachment_url: newDataUrl }]
     });
 
-    // Upload to Drive + deliver to MyDocuments
-    _uploadSppaDocToDrive(caseId, newDocId, result.buffer, 'SPPA-00 (Edited).pdf').catch(function (e) { console.error('[SPPA Edit] Drive error:', e.message); });
-    try {
-      var _cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-      var _uid = (_cRes.ok && _cRes.data && _cRes.data[0]) ? _cRes.data[0].user_id : null;
-      if (_uid) await deliverToMyDocuments(_uid, caseId, 'sppa_00', 'SPPA-00 Completed.pdf', result.buffer, 'application/pdf');
+    // Don't upload to Drive/MyDocuments yet — only when RSO sends to AHPRA
+    // Drive + MyDocuments update happens via the send-to-AHPRA handler
     } catch (e) {}
 
     await _logCaseEvent(caseId, taskId, 'system', 'RSO edited ' + result.amended + ' SPPA field(s) inline', fieldUpdates.map(function(u) { return u.name; }).join(', '), admin.email);

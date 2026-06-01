@@ -4911,13 +4911,37 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
       h3 += '</div>';
       if (amendTarget && amendTarget.owner === 'rso') {
-        // PDF preview
-        if (currentDocs.length > 0) {
-          h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Current SPPA-00</div>';
-          h3 += opsRenderDocs(currentDocs);
+        // Split docs into original and edited versions
+        var editedDoc = currentDocs.find(function(d) { return d.uploaded_by === 'admin_inline_edit' || d.uploaded_by === 'admin_field_amendment' || d.uploaded_by === 'admin_rso_correction'; });
+        var originalDoc = currentDocs.find(function(d) { return d !== editedDoc; }) || null;
+        // If no edited doc yet, show original as the only doc
+        h3 += '<div style="display:flex;gap:12px;margin:10px 0;flex-wrap:wrap">';
+        if (originalDoc) {
+          h3 += '<div style="flex:1;min-width:150px;opacity:0.5;border:1px solid #e2e8f0;border-radius:8px;padding:10px">';
+          h3 += '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">ORIGINAL</div>';
+          h3 += '<div style="font-size:12px;font-weight:600">' + esc(originalDoc.filename || 'SPPA-00.pdf') + '</div>';
+          if (originalDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(originalDoc.size_bytes / 1024) + 'KB</div>';
+          h3 += '<button data-preview-doc="' + esc(originalDoc.id) + '" data-preview-name="' + esc(originalDoc.filename || 'SPPA-00.pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '</div>';
         }
-        // Open PDF editor modal button
-        h3 += '<div style="margin:10px 0">';
+        if (editedDoc) {
+          h3 += '<div style="flex:1;min-width:150px;border:2px solid #3b82f6;border-radius:8px;padding:10px;background:#f0f7ff">';
+          h3 += '<div style="font-size:10px;font-weight:700;color:#2563eb;margin-bottom:4px">EDITED (will be sent)</div>';
+          h3 += '<div style="font-size:12px;font-weight:600">' + esc(editedDoc.filename || 'SPPA-00 (Edited).pdf') + '</div>';
+          if (editedDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(editedDoc.size_bytes / 1024) + 'KB</div>';
+          h3 += '<button data-preview-doc="' + esc(editedDoc.id) + '" data-preview-name="' + esc(editedDoc.filename || 'SPPA-00 (Edited).pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:#2563eb;font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '</div>';
+        } else if (!originalDoc && currentDocs.length > 0) {
+          // Fallback — show first doc
+          var fallbackDoc = currentDocs[0];
+          h3 += '<div style="flex:1;min-width:150px;border:1px solid #e2e8f0;border-radius:8px;padding:10px">';
+          h3 += '<div style="font-size:12px;font-weight:600">' + esc(fallbackDoc.filename || 'SPPA-00.pdf') + '</div>';
+          h3 += '<button data-preview-doc="' + esc(fallbackDoc.id) + '" data-preview-name="' + esc(fallbackDoc.filename || 'SPPA-00.pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '</div>';
+        }
+        h3 += '</div>';
+        // Edit button
+        h3 += '<div style="margin:8px 0">';
         h3 += '<button class="ops-btn-secondary" onclick="event.stopPropagation();openPdfEditor(\'' + escAttr(task.id) + '\',\'' + escAttr(amendTarget.field || amendTarget.section || '') + '\')">Edit SPPA-00</button>';
         h3 += '</div>';
         // Save + AHPRA reply
@@ -5818,16 +5842,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var docId=gpPreviewDoc.getAttribute("data-preview-doc");
         var fname=gpPreviewDoc.getAttribute("data-preview-name")||"document";
         var docData=null;
-        var allTasks=(S.tasks||[]).concat(S.opsTasks||[]);
-        for(var ot of allTasks){
-          if(S._opsDocCache&&S._opsDocCache[ot.id]){
-            docData=S._opsDocCache[ot.id].find(function(d){return d.id===docId;});
+        // Search all cached docs directly
+        if(S._opsDocCache){
+          for(var _cacheKey in S._opsDocCache){
+            docData=S._opsDocCache[_cacheKey].find(function(d){return d.id===docId;});
             if(docData)break;
           }
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available');
+        else alert('No document data available — try refreshing the page');
         return;
       }
 
