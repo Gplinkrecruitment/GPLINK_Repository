@@ -24,8 +24,7 @@
     "hello@mygplink.com.au": true
   };
   var BYPASS_LOCK_EMAILS = {
-    "hello@mygplink.com.au": true,
-    "smithmiller1234@gmail.com": true
+    "hello@mygplink.com.au": true
   };
   var PAGE_PATHS = {
     "/pages/index": true,
