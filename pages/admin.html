@@ -4690,6 +4690,43 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return h3;
   }
 
+  /* ── AHPRA Action Item helpers ── */
+  function _ahpraOfficerEmailHtml(firstInbound, ahpraOfficerEmail, task, gmailLink) {
+    var h = '';
+    if (firstInbound) {
+      h += '<div class="ops-original-email">';
+      h += '<div class="ops-expand-label">AHPRA Officer Request</div>';
+      h += '<div class="ops-email-from">' + esc(firstInbound.sender || ahpraOfficerEmail || '\u2014') + ' \u00B7 ' + opsFormatDate(firstInbound.created_at) + '</div>';
+      h += '<div class="ops-email-content">' + esc(opsSnippet(firstInbound.body_text || firstInbound.body_html || '', 400)) + '</div>';
+      if (gmailLink) h += '<a class="ops-action-link-inline" href="' + safeUrl(gmailLink) + '" target="_blank">Open full email \u2192</a>';
+      h += '</div>';
+    } else if (task.description) {
+      h += '<div class="ops-original-email">';
+      h += '<div class="ops-expand-label">AHPRA Action Required</div>';
+      h += '<div class="ops-email-content">' + esc(task.description) + '</div>';
+      h += '</div>';
+    }
+    return h;
+  }
+
+  function _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound, draftBody) {
+    var origSubject = (firstInbound && firstInbound.subject) ? 'Re: ' + firstInbound.subject : 'AHPRA Application \u2014 Dr ' + gpName;
+    var gmailThreadId = (firstInbound && firstInbound.gmail_thread_id) || '';
+    var defaultBody = draftBody || ('Dear ' + esc(ahpraOfficerName || 'AHPRA Officer') + ',<br><br>'
+      + 'Please find the requested information/document(s) attached for Dr ' + esc(gpName) + '\'s application.<br><br>'
+      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team');
+    var h = '<div class="ops-email-composer-ahpra" id="opsAhpraComposer_' + esc(task.id) + '">';
+    h += '<div class="ops-expand-label">Reply to AHPRA Officer</div>';
+    h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-ahpra-to="' + esc(task.id) + '" value="' + esc(ahpraOfficerEmail) + '" /></div>';
+    h += '<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-ahpra-cc="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
+    h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-ahpra-subject="' + esc(task.id) + '" value="' + esc(origSubject) + '" /></div>';
+    h += '<div class="ops-email-body" contenteditable="true" data-ahpra-body="' + esc(task.id) + '">' + defaultBody + '</div>';
+    h += '<input type="hidden" data-ahpra-thread="' + esc(task.id) + '" value="' + esc(gmailThreadId) + '" />';
+    h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-ahpra-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send to AHPRA</button></div>';
+    h += '</div>';
+    return h;
+  }
+
   /* ── AHPRA Action Item ── */
   function renderOpsAhpraActionItem(task,msgs,docs){
     var st=task.status||'open';
@@ -4712,6 +4749,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var lastInbound=gpResponseMsgs.length?gpResponseMsgs[gpResponseMsgs.length-1]:null;
     var gmailMsgId=task.source_gmail_message_id||'';
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
+    var meta = task.metadata || {};
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    var responseType = task.response_type || meta.response_type || 'request_from_gp';
+    var amendTarget = task.amend_target || meta.amend_target || null;
+    var draftResponse = task.draft_response || meta.draft_response || '';
+    var practiceEmail = (task.practice_contact && task.practice_contact.contactEmail) || '';
+    var practiceName = (task.practice_contact && task.practice_contact.contactName) || 'Practice Contact';
 
     // State B: GP responded with document
     if(hasGpResponse&&hasDoc){
@@ -4776,55 +4820,167 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h2;
     }
 
-    // State A: Initial (ball with Hazel, no outbound yet)
-    var h3='<div class="ops-expand-section">';
-    // Original AHPRA email
-    if(firstInbound){
-      h3+='<div class="ops-original-email">';
-      h3+='<div class="ops-expand-label">AHPRA Officer Request</div>';
-      h3+='<div class="ops-email-from">'+esc(firstInbound.sender||ahpraOfficerEmail||'\u2014')+' \u00B7 '+opsFormatDate(firstInbound.created_at)+'</div>';
-      h3+='<div class="ops-email-content">'+esc(opsSnippet(firstInbound.body_text||firstInbound.body_html||'',400))+'</div>';
-      if(gmailLink)h3+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open full email \u2192</a>';
-      h3+='</div>';
-    }else if(task.description){
-      h3+='<div class="ops-original-email">';
-      h3+='<div class="ops-expand-label">AHPRA Action Required</div>';
-      h3+='<div class="ops-email-content">'+esc(task.description)+'</div>';
-      h3+='</div>';
+    // State A: Initial — response_type-aware rendering
+    var h3 = '<div class="ops-expand-section">';
+
+    // Response type badge
+    var rtBadgeColor = { direct_reply: '#059669', request_from_gp: '#2563eb', request_from_practice: '#7c3aed', amend_document: '#dc2626', status_update: '#6b7280', escalation: '#dc2626' };
+    var rtBadgeLabel = { direct_reply: 'Direct Reply', request_from_gp: 'Request from GP', request_from_practice: 'Request from Practice', amend_document: 'Amendment Needed', status_update: 'Status Update', escalation: 'Escalation Required' };
+    h3 += '<div style="margin-bottom:8px"><span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;background:' + (rtBadgeColor[responseType] || '#6b7280') + '">' + (rtBadgeLabel[responseType] || responseType) + '</span></div>';
+
+    // Always show the AHPRA officer email
+    h3 += _ahpraOfficerEmailHtml(firstInbound, ahpraOfficerEmail, task, gmailLink);
+
+    // ── DIRECT REPLY ──
+    if (responseType === 'direct_reply') {
+      h3 += '<div class="ops-action-item-box" style="background:#ecfdf5;border-color:#10b981">';
+      h3 += '<div style="font-size:12px;font-weight:700;color:#065f46">You can answer this directly</div>';
+      h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || task.title || '') + '</div>';
+      h3 += '</div>';
+      if (currentDocs.length > 0) {
+        h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Documents on file (will be attached)</div>';
+        h3 += opsRenderDocs(currentDocs);
+      }
+      h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound, draftResponse);
+      h3 += '</div>';
+      return h3;
     }
-    // Action item box
-    h3+='<div class="ops-action-item-box">';
-    h3+='<div class="ops-expand-label">Action Required</div>';
-    h3+='<div style="font-size:12px;font-weight:700">'+esc(task.title||'\u2014')+'</div>';
-    if(task.description&&firstInbound)h3+='<div style="font-size:12px;color:#374151;margin-top:4px">'+esc(task.description)+'</div>';
-    h3+='</div>';
-    // WhatsApp/Email composer to GP
-    var defaultChannel='whatsapp';
-    h3+='<div class="ops-whatsapp-composer" id="opsGpComposer_'+esc(task.id)+'" data-current-channel="'+defaultChannel+'">';
-    h3+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
-    h3+='<span class="ops-channel-badge '+defaultChannel+'" id="opsChannelBadge_'+esc(task.id)+'">WhatsApp</span>';
-    h3+='<button class="ops-btn-sm" data-toggle-channel="'+esc(task.id)+'">Switch to Email</button>';
-    h3+='</div>';
-    // WhatsApp textarea
-    h3+='<div id="opsWaWrap_'+esc(task.id)+'">';
-    h3+='<textarea data-wa-message="'+esc(task.id)+'" placeholder="Message to GP\u2026">Hi Dr '+esc(gpName)+', AHPRA has requested the following for your application: '+esc(task.title||'')+'. '+esc(task.description||'')+'. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
-    h3+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-wa="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-phone="'+esc(gpPhone)+'" data-ops-flip-status="waiting_on_gp">Message GP</button></div>';
-    h3+='</div>';
-    // Email composer (hidden by default)
-    h3+='<div id="opsEmailWrap_'+esc(task.id)+'" style="display:none">';
-    h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="'+esc(task.id)+'" value="'+esc(gpEmail)+'" /></div>';
-    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="'+esc(task.id)+'" value="AHPRA Document Required \u2014 Dr '+esc(gpName)+'" /></div>';
-    h3+='<div class="ops-email-body" contenteditable="true" data-gp-email-body="'+esc(task.id)+'">'
-      +'Hi Dr '+esc(gpName)+',<br><br>'
-      +'AHPRA has requested the following for your application: <strong>'+esc(task.title||'')+'</strong>.<br><br>'
-      +esc(task.description||'')+'<br><br>'
-      +'Could you please send this through as soon as possible?<br><br>'
-      +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
-      +'</div>';
-    h3+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_gp">Send Email to GP</button></div>';
-    h3+='</div>';
-    h3+='</div>';
-    h3+='</div>';
+
+    // ── STATUS UPDATE ──
+    if (responseType === 'status_update') {
+      h3 += '<div class="ops-action-item-box" style="background:#f0f9ff;border-color:#3b82f6">';
+      h3 += '<div style="font-size:12px;font-weight:700;color:#1d4ed8">Application Status Update</div>';
+      h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || task.title || '') + '</div>';
+      h3 += '</div>';
+      h3 += '<div class="ops-action-row">';
+      h3 += '<button class="ops-btn-green" onclick="ahpraAcknowledge(\'' + escAttr(task.id) + '\')">Acknowledge &amp; Notify GP</button>';
+      h3 += '</div>';
+      h3 += '</div>';
+      return h3;
+    }
+
+    // ── ESCALATION ──
+    if (responseType === 'escalation') {
+      h3 += '<div class="ops-action-item-box" style="background:#fef2f2;border-color:#ef4444">';
+      h3 += '<div style="font-size:12px;font-weight:700;color:#dc2626">\u26a0 Escalation Required \u2014 CEO Review</div>';
+      h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || task.title || '') + '</div>';
+      h3 += '</div>';
+      h3 += '<div class="ops-action-row">';
+      h3 += '<button class="ops-btn-danger" onclick="ahpraEscalate(\'' + escAttr(task.id) + '\')">Escalate to CEO</button>';
+      h3 += '</div>';
+      h3 += '</div>';
+      return h3;
+    }
+
+    // ── AMEND DOCUMENT ──
+    if (responseType === 'amend_document') {
+      if (amendTarget) {
+        var ownerLabel = amendTarget.owner === 'rso' ? 'RSO (you can fix this directly)' : amendTarget.owner === 'gp' ? 'GP' : 'Practice';
+        var ownerColor = amendTarget.owner === 'rso' ? '#059669' : '#dc2626';
+        h3 += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:10px 12px;margin:10px 0;font-size:12px">';
+        h3 += '<strong>Amendment needed:</strong> ' + esc(amendTarget.document || '') + ' \u2014 ' + esc(amendTarget.section || amendTarget.field || '') + '<br>';
+        h3 += '<strong>Responsible:</strong> <span style="color:' + ownerColor + ';font-weight:700">' + esc(ownerLabel) + '</span>';
+        h3 += '</div>';
+      }
+      h3 += '<div class="ops-action-item-box">';
+      h3 += '<div style="font-size:12px;font-weight:700">Amendment Details</div>';
+      h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
+      h3 += '</div>';
+      if (amendTarget && amendTarget.owner === 'rso') {
+        h3 += '<div class="ops-action-row">';
+        h3 += '<button class="ops-btn-green" data-ops-email-ahpra="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Fix &amp; Reply to AHPRA</button>';
+        h3 += '</div>';
+        h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound, '');
+      } else if (amendTarget && amendTarget.owner === 'gp') {
+        // Show GP email/WhatsApp composer
+        var defaultChannel = 'email';
+        h3 += '<div class="ops-whatsapp-composer" id="opsGpComposer_' + esc(task.id) + '" data-current-channel="' + defaultChannel + '">';
+        h3 += '<div class="ops-expand-label">Request Correction from GP</div>';
+        h3 += '<div id="opsEmailWrap_' + esc(task.id) + '">';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Correction Required \u2014 Dr ' + esc(gpName) + '" /></div>';
+        h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
+          + 'Hi Dr ' + esc(gpName) + ',<br><br>'
+          + 'AHPRA has identified a correction needed on your application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+          + esc(task.description || '') + '<br><br>'
+          + 'Could you please provide the corrected information as soon as possible?<br><br>'
+          + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+          + '</div>';
+        h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send to GP</button></div>';
+        h3 += '</div></div>';
+      } else {
+        // Practice correction
+        h3 += '<div class="ops-whatsapp-composer">';
+        h3 += '<div class="ops-expand-label">Request Correction from Practice</div>';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Correction Required \u2014 Dr ' + esc(gpName) + '" /></div>';
+        h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
+          + 'Dear ' + esc(practiceName) + ',<br><br>'
+          + 'AHPRA has identified a correction needed on Dr ' + esc(gpName) + '\'s application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+          + esc(task.description || '') + '<br><br>'
+          + 'Could you please provide the corrected information?<br><br>'
+          + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+          + '</div>';
+        h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send to Practice</button></div>';
+        h3 += '</div>';
+      }
+      h3 += '</div>';
+      return h3;
+    }
+
+    // ── REQUEST FROM PRACTICE ──
+    if (responseType === 'request_from_practice') {
+      h3 += '<div class="ops-action-item-box">';
+      h3 += '<div class="ops-expand-label">Action Required \u2014 Contact Practice</div>';
+      h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
+      h3 += '</div>';
+      h3 += '<div class="ops-whatsapp-composer">';
+      h3 += '<div class="ops-expand-label">Email Practice</div>';
+      h3 += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
+      h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Request \u2014 Dr ' + esc(gpName) + '" /></div>';
+      h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
+        + 'Dear ' + esc(practiceName) + ',<br><br>'
+        + 'AHPRA has requested the following for Dr ' + esc(gpName) + '\'s registration: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+        + esc(task.description || '') + '<br><br>'
+        + 'Could you please provide this as soon as possible?<br><br>'
+        + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        + '</div>';
+      h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send to Practice</button></div>';
+      h3 += '</div>';
+      h3 += '</div>';
+      return h3;
+    }
+
+    // ── REQUEST FROM GP (default — existing behavior) ──
+    h3 += '<div class="ops-action-item-box">';
+    h3 += '<div class="ops-expand-label">Action Required</div>';
+    h3 += '<div style="font-size:12px;font-weight:700">' + esc(task.title || '\u2014') + '</div>';
+    if (task.description && firstInbound) h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description) + '</div>';
+    h3 += '</div>';
+    var defaultChannel = 'whatsapp';
+    h3 += '<div class="ops-whatsapp-composer" id="opsGpComposer_' + esc(task.id) + '" data-current-channel="' + defaultChannel + '">';
+    h3 += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
+    h3 += '<span class="ops-channel-badge ' + defaultChannel + '" id="opsChannelBadge_' + esc(task.id) + '">WhatsApp</span>';
+    h3 += '<button class="ops-btn-sm" data-toggle-channel="' + esc(task.id) + '">Switch to Email</button>';
+    h3 += '</div>';
+    h3 += '<div id="opsWaWrap_' + esc(task.id) + '">';
+    h3 += '<textarea data-wa-message="' + esc(task.id) + '" placeholder="Message to GP\u2026">Hi Dr ' + esc(gpName) + ', AHPRA has requested the following for your application: ' + esc(task.title || '') + '. ' + esc(task.description || '') + '. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
+    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-wa="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-phone="' + esc(gpPhone) + '" data-ops-flip-status="waiting_on_gp">Message GP</button></div>';
+    h3 += '</div>';
+    h3 += '<div id="opsEmailWrap_' + esc(task.id) + '" style="display:none">';
+    h3 += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
+    h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Document Required \u2014 Dr ' + esc(gpName) + '" /></div>';
+    h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
+      + 'Hi Dr ' + esc(gpName) + ',<br><br>'
+      + 'AHPRA has requested the following for your application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+      + esc(task.description || '') + '<br><br>'
+      + 'Could you please send this through as soon as possible?<br><br>'
+      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+      + '</div>';
+    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send Email to GP</button></div>';
+    h3 += '</div>';
+    h3 += '</div>';
+    h3 += '</div>';
     return h3;
   }
 
