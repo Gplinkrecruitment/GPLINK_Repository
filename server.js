@@ -27562,12 +27562,61 @@ Return ONLY valid JSON with no markdown formatting:
           // Create labels for the new VA
           var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
 
-          // Insert history messages into new VA's label
+          // Insert history messages into new VA's label (reassignment)
           if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
             for (var hi = 0; hi < historyMessages.length; hi++) {
               await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
             }
             console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
+          }
+
+          // Backfill: search VA's inbox for existing emails matching this GP
+          if (result.vaLabelId) {
+            try {
+              var gpEmailRes = await supabaseDbRequest('user_profiles',
+                'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+              var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
+              var practiceContact = (labelCase.practice_name ? (r.data && r.data[0] ? r.data[0].practice_contact : '') : '') || '';
+              var practiceDomain = practiceContact ? practiceContact.split('@')[1] : '';
+
+              var searchQueries = [];
+              if (gpEmail) searchQueries.push('from:' + gpEmail + ' OR to:' + gpEmail);
+              if (practiceDomain) searchQueries.push('from:@' + practiceDomain + ' OR to:@' + practiceDomain);
+
+              if (searchQueries.length > 0) {
+                var vaGmail = await getGmailClient(vaAcc.email_address);
+                if (vaGmail) {
+                  var searchQ = searchQueries.join(' OR ');
+                  var searchRes = await vaGmail.users.messages.list({
+                    userId: vaAcc.email_address, q: searchQ, maxResults: 50
+                  });
+                  var foundMsgs = (searchRes.data && searchRes.data.messages) || [];
+                  var labeledCount = 0;
+                  for (var si = 0; si < foundMsgs.length; si++) {
+                    await applyGmailLabel(vaAcc.email_address, foundMsgs[si].id, result.vaLabelId);
+                    labeledCount++;
+                  }
+                  // Also copy to hello@
+                  if (result.helloLabelId && labeledCount > 0) {
+                    for (var si2 = 0; si2 < foundMsgs.length; si2++) {
+                      try {
+                        var rawM = await vaGmail.users.messages.get({
+                          userId: vaAcc.email_address, id: foundMsgs[si2].id, format: 'raw'
+                        });
+                        if (rawM.data && rawM.data.raw) {
+                          await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
+                        }
+                      } catch (hErr) { /* skip individual message errors */ }
+                    }
+                  }
+                  if (labeledCount > 0) {
+                    console.log('[Gmail Labels] Backfilled', labeledCount, 'existing emails for', gpName);
+                  }
+                }
+              }
+            } catch (backfillErr) {
+              console.error('[Gmail Labels] Backfill failed:', backfillErr.message);
+            }
           }
       } catch (err) {
         console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
