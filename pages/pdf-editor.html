@@ -209,10 +209,14 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
       var el;
       if (annot.fieldType === 'Tx') {
         // Comb field — render individual character boxes (e.g. DD/MM/YYYY)
-        if (annot.comb && annot.maxLen && annot.maxLen > 0 && !annot.multiLine) {
-          var charWidth = width / annot.maxLen;
+        var isComb = annot.comb || ((annot.fieldFlags || 0) & 0x1000000) !== 0;
+        var maxLen = annot.maxLen || 0;
+        // Debug: log text fields with maxLen to help identify comb fields
+        if (maxLen > 0) console.log('[PDF Field]', annot.fieldName, 'maxLen=' + maxLen, 'comb=' + annot.comb, 'flags=' + annot.fieldFlags, 'isComb=' + isComb);
+        if (isComb && maxLen > 0 && !annot.multiLine) {
+          var charWidth = width / maxLen;
           var val = annot.fieldValue || '';
-          for (var ci = 0; ci < annot.maxLen; ci++) {
+          for (var ci = 0; ci < maxLen; ci++) {
             var ce = document.createElement('input');
             ce.type = 'text';
             ce.maxLength = 1;
@@ -220,7 +224,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
             ce.value = val.charAt(ci) || '';
             ce.dataset.fieldName = annot.fieldName || '';
             ce.dataset.combIndex = ci;
-            ce.dataset.combTotal = annot.maxLen;
+            ce.dataset.combTotal = maxLen;
             ce.dataset.originalValue = val;
             ce.style.position = 'absolute';
             ce.style.left = (left + ci * charWidth) + 'px';
@@ -228,7 +232,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
             ce.style.width = charWidth + 'px';
             ce.style.height = height + 'px';
             ce.style.fontSize = fontSize + 'px';
-            ce.title = (annot.fieldName || '') + ' [' + (ci + 1) + '/' + annot.maxLen + ']';
+            ce.title = (annot.fieldName || '') + ' [' + (ci + 1) + '/' + maxLen + ']';
             // Auto-advance to next char on input
             ce.addEventListener('input', function (e) {
               if (e.target.value.length >= 1) {
