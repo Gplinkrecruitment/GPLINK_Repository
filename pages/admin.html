@@ -775,6 +775,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .sppa-review-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
     .sppa-review-body iframe{flex:1;border:none;min-height:400px}
     .sppa-review-footer{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line)}
+    .pdf-editor-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:140;display:none;place-items:center}
+    .pdf-editor-overlay.open{display:grid}
+    .pdf-editor-panel{background:#fff;border-radius:16px;width:95vw;height:95vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden}
+    .pdf-editor-panel iframe{flex:1;border:none;width:100%;height:100%}
     .correction-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:130;display:none;place-items:center}
     .correction-overlay.open{display:grid}
     .correction-modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)}
@@ -1331,6 +1335,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="sppa-review-footer">
         <button class="btn primary" id="sppaApproveBtn" onclick="closeSppaReview()">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- PDF Editor Modal -->
+  <div class="pdf-editor-overlay" id="pdfEditorOverlay">
+    <div class="pdf-editor-panel">
+      <iframe id="pdfEditorIframe" src="about:blank"></iframe>
     </div>
   </div>
 
@@ -2475,8 +2486,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='</div>';
           html+='<div class="st-actions">';
           if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'){
-            // Expand/collapse detail panel on click
-            html+='<button class="st-primary-btn" data-gp-expand-task="'+esc(t.id)+'" style="background:#6366f1">\u2193 Open</button>';
+            // No button — row click expands (accordion style)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
@@ -4893,21 +4903,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Current SPPA-00</div>';
           h3 += opsRenderDocs(currentDocs);
         }
-        // Inline SPPA field editor — loads form fields from server
-        h3 += '<div id="sppaFieldEditor_' + esc(task.id) + '" style="margin:10px 0">';
-        h3 += '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Edit SPPA-00 Fields</div>';
-        h3 += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Loading form fields...</div>';
+        // Open PDF editor modal button
+        h3 += '<div style="margin:10px 0">';
+        h3 += '<button class="ops-btn-secondary" onclick="openPdfEditor(\'' + escAttr(task.id) + '\')">Edit SPPA-00</button>';
         h3 += '</div>';
-        h3 += '<script>loadSppaFieldEditor("' + escAttr(task.id) + '")<\/script>';
         // Save + AHPRA reply
         h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound,
           'Dear ' + esc(ahpraOfficerName || 'AHPRA Officer') + ',<br><br>'
           + 'Thank you for flagging the issue with ' + esc(amendTarget.field || amendTarget.section || 'the field') + ' on the SPPA-00 for Dr ' + esc(gpName) + '.<br><br>'
           + 'We have amended the document accordingly. Please find the corrected SPPA-00 attached.<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team');
-        h3 += '<div class="ops-action-row" style="margin-top:8px">';
-        h3 += '<button class="ops-btn-green" onclick="saveSppaFieldsAndSend(\'' + escAttr(task.id) + '\')">Save Changes &amp; Send to AHPRA</button>';
-        h3 += '</div>';
       } else if (amendTarget && amendTarget.owner === 'gp') {
         // Show GP email/WhatsApp composer
         var defaultChannel = 'email';
@@ -5816,7 +5821,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();
     });
-    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("pdfEditorOverlay").classList.contains("open")){closePdfEditor();return;}if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
     document.addEventListener("keydown",function(e){
       if(e.key==="Escape"){
         var ov=document.querySelector(".drive-overlay");
@@ -5859,6 +5864,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       reader.readAsDataURL(file);
     });
     document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
+    document.getElementById("pdfEditorOverlay").addEventListener("click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
@@ -8180,64 +8186,58 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   window.ahpraAcknowledge = ahpraAcknowledge;
-  async function loadSppaFieldEditor(taskId) {
-    var container = document.getElementById('sppaFieldEditor_' + taskId);
-    if (!container) return;
-    try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-form-fields', { credentials: 'include' });
-      var d = await r.json().catch(function () { return {}; });
-      if (!d.ok || !d.fields || d.fields.length === 0) {
-        container.innerHTML = '<div style="font-size:11px;color:var(--muted)">No editable form fields found.</div>';
-        return;
-      }
-      var h = '<div style="font-weight:700;font-size:12px;margin-bottom:8px">Edit SPPA-00 Fields <span style="font-weight:400;color:var(--muted)">(' + d.fields.length + ' fields)</span></div>';
-      h += '<div style="max-height:400px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px">';
-      d.fields.forEach(function (f) {
-        h += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f1f5f9">';
-        h += '<span style="min-width:200px;font-size:11px;font-weight:600;color:#374151">' + esc(f.name) + '</span>';
-        h += '<input data-sppa-field="' + esc(f.name) + '" value="' + esc(f.value) + '" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px" />';
-        h += '</div>';
-      });
-      h += '</div>';
-      container.innerHTML = h;
-    } catch (err) {
-      container.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load fields: ' + esc(err.message) + '</div>';
-    }
-  }
-  window.loadSppaFieldEditor = loadSppaFieldEditor;
+  // ── PDF Editor Modal ──
+  var _pdfEditorTaskId = null;
 
-  async function saveSppaFieldsAndSend(taskId) {
-    var inputs = document.querySelectorAll('[data-sppa-field]');
-    var updates = [];
-    inputs.forEach(function (inp) {
-      var name = inp.getAttribute('data-sppa-field');
-      var val = inp.value.trim();
-      var orig = inp.defaultValue.trim();
-      if (val !== orig) updates.push({ name: name, value: val });
-    });
-    if (updates.length === 0) {
-      // No field changes — just send the existing SPPA to AHPRA
-      var sendBtn = document.querySelector('[data-ops-send-ahpra-email="' + taskId + '"]');
-      if (sendBtn) sendBtn.click();
+  function openPdfEditor(taskId) {
+    _pdfEditorTaskId = taskId;
+    var iframe = document.getElementById('pdfEditorIframe');
+    iframe.src = '/pages/pdf-editor?taskId=' + encodeURIComponent(taskId);
+    document.getElementById('pdfEditorOverlay').classList.add('open');
+  }
+
+  function closePdfEditor() {
+    _pdfEditorTaskId = null;
+    document.getElementById('pdfEditorOverlay').classList.remove('open');
+    document.getElementById('pdfEditorIframe').src = 'about:blank';
+  }
+
+  window.addEventListener('message', async function (evt) {
+    if (!_pdfEditorTaskId) return;
+    var taskId = _pdfEditorTaskId;
+
+    if (evt.data && evt.data.type === 'sppa-editor-cancel') {
+      closePdfEditor();
       return;
     }
-    if (!confirm('Save ' + updates.length + ' field change(s) to the SPPA-00 and send to AHPRA?')) return;
-    try {
-      toast('Saving SPPA changes...');
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-save-fields', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: updates })
-      });
-      var d = await r.json().catch(function () { return {}; });
-      if (!d.ok) { toast('Save failed: ' + (d.error || ''), 'red'); return; }
-      toast(d.amended + ' field(s) updated. Now sending to AHPRA...');
-      // Now trigger the AHPRA send
-      var sendBtn = document.querySelector('[data-ops-send-ahpra-email="' + taskId + '"]');
-      if (sendBtn) sendBtn.click();
-    } catch (err) { toast('Error: ' + err.message, 'red'); }
-  }
-  window.saveSppaFieldsAndSend = saveSppaFieldsAndSend;
+
+    if (evt.data && evt.data.type === 'sppa-fields-saved') {
+      var fields = evt.data.fields || [];
+      if (fields.length === 0) {
+        closePdfEditor();
+        toast('No changes made');
+        return;
+      }
+      try {
+        toast('Saving ' + fields.length + ' field change(s)...');
+        var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-save-fields', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: fields })
+        });
+        var d = await r.json().catch(function () { return {}; });
+        if (!d.ok) { toast('Save failed: ' + (d.error || ''), 'red'); return; }
+        toast(d.amended + ' field(s) updated on SPPA-00');
+        closePdfEditor();
+        await loadAll(true);
+      } catch (err) {
+        toast('Error saving: ' + err.message, 'red');
+      }
+    }
+  });
+
+  window.openPdfEditor = openPdfEditor;
+  window.closePdfEditor = closePdfEditor;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
