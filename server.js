@@ -7449,8 +7449,9 @@ async function _processAhpraEmail(emailMeta) {
       if (triage.requested_documents.length) taskDetail += '\n\nRequested: ' + triage.requested_documents.join(', ');
     }
 
-    await supabaseDbRequest('registration_tasks', '', {
+    var _ahpraTaskRes = await supabaseDbRequest('registration_tasks', '', {
       method: 'POST',
+      headers: { Prefer: 'return=representation' },
       body: [{
         case_id: caseId,
         task_type: 'ahpra_correspondence',
@@ -7463,12 +7464,66 @@ async function _processAhpraEmail(emailMeta) {
         metadata: taskMeta
       }]
     });
+    var newTaskId = (_ahpraTaskRes.ok && _ahpraTaskRes.data && _ahpraTaskRes.data[0]) ? _ahpraTaskRes.data[0].id : null;
 
     await _logCaseEvent(caseId, null, 'system',
       'AHPRA email received — ' + triage.category,
       triage.summary,
       'ahpra_email_pipeline',
       { officer_email: triage.officer_email || emailMeta.sender });
+
+    // For direct_reply tasks, auto-attach on-file documents
+    if (newTaskId && triage.response_type === 'direct_reply' && triage.on_file_documents.length > 0) {
+      try {
+        var _gpUserId = matchedGp.user_id;
+        var _practiceDocKeys = ['sppa_00', 'position_description', 'offer_contract', 'supervisor_cv', 'section_g'];
+        for (var _ofk of triage.on_file_documents) {
+          if (_practiceDocKeys.indexOf(_ofk) >= 0) {
+            // Find the completed practice_pack_child task with this doc key, then get its current doc
+            var _srcTaskRes = await supabaseDbRequest('registration_tasks',
+              'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(_ofk) + '&status=eq.completed&limit=1');
+            if (_srcTaskRes.ok && _srcTaskRes.data && _srcTaskRes.data[0]) {
+              var _srcDocs = await supabaseDbRequest('task_documents',
+                'select=filename,attachment_url,mime_type,google_drive_file_id,google_drive_url&task_id=eq.' + encodeURIComponent(_srcTaskRes.data[0].id) + '&is_current=eq.true&limit=1');
+              if (_srcDocs.ok && _srcDocs.data && _srcDocs.data[0]) {
+                var _srcDoc = _srcDocs.data[0];
+                await supabaseDbRequest('task_documents', '', {
+                  method: 'POST', body: [{
+                    task_id: newTaskId, case_id: caseId,
+                    filename: _srcDoc.filename || (_ofk + '.pdf'), mime_type: _srcDoc.mime_type || 'application/pdf',
+                    google_drive_file_id: _srcDoc.google_drive_file_id || null,
+                    google_drive_url: _srcDoc.google_drive_url || null,
+                    attachment_url: _srcDoc.attachment_url || null,
+                    version: 1, is_current: true, uploaded_by: 'auto_on_file',
+                    category: 'on_file'
+                  }]
+                });
+              }
+            }
+          } else {
+            // User documents (qualification docs like primary_medical_degree, mrcgp_certificate, etc.)
+            var _userDocRes = await supabaseDbRequest('user_documents',
+              'select=file_name,google_drive_file_id&user_id=eq.' + encodeURIComponent(_gpUserId) +
+              '&document_key=eq.' + encodeURIComponent(_ofk) + '&status=eq.approved&limit=1');
+            if (_userDocRes.ok && _userDocRes.data && _userDocRes.data[0]) {
+              var _ud = _userDocRes.data[0];
+              var _driveUrl = _ud.google_drive_file_id ? 'https://drive.google.com/file/d/' + _ud.google_drive_file_id + '/view' : '';
+              await supabaseDbRequest('task_documents', '', {
+                method: 'POST', body: [{
+                  task_id: newTaskId, case_id: caseId,
+                  filename: _ud.file_name || (_ofk + '.pdf'), mime_type: 'application/pdf',
+                  google_drive_file_id: _ud.google_drive_file_id || null,
+                  google_drive_url: _driveUrl || null,
+                  version: 1, is_current: true, uploaded_by: 'auto_on_file',
+                  category: 'on_file'
+                }]
+              });
+            }
+          }
+        }
+        console.log('[AHPRA] Auto-attached', triage.on_file_documents.length, 'on-file doc(s) to task', newTaskId);
+      } catch (docErr) { console.error('[AHPRA] Auto-attach on-file docs error:', docErr.message); }
+    }
 
     console.log('[AHPRA Email] Created task: ' + taskTitle);
   } catch (err) {
