@@ -27888,6 +27888,7 @@ Return ONLY valid JSON with no markdown formatting:
             userState.gp_link_updates = stageUpdates;
 
             userState.gp_stage_override_at = nowIso;
+            userState.gp_admin_stage_override = JSON.stringify(patch.gp_verified_stage);
             userState.updatedAt = new Date().toISOString();
             await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
             console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage);

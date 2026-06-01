@@ -519,6 +519,21 @@
     var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
     var careerSecured = hasCareerSecured();
 
+    // Admin stage override — forces locking based on CEO-set stage
+    var adminOverride = parseStorage("gp_admin_stage_override");
+    if (adminOverride && typeof adminOverride === "string") {
+      var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
+      var overrideIdx = OVERRIDE_ORDER.indexOf(adminOverride);
+      if (overrideIdx >= 0) {
+        epicDone = overrideIdx > 1;
+        amcDone = overrideIdx > 2;
+        ahpraDone = overrideIdx > 4;
+        careerSecured = overrideIdx > 0;
+        if (!epicDone) epicCurrentLabel = EPIC_STAGE_LABELS.create_account;
+        if (!amcDone) amcCurrentLabel = AMC_STAGE_LABELS.create_portfolio;
+      }
+    }
+
     return {
       epicDone: epicDone,
       epicCurrentLabel: epicCurrentLabel,
