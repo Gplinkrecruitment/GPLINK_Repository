@@ -27784,7 +27784,7 @@ Return ONLY valid JSON with no markdown formatting:
         var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
         var stageUserId = updatedCase ? updatedCase.user_id : null;
         if (stageUserId) {
-          var STAGE_ORDER_MAP = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+          var STAGE_ORDER_MAP = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
           var selectedIdx = STAGE_ORDER_MAP.indexOf(patch.gp_verified_stage);
 
           if (selectedIdx >= 0) {
@@ -27808,7 +27808,8 @@ Return ONLY valid JSON with no markdown formatting:
             if (!ahpraProgress || typeof ahpraProgress !== 'object') ahpraProgress = {};
             if (!ahpraProgress.completed) ahpraProgress.completed = {};
 
-            if (selectedIdx > 0) {
+            // placement=0, myintealth=1, amc=2, career=3, ahpra=4, visa=5, pbs=6, commencement=7
+            if (selectedIdx > 1) {
               epicProgress.completed.verification_issued = true;
               epicProgress.stage = 'verification_issued';
             } else {
@@ -27816,7 +27817,7 @@ Return ONLY valid JSON with no markdown formatting:
               epicProgress.stage = 'create_account';
             }
 
-            if (selectedIdx > 1) {
+            if (selectedIdx > 2) {
               amcProgress.completed.qualifications_verified = true;
               amcProgress.stage = 'qualifications_verified';
             } else {
@@ -27824,7 +27825,7 @@ Return ONLY valid JSON with no markdown formatting:
               amcProgress.stage = 'create_portfolio';
             }
 
-            if (selectedIdx > 3) {
+            if (selectedIdx > 4) {
               ahpraProgress.completed.verification_issued = true;
             } else {
               ahpraProgress.completed.verification_issued = false;
