@@ -4887,10 +4887,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
       h3 += '</div>';
       if (amendTarget && amendTarget.owner === 'rso') {
-        h3 += '<div class="ops-action-row">';
-        h3 += '<button class="ops-btn-green" data-ops-email-ahpra="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Fix &amp; Reply to AHPRA</button>';
+        // Show current SPPA-00 PDF
+        if (currentDocs.length > 0) {
+          h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Current SPPA-00</div>';
+          h3 += opsRenderDocs(currentDocs);
+        }
+        // Amendment input form
+        h3 += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:10px 0">';
+        h3 += '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Amend Field: ' + esc(amendTarget.field || amendTarget.section || '') + '</div>';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">Field name:</span><input id="opsAmendField_' + esc(task.id) + '" value="' + esc(amendTarget.field || '') + '" placeholder="e.g. q17" /></div>';
+        h3 += '<div class="ops-email-field"><span class="ops-email-label">New value:</span><input id="opsAmendValue_' + esc(task.id) + '" value="" placeholder="Enter the corrected value" /></div>';
         h3 += '</div>';
-        h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound, '');
+        // AHPRA reply composer
+        h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound,
+          'Dear ' + esc(ahpraOfficerName || 'AHPRA Officer') + ',<br><br>'
+          + 'Thank you for flagging the issue with ' + esc(amendTarget.field || amendTarget.section || 'the field') + ' on the SPPA-00 for Dr ' + esc(gpName) + '.<br><br>'
+          + 'We have amended the document accordingly. Please find the corrected SPPA-00 attached.<br><br>'
+          + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team');
+        // Override send button to amend first then send
+        h3 += '<div class="ops-action-row" style="margin-top:8px">';
+        h3 += '<button class="ops-btn-green" onclick="sppaAmendAndSendToAhpra(\'' + escAttr(task.id) + '\')">Amend SPPA &amp; Send to AHPRA</button>';
+        h3 += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview Current PDF</button>';
+        h3 += '</div>';
       } else if (amendTarget && amendTarget.owner === 'gp') {
         // Show GP email/WhatsApp composer
         var defaultChannel = 'email';
@@ -7329,6 +7347,54 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     input.click();
   }
 
+  async function sppaAmendAndSendToAhpra(taskId) {
+    var fieldEl = document.getElementById('opsAmendField_' + taskId);
+    var valueEl = document.getElementById('opsAmendValue_' + taskId);
+    var fieldName = fieldEl ? fieldEl.value.trim() : '';
+    var newValue = valueEl ? valueEl.value.trim() : '';
+    if (!fieldName || !newValue) { toast('Enter both the field name and new value', 'red'); return; }
+    if (!confirm('This will amend "' + fieldName + '" on the SPPA-00 and send the corrected version to AHPRA. Continue?')) return;
+    try {
+      toast('Amending SPPA field...');
+      // Step 1: Amend the field on the PDF
+      var amendRes = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-amend-field', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field_name: fieldName, new_value: newValue })
+      });
+      var amendData = await amendRes.json().catch(function () { return {}; });
+      if (!amendData.ok) { toast('Amendment failed: ' + (amendData.error || 'unknown'), 'red'); return; }
+
+      // Step 2: Send the AHPRA email with auto-attach (uses the standard AHPRA send handler)
+      var toEl = document.querySelector('[data-ahpra-to="' + taskId + '"]');
+      var ccEl = document.querySelector('[data-ahpra-cc="' + taskId + '"]');
+      var subEl = document.querySelector('[data-ahpra-subject="' + taskId + '"]');
+      var bodyEl = document.querySelector('[data-ahpra-body="' + taskId + '"]');
+      var threadEl = document.querySelector('[data-ahpra-thread="' + taskId + '"]');
+      var toVal = toEl ? toEl.value.trim() : '';
+      var subVal = subEl ? subEl.value.trim() : '';
+      var bodyHtml = bodyEl ? bodyEl.innerHTML : '';
+      var ccVal = ccEl ? ccEl.value.trim() : '';
+      var threadId = threadEl ? threadEl.value.trim() : '';
+      if (!toVal) { toast('AHPRA officer email required', 'red'); return; }
+
+      var payload = { to: toVal, subject: subVal, bodyHtml: bodyHtml, taskId: taskId, caseId: '' };
+      if (ccVal) payload.cc = ccVal;
+      if (threadId) payload.threadId = threadId;
+      payload.autoAttachSppa = true; // Signal to attach the latest SPPA PDF
+
+      toast('Sending to AHPRA...');
+      var sendRes = await fetch('/api/admin/email/send', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      var sendData = await sendRes.json().catch(function () { return {}; });
+      if (!sendData.ok) { toast('Email send failed: ' + (sendData.message || ''), 'red'); return; }
+
+      // Step 3: Complete the task
+      await fetch('/api/admin/task?id=' + encodeURIComponent(taskId), { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) });
+
+      toast('SPPA amended, sent to AHPRA, and documents updated'); await loadAll(true);
+    } catch (err) { toast('Error: ' + err.message, 'red'); }
+  }
+
   async function ahpraAcknowledge(taskId) {
     if (!confirm('Acknowledge this AHPRA update and notify the GP?')) return;
     try {
@@ -8133,6 +8199,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   window.ahpraAcknowledge = ahpraAcknowledge;
+  window.sppaAmendAndSendToAhpra = sppaAmendAndSendToAhpra;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions

@@ -30657,9 +30657,31 @@ Return ONLY valid JSON with no markdown formatting:
     // Upload to Google Drive (replace existing)
     _uploadSppaDocToDrive(task.case_id, newDocId, amendedBuffer, 'SPPA-00 (Amended).pdf').catch(function (e) { console.error('[SPPA Amend] Drive upload error:', e.message); });
 
+    // Deliver amended SPPA to GP's MyDocuments
+    try {
+      var _amendCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      var _amendUserId = (_amendCaseRes.ok && _amendCaseRes.data && _amendCaseRes.data[0]) ? _amendCaseRes.data[0].user_id : null;
+      if (_amendUserId) {
+        await deliverToMyDocuments(_amendUserId, task.case_id, 'sppa_00', 'SPPA-00 Completed.pdf', amendedBuffer, 'application/pdf');
+      }
+    } catch (deliverErr) { console.error('[SPPA Amend] MyDocuments delivery error:', deliverErr.message); }
+
     await _logCaseEvent(task.case_id, taskId, 'system',
       'RSO amended SPPA field: ' + fieldName + ' → ' + newValue.substring(0, 100),
       null, admin.email);
+
+    // Also copy the amended doc to the AHPRA task so the renderer shows it
+    if (newDocId) {
+      await supabaseDbRequest('task_documents', '', {
+        method: 'POST', body: [{
+          task_id: taskId, case_id: task.case_id,
+          filename: 'SPPA-00 (Amended).pdf', mime_type: 'application/pdf',
+          size_bytes: amendedBuffer.length,
+          is_current: true, uploaded_by: 'admin_field_amendment',
+          attachment_url: amendedDataUrl
+        }]
+      });
+    }
 
     sendJson(res, 200, { ok: true, field: fieldName });
     return;
