@@ -4911,32 +4911,36 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
       h3 += '</div>';
       if (amendTarget && amendTarget.owner === 'rso') {
-        // Split docs into original and edited versions
+        // Split docs: edited version (blue, first) + original (greyed, second)
         var editedDoc = currentDocs.find(function(d) { return d.uploaded_by === 'admin_inline_edit' || d.uploaded_by === 'admin_field_amendment' || d.uploaded_by === 'admin_rso_correction'; });
         var originalDoc = currentDocs.find(function(d) { return d !== editedDoc; }) || null;
-        // If no edited doc yet, show original as the only doc
+        // Store doc URLs for direct preview access
+        if (!S._opsDocUrls) S._opsDocUrls = {};
+        currentDocs.forEach(function(d) { if (d.id && (d.attachment_url || d.google_drive_url)) S._opsDocUrls[d.id] = { url: d.attachment_url || d.google_drive_url, name: d.filename || 'SPPA-00.pdf' }; });
         h3 += '<div style="display:flex;gap:12px;margin:10px 0;flex-wrap:wrap">';
-        if (originalDoc) {
-          h3 += '<div style="flex:1;min-width:150px;opacity:0.5;border:1px solid #e2e8f0;border-radius:8px;padding:10px">';
-          h3 += '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">ORIGINAL</div>';
-          h3 += '<div style="font-size:12px;font-weight:600">' + esc(originalDoc.filename || 'SPPA-00.pdf') + '</div>';
-          if (originalDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(originalDoc.size_bytes / 1024) + 'KB</div>';
-          h3 += '<button data-preview-doc="' + esc(originalDoc.id) + '" data-preview-name="' + esc(originalDoc.filename || 'SPPA-00.pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
-          h3 += '</div>';
-        }
+        // EDITED first (blue border)
         if (editedDoc) {
           h3 += '<div style="flex:1;min-width:150px;border:2px solid #3b82f6;border-radius:8px;padding:10px;background:#f0f7ff">';
           h3 += '<div style="font-size:10px;font-weight:700;color:#2563eb;margin-bottom:4px">EDITED (will be sent)</div>';
           h3 += '<div style="font-size:12px;font-weight:600">' + esc(editedDoc.filename || 'SPPA-00 (Edited).pdf') + '</div>';
           if (editedDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(editedDoc.size_bytes / 1024) + 'KB</div>';
-          h3 += '<button data-preview-doc="' + esc(editedDoc.id) + '" data-preview-name="' + esc(editedDoc.filename || 'SPPA-00 (Edited).pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:#2563eb;font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '<button onclick="event.stopPropagation();_viewSppaDoc(\'' + esc(editedDoc.id) + '\')" style="margin-top:6px;font-size:10px;color:#2563eb;font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
           h3 += '</div>';
-        } else if (!originalDoc && currentDocs.length > 0) {
-          // Fallback — show first doc
+        }
+        // ORIGINAL second (greyed)
+        if (originalDoc) {
+          h3 += '<div style="flex:1;min-width:150px;opacity:0.5;border:1px solid #e2e8f0;border-radius:8px;padding:10px">';
+          h3 += '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">ORIGINAL</div>';
+          h3 += '<div style="font-size:12px;font-weight:600">' + esc(originalDoc.filename || 'SPPA-00.pdf') + '</div>';
+          if (originalDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(originalDoc.size_bytes / 1024) + 'KB</div>';
+          h3 += '<button onclick="event.stopPropagation();_viewSppaDoc(\'' + esc(originalDoc.id) + '\')" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '</div>';
+        }
+        if (!editedDoc && !originalDoc && currentDocs.length > 0) {
           var fallbackDoc = currentDocs[0];
           h3 += '<div style="flex:1;min-width:150px;border:1px solid #e2e8f0;border-radius:8px;padding:10px">';
           h3 += '<div style="font-size:12px;font-weight:600">' + esc(fallbackDoc.filename || 'SPPA-00.pdf') + '</div>';
-          h3 += '<button data-preview-doc="' + esc(fallbackDoc.id) + '" data-preview-name="' + esc(fallbackDoc.filename || 'SPPA-00.pdf') + '" onclick="event.stopPropagation()" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
+          h3 += '<button onclick="event.stopPropagation();_viewSppaDoc(\'' + esc(fallbackDoc.id) + '\')" style="margin-top:6px;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
           h3 += '</div>';
         }
         h3 += '</div>';
@@ -8292,6 +8296,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   });
 
   window.openPdfEditor = openPdfEditor;
+  function _viewSppaDoc(docId) {
+    var info = S._opsDocUrls && S._opsDocUrls[docId];
+    if (info && info.url) {
+      openDocPreviewModal(info.url, info.name, docId);
+    } else {
+      // Fallback: search all doc caches
+      var found = null;
+      if (S._opsDocCache) {
+        for (var k in S._opsDocCache) {
+          found = S._opsDocCache[k].find(function(d) { return d.id === docId; });
+          if (found) break;
+        }
+      }
+      if (found && (found.attachment_url || found.google_drive_url)) {
+        openDocPreviewModal(found.attachment_url || found.google_drive_url, found.filename || 'document', docId);
+      } else {
+        alert('Document data not available — try refreshing');
+      }
+    }
+  }
+  window._viewSppaDoc = _viewSppaDoc;
   window.closePdfEditor = closePdfEditor;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
