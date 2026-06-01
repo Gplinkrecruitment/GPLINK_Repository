@@ -30552,6 +30552,47 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Acknowledge AHPRA status update — notify GP + complete task ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/ahpra-acknowledge')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+    var taskMeta = task.metadata;
+    if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
+    if (!taskMeta) taskMeta = {};
+
+    // Get GP info to notify them
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    if (userId) {
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+      var gpEmail = String(prof.email || '').trim();
+      var gpName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+      if (gpEmail) {
+        var summary = taskMeta.summary || 'An update has been provided.';
+        await sendGmailEmail({
+          from: 'hazel@mygplink.com.au', to: gpEmail,
+          subject: 'AHPRA Application Update',
+          bodyHtml: 'Dear ' + gpName + ',<br><br>AHPRA has provided an update on your registration application:<br><br><strong>' + summary.replace(/\n/g, '<br>') + '</strong><br><br>No action is required from you at this time. We will keep you informed of any further developments.<br><br>Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        });
+      }
+    }
+
+    // Complete the task
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+      { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'AHPRA status update acknowledged — GP notified', taskMeta.summary || '', admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // ── Request GP corrections on returned SPPA-00 ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-request-gp-corrections')) {
     const admin = requireAdminSession(req, res);

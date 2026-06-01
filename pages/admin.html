@@ -7329,6 +7329,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     input.click();
   }
 
+  async function ahpraAcknowledge(taskId) {
+    if (!confirm('Acknowledge this AHPRA update and notify the GP?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/ahpra-acknowledge', {
+        method: 'POST', credentials: 'include'
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('AHPRA update acknowledged — GP notified'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function ahpraEscalate(taskId) {
+    var reason = prompt('Escalation reason:');
+    if (!reason) return;
+    try {
+      await fetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: 'urgent', escalated_to: 'ceo', escalation_reason: reason })
+      });
+      toast('Escalated to CEO'); await loadAll(true);
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
   async function sppaRequestGpCorrections(taskId, candidateEmail, gpName) {
     var corrections = prompt('What corrections does the GP need to make? (This will be included in the email)');
     if (!corrections) return;
@@ -8107,6 +8132,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaSubmitFinal = sppaSubmitFinal;
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
+  window.ahpraAcknowledge = ahpraAcknowledge;
+  window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
