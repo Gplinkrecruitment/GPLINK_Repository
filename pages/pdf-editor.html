@@ -46,7 +46,7 @@ body { background:#64748b; font-family:-apple-system,BlinkMacSystemFont,'Segoe U
 }
 .pdf-text-field:hover { background:#fffde6; border-color:#93c5fd; }
 .pdf-text-field:focus { background:#fffde6; border-color:#3b82f6; outline:none; z-index:10; }
-textarea.pdf-text-field { resize:none; overflow:hidden; }
+textarea.pdf-text-field { resize:none; overflow:auto; }
 .pdf-checkbox-field, .pdf-radio-field {
   cursor:pointer; opacity:0.6; accent-color:#3b82f6;
 }
@@ -187,10 +187,17 @@ textarea.pdf-text-field { resize:none; overflow:hidden; }
       var width = Math.abs(p2[0] - p1[0]);
       var height = Math.abs(p2[1] - p1[1]);
 
-      // Calculate font size from annotation data or field height
-      var fontSize = annot.fontSize && annot.fontSize > 0
-        ? Math.round(annot.fontSize * currentScale)
-        : Math.max(8, Math.round(height * 0.65));
+      // Calculate font size: use annotation fontSize if set, else a sensible default.
+      // fontSize=0 in PDF means "auto-size" — use 10pt scaled, capped to fit field.
+      var fontSize;
+      if (annot.fontSize && annot.fontSize > 0) {
+        fontSize = Math.round(annot.fontSize * currentScale);
+      } else {
+        fontSize = Math.round(10 * currentScale);
+      }
+      // Never exceed what fits in the field
+      var maxFontForHeight = Math.round(height * 0.75) - 2;
+      if (fontSize > maxFontForHeight) fontSize = Math.max(8, maxFontForHeight);
 
       var el;
       if (annot.fieldType === 'Tx') {
