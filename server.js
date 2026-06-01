@@ -2984,7 +2984,7 @@ async function insertSilentCopy(targetAccount, labelId, rawMessage) {
 }
 
 function buildCandidateLabelName(gpName, practiceName) {
-  var label = 'Expedited Specialist Pathway/Dr ' + (gpName || 'Unknown');
+  var label = 'Expedited Specialist Pathway/Assigned/Dr ' + (gpName || 'Unknown');
   if (practiceName && practiceName.trim()) {
     label += ' - ' + practiceName.trim();
   }
@@ -3024,8 +3024,8 @@ async function archiveLabelForVA(vaEmail, caseId) {
   var currentLabelId = caseRes.data[0].gmail_label_id;
   var currentLabelName = caseRes.data[0].gmail_label_name || '';
   if (!currentLabelId || !currentLabelName) return;
-  var gpPart = currentLabelName.replace(/^Expedited Specialist Pathway\//, '');
-  var archivedName = 'Archived/' + gpPart;
+  var gpPart = currentLabelName.replace(/^Expedited Specialist Pathway\/Assigned\//, '');
+  var archivedName = 'Expedited Specialist Pathway/Archived/' + gpPart;
   await renameGmailLabel(vaEmail, currentLabelId, archivedName);
 }
 
