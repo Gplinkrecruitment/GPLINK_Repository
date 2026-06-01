@@ -35509,7 +35509,7 @@ async function handleRequest(req, res) {
     }
   }
 
-  if (pathname !== '/pages/admin.html' && pathname !== '/pages/ceo-dashboard.html' && !isPublic && !session && (pathname.endsWith('.html') || pathname === '/')) {
+  if (pathname !== '/pages/admin.html' && pathname !== '/pages/ceo-dashboard.html' && !isPublic && !session && !adminSession && (pathname.endsWith('.html') || pathname === '/')) {
     if (AUTH_DISABLED) {
       if (shouldServeAppShell(url, pathname)) {
         serveStatic(req, res, '/pages/app-shell.html');
