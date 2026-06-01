@@ -5208,10 +5208,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var task=(S.tasks||[]).find(function(t){return t.id===taskId;});
     if(!task){container.innerHTML='<div style="padding:12px;color:var(--red)">Task not found</div>';return;}
     var pc=task.practice_contact||{};
+    // Extract metadata fields for AHPRA tasks (enrichment may not have hoisted them)
+    var _md=task.metadata||{};
+    if(typeof _md==='string')try{_md=JSON.parse(_md);}catch(e){_md={};}
     var adapted=Object.assign({},task,{
-      practice_contact_email:pc.contactEmail||task.practice_contact_email||'',
-      practice_contact_name:pc.contactName||task.practice_contact_name||'',
-      practice_name:pc.practiceName||task.practice_name||''
+      practice_contact_email:pc.contactEmail||pc.email||task.practice_contact_email||'',
+      practice_contact_name:pc.contactName||pc.name||task.practice_contact_name||'',
+      practice_name:pc.practiceName||task.practice_name||'',
+      ahpra_officer_name:task.ahpra_officer_name||_md.ahpra_officer_name||'',
+      ahpra_officer_email:task.ahpra_officer_email||_md.ahpra_officer_email||'',
+      response_type:task.response_type||_md.response_type||'request_from_gp',
+      amend_target:task.amend_target||_md.amend_target||null,
+      on_file_documents:task.on_file_documents||_md.on_file_documents||[],
+      draft_response:task.draft_response||_md.draft_response||null,
+      source_gmail_message_id:task.source_gmail_message_id||_md.source_gmail_message_id||''
     });
     var msgs=[],docs=[];
     try{
