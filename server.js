@@ -3281,7 +3281,8 @@ const USER_STATE_KEYS = [
   'gp_onboarding_complete',
   'gp_onboarding',
   'gp_registration_return_overrides',
-  'gp_amc_myintealth_id'
+  'gp_amc_myintealth_id',
+  'gp_admin_stage_override'
 ];
 
 const EPIC_STAGE_META = [
