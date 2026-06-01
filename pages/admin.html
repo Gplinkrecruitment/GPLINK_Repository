@@ -3915,13 +3915,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   async function saveCase(caseId){
+    const btn=document.querySelector('[data-save-case="'+caseId+'"]');
+    const origText=btn?btn.textContent:'';
+    if(btn){btn.disabled=true;btn.textContent='Saving…';}
     const fields={};
     document.querySelectorAll("[data-case-field]").forEach(el=>{
       const key=el.getAttribute("data-case-field");
       fields[key]=el.value||null;
     });
-    await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(fields)});
-    await loadAll(true);
+    try{
+      const res=await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(fields)});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      if(btn){btn.textContent='Saved ✓';btn.style.background='#16a34a';}
+      await loadAll(true);
+    }catch(err){
+      if(btn){btn.textContent='Failed';btn.style.background='#dc2626';}
+      console.error('saveCase error:',err);
+    }finally{
+      setTimeout(function(){if(btn){btn.disabled=false;btn.textContent=origText;btn.style.background='';}},2000);
+    }
   }
   async function addCaseNote(caseId){
     const input=document.getElementById("caseNoteInput")||document.getElementById("gpNoteInput");
@@ -4906,7 +4918,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         // Open PDF editor modal button
         h3 += '<div style="margin:10px 0">';
-        h3 += '<button class="ops-btn-secondary" onclick="openPdfEditor(\'' + escAttr(task.id) + '\',\'' + escAttr(amendTarget.field || amendTarget.section || '') + '\')">Edit SPPA-00</button>';
+        h3 += '<button class="ops-btn-secondary" onclick="event.stopPropagation();openPdfEditor(\'' + escAttr(task.id) + '\',\'' + escAttr(amendTarget.field || amendTarget.section || '') + '\')">Edit SPPA-00</button>';
         h3 += '</div>';
         // Save + AHPRA reply
         h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound,
