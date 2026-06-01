@@ -2297,16 +2297,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderCaseManagementForm(c){
-    var vaOpts='<option value=""'+((!c.assigned_va)?' selected':'')+'>Unassigned</option>';
-    if(S._vaAccounts&&S._vaAccounts.length){
-      S._vaAccounts.forEach(function(va){
-        vaOpts+='<option value="'+esc(va.user_id)+'"'+(c.assigned_va===va.user_id?' selected':'')+'>'+esc(va.display_name)+' ('+esc(va.email_address)+')</option>';
-      });
+    var vaFieldHtml='';
+    if(isSA()){
+      var vaOpts='<option value=""'+((!c.assigned_va)?' selected':'')+'>Unassigned</option>';
+      if(S._vaAccounts&&S._vaAccounts.length){
+        S._vaAccounts.forEach(function(va){
+          vaOpts+='<option value="'+esc(va.user_id)+'"'+(c.assigned_va===va.user_id?' selected':'')+'>'+esc(va.display_name)+' ('+esc(va.email_address)+')</option>';
+        });
+      }
+      vaFieldHtml='<div class="case-field"><label>Assigned RSO</label><select data-case-field="assigned_va">'+vaOpts+'</select></div>';
     }
     return`<div class="case-mgmt">
-      <div class="case-field"><label>Assigned RSO</label><select data-case-field="assigned_va">
-        ${vaOpts}
-      </select></div>
+      ${vaFieldHtml}
       <div class="case-field"><label>Status</label><select data-case-field="status">
         ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
