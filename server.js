@@ -1987,14 +1987,40 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           if (match.labelId) {
             await applyGmailLabel(emailAddress, currentMsgId, match.labelId);
           }
-          if (match.helloLabelId && emailAddress !== MASTER_ARCHIVE_EMAIL) {
+          var effectiveHelloLabelId = match.helloLabelId;
+          // Self-heal: if hello@ label ID is missing, try to create it now
+          if (!effectiveHelloLabelId && MASTER_ARCHIVE_EMAIL && emailAddress !== MASTER_ARCHIVE_EMAIL) {
+            try {
+              var healCase = await supabaseDbRequest('registration_cases',
+                'select=id,assigned_va,user_id,practice_name&id=eq.' + encodeURIComponent(match.caseId) + '&limit=1');
+              var hc = healCase.ok && healCase.data && healCase.data[0] ? healCase.data[0] : null;
+              if (hc && hc.assigned_va) {
+                var healVa = await supabaseDbRequest('va_gmail_accounts',
+                  'select=display_name&user_id=eq.' + encodeURIComponent(hc.assigned_va) + '&limit=1');
+                var healVaName = healVa.ok && healVa.data && healVa.data[0] ? healVa.data[0].display_name : null;
+                var healProfile = await supabaseDbRequest('user_profiles',
+                  'select=display_name&user_id=eq.' + encodeURIComponent(hc.user_id) + '&limit=1');
+                var healGpName = healProfile.ok && healProfile.data && healProfile.data[0] ? healProfile.data[0].display_name : null;
+                if (healVaName && healGpName) {
+                  var healResult = await createLabelsForCase(match.caseId, emailAddress, healVaName, healGpName, hc.practice_name);
+                  if (healResult && healResult.helloLabelId) {
+                    effectiveHelloLabelId = healResult.helloLabelId;
+                    console.log('[Gmail Labels] Self-healed hello@ label for case', match.caseId);
+                  }
+                }
+              }
+            } catch (healErr) {
+              console.error('[Gmail Labels] Self-heal failed for case', match.caseId, ':', healErr.message);
+            }
+          }
+          if (effectiveHelloLabelId && emailAddress !== MASTER_ARCHIVE_EMAIL) {
             try {
               var fullMsgRaw = await gmail.users.messages.get({
                 userId: emailAddress, id: currentMsgId, format: 'raw'
               });
               if (fullMsgRaw.data && fullMsgRaw.data.raw) {
                 var rawBytes = Buffer.from(fullMsgRaw.data.raw, 'base64');
-                await insertSilentCopy(MASTER_ARCHIVE_EMAIL, match.helloLabelId, rawBytes);
+                await insertSilentCopy(MASTER_ARCHIVE_EMAIL, effectiveHelloLabelId, rawBytes);
               }
             } catch (copyErr) {
               console.error('[Gmail Labels] hello@ copy failed for msg', currentMsgId, ':', copyErr.message);
@@ -2964,7 +2990,7 @@ async function applyGmailLabel(gmailAccount, messageId, labelId) {
     });
     return true;
   } catch (err) {
-    console.error('[Gmail Labels] applyLabel failed:', err.message);
+    console.error('[Gmail Labels] applyLabel failed on', gmailAccount, 'labelId=' + labelId, 'msgId=' + messageId, ':', err.message);
     return false;
   }
 }
@@ -3002,7 +3028,8 @@ function buildHelloLabelName(vaDisplayName, gpName, practiceName) {
   if (practiceName && practiceName.trim()) {
     gpPart += ' - ' + practiceName.trim();
   }
-  return 'Expedited Specialist Pathway/' + vaDisplayName + '/' + gpPart;
+  var safeVaName = String(vaDisplayName || 'Unknown').replace(/[\/\\]/g, '-').trim();
+  return 'Expedited Specialist Pathway/' + safeVaName + '/' + gpPart;
 }
 
 async function createLabelsForCase(caseId, vaEmail, vaDisplayName, gpName, practiceName) {
@@ -3010,14 +3037,34 @@ async function createLabelsForCase(caseId, vaEmail, vaDisplayName, gpName, pract
   var helloLabelName = buildHelloLabelName(vaDisplayName, gpName, practiceName);
 
   // Create parent labels explicitly to ensure Gmail shows proper nesting
-  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway');
-  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Assigned');
-  await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Archived');
-  var vaLabelId = await ensureGmailLabel(vaEmail, vaLabelName);
+  // VA labels: chain so child only created if parents succeed
+  var vaRoot = await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway');
+  var vaLabelId = null;
+  if (vaRoot) {
+    await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Assigned');
+    await ensureGmailLabel(vaEmail, 'Expedited Specialist Pathway/Archived');
+    vaLabelId = await ensureGmailLabel(vaEmail, vaLabelName);
+  } else {
+    console.error('[Gmail Labels] Failed to create root label on VA', vaEmail, '— skipping child labels');
+  }
 
-  await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway');
-  await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway/' + vaDisplayName);
-  var helloLabelId = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, helloLabelName);
+  // hello@ labels: chain parent → child, bail if parent fails
+  var helloLabelId = null;
+  if (MASTER_ARCHIVE_EMAIL) {
+    var helloRoot = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway');
+    if (helloRoot) {
+      var safeVaName = String(vaDisplayName || 'Unknown').replace(/[\/\\]/g, '-').trim();
+      var helloParent = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, 'Expedited Specialist Pathway/' + safeVaName);
+      if (helloParent) {
+        helloLabelId = await ensureGmailLabel(MASTER_ARCHIVE_EMAIL, helloLabelName);
+      } else {
+        console.error('[Gmail Labels] Failed to create VA parent label on hello@ for "' + safeVaName + '" — skipping child label');
+      }
+    } else {
+      console.error('[Gmail Labels] Failed to create root label on hello@ — skipping child labels');
+    }
+  }
+
   var patch = {};
   if (vaLabelId) patch.gmail_label_id = vaLabelId;
   if (helloLabelId) patch.gmail_label_hello_id = helloLabelId;
@@ -5638,6 +5685,47 @@ function mapRegistrationPath(pathname) {
   if (step === 'amc') return '/pages/amc.html';
   if (step === 'ahpra' || step === 'specialist-registration') return '/pages/ahpra.html';
   return null;
+}
+
+// ── Server-side stage access gate ──
+// Maps page paths to registration stages. If a user has admin-set overrides,
+// the server enforces them — prevents direct URL navigation to locked stages.
+const PAGE_STAGE_MAP = {
+  '/pages/myinthealth.html': 'myintealth',
+  '/pages/amc.html': 'amc',
+  '/pages/career.html': 'career',
+  '/pages/ahpra.html': 'ahpra',
+  '/pages/visa.html': 'visa',
+  '/pages/pbs.html': 'pbs',
+  '/pages/commencement.html': 'commencement'
+};
+
+async function isStageAccessAllowed(email, pathname) {
+  var stage = PAGE_STAGE_MAP[pathname];
+  if (!stage) return true; // Not a gated page
+
+  var bypassEmails = new Set(
+    String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au,smithmiller1234@gmail.com')
+      .split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean)
+  );
+  if (bypassEmails.has(email.toLowerCase())) return true;
+
+  var userState = null;
+  if (isSupabaseDbConfigured()) {
+    var row = await getSupabaseUserStateByEmail(email);
+    userState = row && row.state ? row.state : null;
+  } else {
+    userState = dbState.userState[email] || null;
+  }
+
+  if (!userState) return true; // New user, no state yet
+
+  var overrides = userState.gp_registration_return_overrides;
+  if (typeof overrides === 'string') try { overrides = JSON.parse(overrides); } catch(e) { overrides = null; }
+
+  if (!overrides || typeof overrides !== 'object') return true; // No overrides set — natural flow
+
+  return overrides[stage] === true;
 }
 
 function isAppShellSupportedPath(pathname) {
@@ -35469,6 +35557,25 @@ async function handleRequest(req, res) {
     res.writeHead(302, { Location: '/pages/signin' });
     res.end();
     return;
+  }
+
+  // Server-side stage access gate — block direct URL navigation to locked stages
+  if (session && PAGE_STAGE_MAP[pathname]) {
+    var gateEmail = getSessionEmail(session);
+    if (gateEmail) {
+      try {
+        var stageAllowed = await isStageAccessAllowed(gateEmail, pathname);
+        if (!stageAllowed) {
+          console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname, '(stage locked)');
+          res.writeHead(302, { Location: '/pages/index' });
+          res.end();
+          return;
+        }
+      } catch (gateErr) {
+        console.error('[Stage Gate] Error checking access, allowing through:', gateErr.message);
+        // Fail open — don't lock users out on transient DB errors
+      }
+    }
   }
 
   if (pathname === '/pages/signin.html' && session) {
