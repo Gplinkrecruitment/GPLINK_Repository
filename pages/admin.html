@@ -2312,13 +2312,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="case-field"><label>Status</label><select data-case-field="status">
         ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
-      <div class="case-field"><label>Blocker</label><select data-case-field="blocker_status">
-        <option value="" ${!c.blocker_status?"selected":""}>None</option>
-        ${["waiting_on_gp","waiting_on_practice","waiting_on_external","internal_review"].map(s=>`<option value="${s}" ${c.blocker_status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
-      </select></div>
-      <div class="case-field"><label>Follow-up Date</label><input type="date" data-case-field="next_followup_date" value="${c.next_followup_date||""}" /></div>
-      <div class="case-field"><label>Practice Name</label><input type="text" data-case-field="practice_name" value="${esc(c.practice_name||"")}" placeholder="Enter practice..." /></div>
-      <div class="case-field" style="grid-column:1/-1"><label>Handover Notes</label><textarea data-case-field="handover_notes" rows="2" placeholder="Notes for handover...">${esc(c.handover_notes||"")}</textarea></div>
       <div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
         <option value="" ${!c.gp_verified_stage?"selected":""}>Not verified</option>
         ${STEPS.map(s=>`<option value="${s.key}" ${c.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
