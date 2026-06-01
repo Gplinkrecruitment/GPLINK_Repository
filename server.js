@@ -7410,29 +7410,43 @@ async function _processAhpraEmail(emailMeta) {
       ahpra_officer_name: triage.officer_name,
       ahpra_officer_email: triage.officer_email || emailMeta.sender,
       category: triage.category,
+      response_type: triage.response_type || 'request_from_gp',
       summary: triage.summary,
       email_subject: emailMeta.subject,
-      email_date: emailMeta.date
+      email_date: emailMeta.date,
+      amend_target: triage.amend_target || null,
+      on_file_documents: triage.on_file_documents || [],
+      draft_response: triage.draft_response || null
     };
 
-    if (triage.category === 'conflict_followup') {
-      taskTitle = 'AHPRA conflict of interest follow-up — ' + (matchedGp.name || 'GP');
-      taskDetail = 'Email the practice contact asking them to email ' + (triage.officer_email || emailMeta.sender) +
-        ' explaining how potential future conflicts of interest will be managed (supervisor is also practice owner/director).';
-      taskMeta.requires_practice_contact_email = true;
-    } else if (triage.category === 'document_request') {
-      taskTitle = 'AHPRA document request — ' + (matchedGp.name || 'GP');
-      taskDetail = triage.summary + (triage.requested_documents.length ? '\n\nRequested: ' + triage.requested_documents.join(', ') : '');
-      taskMeta.requested_documents = triage.requested_documents;
-    } else if (triage.category === 'information_request') {
-      taskTitle = 'AHPRA information request — ' + (matchedGp.name || 'GP');
+    var taskPriority = 'normal';
+    if (triage.response_type === 'escalation') taskPriority = 'urgent';
+    else if (triage.category === 'conflict_followup') taskPriority = 'high';
+    else if (triage.response_type === 'amend_document') taskPriority = 'high';
+
+    if (triage.response_type === 'direct_reply') {
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP') + ' (direct reply)';
+      taskDetail = triage.summary + (triage.draft_response ? '\n\nSuggested response: ' + triage.draft_response : '');
+    } else if (triage.response_type === 'amend_document') {
+      var owner = triage.amend_target ? triage.amend_target.owner : 'unknown';
+      var ownerLabel = owner === 'rso' ? 'RSO fix' : owner === 'gp' ? 'GP correction' : 'practice correction';
+      taskTitle = 'AHPRA amendment request — ' + (matchedGp.name || 'GP') + ' (' + ownerLabel + ')';
       taskDetail = triage.summary;
-    } else if (triage.category === 'application_update') {
+      if (triage.amend_target) taskDetail += '\n\nDocument: ' + triage.amend_target.document + ', Section/Field: ' + (triage.amend_target.section || triage.amend_target.field || '?') + ', Owner: ' + owner;
+    } else if (triage.response_type === 'request_from_practice') {
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP') + ' (practice needed)';
+      taskDetail = triage.summary;
+    } else if (triage.response_type === 'status_update') {
       taskTitle = 'AHPRA application update — ' + (matchedGp.name || 'GP');
       taskDetail = triage.summary;
-    } else {
-      taskTitle = 'AHPRA correspondence — ' + (matchedGp.name || 'GP');
+    } else if (triage.response_type === 'escalation') {
+      taskTitle = 'AHPRA ESCALATION — ' + (matchedGp.name || 'GP');
       taskDetail = triage.summary;
+      taskMeta.escalated = true;
+    } else {
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP');
+      taskDetail = triage.summary;
+      if (triage.requested_documents.length) taskDetail += '\n\nRequested: ' + triage.requested_documents.join(', ');
     }
 
     await supabaseDbRequest('registration_tasks', '', {
@@ -7442,7 +7456,7 @@ async function _processAhpraEmail(emailMeta) {
         task_type: 'ahpra_correspondence',
         title: taskTitle,
         detail: taskDetail,
-        priority: triage.category === 'conflict_followup' ? 'high' : 'normal',
+        priority: taskPriority,
         status: 'open',
         source_trigger: 'ahpra_email',
         related_stage: 'ahpra',
@@ -29015,6 +29029,10 @@ Return ONLY valid JSON with no markdown formatting:
         ahpraExtra.ahpra_officer_email = _tMd.ahpra_officer_email || '';
         ahpraExtra.source_gmail_message_id = _tMd.source_gmail_message_id || '';
         ahpraExtra.ahpra_application_number = _tMd.ahpra_application_number || '';
+        ahpraExtra.response_type = _tMd.response_type || 'request_from_gp';
+        ahpraExtra.amend_target = _tMd.amend_target || null;
+        ahpraExtra.on_file_documents = _tMd.on_file_documents || [];
+        ahpraExtra.draft_response = _tMd.draft_response || null;
       }
       return Object.assign({}, t, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
