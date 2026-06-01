@@ -1298,16 +1298,31 @@
       const docs = parseStorage(DOC_KEY);
       const prepared = parseStorage(PREPARED_DOCS_KEY);
 
-      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      var epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
       const epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
-      const epicCurrentLabel = epicStageLabels[epicStage] || epicStageLabels.create_account;
+      var epicCurrentLabel = epicStageLabels[epicStage] || epicStageLabels.create_account;
 
-      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      var amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
-      const amcCurrentLabel = amcStageLabels[amcStage] || amcStageLabels.create_portfolio;
+      var amcCurrentLabel = amcStageLabels[amcStage] || amcStageLabels.create_portfolio;
 
-      const careerSecured = hasCareerSecured();
-      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      var careerSecured = hasCareerSecured();
+      var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+
+      // Admin stage override — forces locking based on CEO-set stage
+      var adminOverride = parseStorage("gp_admin_stage_override");
+      if (adminOverride && typeof adminOverride === "string") {
+        var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
+        var overrideIdx = OVERRIDE_ORDER.indexOf(adminOverride);
+        if (overrideIdx >= 0) {
+          epicDone = overrideIdx > 1;
+          amcDone = overrideIdx > 2;
+          ahpraDone = overrideIdx > 4;
+          careerSecured = overrideIdx > 0;
+          if (!epicDone) epicCurrentLabel = epicStageLabels.create_account;
+          if (!amcDone) amcCurrentLabel = amcStageLabels.create_portfolio;
+        }
+      }
 
       const isUkDocs = !!(docs && docs.country === "uk" && docs.docs && prepared && prepared.docs);
       const preparedUploaded = isUkDocs
