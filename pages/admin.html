@@ -4766,8 +4766,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var responseType = task.response_type || meta.response_type || 'request_from_gp';
     var amendTarget = task.amend_target || meta.amend_target || null;
     var draftResponse = task.draft_response || meta.draft_response || '';
-    var practiceEmail = (task.practice_contact && task.practice_contact.contactEmail) || '';
-    var practiceName = (task.practice_contact && task.practice_contact.contactName) || 'Practice Contact';
+    var practiceEmail = (task.practice_contact && (task.practice_contact.contactEmail || task.practice_contact.email)) || task.practice_contact_email || '';
+    var practiceName = (task.practice_contact && (task.practice_contact.contactName || task.practice_contact.name)) || task.practice_contact_name || 'Practice Contact';
 
     // State B: GP responded with document
     if(hasGpResponse&&hasDoc){
@@ -4924,7 +4924,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Correction Required \u2014 Dr ' + esc(gpName) + '" /></div>';
         h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
           + 'Hi Dr ' + esc(gpName) + ',<br><br>'
-          + 'AHPRA has identified a correction needed on your application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+          + 'AHPRA has identified a correction needed on your application.<br><br>'
           + esc(task.description || '') + '<br><br>'
           + 'Could you please provide the corrected information as soon as possible?<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
@@ -4939,7 +4939,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Correction Required \u2014 Dr ' + esc(gpName) + '" /></div>';
         h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
           + 'Dear ' + esc(practiceName) + ',<br><br>'
-          + 'AHPRA has identified a correction needed on Dr ' + esc(gpName) + '\'s application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+          + 'AHPRA has identified a correction needed on Dr ' + esc(gpName) + '\'s application.<br><br>'
           + esc(task.description || '') + '<br><br>'
           + 'Could you please provide the corrected information?<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
@@ -4963,7 +4963,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Request \u2014 Dr ' + esc(gpName) + '" /></div>';
       h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(practiceName) + ',<br><br>'
-        + 'AHPRA has requested the following for Dr ' + esc(gpName) + '\'s registration: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+        + 'AHPRA has requested the following for Dr ' + esc(gpName) + '\'s registration.<br><br>'
         + esc(task.description || '') + '<br><br>'
         + 'Could you please provide this as soon as possible?<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
@@ -4987,7 +4987,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h3 += '<button class="ops-btn-sm" data-toggle-channel="' + esc(task.id) + '">Switch to Email</button>';
     h3 += '</div>';
     h3 += '<div id="opsWaWrap_' + esc(task.id) + '">';
-    h3 += '<textarea data-wa-message="' + esc(task.id) + '" placeholder="Message to GP\u2026">Hi Dr ' + esc(gpName) + ', AHPRA has requested the following for your application: ' + esc(task.title || '') + '. ' + esc(task.description || '') + '. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
+    h3 += '<textarea data-wa-message="' + esc(task.id) + '" placeholder="Message to GP\u2026">Hi Dr ' + esc(gpName) + ', AHPRA has requested the following for your application: ' + esc(task.description || '') + '. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
     h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-wa="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-phone="' + esc(gpPhone) + '" data-ops-flip-status="waiting_on_gp">Message GP</button></div>';
     h3 += '</div>';
     h3 += '<div id="opsEmailWrap_' + esc(task.id) + '" style="display:none">';
@@ -4995,7 +4995,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Document Required \u2014 Dr ' + esc(gpName) + '" /></div>';
     h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
       + 'Hi Dr ' + esc(gpName) + ',<br><br>'
-      + 'AHPRA has requested the following for your application: <strong>' + esc(task.title || '') + '</strong>.<br><br>'
+      + 'AHPRA has requested the following for your application.<br><br>'
       + esc(task.description || '') + '<br><br>'
       + 'Could you please send this through as soon as possible?<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
