@@ -27723,6 +27723,85 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
+    // ── VA Verified Stage Propagation to GP ──
+    if (patch.gp_verified_stage) {
+      try {
+        var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+        var stageUserId = updatedCase ? updatedCase.user_id : null;
+        if (stageUserId) {
+          var STAGE_ORDER_MAP = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+          var selectedIdx = STAGE_ORDER_MAP.indexOf(patch.gp_verified_stage);
+
+          if (selectedIdx >= 0) {
+            var stateRes = await supabaseDbRequest('user_state',
+              'select=state,updated_at&user_id=eq.' + encodeURIComponent(stageUserId) + '&limit=1');
+            var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
+            var userState = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? Object.assign({}, stateRow.state) : {};
+
+            var epicProgress = userState.gp_epic_progress;
+            if (typeof epicProgress === 'string') try { epicProgress = JSON.parse(epicProgress); } catch (e) { epicProgress = {}; }
+            if (!epicProgress || typeof epicProgress !== 'object') epicProgress = {};
+            if (!epicProgress.completed) epicProgress.completed = {};
+
+            var amcProgress = userState.gp_amc_progress;
+            if (typeof amcProgress === 'string') try { amcProgress = JSON.parse(amcProgress); } catch (e) { amcProgress = {}; }
+            if (!amcProgress || typeof amcProgress !== 'object') amcProgress = {};
+            if (!amcProgress.completed) amcProgress.completed = {};
+
+            var ahpraProgress = userState.gp_ahpra_progress;
+            if (typeof ahpraProgress === 'string') try { ahpraProgress = JSON.parse(ahpraProgress); } catch (e) { ahpraProgress = {}; }
+            if (!ahpraProgress || typeof ahpraProgress !== 'object') ahpraProgress = {};
+            if (!ahpraProgress.completed) ahpraProgress.completed = {};
+
+            if (selectedIdx > 0) {
+              epicProgress.completed.verification_issued = true;
+              epicProgress.stage = 'verification_issued';
+            } else {
+              epicProgress.completed.verification_issued = false;
+              epicProgress.stage = 'create_account';
+            }
+
+            if (selectedIdx > 1) {
+              amcProgress.completed.qualifications_verified = true;
+              amcProgress.stage = 'qualifications_verified';
+            } else {
+              amcProgress.completed.qualifications_verified = false;
+              amcProgress.stage = 'create_portfolio';
+            }
+
+            if (selectedIdx > 3) {
+              ahpraProgress.completed.verification_issued = true;
+            } else {
+              ahpraProgress.completed.verification_issued = false;
+            }
+
+            userState.gp_epic_progress = JSON.stringify(epicProgress);
+            userState.gp_amc_progress = JSON.stringify(amcProgress);
+            userState.gp_ahpra_progress = JSON.stringify(ahpraProgress);
+
+            var overrides = {};
+            for (var oi = 0; oi < STAGE_ORDER_MAP.length; oi++) {
+              overrides[STAGE_ORDER_MAP[oi]] = oi <= selectedIdx;
+            }
+            userState.gp_registration_return_overrides = JSON.stringify(overrides);
+
+            var stageUpdates = [];
+            try { stageUpdates = Array.isArray(userState.gp_link_updates) ? userState.gp_link_updates : (typeof userState.gp_link_updates === 'string' ? JSON.parse(userState.gp_link_updates) : []); } catch (e) { stageUpdates = []; }
+            if (!Array.isArray(stageUpdates)) stageUpdates = [];
+            stageUpdates.unshift({ type: 'info', title: 'Registration Updated', detail: 'Your registration progress has been updated by your GP Link team.', ts: Date.now() });
+            if (stageUpdates.length > 50) stageUpdates.length = 50;
+            userState.gp_link_updates = stageUpdates;
+
+            userState.updatedAt = new Date().toISOString();
+            await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
+            console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage);
+          }
+        }
+      } catch (stageErr) {
+        console.error('[Stage Propagation] Failed:', stageErr.message);
+      }
+    }
+
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
     return;
   }
