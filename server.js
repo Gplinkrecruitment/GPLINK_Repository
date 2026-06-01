@@ -35464,7 +35464,7 @@ async function handleRequest(req, res) {
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
 
-  if (shouldProtectPath(pathname) && !session) {
+  if (shouldProtectPath(pathname) && !session && !adminSession) {
     res.writeHead(302, { Location: '/pages/signin' });
     res.end();
     return;
