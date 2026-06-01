@@ -4887,31 +4887,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || '') + '</div>';
       h3 += '</div>';
       if (amendTarget && amendTarget.owner === 'rso') {
-        // Show current SPPA-00 PDF for download/edit
-        h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Current SPPA-00</div>';
+        // PDF preview
         if (currentDocs.length > 0) {
+          h3 += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">Current SPPA-00</div>';
           h3 += opsRenderDocs(currentDocs);
         }
-        h3 += '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:10px 12px;margin:10px 0;font-size:12px">';
-        h3 += '<strong>Steps:</strong><br>1. Download the SPPA-00 above and edit ' + esc(amendTarget.field || amendTarget.section || 'the field') + ' directly<br>';
-        h3 += '2. Upload the corrected version below<br>';
-        h3 += '3. Send to AHPRA';
+        // Inline SPPA field editor — loads form fields from server
+        h3 += '<div id="sppaFieldEditor_' + esc(task.id) + '" style="margin:10px 0">';
+        h3 += '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Edit SPPA-00 Fields</div>';
+        h3 += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Loading form fields...</div>';
         h3 += '</div>';
-        // Upload corrected PDF
-        h3 += '<div style="margin:8px 0">';
-        h3 += '<label style="cursor:pointer;display:inline-block;padding:6px 14px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;font-weight:600">';
-        h3 += 'Upload Corrected SPPA-00 <input type="file" data-amend-upload="' + esc(task.id) + '" accept=".pdf" style="display:none">';
-        h3 += '</label>';
-        h3 += '<span class="amend-upload-status" id="opsAmendStatus_' + esc(task.id) + '" style="margin-left:8px;font-size:11px;color:var(--muted)"></span>';
-        h3 += '</div>';
-        // AHPRA reply composer
+        h3 += '<script>loadSppaFieldEditor("' + escAttr(task.id) + '")<\/script>';
+        // Save + AHPRA reply
         h3 += _ahpraReplyComposerHtml(task, ahpraOfficerName, ahpraOfficerEmail, gpName, gpEmail, firstInbound,
           'Dear ' + esc(ahpraOfficerName || 'AHPRA Officer') + ',<br><br>'
           + 'Thank you for flagging the issue with ' + esc(amendTarget.field || amendTarget.section || 'the field') + ' on the SPPA-00 for Dr ' + esc(gpName) + '.<br><br>'
           + 'We have amended the document accordingly. Please find the corrected SPPA-00 attached.<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team');
         h3 += '<div class="ops-action-row" style="margin-top:8px">';
-        h3 += '<button class="ops-btn-green" data-ops-send-ahpra-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send Corrected SPPA to AHPRA</button>';
+        h3 += '<button class="ops-btn-green" onclick="saveSppaFieldsAndSend(\'' + escAttr(task.id) + '\')">Save Changes &amp; Send to AHPRA</button>';
         h3 += '</div>';
       } else if (amendTarget && amendTarget.owner === 'gp') {
         // Show GP email/WhatsApp composer
@@ -8185,7 +8179,64 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   window.ahpraAcknowledge = ahpraAcknowledge;
-  window.sppaAmendAndSendToAhpra = sppaAmendAndSendToAhpra;
+  async function loadSppaFieldEditor(taskId) {
+    var container = document.getElementById('sppaFieldEditor_' + taskId);
+    if (!container) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-form-fields', { credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (!d.ok || !d.fields || d.fields.length === 0) {
+        container.innerHTML = '<div style="font-size:11px;color:var(--muted)">No editable form fields found.</div>';
+        return;
+      }
+      var h = '<div style="font-weight:700;font-size:12px;margin-bottom:8px">Edit SPPA-00 Fields <span style="font-weight:400;color:var(--muted)">(' + d.fields.length + ' fields)</span></div>';
+      h += '<div style="max-height:400px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px">';
+      d.fields.forEach(function (f) {
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f1f5f9">';
+        h += '<span style="min-width:200px;font-size:11px;font-weight:600;color:#374151">' + esc(f.name) + '</span>';
+        h += '<input data-sppa-field="' + esc(f.name) + '" value="' + esc(f.value) + '" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px" />';
+        h += '</div>';
+      });
+      h += '</div>';
+      container.innerHTML = h;
+    } catch (err) {
+      container.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load fields: ' + esc(err.message) + '</div>';
+    }
+  }
+  window.loadSppaFieldEditor = loadSppaFieldEditor;
+
+  async function saveSppaFieldsAndSend(taskId) {
+    var inputs = document.querySelectorAll('[data-sppa-field]');
+    var updates = [];
+    inputs.forEach(function (inp) {
+      var name = inp.getAttribute('data-sppa-field');
+      var val = inp.value.trim();
+      var orig = inp.defaultValue.trim();
+      if (val !== orig) updates.push({ name: name, value: val });
+    });
+    if (updates.length === 0) {
+      // No field changes — just send the existing SPPA to AHPRA
+      var sendBtn = document.querySelector('[data-ops-send-ahpra-email="' + taskId + '"]');
+      if (sendBtn) sendBtn.click();
+      return;
+    }
+    if (!confirm('Save ' + updates.length + ' field change(s) to the SPPA-00 and send to AHPRA?')) return;
+    try {
+      toast('Saving SPPA changes...');
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-save-fields', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: updates })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (!d.ok) { toast('Save failed: ' + (d.error || ''), 'red'); return; }
+      toast(d.amended + ' field(s) updated. Now sending to AHPRA...');
+      // Now trigger the AHPRA send
+      var sendBtn = document.querySelector('[data-ops-send-ahpra-email="' + taskId + '"]');
+      if (sendBtn) sendBtn.click();
+    } catch (err) { toast('Error: ' + err.message, 'red'); }
+  }
+  window.saveSppaFieldsAndSend = saveSppaFieldsAndSend;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
   // Phase 2 — Incoming Questions
