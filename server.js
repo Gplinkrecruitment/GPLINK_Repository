@@ -26784,9 +26784,23 @@ Return ONLY valid JSON with no markdown formatting:
       : currentLocal;
 
     const next = { ...current };
+    // Protect admin stage overrides from being overwritten by stale client state
+    var stageOverrideAt = current.gp_stage_override_at ? new Date(current.gp_stage_override_at).getTime() : 0;
+    var protectedKeys = stageOverrideAt ? ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress', 'gp_registration_return_overrides'] : [];
     for (const [key, value] of Object.entries(incoming)) {
       if (value === null) {
         delete next[key];
+      } else if (protectedKeys.indexOf(key) >= 0) {
+        // Only allow client to overwrite if its updatedAt is newer than the override
+        var clientUpdatedAt = 0;
+        try {
+          var parsed = typeof value === 'string' ? JSON.parse(value) : value;
+          if (parsed && parsed.updatedAt) clientUpdatedAt = new Date(parsed.updatedAt).getTime();
+        } catch (e) {}
+        if (clientUpdatedAt > stageOverrideAt) {
+          next[key] = value; // Client has genuinely newer data (GP completed a step after admin override)
+        }
+        // else: skip — keep admin's version
       } else {
         next[key] = value;
       }
@@ -27873,6 +27887,7 @@ Return ONLY valid JSON with no markdown formatting:
             if (stageUpdates.length > 50) stageUpdates.length = 50;
             userState.gp_link_updates = stageUpdates;
 
+            userState.gp_stage_override_at = nowIso;
             userState.updatedAt = new Date().toISOString();
             await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
             console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage);
