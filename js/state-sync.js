@@ -23,6 +23,8 @@
     'gp_amc_myintealth_id',
     'gp_admin_stage_override'
   ];
+  // Keys managed exclusively by admin endpoints — never push back to server
+  const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
   const SESSION_PROFILE_CACHE_KEY = 'gp_session_profile_cache';
@@ -77,6 +79,7 @@
     flushTrackedBatches();
     const payload = { state: {} };
     STATE_KEYS.forEach((key) => {
+      if (ADMIN_READONLY_KEYS.indexOf(key) >= 0) return;
       const raw = localStorage.getItem(key);
       if (raw !== null) payload.state[key] = raw;
     });
@@ -142,6 +145,8 @@
   }
 
   function chooseTrackedStateValue(key, localRaw, serverRaw) {
+    // Admin-only keys: always trust server
+    if (ADMIN_READONLY_KEYS.indexOf(key) >= 0) return typeof serverRaw === 'string' ? serverRaw : null;
     if (typeof localRaw !== 'string') return typeof serverRaw === 'string' ? serverRaw : null;
     if (typeof serverRaw !== 'string') return localRaw;
     if (localRaw === serverRaw) return localRaw;

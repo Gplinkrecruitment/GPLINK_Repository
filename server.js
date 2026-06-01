@@ -26873,11 +26873,17 @@ Return ONLY valid JSON with no markdown formatting:
       : currentLocal;
 
     const next = { ...current };
+    // Keys only writable by admin endpoints — client PUT /api/state silently drops them
+    var ADMIN_ONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];
     // Protect admin stage overrides from being overwritten by stale client state
     var stageOverrideAt = current.gp_stage_override_at ? new Date(current.gp_stage_override_at).getTime() : 0;
     var protectedKeys = stageOverrideAt ? ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress', 'gp_registration_return_overrides'] : [];
     for (const [key, value] of Object.entries(incoming)) {
+      // Admin-only keys: never writable by client state-sync
+      if (ADMIN_ONLY_KEYS.indexOf(key) >= 0) continue;
       if (value === null) {
+        // Don't allow client to delete admin-protected keys
+        if (protectedKeys.indexOf(key) >= 0) continue;
         delete next[key];
       } else if (protectedKeys.indexOf(key) >= 0) {
         // Only allow client to overwrite if its updatedAt is newer than the override

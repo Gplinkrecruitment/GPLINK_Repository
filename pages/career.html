@@ -48,6 +48,7 @@
   <script src="../js/native-bridge.js?v=20260527a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260527a"></script>
+  <script src="../js/bypass-config.js?v=20260602a"></script>
   <script src="../js/auth-guard.js?v=20260528a" defer></script>
   <script src="../js/state-sync.js?v=20260527a" defer></script>
   <script src="../js/updates-sync.js?v=20260527a" defer></script>
@@ -9611,11 +9612,11 @@
       return "pending";
     }
 
-    const CAREER_BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+    // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
 
     function buildPlacementChecklistItems(items) {
       const source = Array.isArray(items) ? items : [];
-      const bypassAll = !!CAREER_BYPASS_LOCK_EMAILS[careerSessionEmail];
+      const bypassAll = !!BYPASS_LOCK_EMAILS[careerSessionEmail];
       let blockedBy = null;
       return source.map((item, index) => {
         const status = normalizeChecklistStatus(item && item.status);

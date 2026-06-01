@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>MyIntealth - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260527a"></script>
+  <script src="/js/bypass-config.js?v=20260602a"></script>
   <script src="/js/auth-guard.js?v=20260528a" defer></script>
   <script src="/js/state-sync.js?v=20260527a" defer></script>
   <script src="/js/updates-sync.js?v=20260527a" defer></script>
@@ -1066,7 +1067,7 @@
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
-    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+    // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
     function getPageUserEmail() {
       try { var c = localStorage.getItem("gp_session_profile_cache"); if (c) { var p = JSON.parse(c); if (p && p.email) return String(p.email).trim().toLowerCase(); } } catch (e) {}
       try { return String(sessionStorage.getItem("gp_session_profile_cache") ? JSON.parse(sessionStorage.getItem("gp_session_profile_cache")).email : "").trim().toLowerCase(); } catch (e) {}

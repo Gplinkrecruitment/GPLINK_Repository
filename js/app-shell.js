@@ -23,10 +23,7 @@
   var REGISTRATION_INTRO_ALWAYS_EMAILS = {
     "hello@mygplink.com.au": true
   };
-  var BYPASS_LOCK_EMAILS = {
-    "hello@mygplink.com.au": true,
-    "smithmiller1234@gmail.com": true
-  };
+  // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
   var PAGE_PATHS = {
     "/pages/index": true,
     "/pages/myinthealth": true,
