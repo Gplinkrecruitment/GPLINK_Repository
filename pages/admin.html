@@ -4527,23 +4527,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since sent \u2014 consider a follow-up</div>';
       }
       h += opsRenderThread(msgs);
-      // Resend email composer (collapsed by default)
-      var resendTo = meta.sent_to_practice_email || practiceEmail;
-      h += '<div id="opsResendWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
+      // Nudge email composer (collapsed by default)
+      var nudgeTo = meta.sent_to_practice_email || practiceEmail;
+      h += '<div id="opsNudgeWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
       h += '<div class="ops-email-composer">';
-      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(resendTo) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(nudgeTo) + '" /></div>';
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
-        + 'This is a follow-up regarding the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + ' that was sent on ' + esc(meta.sent_to_practice_at ? new Date(meta.sent_to_practice_at).toLocaleDateString('en-AU') : '') + '.<br><br>'
-        + 'Could you please complete and return the signed document at your earliest convenience?<br><br>'
+        + 'Just following up on the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + ' that was sent on ' + esc(meta.sent_to_practice_at ? new Date(meta.sent_to_practice_at).toLocaleDateString('en-AU') : '') + '.<br><br>'
+        + 'Could you please complete and return the signed document at your earliest convenience? We need this to proceed with their AHPRA registration.<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
-      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Send</button></div>';
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send</button></div>';
       h += '</div></div>';
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Practice Return</button>';
-      h += '<button class="ops-btn-secondary" onclick="var w=document.getElementById(\'opsResendWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Resend to Practice</button>';
+      h += '<button class="ops-btn-secondary" onclick="var w=document.getElementById(\'opsNudgeWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Nudge Practice</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
