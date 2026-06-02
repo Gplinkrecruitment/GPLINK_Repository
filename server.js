@@ -7525,26 +7525,26 @@ async function _processAhpraEmail(emailMeta) {
     else if (triage.response_type === 'amend_document') taskPriority = 'high';
 
     if (triage.response_type === 'direct_reply') {
-      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP') + ' (direct reply)';
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' (direct reply)';
       taskDetail = triage.summary + (triage.draft_response ? '\n\nSuggested response: ' + triage.draft_response : '');
     } else if (triage.response_type === 'amend_document') {
       var owner = triage.amend_target ? triage.amend_target.owner : 'unknown';
       var ownerLabel = owner === 'rso' ? 'RSO fix' : owner === 'gp' ? 'GP correction' : 'practice correction';
-      taskTitle = 'AHPRA amendment request — ' + (matchedGp.name || 'GP') + ' (' + ownerLabel + ')';
+      taskTitle = 'AHPRA amendment request (' + ownerLabel + ')';
       taskDetail = triage.summary;
       if (triage.amend_target) taskDetail += '\n\nDocument: ' + triage.amend_target.document + ', Section/Field: ' + (triage.amend_target.section || triage.amend_target.field || '?') + ', Owner: ' + owner;
     } else if (triage.response_type === 'request_from_practice') {
-      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP') + ' (practice needed)';
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' (practice needed)';
       taskDetail = triage.summary;
     } else if (triage.response_type === 'status_update') {
-      taskTitle = 'AHPRA application update — ' + (matchedGp.name || 'GP');
+      taskTitle = 'AHPRA application update';
       taskDetail = triage.summary;
     } else if (triage.response_type === 'escalation') {
-      taskTitle = 'AHPRA ESCALATION — ' + (matchedGp.name || 'GP');
+      taskTitle = 'AHPRA ESCALATION';
       taskDetail = triage.summary;
       taskMeta.escalated = true;
     } else {
-      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ') + ' — ' + (matchedGp.name || 'GP');
+      taskTitle = 'AHPRA ' + triage.category.replace(/_/g, ' ');
       taskDetail = triage.summary;
       if (triage.requested_documents.length) taskDetail += '\n\nRequested: ' + triage.requested_documents.join(', ');
     }
