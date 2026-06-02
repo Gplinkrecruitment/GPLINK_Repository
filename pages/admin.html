@@ -4981,6 +4981,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           + 'Dear ' + esc(practiceName) + ',<br><br>'
           + 'AHPRA has identified a correction needed on Dr ' + esc(gpName) + '\'s application.<br><br>'
           + esc(task.description || '') + '<br><br>'
+          + (ahpraOfficerEmail ? 'Please send your response directly to the AHPRA Registration Officer, ' + esc(ahpraOfficerName || 'AHPRA Officer') + ', at <strong>' + esc(ahpraOfficerEmail) + '</strong>.<br><br>' : '')
           + 'Could you please provide the corrected information?<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
           + '</div>';
@@ -5005,6 +5006,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + 'Dear ' + esc(practiceName) + ',<br><br>'
         + 'AHPRA has requested the following for Dr ' + esc(gpName) + '\'s registration.<br><br>'
         + esc(task.description || '') + '<br><br>'
+        + (ahpraOfficerEmail ? 'Please send your response directly to the AHPRA Registration Officer, ' + esc(ahpraOfficerName || 'AHPRA Officer') + ', at <strong>' + esc(ahpraOfficerEmail) + '</strong>.<br><br>' : '')
         + 'Could you please provide this as soon as possible?<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
