@@ -4894,7 +4894,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || task.title || '') + '</div>';
       h3 += '</div>';
       h3 += '<div class="ops-action-row">';
-      h3 += '<button class="ops-btn-danger" onclick="ahpraEscalate(\'' + escAttr(task.id) + '\')">Escalate to CEO</button>';
+      var escalationReason = task.description || task.title || '';
+      h3 += '<button class="ops-btn-danger" onclick="ahpraEscalate(\'' + escAttr(task.id) + '\',\'' + escAttr(escalationReason) + '\')">Escalate to CEO</button>';
       h3 += '</div>';
       h3 += '</div>';
       return h3;
@@ -5020,23 +5021,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h3;
     }
 
-    // ── REQUEST FROM GP (default — existing behavior) ──
+    // ── REQUEST FROM GP (default — email only for AHPRA tasks) ──
     h3 += '<div class="ops-action-item-box">';
     h3 += '<div class="ops-expand-label">Action Required</div>';
     h3 += '<div style="font-size:12px;font-weight:700">' + esc(task.title || '\u2014') + '</div>';
     if (task.description && firstInbound) h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description) + '</div>';
     h3 += '</div>';
-    var defaultChannel = 'whatsapp';
-    h3 += '<div class="ops-whatsapp-composer" id="opsGpComposer_' + esc(task.id) + '" data-current-channel="' + defaultChannel + '">';
-    h3 += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
-    h3 += '<span class="ops-channel-badge ' + defaultChannel + '" id="opsChannelBadge_' + esc(task.id) + '">WhatsApp</span>';
-    h3 += '<button class="ops-btn-sm" data-toggle-channel="' + esc(task.id) + '">Switch to Email</button>';
-    h3 += '</div>';
-    h3 += '<div id="opsWaWrap_' + esc(task.id) + '">';
-    h3 += '<textarea data-wa-message="' + esc(task.id) + '" placeholder="Message to GP\u2026">Hi Dr ' + esc(gpName) + ', AHPRA has requested the following for your application: ' + esc(task.description || '') + '. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
-    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-wa="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-phone="' + esc(gpPhone) + '" data-ops-flip-status="waiting_on_gp">Message GP</button></div>';
-    h3 += '</div>';
-    h3 += '<div id="opsEmailWrap_' + esc(task.id) + '" style="display:none">';
+    h3 += '<div class="ops-whatsapp-composer">';
+    h3 += '<div class="ops-expand-label">Email GP</div>';
     h3 += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
     h3 += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="' + esc(task.id) + '" value="AHPRA Document Required \u2014 Dr ' + esc(gpName) + '" /></div>';
     h3 += '<div class="ops-email-body" contenteditable="true" data-gp-email-body="' + esc(task.id) + '">'
@@ -5046,8 +5038,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       + 'Could you please send this through as soon as possible?<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
       + '</div>';
-    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send Email to GP</button></div>';
-    h3 += '</div>';
+    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send to GP</button></div>';
     h3 += '</div>';
     h3 += '</div>';
     return h3;
@@ -7457,9 +7448,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
-  async function ahpraEscalate(taskId) {
-    var reason = prompt('Escalation reason:');
-    if (!reason) return;
+  async function ahpraEscalate(taskId, aiReason) {
+    var reason = aiReason || '';
+    if (!reason) { reason = prompt('Escalation reason:'); if (!reason) return; }
     try {
       await fetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
         method: 'PUT', credentials: 'include',
