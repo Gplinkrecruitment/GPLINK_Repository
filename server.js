@@ -5284,7 +5284,7 @@ async function handleDoubleTickWebhook(req, res) {
       task_type: 'whatsapp_help',
       title: taskTitle,
       description: taskDescription,
-      priority: 'high',
+      priority: activeCase ? 'normal' : 'low',
       status: 'open',
       source_trigger: 'doubletick_webhook',
       related_stage: activeCase ? (activeCase.stage || '') : '',
@@ -8328,7 +8328,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       const derivedStage = _deriveStageFromState(nextState);
       for (const ticket of nxt.tickets) {
         if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
-          await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'high', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
+          await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'normal', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
           // Send WhatsApp confirmation to the GP
           if (_gpPhone) {
             sendDoubleTickTemplate(_gpPhone, 'support_ticket_received', _gpFirstName).catch(function (err) {
