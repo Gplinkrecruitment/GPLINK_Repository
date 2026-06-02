@@ -508,7 +508,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
         });
         clearTimeout(timeout);
         var aiData = await aiRes.json();
@@ -583,7 +583,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var opusRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: ctrl2.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
+          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
         });
         clearTimeout(to2);
         var opusData = await opusRes.json();
@@ -1516,7 +1516,7 @@ async function extractAhpraActionItems(emailMeta) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-opus-4-20250514',
         max_tokens: 1000,
         temperature: 0,
         system: 'Extract action items from AHPRA officer emails. Return JSON only.',
@@ -1618,7 +1618,7 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-opus-4-20250514',
         max_tokens: 300,
         temperature: 0,
         messages: [{ role: 'user', content: prompt }]
@@ -4985,7 +4985,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-opus-4-20250514',
         max_tokens: 4,
         messages: [{
           role: 'user',
