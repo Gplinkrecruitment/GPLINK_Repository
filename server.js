@@ -7549,6 +7549,25 @@ async function _processAhpraEmail(emailMeta) {
       if (triage.requested_documents.length) taskDetail += '\n\nRequested: ' + triage.requested_documents.join(', ');
     }
 
+    // Calculate due date: 1 week before AHPRA deadline, or 10 days from now as fallback
+    var ahpraDueDate = null;
+    var extractedDeadline = triage.response_deadline || null;
+    if (extractedDeadline && /^\d{4}-\d{2}-\d{2}$/.test(extractedDeadline)) {
+      var deadlineDate = new Date(extractedDeadline + 'T00:00:00Z');
+      if (!isNaN(deadlineDate.getTime())) {
+        // Due date = 1 week before AHPRA's deadline so we have buffer
+        var oneWeekBefore = new Date(deadlineDate.getTime() - 7 * 86400000);
+        // But never in the past — floor to tomorrow
+        var tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+        ahpraDueDate = (oneWeekBefore > tomorrow ? oneWeekBefore : tomorrow).toISOString().slice(0, 10);
+        taskMeta.ahpra_deadline = extractedDeadline;
+      }
+    }
+    if (!ahpraDueDate) {
+      var tenDaysOut = new Date(); tenDaysOut.setDate(tenDaysOut.getDate() + 10);
+      ahpraDueDate = tenDaysOut.toISOString().slice(0, 10);
+    }
+
     var _ahpraTaskRes = await supabaseDbRequest('registration_tasks', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -7559,6 +7578,7 @@ async function _processAhpraEmail(emailMeta) {
         detail: taskDetail,
         priority: taskPriority,
         status: 'open',
+        due_date: ahpraDueDate,
         source_trigger: 'ahpra_email',
         related_stage: 'ahpra',
         metadata: taskMeta
