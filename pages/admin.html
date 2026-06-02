@@ -7497,7 +7497,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await fetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority: 'urgent', escalated_to: 'ceo', escalation_reason: reason })
+        body: JSON.stringify({ status: 'escalated', priority: 'urgent', escalated_reason: reason })
       });
       toast('Escalated to CEO'); await loadAll(true);
     } catch (err) { toast('Network error', 'red'); }
