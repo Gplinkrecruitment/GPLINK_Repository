@@ -2831,7 +2831,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           task_type: 'email_triage',
           title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
           description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
-          priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
+          priority: triageResult.urgency === 'urgent' ? 'urgent' : gpCase ? 'normal' : 'low',
           source_trigger: 'gmail_triage',
           related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
           gmail_message_id: currentMsgId,
