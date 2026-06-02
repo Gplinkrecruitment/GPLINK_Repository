@@ -8299,6 +8299,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaSubmitFinal = sppaSubmitFinal;
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
+  function closeCorrectionModal() { var el = document.getElementById('correctionOverlay'); if (el) el.style.display = 'none'; }
+  function sendSppaCorrection() { closeCorrectionModal(); toast('Use the Request Corrections button on the task instead'); }
+  window.closeCorrectionModal = closeCorrectionModal;
+  window.sendSppaCorrection = sendSppaCorrection;
   window.ahpraAcknowledge = ahpraAcknowledge;
   // ── PDF Editor Modal ──
   var _pdfEditorTaskId = null;
