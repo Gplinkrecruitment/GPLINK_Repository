@@ -4881,7 +4881,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3 += '<div style="font-size:12px;color:#374151;margin-top:4px">' + esc(task.description || task.title || '') + '</div>';
       h3 += '</div>';
       h3 += '<div class="ops-action-row">';
-      h3 += '<button class="ops-btn-green" onclick="ahpraAcknowledge(\'' + escAttr(task.id) + '\')">Acknowledge &amp; Notify GP</button>';
+      h3 += '<button class="ops-btn-green" onclick="ahpraAcknowledge(\'' + escAttr(task.id) + '\')">Acknowledge</button>';
       h3 += '</div>';
       h3 += '</div>';
       return h3;
@@ -7446,13 +7446,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   });
 
   async function ahpraAcknowledge(taskId) {
-    if (!confirm('Acknowledge this AHPRA update and notify the GP?')) return;
+    if (!confirm('Acknowledge this AHPRA update?')) return;
     try {
       var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/ahpra-acknowledge', {
         method: 'POST', credentials: 'include'
       });
       var d = await r.json().catch(function () { return {}; });
-      if (d && d.ok) { toast('AHPRA update acknowledged — GP notified'); await loadAll(true); }
+      if (d && d.ok) { toast('AHPRA update acknowledged'); await loadAll(true); }
       else { toast((d && d.error) || 'Failed', 'red'); }
     } catch (err) { toast('Network error', 'red'); }
   }
