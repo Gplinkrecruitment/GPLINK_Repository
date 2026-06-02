@@ -7513,6 +7513,12 @@ async function _processAhpraEmail(emailMeta) {
       draft_response: triage.draft_response || null
     };
 
+    // application_update category is always a status_update — correct AI misclassification
+    if (triage.category === 'application_update' && triage.response_type !== 'status_update') {
+      triage.response_type = 'status_update';
+      taskMeta.response_type = 'status_update';
+    }
+
     var taskPriority = 'normal';
     if (triage.response_type === 'escalation') taskPriority = 'urgent';
     else if (triage.category === 'conflict_followup') taskPriority = 'high';

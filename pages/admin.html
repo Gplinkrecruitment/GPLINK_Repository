@@ -4777,6 +4777,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var meta = task.metadata || {};
     if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
     var responseType = task.response_type || meta.response_type || 'request_from_gp';
+    var taskCategory = task.category || meta.category || '';
+    // application_update category is always a status update — override AI misclassification
+    if (taskCategory === 'application_update' && responseType !== 'status_update') responseType = 'status_update';
     var amendTarget = task.amend_target || meta.amend_target || null;
     var draftResponse = task.draft_response || meta.draft_response || '';
     var practiceEmail = (task.practice_contact && (task.practice_contact.contactEmail || task.practice_contact.email)) || task.practice_contact_email || '';
