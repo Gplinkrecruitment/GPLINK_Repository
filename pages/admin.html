@@ -3978,6 +3978,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var f=S._opsStatFilter;
     var url="/api/admin/ops/queue?limit=200";
     if(f==="overdue")url+="&overdue=true";
+    else if(f==="urgent")url+="&priority=urgent";
     else if(f==="hazel")url+="&status=open,in_progress";
     else if(f==="gp")url+="&status=waiting_on_gp";
     else if(f==="practice")url+="&status=waiting_on_practice";
@@ -4023,9 +4024,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpC=all.filter(function(t){return t.status==="waiting_on_gp";}).length;
     var pracC=all.filter(function(t){return t.status==="waiting_on_practice";}).length;
     var escalatedC=all.filter(function(t){return t.status==="escalated";}).length;
+    var urgentC=all.filter(function(t){return t.priority==="urgent"&&t.status!=="completed"&&t.status!=="cancelled";}).length;
     var af=S._opsStatFilter;
     var cards=[
       {key:"open",label:"Open",count:openC,valClass:"c-blue"},
+      {key:"urgent",label:"Urgent",count:urgentC,valClass:"c-red"},
       {key:"overdue",label:"Overdue",count:overdueC,valClass:"c-red"},
       {key:"hazel",label:"Hazel\u2019s ball",count:hazelC,valClass:"c-navy"},
       {key:"gp",label:"GP\u2019s ball",count:gpC,valClass:"c-amber"},
