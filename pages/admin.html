@@ -2406,7 +2406,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderGpTasksPane(c){
-    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled"&&t.task_type!=='whatsapp_help');
+    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled");
     if(!tasks.length)return '<div class="empty">No open tasks.</div><button class="btn sm" data-add-task>+ Add Task</button>';
 
     const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))

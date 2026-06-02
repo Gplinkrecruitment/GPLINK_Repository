@@ -33694,7 +33694,7 @@ Return ONLY valid JSON with no markdown formatting:
     const overdueOnly = url.searchParams.get('overdue') === 'true';
     const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 200), 500);
 
-    let query = 'select=*&task_type=neq.whatsapp_help&order=priority.asc,created_at.desc&limit=' + limit;
+    let query = 'select=*&order=priority.asc,created_at.desc&limit=' + limit;
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (statuses.length > 0) query += '&status=in.(' + statuses.join(',') + ')';
     if (domainFilter) query += '&domain=eq.' + encodeURIComponent(domainFilter);
@@ -33709,7 +33709,10 @@ Return ONLY valid JSON with no markdown formatting:
 
     const tasksRes = await supabaseDbRequest('registration_tasks', query);
     if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
-    const tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    // Exclude caseless whatsapp_help tasks — those belong in Support, not the ops queue
+    const tasks = (Array.isArray(tasksRes.data) ? tasksRes.data : []).filter(function (t) {
+      return !(t.task_type === 'whatsapp_help' && !t.case_id);
+    });
 
     // Enrich with case + GP info
     const caseIds = [...new Set(tasks.map(function (t) { return t.case_id; }).filter(Boolean))];
