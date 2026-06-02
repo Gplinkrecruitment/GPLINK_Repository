@@ -6167,9 +6167,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           var r5=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
           var d5=await r5.json().catch(()=>({}));
           if(d5.ok){
-            // Complete the task after sending to AHPRA
+            // Finalize: upload edited SPPA to Drive + MyDocuments, then complete task
+            await fetch('/api/admin/va/task/'+encodeURIComponent(tid5)+'/sppa-finalize-edit',{method:'POST',credentials:'same-origin'}).catch(function(){});
             await fetch('/api/admin/task?id='+encodeURIComponent(tid5),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-            showOpsToast('Email sent to AHPRA & task completed');loadOpsQueue();
+            showOpsToast('Email sent to AHPRA — SPPA updated in Drive & GP documents');loadOpsQueue();
           }else{showOpsToast(d5.message||'Email failed','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
         return;

@@ -30845,6 +30845,47 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Finalize edited SPPA: upload to Drive + deliver to MyDocuments ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-finalize-edit')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 200, { ok: true }); return; }
+    const task = taskRes.data[0];
+
+    var sppaTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&related_document_key=eq.sppa_00&limit=1');
+    var sppaTaskId = (sppaTaskRes.ok && sppaTaskRes.data && sppaTaskRes.data[0]) ? sppaTaskRes.data[0].id : null;
+    if (!sppaTaskId) { sendJson(res, 200, { ok: true }); return; }
+
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=id,attachment_url&task_id=eq.' + encodeURIComponent(sppaTaskId) + '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+    var doc = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url) { sendJson(res, 200, { ok: true }); return; }
+
+    var ci = doc.attachment_url.indexOf(',');
+    var b64 = doc.attachment_url.substring(ci + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+    var pdfBuffer = Buffer.from(b64, 'base64');
+
+    // Upload to Drive (replaces existing SPPA file)
+    _uploadSppaDocToDrive(task.case_id, doc.id, pdfBuffer, 'SPPA-00.pdf').catch(function (e) { console.error('[SPPA Finalize] Drive error:', e.message); });
+
+    // Deliver to GP MyDocuments
+    try {
+      var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+      if (userId) await deliverToMyDocuments(userId, task.case_id, 'sppa_00', 'SPPA-00 Completed.pdf', pdfBuffer, 'application/pdf');
+    } catch (e) { console.error('[SPPA Finalize] MyDocuments error:', e.message); }
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 finalized — uploaded to Drive + MyDocuments', null, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // ── Upload corrected SPPA-00 (RSO edited the PDF externally) ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-upload-corrected')) {
     const admin = requireAdminSession(req, res);
