@@ -33694,7 +33694,7 @@ Return ONLY valid JSON with no markdown formatting:
     const overdueOnly = url.searchParams.get('overdue') === 'true';
     const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 200), 500);
 
-    let query = 'select=*&order=priority.asc,created_at.desc&limit=' + limit;
+    let query = 'select=*&task_type=neq.whatsapp_help&order=priority.asc,created_at.desc&limit=' + limit;
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (statuses.length > 0) query += '&status=in.(' + statuses.join(',') + ')';
     if (domainFilter) query += '&domain=eq.' + encodeURIComponent(domainFilter);
