@@ -4757,8 +4757,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpName=task.gp_name||'the GP';
     var gpEmail=task.gp_email||'';
     var gpPhone=task.gp_phone||'';
-    var ahpraOfficerName=task.ahpra_officer_name||'';
-    var ahpraOfficerEmail=task.ahpra_officer_email||'';
+    var _aMd=task.metadata||{};if(typeof _aMd==='string')try{_aMd=JSON.parse(_aMd);}catch(e){_aMd={};}
+    var ahpraOfficerName=task.ahpra_officer_name||_aMd.ahpra_officer_name||'';
+    var ahpraOfficerEmail=task.ahpra_officer_email||_aMd.ahpra_officer_email||'';
     var firstInbound=msgs.find(function(m){return m.direction==='inbound';});
     var hasGpResponse=false;
     var gpResponseMsgs=[];
@@ -4921,7 +4922,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         // EDITED first (blue border)
         if (editedDoc) {
           h3 += '<div style="flex:1;min-width:150px;border:2px solid #3b82f6;border-radius:8px;padding:10px;background:#f0f7ff">';
-          h3 += '<div style="font-size:10px;font-weight:700;color:#2563eb;margin-bottom:4px">EDITED (will be sent)</div>';
+          h3 += '<div style="font-size:10px;font-weight:700;color:#2563eb;margin-bottom:4px">EDITED (will be sent) <span id="sppaSaveStatus" style="display:none;margin-left:6px;font-weight:600"></span></div>';
           h3 += '<div style="font-size:12px;font-weight:600">' + esc(editedDoc.filename || 'SPPA-00 (Edited).pdf') + '</div>';
           if (editedDoc.size_bytes) h3 += '<div style="font-size:10px;color:var(--muted)">' + Math.round(editedDoc.size_bytes / 1024) + 'KB</div>';
           h3 += '<button onclick="event.stopPropagation();_viewSppaDoc(\'' + esc(editedDoc.id) + '\')" style="margin-top:6px;font-size:10px;color:#2563eb;font-weight:700;background:none;border:none;cursor:pointer">View \u2192</button>';
@@ -8280,6 +8281,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
       try {
+        // Show saving indicator on the edited doc card
+        var saveStatus = document.getElementById('sppaSaveStatus');
+        if (saveStatus) { saveStatus.textContent = 'Saving...'; saveStatus.style.color = '#6b7280'; saveStatus.style.display = 'inline'; }
         toast('Saving ' + fields.length + ' field change(s)...');
         var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-save-fields', {
           method: 'POST', credentials: 'include',
@@ -8287,12 +8291,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           body: JSON.stringify({ fields: fields })
         });
         var d = await r.json().catch(function () { return {}; });
-        if (!d.ok) { toast('Save failed: ' + (d.error || ''), 'red'); return; }
-        toast(d.amended + ' field(s) updated on SPPA-00');
+        if (!d.ok) {
+          toast('Save failed: ' + (d.error || ''), 'red');
+          if (saveStatus) { saveStatus.textContent = 'Save failed'; saveStatus.style.color = '#dc2626'; }
+          return;
+        }
+        toast(d.amended + ' field(s) saved');
         closePdfEditor();
-        await loadAll(true);
+        if (saveStatus) { saveStatus.textContent = 'Saved \u2713'; saveStatus.style.color = '#059669'; }
+        // Refresh just the task detail without closing it — re-fetch docs
+        var expandedTaskId = taskId;
+        if (S.opsExpandedId === expandedTaskId) {
+          // Ops queue: re-render the expanded row
+          var opsTask = ((S.va && S.va.dashboard && S.va.dashboard.todays_tasks) || []).find(function(t) { return t.id === expandedTaskId; });
+          if (opsTask) setTimeout(function() { renderExpandedOpsRow(opsTask); }, 300);
+        } else {
+          // GP profile: re-render the task detail
+          setTimeout(function() { loadGpTaskDetail(expandedTaskId); }, 300);
+        }
       } catch (err) {
         toast('Error saving: ' + err.message, 'red');
+        var saveStatus2 = document.getElementById('sppaSaveStatus');
+        if (saveStatus2) { saveStatus2.textContent = 'Error'; saveStatus2.style.color = '#dc2626'; }
       }
     }
   });
