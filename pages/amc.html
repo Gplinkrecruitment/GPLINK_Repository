@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AMC Portfolio - GP Link</title>
   <script>
   // Hide AMC content immediately if MyIntealth ID gate should show (prevents flash)
-  (function(){try{if(!localStorage.getItem("gp_amc_myintealth_id")){
+  (function(){try{var _mid=localStorage.getItem("gp_amc_myintealth_id")||"";if(!/^\d{6,8}$/.test(_mid.trim())){
     var s=document.createElement("style");s.id="amc-gate-hide";
     s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
     document.head.appendChild(s);
@@ -2328,8 +2328,12 @@
       // Re-render after state-sync hydrates the current user's data
       window.addEventListener("gp-state-hydrated", function () {
         if (redirectToAllowedStage()) return;
-        if (shouldShowMyintealthGate() && document.getElementById("amcGate").style.display !== "none") return;
-        if (!shouldShowMyintealthGate() && document.getElementById("amcGate").style.display !== "none") {
+        // Re-check gate after hydration — server may have cleared the ID
+        if (shouldShowMyintealthGate()) {
+          showMyintealthGate();
+          return;
+        }
+        if (document.getElementById("amcGate").style.display !== "none") {
           showAmcContent();
           initAmcPage();
           return;
