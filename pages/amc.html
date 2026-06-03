@@ -4,16 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AMC Portfolio - GP Link</title>
   <script>
-  // Hide AMC content immediately if MyIntealth ID gate should show (prevents flash)
-  (function(){try{var _mid=localStorage.getItem("gp_amc_myintealth_id")||"";if(!/^\d{6,8}$/.test(_mid.trim())){
-    var s=document.createElement("style");s.id="amc-gate-hide";
-    s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
-    document.head.appendChild(s);
-    // Show a loading indicator while the gate resolves
-    var l=document.createElement("style");l.id="amc-gate-loader-style";
-    l.textContent="#amcGateLoader{display:flex;align-items:center;justify-content:center;min-height:60dvh;flex-direction:column;gap:12px}#amcGateLoader .amc-gl-spin{width:28px;height:28px;border:3px solid #e4e7ee;border-top-color:#1a56db;border-radius:50%;animation:amc-gl-sp .7s linear infinite}@keyframes amc-gl-sp{to{transform:rotate(360deg)}}#amcGateLoader .amc-gl-text{font-family:\"DM Sans\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:13px;color:#7c849b;font-weight:500}";
-    document.head.appendChild(l);
-  }}catch(e){}})();
+  // Hide AMC content immediately if gate may need to show or data hasn't loaded (prevents flash)
+  (function(){try{
+    var _mid=localStorage.getItem("gp_amc_myintealth_id")||"";
+    var _epic=localStorage.getItem("gp_epic_progress")||"";
+    var needsGate=!/^\d{6,8}$/.test(_mid.trim());
+    var noData=_epic.length<3;
+    if(needsGate||noData){
+      var s=document.createElement("style");s.id="amc-gate-hide";
+      s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
+      document.head.appendChild(s);
+      var l=document.createElement("style");l.id="amc-gate-loader-style";
+      l.textContent="#amcGateLoader{display:flex;align-items:center;justify-content:center;min-height:60dvh;flex-direction:column;gap:12px}#amcGateLoader .amc-gl-spin{width:28px;height:28px;border:3px solid #e4e7ee;border-top-color:#1a56db;border-radius:50%;animation:amc-gl-sp .7s linear infinite}@keyframes amc-gl-sp{to{transform:rotate(360deg)}}#amcGateLoader .amc-gl-text{font-family:\"DM Sans\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:13px;color:#7c849b;font-weight:500}";
+      document.head.appendChild(l);
+    } else {
+      // Data exists and ID is valid — hide the loader immediately
+      var h=document.createElement("style");h.id="amc-gate-loader-hide";
+      h.textContent="#amcGateLoader{display:none!important}";
+      document.head.appendChild(h);
+    }
+  }catch(e){}})();
   </script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260527a"></script>
@@ -2244,6 +2254,8 @@
       if (loader) loader.remove();
       var loaderStyle = document.getElementById("amc-gate-loader-style");
       if (loaderStyle) loaderStyle.remove();
+      var loaderHide = document.getElementById("amc-gate-loader-hide");
+      if (loaderHide) loaderHide.remove();
     }
 
     function showAmcContent() {
@@ -2317,32 +2329,51 @@
       });
     }
 
-    if (!redirectToAllowedStage()) {
+    // Defer redirect/gate decisions until after state-sync hydration when
+    // localStorage is empty (fresh session or cleared cache). This prevents
+    // false redirects to MyIntealth when the data simply hasn't loaded yet.
+    var _epicRaw = localStorage.getItem("gp_epic_progress");
+    var _hasLocalState = typeof _epicRaw === "string" && _epicRaw.length > 2;
+
+    function _initAfterData() {
+      if (redirectToAllowedStage()) return;
       if (shouldShowMyintealthGate()) {
         showMyintealthGate();
       } else {
         showAmcContent();
         initAmcPage();
       }
-
-      // Re-render after state-sync hydrates the current user's data
-      window.addEventListener("gp-state-hydrated", function () {
-        if (redirectToAllowedStage()) return;
-        // Re-check gate after hydration — server may have cleared the ID
-        if (shouldShowMyintealthGate()) {
-          showMyintealthGate();
-          return;
-        }
-        if (document.getElementById("amcGate").style.display !== "none") {
-          showAmcContent();
-          initAmcPage();
-          return;
-        }
-        const progress = loadProgress();
-        currentTabKey = activeTabStage(progress);
-        renderPage(progress);
-      }, { once: true });
     }
+
+    if (_hasLocalState) {
+      // localStorage is populated — safe to run immediately
+      _initAfterData();
+    }
+    // Always listen for hydration to correct/update after server data arrives
+    window.addEventListener("gp-state-hydrated", function () {
+      if (redirectToAllowedStage()) return;
+      if (shouldShowMyintealthGate()) {
+        showMyintealthGate();
+        return;
+      }
+      var gate = document.getElementById("amcGate");
+      if (gate && gate.style.display !== "none") {
+        // Gate was showing but hydration says ID is valid — show AMC
+        showAmcContent();
+        initAmcPage();
+        return;
+      }
+      if (!_hasLocalState) {
+        // First init — localStorage was empty before hydration
+        showAmcContent();
+        initAmcPage();
+        return;
+      }
+      // Re-render with fresh data
+      var progress = loadProgress();
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+    }, { once: true });
   </script>
 </body>
 </html>
