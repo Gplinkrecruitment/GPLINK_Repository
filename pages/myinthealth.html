@@ -927,6 +927,76 @@
       .btn-row .btn-ghost,
       .btn-row .btn-complete { width: 100%; justify-content: center; }
     }
+
+    /* NotaryCam Guide Button */
+    .btn-notarycam-guide {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 12px; padding: 10px 18px; border-radius: 10px;
+      background: linear-gradient(135deg, #f0f4ff 0%, #e8ecfa 100%);
+      border: 1.5px solid var(--accent); color: var(--accent);
+      font: 600 13px/1.3 'DM Sans', sans-serif; cursor: pointer;
+      transition: all .15s ease;
+    }
+    .btn-notarycam-guide:hover { background: var(--accent); color: #fff; }
+    .btn-notarycam-guide:hover svg { stroke: #fff; }
+
+    /* NotaryCam Modal */
+    .nc-modal-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      background: rgba(12,18,34,.55); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; padding: 20px;
+    }
+    .nc-modal-backdrop.open { display: flex; }
+    .nc-modal {
+      background: #fff; border-radius: 16px; max-width: 640px; width: 100%;
+      max-height: 85vh; display: flex; flex-direction: column;
+      box-shadow: 0 24px 64px rgba(12,18,34,.2);
+    }
+    .nc-modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px; border-bottom: 1px solid var(--border);
+    }
+    .nc-modal-header h2 { font: 700 17px/1.3 'DM Sans', sans-serif; margin: 0; color: var(--ink); }
+    .nc-modal-close {
+      width: 32px; height: 32px; border-radius: 8px; border: none;
+      background: var(--surface); color: var(--ink-muted); font-size: 20px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .nc-modal-close:hover { background: var(--border); color: var(--ink); }
+    .nc-modal-body { overflow-y: auto; padding: 24px; }
+    .nc-intro { font: 400 14px/1.6 'DM Sans', sans-serif; color: var(--ink-soft); margin: 0 0 16px; }
+    .nc-prereqs {
+      background: #f7f9fc; border: 1px solid var(--border-light); border-radius: 10px;
+      padding: 14px 18px; margin-bottom: 20px;
+    }
+    .nc-prereqs-title { font: 600 13px/1.4 'DM Sans', sans-serif; color: var(--ink); margin-bottom: 8px; }
+    .nc-prereqs ul { margin: 0; padding-left: 18px; list-style: disc; }
+    .nc-prereqs li { font: 400 13px/1.6 'DM Sans', sans-serif; color: var(--ink-soft); }
+    .nc-steps { margin: 0; padding-left: 0; list-style: none; counter-reset: nc-step; }
+    .nc-steps li {
+      counter-increment: nc-step; position: relative;
+      padding: 14px 16px 14px 52px; margin-bottom: 4px;
+      border-radius: 10px; transition: background .15s;
+    }
+    .nc-steps li:hover { background: #f7f9fc; }
+    .nc-steps li::before {
+      content: counter(nc-step); position: absolute; left: 12px; top: 14px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      font: 700 13px/28px 'DM Sans', sans-serif; text-align: center;
+    }
+    .nc-step-title { font: 600 14px/1.4 'DM Sans', sans-serif; color: var(--ink); margin-bottom: 4px; }
+    .nc-step-desc { font: 400 13px/1.6 'DM Sans', sans-serif; color: var(--ink-soft); }
+    .nc-step-note {
+      margin-top: 6px; padding: 8px 12px; border-radius: 8px;
+      background: #fff8ed; border-left: 3px solid #e5a630;
+      font: 400 12px/1.5 'DM Sans', sans-serif; color: #7c5a10;
+    }
+    .nc-footer-note {
+      margin-top: 16px; padding: 12px 16px; border-radius: 10px;
+      background: #ecfdf5; border: 1px solid #a7f3d0;
+      font: 500 13px/1.5 'DM Sans', sans-serif; color: #065f46;
+    }
   </style>
 </head>
 <body>
@@ -1110,7 +1180,8 @@
         support: "We track this step and follow up if establishment is delayed.",
         next: "Once established, you'll upload your qualifications.",
         cta: "Open MyIntealth",
-        ctaType: "open"
+        ctaType: "open",
+        hasNotaryCamGuide: true
       },
       upload_qualifications: {
         label: "Qualifications",
@@ -1616,6 +1687,10 @@
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
+      const notaryCamBtnHtml = meta.hasNotaryCamGuide
+        ? `<button class="btn-notarycam-guide" id="notaryCamGuideBtn" type="button"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> NotaryCam Step-by-Step Guide</button>`
+        : '';
+
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="action-card">
           <div class="action-card-body">
@@ -1626,6 +1701,7 @@
             </div>
             ${downloadBtnHtml}
             ${actionBtnHtml}
+            ${notaryCamBtnHtml}
           </div>
         </div>
       `;
@@ -1689,6 +1765,14 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") openMyIntealthExternal();
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
+        });
+      }
+
+      const ncGuideBtn = document.getElementById("notaryCamGuideBtn");
+      if (ncGuideBtn) {
+        ncGuideBtn.addEventListener("click", () => {
+          document.getElementById("notaryCamModal").classList.add("open");
+          document.body.style.overflow = "hidden";
         });
       }
 
@@ -2255,6 +2339,96 @@
         renderPage(progress);
       }, { once: true });
     }
+  </script>
+
+  <!-- NotaryCam Step-by-Step Guide Modal -->
+  <div id="notaryCamModal" class="nc-modal-backdrop">
+    <div class="nc-modal">
+      <div class="nc-modal-header">
+        <h2>NotaryCam Step-by-Step Guide</h2>
+        <button class="nc-modal-close" id="ncModalClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="nc-modal-body">
+        <p class="nc-intro">At this stage your passport and photo have been accepted and your <strong>Intealth Identification Form (IIF)</strong> has been created. You need to have it notarized through NotaryCam.</p>
+
+        <div class="nc-prereqs">
+          <div class="nc-prereqs-title">Before you begin, make sure you have:</div>
+          <ul>
+            <li>A computer with a webcam and microphone</li>
+            <li>Google Chrome web browser</li>
+            <li>Reliable high-speed internet connection</li>
+            <li>Your original, unexpired colour passport</li>
+          </ul>
+        </div>
+
+        <ol class="nc-steps">
+          <li>
+            <div class="nc-step-title">Check your status</div>
+            <div class="nc-step-desc">On the MyIntealth homepage, scroll to <strong>MyIntealth Account Establishment Request Progress</strong>. The status should show <em>Pending Applicant Action &mdash; Notarize Identity Form</em>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Click Continue</div>
+            <div class="nc-step-desc">The <strong>Release of Identification Form to NotaryCam</strong> screen appears.</div>
+            <div class="nc-step-note">If you see <em>Provide Notarized Identification Form</em> instead, you must use the alternate in-person notarization process &mdash; contact your RSO for help.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Review your Identification Form</div>
+            <div class="nc-step-desc">Click <strong>View Your Intealth Identification Form</strong>. It opens in a new tab. Double-check all biographic information is correct before proceeding. If there are errors, click <em>contact us</em> on the page.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Accept the release</div>
+            <div class="nc-step-desc">Scroll to <strong>Identification Form Release and Attestation</strong>, tick the checkbox, review the attestation, click <strong>Accept</strong>, then click <strong>Release</strong>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Confirm the release</div>
+            <div class="nc-step-desc">A pop-up confirms your form has been sent to NotaryCam. Click <strong>OK</strong>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Return to the homepage</div>
+            <div class="nc-step-desc">Your status updates to <em>Online Notary Session Created</em>. Click <strong>Continue</strong>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Initiate the live session</div>
+            <div class="nc-step-desc">On the <strong>Online Notary Session</strong> page, review the requirements, then click <strong>Initiate Live Notary Session</strong> and then <strong>Proceed</strong>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Agree to NotaryCam terms</div>
+            <div class="nc-step-desc">The NotaryCam site opens. Save the password provided (or set a custom one), tick the <strong>Terms of Service</strong> checkbox, and click <strong>Continue</strong>.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Complete the Tech Check</div>
+            <div class="nc-step-desc">Allow your browser to access your microphone and camera. Click <strong>Begin Tests</strong> to verify your internet, audio and video.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Verify your identity</div>
+            <div class="nc-step-desc">Click <strong>Start ID Verification</strong>. You must upload images of the <em>same passport</em> that appears on your Intealth Identification Form &mdash; front and back.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Join the notary session</div>
+            <div class="nc-step-desc">The live session begins. You can communicate with the notary via chat or video. Accept the <strong>eSign Consent</strong> when prompted (tick the checkbox, click <strong>Yes</strong>).</div>
+            <div class="nc-step-note">You have 96 hours to complete the session. If it expires, contact ECFMG to restart.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Sign the form</div>
+            <div class="nc-step-desc">The notary walks you through signing: add your <strong>Signature</strong> and the <strong>Date</strong>. The notary then adds their seal and locks the document.</div>
+          </li>
+          <li>
+            <div class="nc-step-title">Done &mdash; form sent to Intealth</div>
+            <div class="nc-step-desc">Return to the MyIntealth homepage. Your status should now show <em>Submitted for Identity Verification Review</em>. Intealth will review and establish your account.</div>
+          </li>
+        </ol>
+
+        <div class="nc-footer-note">Once your identity is verified, your EPIC account will be established and you can move on to uploading your qualifications.</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    document.addEventListener("click", function(e) {
+      if (e.target.id === "ncModalClose" || e.target.id === "notaryCamModal") {
+        document.getElementById("notaryCamModal").classList.remove("open");
+        document.body.style.overflow = "";
+      }
+    });
   </script>
 </body>
 </html>
