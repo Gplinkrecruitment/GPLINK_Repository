@@ -2229,6 +2229,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const sel=S.selectedCaseId===id;
     const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
     const stage=rc?rc.stage:"";
+    const substage=rc?rc.substage||"":"";
     const openT=rc?rc.open_tasks||0:0;
     const urgentT=rc?rc.urgent_tasks||0:0;
     const overdueT=rc?rc.overdue_tasks||0:0;
@@ -2246,7 +2247,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="case-avatar">'+esc(ini(name))+'</div>'+
         '<div class="case-card-info">'+
           '<div class="case-card-name">'+esc(name)+'</div>'+
-          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
+          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+(substage?' \u00b7 '+esc(substage.replace(/_/g,' ')):'')+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
         '</div>'+
       '</div>'+
       (urgencyHtml?'<div class="case-card-tasks">'+urgencyHtml+'</div>':'')+
@@ -3138,7 +3139,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
           </div>
           <div class="pb-pills">
-            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}</span>
+            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(c.substage.replace(/_/g,' ')):''}</span>
             <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${u.quals_approved||0}/${u.quals_required||0} docs</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
