@@ -1457,16 +1457,16 @@
           }).join("") + '</div>';
         } else {
           bodyHtml = `<p>${step.detail}</p>`;
-          if (effectiveStepDone) {
+          if (step.done) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="${step.href}">${stepReturnable ? "Return" : "Continue"} <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
         el.innerHTML = `
           <button class="journey-head" type="button" aria-expanded="${isOpen}">
-            <span class="journey-num">${effectiveStepDone ? checkSvg : step.num}</span>
+            <span class="journey-num">${step.done ? checkSvg : step.num}</span>
             <div class="journey-info">
               <div class="journey-title">${step.title}</div>
               <div class="journey-subtitle">${step.sub}</div>
