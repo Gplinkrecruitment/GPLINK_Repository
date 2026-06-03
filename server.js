@@ -8374,6 +8374,24 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseUpdate });
     if (newStage !== regCase.stage) {
       await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + newStage, null, 'system', { from_stage: regCase.stage, to_stage: newStage });
+      // Propagate return overrides so the client unlocks the new stage
+      var STAGE_ORDER = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+      var stageIdx = STAGE_ORDER.indexOf(newStage);
+      if (stageIdx >= 0) {
+        var overrides = {};
+        for (var oi = 0; oi < STAGE_ORDER.length; oi++) { overrides[STAGE_ORDER[oi]] = oi <= stageIdx; }
+        var freshStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+        if (freshStateRes.ok && Array.isArray(freshStateRes.data) && freshStateRes.data[0]) {
+          var freshState = freshStateRes.data[0].state || {};
+          freshState.gp_registration_return_overrides = JSON.stringify(overrides);
+          freshState.gp_admin_stage_override = JSON.stringify(newStage);
+          freshState.gp_stage_override_at = new Date().toISOString();
+          freshState.updatedAt = new Date().toISOString();
+          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+            method: 'PATCH', body: { state: freshState, updated_at: freshState.updatedAt }
+          });
+        }
+      }
     }
   } catch (err) {
     // Non-blocking: do not fail the state update

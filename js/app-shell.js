@@ -482,7 +482,7 @@
       current: !locked && !done,
       returnable: returnable,
       href: !locked ? config.href : "#",
-      cta: locked ? "Locked" : done ? "Return" : "Continue"
+      cta: locked ? "Locked" : done ? "Completed" : "Continue"
     };
   }
 
