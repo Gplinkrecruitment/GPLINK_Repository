@@ -1495,21 +1495,6 @@
 
         listEl.appendChild(el);
       });
-
-      // Intercept journey link clicks to navigate via app shell
-      listEl.addEventListener("click", (e) => {
-        const link = e.target.closest("a.journey-body-cta");
-        if (!link || !link.href) return;
-        e.preventDefault();
-        const href = "/pages/" + link.getAttribute("href");
-        try {
-          if (window.self !== window.top) {
-            window.parent.postMessage({ type: "gp-shell-route", href: href }, window.location.origin);
-            return;
-          }
-        } catch (err) {}
-        window.location.href = href;
-      });
     }
 
     function renderDashboard() {
