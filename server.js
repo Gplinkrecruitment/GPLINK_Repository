@@ -7148,6 +7148,22 @@ function _deriveStageFromState(state) {
   return 'visa';
 }
 
+function _deriveSubstageFromState(state, stage) {
+  if (stage === 'myintealth') {
+    const epic = _parseStateVal(state.gp_epic_progress);
+    return (epic && epic.stage) || 'create_account';
+  }
+  if (stage === 'amc') {
+    const amc = _parseStateVal(state.gp_amc_progress);
+    return (amc && amc.stage) || 'create_portfolio';
+  }
+  if (stage === 'ahpra') {
+    const ahpra = _parseStateVal(state.gp_ahpra_progress);
+    return (ahpra && ahpra.stage) || 'create_account';
+  }
+  return null;
+}
+
 // ── Admin/VA user detection (cached) ──
 // Returns a Set of user_ids that are admin/VA (not GPs). Cached for 2 minutes.
 var _adminUserIdsCache = { set: null, expiresAt: 0 };
@@ -8344,12 +8360,16 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
     }
 
-    // ── Update case stage ──
+    // ── Update case stage + substage ──
     const newStage = _deriveStageFromState(nextState);
+    const newSubstage = _deriveSubstageFromState(nextState, newStage);
     const caseUpdate = { last_gp_activity_at: new Date().toISOString() };
     if (newStage !== regCase.stage) {
       caseUpdate.stage = newStage;
       if (newStage === 'complete') { caseUpdate.completed_at = new Date().toISOString(); }
+    }
+    if (newSubstage && newSubstage !== regCase.substage) {
+      caseUpdate.substage = newSubstage;
     }
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseUpdate });
     if (newStage !== regCase.stage) {
