@@ -3131,12 +3131,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
       const practiceName=u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||"";
       const assignedVaName=c.assigned_va&&S._vaAccounts?((S._vaAccounts.find(function(va){return va.user_id===c.assigned_va;})||{}).display_name||''):'';
+      const _gpActTs=c.last_gp_activity_at||c.created_at||'';
+      const _gpActMs=_gpActTs?Date.now()-new Date(_gpActTs).getTime():0;
+      const _gpActDays=Math.floor(_gpActMs/86400000);
+      const _gpActColor=_gpActDays>=7?'#ef4444':_gpActDays>=3?'#f59e0b':'#22c55e';
+      const _gpActLabel=_gpActTs?fmtR(_gpActTs):'unknown';
       const profileBarHtml=`
         <div class="profile-bar">
           <div class="pb-avatar">${esc(ini(gpName))}</div>
           <div class="pb-info">
             <div class="pb-name">${esc(gpName)}</div>
             <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
+            <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span></div>
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(c.substage.replace(/_/g,' ')):''}</span>
