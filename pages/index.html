@@ -869,6 +869,26 @@
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const CAREER_STATE_KEY = "gp_career_state";
     // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
+
+    // Intercept anchor clicks to supported pages and route through app shell.
+    // Plain <a href="ahpra"> inside the iframe navigates the iframe directly,
+    // which breaks the app shell's frame management. This single delegated
+    // handler catches those clicks and sends postMessage instead.
+    (function () {
+      var SHELL_PAGES = { myinthealth:1, amc:1, ahpra:1, career:1, visa:1, pbs:1, commencement:1, "my-documents":1, messages:1, account:1 };
+      if (window.self === window.top) return; // not in iframe, native nav is fine
+      document.addEventListener("click", function (e) {
+        var link = e.target.closest ? e.target.closest("a[href]") : null;
+        if (!link) return;
+        var raw = link.getAttribute("href");
+        if (!raw || raw.charAt(0) === "#" || raw.charAt(0) === "/" || raw.indexOf("://") !== -1) return;
+        var page = raw.split("?")[0].split("#")[0];
+        if (!SHELL_PAGES[page]) return;
+        e.preventDefault();
+        window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + raw }, window.location.origin);
+      });
+    })();
+
     const ringCirc = 289.026524;
 
     const epicStageLabels = {
