@@ -1448,7 +1448,7 @@
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="/pages/${sub.href}" onclick="event.preventDefault();window.location.href='/pages/${sub.href}'">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="${sub.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
                 }
               </div>
             `;
@@ -1458,7 +1458,7 @@
           if (step.done) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="/pages/${step.href}" onclick="event.preventDefault();window.location.href='/pages/${step.href}'">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
@@ -1601,8 +1601,7 @@
           actionEl.type = "button";
           actionEl.disabled = true;
         } else {
-          actionEl.href = "/pages/" + row.href;
-          actionEl.onclick = function (e) { e.preventDefault(); window.location.href = "/pages/" + row.href; };
+          actionEl.href = row.href;
         }
         rowEl.appendChild(actionEl);
         if (regTableEl) regTableEl.appendChild(rowEl);
@@ -1649,8 +1648,7 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = "/pages/" + row.href;
-          actionEl2.onclick = function (e) { e.preventDefault(); window.location.href = "/pages/" + row.href; };
+          actionEl2.href = row.href;
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
