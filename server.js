@@ -20359,7 +20359,9 @@ async function handleApi(req, res, pathname) {
     // Link to hired position in background (checks pending_hires table)
     if (signupUserId) {
       const signupPhone = (countryDial || '') + (phoneNumber || '');
-      linkUserToHiredZohoPosition(signupUserId, email, signupPhone).catch(err => console.error('[signup] Link failed:', err && err.message));
+      linkUserToHiredZohoPosition(signupUserId, email, signupPhone)
+        .then(() => _ensureRegCase(signupUserId))
+        .catch(err => console.error('[signup] Link/case failed:', err && err.message));
     }
 
     // Send only our branded GP Link confirmation email
@@ -20434,7 +20436,9 @@ async function handleApi(req, res, pathname) {
       }
       // Link to hired Zoho Recruit position in background (if not already linked)
       if (supaUserId) {
-        linkUserToHiredZohoPosition(supaUserId, email).catch(err => console.error('[login] Zoho link failed:', err && err.message));
+        linkUserToHiredZohoPosition(supaUserId, email)
+          .then(() => _ensureRegCase(supaUserId))
+          .catch(err => console.error('[login] Zoho link/case failed:', err && err.message));
       }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
         sessionUserId: supaUserId,
