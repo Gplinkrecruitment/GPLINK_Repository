@@ -1408,9 +1408,7 @@
         { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra" }
       ];
 
-      // Your Practice step hidden once placement is secured
       const allSteps = [
-        !snap.careerSecured ? { key: "career", title: "Your Practice", sub: "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: false, locked: false, href: "career" } : null,
         { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
         { key: "visa", title: "Visa Application", sub: "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: false, locked: false, href: "visa" },
         { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs" }
@@ -1450,7 +1448,7 @@
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${sub.href}'},window.location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="/pages/${sub.href}" onclick="event.preventDefault();window.location.href='/pages/${sub.href}'">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
                 }
               </div>
             `;
@@ -1460,7 +1458,7 @@
           if (step.done) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${step.href}'},window.location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="/pages/${step.href}" onclick="event.preventDefault();window.location.href='/pages/${step.href}'">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
@@ -1603,8 +1601,8 @@
           actionEl.type = "button";
           actionEl.disabled = true;
         } else {
-          actionEl.href = "javascript:void(0)";
-          actionEl.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, window.location.origin) };
+          actionEl.href = "/pages/" + row.href;
+          actionEl.onclick = function (e) { e.preventDefault(); window.location.href = "/pages/" + row.href; };
         }
         rowEl.appendChild(actionEl);
         if (regTableEl) regTableEl.appendChild(rowEl);
@@ -1651,8 +1649,8 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = "javascript:void(0)";
-          actionEl2.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, window.location.origin) };
+          actionEl2.href = "/pages/" + row.href;
+          actionEl2.onclick = function (e) { e.preventDefault(); window.location.href = "/pages/" + row.href; };
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
