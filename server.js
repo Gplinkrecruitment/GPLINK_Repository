@@ -5725,6 +5725,7 @@ async function isStageAccessAllowed(email, pathname) {
 
   if (!overrides || typeof overrides !== 'object') return true; // No overrides set — natural flow
 
+  if (!(stage in overrides)) return true; // Stage not in overrides — allow natural progression
   return overrides[stage] === true;
 }
 
