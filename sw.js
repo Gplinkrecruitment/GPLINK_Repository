@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260517a";
+  var VERSION = "20260605a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -10,15 +10,31 @@
   var PAGE_TIMEOUT_MS = 1200;
 
   var CORE_URLS = [
+    "/pages/app-shell.html",
     "/pages/index.html?gp_shell=embedded&gp_shell_static=1",
-    "/js/app-shell.js?v=20260517a",
-    "/js/perf-cache.js?v=20260517a",
-    "/js/native-bridge.js?v=20260517a",
-    "/js/nav-shell-bridge.js?v=20260516a",
-    "/js/auth-guard.js?v=20260516a",
-    "/js/state-sync.js?v=20260516a",
-    "/js/updates-sync.js?v=20260516a",
-    "/js/account-dropdown.js?v=20260516a"
+    "/pages/myinthealth.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/amc.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/ahpra.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/career.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/visa.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/pbs.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/commencement.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/messages.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/account.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/my-documents.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/registration-intro.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/signin.html",
+    "/js/app-shell.js?v=20260605c",
+    "/js/nav-shell-bridge.js?v=20260527a",
+    "/js/auth-guard.js?v=20260528a",
+    "/js/state-sync.js?v=20260604a",
+    "/js/bypass-config.js?v=20260602a",
+    "/js/updates-sync.js?v=20260527a",
+    "/js/qualification-scan.js?v=20260527a",
+    "/js/qualification-camera.js?v=20260527a",
+    "/js/account-dropdown.js?v=20260527a",
+    "/js/onboarding.js?v=20260527a",
+    "/js/error-reporter.js?v=20260527a"
   ];
 
   function toUrl(value) {
