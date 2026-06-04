@@ -23225,7 +23225,18 @@ async function handleApi(req, res, pathname) {
       log.push('Enriching app ' + app.id + ' (zohoAppId: ' + (effectiveZohoAppId || 'none') + ', roleId: ' + app.provider_role_id + ')');
 
       const liveRecord = effectiveZohoAppId ? await fetchZohoRecruitApplicationRecord(zoho, effectiveZohoAppId).catch(() => null) : null;
-      const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      let roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      // Fallback: look up career_role by provider_role_id if career_role_id is missing
+      if (!roleRow && app.provider_role_id) {
+        roleRow = await getCareerRoleRow('zoho_recruit', app.provider_role_id);
+        if (roleRow && roleRow.id) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { career_role_id: roleRow.id }
+          });
+          log.push('  Backfilled career_role_id: ' + roleRow.id + ' (' + (roleRow.practice_name || '') + ')');
+        }
+      }
       let jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
 
       // Resolve practice contacts
