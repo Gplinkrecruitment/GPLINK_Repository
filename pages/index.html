@@ -1651,7 +1651,8 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = row.href;
+          actionEl2.href = "javascript:void(0)";
+          actionEl2.onclick = function () { try { window.parent.gpShellNavigate("/pages/" + row.href); } catch (e) { window.location.href = row.href; } };
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
