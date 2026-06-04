@@ -1649,8 +1649,7 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = "javascript:void(0)";
-          actionEl2.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, location.origin); };
+          actionEl2.href = "/pages/" + row.href;
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;

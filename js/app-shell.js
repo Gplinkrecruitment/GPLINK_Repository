@@ -622,7 +622,6 @@
       actionEl.setAttribute("data-route", row.href);
       actionEl.addEventListener("click", function (e) {
         e.preventDefault();
-        alert("DEBUG: navigating to " + row.href);
         navigateTo(row.href, { historyMode: "push" });
       });
     }
@@ -974,10 +973,8 @@
     var targetFrame = null;
     var cachedFrame = null;
 
-    console.log("[shell-debug] navigateTo:", input, "resolved:", routeUrl && routeUrl.pathname, "currentRoute:", currentRoute);
 
     if (!routeUrl) {
-      console.log("[shell-debug] navigateTo ABORT: no routeUrl");
       if (typeof input === "string" && input) window.location.href = input;
       return;
     }
@@ -1005,7 +1002,6 @@
     if (!embeddedRoute) return;
 
     if (route === currentRoute && activeFrameEl && activeFrameEl.getAttribute("src") === embeddedRoute && isFrameShowingRoute(activeFrameEl, route)) {
-      console.log("[shell-debug] navigateTo EXIT: already showing route");
       scheduleRouteWarmup(route);
       return;
     }
@@ -1020,7 +1016,6 @@
     }
 
     if (isFrameShowingRoute(activeFrameEl, route)) {
-      console.log("[shell-debug] navigateTo EXIT: active frame already has route");
       setLoading(false);
       scheduleRouteWarmup(route);
       return;
@@ -1028,7 +1023,6 @@
 
     cachedFrame = findLoadedFrameForRoute(route);
     if (cachedFrame) {
-      console.log("[shell-debug] navigateTo: using cached frame");
       activateFrame(cachedFrame);
       setLoading(false);
       try {
@@ -1040,15 +1034,13 @@
     }
 
     targetFrame = activeState && activeState.loadedRoute ? getInactiveFrame() : activeFrameEl;
-    if (!targetFrame) { console.log("[shell-debug] navigateTo EXIT: no target frame"); return; }
+    if (!targetFrame) return;
 
     if (pendingNavigation && pendingNavigation.route === route && getFrameState(targetFrame).pendingRoute === route) {
-      console.log("[shell-debug] navigateTo EXIT: already pending same route");
       if (!activeState || !activeState.loadedRoute) setLoading(true);
       return;
     }
 
-    console.log("[shell-debug] navigateTo: loading", route, "into frame");
     pendingNavigation = { route: route };
     if (!activeState || !activeState.loadedRoute) {
       setLoading(true);
@@ -1334,13 +1326,11 @@
     }
 
     if (event.data.type !== "gp-shell-route") return;
-    console.log("[shell-debug] got gp-shell-route", event.data.href, "source===active:", event.source === activeWindow, "activeWindow:", !!activeWindow);
-    if (!activeWindow || event.source !== activeWindow) { console.log("[shell-debug] DROPPED: source mismatch"); return; }
+    if (!activeWindow || event.source !== activeWindow) return;
     routeUrl = toRouteUrl(event.data.href);
-    if (!routeUrl) { console.log("[shell-debug] DROPPED: toRouteUrl returned null for", event.data.href); return; }
+    if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
-    console.log("[shell-debug] route:", route, "currentRoute:", currentRoute, "pending:", pendingNavigation && pendingNavigation.route);
-    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) { console.log("[shell-debug] DROPPED: pendingNavigation guard"); return; }
+    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) return;
     try {
       if (activeFrameEl && activeFrameEl.contentDocument) {
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
