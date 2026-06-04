@@ -23259,12 +23259,13 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      // Build full placement payload
+      // Build full placement payload (skip cache — admin repair should always compute fresh)
       const placement = await buildCareerPlacementPayload({
         zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord,
         startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
         practiceContacts, providerRoleId: app.provider_role_id, profile: { email: targetEmail, first_name: profile.first_name, last_name: profile.last_name },
-        zohoCandidateId: (candidateResult && candidateResult.zohoId) || app.zoho_candidate_id || ''
+        zohoCandidateId: (candidateResult && candidateResult.zohoId) || app.zoho_candidate_id || '',
+        skipContractCache: true
       }).catch(e => { log.push('  buildCareerPlacementPayload failed: ' + (e && e.message)); return null; });
 
       if (placement) {
