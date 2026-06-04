@@ -1336,8 +1336,24 @@
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
       }
     } catch (err) {}
-    // If the child requested a different page, perform a real navigation
+    // If the child requested a different page, check whether the active
+    // frame already self-navigated there (plain <a href> inside iframe).
+    // If so, just sync the shell state — don't load a second frame.
     if (currentRoute && !routesShareSupportedPage(currentRoute, route)) {
+      try {
+        var activePath = resolveSupportedPath(activeFrameEl.contentWindow.location.pathname);
+        if (activePath && activePath === resolveSupportedPath(routeUrl.pathname)) {
+          currentRoute = route;
+          var _s = getFrameState(activeFrameEl);
+          if (_s) { _s.loadedRoute = route; _s.pendingRoute = ""; }
+          syncActiveNav(routeUrl, false);
+          history.pushState({ route: route }, "", route);
+          setLoading(false);
+          updateFrameOffsets();
+          scheduleRouteWarmup(route);
+          return;
+        }
+      } catch (err) {}
       navigateTo(routeUrl, { historyMode: "push" });
       return;
     }
