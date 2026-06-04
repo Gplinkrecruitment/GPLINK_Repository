@@ -23187,11 +23187,44 @@ async function handleApi(req, res, pathname) {
     const localApps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
     log.push('gp_applications for user: ' + localApps.length);
 
+    // Build a map of Zoho application IDs by practice name for backfill
+    const zohoAppByPractice = {};
+    for (const za of zohoApps) {
+      const pt = getZohoField(za, ['Posting_Title', 'Job_Opening_Name']) || '';
+      if (za.id && pt) zohoAppByPractice[pt.toLowerCase()] = sanitizeZohoText(za.id);
+    }
+
     for (const app of localApps) {
       if (!app.zoho_application_id && !app.provider_role_id) continue;
-      log.push('Enriching app ' + app.id + ' (zohoAppId: ' + (app.zoho_application_id || 'none') + ', roleId: ' + app.provider_role_id + ')');
 
-      const liveRecord = app.zoho_application_id ? await fetchZohoRecruitApplicationRecord(zoho, app.zoho_application_id).catch(() => null) : null;
+      // Backfill zoho_application_id if missing but we found the Zoho app in step 3
+      let effectiveZohoAppId = app.zoho_application_id || '';
+      if (!effectiveZohoAppId && app.provider_role_id) {
+        // Match by role's practice name against discovered Zoho applications
+        const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+        const rolePractice = roleRow && roleRow.practice_name ? roleRow.practice_name.toLowerCase() : '';
+        for (const [pt, zaId] of Object.entries(zohoAppByPractice)) {
+          if (rolePractice && pt.toLowerCase().includes(rolePractice.toLowerCase())) {
+            effectiveZohoAppId = zaId;
+            break;
+          }
+        }
+        // Fallback: if only one Zoho app was found, use it
+        if (!effectiveZohoAppId && zohoApps.length === 1 && zohoApps[0].id) {
+          effectiveZohoAppId = sanitizeZohoText(zohoApps[0].id);
+        }
+        if (effectiveZohoAppId) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { zoho_application_id: effectiveZohoAppId, zoho_candidate_id: (candidateResult && candidateResult.zohoId) || app.zoho_candidate_id || '' }
+          });
+          log.push('  Backfilled zoho_application_id: ' + effectiveZohoAppId);
+        }
+      }
+
+      log.push('Enriching app ' + app.id + ' (zohoAppId: ' + (effectiveZohoAppId || 'none') + ', roleId: ' + app.provider_role_id + ')');
+
+      const liveRecord = effectiveZohoAppId ? await fetchZohoRecruitApplicationRecord(zoho, effectiveZohoAppId).catch(() => null) : null;
       const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
       let jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
 
@@ -23233,7 +23266,7 @@ async function handleApi(req, res, pathname) {
         const idx = apps.findIndex(a => a && (a.id === String(app.id) || a.provider_role_id === app.provider_role_id));
         const enrichedApp = {
           id: String(app.id),
-          zohoApplicationId: app.zoho_application_id || '',
+          zohoApplicationId: effectiveZohoAppId || app.zoho_application_id || '',
           status: app.status || 'hired',
           isPlacementSecured: true,
           placement: placement,
