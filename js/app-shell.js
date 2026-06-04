@@ -783,6 +783,75 @@
     }
   }
 
+  // ── Skeleton screen ──────────────────────────────────────────
+  var skeletonEl = null;
+  var skeletonTimer = null;
+
+  function createSkeleton() {
+    var el = document.createElement("div");
+    el.className = "gp-skeleton-overlay";
+    el.innerHTML = [
+      '<div class="sk-hero">',
+        '<div class="sk-hero-row">',
+          '<div class="sk-avatar sk-shimmer-dark"></div>',
+          '<div class="sk-lines">',
+            '<div class="sk-line sk-line-dark sk-w1 sk-shimmer-dark"></div>',
+            '<div class="sk-line sk-line-dark sk-w2 sk-shimmer-dark"></div>',
+          '</div>',
+        '</div>',
+        '<div class="sk-progress">',
+          '<div class="sk-progress-bar sk-shimmer-dark"></div>',
+          '<div class="sk-progress-fill"></div>',
+        '</div>',
+      '</div>',
+      '<div class="sk-tabs">',
+        '<div class="sk-tab active"><div class="sk-tab-inner sk-shimmer"></div></div>',
+        '<div class="sk-tab"><div class="sk-tab-inner sk-shimmer"></div></div>',
+      '</div>',
+      '<div class="sk-content">',
+        '<div class="sk-block sk-w3 sk-shimmer"></div>',
+        '<div class="sk-block sk-w4 sk-shimmer"></div>',
+        '<div class="sk-block sk-w5 sk-shimmer"></div>',
+        '<div class="sk-card">',
+          '<div class="sk-card-icon sk-shimmer"></div>',
+          '<div class="sk-card-lines">',
+            '<div class="sk-card-line sk-w6 sk-shimmer"></div>',
+            '<div class="sk-card-line sk-w7 sk-shimmer"></div>',
+          '</div>',
+        '</div>',
+        '<div class="sk-card">',
+          '<div class="sk-card-icon sk-shimmer"></div>',
+          '<div class="sk-card-lines">',
+            '<div class="sk-card-line sk-w6 sk-shimmer"></div>',
+            '<div class="sk-card-line sk-w7 sk-shimmer"></div>',
+          '</div>',
+        '</div>',
+        '<div class="sk-btn sk-shimmer"></div>',
+      '</div>'
+    ].join("");
+    return el;
+  }
+
+  function showSkeleton() {
+    removeSkeleton();
+    var stack = document.getElementById("appShellFrameStack");
+    if (!stack) return;
+    skeletonEl = createSkeleton();
+    if (window.innerWidth < 769) {
+      skeletonEl.classList.add("gp-frame-slide-in");
+    }
+    stack.appendChild(skeletonEl);
+    skeletonTimer = setTimeout(removeSkeleton, 6000);
+  }
+
+  function removeSkeleton() {
+    if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+    if (skeletonEl && skeletonEl.parentNode) {
+      skeletonEl.parentNode.removeChild(skeletonEl);
+    }
+    skeletonEl = null;
+  }
+
   function openMobileRegistrationSheet() {
     if (!mobileRegSheetEl || !mobileRegBackdropEl || !mobileRegistrationToggleEl) return;
     renderRegistrationRows();
@@ -1025,6 +1094,7 @@
     if (cachedFrame) {
       activateFrame(cachedFrame);
       setLoading(false);
+      removeSkeleton();
       try {
         if (cachedFrame.contentDocument) enforceEmbeddedChrome(cachedFrame.contentDocument);
       } catch (err) {}
@@ -1048,6 +1118,7 @@
       setLoading(false);
     }
 
+    showSkeleton();
     loadRouteIntoFrame(targetFrame, embeddedRoute, route);
   }
 
@@ -1286,6 +1357,7 @@
       if (pendingNavigation && (pendingNavigation.route === nextRoute || routesShareSupportedPage(pendingNavigation.route, nextRoute))) {
         if (frame !== activeFrameEl) activateFrame(frame);
         setLoading(false);
+        removeSkeleton();
         updateFrameOffsets();
         syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
         pendingNavigation = null;
@@ -1295,6 +1367,7 @@
 
       if (frame === activeFrameEl && !pendingNavigation) {
         setLoading(false);
+        removeSkeleton();
         updateFrameOffsets();
         syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
         scheduleRouteWarmup(nextRoute);
@@ -1349,6 +1422,7 @@
           syncActiveNav(routeUrl, false);
           history.pushState({ route: route }, "", route);
           setLoading(false);
+          removeSkeleton();
           updateFrameOffsets();
           scheduleRouteWarmup(route);
           return;
