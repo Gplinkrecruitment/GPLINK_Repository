@@ -1328,11 +1328,13 @@
     }
 
     if (event.data.type !== "gp-shell-route") return;
-    if (!activeWindow || event.source !== activeWindow) return;
+    console.log("[shell-debug] got gp-shell-route", event.data.href, "source===active:", event.source === activeWindow, "activeWindow:", !!activeWindow);
+    if (!activeWindow || event.source !== activeWindow) { console.log("[shell-debug] DROPPED: source mismatch"); return; }
     routeUrl = toRouteUrl(event.data.href);
-    if (!routeUrl) return;
+    if (!routeUrl) { console.log("[shell-debug] DROPPED: toRouteUrl returned null for", event.data.href); return; }
     route = routeFromUrl(routeUrl);
-    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) return;
+    console.log("[shell-debug] route:", route, "currentRoute:", currentRoute, "pending:", pendingNavigation && pendingNavigation.route);
+    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) { console.log("[shell-debug] DROPPED: pendingNavigation guard"); return; }
     try {
       if (activeFrameEl && activeFrameEl.contentDocument) {
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
