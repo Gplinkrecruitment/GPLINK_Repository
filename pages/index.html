@@ -1603,7 +1603,8 @@
           actionEl.type = "button";
           actionEl.disabled = true;
         } else {
-          actionEl.href = row.href;
+          actionEl.href = "javascript:void(0)";
+          actionEl.onclick = function () { try { window.parent.gpShellNavigate("/pages/" + row.href); } catch (e) { window.location.href = row.href; } };
         }
         rowEl.appendChild(actionEl);
         if (regTableEl) regTableEl.appendChild(rowEl);
