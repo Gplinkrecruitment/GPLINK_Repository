@@ -1091,8 +1091,8 @@
     warmFrame = getInactiveFrame();
     warmState = getFrameState(warmFrame);
     if (!warmFrame || !warmState) return;
-    if (warmState.pendingRoute === route || warmState.loadedRoute === route) return;
-    if (pendingNavigation && pendingNavigation.route === route) return;
+    if (warmState.pendingRoute || warmState.loadedRoute === route) return;
+    if (pendingNavigation) return;
 
     loadRouteIntoFrame(warmFrame, embeddedRoute, route);
   }

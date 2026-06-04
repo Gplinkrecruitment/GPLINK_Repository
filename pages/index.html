@@ -1448,7 +1448,7 @@
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="/pages/${sub.href}" target="_parent">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${sub.href}'},location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
                 }
               </div>
             `;
@@ -1458,7 +1458,7 @@
           if (step.done) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="/pages/${step.href}" target="_parent">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${step.href}'},location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
@@ -1601,8 +1601,8 @@
           actionEl.type = "button";
           actionEl.disabled = true;
         } else {
-          actionEl.href = "/pages/" + row.href;
-          actionEl.target = "_parent";
+          actionEl.href = "javascript:void(0)";
+          actionEl.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, location.origin); };
         }
         rowEl.appendChild(actionEl);
         if (regTableEl) regTableEl.appendChild(rowEl);
@@ -1649,8 +1649,8 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = "/pages/" + row.href;
-          actionEl2.target = "_parent";
+          actionEl2.href = "javascript:void(0)";
+          actionEl2.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, location.origin); };
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
