@@ -622,7 +622,7 @@
       actionEl.setAttribute("data-route", row.href);
       actionEl.addEventListener("click", function (e) {
         e.preventDefault();
-        console.log("[shell-debug] reg-btn clicked, navigating to:", row.href);
+        alert("DEBUG: navigating to " + row.href);
         navigateTo(row.href, { historyMode: "push" });
       });
     }
