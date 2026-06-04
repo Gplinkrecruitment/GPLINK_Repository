@@ -860,7 +860,7 @@
         })
         .catch(function () { document.documentElement.style.visibility = ""; });
     })();
-    const TOTAL_STEPS = 6;
+    const TOTAL_STEPS = 5;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1364,16 +1364,15 @@
       // Visa case tracking managed server-side
       const pbsDone = false;
 
-      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
+      const completedSteps = [epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
       let currentRoute = "myinthealth";
       let currentTitle = "MyIntealth Account";
       let currentSub = epicCurrentLabel;
       if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Your Practice"; currentSub = "View your secured practice placement"; }
-      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      else if (epicDone && amcDone && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
+      else if (epicDone && amcDone && ahpraDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1428,9 +1427,7 @@
         { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra" }
       ];
 
-      // Your Practice step hidden once placement is secured
       const allSteps = [
-        !snap.careerSecured ? { key: "career", title: "Your Practice", sub: "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: false, locked: false, href: "career" } : null,
         { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
         { key: "visa", title: "Visa Application", sub: "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: false, locked: false, href: "visa" },
         { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs" }
@@ -1544,16 +1541,8 @@
         : !snap.amcDone ? "Complete AMC first"
         : "In progress";
       return [
-        buildRegistrationRow("career", {
-          title: "1. Your Practice",
-          sub: "View your secured practice placement.",
-          mobileDetail: "Your placed practice details and contact information.",
-          mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
-          done: snap.careerSecured,
-          href: "career"
-        }),
         buildRegistrationRow("myinthealth", {
-          title: "2. MyIntealth Account",
+          title: "1. MyIntealth Account",
           sub: "Create account and complete EPIC verification.",
           mobileDetail: "EPIC verification is set up and moving forward.",
           mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
@@ -1561,7 +1550,7 @@
           href: "myinthealth"
         }),
         buildRegistrationRow("amc", {
-          title: "3. AMC Portfolio",
+          title: "2. AMC Portfolio",
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
           mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
@@ -1570,7 +1559,7 @@
           href: "amc"
         }),
         buildRegistrationRow("ahpra", {
-          title: "4. AHPRA Registration",
+          title: "3. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
           mobileStatus: ahpraStatusHint,
@@ -1579,7 +1568,7 @@
           href: "ahpra"
         }),
         buildRegistrationRow("visa", {
-          title: "5. Visa Application",
+          title: "4. Visa Application",
           sub: "Your pathway to permanent residency.",
           mobileDetail: "Information about your 482 and 186 visa pathway.",
           mobileStatus: "View pathway",
@@ -1588,7 +1577,7 @@
           href: "visa"
         }),
         buildRegistrationRow("pbs", {
-          title: "6. PBS & Medicare",
+          title: "5. PBS & Medicare",
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
           mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
