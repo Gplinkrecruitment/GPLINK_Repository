@@ -22622,6 +22622,9 @@ async function handleApi(req, res, pathname) {
 
         resetState.gp_career_state = { career_secured: true };
 
+        // Set reset sentinel so client state-sync discards stale localStorage
+        resetState.__gp_reset_at = Date.now();
+
         await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(resetUserId), {
           method: 'PATCH', body: { state: resetState }
         });

@@ -2264,6 +2264,16 @@
 
     var gateListenersAttached = false;
     function showMyintealthGate() {
+      // Hide AMC content — gate takes over the entire view
+      var hero = document.querySelector(".hero-compact");
+      if (hero) hero.style.display = "none";
+      var regBlocks = document.querySelectorAll(".reg-content");
+      for (var i = 0; i < regBlocks.length; i++) regBlocks[i].style.display = "none";
+      var stepHeader = document.getElementById("stepHeaderBar");
+      if (stepHeader) stepHeader.style.display = "none";
+      var sidebar = document.querySelector(".desktop-sidebar");
+      if (sidebar) sidebar.style.display = "none";
+
       var gate = document.getElementById("amcGate");
       if (gate) gate.style.display = "";
       removeGateHideStyle();
