@@ -554,8 +554,16 @@
       : "In progress";
 
     return [
+      buildRegistrationRow("career", {
+        title: "1. Your Practice",
+        sub: "View your secured practice placement.",
+        mobileDetail: "Your placed practice details and contact information.",
+        mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
+        done: snap.careerSecured,
+        href: "/pages/career"
+      }),
       buildRegistrationRow("myinthealth", {
-        title: "1. MyIntealth Account",
+        title: "2. MyIntealth Account",
         sub: "Create account and complete EPIC verification.",
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
@@ -563,7 +571,7 @@
         href: "/pages/myinthealth?" + REGISTRATION_CONTINUE_PARAM + "=1"
       }),
       buildRegistrationRow("amc", {
-        title: "2. AMC Portfolio",
+        title: "3. AMC Portfolio",
         sub: "Create AMC candidate portfolio and upload credentials.",
         mobileDetail: "AMC portfolio is created and connected to your verification.",
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
@@ -572,7 +580,7 @@
         href: "/pages/amc"
       }),
       buildRegistrationRow("ahpra", {
-        title: "3. AHPRA Registration",
+        title: "4. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
         mobileStatus: ahpraStatusHint,
@@ -581,7 +589,7 @@
         href: "/pages/ahpra"
       }),
       buildRegistrationRow("visa", {
-        title: "4. Visa Application",
+        title: "5. Visa Application",
         sub: "Your pathway to permanent residency.",
         mobileDetail: "Information about your 482 and 186 visa pathway.",
         mobileStatus: "View pathway",
@@ -590,7 +598,7 @@
         href: "/pages/visa"
       }),
       buildRegistrationRow("pbs", {
-        title: "5. PBS & Medicare",
+        title: "6. PBS & Medicare",
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
         mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
