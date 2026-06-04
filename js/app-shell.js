@@ -622,6 +622,7 @@
       actionEl.setAttribute("data-route", row.href);
       actionEl.addEventListener("click", function (e) {
         e.preventDefault();
+        console.log("[shell-debug] reg-btn clicked, navigating to:", row.href);
         navigateTo(row.href, { historyMode: "push" });
       });
     }
@@ -973,7 +974,10 @@
     var targetFrame = null;
     var cachedFrame = null;
 
+    console.log("[shell-debug] navigateTo:", input, "resolved:", routeUrl && routeUrl.pathname, "currentRoute:", currentRoute);
+
     if (!routeUrl) {
+      console.log("[shell-debug] navigateTo ABORT: no routeUrl");
       if (typeof input === "string" && input) window.location.href = input;
       return;
     }
@@ -1001,9 +1005,7 @@
     if (!embeddedRoute) return;
 
     if (route === currentRoute && activeFrameEl && activeFrameEl.getAttribute("src") === embeddedRoute && isFrameShowingRoute(activeFrameEl, route)) {
-      if (opts.historyMode === "replace" && window.location.pathname + window.location.search + window.location.hash !== route) {
-        history.replaceState({ route: route }, "", route);
-      }
+      console.log("[shell-debug] navigateTo EXIT: already showing route");
       scheduleRouteWarmup(route);
       return;
     }
@@ -1018,6 +1020,7 @@
     }
 
     if (isFrameShowingRoute(activeFrameEl, route)) {
+      console.log("[shell-debug] navigateTo EXIT: active frame already has route");
       setLoading(false);
       scheduleRouteWarmup(route);
       return;
@@ -1025,6 +1028,7 @@
 
     cachedFrame = findLoadedFrameForRoute(route);
     if (cachedFrame) {
+      console.log("[shell-debug] navigateTo: using cached frame");
       activateFrame(cachedFrame);
       setLoading(false);
       try {
@@ -1036,13 +1040,15 @@
     }
 
     targetFrame = activeState && activeState.loadedRoute ? getInactiveFrame() : activeFrameEl;
-    if (!targetFrame) return;
+    if (!targetFrame) { console.log("[shell-debug] navigateTo EXIT: no target frame"); return; }
 
     if (pendingNavigation && pendingNavigation.route === route && getFrameState(targetFrame).pendingRoute === route) {
+      console.log("[shell-debug] navigateTo EXIT: already pending same route");
       if (!activeState || !activeState.loadedRoute) setLoading(true);
       return;
     }
 
+    console.log("[shell-debug] navigateTo: loading", route, "into frame");
     pendingNavigation = { route: route };
     if (!activeState || !activeState.loadedRoute) {
       setLoading(true);
