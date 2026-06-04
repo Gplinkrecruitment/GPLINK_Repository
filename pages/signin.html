@@ -1203,6 +1203,23 @@
       });
     }
 
+    // Pre-warm server-side state cache when user moves to password field
+    var warmFired = false;
+    var signinEmailEl = document.getElementById("signinEmail");
+    if (signinEmailEl) {
+      signinEmailEl.addEventListener("blur", function () {
+        if (warmFired) return;
+        var email = signinEmailEl.value.trim();
+        if (!email || !email.includes("@")) return;
+        warmFired = true;
+        fetch("/api/auth/warm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email })
+        }).catch(function () {});
+      });
+    }
+
     signInFormEl.addEventListener("submit", async (event) => {
       event.preventDefault();
       setStatus(signInStatusEl, "");
