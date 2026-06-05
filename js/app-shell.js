@@ -554,8 +554,16 @@
       : "In progress";
 
     return [
+      buildRegistrationRow("career", {
+        title: "1. Your Practice",
+        sub: "View your secured practice placement.",
+        mobileDetail: "Your placed practice details and contact information.",
+        mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
+        done: snap.careerSecured,
+        href: "/pages/career"
+      }),
       buildRegistrationRow("myinthealth", {
-        title: "1. MyIntealth Account",
+        title: "2. MyIntealth Account",
         sub: "Create account and complete EPIC verification.",
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
@@ -563,7 +571,7 @@
         href: "/pages/myinthealth?" + REGISTRATION_CONTINUE_PARAM + "=1"
       }),
       buildRegistrationRow("amc", {
-        title: "2. AMC Portfolio",
+        title: "3. AMC Portfolio",
         sub: "Create AMC candidate portfolio and upload credentials.",
         mobileDetail: "AMC portfolio is created and connected to your verification.",
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
@@ -572,7 +580,7 @@
         href: "/pages/amc"
       }),
       buildRegistrationRow("ahpra", {
-        title: "3. AHPRA Registration",
+        title: "4. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
         mobileStatus: ahpraStatusHint,
@@ -581,7 +589,7 @@
         href: "/pages/ahpra"
       }),
       buildRegistrationRow("visa", {
-        title: "4. Visa Application",
+        title: "5. Visa Application",
         sub: "Your pathway to permanent residency.",
         mobileDetail: "Information about your 482 and 186 visa pathway.",
         mobileStatus: "View pathway",
@@ -590,7 +598,7 @@
         href: "/pages/visa"
       }),
       buildRegistrationRow("pbs", {
-        title: "5. PBS & Medicare",
+        title: "6. PBS & Medicare",
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
         mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
@@ -773,6 +781,156 @@
       var guard = document.getElementById("gp-shell-preload-guard");
       if (guard) guard.parentNode.removeChild(guard);
     }
+  }
+
+  // ── Skeleton screen ──────────────────────────────────────────
+  var skeletonEl = null;
+  var skeletonTimer = null;
+
+  // ── Skeleton building blocks ──
+  function skHero(extra) {
+    return '<div class="sk-hero"><div class="sk-hero-row"><div class="sk-avatar sk-shimmer-dark"></div><div class="sk-lines"><div class="sk-line sk-line-dark sk-w1 sk-shimmer-dark"></div><div class="sk-line sk-line-dark sk-w2 sk-shimmer-dark"></div></div></div>' + (extra || '<div class="sk-progress"><div class="sk-progress-bar sk-shimmer-dark"></div><div class="sk-progress-fill"></div></div>') + '</div>';
+  }
+  function skTabs(n) {
+    var h = '<div class="sk-tabs">';
+    for (var i = 0; i < (n || 2); i++) h += '<div class="sk-tab' + (i === 0 ? ' active' : '') + '"><div class="sk-tab-inner sk-shimmer"></div></div>';
+    return h + '</div>';
+  }
+  function skCard() { return '<div class="sk-card"><div class="sk-card-icon sk-shimmer"></div><div class="sk-card-lines"><div class="sk-card-line sk-w6 sk-shimmer"></div><div class="sk-card-line sk-w7 sk-shimmer"></div></div></div>'; }
+  function skRow() { return '<div class="sk-card" style="padding:12px 18px;"><div class="sk-card-lines" style="flex:1;"><div class="sk-card-line sk-w4 sk-shimmer"></div></div><div class="sk-card-line sk-w2 sk-shimmer" style="width:60px;"></div></div>'; }
+  function skBtn() { return '<div class="sk-btn sk-shimmer"></div>'; }
+  function skText(w) { return '<div class="sk-block ' + (w || 'sk-w4') + ' sk-shimmer"></div>'; }
+
+  var SKELETON_MAP = {
+    "/pages/index": function () {
+      return skHero() +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">' +
+            skText('sk-w3') + '<div class="sk-block sk-shimmer" style="height:8px;border-radius:4px;width:100%;background:#e4e7ee;"></div>' +
+            '<div style="display:flex;gap:8px;">' + skText('sk-w2') + skText('sk-w2') + '</div>' +
+          '</div>' +
+          '<div style="margin-top:8px;">' + skText('sk-w3') + '</div>' +
+          skCard() + skCard() + skCard() +
+          '<div style="margin-top:8px;">' + skText('sk-w2') + '</div>' +
+          skRow() + skRow() +
+        '</div>';
+    },
+    "/pages/myinthealth": function () {
+      return skHero() + skTabs(4) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/amc": function () {
+      return skHero() + skTabs(2) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/ahpra": function () {
+      return skHero() + skTabs(4) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skCard() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/career": function () {
+      return '<div style="padding:24px 20px;">' +
+          '<div class="sk-block sk-w2 sk-shimmer" style="height:10px;margin-bottom:8px;"></div>' +
+          '<div class="sk-block sk-w4 sk-shimmer" style="height:22px;margin-bottom:6px;"></div>' +
+          '<div class="sk-block sk-w5 sk-shimmer" style="height:12px;margin-bottom:20px;"></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;">' +
+            skText('sk-w3') + skRow() + skRow() + skRow() +
+          '</div>' +
+          skCard() + skBtn() +
+        '</div>';
+    },
+    "/pages/visa": function () {
+      return skHero('') + '<div class="sk-content" style="padding:24px 20px;">' +
+        skText('sk-w3') + skText('sk-w5') +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+      '</div>';
+    },
+    "/pages/pbs": function () {
+      return skHero() + skTabs(3) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skRow() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/messages": function () {
+      return '<div style="padding:16px 20px;border-bottom:1px solid #e4e7ee;">' + skText('sk-w2') + '</div>' +
+        '<div style="display:flex;border-bottom:1px solid #e4e7ee;">' +
+          '<div style="flex:1;padding:12px;text-align:center;border-bottom:2px solid #1a56db;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:30px;height:10px;margin:0 auto;"></div></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          skCard() + skCard() + skCard() + skCard() +
+        '</div>';
+    },
+    "/pages/account": function () {
+      return '<div style="padding:20px;">' +
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">' +
+            '<div class="sk-avatar sk-shimmer" style="width:48px;height:48px;background:#e4e7ee;"></div>' +
+            '<div class="sk-lines">' + '<div class="sk-line sk-line-light sk-w1 sk-shimmer"></div>' + '<div class="sk-line sk-line-light sk-w2 sk-shimmer"></div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;border-bottom:1px solid #e4e7ee;padding:0 20px;">' +
+          '<div style="flex:1;padding:10px 0;border-bottom:2px solid #1a56db;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:70px;height:10px;margin:0 auto;"></div></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;">' +
+            skText('sk-w3') + skRow() + skRow() + skRow() + skRow() +
+          '</div>' +
+        '</div>';
+    },
+    "/pages/my-documents": function () {
+      return '<div style="padding:20px;">' + '<div class="sk-block sk-w3 sk-shimmer" style="height:20px;margin-bottom:6px;"></div>' + skText('sk-w5') + '</div>' +
+        '<div style="display:flex;gap:8px;padding:0 20px;margin-bottom:16px;">' +
+          '<div class="sk-block sk-shimmer" style="width:60px;height:30px;border-radius:8px;"></div>' +
+          '<div class="sk-block sk-shimmer" style="width:70px;height:30px;border-radius:8px;"></div>' +
+          '<div class="sk-block sk-shimmer" style="width:60px;height:30px;border-radius:8px;"></div>' +
+        '</div>' +
+        '<div class="sk-content" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+          skCard() + skCard() + skCard() + skCard() +
+        '</div>';
+    }
+  };
+
+  function createSkeleton(route) {
+    var el = document.createElement("div");
+    el.className = "gp-skeleton-overlay";
+    var resolved = resolveSupportedPath(route) || "";
+    var builder = SKELETON_MAP[resolved];
+    if (!builder) builder = SKELETON_MAP["/pages/index"];
+    el.innerHTML = builder();
+    return el;
+  }
+
+  function showSkeleton(route) {
+    removeSkeleton();
+    var stack = document.getElementById("appShellFrameStack");
+    if (!stack) return;
+    skeletonEl = createSkeleton(route || currentRoute);
+    if (window.innerWidth < 769) {
+      skeletonEl.classList.add("gp-frame-slide-in");
+    }
+    stack.appendChild(skeletonEl);
+    skeletonTimer = setTimeout(removeSkeleton, 6000);
+  }
+
+  function removeSkeleton() {
+    if (skeletonTimer) { clearTimeout(skeletonTimer); skeletonTimer = null; }
+    if (skeletonEl && skeletonEl.parentNode) {
+      skeletonEl.parentNode.removeChild(skeletonEl);
+    }
+    skeletonEl = null;
   }
 
   function openMobileRegistrationSheet() {
@@ -965,6 +1123,7 @@
     var targetFrame = null;
     var cachedFrame = null;
 
+
     if (!routeUrl) {
       if (typeof input === "string" && input) window.location.href = input;
       return;
@@ -993,9 +1152,6 @@
     if (!embeddedRoute) return;
 
     if (route === currentRoute && activeFrameEl && activeFrameEl.getAttribute("src") === embeddedRoute && isFrameShowingRoute(activeFrameEl, route)) {
-      if (opts.historyMode === "replace" && window.location.pathname + window.location.search + window.location.hash !== route) {
-        history.replaceState({ route: route }, "", route);
-      }
       scheduleRouteWarmup(route);
       return;
     }
@@ -1019,6 +1175,7 @@
     if (cachedFrame) {
       activateFrame(cachedFrame);
       setLoading(false);
+      removeSkeleton();
       try {
         if (cachedFrame.contentDocument) enforceEmbeddedChrome(cachedFrame.contentDocument);
       } catch (err) {}
@@ -1042,6 +1199,7 @@
       setLoading(false);
     }
 
+    showSkeleton(route);
     loadRouteIntoFrame(targetFrame, embeddedRoute, route);
   }
 
@@ -1083,8 +1241,8 @@
     warmFrame = getInactiveFrame();
     warmState = getFrameState(warmFrame);
     if (!warmFrame || !warmState) return;
-    if (warmState.pendingRoute === route || warmState.loadedRoute === route) return;
-    if (pendingNavigation && pendingNavigation.route === route) return;
+    if (warmState.pendingRoute || warmState.loadedRoute === route) return;
+    if (pendingNavigation) return;
 
     loadRouteIntoFrame(warmFrame, embeddedRoute, route);
   }
@@ -1280,6 +1438,7 @@
       if (pendingNavigation && (pendingNavigation.route === nextRoute || routesShareSupportedPage(pendingNavigation.route, nextRoute))) {
         if (frame !== activeFrameEl) activateFrame(frame);
         setLoading(false);
+        removeSkeleton();
         updateFrameOffsets();
         syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
         pendingNavigation = null;
@@ -1289,6 +1448,7 @@
 
       if (frame === activeFrameEl && !pendingNavigation) {
         setLoading(false);
+        removeSkeleton();
         updateFrameOffsets();
         syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
         scheduleRouteWarmup(nextRoute);
@@ -1330,8 +1490,25 @@
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
       }
     } catch (err) {}
-    // If the child requested a different page, perform a real navigation
+    // If the child requested a different page, check whether the active
+    // frame already self-navigated there (plain <a href> inside iframe).
+    // If so, just sync the shell state — don't load a second frame.
     if (currentRoute && !routesShareSupportedPage(currentRoute, route)) {
+      try {
+        var activePath = resolveSupportedPath(activeFrameEl.contentWindow.location.pathname);
+        if (activePath && activePath === resolveSupportedPath(routeUrl.pathname)) {
+          currentRoute = route;
+          var _s = getFrameState(activeFrameEl);
+          if (_s) { _s.loadedRoute = route; _s.pendingRoute = ""; }
+          syncActiveNav(routeUrl, false);
+          history.pushState({ route: route }, "", route);
+          setLoading(false);
+          removeSkeleton();
+          updateFrameOffsets();
+          scheduleRouteWarmup(route);
+          return;
+        }
+      } catch (err) {}
       navigateTo(routeUrl, { historyMode: "push" });
       return;
     }

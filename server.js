@@ -3308,6 +3308,28 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/area-guide.html'
 ]);
 
+// ── Auth pre-warm cache ──────────────────────────────────────
+var _warmCache = new Map();
+var WARM_CACHE_TTL_MS = 60000;
+var WARM_CACHE_MAX = 100;
+
+function warmCacheSet(email, state) {
+  if (_warmCache.size >= WARM_CACHE_MAX) {
+    var oldest = _warmCache.keys().next().value;
+    _warmCache.delete(oldest);
+  }
+  _warmCache.set(email.toLowerCase(), { state: state, ts: Date.now() });
+}
+
+function warmCacheGet(email) {
+  var key = email.toLowerCase();
+  var entry = _warmCache.get(key);
+  if (!entry) return null;
+  _warmCache.delete(key);
+  if (Date.now() - entry.ts > WARM_CACHE_TTL_MS) return null;
+  return entry.state;
+}
+
 const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
@@ -5726,6 +5748,7 @@ async function isStageAccessAllowed(email, pathname) {
 
   if (!overrides || typeof overrides !== 'object') return true; // No overrides set — natural flow
 
+  if (!(stage in overrides)) return true; // Stage not in overrides — allow natural progression
   return overrides[stage] === true;
 }
 
@@ -20391,6 +20414,22 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/auth/warm') {
+    var warmBody;
+    try { warmBody = typeof req.body === 'object' ? req.body : JSON.parse(await readRawBody(req)); } catch (e) { sendJson(res, 400, { ok: false }); return; }
+    var warmEmail = String(warmBody && warmBody.email || '').trim().toLowerCase();
+    if (!warmEmail || !warmEmail.includes('@')) { sendJson(res, 200, { ok: true }); return; }
+    (async function () {
+      try {
+        if (!isSupabaseDbConfigured()) return;
+        var row = await getSupabaseUserStateByEmail(warmEmail);
+        if (row && row.state) warmCacheSet(warmEmail, row.state);
+      } catch (e) {}
+    })();
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/auth/login' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'login'))) return;
     let body;
@@ -26876,6 +26915,14 @@ Return ONLY valid JSON with no markdown formatting:
     const email = getSessionEmail(session);
     if (!email) {
       sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    // Check auth pre-warm cache first
+    var warmedState = warmCacheGet(email);
+    if (warmedState) {
+      var warmResetAt = Number(warmedState.__gp_reset_at);
+      sendJson(res, 200, { ok: true, state: warmedState, resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 

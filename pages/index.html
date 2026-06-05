@@ -860,7 +860,7 @@
         })
         .catch(function () { document.documentElement.style.visibility = ""; });
     })();
-    const TOTAL_STEPS = 5;
+    const TOTAL_STEPS = 6;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -869,18 +869,6 @@
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const CAREER_STATE_KEY = "gp_career_state";
     // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
-
-    // Navigate to a page through the app shell instead of native anchor.
-    function shellNav(page) {
-      try {
-        if (window.self !== window.top) {
-          window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + page }, window.location.origin);
-          return;
-        }
-      } catch (e) {}
-      window.location.href = "/pages/" + page;
-    }
-
     const ringCirc = 289.026524;
 
     const epicStageLabels = {
@@ -1356,15 +1344,16 @@
       // Visa case tracking managed server-side
       const pbsDone = false;
 
-      const completedSteps = [epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
+      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
       let currentRoute = "myinthealth";
       let currentTitle = "MyIntealth Account";
       let currentSub = epicCurrentLabel;
       if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
-      else if (epicDone && amcDone && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
-      else if (epicDone && amcDone && ahpraDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Your Practice"; currentSub = "View your secured practice placement"; }
+      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1459,7 +1448,7 @@
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="javascript:void(0)" onclick="shellNav('${sub.href}')">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${sub.href}'},location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
                 }
               </div>
             `;
@@ -1469,7 +1458,7 @@
           if (step.done) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="javascript:void(0)" onclick="shellNav('${step.href}')">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="javascript:void(0)" onclick="window.parent.postMessage({type:'gp-shell-route',href:'/pages/${step.href}'},location.origin)">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
@@ -1533,8 +1522,16 @@
         : !snap.amcDone ? "Complete AMC first"
         : "In progress";
       return [
+        buildRegistrationRow("career", {
+          title: "1. Your Practice",
+          sub: "View your secured practice placement.",
+          mobileDetail: "Your placed practice details and contact information.",
+          mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
+          done: snap.careerSecured,
+          href: "career"
+        }),
         buildRegistrationRow("myinthealth", {
-          title: "1. MyIntealth Account",
+          title: "2. MyIntealth Account",
           sub: "Create account and complete EPIC verification.",
           mobileDetail: "EPIC verification is set up and moving forward.",
           mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
@@ -1542,7 +1539,7 @@
           href: "myinthealth"
         }),
         buildRegistrationRow("amc", {
-          title: "2. AMC Portfolio",
+          title: "3. AMC Portfolio",
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
           mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
@@ -1551,7 +1548,7 @@
           href: "amc"
         }),
         buildRegistrationRow("ahpra", {
-          title: "3. AHPRA Registration",
+          title: "4. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
           mobileStatus: ahpraStatusHint,
@@ -1560,7 +1557,7 @@
           href: "ahpra"
         }),
         buildRegistrationRow("visa", {
-          title: "4. Visa Application",
+          title: "5. Visa Application",
           sub: "Your pathway to permanent residency.",
           mobileDetail: "Information about your 482 and 186 visa pathway.",
           mobileStatus: "View pathway",
@@ -1569,7 +1566,7 @@
           href: "visa"
         }),
         buildRegistrationRow("pbs", {
-          title: "5. PBS & Medicare",
+          title: "6. PBS & Medicare",
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
           mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
@@ -1605,7 +1602,7 @@
           actionEl.disabled = true;
         } else {
           actionEl.href = "javascript:void(0)";
-          actionEl.addEventListener("click", function () { shellNav(row.href); });
+          actionEl.onclick = function () { window.parent.postMessage({ type: "gp-shell-route", href: "/pages/" + row.href }, location.origin); };
         }
         rowEl.appendChild(actionEl);
         if (regTableEl) regTableEl.appendChild(rowEl);
@@ -1652,8 +1649,7 @@
           actionEl2.type = "button";
           actionEl2.disabled = true;
         } else {
-          actionEl2.href = "javascript:void(0)";
-          actionEl2.addEventListener("click", function () { shellNav(row.href); });
+          actionEl2.href = "/pages/" + row.href;
         }
         bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
