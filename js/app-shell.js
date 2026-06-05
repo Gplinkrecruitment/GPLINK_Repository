@@ -787,56 +787,137 @@
   var skeletonEl = null;
   var skeletonTimer = null;
 
-  function createSkeleton() {
+  // ── Skeleton building blocks ──
+  function skHero(extra) {
+    return '<div class="sk-hero"><div class="sk-hero-row"><div class="sk-avatar sk-shimmer-dark"></div><div class="sk-lines"><div class="sk-line sk-line-dark sk-w1 sk-shimmer-dark"></div><div class="sk-line sk-line-dark sk-w2 sk-shimmer-dark"></div></div></div>' + (extra || '<div class="sk-progress"><div class="sk-progress-bar sk-shimmer-dark"></div><div class="sk-progress-fill"></div></div>') + '</div>';
+  }
+  function skTabs(n) {
+    var h = '<div class="sk-tabs">';
+    for (var i = 0; i < (n || 2); i++) h += '<div class="sk-tab' + (i === 0 ? ' active' : '') + '"><div class="sk-tab-inner sk-shimmer"></div></div>';
+    return h + '</div>';
+  }
+  function skCard() { return '<div class="sk-card"><div class="sk-card-icon sk-shimmer"></div><div class="sk-card-lines"><div class="sk-card-line sk-w6 sk-shimmer"></div><div class="sk-card-line sk-w7 sk-shimmer"></div></div></div>'; }
+  function skRow() { return '<div class="sk-card" style="padding:12px 18px;"><div class="sk-card-lines" style="flex:1;"><div class="sk-card-line sk-w4 sk-shimmer"></div></div><div class="sk-card-line sk-w2 sk-shimmer" style="width:60px;"></div></div>'; }
+  function skBtn() { return '<div class="sk-btn sk-shimmer"></div>'; }
+  function skText(w) { return '<div class="sk-block ' + (w || 'sk-w4') + ' sk-shimmer"></div>'; }
+
+  var SKELETON_MAP = {
+    "/pages/index": function () {
+      return skHero() +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">' +
+            skText('sk-w3') + '<div class="sk-block sk-shimmer" style="height:8px;border-radius:4px;width:100%;background:#e4e7ee;"></div>' +
+            '<div style="display:flex;gap:8px;">' + skText('sk-w2') + skText('sk-w2') + '</div>' +
+          '</div>' +
+          '<div style="margin-top:8px;">' + skText('sk-w3') + '</div>' +
+          skCard() + skCard() + skCard() +
+          '<div style="margin-top:8px;">' + skText('sk-w2') + '</div>' +
+          skRow() + skRow() +
+        '</div>';
+    },
+    "/pages/myinthealth": function () {
+      return skHero() + skTabs(4) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/amc": function () {
+      return skHero() + skTabs(2) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/ahpra": function () {
+      return skHero() + skTabs(4) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skCard() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/career": function () {
+      return '<div style="padding:24px 20px;">' +
+          '<div class="sk-block sk-w2 sk-shimmer" style="height:10px;margin-bottom:8px;"></div>' +
+          '<div class="sk-block sk-w4 sk-shimmer" style="height:22px;margin-bottom:6px;"></div>' +
+          '<div class="sk-block sk-w5 sk-shimmer" style="height:12px;margin-bottom:20px;"></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;">' +
+            skText('sk-w3') + skRow() + skRow() + skRow() +
+          '</div>' +
+          skCard() + skBtn() +
+        '</div>';
+    },
+    "/pages/visa": function () {
+      return skHero('') + '<div class="sk-content" style="padding:24px 20px;">' +
+        skText('sk-w3') + skText('sk-w5') +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;align-items:flex-start;margin:12px 0;">' +
+          '<div class="sk-card-icon sk-shimmer" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">' + skText('sk-w4') + skText('sk-w6') + '</div>' +
+        '</div>' +
+      '</div>';
+    },
+    "/pages/pbs": function () {
+      return skHero() + skTabs(3) +
+        '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skRow() + skRow() + skBtn() + '</div>';
+    },
+    "/pages/messages": function () {
+      return '<div style="padding:16px 20px;border-bottom:1px solid #e4e7ee;">' + skText('sk-w2') + '</div>' +
+        '<div style="display:flex;border-bottom:1px solid #e4e7ee;">' +
+          '<div style="flex:1;padding:12px;text-align:center;border-bottom:2px solid #1a56db;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:30px;height:10px;margin:0 auto;"></div></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          skCard() + skCard() + skCard() + skCard() +
+        '</div>';
+    },
+    "/pages/account": function () {
+      return '<div style="padding:20px;">' +
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">' +
+            '<div class="sk-avatar sk-shimmer" style="width:48px;height:48px;background:#e4e7ee;"></div>' +
+            '<div class="sk-lines">' + '<div class="sk-line sk-line-light sk-w1 sk-shimmer"></div>' + '<div class="sk-line sk-line-light sk-w2 sk-shimmer"></div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;border-bottom:1px solid #e4e7ee;padding:0 20px;">' +
+          '<div style="flex:1;padding:10px 0;border-bottom:2px solid #1a56db;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+          '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:70px;height:10px;margin:0 auto;"></div></div>' +
+        '</div>' +
+        '<div class="sk-content">' +
+          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;">' +
+            skText('sk-w3') + skRow() + skRow() + skRow() + skRow() +
+          '</div>' +
+        '</div>';
+    },
+    "/pages/my-documents": function () {
+      return '<div style="padding:20px;">' + '<div class="sk-block sk-w3 sk-shimmer" style="height:20px;margin-bottom:6px;"></div>' + skText('sk-w5') + '</div>' +
+        '<div style="display:flex;gap:8px;padding:0 20px;margin-bottom:16px;">' +
+          '<div class="sk-block sk-shimmer" style="width:60px;height:30px;border-radius:8px;"></div>' +
+          '<div class="sk-block sk-shimmer" style="width:70px;height:30px;border-radius:8px;"></div>' +
+          '<div class="sk-block sk-shimmer" style="width:60px;height:30px;border-radius:8px;"></div>' +
+        '</div>' +
+        '<div class="sk-content" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+          skCard() + skCard() + skCard() + skCard() +
+        '</div>';
+    }
+  };
+
+  function createSkeleton(route) {
     var el = document.createElement("div");
     el.className = "gp-skeleton-overlay";
-    el.innerHTML = [
-      '<div class="sk-hero">',
-        '<div class="sk-hero-row">',
-          '<div class="sk-avatar sk-shimmer-dark"></div>',
-          '<div class="sk-lines">',
-            '<div class="sk-line sk-line-dark sk-w1 sk-shimmer-dark"></div>',
-            '<div class="sk-line sk-line-dark sk-w2 sk-shimmer-dark"></div>',
-          '</div>',
-        '</div>',
-        '<div class="sk-progress">',
-          '<div class="sk-progress-bar sk-shimmer-dark"></div>',
-          '<div class="sk-progress-fill"></div>',
-        '</div>',
-      '</div>',
-      '<div class="sk-tabs">',
-        '<div class="sk-tab active"><div class="sk-tab-inner sk-shimmer"></div></div>',
-        '<div class="sk-tab"><div class="sk-tab-inner sk-shimmer"></div></div>',
-      '</div>',
-      '<div class="sk-content">',
-        '<div class="sk-block sk-w3 sk-shimmer"></div>',
-        '<div class="sk-block sk-w4 sk-shimmer"></div>',
-        '<div class="sk-block sk-w5 sk-shimmer"></div>',
-        '<div class="sk-card">',
-          '<div class="sk-card-icon sk-shimmer"></div>',
-          '<div class="sk-card-lines">',
-            '<div class="sk-card-line sk-w6 sk-shimmer"></div>',
-            '<div class="sk-card-line sk-w7 sk-shimmer"></div>',
-          '</div>',
-        '</div>',
-        '<div class="sk-card">',
-          '<div class="sk-card-icon sk-shimmer"></div>',
-          '<div class="sk-card-lines">',
-            '<div class="sk-card-line sk-w6 sk-shimmer"></div>',
-            '<div class="sk-card-line sk-w7 sk-shimmer"></div>',
-          '</div>',
-        '</div>',
-        '<div class="sk-btn sk-shimmer"></div>',
-      '</div>'
-    ].join("");
+    var resolved = resolveSupportedPath(route) || "";
+    var builder = SKELETON_MAP[resolved];
+    if (!builder) builder = SKELETON_MAP["/pages/index"];
+    el.innerHTML = builder();
     return el;
   }
 
-  function showSkeleton() {
+  function showSkeleton(route) {
     removeSkeleton();
     var stack = document.getElementById("appShellFrameStack");
     if (!stack) return;
-    skeletonEl = createSkeleton();
+    skeletonEl = createSkeleton(route || currentRoute);
     if (window.innerWidth < 769) {
       skeletonEl.classList.add("gp-frame-slide-in");
     }
@@ -1118,7 +1199,7 @@
       setLoading(false);
     }
 
-    showSkeleton();
+    showSkeleton(route);
     loadRouteIntoFrame(targetFrame, embeddedRoute, route);
   }
 
