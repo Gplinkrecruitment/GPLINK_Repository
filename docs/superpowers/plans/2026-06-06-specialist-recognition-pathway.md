@@ -295,6 +295,76 @@ After Parts A, B, and C are complete:
 
 ---
 
+## Domain Research: Placement Guidelines (from Government PDF)
+
+> Source: General Practice Fellowship Program Placement Guidelines, Fourth Edition (October 2022), Australian Government Department of Health and Aged Care.
+
+### PEP Location Rules — MM1 is allowed for Substantially Comparable SIMGs
+
+**Default rule:** PEP placements are limited to areas classified **MM2-7**.
+
+**Exception for PEP Specialist Stream participants (our GPs):**
+
+> "No MM1 placements for PEP participants will be approved unless the participant... **is an international medical graduate with substantially comparable specialist qualifications participating in the PEP under the PEP Specialist Stream and will be working in a Distribution Priority Area (DPA).**"
+
+This means GP Link's GPs on the specialist recognition pathway **CAN work in MM1 (metropolitan) practices**, provided:
+1. They are assessed as **substantially comparable** (all UK/IE/NZ GPs with MRCGP/MICGP/FRNZCGP will be)
+2. The practice is in a **Distribution Priority Area (DPA)**
+
+### What is a DPA?
+
+The Distribution Priority Area (DPA) classification system replaced the Districts of Workforce Shortage (DWS) from 1 July 2019. It determines where IMGs can work with Medicare access.
+
+**Key DPA rules:**
+- **Inner metropolitan areas** are automatically deemed **non-DPA**
+- **MM2-7 areas** are automatically deemed **DPA**
+- **Northern Territory** is automatically deemed **DPA**
+- Other MM1 areas are assessed based on demographics (gender/age), socioeconomic status, and GP-to-population ratios in GP catchment areas
+
+So **not all MM1 areas are DPA** — inner metro is automatically non-DPA. But many outer metropolitan MM1 areas ARE classified as DPA. GP Link placements need to verify the DPA status of each practice location.
+
+**Tool for checking:** The Health Workforce Locator (healthworkforce.health.gov.au) identifies DPA areas where IMGs can work.
+
+### Other PEP Location Requirements
+
+| Training Stream | Location Restriction |
+|----------------|---------------------|
+| AGPT (RACGP) | Metropolitan, regional, rural and remote |
+| AGPT (ACRRM) | Regional, rural and remote (MM2-7), minimum 12 months in MM4-7 |
+| PEP | MM2-7, **except SC SIMGs in DPA MM1 areas** |
+| IP (ACRRM) | MM2-7 |
+| RVTS | Remote areas / Aboriginal Medical Services |
+| FSP | MM2-7 (extenuating circumstances only for MM1) |
+
+### Work Hours (from Placement Guidelines)
+
+| Type | Weekly Hours | Days | Face-to-face Patient Time |
+|------|-------------|------|--------------------------|
+| **Full-time** | Minimum 38 hours | 4+ days | At least 27 hours |
+| **Part-time** | Minimum 14.5 hours | 2+ days | At least 10.5 hours |
+
+### Practice Accreditation
+
+All PEP placement practices must hold **practice accreditation against the RACGP Standards for general practices**. If the practice is already accredited to train AGPT registrars, it's automatically considered an "approved practice."
+
+### Medicare Provider Number for PEP
+
+- RACGP is a **Specified Body** authorised to grant Approved Placements
+- Participants get access to **highest-value MBS GP items** while on program
+- MPN is location-specific and time-limited (tied to placement dates)
+- **Services Australia processing can take up to 6 weeks** in peak periods
+- Participants should start renewal at least **10 weeks before** placement expiry
+
+### Implications for GP Link
+
+1. **Placement service is a competitive advantage** — RACGP does NOT help find employment; GP Link does
+2. **DPA verification is required** — when placing a GP in an MM1 area on the specialist pathway, must verify the practice is in a DPA area
+3. **Practice accreditation must be verified** — practices must hold RACGP accreditation
+4. **Job offer letter requirements** are specific — must include supervisor details, scope of practice, hours, duties, location, commencement date
+5. **RACGP approves the placement** — the job offer must be submitted to RACGP for approval (Part B), which takes up to 3 weeks
+
+---
+
 ## Current App Audit: What exists and how it maps to PEP-SP
 
 ### Onboarding (js/onboarding.js)
@@ -350,7 +420,7 @@ After Parts A, B, and C are complete:
 - RACGP must approve the job offer (up to 3 weeks) — need to track this approval status
 - Practice must be accredited against RACGP Standards
 - Work hours must meet PEP-SP minimums (FT: 38hrs/4+ days, PT: 14.5hrs/2+ days)
-- **Location:** PEP-SP participants "typically work in MM2-MM7 areas" — but GP Link currently has no MM classification tracking. **NOTE: The user wants GPs to work in MM1 (metropolitan) practices.** This needs to be verified against RACGP placement guidelines, as MM1 may be allowed in DPA-designated areas or under specific exemptions.
+- **Location (CONFIRMED):** PEP-SP SC participants CAN work in MM1 areas if the practice is in a **Distribution Priority Area (DPA)**. GP Link currently has no MM classification or DPA tracking. Need to tag practices with MMM classification and DPA status. MM2-7 are automatically DPA. MM1 requires explicit DPA verification via the Health Workforce Locator.
 
 ### AHPRA Registration (pages/ahpra.html)
 
@@ -556,12 +626,14 @@ PEP-SP has additional requirements after Parts A-C that don't exist in the curre
 | Auto-create tasks on pathway events | college_assessment submitted → create followup task (check outcome in 10 weeks). Outcome received → create Part B task. Part B approved → create Part C tasks. | `server.js:8100` (processRegistrationTaskAutomation) |
 | Outcome validity warning | If 12-month validity is approaching (e.g., 2 months left), create urgent task | Task automation or cron |
 
-### 13. Location / MM Classification (P2 — needs clarification)
+### 13. Location / DPA Verification (P1 — CONFIRMED: MM1 allowed for SC SIMGs in DPA areas)
 
 | Change | Detail | Files |
 |--------|--------|-------|
-| **OPEN QUESTION:** MM1 practice placement | PEP-SP handbook says participants "typically work in MM2-MM7 areas." GP Link wants MM1 placements. Need to verify: (a) Is MM1 allowed for SC stream? (b) Under what conditions (DPA exemptions)? (c) Does the RACGP placement guidelines document specify exceptions? | Research needed |
-| Practice location classification | If MM classification is relevant, may need to tag practices in Zoho Recruit with their MMM classification | `server.js`, Zoho Recruit config |
+| DPA verification for MM1 placements | PEP-SP SC participants CAN work in MM1, but ONLY in DPA areas. When placing a specialist_recognition GP in an MM1 practice, must verify the practice is in a DPA. Use Health Workforce Locator data. | `server.js`, `pages/career.html` or admin |
+| Practice MMM + DPA tagging | Tag practices in Zoho Recruit or career roles with MMM classification and DPA status. MM2-7 are automatically DPA. MM1 needs explicit DPA check. | `server.js`, Zoho Recruit config |
+| Practice accreditation tracking | PEP-SP requires practices to hold RACGP accreditation. Add accreditation status field to career roles or practice data. | `server.js`, admin |
+| DPA info on career/placement page | For specialist_recognition GPs, show DPA status of practice location to confirm eligibility | `pages/career.html` |
 
 ---
 
