@@ -2595,10 +2595,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const cls=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
       const label=step.status==="done"?"\u2713 "+step.label:step.status==="current"?"\u25CF "+step.label:step.status==="locked"?"\uD83D\uDD12 "+step.label:step.label;
       html+='<div class="jr-step">';
+      html+='<div style="display:flex;flex-direction:column;align-items:center">';
       html+='<div class="jr-pill '+cls+'">'+esc(label)+'</div>';
       if(step.key==="myintealth"&&_mid){
-        html+='<div style="font-size:10px;color:var(--muted,#9aa3b2);text-align:center;margin-top:2px">ID: '+esc(_mid)+'</div>';
+        html+='<div style="font-size:10px;color:var(--muted,#9aa3b2);margin-top:2px">ID: '+esc(_mid)+'</div>';
       }
+      html+='</div>';
       if(idx<steps.length-1){
         html+='<div class="jr-arrow '+cls+'"></div>';
       }
