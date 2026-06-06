@@ -1425,6 +1425,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     {key:"commencement",label:"Commencement",num:7}
   ];
   const STAGE_ORDER=["placement","myintealth","amc","ahpra","visa","pbs","commencement"];
+  const SUBSTAGE_LABELS={create_account:"Create Account",account_establishment:"Establish & Upload Qualifications",upload_qualifications:"Upload Qualifications",create_portfolio:"Create Portfolio"};
+  function substageLabel(raw){return SUBSTAGE_LABELS[raw]||raw.replace(/_/g," ");}
   const PLAYBOOK={
     placement:{gp:"Browse jobs, apply to positions, secure a placement with an Australian practice.",va:"Match GP with suitable positions. Coordinate with practice. Confirm placement is secured."},
     myintealth:{gp:"Create MyIntealth account, complete onboarding, upload qualification certificates.",va:"Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected."},
@@ -2258,7 +2260,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="case-avatar">'+esc(ini(name))+'</div>'+
         '<div class="case-card-info">'+
           '<div class="case-card-name">'+esc(name)+'</div>'+
-          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+(substage?' \u00b7 '+esc(substage.replace(/_/g,' ')):'')+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
+          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+(substage?' \u00b7 '+esc(substageLabel(substage)):'')+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
         '</div>'+
       '</div>'+
       (urgencyHtml?'<div class="case-card-tasks">'+urgencyHtml+'</div>':'')+
@@ -3156,7 +3158,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span></div>
           </div>
           <div class="pb-pills">
-            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(c.substage.replace(/_/g,' ')):''}</span>
+            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>
             <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${u.quals_approved||0}/${u.quals_required||0} docs</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
