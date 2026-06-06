@@ -3364,9 +3364,8 @@ const EPIC_STAGE_META = [
 ];
 
 const AMC_STAGE_META = [
-  { key: 'create_portfolio', label: 'Create AMC account' },
-  { key: 'upload_credentials', label: 'Upload credentials' },
-  { key: 'qualifications_verified', label: 'Qualifications verified' }
+  { key: 'create_portfolio', label: 'Create Account' },
+  { key: 'upload_credentials', label: 'Establish Account' }
 ];
 
 const GP_DOCUMENT_META = {
