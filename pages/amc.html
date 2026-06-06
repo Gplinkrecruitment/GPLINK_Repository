@@ -1509,7 +1509,8 @@
         syncRouteForStage("upload_credentials");
         currentTabKey = "upload_credentials";
         renderPage(progress);
-        showToast("AMC account established");
+        showToast("AMC complete — redirecting to AHPRA");
+        setTimeout(function () { shellNavigate("/pages/ahpra"); }, 1500);
         return;
       }
 

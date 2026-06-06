@@ -29437,7 +29437,8 @@ Return ONLY valid JSON with no markdown formatting:
         whatsapp_link: dtEmbedByUserId[c.user_id] || dtUrlByCase[c.id] || buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
         doubletick_conversation_url: dtEmbedByUserId[c.user_id] || dtUrlByCase[c.id] || null,
         practice_name: c.practice_name || (practiceContactMap[c.user_id] && practiceContactMap[c.user_id].practiceName) || '',
-        practice_contact: practiceContactMap[c.user_id] || {}
+        practice_contact: practiceContactMap[c.user_id] || {},
+        myintealth_id: st.gp_amc_myintealth_id || null
       });
     }
 
