@@ -28145,11 +28145,25 @@ Return ONLY valid JSON with no markdown formatting:
             if (stageUpdates.length > 50) stageUpdates.length = 50;
             userState.gp_link_updates = stageUpdates;
 
+            // Wipe MyIntealth ID if resetting to AMC or earlier (selectedIdx <= 2)
+            if (selectedIdx <= 2) {
+              delete userState.gp_amc_myintealth_id;
+            }
+
             userState.gp_stage_override_at = nowIso;
             userState.gp_admin_stage_override = JSON.stringify(patch.gp_verified_stage);
             userState.updatedAt = new Date().toISOString();
             await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
-            console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage);
+
+            // Update registration_cases.stage + substage to match
+            var newCaseStage = patch.gp_verified_stage;
+            // Map 'career' to 'amc' since career is not a standalone case stage
+            if (newCaseStage === 'career') newCaseStage = 'amc';
+            var newSubstage = _deriveSubstageFromState(userState, newCaseStage);
+            var caseStagePatch = { stage: newCaseStage, substage: newSubstage || null };
+            await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseStagePatch });
+            await _logCaseEvent(caseId, null, 'stage_change', 'Stage set to ' + newCaseStage + ' by VA verified stage', null, adminCtx.email, { from_stage: updatedCase.stage, to_stage: newCaseStage });
+            console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage, '(case stage:', newCaseStage, ')');
           }
         }
       } catch (stageErr) {
