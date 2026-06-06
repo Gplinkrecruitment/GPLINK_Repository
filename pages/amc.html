@@ -2311,6 +2311,12 @@
         var val = input.value.trim();
         if (!/^\d{6,8}$/.test(val)) return;
         localStorage.setItem(MYINTEALTH_ID_KEY, val);
+        // Push immediately so the ID reaches the server before any navigation
+        if (typeof window.gpStatePush === "function") {
+          window.gpStatePush();
+        } else {
+          fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ state: { gp_amc_myintealth_id: val } }) }).catch(function () {});
+        }
         showAmcContent();
         initAmcPage();
       }
