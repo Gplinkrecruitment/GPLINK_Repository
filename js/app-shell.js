@@ -152,7 +152,11 @@
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
     try {
-      return new URL(pathname, window.location.origin).pathname;
+      var normalized = new URL(pathname, window.location.origin).pathname;
+      if (/^\/pages\/[^/]+\.html$/i.test(normalized)) {
+        normalized = normalized.slice(0, -5);
+      }
+      return normalized;
     } catch (err) {
       return pathname;
     }
@@ -204,8 +208,11 @@
   function toRouteUrl(input) {
     try {
       var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || DEFAULT_ROUTE), window.location.href);
+      var resolvedPath = "";
       if (url.origin !== window.location.origin) return null;
-      if (!isSupportedPath(url.pathname)) return null;
+      resolvedPath = resolveSupportedPath(url.pathname);
+      if (!resolvedPath) return null;
+      url.pathname = resolvedPath;
       url.searchParams.delete(EMBED_PARAM);
       url.searchParams.delete(STATIC_PARAM);
       return url;
@@ -539,6 +546,7 @@
   }
 
   function isRegistrationReturnAllowed(stepKey) {
+    if (stepKey === "career") return true;
     return getRegistrationReturnOverrides()[stepKey] === true;
   }
 

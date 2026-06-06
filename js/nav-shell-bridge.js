@@ -32,7 +32,11 @@
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
     try {
-      return new URL(pathname, window.location.origin).pathname;
+      var normalized = new URL(pathname, window.location.origin).pathname;
+      if (/^\/pages\/[^/]+\.html$/i.test(normalized)) {
+        normalized = normalized.slice(0, -5);
+      }
+      return normalized;
     } catch (err) {
       return pathname;
     }
@@ -59,11 +63,70 @@
     return !!resolveSupportedPath(pathname);
   }
 
+  function getEventElement(target) {
+    if (target instanceof Element) return target;
+    if (target && target.nodeType === 3 && target.parentElement) return target.parentElement;
+    return null;
+  }
+
+  function toRouteUrl(input) {
+    try {
+      var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || ""), window.location.href);
+      var resolvedPath = "";
+      if (url.origin !== window.location.origin) return null;
+      resolvedPath = resolveSupportedPath(url.pathname);
+      if (!resolvedPath) return null;
+      url.pathname = resolvedPath;
+      url.searchParams.delete(EMBED_PARAM);
+      url.searchParams.delete(STATIC_PARAM);
+      return url;
+    } catch (err) {
+      return null;
+    }
+  }
+
   function cleanRoute(input) {
-    var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || window.location.href), window.location.origin);
+    var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || window.location.href), window.location.href);
+    var resolvedPath = resolveSupportedPath(url.pathname);
+    if (resolvedPath) url.pathname = resolvedPath;
     url.searchParams.delete(EMBED_PARAM);
     url.searchParams.delete(STATIC_PARAM);
     return url.pathname + url.search + url.hash;
+  }
+
+  function getLinkRouteTarget(link) {
+    if (!link) return "";
+    return link.getAttribute("data-route") || link.getAttribute("href") || "";
+  }
+
+  function isReviewRestricted() {
+    try {
+      return localStorage.getItem("gp_account_under_review") === "true";
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function isSameChildRoute(routeUrl) {
+    var currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.delete(EMBED_PARAM);
+    currentUrl.searchParams.delete(STATIC_PARAM);
+    return normalizePath(currentUrl.pathname) === normalizePath(routeUrl.pathname) &&
+      currentUrl.search === routeUrl.search;
+  }
+
+  function postRouteToParent(routeUrl) {
+    if (window.parent === window || !window.parent || typeof window.parent.postMessage !== "function") return false;
+    try {
+      window.parent.postMessage({
+        type: "gp-shell-route",
+        href: cleanRoute(routeUrl),
+        title: document.title || ""
+      }, window.location.origin);
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
   function getParentMobileNavClearance() {
@@ -115,6 +178,36 @@
     }
   }
 
+  function handleEmbeddedClick(event) {
+    var clickTarget = getEventElement(event.target);
+    var link = null;
+    var rawTarget = "";
+    var routeUrl = null;
+
+    if (!clickTarget) return;
+    if (event.defaultPrevented) return;
+    if (event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    link = clickTarget.closest("a[href]");
+    if (!link) return;
+    if (link.target && link.target !== "_self") return;
+    if (link.hasAttribute("download")) return;
+    if (link.dataset && link.dataset.gpReviewBlocked) return;
+    if (isReviewRestricted()) return;
+
+    rawTarget = getLinkRouteTarget(link);
+    if (!rawTarget || String(rawTarget).charAt(0) === "#") return;
+
+    routeUrl = toRouteUrl(rawTarget);
+    if (!routeUrl) return;
+    if (isSameChildRoute(routeUrl)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    postRouteToParent(routeUrl);
+  }
+
   function installEmbeddedBridge() {
     injectEmbeddedStyles();
     setEmbeddedClass();
@@ -147,6 +240,7 @@
     window.addEventListener("pageshow", notifyParent);
     window.addEventListener("resize", injectEmbeddedStyles);
     window.addEventListener("pageshow", injectEmbeddedStyles);
+    document.addEventListener("click", handleEmbeddedClick, true);
   }
 
   var currentUrl = new URL(window.location.href);

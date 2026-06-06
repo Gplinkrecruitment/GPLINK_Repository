@@ -5727,6 +5727,7 @@ const PAGE_STAGE_MAP = {
 async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
   if (!stage) return true; // Not a gated page
+  if (stage === 'career') return true; // My Practice is placement context, not a registration lock.
 
   var bypassEmails = new Set(
     String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')

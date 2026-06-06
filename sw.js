@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260605a";
+  var VERSION = "20260607a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -24,8 +24,8 @@
     "/pages/my-documents.html?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro.html?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin.html",
-    "/js/app-shell.js?v=20260607b",
-    "/js/nav-shell-bridge.js?v=20260527a",
+    "/js/app-shell.js?v=20260607c",
+    "/js/nav-shell-bridge.js?v=20260607a",
     "/js/auth-guard.js?v=20260528a",
     "/js/state-sync.js?v=20260607a",
     "/js/bypass-config.js?v=20260602a",
