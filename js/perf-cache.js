@@ -11,7 +11,7 @@
     "/js/app-shell.js?v=20260607c",
     "/js/native-bridge.js?v=20260607a",
     "/js/nav-shell-bridge.js?v=20260607a",
-    "/js/auth-guard.js?v=20260528a",
+    "/js/auth-guard.js?v=20260607a",
     "/js/state-sync.js?v=20260607a",
     "/js/updates-sync.js?v=20260516a",
     "/js/account-dropdown.js?v=20260516a"

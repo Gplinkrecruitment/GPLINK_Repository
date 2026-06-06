@@ -1438,7 +1438,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
   function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
-  function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://")||t.startsWith("data:"))return esc(u.trim());return fallback||"#";}
+  function _safeProtocolUrl(u,allowedProtocols,fallback){
+    if(!u||typeof u!=="string")return esc(fallback||"");
+    var raw=u.trim();
+    if(!raw||/[\u0000-\u001F\u007F]/.test(raw))return esc(fallback||"");
+    var protocolMatch=/^([a-z][a-z0-9+.-]*):/i.exec(raw);
+    var protocol=protocolMatch?protocolMatch[1].toLowerCase():"";
+    if(allowedProtocols.indexOf(protocol)>-1)return esc(raw);
+    return esc(fallback||"");
+  }
+  function safeUrl(u,fallback){return _safeProtocolUrl(u,["https","http","whatsapp"],fallback||"#");}
+  function safeEmbedUrl(u,fallback){return _safeProtocolUrl(u,["https","http"],fallback||"");}
   function isHostMatch(urlStr,host){try{var h=new URL(urlStr).hostname;return h===host||h.endsWith('.'+host);}catch(e){return false;}}
   function isDtUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'doubletick.io');}
   function isDriveUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'drive.google.com');}
@@ -1926,7 +1936,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     for(var i=0;i<S.mc.centres.length;i++){
       var c=S.mc.centres[i];
       h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
-        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
+        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+safeUrl(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
         +(c.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(c.contact_name)+'</div>':'')
         +(c.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(c.contact_email)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_email)+'</a></div>':'')
         +(c.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(c.contact_phone)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_phone)+'</a></div>':'')
@@ -2003,7 +2013,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var daysLabel=row.days!==null?(row.days+'d'):'—';
       var daysClass=row.days!==null&&row.days>90?'overdue':(row.days!==null&&row.days>30?'urgent':'');
       h+='<tr>'
-        +'<td>'+(row.website?'<a href="'+esc(row.website)+'" target="_blank" class="mc-practice-link">'+esc(row.practice)+'</a>':esc(row.practice))+'</td>'
+        +'<td>'+(row.website?'<a href="'+safeUrl(row.website)+'" target="_blank" class="mc-practice-link">'+esc(row.practice)+'</a>':esc(row.practice))+'</td>'
         +'<td>'+esc(row.title)+'</td>'
         +'<td><span class="mc-status-pill '+(row.status==='open'?'applied':'placement_secured')+'">'+esc(row.status)+'</span></td>'
         +'<td>'+esc(row.location)+'</td>'
@@ -2025,7 +2035,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(c.benefit_3)benefits.push(esc(c.benefit_3));
     var h='<div class="mc-detail-header">'
       +'<button class="mc-detail-back" data-mc-back>&larr; Back to Medical Centres</button>'
-      +'<h2 style="margin:0 0 8px;font-size:18px">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</h2>'
+      +'<h2 style="margin:0 0 8px;font-size:18px">'+(c.website?'<a href="'+safeUrl(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</h2>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:13px;max-width:600px">'
       +(c.client_name&&c.client_name!==c.practice_name?'<div><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
       +(c.location?'<div><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
@@ -2061,7 +2071,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             hiredHtml+='</div>';
           }
           h+='<div class="mc-card">'
-            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+esc(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'placement_secured')+'">'+esc(jo.status)+'</span></div>'
+            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+safeUrl(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'placement_secured')+'">'+esc(jo.status)+'</span></div>'
             +(jo.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(jo.contact_name)+'</div>':'')
             +(jo.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(jo.contact_email)+'" class="mc-practice-link">'+esc(jo.contact_email)+'</a></div>':'')
             +(jo.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(jo.contact_phone)+'" class="mc-practice-link">'+esc(jo.contact_phone)+'</a></div>':'')
@@ -5268,10 +5278,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
-      if(isDriveUrl(dataUrl)){
-        contentHtml='<iframe src="'+esc(dataUrl.replace('/view','/preview'))+'" class="doc-preview-frame"></iframe>';
+      var embedUrl=isDriveUrl(dataUrl)?dataUrl.replace('/view','/preview'):dataUrl;
+      embedUrl=safeEmbedUrl(embedUrl);
+      if(embedUrl){
+        contentHtml='<iframe src="'+embedUrl+'" class="doc-preview-frame"></iframe>';
       }else{
-        contentHtml='<iframe src="'+esc(dataUrl)+'" class="doc-preview-frame"></iframe>';
+        contentHtml='<div class="doc-preview-fallback"><div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(filename)+'</div><div style="color:var(--muted)">Preview link is unavailable.</div></div>';
       }
     }
     overlay.innerHTML='<div class="doc-preview-modal">'
@@ -5754,13 +5766,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var previewUrl="https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/preview";
         let bodyContent;
         if(mime.indexOf("image")>-1){
-          bodyContent='<img src="'+esc(link||previewUrl)+'" alt="'+esc(name)+'">';
+          bodyContent='<img src="'+safeEmbedUrl(link||previewUrl,previewUrl)+'" alt="'+esc(name)+'">';
         }else{
-          bodyContent='<iframe src="'+esc(previewUrl)+'" allow="autoplay"></iframe>';
+          bodyContent='<iframe src="'+safeEmbedUrl(previewUrl)+'" allow="autoplay"></iframe>';
         }
         const overlay=document.createElement("div");
         overlay.className="drive-overlay";
-        overlay.innerHTML='<div class="drive-overlay-bar"><div class="drive-overlay-name">'+esc(name)+'</div><div class="drive-overlay-actions"><a class="drive-overlay-open" href="'+esc(link)+'" target="_blank" rel="noopener">Open in Drive</a><button class="drive-overlay-close" data-drive-overlay-close>Close</button></div></div><div class="drive-overlay-body">'+bodyContent+'</div>';
+        overlay.innerHTML='<div class="drive-overlay-bar"><div class="drive-overlay-name">'+esc(name)+'</div><div class="drive-overlay-actions"><a class="drive-overlay-open" href="'+safeUrl(link,previewUrl)+'" target="_blank" rel="noopener">Open in Drive</a><button class="drive-overlay-close" data-drive-overlay-close>Close</button></div></div><div class="drive-overlay-body">'+bodyContent+'</div>';
         overlay.addEventListener("click",function(ev){if(ev.target.closest("[data-drive-overlay-close]"))overlay.remove();});
         document.body.appendChild(overlay);
         return;
@@ -6863,7 +6875,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var detailHtml='';
     if(selectedItem){
       detailHtml='<div class="guide-detail-header"><h3>'+esc(selectedItem.title)+'</h3><button onclick="S.guide.selectedItemId=null;renderGuidePanel();" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--muted);">&times;</button></div>'+
-        '<div class="guide-detail-body"><iframe src="'+safeUrl(selectedItem.scribe_url)+'" allowfullscreen></iframe></div>';
+        '<div class="guide-detail-body"><iframe src="'+safeEmbedUrl(selectedItem.scribe_url)+'" allowfullscreen></iframe></div>';
     }else{
       detailHtml='<div class="guide-empty"><div><div style="font-size:40px;margin-bottom:8px;">&#127891;</div>Select a guide to view the tutorial</div></div>';
     }

@@ -81,8 +81,41 @@
 
   window.gpSessionPromise = sessionPromise;
 
-  const isOnboardingPage = pathname === "/pages/onboarding";
-  const ALLOWED_REVIEW_PAGES = ["/pages/index", "/pages/account", "/pages/onboarding"];
+  function normalizeReviewPath(input) {
+    try {
+      var url = new URL(String(input || pathname), window.location.href);
+      var normalized = url.pathname || "";
+      var parts = normalized.split("/").filter(Boolean);
+      if (url.origin !== window.location.origin) return "";
+      if (/^\/pages\/[^/]+\.html$/i.test(normalized)) normalized = normalized.slice(0, -5);
+      if (parts[0] === "registration") {
+        var step = String(parts[1] || "").toLowerCase();
+        if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth";
+        if (step === "amc") return "/pages/amc";
+        if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra";
+      }
+      return normalized;
+    } catch (err) {
+      return "";
+    }
+  }
+
+  const currentReviewPath = normalizeReviewPath(pathname);
+  const isOnboardingPage = currentReviewPath === "/pages/onboarding";
+  const ALLOWED_REVIEW_PAGES = {
+    "/pages/index": true,
+    "/pages/account": true,
+    "/pages/myinthealth": true,
+    "/pages/onboarding": true,
+    "/pages/privacy": true,
+    "/pages/terms": true
+  };
+
+  function isReviewRouteAllowed(input) {
+    var target = normalizeReviewPath(input);
+    if (!target) return true;
+    return target === currentReviewPath || ALLOWED_REVIEW_PAGES[target] === true;
+  }
 
   // Check localStorage first for instant enforcement (no flicker)
   if (!isPublicPage && !isOnboardingPage && localStorage.getItem("gp_account_under_review") === "true") {
@@ -293,9 +326,7 @@
       document.querySelectorAll("a.bottom-tab, a.mobile-tab, .sidebar a, nav a").forEach(function (a) {
         if (a.dataset.gpReviewBlocked) return;
         var href = a.getAttribute("href") || "";
-        var target = href.replace(/^\.?\/?/, "/").replace(/^([^/])/, "/pages/$1");
-        var isAllowed = ALLOWED_REVIEW_PAGES.includes(target) || target === pathname;
-        if (!isAllowed) {
+        if (!isReviewRouteAllowed(href)) {
           a.style.opacity = "0.4";
           a.dataset.gpReviewBlocked = "1";
           a.addEventListener("click", showReviewPopup, true);
@@ -337,9 +368,8 @@
       document.querySelectorAll("a[href]").forEach(function (a) {
         if (a.dataset.gpReviewBlocked) return;
         var href = a.getAttribute("href") || "";
-        if (href.startsWith("http") || href.startsWith("mailto:") || href === "#") return;
-        var target = href.replace(/^\.?\/?/, "/").replace(/^([^/])/, "/pages/$1");
-        if (!ALLOWED_REVIEW_PAGES.includes(target)) {
+        if (href === "#") return;
+        if (!isReviewRouteAllowed(href)) {
           a.dataset.gpReviewBlocked = "1";
           a.addEventListener("click", showReviewPopup, true);
           a.addEventListener("touchend", function (e) {

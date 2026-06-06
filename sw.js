@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260607a";
+  var VERSION = "20260607b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -26,7 +26,7 @@
     "/pages/signin.html",
     "/js/app-shell.js?v=20260607c",
     "/js/nav-shell-bridge.js?v=20260607a",
-    "/js/auth-guard.js?v=20260528a",
+    "/js/auth-guard.js?v=20260607a",
     "/js/state-sync.js?v=20260607a",
     "/js/bypass-config.js?v=20260602a",
     "/js/updates-sync.js?v=20260527a",
