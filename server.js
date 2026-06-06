@@ -28101,25 +28101,28 @@ Return ONLY valid JSON with no markdown formatting:
 
             // placement=0, myintealth=1, amc=2, career=3, ahpra=4, visa=5, pbs=6, commencement=7
             if (selectedIdx > 1) {
-              epicProgress.completed.verification_issued = true;
+              // MyIntealth done — mark all substeps complete
+              epicProgress.completed = { create_account: true, account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
               epicProgress.stage = 'verification_issued';
             } else {
-              epicProgress.completed.verification_issued = false;
+              // Reset MyIntealth — wipe all substeps
+              epicProgress.completed = {};
               epicProgress.stage = 'create_account';
             }
 
             if (selectedIdx > 2) {
-              amcProgress.completed.qualifications_verified = true;
+              amcProgress.completed = { create_portfolio: true, upload_credentials: true, qualifications_verified: true };
               amcProgress.stage = 'qualifications_verified';
             } else {
-              amcProgress.completed.qualifications_verified = false;
+              // Reset AMC — wipe all substeps
+              amcProgress.completed = {};
               amcProgress.stage = 'create_portfolio';
             }
 
             if (selectedIdx > 4) {
-              ahpraProgress.completed.verification_issued = true;
+              ahpraProgress.completed = { account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
             } else {
-              ahpraProgress.completed.verification_issued = false;
+              ahpraProgress.completed = {};
             }
 
             // Set fresh timestamps so state-sync treats these as authoritative
