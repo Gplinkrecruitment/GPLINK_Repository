@@ -3352,7 +3352,9 @@ const USER_STATE_KEYS = [
   'gp_onboarding',
   'gp_registration_return_overrides',
   'gp_amc_myintealth_id',
-  'gp_admin_stage_override'
+  'gp_amc_myintealth_id_updated_at',
+  'gp_admin_stage_override',
+  'gp_stage_override_at'
 ];
 
 const EPIC_STAGE_META = [
@@ -18072,6 +18074,18 @@ function filterUserStateForClient(source) {
       filtered[key] = state[key];
     }
   }
+  var stageRaw = filtered.gp_admin_stage_override;
+  try {
+    if (typeof stageRaw === 'string') stageRaw = JSON.parse(stageRaw);
+  } catch (e) {}
+  var stageIdx = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement']
+    .indexOf(String(stageRaw || ''));
+  var overrideAt = Date.parse(filtered.gp_stage_override_at || '') || 0;
+  var idUpdatedAt = Date.parse(filtered.gp_amc_myintealth_id_updated_at || '') || 0;
+  if (filtered.gp_amc_myintealth_id && overrideAt && stageIdx >= 0 && stageIdx <= 2 && idUpdatedAt <= overrideAt) {
+    delete filtered.gp_amc_myintealth_id;
+    delete filtered.gp_amc_myintealth_id_updated_at;
+  }
   return filtered;
 }
 
@@ -26928,12 +26942,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (isSupabaseDbConfigured()) {
       const remoteState = await getSupabaseUserStateByEmail(email);
       if (remoteState) {
-        const filtered = {};
-        for (const key of USER_STATE_KEYS) {
-          if (Object.prototype.hasOwnProperty.call(remoteState.state, key)) {
-            filtered[key] = remoteState.state[key];
-          }
-        }
+        const filtered = filterUserStateForClient(remoteState.state);
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
@@ -26954,12 +26963,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const state = dbState.userState[email] || {};
-    const filtered = {};
-    for (const key of USER_STATE_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(state, key)) {
-        filtered[key] = state[key];
-      }
-    }
+    const filtered = filterUserStateForClient(state);
     const localResetAt = Number(state && state.__gp_reset_at);
 
     sendJson(res, 200, {
@@ -27041,9 +27045,48 @@ Return ONLY valid JSON with no markdown formatting:
     // Protect admin stage overrides from being overwritten by stale client state
     var stageOverrideAt = current.gp_stage_override_at ? new Date(current.gp_stage_override_at).getTime() : 0;
     var protectedKeys = stageOverrideAt ? ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress', 'gp_registration_return_overrides'] : [];
+    var stageOverrideOrder = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+    var adminStageOverride = '';
+    try {
+      adminStageOverride = typeof current.gp_admin_stage_override === 'string'
+        ? JSON.parse(current.gp_admin_stage_override)
+        : current.gp_admin_stage_override;
+    } catch (e) {
+      adminStageOverride = current.gp_admin_stage_override;
+    }
+    var adminStageIdx = stageOverrideOrder.indexOf(String(adminStageOverride || ''));
+    var currentIdUpdatedAt = current.gp_amc_myintealth_id_updated_at ? new Date(current.gp_amc_myintealth_id_updated_at).getTime() : 0;
+    var currentIdIsFreshAfterReset = !!(current.gp_amc_myintealth_id && currentIdUpdatedAt && currentIdUpdatedAt > stageOverrideAt);
+    var idResetGuardActive = !!(stageOverrideAt && adminStageIdx >= 0 && adminStageIdx <= 2 && !currentIdIsFreshAfterReset);
+    var incomingIdUpdatedAt = 0;
+    if (incoming && Object.prototype.hasOwnProperty.call(incoming, 'gp_amc_myintealth_id_updated_at')) {
+      try {
+        var incomingIdTsRaw = incoming.gp_amc_myintealth_id_updated_at;
+        if (typeof incomingIdTsRaw === 'string') {
+          try {
+            var parsedIncomingIdTs = JSON.parse(incomingIdTsRaw);
+            if (typeof parsedIncomingIdTs === 'string') incomingIdTsRaw = parsedIncomingIdTs;
+          } catch (e) {}
+        }
+        incomingIdUpdatedAt = new Date(incomingIdTsRaw).getTime() || 0;
+      } catch (e) {
+        incomingIdUpdatedAt = 0;
+      }
+    }
+    if (idResetGuardActive) {
+      delete next.gp_amc_myintealth_id;
+      delete next.gp_amc_myintealth_id_updated_at;
+    }
     for (const [key, value] of Object.entries(incoming)) {
       // Admin-only keys: never writable by client state-sync
       if (ADMIN_ONLY_KEYS.indexOf(key) >= 0) continue;
+      if (idResetGuardActive && (key === 'gp_amc_myintealth_id' || key === 'gp_amc_myintealth_id_updated_at')) {
+        if (value === null) {
+          delete next[key];
+          continue;
+        }
+        if (!incomingIdUpdatedAt || incomingIdUpdatedAt <= stageOverrideAt) continue;
+      }
       if (value === null) {
         // Don't allow client to delete admin-protected keys
         if (protectedKeys.indexOf(key) >= 0) continue;
@@ -28161,6 +28204,7 @@ Return ONLY valid JSON with no markdown formatting:
             // Wipe MyIntealth ID if resetting to AMC or earlier (selectedIdx <= 2)
             if (selectedIdx <= 2) {
               userState.gp_amc_myintealth_id = null;
+              userState.gp_amc_myintealth_id_updated_at = null;
             }
 
             userState.gp_stage_override_at = nowIso;
@@ -29439,6 +29483,20 @@ Return ONLY valid JSON with no markdown formatting:
       const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : 'GB');
       const qualSnap = await getUserQualificationSnapshot(c.user_id, countryCode);
       const tc = taskCountsByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      var visibleMyintealthId = st.gp_amc_myintealth_id || null;
+      if (visibleMyintealthId) {
+        var visibleStageRaw = st.gp_admin_stage_override;
+        try {
+          if (typeof visibleStageRaw === 'string') visibleStageRaw = JSON.parse(visibleStageRaw);
+        } catch (e) {}
+        var visibleStageIdx = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement']
+          .indexOf(String(visibleStageRaw || ''));
+        var visibleOverrideAt = Date.parse(st.gp_stage_override_at || '') || 0;
+        var visibleIdUpdatedAt = Date.parse(st.gp_amc_myintealth_id_updated_at || '') || 0;
+        if (visibleOverrideAt && visibleStageIdx >= 0 && visibleStageIdx <= 2 && visibleIdUpdatedAt <= visibleOverrideAt) {
+          visibleMyintealthId = null;
+        }
+      }
       users.push({
         case_id: c.id,
         user_id: c.user_id,
@@ -29465,7 +29523,7 @@ Return ONLY valid JSON with no markdown formatting:
         doubletick_conversation_url: dtEmbedByUserId[c.user_id] || dtUrlByCase[c.id] || null,
         practice_name: c.practice_name || (practiceContactMap[c.user_id] && practiceContactMap[c.user_id].practiceName) || '',
         practice_contact: practiceContactMap[c.user_id] || {},
-        myintealth_id: st.gp_amc_myintealth_id || null
+        myintealth_id: visibleMyintealthId
       });
     }
 

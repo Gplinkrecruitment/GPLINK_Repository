@@ -139,7 +139,7 @@
               "/js/native-bridge.js?v=20260517a",
               "/js/nav-shell-bridge.js?v=20260516a",
               "/js/auth-guard.js?v=20260516a",
-              "/js/state-sync.js?v=20260516a",
+              "/js/state-sync.js?v=20260607a",
               "/js/updates-sync.js?v=20260516a",
               "/js/account-dropdown.js?v=20260516a"
             ]

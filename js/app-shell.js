@@ -522,6 +522,17 @@
     }
   }
 
+  function getStorageTimestamp(key) {
+    var raw = safeStorageGet(key);
+    var ts = Date.parse(raw || "");
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function wasProgressUpdatedAfter(progress, timestamp) {
+    var ts = progress && typeof progress.updatedAt === "string" ? Date.parse(progress.updatedAt) : 0;
+    return !!(timestamp && Number.isFinite(ts) && ts > timestamp);
+  }
+
   function getRegistrationReturnOverrides() {
     var parsed = parseStorage(REGISTRATION_RETURN_KEY);
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -589,9 +600,19 @@
       var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
       var overrideIdx = OVERRIDE_ORDER.indexOf(adminOverride);
       if (overrideIdx >= 0) {
-        epicDone = epicDone || overrideIdx > 1;
-        amcDone = amcDone || overrideIdx > 2;
-        ahpraDone = ahpraDone || overrideIdx > 4;
+        var overrideAt = getStorageTimestamp("gp_stage_override_at");
+        var forcedEpicDone = overrideIdx > 1;
+        var forcedAmcDone = overrideIdx > 2;
+        var forcedAhpraDone = overrideIdx > 4;
+        if (overrideAt) {
+          epicDone = forcedEpicDone || (epicDone && wasProgressUpdatedAfter(epic, overrideAt));
+          amcDone = forcedAmcDone || (amcDone && wasProgressUpdatedAfter(amc, overrideAt));
+          ahpraDone = forcedAhpraDone || (ahpraDone && wasProgressUpdatedAfter(ahpra, overrideAt));
+        } else {
+          epicDone = epicDone || forcedEpicDone;
+          amcDone = amcDone || forcedAmcDone;
+          ahpraDone = ahpraDone || forcedAhpraDone;
+        }
         careerSecured = careerSecured || overrideIdx > 0;
         if (!epicDone) epicCurrentLabel = EPIC_STAGE_LABELS.create_account;
         if (!amcDone) amcCurrentLabel = AMC_STAGE_LABELS.create_portfolio;

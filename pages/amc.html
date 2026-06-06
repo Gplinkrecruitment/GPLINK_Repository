@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AMC Portfolio - GP Link</title>
   <script>
   // Hide AMC content immediately if MyIntealth ID gate should show (prevents flash)
-  (function(){try{var _mid=localStorage.getItem("gp_amc_myintealth_id")||"";if(!/^\d{6,8}$/.test(_mid.trim())){
+  (function(){try{var _mid=localStorage.getItem("gp_amc_myintealth_id")||"";var _idAt=Date.parse(localStorage.getItem("gp_amc_myintealth_id_updated_at")||"")||0;var _rawStage=localStorage.getItem("gp_admin_stage_override")||"";var _stage="";try{_stage=JSON.parse(_rawStage)||""}catch(e){_stage=_rawStage}var _overrideAt=Date.parse(localStorage.getItem("gp_stage_override_at")||"")||0;var _idx=["placement","myintealth","amc","career","ahpra","visa","pbs","commencement"].indexOf(String(_stage||""));var _resetId=!!(_overrideAt&&_idx>=0&&_idx<=2&&_idAt<=_overrideAt);if(_resetId||!/^\d{6,8}$/.test(_mid.trim())){
     var s=document.createElement("style");s.id="amc-gate-hide";
     s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
     document.head.appendChild(s);
@@ -18,7 +18,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260527a"></script>
   <script src="/js/bypass-config.js?v=20260602a"></script>
   <script src="/js/auth-guard.js?v=20260528a" defer></script>
-  <script src="/js/state-sync.js?v=20260604a" defer></script>
+  <script src="/js/state-sync.js?v=20260607a" defer></script>
   <script src="/js/updates-sync.js?v=20260527a" defer></script>
   <script src="/js/qualification-camera.js?v=20260527a" defer></script>
   <script src="/js/qualification-scan.js?v=20260527a" defer></script>
@@ -1186,6 +1186,10 @@
     const AHPRA_KEY = "gp_ahpra_progress";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const MYINTEALTH_ID_KEY = "gp_amc_myintealth_id";
+    const MYINTEALTH_ID_UPDATED_AT_KEY = "gp_amc_myintealth_id_updated_at";
+    const ADMIN_STAGE_OVERRIDE_KEY = "gp_admin_stage_override";
+    const STAGE_OVERRIDE_AT_KEY = "gp_stage_override_at";
+    const ADMIN_STAGE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
     // BYPASS_LOCK_EMAILS loaded from /js/bypass-config.js
     function getPageUserEmail() {
       try { var c = localStorage.getItem("gp_session_profile_cache"); if (c) { var p = JSON.parse(c); if (p && p.email) return String(p.email).trim().toLowerCase(); } } catch (e) {}
@@ -1911,6 +1915,46 @@
       return getRegistrationReturnOverrides()[stepKey] === true;
     }
 
+    function parseStoredString(key) {
+      var raw = localStorage.getItem(key) || "";
+      if (!raw) return "";
+      try {
+        var parsed = JSON.parse(raw);
+        return typeof parsed === "string" ? parsed : raw;
+      } catch (e) {
+        return raw;
+      }
+    }
+
+    function getAdminStageOverrideIndex() {
+      return ADMIN_STAGE_ORDER.indexOf(parseStoredString(ADMIN_STAGE_OVERRIDE_KEY));
+    }
+
+    function getStageOverrideAt() {
+      var ts = Date.parse(parseStoredString(STAGE_OVERRIDE_AT_KEY));
+      return Number.isFinite(ts) ? ts : 0;
+    }
+
+    function getMyintealthIdUpdatedAt() {
+      var ts = Date.parse(parseStoredString(MYINTEALTH_ID_UPDATED_AT_KEY));
+      return Number.isFinite(ts) ? ts : 0;
+    }
+
+    function wasProgressUpdatedAfterReset(progress) {
+      var overrideAt = getStageOverrideAt();
+      var ts = progress && typeof progress.updatedAt === "string" ? Date.parse(progress.updatedAt) : 0;
+      return !!(overrideAt && Number.isFinite(ts) && ts > overrideAt);
+    }
+
+    function effectiveEpicDone(epic, amc) {
+      var naturalDone = !!(epic && epic.completed && epic.completed.verification_issued === true) || hasMeaningfulAmcProgress(amc);
+      var overrideAt = getStageOverrideAt();
+      var overrideIdx = getAdminStageOverrideIndex();
+      if (!overrideAt || overrideIdx < 0) return naturalDone;
+      if (overrideIdx > 1) return true;
+      return naturalDone && wasProgressUpdatedAfterReset(epic);
+    }
+
     function hasMeaningfulAmcProgress(progress) {
       if (!progress || typeof progress !== "object") return false;
       if (typeof progress.stage === "string" && progress.stage && progress.stage !== "create_portfolio") return true;
@@ -2210,7 +2254,7 @@
       // If no epic data in localStorage yet (fresh session), don't redirect —
       // show the gate instead and let state-sync hydration correct the state.
       if (!epic) return false;
-      const epicDone = !!(epic.completed && epic.completed.verification_issued === true) || hasMeaningfulAmcProgress(amc);
+      const epicDone = effectiveEpicDone(epic, amc);
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       if (!epicDone) {
@@ -2229,7 +2273,13 @@
     // ─── MyIntealth ID Gate ──────────────────────────────────────
     function hasMyintealthId() {
       var stored = localStorage.getItem(MYINTEALTH_ID_KEY);
-      return typeof stored === "string" && /^\d{6,8}$/.test(stored.trim());
+      var valid = typeof stored === "string" && /^\d{6,8}$/.test(stored.trim());
+      var overrideAt = getStageOverrideAt();
+      var overrideIdx = getAdminStageOverrideIndex();
+      if (valid && overrideAt && overrideIdx >= 0 && overrideIdx <= 2) {
+        return getMyintealthIdUpdatedAt() > overrideAt;
+      }
+      return valid;
     }
 
     function shouldShowMyintealthGate() {
@@ -2310,12 +2360,17 @@
       function submitGate() {
         var val = input.value.trim();
         if (!/^\d{6,8}$/.test(val)) return;
+        var nowIso = new Date().toISOString();
         localStorage.setItem(MYINTEALTH_ID_KEY, val);
+        localStorage.setItem(MYINTEALTH_ID_UPDATED_AT_KEY, nowIso);
         // Push immediately so the ID reaches the server before any navigation
-        if (typeof window.gpStatePush === "function") {
-          window.gpStatePush();
+        if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+          window.gpLinkStateSync.push().catch(function () {});
         } else {
-          fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ state: { gp_amc_myintealth_id: val } }) }).catch(function () {});
+          var fallbackState = { gp_amc_myintealth_id: val, gp_amc_myintealth_id_updated_at: nowIso };
+          var epicRaw = localStorage.getItem(EPIC_KEY);
+          if (epicRaw) fallbackState.gp_epic_progress = epicRaw;
+          fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ state: fallbackState }) }).catch(function () {});
         }
         showAmcContent();
         initAmcPage();

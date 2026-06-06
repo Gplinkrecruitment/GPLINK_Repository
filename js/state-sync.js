@@ -21,7 +21,9 @@
     'gp_onboarding_complete',
     'gp_registration_return_overrides',
     'gp_amc_myintealth_id',
-    'gp_admin_stage_override'
+    'gp_amc_myintealth_id_updated_at',
+    'gp_admin_stage_override',
+    'gp_stage_override_at'
   ];
   // Keys managed exclusively by admin endpoints — never push back to server
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];
@@ -33,6 +35,7 @@
   const RESET_SENTINEL_STORAGE_KEY = 'gp_state_reset_at';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
   const PROGRESS_STATE_KEYS = ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress'];
+  const ADMIN_STAGE_ORDER = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
 
   let hydrated = false;
   let hydratePromise = null;
@@ -137,6 +140,39 @@
     return Number.isFinite(ts) ? ts : 0;
   }
 
+  function parseStoredString(raw) {
+    if (typeof raw !== 'string' || !raw) return '';
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'string' ? parsed : raw;
+    } catch (err) {
+      return raw;
+    }
+  }
+
+  function getAdminOverrideIndex(state) {
+    if (!state || typeof state !== 'object') return -1;
+    const stage = parseStoredString(state.gp_admin_stage_override);
+    return ADMIN_STAGE_ORDER.indexOf(stage);
+  }
+
+  function getStageOverrideAtMs(state) {
+    if (!state || typeof state !== 'object') return 0;
+    const ts = Date.parse(parseStoredString(state.gp_stage_override_at));
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function getIdUpdatedAtMs(state) {
+    if (!state || typeof state !== 'object') return 0;
+    const ts = Date.parse(parseStoredString(state.gp_amc_myintealth_id_updated_at));
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function isAdminResetBeforeOrAtAmc(state) {
+    const idx = getAdminOverrideIndex(state);
+    return idx >= 0 && idx <= 2 && getStageOverrideAtMs(state) > 0;
+  }
+
   function getProgressCompletionScore(parsed) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return -1;
     const completed = parsed.completed && typeof parsed.completed === 'object' ? parsed.completed : null;
@@ -144,9 +180,17 @@
     return Object.keys(completed).reduce((count, key) => count + (completed[key] === true ? 1 : 0), 0);
   }
 
-  function chooseTrackedStateValue(key, localRaw, serverRaw) {
+  function chooseTrackedStateValue(key, localRaw, serverRaw, serverState, localState) {
     // Admin-only keys: always trust server
     if (ADMIN_READONLY_KEYS.indexOf(key) >= 0) return typeof serverRaw === 'string' ? serverRaw : null;
+    if (
+      (key === 'gp_amc_myintealth_id' || key === 'gp_amc_myintealth_id_updated_at') &&
+      isAdminResetBeforeOrAtAmc(serverState) &&
+      typeof serverState.gp_amc_myintealth_id !== 'string' &&
+      getIdUpdatedAtMs(localState) <= getStageOverrideAtMs(serverState)
+    ) {
+      return null;
+    }
     if (typeof localRaw !== 'string') return typeof serverRaw === 'string' ? serverRaw : null;
     if (typeof serverRaw !== 'string') return localRaw;
     if (localRaw === serverRaw) return localRaw;
@@ -176,7 +220,7 @@
   function mergeTrackedState(localState, serverState) {
     const merged = {};
     STATE_KEYS.forEach((key) => {
-      const mergedValue = chooseTrackedStateValue(key, localState[key], serverState[key]);
+      const mergedValue = chooseTrackedStateValue(key, localState[key], serverState[key], serverState, localState);
       if (typeof mergedValue === 'string') merged[key] = mergedValue;
     });
     return merged;
