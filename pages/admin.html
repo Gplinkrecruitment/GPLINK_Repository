@@ -2583,18 +2583,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return html;
   }
 
-  function renderJourneyRail(c){
+  function renderJourneyRail(c,u){
     const gp=findGp(c);
     if(typeof buildJourney!=="function")return '';
     const journey=gp?buildJourney(gp,c):[];
     if(!journey.length)return '';
     const steps=journey;
+    const _mid=(u&&u.myintealth_id)||'';
     let html='<div class="journey-rail">';
     steps.forEach((step,idx)=>{
       const cls=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
       const label=step.status==="done"?"\u2713 "+step.label:step.status==="current"?"\u25CF "+step.label:step.status==="locked"?"\uD83D\uDD12 "+step.label:step.label;
       html+='<div class="jr-step">';
       html+='<div class="jr-pill '+cls+'">'+esc(label)+'</div>';
+      if(step.key==="myintealth"&&_mid){
+        html+='<div style="font-size:10px;color:var(--muted,#9aa3b2);text-align:center;margin-top:2px">ID: '+esc(_mid)+'</div>';
+      }
       if(idx<steps.length-1){
         html+='<div class="jr-arrow '+cls+'"></div>';
       }
@@ -3155,7 +3159,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <div class="pb-info">
             <div class="pb-name">${esc(gpName)}</div>
             <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
-            <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span>${u.myintealth_id?' \u2022 <span style="font-size:11px;color:var(--muted)">MyIntealth ID: <strong style="color:var(--text)">'+esc(u.myintealth_id)+'</strong></span>':''}</div>
+            <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span></div>
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>
@@ -3186,7 +3190,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
         <div id="aiSummaryContainer"></div>
-        ${renderJourneyRail(c)}
+        ${renderJourneyRail(c,u)}
         ${tabsBar}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
