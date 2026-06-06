@@ -43,6 +43,16 @@
     "/pages/offer-review": true,
     "/pages/area-guide": true
   };
+  var FRAME_EQUIVALENT_ROUTE_PATHS = {
+    "/pages/index": true,
+    "/pages/registration-intro": true,
+    "/pages/myinthealth": true,
+    "/pages/amc": true,
+    "/pages/ahpra": true,
+    "/pages/visa": true,
+    "/pages/pbs": true,
+    "/pages/commencement": true
+  };
   var NAV_GROUPS = {
     "/pages/index": { desktop: "home", mobile: "/pages/index" },
     "/pages/registration-intro": { desktop: "home", mobile: "/pages/index" },
@@ -243,6 +253,52 @@
     return frame.__gpShellState;
   }
 
+  function getFrameRouteMatchKey(input) {
+    var routeUrl = toRouteUrl(input);
+    var resolved = "";
+    if (!routeUrl) return "";
+    resolved = resolveSupportedPath(routeUrl.pathname);
+    if (FRAME_EQUIVALENT_ROUTE_PATHS[resolved]) return resolved;
+    return routeFromUrl(routeUrl);
+  }
+
+  function routesMatchForFrame(first, second) {
+    var firstKey = "";
+    var secondKey = "";
+    if (!first || !second) return false;
+    if (first === second) return true;
+    firstKey = getFrameRouteMatchKey(first);
+    secondKey = getFrameRouteMatchKey(second);
+    return !!firstKey && firstKey === secondKey;
+  }
+
+  function syncFrameStateFromLocation(frame) {
+    var state = getFrameState(frame);
+    var childHref = "";
+    var childUrl = null;
+    var childDoc = null;
+    var childReady = false;
+    var nextRoute = "";
+    if (!frame || !state) return state;
+    try {
+      childHref = frame.contentWindow && frame.contentWindow.location ? frame.contentWindow.location.href : "";
+      if (!childHref || childHref === "about:blank") return state;
+      childUrl = new URL(childHref);
+      if (childUrl.origin !== window.location.origin || !isSupportedPath(childUrl.pathname)) return state;
+      nextRoute = routeFromUrl(childUrl);
+      childDoc = frame.contentDocument;
+      childReady = !childDoc || childDoc.readyState === "interactive" || childDoc.readyState === "complete";
+      state.loadedRoute = nextRoute;
+      if (!state.pendingRoute || (childReady && routesMatchForFrame(state.pendingRoute, nextRoute))) {
+        state.pendingRoute = "";
+      }
+      if (!state.title && childDoc) {
+        state.title = childDoc.title || "";
+      }
+    } catch (err) {}
+    return state;
+  }
+
   function getInactiveFrame() {
     for (var i = 0; i < frameEls.length; i += 1) {
       if (frameEls[i] !== activeFrameEl) return frameEls[i];
@@ -253,15 +309,15 @@
   function findLoadedFrameForRoute(route) {
     for (var i = 0; i < frameEls.length; i += 1) {
       var frame = frameEls[i];
-      var state = getFrameState(frame);
-      if (state && state.loadedRoute === route && !state.pendingRoute) return frame;
+      var state = syncFrameStateFromLocation(frame);
+      if (state && routesMatchForFrame(state.loadedRoute, route) && !state.pendingRoute) return frame;
     }
     return null;
   }
 
   function isFrameShowingRoute(frame, route) {
-    var state = getFrameState(frame);
-    return !!state && state.loadedRoute === route && !state.pendingRoute;
+    var state = syncFrameStateFromLocation(frame);
+    return !!state && routesMatchForFrame(state.loadedRoute, route) && !state.pendingRoute;
   }
 
   function activateFrame(frame) {
@@ -286,6 +342,16 @@
     state.pendingRoute = route;
     state.title = "";
     if (frame.getAttribute("src") !== embeddedRoute) {
+      frame.setAttribute("src", embeddedRoute);
+      return;
+    }
+    syncFrameStateFromLocation(frame);
+    if (isFrameShowingRoute(frame, route)) return;
+    try {
+      if (frame.contentDocument && frame.contentDocument.readyState === "complete") {
+        frame.contentWindow.location.replace(embeddedRoute);
+      }
+    } catch (err) {
       frame.setAttribute("src", embeddedRoute);
     }
   }
@@ -523,10 +589,10 @@
       var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
       var overrideIdx = OVERRIDE_ORDER.indexOf(adminOverride);
       if (overrideIdx >= 0) {
-        epicDone = overrideIdx > 1;
-        amcDone = overrideIdx > 2;
-        ahpraDone = overrideIdx > 4;
-        careerSecured = overrideIdx > 0;
+        epicDone = epicDone || overrideIdx > 1;
+        amcDone = amcDone || overrideIdx > 2;
+        ahpraDone = ahpraDone || overrideIdx > 4;
+        careerSecured = careerSecured || overrideIdx > 0;
         if (!epicDone) epicCurrentLabel = EPIC_STAGE_LABELS.create_account;
         if (!amcDone) amcCurrentLabel = AMC_STAGE_LABELS.create_portfolio;
       }
@@ -1151,7 +1217,8 @@
     var embeddedRoute = toEmbeddedRoute(routeUrl);
     if (!embeddedRoute) return;
 
-    if (route === currentRoute && activeFrameEl && activeFrameEl.getAttribute("src") === embeddedRoute && isFrameShowingRoute(activeFrameEl, route)) {
+    syncFrameStateFromLocation(activeFrameEl);
+    if (routesMatchForFrame(route, currentRoute) && activeFrameEl && isFrameShowingRoute(activeFrameEl, route)) {
       scheduleRouteWarmup(route);
       return;
     }
@@ -1187,7 +1254,7 @@
     targetFrame = activeState && activeState.loadedRoute ? getInactiveFrame() : activeFrameEl;
     if (!targetFrame) return;
 
-    if (pendingNavigation && pendingNavigation.route === route && getFrameState(targetFrame).pendingRoute === route) {
+    if (pendingNavigation && routesMatchForFrame(pendingNavigation.route, route) && routesMatchForFrame(getFrameState(targetFrame).pendingRoute, route)) {
       if (!activeState || !activeState.loadedRoute) setLoading(true);
       return;
     }
@@ -1234,7 +1301,7 @@
     if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
     embeddedRoute = toEmbeddedRoute(routeUrl);
-    if (!embeddedRoute || route === currentRoute || findLoadedFrameForRoute(route)) return;
+    if (!embeddedRoute || routesMatchForFrame(route, currentRoute) || findLoadedFrameForRoute(route)) return;
     prefetchRouteDocument(routeUrl.pathname);
     warmSafeRouteData(routeUrl);
 
@@ -1435,7 +1502,7 @@
         frameState.title = childDoc ? childDoc.title : "";
       }
 
-      if (pendingNavigation && (pendingNavigation.route === nextRoute || routesShareSupportedPage(pendingNavigation.route, nextRoute))) {
+      if (pendingNavigation && routesMatchForFrame(pendingNavigation.route, nextRoute)) {
         if (frame !== activeFrameEl) activateFrame(frame);
         setLoading(false);
         removeSkeleton();
@@ -1484,7 +1551,7 @@
     routeUrl = toRouteUrl(event.data.href);
     if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
-    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) return;
+    if (pendingNavigation && !routesMatchForFrame(route, currentRoute) && !routesMatchForFrame(pendingNavigation.route, route)) return;
     try {
       if (activeFrameEl && activeFrameEl.contentDocument) {
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
@@ -1513,7 +1580,7 @@
       return;
     }
     syncFromChildRoute(routeUrl, event.data.title);
-    if (pendingNavigation && (pendingNavigation.route === route || routesShareSupportedPage(pendingNavigation.route, route))) {
+    if (pendingNavigation && routesMatchForFrame(pendingNavigation.route, route)) {
       pendingNavigation = null;
     }
     setLoading(false);

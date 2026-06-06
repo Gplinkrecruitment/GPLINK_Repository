@@ -28070,15 +28070,25 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── VA Verified Stage Propagation to GP ──
-    if (patch.gp_verified_stage) {
+    if (Object.prototype.hasOwnProperty.call(patch, 'gp_verified_stage')) {
       try {
         var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
         var stageUserId = updatedCase ? updatedCase.user_id : null;
         if (stageUserId) {
           var STAGE_ORDER_MAP = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
-          var selectedIdx = STAGE_ORDER_MAP.indexOf(patch.gp_verified_stage);
+          var selectedIdx = patch.gp_verified_stage ? STAGE_ORDER_MAP.indexOf(patch.gp_verified_stage) : -1;
 
-          if (selectedIdx >= 0) {
+          if (!patch.gp_verified_stage) {
+            var stateRes = await supabaseDbRequest('user_state',
+              'select=state,updated_at&user_id=eq.' + encodeURIComponent(stageUserId) + '&limit=1');
+            var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
+            var userState = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? Object.assign({}, stateRow.state) : {};
+            delete userState.gp_admin_stage_override;
+            delete userState.gp_stage_override_at;
+            userState.updatedAt = new Date().toISOString();
+            await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
+            console.log('[Stage Propagation] Cleared verified-stage override for GP', stageUserId);
+          } else if (selectedIdx >= 0) {
             var stateRes = await supabaseDbRequest('user_state',
               'select=state,updated_at&user_id=eq.' + encodeURIComponent(stageUserId) + '&limit=1');
             var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
