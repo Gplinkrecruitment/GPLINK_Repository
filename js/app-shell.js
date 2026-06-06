@@ -523,13 +523,10 @@
       var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
       var overrideIdx = OVERRIDE_ORDER.indexOf(adminOverride);
       if (overrideIdx >= 0) {
-        // Override acts as a floor — can unlock stages but never re-lock
-        // natural GP progress (e.g. GP completes MyIntealth after admin
-        // set their stage there → AMC must unlock)
-        epicDone = epicDone || overrideIdx > 1;
-        amcDone = amcDone || overrideIdx > 2;
-        ahpraDone = ahpraDone || overrideIdx > 4;
-        careerSecured = careerSecured || overrideIdx > 0;
+        epicDone = overrideIdx > 1;
+        amcDone = overrideIdx > 2;
+        ahpraDone = overrideIdx > 4;
+        careerSecured = overrideIdx > 0;
         if (!epicDone) epicCurrentLabel = EPIC_STAGE_LABELS.create_account;
         if (!amcDone) amcCurrentLabel = AMC_STAGE_LABELS.create_portfolio;
       }

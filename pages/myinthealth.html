@@ -1515,8 +1515,8 @@
         progress.stage = "verification_issued";
         saveProgress(progress, true);
         currentTabKey = activeTabStage(progress);
-        // Navigate to AMC via the app shell (seamless iframe transition)
-        shellNavigate("/pages/amc");
+        // Navigate the top-level window to AMC so the app shell loads the new page
+        try { window.top.location.href = "/pages/amc"; } catch (e) { shellNavigate("/pages/amc"); }
         return;
       }
 

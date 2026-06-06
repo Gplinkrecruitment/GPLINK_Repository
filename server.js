@@ -28070,26 +28070,6 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── VA Verified Stage Propagation to GP ──
-    // Clear the admin override when "Not verified" is selected
-    if ('gp_verified_stage' in patch && !patch.gp_verified_stage) {
-      try {
-        var clearCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
-        var clearUserId = clearCase ? clearCase.user_id : null;
-        if (clearUserId) {
-          var clearStateRes = await supabaseDbRequest('user_state',
-            'select=state,updated_at&user_id=eq.' + encodeURIComponent(clearUserId) + '&limit=1');
-          var clearRow = clearStateRes.ok && Array.isArray(clearStateRes.data) && clearStateRes.data[0] ? clearStateRes.data[0] : null;
-          var clearState = (clearRow && clearRow.state && typeof clearRow.state === 'object') ? Object.assign({}, clearRow.state) : {};
-          delete clearState.gp_admin_stage_override;
-          delete clearState.gp_stage_override_at;
-          clearState.updatedAt = new Date().toISOString();
-          await upsertSupabaseUserState(clearUserId, clearState, clearState.updatedAt);
-          console.log('[Stage Propagation] Cleared admin override for GP', clearUserId);
-        }
-      } catch (clearErr) {
-        console.error('[Stage Propagation] Failed to clear override:', clearErr.message);
-      }
-    }
     if (patch.gp_verified_stage) {
       try {
         var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
