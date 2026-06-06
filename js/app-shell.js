@@ -1570,9 +1570,6 @@
     // handleMessage already registered before init() for early iframe messages
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("resize", handleResize);
-    // Re-render registration rows after state-sync hydrates so locking
-    // reflects the server-side truth (admin stage overrides, resets, etc.)
-    window.addEventListener("gp-state-hydrated", renderRegistrationRows, { once: true });
     document.addEventListener("keydown", handleKeydown);
 
     handleDesktopHoverEvents();
