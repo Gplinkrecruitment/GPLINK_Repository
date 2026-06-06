@@ -28150,7 +28150,7 @@ Return ONLY valid JSON with no markdown formatting:
 
             // Wipe MyIntealth ID if resetting to AMC or earlier (selectedIdx <= 2)
             if (selectedIdx <= 2) {
-              delete userState.gp_amc_myintealth_id;
+              userState.gp_amc_myintealth_id = null;
             }
 
             userState.gp_stage_override_at = nowIso;
