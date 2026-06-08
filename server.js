@@ -5699,7 +5699,7 @@ function getSessionEmail(session) {
 }
 
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
-  'smithmiller1234@gmail.com': '2026-06-08T15:08:48.001Z'
+  'smithmiller1234@gmail.com': '2026-06-08T15:20:15.397Z'
 };
 
 function isBypassLockEmail(email) {
@@ -32582,12 +32582,13 @@ Return ONLY valid JSON with no markdown formatting:
       if (bypassAll) {
         sendJson(res, 200, {
           ok: true,
+          bypassActive: true,
           steps: {
             career: { accessible: true, completed: false },
-            ahpra: { accessible: true, completed: false, locked_reason: null },
-            visa: { accessible: true, completed: false, locked_reason: null },
-            pbs: { accessible: true, completed: false, locked_reason: null },
-            commencement: { accessible: true, completed: false, locked_reason: null }
+            ahpra: { accessible: true, completed: false, bypass_active: true, locked_reason: null },
+            visa: { accessible: true, completed: false, bypass_active: true, locked_reason: null },
+            pbs: { accessible: true, completed: false, bypass_active: true, locked_reason: null },
+            commencement: { accessible: true, completed: false, bypass_active: true, locked_reason: null }
           }
         });
         return;
@@ -32653,7 +32654,7 @@ Return ONLY valid JSON with no markdown formatting:
       commencement: { accessible: bypassAll || pbsApproved, completed: false, locked_reason: (bypassAll || pbsApproved) ? null : 'PBS/Medicare must be approved first.' }
     };
 
-    sendJson(res, 200, { ok: true, steps });
+    sendJson(res, 200, { ok: true, bypassActive: bypassAll, steps });
     return;
   }
 
