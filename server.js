@@ -233,12 +233,14 @@ const SCHOOL_FINDER_TABLE_SCHOOLS = 'dec_schools_2020';
 const SCHOOL_FINDER_TABLE_CATCHMENTS = 'catchments_2020';
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
+    .replace(/\\n/g, '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
 const SUPER_ADMIN_EMAILS = new Set(
   String(process.env.SUPER_ADMIN_EMAILS || '')
+    .replace(/\\n/g, '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
