@@ -2276,13 +2276,6 @@
           "If test > 2 years old + enrolled in study: transcript showing continuous enrolment in Board-approved program",
           "PLAB or NZREX: certified copy of test results (medicine applicants only)"
         ]
-      },
-      native: {
-        title: "Native English Speaker",
-        docs: [
-          "No additional documents required \u2014 your country of training qualifies you automatically",
-          "Confirm your recognised country in the AHPRA application form"
-        ]
       }
     };
     function buildElsChecklistHtml(pathwayKey) {
@@ -3924,8 +3917,7 @@
         { key: 'combined', label: 'Combined Education Pathway' },
         { key: 'school', label: 'School Education Pathway' },
         { key: 'advanced', label: 'Advanced Education Pathway' },
-        { key: 'test', label: 'Test Pathway (IELTS, OET, PTE, TOEFL, Cambridge)' },
-        { key: 'native', label: 'Native English Speaker (recognised country)' }
+        { key: 'test', label: 'Test Pathway (IELTS, OET, PTE, TOEFL, Cambridge)' }
       ];
       var elsOptionsHtml = elsOptions.map(function (o) {
         return '<option value="' + o.key + '"' + (o.key === savedElsPathway ? ' selected' : '') + '>' + o.label + '</option>';
