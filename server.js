@@ -24721,7 +24721,7 @@ async function handleApi(req, res, pathname) {
   // ── Admin Zoom call scheduling ──────────────────────────────────
 
   // POST /api/admin/calls/schedule
-  if (method === 'POST' && pathname === '/api/admin/calls/schedule') {
+  if (req.method === 'POST' && pathname === '/api/admin/calls/schedule') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -24856,7 +24856,7 @@ async function handleApi(req, res, pathname) {
   }
 
   // GET /api/admin/calls — list with optional filters
-  if (method === 'GET' && pathname === '/api/admin/calls') {
+  if (req.method === 'GET' && pathname === '/api/admin/calls') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -24883,7 +24883,7 @@ async function handleApi(req, res, pathname) {
   }
 
   // GET /api/admin/calls/:id — detail
-  if (method === 'GET' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
+  if (req.method === 'GET' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -24901,7 +24901,7 @@ async function handleApi(req, res, pathname) {
   }
 
   // PATCH /api/admin/calls/:id — update notes, no-show, cancel
-  if (method === 'PATCH' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
+  if (req.method === 'PATCH' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -24971,7 +24971,7 @@ async function handleApi(req, res, pathname) {
   }
 
   // POST /api/admin/calls/:id/resend — resend invite notifications
-  if (method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/resend$/)) {
+  if (req.method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/resend$/)) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -25032,7 +25032,7 @@ async function handleApi(req, res, pathname) {
   }
 
   // POST /api/admin/calls/:id/fetch-summary — manually trigger Zoom AI Companion summary fetch
-  if (method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/fetch-summary$/)) {
+  if (req.method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/fetch-summary$/)) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!supabase) { sendJson(res, 503, { ok: false }); return; }
