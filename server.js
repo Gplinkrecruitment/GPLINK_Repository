@@ -2190,6 +2190,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             // Flip task status to open (Hazel's ball) for review
             await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
               { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+            // Update practice_doc_ops to completed for non-SPPA practice_pack_child docs
+            if (earlyIsDoc && earlyTask.task_type === 'practice_pack_child' && earlyTask.related_document_key) {
+              _ensurePracticeDocOps(earlyGpCase.id).then(function () {
+                return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.' + encodeURIComponent(earlyTask.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
+              }).catch(function (err) { console.error('[Gmail] Early match practice_doc_ops update failed:', err.message); });
+            }
             }
             await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'status_change',
               (earlyIsDoc ? 'Document received — review needed' : 'New message on task'),
@@ -2777,6 +2783,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 // Flip task to Hazel's ball (open)
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rTask.id),
                   { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+                // Update practice_doc_ops to completed when document delivered
+                if (rTask.task_type === 'practice_pack_child' && rTask.related_document_key) {
+                  _ensurePracticeDocOps(gpCase.id).then(function () {
+                    return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(gpCase.id) + '&document_key=eq.' + encodeURIComponent(rTask.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
+                  }).catch(function (err) { console.error('[ResponseMatch] practice_doc_ops update failed:', err.message); });
+                }
                 await _logCaseEvent(gpCase.id, rTask.id, 'status_change',
                   'GP/practice responded with document \u2014 review needed',
                   'Auto-matched via ' + responseMatch.method + ' (' + Math.round(responseMatch.confidence * 100) + '%)',
@@ -31807,6 +31819,12 @@ Return ONLY valid JSON with no markdown formatting:
       }
     });
 
+    // Update practice_doc_ops to completed
+    if (task.task_type === 'practice_pack_child' && task.related_document_key && task.case_id) {
+      _ensurePracticeDocOps(task.case_id).then(function () {
+        return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.' + encodeURIComponent(task.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
+      }).catch(function (err) { console.error('[UploadDoc] practice_doc_ops update failed:', err.message); });
+    }
     await _logCaseEvent(task.case_id, taskId, 'system', fileName + ' uploaded by VA for review', null, adminCtx.email);
     sendJson(res, 200, { ok: true, message: 'Document uploaded.' });
     return;
@@ -34253,6 +34271,81 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(updated.case_id, null, 'status_change', 'Practice doc ' + (updated.document_key || '') + ' → ' + (patch.ops_status || ''), JSON.stringify(patch), adminCtx.email);
     }
     sendJson(res, 200, { ok: true, doc: updated });
+    return;
+  }
+
+  // ── Practice Doc Ops: Upload file directly to a placeholder ──
+  if (pathname === '/api/admin/practice-doc/upload' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const caseId = String(body.case_id || '').trim();
+    const docKey = String(body.document_key || '').trim();
+    const fileData = String(body.file_data || '').trim();
+    const fileName = String(body.file_name || '').trim();
+    if (!caseId || !docKey || !fileData || !fileName) {
+      sendJson(res, 400, { ok: false, message: 'case_id, document_key, file_data, and file_name required.' }); return;
+    }
+    if (!PRACTICE_DOC_KEYS.includes(docKey)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return;
+    }
+
+    // Find or create the practice_pack_child task for this doc
+    const existingTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&task_type=eq.practice_pack_child&limit=1');
+    const existingTask = existingTaskRes.ok && Array.isArray(existingTaskRes.data) && existingTaskRes.data[0] ? existingTaskRes.data[0] : null;
+    const taskId = existingTask ? existingTask.id : null;
+
+    // Store as task_document if there's a task
+    if (taskId) {
+      await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true',
+        { method: 'PATCH', body: { is_current: false } });
+      await supabaseDbRequest('task_documents', '', {
+        method: 'POST',
+        body: [{ task_id: taskId, case_id: caseId, filename: fileName,
+          mime_type: fileData.match(/^data:([^;]+)/) ? fileData.match(/^data:([^;]+)/)[1] : 'application/octet-stream',
+          is_current: true, uploaded_by: 'admin_upload',
+          attachment_url: fileData }]
+      });
+    }
+
+    // Upload to Google Drive if configured
+    let driveFileId = null;
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const gdFolderId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].google_drive_folder_id : null;
+    if (gdFolderId && isGoogleDriveConfigured()) {
+      try {
+        const drive = await getGoogleDriveClient();
+        if (drive) {
+          const b64Match = fileData.match(/^data:[^;]+;base64,(.+)$/);
+          if (b64Match) {
+            const mimeType = fileData.match(/^data:([^;]+)/)[1];
+            const buf = Buffer.from(b64Match[1], 'base64');
+            const { Readable } = require('stream');
+            const driveRes = await drive.files.create({
+              requestBody: { name: fileName, parents: [gdFolderId] },
+              media: { mimeType: mimeType, body: Readable.from(buf) },
+              fields: 'id'
+            });
+            driveFileId = driveRes.data.id;
+            // Link Drive file to task
+            if (taskId && driveFileId) {
+              await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+                { method: 'PATCH', body: { google_drive_file_id: driveFileId } });
+            }
+          }
+        }
+      } catch (driveErr) { console.error('[PracticeDocUpload] Drive upload failed:', driveErr.message); }
+    }
+
+    // Mark ops_status as completed
+    await _ensurePracticeDocOps(caseId);
+    await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
+      { method: 'PATCH', body: { ops_status: 'completed' } });
+
+    await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
+    sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
     return;
   }
 

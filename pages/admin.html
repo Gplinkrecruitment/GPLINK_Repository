@@ -708,6 +708,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .doc-placeholder-status.s-not_requested{background:var(--bg3,#1f2330);color:var(--muted,#9aa3b2)}
 .doc-placeholder-status.s-action_required{background:#7f1d1d;color:#f87171}
 .doc-placeholder-meta{font-size:10px;color:var(--muted,#9aa3b2);margin-top:3px}
+.doc-upload-btn{display:inline-block;margin-top:6px;font-size:10px;font-weight:600;color:var(--blue,#60a5fa);cursor:pointer;position:relative;overflow:hidden}
+.doc-upload-btn:hover{text-decoration:underline}
+.doc-upload-btn input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
+.doc-upload-btn{z-index:1}
 .doc-checklist{display:flex;flex-direction:column;gap:6px}
 .doc-checklist-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:8px}
 .doc-checklist-check{width:20px;height:20px;border-radius:5px;border:2px solid var(--muted,#9aa3b2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;color:transparent}
@@ -2808,6 +2812,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var size=df.size?formatFileSize(Number(df.size)):'';
       metaHtml='<div class="doc-placeholder-meta">'+size+(size?' \u2022 ':'')+fmtR(df.modifiedTime)+'</div>';
     }
+    var uploadHtml='<label class="doc-upload-btn" title="Upload document">'+(hasFile?'\u2191 Replace':'+ Upload')+'<input type="file" data-gplink-doc-upload="'+esc(doc.key)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic"></label>';
     var driveAttrs=df?' data-drive-preview="'+esc(df.id)+'" data-drive-name="'+esc(df.name)+'" data-drive-mime="'+esc(df.mimeType||'')+'" data-drive-link="'+esc(df.webViewLink||'')+'"':'';
     return '<div class="'+cls+'"'+driveAttrs+'>'
       +thumbHtml
@@ -2815,6 +2820,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
       +'<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>'
       +metaHtml
+      +uploadHtml
       +'</div></div>';
   }
 
@@ -5756,6 +5762,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const sc=e.target.closest("[data-save-case]");if(sc){saveCase(sc.getAttribute("data-save-case"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
+      if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
       const dpc=e.target.closest("[data-drive-preview]");
       if(dpc){
         const name=dpc.getAttribute("data-drive-name")||"Document";
@@ -6011,6 +6018,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }catch(err){
           console.error("[VA] Drive upload failed:",err);
           if(status)status.textContent="\u2717 Upload failed";
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    /* GP LINK placeholder doc upload */
+    document.addEventListener("change",function(e){
+      var input=e.target.closest("[data-gplink-doc-upload]");
+      if(!input)return;
+      e.stopPropagation();
+      var docKey=input.getAttribute("data-gplink-doc-upload");
+      var file=input.files&&input.files[0];
+      var caseId=S.selectedCaseId;
+      if(!file||!docKey||!caseId)return;
+      var label=input.closest(".doc-upload-btn");
+      if(label)label.textContent="Uploading\u2026";
+      var reader=new FileReader();
+      reader.onload=async function(){
+        try{
+          var r=await fetch("/api/admin/practice-doc/upload",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({case_id:caseId,document_key:docKey,file_data:reader.result,file_name:file.name})
+          });
+          var d=await r.json().catch(function(){return {};});
+          if(d&&d.ok){
+            showOpsToast("Document uploaded");
+            var c=S.cases.find(function(x){return x.id===caseId;});
+            if(c){
+              if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].gpDocuments;
+              loadGpDocuments(c.user_id,caseId);
+            }
+          }else{
+            showOpsToast(d.message||"Upload failed","red");
+            if(label){label.innerHTML=(file?"&#8593; Replace":"+ Upload")+'<input type="file" data-gplink-doc-upload="'+docKey+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic">';}
+          }
+        }catch(err){
+          console.error("[VA] GP LINK doc upload failed:",err);
+          showOpsToast("Upload failed","red");
+          if(label){label.innerHTML=(file?"&#8593; Replace":"+ Upload")+'<input type="file" data-gplink-doc-upload="'+docKey+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic">';}
         }
       };
       reader.readAsDataURL(file);
