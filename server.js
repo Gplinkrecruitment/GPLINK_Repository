@@ -5723,15 +5723,6 @@ function mapRegistrationPath(pathname) {
   return null;
 }
 
-// ── Temporary bypass — auto-expires after the ISO timestamp ──
-var TEMP_BYPASS_EMAILS = {
-  "smithmiller1234@gmail.com": "2026-06-08T14:51:00Z"
-};
-function isTempBypassed(email) {
-  var expiry = TEMP_BYPASS_EMAILS[String(email || '').toLowerCase()];
-  return !!(expiry && new Date().toISOString() < expiry);
-}
-
 // ── Server-side stage access gate ──
 // Maps page paths to registration stages. If a user has admin-set overrides,
 // the server enforces them — prevents direct URL navigation to locked stages.
@@ -5755,7 +5746,7 @@ async function isStageAccessAllowed(email, pathname) {
     String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')
       .split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean)
   );
-  if (bypassEmails.has(email.toLowerCase()) || isTempBypassed(email)) return true;
+  if (bypassEmails.has(email.toLowerCase())) return true;
 
   var userState = null;
   if (isSupabaseDbConfigured()) {
@@ -27024,7 +27015,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // ── AHPRA locking: block AHPRA progress unless career is secured ──
     const BYPASS_LOCK_EMAILS = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
-    if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email) && !isTempBypassed(email)) {
+    if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email)) {
       // Need to check current state for career_secured
       const preCheckRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
       const preCheckState = preCheckRemote && preCheckRemote.state && typeof preCheckRemote.state === 'object'
@@ -32627,7 +32618,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const BYPASS_LOCK_EMAILS_REG = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
-    const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email) || isTempBypassed(email);
+    const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email);
     const steps = {
       career: { accessible: true, completed: careerSecured },
       ahpra: { accessible: bypassAll || careerSecured, completed: ahpraCompleted, locked_reason: (bypassAll || careerSecured) ? null : 'Career must be secured first.' },
