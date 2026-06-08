@@ -6906,8 +6906,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var expanded=!!S.guide.expandedFolderIds[f.id];
         var items=f.items||[];
         var children=f.children||[];
-        var totalCount=items.length;
-        children.forEach(function(c){totalCount+=(c.items||[]).length;});
+        function countAllItems(folder){
+          var n=(folder.items||[]).length;
+          (folder.children||[]).forEach(function(c){n+=countAllItems(c);});
+          return n;
+        }
+        var totalCount=countAllItems(f);
         var itemsHtml='';
         if(expanded){
           itemsHtml='<div class="guide-folder-items">'+
