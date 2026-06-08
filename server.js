@@ -7231,14 +7231,17 @@ async function getAdminUserIdSet() {
         if (rolesRes.data[ri] && rolesRes.data[ri].user_id) ids.add(rolesRes.data[ri].user_id);
       }
     }
-    // Also match by email against env-based admin lists
-    if (ADMIN_EMAILS.size > 0 || SUPER_ADMIN_EMAILS.size > 0) {
-      var allEmails = new Set([...ADMIN_EMAILS, ...SUPER_ADMIN_EMAILS]);
+    // Also match by email against env-based admin + VA lists
+    var allExcludeEmails = new Set([...ADMIN_EMAILS, ...SUPER_ADMIN_EMAILS]);
+    for (var vi = 0; vi < MONITORED_VA_EMAILS.length; vi++) {
+      allExcludeEmails.add(MONITORED_VA_EMAILS[vi]);
+    }
+    if (allExcludeEmails.size > 0) {
       var profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email');
       if (profileRes.ok && Array.isArray(profileRes.data)) {
         for (var pi = 0; pi < profileRes.data.length; pi++) {
           var pe = String(profileRes.data[pi].email || '').trim().toLowerCase();
-          if (allEmails.has(pe)) ids.add(profileRes.data[pi].user_id);
+          if (allExcludeEmails.has(pe)) ids.add(profileRes.data[pi].user_id);
         }
       }
     }
