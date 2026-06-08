@@ -28665,16 +28665,25 @@ Return ONLY valid JSON with no markdown formatting:
         if (t.due_date && new Date(t.due_date) < new Date()) tasksByCase[t.case_id].overdue++;
       });
     }
-    const enriched = cases.map(function (c) {
-      const p = profileMap[c.user_id] || {};
-      const tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
-      return Object.assign({}, c, {
+    // Exclude admin/VA users from GP cases list
+    const adminUserIds = await getAdminUserIdSet();
+    var HIDDEN_CASE_EMAILS = new Set(['khaleedmahmoud1211@gmail.com', 'hazel@mygplink.com.au', 'hello@mygplink.com.au']);
+    const enriched = [];
+    for (var ci = 0; ci < cases.length; ci++) {
+      var c = cases[ci];
+      if (c.user_id && adminUserIds.has(c.user_id)) continue;
+      var p = profileMap[c.user_id] || {};
+      var caseEmailLc = String(p.email || c.gp_email || '').trim().toLowerCase();
+      if (HIDDEN_CASE_EMAILS.has(caseEmailLc)) continue;
+      if (caseEmailLc && (isAdminEmail(caseEmailLc) || MONITORED_VA_EMAILS.includes(caseEmailLc))) continue;
+      var tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      enriched.push(Object.assign({}, c, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
-      });
-    });
+      }));
+    }
     sendJson(res, 200, { ok: true, cases: enriched });
     return;
   }

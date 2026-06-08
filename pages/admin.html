@@ -1950,25 +1950,113 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch{}
     if(S.view==="agent")renderDetail();
   }
+  const ADMIN_LOAD_TIMEOUT_MS=12000;
+  function runAdminLoadJob(label,fn){
+    return new Promise(function(resolve){
+      var settled=false;
+      var timer=setTimeout(function(){
+        if(settled)return;
+        settled=true;
+        console.warn("[Admin] "+label+" load timed out");
+        resolve({label:label,ok:false,timeout:true});
+      },ADMIN_LOAD_TIMEOUT_MS);
+      function done(result){
+        if(settled)return;
+        settled=true;
+        clearTimeout(timer);
+        resolve(result);
+      }
+      try{
+        Promise.resolve(fn()).then(function(){done({label:label,ok:true});}).catch(function(err){
+          console.error("[Admin] "+label+" load failed",err);
+          done({label:label,ok:false,error:err});
+        });
+      }catch(err){
+        console.error("[Admin] "+label+" load failed",err);
+        done({label:label,ok:false,error:err});
+      }
+    });
+  }
+  function normalizeAdminView(view){
+    return view==="cases"?"gps":(view||"tools");
+  }
+  function setActiveViewTab(view){
+    document.querySelectorAll(".view-tab").forEach(function(t){
+      t.classList.toggle("active",t.getAttribute("data-view")===view);
+    });
+  }
+  function showAdminRenderError(err){
+    console.error("[Admin] render failed",err);
+    var targets={
+      tools:"toolsOps",
+      gps:"detail",
+      inbox:"inboxPanel",
+      medicalcentres:"medicalCentresPanel",
+      support:"supportPanel",
+      guide:"guidePanel",
+      scheduled_calls:"scheduledCallsPanel",
+      technical:"technicalPanel"
+    };
+    var key=normalizeAdminView(S.view);
+    var el=document.getElementById(targets[key])||document.getElementById("toolsPanel")||document.getElementById("detail");
+    if(el)el.innerHTML='<div class="empty" style="margin:16px">Admin panel could not finish loading. Try refreshing once, or contact support if it continues.</div>';
+  }
+  function renderAdminView(){
+    S.view=normalizeAdminView(S.view);
+    renderTopBar();
+    renderFilters();
+    setActiveViewTab(S.view);
+    if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();return;}
+    if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();return;}
+    if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();return;}
+    if(S.view==="medicalcentres"){vaShowPanel("medicalcentres");renderMedicalCentresPanel();return;}
+    if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
+    if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
+    if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
+    if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
+    if(S.view==="ceo-home"){
+      vaShowPanel("ceo-home");
+      var iframe=document.getElementById("ceoHomeIframe");
+      if(iframe&&!iframe.src.includes("ceo-dashboard"))iframe.src="/pages/ceo-dashboard";
+      return;
+    }
+    S.view="tools";
+    setActiveViewTab("tools");
+    vaShowPanel("tools");
+    renderToolsPanel();
+  }
   async function loadAll(force,silent){
     if(S.loading&&!force)return;
     S.loading=true;
-    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments(),loadIncomingQuestions(),loadVaAccounts()];
-    if(isSA())jobs.push(loadAgentStatus(force));
-    await Promise.all(jobs);
-    S.loading=false;
-    /* When silent (auto-refresh), skip destructive re-render if user is interacting */
-    if(silent&&isUserInteracting()){S.pendingRender=true;return;}
-    /* Silent auto-refresh: only update lightweight stats — never rebuild panels/tables
-       which would destroy expanded rows, scroll positions, and cause visible flicker */
-    if(silent){renderTopBar();renderFilters();return;}
-    renderAll();
-    if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();}
-    else if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
-    else if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
-    else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();/*TASK4 renderTicketsPanel()*/}
-    else if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();}
-    if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
+    if(!silent){
+      try{renderAdminView();}catch(err){showAdminRenderError(err);}
+    }
+    const jobs=[
+      ["dashboard",loadDash],
+      ["cases",loadCases],
+      ["tasks",loadTasks],
+      ["visa",loadVisa],
+      ["pbs",loadPbs],
+      ["vaDashboard",loadVaDashboard],
+      ["unmatchedDocuments",loadUnmatchedDocuments],
+      ["incomingQuestions",loadIncomingQuestions],
+      ["vaAccounts",loadVaAccounts]
+    ];
+    if(isSA())jobs.push(["agentStatus",function(){return loadAgentStatus(force);}]);
+    try{
+      await Promise.all(jobs.map(function(job){return runAdminLoadJob(job[0],job[1]);}));
+      /* When silent (auto-refresh), skip destructive re-render if user is interacting */
+      if(silent&&isUserInteracting()){S.pendingRender=true;return;}
+      /* Silent auto-refresh: only update lightweight stats - never rebuild panels/tables
+         which would destroy expanded rows, scroll positions, and cause visible flicker */
+      if(silent){renderTopBar();renderFilters();return;}
+      renderAdminView();
+      if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
+    }catch(err){
+      showAdminRenderError(err);
+    }finally{
+      S.loading=false;
+    }
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
   async function loadMedicalCentres(status){
@@ -2243,6 +2331,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ══ Merged Case+GP List ══ */
+  var HIDDEN_GP_EMAILS=new Set(['khaleedmahmoud1211@gmail.com','hazel@mygplink.com.au','hello@mygplink.com.au']);
+  function isHiddenGp(email){return email&&HIDDEN_GP_EMAILS.has(email.toLowerCase());}
   function mergedCases(){
     // Merge registration_cases with dashboard candidates
     const caseMap=new Map();
@@ -2251,6 +2341,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const merged=[];
     const seen=new Set();
     S.cases.forEach(rc=>{
+      if(isHiddenGp(rc.gp_email))return;
       const gp=findGp(rc);
       merged.push({rc,gp:gp||null,sort_stage:STEPS.findIndex(s=>s.key===rc.stage),sort_urgent:rc.urgent_tasks||0,sort_open:rc.open_tasks||0});
       seen.add(rc.user_id);
@@ -2258,6 +2349,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     gps().forEach(gp=>{
       if(seen.has(gp.userId)||seen.has(gp.email))return;
+      if(isHiddenGp(gp.email))return;
       merged.push({rc:null,gp,sort_stage:99,sort_urgent:0,sort_open:0});
     });
     return merged;
@@ -5558,7 +5650,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const card=e.target.closest("[data-case-id]");
       if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
       const wq=e.target.closest("[data-wq-case]");
-      if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+      if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
     var _mcPanel=document.getElementById("medicalCentresPanel");
     if(_mcPanel)_mcPanel.addEventListener("click",async function(e){
@@ -7883,10 +7975,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else{rec._emails=rec.gp_email?[rec.gp_email]:[];gpMap.set(key,rec);}
     }
     var dashUsers=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[];
-    dashUsers.forEach(function(u){var k=u.user_id||u.case_id;mergeGp(k,{case_id:u.case_id,user_id:u.user_id,gp_name:u.gp_name||"",gp_email:u.gp_email||"",gp_phone:u.gp_phone||"",stage:u.stage||"",practice_name:u.practice_name||""});});
-    (S.cases||[]).forEach(function(c){var k=c.user_id||c.id;mergeGp(k,{case_id:c.id,user_id:c.user_id,gp_name:c.gp_name||c.gp_email||"",gp_email:c.gp_email||"",gp_phone:c.gp_phone||"",stage:c.stage||"",practice_name:c.practice_name||""});});
+    dashUsers.forEach(function(u){if(isHiddenGp(u.gp_email))return;var k=u.user_id||u.case_id;mergeGp(k,{case_id:u.case_id,user_id:u.user_id,gp_name:u.gp_name||"",gp_email:u.gp_email||"",gp_phone:u.gp_phone||"",stage:u.stage||"",practice_name:u.practice_name||""});});
+    (S.cases||[]).forEach(function(c){if(isHiddenGp(c.gp_email))return;var k=c.user_id||c.id;mergeGp(k,{case_id:c.id,user_id:c.user_id,gp_name:c.gp_name||c.gp_email||"",gp_email:c.gp_email||"",gp_phone:c.gp_phone||"",stage:c.stage||"",practice_name:c.practice_name||""});});
     var candidates=(S.dashboard&&Array.isArray(S.dashboard.candidates))?S.dashboard.candidates:[];
-    candidates.forEach(function(g){var k=g.userId||g.email;mergeGp(k,{case_id:g.userId||g.email,user_id:g.userId||"",gp_name:g.name||g.email||"",gp_email:g.email||"",gp_phone:"",stage:"candidate"});});
+    candidates.forEach(function(g){if(isHiddenGp(g.email))return;var k=g.userId||g.email;mergeGp(k,{case_id:g.userId||g.email,user_id:g.userId||"",gp_name:g.name||g.email||"",gp_email:g.email||"",gp_phone:"",stage:"candidate"});});
     var gpList=Array.from(gpMap.values());
     S.search.clientResults.gps=gpList.filter(function(u){
       var haystack=((u.gp_name||"")+" "+(u.gp_email||"")+" "+(u.gp_phone||"")+" "+(u.practice_name||"")+" "+(u._emails||[]).join(" ")).toLowerCase();
