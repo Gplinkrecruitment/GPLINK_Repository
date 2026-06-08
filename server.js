@@ -25031,6 +25031,27 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/admin/calls/:id/fetch-summary — manually trigger Zoom AI Companion summary fetch
+  if (method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/fetch-summary$/)) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!supabase) { sendJson(res, 503, { ok: false }); return; }
+
+    const callId = pathname.split('/')[4];
+    const rows = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=id,status,zoom_meeting_id,zoom_meeting_uuid,summary_status,summary_fetch_attempts', { method: 'GET' });
+    if (!rows || rows.length === 0) { sendJson(res, 404, { ok: false, message: 'Call not found' }); return; }
+    const call = rows[0];
+
+    if (call.status !== 'completed') { sendJson(res, 400, { ok: false, message: 'Call must be completed first' }); return; }
+    if (call.summary_status === 'saved') { sendJson(res, 400, { ok: false, message: 'Summary already saved' }); return; }
+
+    await fetchAndSaveZoomSummary(call);
+
+    const updated = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=summary_status,summary_error', { method: 'GET' });
+    sendJson(res, 200, { ok: true, summary_status: updated && updated[0] ? updated[0].summary_status : 'unknown' });
+    return;
+  }
+
   // ── Admin interview scheduling ──────────────────────────────────
 
   if (pathname === '/api/admin/career/interviews' && req.method === 'GET') {
@@ -29689,6 +29710,37 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[CheckContractSignatures] Error:', csErr.message);
       sendJson(res, 500, { ok: false, message: 'Check failed: ' + csErr.message });
     }
+    return;
+  }
+
+  // ── Cron: retry fetching Zoom AI Companion summaries for completed calls ──
+  if (req.method === 'POST' && pathname === '/api/cron/call-summary-retry') {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!CALL_SCHEDULING_CRON_SECRET || token !== CALL_SCHEDULING_CRON_SECRET) {
+      sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!supabase) { sendJson(res, 503, { ok: false }); return; }
+
+    // Find calls needing summary retry: completed, summary pending or error, < 10 attempts
+    const pending = await supabaseDbRequest('scheduled_calls',
+      '?status=eq.completed&summary_status=in.(pending,error)&summary_fetch_attempts=lt.10&select=id,zoom_meeting_id,zoom_meeting_uuid,summary_fetch_attempts&order=completed_at.asc&limit=5',
+      { method: 'GET' }
+    );
+
+    if (!pending || pending.length === 0) {
+      sendJson(res, 200, { ok: true, message: 'No pending summaries', retried: 0 });
+      return;
+    }
+
+    let retried = 0;
+    for (const call of pending) {
+      await fetchAndSaveZoomSummary(call);
+      retried++;
+    }
+
+    sendJson(res, 200, { ok: true, retried });
     return;
   }
 
