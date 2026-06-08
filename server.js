@@ -12513,6 +12513,526 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
   sendJson(res, 200, { ok: true, emailSent: !!(emailResult && emailResult.ok), candidate: candidateEmail, pendingHireStored: true, practice: resolvedPracticeName || null });
 }
 
+// ── Calendly Webhook Handler ──────────────────────────────────────────────────
+
+async function handleCalendlyWebhook(req, res) {
+  if (!CALENDLY_WEBHOOK_SECRET) {
+    console.warn('[calendly-webhook] CALENDLY_WEBHOOK_SECRET not set — webhook disabled');
+    sendJson(res, 503, { ok: false, message: 'Webhook not configured' });
+    return;
+  }
+
+  // Read raw body for signature verification
+  let rawBody;
+  try {
+    rawBody = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+      req.on('error', reject);
+    });
+  } catch (e) {
+    console.error('[calendly-webhook] Failed to read body:', e && e.message);
+    sendJson(res, 400, { ok: false, message: 'Failed to read body' });
+    return;
+  }
+
+  // Verify Calendly HMAC signature
+  const sigHeader = req.headers['calendly-webhook-signature'] || '';
+  if (!verifyCalendlySignature(sigHeader, rawBody, CALENDLY_WEBHOOK_SECRET)) {
+    console.warn('[calendly-webhook] Invalid signature from IP:', getClientIp(req));
+    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+    return;
+  }
+
+  // Parse JSON
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch (e) {
+    console.error('[calendly-webhook] Invalid JSON:', e && e.message);
+    sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
+    return;
+  }
+
+  const event = String(payload.event || '');
+  const eventId = String((payload.payload && payload.payload.uri) || payload.id || '');
+
+  // Deduplicate
+  const isDuplicate = await checkAndRecordWebhookEvent('calendly', eventId, event, payload);
+  if (isDuplicate) {
+    console.log('[calendly-webhook] Duplicate event, skipping:', eventId);
+    sendJson(res, 200, { ok: true, duplicate: true });
+    return;
+  }
+
+  // Filter by event type URI if configured
+  if (CALENDLY_EVENT_TYPE_URI) {
+    const eventTypeUri = payload.payload && (
+      (payload.payload.event_type && payload.payload.event_type.uri) ||
+      payload.payload.event_type
+    );
+    if (eventTypeUri && eventTypeUri !== CALENDLY_EVENT_TYPE_URI) {
+      console.log('[calendly-webhook] Ignoring event type:', eventTypeUri);
+      sendJson(res, 200, { ok: true, ignored: true });
+      return;
+    }
+  }
+
+  console.log('[calendly-webhook] Processing event:', event, '| id:', eventId);
+
+  try {
+    if (event === 'invitee.created') {
+      await handleCalendlyInviteeCreated(payload);
+    } else if (event === 'invitee.canceled') {
+      await handleCalendlyInviteeCanceled(payload);
+    } else {
+      console.log('[calendly-webhook] Unhandled event type:', event);
+    }
+  } catch (e) {
+    console.error('[calendly-webhook] Handler error for event', event, ':', e && e.message);
+  }
+
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleCalendlyInviteeCreated(payload) {
+  const invitee = payload.payload || {};
+  const inviteeUri = String(invitee.uri || '');
+  const email = String(invitee.email || '').toLowerCase().trim();
+  const timezone = String(invitee.timezone || '');
+  const scheduledEventUri = String((invitee.scheduled_event && invitee.scheduled_event.uri) || '');
+
+  // Extract correlation token from utm_content (format: call_HEXTOKEN)
+  const tracking = invitee.tracking || {};
+  const utmContent = String(tracking.utm_content || '');
+  let correlationToken = null;
+  const ctMatch = utmContent.match(/^call_([0-9a-f]{32})$/i);
+  if (ctMatch) correlationToken = ctMatch[1];
+
+  console.log('[calendly invitee.created] email:', email, '| correlation_token:', correlationToken || '(none)');
+
+  if (!isSupabaseDbConfigured()) {
+    console.warn('[calendly invitee.created] Supabase not configured, skipping DB update');
+    return;
+  }
+
+  // Match scheduled_calls record by correlation_token first, fallback to email
+  let callRecord = null;
+  if (correlationToken) {
+    const r = await supabaseDbRequest('scheduled_calls', 'select=*&correlation_token=eq.' + encodeURIComponent(correlationToken) + '&limit=1');
+    if (r.ok && Array.isArray(r.data) && r.data.length > 0) callRecord = r.data[0];
+  }
+  if (!callRecord && email) {
+    const r = await supabaseDbRequest('scheduled_calls', 'select=*&invitee_email=eq.' + encodeURIComponent(email) + '&status=eq.invited&order=created_at.desc&limit=1');
+    if (r.ok && Array.isArray(r.data) && r.data.length > 0) callRecord = r.data[0];
+  }
+
+  if (!callRecord) {
+    console.warn('[calendly invitee.created] No matching scheduled_call for email:', email, '| token:', correlationToken);
+    return;
+  }
+
+  // Determine scheduled_at time from Calendly event
+  let scheduledAt = null;
+  let zoomJoinUrl = null;
+  let zoomMeetingId = null;
+  let zoomMeetingPassword = null;
+
+  // Try to get Zoom details from Calendly location data
+  const location = invitee.location || (invitee.scheduled_event && invitee.scheduled_event.location) || {};
+  if (location.type === 'zoom' || (location.join_url && location.join_url.includes('zoom'))) {
+    zoomJoinUrl = String(location.join_url || '');
+    zoomMeetingId = String(location.data && location.data.id || '');
+    zoomMeetingPassword = String(location.data && location.data.password || '');
+  }
+
+  // Fetch event details from Calendly API if we have the URI and need more info
+  if (scheduledEventUri && CALENDLY_API_TOKEN && (!scheduledAt || !zoomJoinUrl)) {
+    try {
+      const apiUrl = scheduledEventUri.startsWith('https://') ? scheduledEventUri : 'https://api.calendly.com/scheduled_events/' + scheduledEventUri.replace(/^.*\//, '');
+      const apiRes = await fetch(apiUrl, {
+        headers: { Authorization: 'Bearer ' + CALENDLY_API_TOKEN, 'Content-Type': 'application/json' }
+      });
+      if (apiRes.ok) {
+        const apiData = await apiRes.json();
+        const evtResource = apiData.resource || {};
+        if (!scheduledAt) scheduledAt = evtResource.start_time || null;
+        // Check location for Zoom
+        if (!zoomJoinUrl && evtResource.location) {
+          const loc = evtResource.location;
+          if (loc.type === 'zoom' || (loc.join_url && loc.join_url.includes('zoom'))) {
+            zoomJoinUrl = String(loc.join_url || '');
+            zoomMeetingId = String((loc.data && loc.data.id) || '');
+            zoomMeetingPassword = String((loc.data && loc.data.password) || '');
+          }
+        }
+      } else {
+        console.warn('[calendly invitee.created] Calendly API fetch status:', apiRes.status);
+      }
+    } catch (e) {
+      console.warn('[calendly invitee.created] Calendly API fetch error:', e && e.message);
+    }
+  }
+
+  // Fallback: use invitee start_time if present
+  if (!scheduledAt && invitee.scheduled_event && invitee.scheduled_event.start_time) {
+    scheduledAt = invitee.scheduled_event.start_time;
+  }
+
+  const now = new Date().toISOString();
+  const callPatch = {
+    status: 'booked',
+    booked_at: now,
+    invitee_email: email || callRecord.invitee_email,
+    timezone: timezone || callRecord.timezone || null,
+    calendly_invitee_uri: inviteeUri || null,
+    calendly_event_uri: scheduledEventUri || null,
+    updated_at: now
+  };
+  if (scheduledAt) callPatch.scheduled_at = scheduledAt;
+  if (zoomJoinUrl) callPatch.zoom_join_url = zoomJoinUrl;
+  if (zoomMeetingId) callPatch.zoom_meeting_id = zoomMeetingId;
+  if (zoomMeetingPassword) callPatch.zoom_meeting_password = zoomMeetingPassword;
+
+  await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
+  });
+  console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
+
+  // Update linked registration_tasks
+  if (callRecord.task_id) {
+    const scheduledLabel = scheduledAt ? new Date(scheduledAt).toUTCString() : 'time to be confirmed';
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        status: mapCallStatusToTaskStatus('booked'),
+        description: 'Your call is booked for ' + scheduledLabel + '. We look forward to speaking with you.',
+        updated_at: now
+      }
+    });
+    console.log('[calendly invitee.created] Updated registration_task', callRecord.task_id, '→ waiting');
+  }
+}
+
+async function handleCalendlyInviteeCanceled(payload) {
+  const invitee = payload.payload || {};
+  const inviteeUri = String(invitee.uri || '');
+  const rescheduled = invitee.rescheduled === true || invitee.rescheduling === true;
+
+  console.log('[calendly invitee.canceled] inviteeUri:', inviteeUri, '| rescheduled:', rescheduled);
+
+  if (!isSupabaseDbConfigured()) {
+    console.warn('[calendly invitee.canceled] Supabase not configured, skipping DB update');
+    return;
+  }
+
+  // Match by calendly_invitee_uri
+  let callRecord = null;
+  if (inviteeUri) {
+    const r = await supabaseDbRequest('scheduled_calls', 'select=*&calendly_invitee_uri=eq.' + encodeURIComponent(inviteeUri) + '&limit=1');
+    if (r.ok && Array.isArray(r.data) && r.data.length > 0) callRecord = r.data[0];
+  }
+
+  if (!callRecord) {
+    console.warn('[calendly invitee.canceled] No matching scheduled_call for inviteeUri:', inviteeUri);
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  if (rescheduled) {
+    // Rescheduling: reset to 'invited' to await new invitee.created event
+    const callPatch = {
+      status: 'invited',
+      scheduled_at: null,
+      booked_at: null,
+      zoom_join_url: null,
+      zoom_meeting_id: null,
+      zoom_meeting_password: null,
+      calendly_event_uri: null,
+      // Preserve old invitee URI for audit trail via a note in metadata (best effort)
+      updated_at: now
+    };
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
+    });
+    console.log('[calendly invitee.canceled] Rescheduling: reset scheduled_call', callRecord.id, '→ invited');
+
+    if (callRecord.task_id) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: {
+          status: mapCallStatusToTaskStatus('invited'),
+          description: 'Your call has been rescheduled. Please book a new time using the link provided.',
+          updated_at: now
+        }
+      });
+    }
+  } else {
+    // Fully cancelled
+    const callPatch = {
+      status: 'cancelled',
+      cancelled_at: now,
+      updated_at: now
+    };
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
+    });
+    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id);
+
+    if (callRecord.task_id) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: {
+          status: mapCallStatusToTaskStatus('cancelled'),
+          description: 'Your scheduled call was cancelled. Please contact us if you need to rebook.',
+          updated_at: now
+        }
+      });
+    }
+  }
+}
+
+// ── Zoom Scheduling Webhook Handler ──────────────────────────────────────────
+
+async function handleZoomSchedulingWebhook(req, res) {
+  // Read raw body first (before signature verification, as we need it for sig check)
+  let rawBody;
+  try {
+    rawBody = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+      req.on('error', reject);
+    });
+  } catch (e) {
+    console.error('[zoom-webhook] Failed to read body:', e && e.message);
+    sendJson(res, 400, { ok: false, message: 'Failed to read body' });
+    return;
+  }
+
+  // Parse JSON
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch (e) {
+    console.error('[zoom-webhook] Invalid JSON:', e && e.message);
+    sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
+    return;
+  }
+
+  // Challenge-response validation (Zoom endpoint URL validation)
+  if (payload.event === 'endpoint.url_validation') {
+    const plainToken = payload.payload && payload.payload.plainToken;
+    if (!plainToken || !ZOOM_WEBHOOK_SECRET) {
+      sendJson(res, 400, { ok: false, message: 'Missing plainToken or secret' });
+      return;
+    }
+    const validationResponse = buildZoomValidationResponse(plainToken, ZOOM_WEBHOOK_SECRET);
+    console.log('[zoom-webhook] Responding to endpoint.url_validation challenge');
+    sendJson(res, 200, validationResponse);
+    return;
+  }
+
+  // For all other events: require configured secret and verify signature
+  if (!ZOOM_WEBHOOK_SECRET) {
+    console.warn('[zoom-webhook] ZOOM_WEBHOOK_SECRET not set — webhook disabled');
+    sendJson(res, 503, { ok: false, message: 'Webhook not configured' });
+    return;
+  }
+
+  const timestamp = req.headers['x-zm-request-timestamp'] || '';
+  const signature = req.headers['x-zm-signature'] || '';
+  if (!verifyZoomWebhookSignature(timestamp, rawBody, signature, ZOOM_WEBHOOK_SECRET)) {
+    console.warn('[zoom-webhook] Invalid signature from IP:', getClientIp(req));
+    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+    return;
+  }
+
+  const event = String(payload.event || '');
+  const eventId = String(payload.payload && payload.payload.object && payload.payload.object.uuid || payload.id || '');
+
+  // Deduplicate
+  const isDuplicate = await checkAndRecordWebhookEvent('zoom', eventId, event, payload);
+  if (isDuplicate) {
+    console.log('[zoom-webhook] Duplicate event, skipping:', eventId);
+    sendJson(res, 200, { ok: true, duplicate: true });
+    return;
+  }
+
+  console.log('[zoom-webhook] Processing event:', event, '| id:', eventId);
+
+  try {
+    if (event === 'meeting.ended') {
+      await handleZoomMeetingEnded(payload);
+    } else if (event === 'meeting.summary_completed') {
+      await handleZoomSummaryCompleted(payload);
+    } else {
+      console.log('[zoom-webhook] Unhandled event type:', event);
+    }
+  } catch (e) {
+    console.error('[zoom-webhook] Handler error for event', event, ':', e && e.message);
+  }
+
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleZoomMeetingEnded(payload) {
+  const obj = (payload.payload && payload.payload.object) || {};
+  const meetingId = String(obj.id || '');
+  const meetingUuid = String(obj.uuid || '');
+
+  if (!meetingId) {
+    console.warn('[zoom meeting.ended] No meeting id in payload');
+    return;
+  }
+
+  if (!isSupabaseDbConfigured()) {
+    console.warn('[zoom meeting.ended] Supabase not configured, skipping');
+    return;
+  }
+
+  // Match scheduled_calls by zoom_meeting_id where status='booked'
+  const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=eq.booked&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
+    console.warn('[zoom meeting.ended] No booked scheduled_call for meeting_id:', meetingId);
+    return;
+  }
+  const callRecord = r.data[0];
+  const now = new Date().toISOString();
+
+  await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: {
+      status: 'completed',
+      completed_at: now,
+      zoom_meeting_uuid: meetingUuid || null,
+      summary_status: 'pending',
+      updated_at: now
+    }
+  });
+  console.log('[zoom meeting.ended] Updated scheduled_call', callRecord.id, '→ completed, summary_status: pending');
+
+  if (callRecord.task_id) {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        status: mapCallStatusToTaskStatus('completed'),
+        updated_at: now
+      }
+    });
+    console.log('[zoom meeting.ended] Updated registration_task', callRecord.task_id, '→ completed');
+  }
+}
+
+async function handleZoomSummaryCompleted(payload) {
+  const obj = (payload.payload && payload.payload.object) || {};
+  const meetingId = String(obj.id || obj.meeting_id || '');
+
+  if (!meetingId) {
+    console.warn('[zoom meeting.summary_completed] No meeting id in payload');
+    return;
+  }
+
+  if (!isSupabaseDbConfigured()) {
+    console.warn('[zoom meeting.summary_completed] Supabase not configured, skipping');
+    return;
+  }
+
+  // Match by zoom_meeting_id where summary_status='pending'
+  const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&summary_status=eq.pending&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
+    console.warn('[zoom meeting.summary_completed] No pending summary record for meeting_id:', meetingId);
+    return;
+  }
+  const callRecord = r.data[0];
+  await fetchAndSaveZoomSummary(callRecord);
+}
+
+async function fetchAndSaveZoomSummary(call) {
+  if (!call || !call.id) return;
+
+  let token;
+  try {
+    token = await getZoomAccessToken();
+  } catch (e) {
+    console.error('[zoom fetchAndSaveZoomSummary] Failed to get access token:', e && e.message);
+    return;
+  }
+  if (!token) {
+    console.error('[zoom fetchAndSaveZoomSummary] No access token available');
+    return;
+  }
+
+  // Refresh call record from DB to get latest zoom_meeting_id/uuid and attempt count
+  const refreshed = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(call.id) + '&limit=1');
+  const callRecord = (refreshed.ok && Array.isArray(refreshed.data) && refreshed.data.length > 0)
+    ? refreshed.data[0] : call;
+
+  let meetingId = String(callRecord.zoom_meeting_uuid || callRecord.zoom_meeting_id || '');
+  if (!meetingId) {
+    console.warn('[zoom fetchAndSaveZoomSummary] No meeting id/uuid on call record', callRecord.id);
+    return;
+  }
+
+  // Handle UUID double-encoding: if starts with '/' or contains '//', double-encode
+  if (meetingId.startsWith('/') || meetingId.includes('//')) {
+    meetingId = encodeURIComponent(encodeURIComponent(meetingId));
+  }
+
+  const summaryUrl = 'https://api.zoom.us/v2/meetings/' + meetingId + '/meeting_summary';
+  const now = new Date().toISOString();
+  const attempts = Number(callRecord.summary_fetch_attempts || 0) + 1;
+
+  let summaryRes;
+  try {
+    summaryRes = await fetch(summaryUrl, {
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
+    });
+  } catch (e) {
+    console.error('[zoom fetchAndSaveZoomSummary] Network error:', e && e.message);
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { summary_status: 'error', summary_fetch_attempts: attempts, updated_at: now }
+    });
+    return;
+  }
+
+  if (summaryRes.ok) {
+    let summaryData;
+    try { summaryData = await summaryRes.json(); } catch (_) { summaryData = {}; }
+    const summaryContent = summaryData.summary_content || summaryData.summary || null;
+    const nextSteps = summaryData.next_steps || summaryData.action_items || null;
+
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        summary_status: 'saved',
+        meeting_summary: summaryContent,
+        meeting_action_items: nextSteps,
+        meeting_summary_raw: summaryData,
+        summary_fetch_attempts: attempts,
+        updated_at: now
+      }
+    });
+    console.log('[zoom fetchAndSaveZoomSummary] Summary saved for call', callRecord.id);
+  } else if (summaryRes.status === 404 || summaryRes.status === 403) {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { summary_status: 'not_available', summary_fetch_attempts: attempts, updated_at: now }
+    });
+    console.log('[zoom fetchAndSaveZoomSummary] Summary not available (', summaryRes.status, ') for call', callRecord.id);
+  } else {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { summary_status: 'error', summary_fetch_attempts: attempts, updated_at: now }
+    });
+    console.error('[zoom fetchAndSaveZoomSummary] HTTP error', summaryRes.status, 'for call', callRecord.id);
+  }
+}
+
+// ── End Calendly / Zoom Webhook Handlers ──────────────────────────────────────
 
 async function markCareerRolesInactive(provider, inactiveIds) {
   const ids = Array.isArray(inactiveIds) ? inactiveIds.filter(Boolean) : [];
@@ -19334,6 +19854,16 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit/candidate-hired') {
     await handleZohoRecruitCandidateHiredWebhook(req, res);
     return;
+  }
+
+  // Calendly webhook — external origin, must be before same-origin enforcement
+  if (req.method === 'POST' && pathname === '/api/webhooks/calendly') {
+    return handleCalendlyWebhook(req, res);
+  }
+
+  // Zoom scheduling webhook — external origin, must be before same-origin enforcement
+  if (req.method === 'POST' && pathname === '/api/webhooks/zoom') {
+    return handleZoomSchedulingWebhook(req, res);
   }
 
   // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
