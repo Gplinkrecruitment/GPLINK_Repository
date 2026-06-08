@@ -28777,7 +28777,7 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { /* ignore parse errors */ }
 
       // 2. Parallel fetch all data sources
-      const [tasksRes, tlRes, msgRes, dtRes, ticketsRes, qualSnap, gmailMessages, docOpsRes, userDocsRes] = await Promise.all([
+      const [tasksRes, tlRes, msgRes, dtRes, ticketsRes, qualSnap, gmailMessages, docOpsRes, userDocsRes, callsRes] = await Promise.all([
         supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
         supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
         supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
@@ -28790,7 +28790,8 @@ Return ONLY valid JSON with no markdown formatting:
           try { return await searchGmailForGP(gpEmail, gpName, practiceEmail, 30); } catch { return []; }
         })(),
         supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc'),
-        supabaseDbRequest('user_documents', 'select=document_key,status,file_name,created_at&user_id=eq.' + encodeURIComponent(userId))
+        supabaseDbRequest('user_documents', 'select=document_key,status,file_name,created_at&user_id=eq.' + encodeURIComponent(userId)),
+        supabaseDbRequest('scheduled_calls', 'case_id=eq.' + encodeURIComponent(caseId) + '&status=eq.completed&summary_status=eq.saved&select=stage,scheduled_at,admin_notes,meeting_summary,meeting_action_items&order=scheduled_at.desc&limit=5')
       ]);
 
       const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
@@ -28802,6 +28803,7 @@ Return ONLY valid JSON with no markdown formatting:
       const emails = gmailMessages || [];
       const docOps = docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [];
       const userDocs = userDocsRes.ok && Array.isArray(userDocsRes.data) ? userDocsRes.data : [];
+      const callRows = callsRes.ok && Array.isArray(callsRes.data) ? callsRes.data : [];
 
       // 2b. Reconcile: if a task with a practice doc key is completed but ops_status isn't, fix it
       var completedDocKeys = new Set();
@@ -28890,6 +28892,22 @@ Return ONLY valid JSON with no markdown formatting:
       timeline.forEach(function(e) {
         prompt += '[' + (e.event_type || '') + '] ' + (e.title || '') + ' — ' + (e.actor || '') + ' — ' + (e.created_at || '') + '\n';
       });
+
+      // Fetch call history for AI context
+      let callHistoryContext = '';
+      if (callRows.length) {
+        callHistoryContext = '\n--- ASSISTANCE CALL HISTORY (internal admin records, ' + callRows.length + ' completed calls) ---\n';
+        callRows.forEach(function(c) {
+          const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[c.stage] || c.stage;
+          callHistoryContext += '\n### ' + stageDisplay + ' Call — ' + (c.scheduled_at || 'unknown date') + '\n';
+          if (c.admin_notes) callHistoryContext += 'Admin pre-call notes: ' + c.admin_notes + '\n';
+          if (c.meeting_summary) callHistoryContext += 'Meeting summary: ' + c.meeting_summary + '\n';
+          if (c.meeting_action_items && c.meeting_action_items.next_steps) {
+            callHistoryContext += 'Action items: ' + c.meeting_action_items.next_steps.map(function(s) { return typeof s === 'string' ? s : s.text || ''; }).join('; ') + '\n';
+          }
+        });
+      }
+      prompt += callHistoryContext;
 
       prompt += '\n--- PREVIOUS HANDOVER SUMMARY ---\n';
       if (handover) {
