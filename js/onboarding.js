@@ -243,7 +243,10 @@
     const email = window.gpSessionProfile && typeof window.gpSessionProfile.email === "string"
       ? window.gpSessionProfile.email.trim().toLowerCase()
       : "";
-    return email === "smithmiller1234@gmail.com";
+    const temporaryBypassExpiresAt = email === "smithmiller1234@gmail.com"
+      ? Date.parse("2026-06-08T14:58:21.580Z")
+      : 0;
+    return temporaryBypassExpiresAt > Date.now();
   }
 
   function renderQualDocSlots() {

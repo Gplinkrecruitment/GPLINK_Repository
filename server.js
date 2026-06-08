@@ -5698,6 +5698,22 @@ function getSessionEmail(session) {
   return email || null;
 }
 
+const TEMPORARY_BYPASS_LOCK_EMAILS = {
+  'smithmiller1234@gmail.com': '2026-06-08T14:58:21.580Z'
+};
+
+function isBypassLockEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const configured = new Set(
+    String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')
+      .split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean)
+  );
+  if (configured.has(normalized)) return true;
+  const expiresAt = Date.parse(TEMPORARY_BYPASS_LOCK_EMAILS[normalized] || '');
+  return Number.isFinite(expiresAt) && Date.now() < expiresAt;
+}
+
 function shouldProtectPath(pathname) {
   if (AUTH_DISABLED) return false;
   return (
@@ -5742,11 +5758,7 @@ async function isStageAccessAllowed(email, pathname) {
   if (stage === 'career') return true; // My Practice is placement context, not a registration lock.
   if (stage === 'ahpra') return true; // AHPRA renders its own prerequisite gateway; do not redirect the shell iframe.
 
-  var bypassEmails = new Set(
-    String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')
-      .split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean)
-  );
-  if (bypassEmails.has(email.toLowerCase())) return true;
+  if (isBypassLockEmail(email)) return true;
 
   var userState = null;
   if (isSupabaseDbConfigured()) {
@@ -27014,8 +27026,7 @@ Return ONLY valid JSON with no markdown formatting:
     const incoming = sanitizeUserStateInput(body);
 
     // ── AHPRA locking: block AHPRA progress unless career is secured ──
-    const BYPASS_LOCK_EMAILS = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
-    if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email)) {
+    if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !isBypassLockEmail(email)) {
       // Need to check current state for career_secured
       const preCheckRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
       const preCheckState = preCheckRemote && preCheckRemote.state && typeof preCheckRemote.state === 'object'
@@ -32617,8 +32628,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    const BYPASS_LOCK_EMAILS_REG = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
-    const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email);
+    const bypassAll = isBypassLockEmail(email);
     const steps = {
       career: { accessible: true, completed: careerSecured },
       ahpra: { accessible: bypassAll || careerSecured, completed: ahpraCompleted, locked_reason: (bypassAll || careerSecured) ? null : 'Career must be secured first.' },
