@@ -8117,6 +8117,25 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
   }
 }
 
+// Send a Zoom call invite via DoubleTick WhatsApp — direct text message with booking URL
+async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
+  if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
+  const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
+  const messageText = 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nThis link will let you choose from available time slots.';
+  try {
+    const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: toPhone, body: messageText }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, messageId: data.messageId || data.id || null };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // Send a nudge via DoubleTick WhatsApp — uses stage-specific template or falls back to direct text
 async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, customMessage) {
   if (!DOUBLETICK_API_KEY) return { ok: false };
@@ -18859,6 +18878,19 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl) {
+  return '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">'
+    + '<h2 style="color:#0f172a;font-size:20px">Zoom Assistance Call</h2>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Hi ' + gpFirstName + ',</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link registration support officer would like to schedule a Zoom call to help you with your <strong>' + stageDisplay + '</strong> stage.</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Please click the button below to choose a time that works for you:</p>'
+    + '<div style="text-align:center;margin:24px 0">'
+    + '<a href="' + bookingUrl + '" style="display:inline-block;padding:12px 28px;background:#2D8CFF;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px">Book Your Time Slot</a>'
+    + '</div>'
+    + '<p style="color:#64748b;font-size:12px">If the button doesn\'t work, copy this link: ' + bookingUrl + '</p>'
+    + '</div>';
+}
+
 /* ───────── Email confirmation via Resend ───────── */
 
 async function sendEmailConfirmationViaResend(email) {
@@ -24153,6 +24185,319 @@ async function handleApi(req, res, pathname) {
 
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, application: updatedApp });
+    return;
+  }
+
+  // ── Admin Zoom call scheduling ──────────────────────────────────
+
+  // POST /api/admin/calls/schedule
+  if (method === 'POST' && pathname === '/api/admin/calls/schedule') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    if (!CALENDLY_EVENT_URL) {
+      sendJson(res, 503, { ok: false, message: 'Calendly not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const caseId = String(body && body.case_id || '').trim();
+    const userId = String(body && body.user_id || '').trim();
+    const stage = String(body && body.stage || '').trim();
+    const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
+    const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
+    if (!caseId || !userId || !stage) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, user_id, stage.' });
+      return;
+    }
+    if (!VALID_STAGES.includes(stage)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid stage. Must be one of: ' + VALID_STAGES.join(', ') });
+      return;
+    }
+    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
+
+    // Verify case belongs to user
+    const caseCheck = await supabaseDbRequest('registration_cases', '?id=eq.' + caseId + '&user_id=eq.' + userId + '&select=id', { method: 'GET' });
+    if (!caseCheck.ok || !Array.isArray(caseCheck.data) || caseCheck.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Case not found or does not belong to user.' });
+      return;
+    }
+
+    // Get GP profile
+    const profileRes = await supabaseDbRequest('user_profiles', '?user_id=eq.' + userId + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
+    const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
+    const gpLastName = String(profile.last_name || '').trim();
+    const gpEmail = String(profile.email || '').trim();
+    const gpPhone = String(profile.phone_number || profile.phone || '').trim();
+
+    // Generate correlation token and booking URL
+    const correlationToken = generateCorrelationToken();
+    const bookingUrl = buildCalendlyBookingUrl(correlationToken);
+
+    // Create scheduled_calls record
+    const callInsert = await supabaseDbRequest('scheduled_calls', '', {
+      method: 'POST',
+      body: JSON.stringify({
+        case_id: caseId,
+        user_id: userId,
+        stage: stage,
+        status: 'invited',
+        correlation_token: correlationToken,
+        booking_url: bookingUrl,
+        admin_notes: adminNotes || null,
+        scheduled_by: admin.email || 'admin',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }),
+      headers: { Prefer: 'return=representation' }
+    });
+    if (!callInsert.ok || !callInsert.data) {
+      sendJson(res, 500, { ok: false, message: 'Failed to create scheduled call record.' });
+      return;
+    }
+    const callRecord = Array.isArray(callInsert.data) ? callInsert.data[0] : callInsert.data;
+    const callId = callRecord.id;
+
+    // Create registration task
+    const taskResult = await _createRegTask(caseId, {
+      task_type: 'zoom_call',
+      title: 'Zoom Assistance Call — ' + stageDisplay,
+      description: 'Waiting for GP to book a time slot',
+      status: 'waiting_on_gp',
+      priority: 'normal',
+      source_trigger: 'admin_scheduled',
+      related_stage: stage,
+      _actor: admin.email || 'admin'
+    });
+    const taskId = taskResult && taskResult.id ? taskResult.id : null;
+
+    // Link task back to scheduled_calls
+    if (taskId) {
+      await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+        method: 'PATCH',
+        body: JSON.stringify({ task_id: taskId, updated_at: new Date().toISOString() })
+      });
+    }
+
+    // Send notifications (never include admin_notes)
+    let waResult = { ok: false };
+    let emailResult = { ok: false };
+    if (gpPhone) {
+      waResult = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, stage, bookingUrl);
+    }
+    if (gpEmail) {
+      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
+      emailResult = await sendEmail({
+        to: gpEmail,
+        subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage',
+        html: emailHtml,
+        text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
+      });
+    }
+
+    // Update scheduled_calls with notification results
+    await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        whatsapp_sent: waResult.ok,
+        whatsapp_message_id: waResult.messageId || null,
+        email_sent: emailResult.ok,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    sendJson(res, 201, {
+      ok: true,
+      call_id: callId,
+      status: 'invited',
+      correlation_token: correlationToken,
+      booking_url: bookingUrl,
+      task_id: taskId,
+      notifications: { whatsapp: waResult.ok, email: emailResult.ok }
+    });
+    return;
+  }
+
+  // GET /api/admin/calls — list with optional filters
+  if (method === 'GET' && pathname === '/api/admin/calls') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    const qp = new URL(req.url, 'http://localhost').searchParams;
+    const filterStage = qp.get('stage') || '';
+    const filterStatus = qp.get('status') || '';
+    const filterCaseId = qp.get('case_id') || '';
+    const filterSummaryStatus = qp.get('summary_status') || '';
+    const filterFrom = qp.get('from') || '';
+    const filterTo = qp.get('to') || '';
+    let query = 'select=*&order=created_at.desc&limit=100';
+    if (filterStage) query += '&stage=eq.' + encodeURIComponent(filterStage);
+    if (filterStatus) query += '&status=eq.' + encodeURIComponent(filterStatus);
+    if (filterCaseId) query += '&case_id=eq.' + encodeURIComponent(filterCaseId);
+    if (filterSummaryStatus) query += '&summary_status=eq.' + encodeURIComponent(filterSummaryStatus);
+    if (filterFrom) query += '&created_at=gte.' + encodeURIComponent(filterFrom);
+    if (filterTo) query += '&created_at=lte.' + encodeURIComponent(filterTo);
+    const result = await supabaseDbRequest('scheduled_calls', query, { method: 'GET' });
+    sendJson(res, 200, { ok: true, calls: result.ok && Array.isArray(result.data) ? result.data : [] });
+    return;
+  }
+
+  // GET /api/admin/calls/:id — detail
+  if (method === 'GET' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    const callId = pathname.split('/').pop();
+    const result = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Call not found.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, call: result.data[0] });
+    return;
+  }
+
+  // PATCH /api/admin/calls/:id — update notes, no-show, cancel
+  if (method === 'PATCH' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+$/)) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    const callId = pathname.split('/').pop();
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    // Fetch current record
+    const current = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Call not found.' });
+      return;
+    }
+    const call = current.data[0];
+
+    const patch = { updated_at: new Date().toISOString() };
+
+    // Update admin_notes
+    if (body && body.admin_notes !== undefined) {
+      patch.admin_notes = String(body.admin_notes || '').trim().slice(0, 2000) || null;
+    }
+
+    // Mark no-show (only from booked status)
+    if (body && body.action === 'no_show') {
+      if (call.status !== 'booked') {
+        sendJson(res, 409, { ok: false, message: 'Can only mark no-show when status is booked.' });
+        return;
+      }
+      patch.status = 'no_show';
+      patch.no_show_at = new Date().toISOString();
+    }
+
+    // Cancel (from invited or booked)
+    if (body && body.action === 'cancel') {
+      if (!['invited', 'booked'].includes(call.status)) {
+        sendJson(res, 409, { ok: false, message: 'Can only cancel calls with status invited or booked.' });
+        return;
+      }
+      patch.status = 'cancelled';
+      patch.cancelled_at = new Date().toISOString();
+    }
+
+    const updateRes = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+      headers: { Prefer: 'return=representation' }
+    });
+
+    // Sync task status if status changed
+    if (patch.status && call.task_id) {
+      const newTaskStatus = mapCallStatusToTaskStatus(patch.status);
+      await supabaseDbRequest('registration_tasks', '?id=eq.' + call.task_id, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newTaskStatus, updated_at: new Date().toISOString() })
+      });
+    }
+
+    const updated = updateRes.ok && Array.isArray(updateRes.data) && updateRes.data[0] ? updateRes.data[0] : { id: callId, ...patch };
+    sendJson(res, 200, { ok: true, call: updated });
+    return;
+  }
+
+  // POST /api/admin/calls/:id/resend — resend invite notifications
+  if (method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/resend$/)) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    const pathParts = pathname.split('/');
+    const callId = pathParts[pathParts.length - 2];
+
+    const current = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Call not found.' });
+      return;
+    }
+    const call = current.data[0];
+
+    if (call.status !== 'invited') {
+      sendJson(res, 409, { ok: false, message: 'Can only resend invites for calls with status invited.' });
+      return;
+    }
+
+    // Get GP profile for contact details
+    const profileRes = await supabaseDbRequest('user_profiles', '?user_id=eq.' + call.user_id + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
+    const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
+    const gpEmail = String(profile.email || '').trim();
+    const gpPhone = String(profile.phone_number || profile.phone || '').trim();
+    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+    const bookingUrl = call.booking_url;
+
+    let waResult = { ok: false };
+    let emailResult = { ok: false };
+    if (gpPhone) {
+      waResult = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, bookingUrl);
+    }
+    if (gpEmail) {
+      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
+      emailResult = await sendEmail({
+        to: gpEmail,
+        subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage (Reminder)',
+        html: emailHtml,
+        text: 'Hi ' + gpFirstName + ', a reminder that your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
+      });
+    }
+
+    await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        whatsapp_sent: waResult.ok,
+        whatsapp_message_id: waResult.messageId || null,
+        email_sent: emailResult.ok,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    sendJson(res, 200, { ok: true, notifications: { whatsapp: waResult.ok, email: emailResult.ok } });
     return;
   }
 
