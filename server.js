@@ -9174,9 +9174,6 @@ async function collectAdminDashboardData() {
 
       // Use shared admin user ID cache to exclude admin/VA from GP list
       const adminUserIds = await getAdminUserIdSet();
-      // Also build a direct email exclusion set for cases where user_id lookup misses
-      const adminExcludeEmails = new Set([...ADMIN_EMAILS, ...SUPER_ADMIN_EMAILS]);
-      for (var _vi = 0; _vi < MONITORED_VA_EMAILS.length; _vi++) adminExcludeEmails.add(MONITORED_VA_EMAILS[_vi]);
 
       const userIds = new Set([
         ...profileByUserId.keys(),
@@ -9193,7 +9190,9 @@ async function collectAdminDashboardData() {
           const profile = profileByUserId.get(userId) || {};
           const stateRow = stateByUserId.get(userId) || {};
           const email = typeof profile.email === 'string' ? profile.email : '';
-          if (adminExcludeEmails.has(email.toLowerCase())) continue;
+          // Belt-and-suspenders: also exclude by email using the admin login check + VA list
+          var emailLc = email.toLowerCase();
+          if (emailLc && (isAdminEmail(emailLc) || MONITORED_VA_EMAILS.includes(emailLc))) continue;
           const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
           const progress = getProgressSummary(userState);
           const supportCases = getSupportCasesFromState(userState);
