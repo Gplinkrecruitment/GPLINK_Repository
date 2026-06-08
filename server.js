@@ -5728,6 +5728,7 @@ async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
   if (!stage) return true; // Not a gated page
   if (stage === 'career') return true; // My Practice is placement context, not a registration lock.
+  if (stage === 'ahpra') return true; // AHPRA renders its own prerequisite gateway; do not redirect the shell iframe.
 
   var bypassEmails = new Set(
     String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au')
