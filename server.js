@@ -5699,7 +5699,7 @@ function getSessionEmail(session) {
 }
 
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
-  'smithmiller1234@gmail.com': '2026-06-08T14:58:21.580Z'
+  'smithmiller1234@gmail.com': '2026-06-08T15:08:48.001Z'
 };
 
 function isBypassLockEmail(email) {
@@ -32576,8 +32576,25 @@ Return ONLY valid JSON with no markdown formatting:
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
 
+    const bypassAll = isBypassLockEmail(email);
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
-    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!userId) {
+      if (bypassAll) {
+        sendJson(res, 200, {
+          ok: true,
+          steps: {
+            career: { accessible: true, completed: false },
+            ahpra: { accessible: true, completed: false, locked_reason: null },
+            visa: { accessible: true, completed: false, locked_reason: null },
+            pbs: { accessible: true, completed: false, locked_reason: null },
+            commencement: { accessible: true, completed: false, locked_reason: null }
+          }
+        });
+        return;
+      }
+      sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' });
+      return;
+    }
 
     // Fetch user state
     const stateResult = await getSupabaseUserStateByEmail(email);
@@ -32628,7 +32645,6 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    const bypassAll = isBypassLockEmail(email);
     const steps = {
       career: { accessible: true, completed: careerSecured },
       ahpra: { accessible: bypassAll || careerSecured, completed: ahpraCompleted, locked_reason: (bypassAll || careerSecured) ? null : 'Career must be secured first.' },

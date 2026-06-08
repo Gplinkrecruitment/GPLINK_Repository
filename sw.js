@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260608b";
+  var VERSION = "20260609a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -28,12 +28,12 @@
     "/js/nav-shell-bridge.js?v=20260608a",
     "/js/auth-guard.js?v=20260607a",
     "/js/state-sync.js?v=20260607a",
-    "/js/bypass-config.js?v=20260608b",
+    "/js/bypass-config.js?v=20260609a",
     "/js/updates-sync.js?v=20260527a",
     "/js/qualification-scan.js?v=20260527a",
     "/js/qualification-camera.js?v=20260527a",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20260608b",
+    "/js/onboarding.js?v=20260609a",
     "/js/error-reporter.js?v=20260527a"
   ];
 
