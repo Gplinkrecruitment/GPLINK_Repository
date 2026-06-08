@@ -120,6 +120,7 @@
     try {
       window.parent.postMessage({
         type: "gp-shell-route",
+        intent: "navigate",
         href: cleanRoute(routeUrl),
         title: document.title || ""
       }, window.location.origin);
@@ -170,6 +171,7 @@
     try {
       window.parent.postMessage({
         type: "gp-shell-route",
+        intent: "sync",
         href: cleanRoute(window.location.href),
         title: document.title || ""
       }, window.location.origin);

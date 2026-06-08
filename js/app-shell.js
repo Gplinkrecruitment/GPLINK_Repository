@@ -198,13 +198,6 @@
     return routeUrl ? (resolveSupportedPath(routeUrl.pathname) || "") : "";
   }
 
-  function routesShareSupportedPage(first, second) {
-    var firstUrl = toRouteUrl(first);
-    var secondUrl = toRouteUrl(second);
-    if (!firstUrl || !secondUrl) return false;
-    return resolveSupportedPath(firstUrl.pathname) === resolveSupportedPath(secondUrl.pathname);
-  }
-
   function toRouteUrl(input) {
     try {
       var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || DEFAULT_ROUTE), window.location.href);
@@ -1558,6 +1551,9 @@
     var activeWindow = activeFrameEl && activeFrameEl.contentWindow;
     var routeUrl = null;
     var route = "";
+    var intent = "";
+    var isNavigateIntent = false;
+    var activeFrameShowsRoute = false;
     if (event.origin !== window.location.origin) return;
     if (!event.data || !event.data.type) return;
 
@@ -1580,34 +1576,29 @@
     routeUrl = toRouteUrl(event.data.href);
     if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
-    if (pendingNavigation && !routesMatchForFrame(route, currentRoute) && !routesMatchForFrame(pendingNavigation.route, route)) return;
+    intent = event.data.intent === "sync" ? "sync" : "navigate";
+    isNavigateIntent = intent === "navigate";
     try {
       if (activeFrameEl && activeFrameEl.contentDocument) {
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
       }
     } catch (err) {}
-    // If the child requested a different page, check whether the active
-    // frame already self-navigated there (plain <a href> inside iframe).
-    // If so, just sync the shell state — don't load a second frame.
-    if (currentRoute && !routesShareSupportedPage(currentRoute, route)) {
-      try {
-        var activePath = resolveSupportedPath(activeFrameEl.contentWindow.location.pathname);
-        if (activePath && activePath === resolveSupportedPath(routeUrl.pathname)) {
-          currentRoute = route;
-          var _s = getFrameState(activeFrameEl);
-          if (_s) { _s.loadedRoute = route; _s.pendingRoute = ""; }
-          syncActiveNav(routeUrl, false);
-          history.pushState({ route: route }, "", route);
-          setLoading(false);
-          removeSkeleton();
-          updateFrameOffsets();
-          scheduleRouteWarmup(route);
-          return;
-        }
-      } catch (err) {}
-      navigateTo(routeUrl, { historyMode: "push" });
+
+    activeFrameShowsRoute = activeFrameEl && isFrameShowingRoute(activeFrameEl, route);
+
+    if (isNavigateIntent && !activeFrameShowsRoute) {
+      if (pendingNavigation && !routesMatchForFrame(pendingNavigation.route, route)) {
+        pendingNavigation = null;
+      }
+      navigateTo(routeUrl, {
+        historyMode: currentRoute && !routesMatchForFrame(currentRoute, route) ? "push" : "replace"
+      });
       return;
     }
+
+    if (!isNavigateIntent && pendingNavigation && !routesMatchForFrame(pendingNavigation.route, route)) return;
+    if (!activeFrameShowsRoute && !isNavigateIntent) return;
+
     syncFromChildRoute(routeUrl, event.data.title);
     if (pendingNavigation && routesMatchForFrame(pendingNavigation.route, route)) {
       pendingNavigation = null;
