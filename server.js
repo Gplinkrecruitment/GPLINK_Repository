@@ -75,6 +75,13 @@ const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SI
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
 const ZOHO_RECRUIT_WEBHOOK_SECRET = String(process.env.ZOHO_RECRUIT_WEBHOOK_SECRET || '').trim();
+// ── Zoom Call Scheduling (Calendly + Zoom AI Companion) ──
+const CALENDLY_API_TOKEN = String(process.env.CALENDLY_API_TOKEN || '').trim();
+const CALENDLY_EVENT_URL = String(process.env.CALENDLY_EVENT_URL || '').trim();
+const CALENDLY_EVENT_TYPE_URI = String(process.env.CALENDLY_EVENT_TYPE_URI || '').trim();
+const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || '').trim();
+const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
+const CALL_SCHEDULING_CRON_SECRET = String(process.env.CRON_SECRET || '').trim();
 // ── Zoho Sign ─────────────────────────────────────────────
 const {
   ZOHO_SIGN_SCOPES,
@@ -375,6 +382,74 @@ function buildMailtoLink(to, subject, body) {
 function buildPositionDescriptionPrompt(practiceName, roleTitle, location) {
   return 'Generate a professional position description for a General Practitioner joining ' + practiceName + ' in ' + location + ' for the role of ' + roleTitle + '. Include: practice overview, key responsibilities, supervision arrangements, working hours expectations, and professional development opportunities. Return well-structured HTML using <h2>, <h3>, <p>, <ul>, and <li> tags only. Do not include <html>, <head>, or <body> wrapper tags.';
 }
+
+// ── Zoom Call Scheduling helpers ──────────────────────────
+const CALL_STATUS_TO_TASK_STATUS = {
+  invited: 'waiting_on_gp',
+  booked: 'waiting',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  no_show: 'waiting_on_gp'
+};
+
+function mapCallStatusToTaskStatus(callStatus) {
+  return CALL_STATUS_TO_TASK_STATUS[callStatus] || 'open';
+}
+
+function generateCorrelationToken() {
+  return require('crypto').randomBytes(16).toString('hex');
+}
+
+function buildCalendlyBookingUrl(correlationToken) {
+  if (!CALENDLY_EVENT_URL) return '';
+  const sep = CALENDLY_EVENT_URL.includes('?') ? '&' : '?';
+  return CALENDLY_EVENT_URL + sep + 'utm_source=gplink&utm_medium=registration_call&utm_content=call_' + correlationToken;
+}
+
+function verifyCalendlySignature(signatureHeader, rawBody, secret) {
+  if (!signatureHeader || !secret) return false;
+  const parts = {};
+  for (const pair of signatureHeader.split(',')) {
+    const [key, val] = pair.split('=', 2);
+    if (key && val) parts[key.trim()] = val.trim();
+  }
+  const timestamp = parts['t'];
+  const v1 = parts['v1'];
+  if (!timestamp || !v1) return false;
+  const age = Date.now() - Number(timestamp);
+  if (age > 5 * 60 * 1000 || age < -60 * 1000) return false;
+  const expected = require('crypto')
+    .createHmac('sha256', secret)
+    .update(timestamp + '.' + rawBody)
+    .digest('hex');
+  return require('crypto').timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+}
+
+function verifyZoomWebhookSignature(timestamp, rawBody, signature, secret) {
+  if (!timestamp || !signature || !secret) return false;
+  const message = 'v0:' + timestamp + ':' + rawBody;
+  const expected = 'v0=' + require('crypto').createHmac('sha256', secret).update(message).digest('hex');
+  if (expected.length !== signature.length) return false;
+  return require('crypto').timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+function buildZoomValidationResponse(plainToken, secret) {
+  const encryptedToken = require('crypto').createHmac('sha256', secret).update(plainToken).digest('hex');
+  return { plainToken, encryptedToken };
+}
+
+async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload) {
+  if (!eventId) return false;
+  const existing = await supabaseDbRequest('webhook_events', '?provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
+  if (existing && existing.length > 0) return true;
+  const redactedPayload = payload ? { event: payload.event, created_at: payload.created_at } : null;
+  await supabaseDbRequest('webhook_events', '', {
+    method: 'POST',
+    body: [{ provider, event_id: eventId, event_type: eventType, payload: redactedPayload }]
+  });
+  return false;
+}
+// ── End Zoom Call Scheduling helpers ──────────────────────
 
 async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType) {
   const results = { userDoc: null, driveFile: null };
@@ -1143,20 +1218,38 @@ function isGmailConfigured() {
 
 let _gmailClients = {};
 let _gmailClientErrors = {};
+function buildGmailAuthDiagnostic(reason, keyInfo, err) {
+  var parts = [reason || 'auth_failed'];
+  var status = err && (err.code || err.status || (err.response && err.response.status));
+  if (status) {
+    parts.push('status=' + String(status).replace(/[^0-9A-Za-z_.:-]/g, '').slice(0, 24));
+  }
+  parts.push('serviceEmailConfigured=' + !!GOOGLE_SERVICE_ACCOUNT_EMAIL);
+  parts.push('privateKeyShape=' + [
+    keyInfo && keyInfo.hasBegin ? 'begin' : 'no_begin',
+    keyInfo && keyInfo.hasEnd ? 'end' : 'no_end',
+    keyInfo && keyInfo.hasNewlines ? 'newlines' : 'no_newlines'
+  ].join('/'));
+  return parts.join('; ');
+}
 async function getGmailClient(userEmail) {
   if (_gmailClients[userEmail]) return _gmailClients[userEmail];
   if (!isGmailConfigured()) return null;
   var { google } = require('googleapis');
+  var hasBegin = false;
+  var hasNewlines = false;
+  var hasEnd = false;
   try {
     var keyLen = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0;
     var emailLen = GOOGLE_SERVICE_ACCOUNT_EMAIL ? GOOGLE_SERVICE_ACCOUNT_EMAIL.length : 0;
-    var hasBegin = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('BEGIN') >= 0;
-    var hasNewlines = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('\n') >= 0;
-    var hasEnd = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('END PRIVATE KEY') >= 0;
-    var firstLine = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.split('\n')[0] : '';
-    var lastLine = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.split('\n').slice(-1)[0] : '';
+    hasBegin = !!(GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('BEGIN') >= 0);
+    hasNewlines = !!(GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('\n') >= 0);
+    hasEnd = !!(GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('END PRIVATE KEY') >= 0);
     if (keyLen < 100 || emailLen < 10) {
-      throw new Error('service account env vars missing (emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ')');
+      var configDiag = buildGmailAuthDiagnostic('service_account_env_invalid', { hasBegin, hasEnd, hasNewlines });
+      console.error('[Gmail] getGmailClient config invalid:', configDiag);
+      _gmailClientErrors[userEmail] = configDiag;
+      return null;
     }
     var jwtClient = new google.auth.JWT({
       email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -1169,16 +1262,9 @@ async function getGmailClient(userEmail) {
     _gmailClientErrors[userEmail] = null;
     return _gmailClients[userEmail];
   } catch (err) {
-    var detail = err && err.message ? err.message : String(err);
-    if (err && err.response && err.response.data) {
-      // Redact potentially sensitive fields from error response
-      var safeData = Object.assign({}, err.response.data);
-      delete safeData.access_token; delete safeData.refresh_token; delete safeData.private_key;
-      detail = JSON.stringify(safeData);
-    }
-    var safeDetail = String(detail || '').slice(0, 200);
-    console.error('[Gmail] getGmailClient auth failed');
-    _gmailClientErrors[userEmail] = safeDetail + ' [diag: hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ']';
+    var safeDetail = buildGmailAuthDiagnostic('auth_failed', { hasBegin, hasEnd, hasNewlines }, err);
+    console.error('[Gmail] getGmailClient auth failed:', safeDetail);
+    _gmailClientErrors[userEmail] = safeDetail;
     return null;
   }
 }
@@ -1189,8 +1275,8 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var gmail = await getGmailClient(from);
     if (!gmail) {
       var diagErr = _gmailClientErrors[from] || 'unknown (isGmailConfigured=' + isGmailConfigured() + ')';
-      console.error('[Gmail send] Client not available for', from, '— diag:', diagErr);
-      return { ok: false, error: 'Gmail client not available for ' + from + ' — ' + diagErr };
+      console.error('[Gmail send] Client not available for', maskEmail(from), 'diag:', diagErr);
+      return { ok: false, error: 'Gmail client not available. ' + diagErr };
     }
 
     var boundary = 'gplink_' + Date.now() + '_' + Math.random().toString(36).slice(2);
@@ -4568,8 +4654,41 @@ const PRIVATE_METADATA_CACHE_HEADERS = {
   'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
 };
 
+function isStackTraceResponseKey(key) {
+  var normalized = String(key || '').replace(/[-\s]+/g, '_').toLowerCase();
+  return normalized === 'stack' ||
+    normalized === 'error_stack' ||
+    normalized === 'stack_trace' ||
+    normalized === 'stacktrace' ||
+    normalized.endsWith('_stack');
+}
+
+function sanitizeJsonResponseData(value, depth, seen) {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value;
+  if (Buffer.isBuffer(value)) return value;
+  if (depth > 12) return '[redacted-depth-limit]';
+  seen = seen || new WeakSet();
+  if (seen.has(value)) return '[redacted-circular]';
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map(function (item) {
+      return sanitizeJsonResponseData(item, depth + 1, seen);
+    });
+  }
+  var output = {};
+  Object.keys(value).forEach(function (key) {
+    if (isStackTraceResponseKey(key)) {
+      output[key] = '[redacted]';
+      return;
+    }
+    output[key] = sanitizeJsonResponseData(value[key], depth + 1, seen);
+  });
+  return output;
+}
+
 function sendJson(res, status, data, headers = {}) {
-  const body = JSON.stringify(data);
+  const body = JSON.stringify(sanitizeJsonResponseData(data, 0));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
@@ -7980,18 +8099,18 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
       body: reqBody
     });
     const rawText = await resp.text();
-    console.log('[doubletick] Response status:', resp.status, 'body:', rawText.slice(0, 500));
+    console.log('[doubletick] Response status:', resp.status, 'bodyLength:', rawText.length);
     let data = {};
     try { data = JSON.parse(rawText); } catch (_) {}
     if (!resp.ok) {
-      console.error('[doubletick] Send failed:', resp.status, rawText.slice(0, 500));
+      console.error('[doubletick] Send failed:', resp.status, 'bodyLength:', rawText.length);
       return { ok: false };
     }
     const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
-    console.log('[doubletick]', DOUBLETICK_USE_DIRECT_TEXT ? 'Text' : 'Template', 'sent to', normalised, 'stage:', stage, 'msgId:', messageId || 'n/a');
+    console.log('[doubletick]', DOUBLETICK_USE_DIRECT_TEXT ? 'Text' : 'Template', 'sent to', maskPhone(normalised), 'stage:', stage, 'msgId:', messageId || 'n/a');
     return { ok: true, messageId: messageId || null };
   } catch (err) {
-    console.error('[doubletick] Send error:', err && err.message, err && err.stack);
+    console.error('[doubletick] Send error:', err && err.name ? err.name : 'Error');
     return { ok: false };
   } finally {
     clearTimeout(timeout);
@@ -35875,7 +35994,10 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
     var ceStatus = url.searchParams.get('status') || 'open';
-    var ceQuery = ceStatus === 'all' ? 'select=*&order=last_seen_at.desc&limit=200' : 'select=*&status=eq.' + encodeURIComponent(ceStatus) + '&order=last_seen_at.desc&limit=200';
+    var ceSafeSelect = 'id,error_message,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,last_seen_at,resolved_by,resolved_at';
+    var ceQuery = ceStatus === 'all'
+      ? 'select=' + ceSafeSelect + '&order=last_seen_at.desc&limit=200'
+      : 'select=' + ceSafeSelect + '&status=eq.' + encodeURIComponent(ceStatus) + '&order=last_seen_at.desc&limit=200';
     var ceRes = await supabaseDbRequest('client_errors', ceQuery);
     var errors = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
     var ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at&limit=500');
@@ -35902,7 +36024,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!newStatus || ['investigating', 'resolved', 'ignored'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be investigating, resolved, or ignored.' }); return; }
     var patch = { status: newStatus };
     if (newStatus === 'resolved' || newStatus === 'ignored') { patch.resolved_by = ceoCtx.email; patch.resolved_at = new Date().toISOString(); }
-    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId) + '&select=id,error_message,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,last_seen_at,resolved_by,resolved_at', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
     sendJson(res, 200, { ok: true, error: r.data && r.data[0] ? r.data[0] : null });
     return;

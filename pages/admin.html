@@ -6071,16 +6071,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             }
           }else{
             showOpsToast(d.message||"Upload failed","red");
-            if(label){label.innerHTML=(file?"&#8593; Replace":"+ Upload")+'<input type="file" data-gplink-doc-upload="'+docKey+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic">';}
+            resetGpLinkDocUploadLabel(label,docKey,!!file);
           }
         }catch(err){
           console.error("[VA] GP LINK doc upload failed:",err);
           showOpsToast("Upload failed","red");
-          if(label){label.innerHTML=(file?"&#8593; Replace":"+ Upload")+'<input type="file" data-gplink-doc-upload="'+docKey+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic">';}
+          resetGpLinkDocUploadLabel(label,docKey,!!file);
         }
       };
       reader.readAsDataURL(file);
     });
+    function resetGpLinkDocUploadLabel(label,docKey,hasFile){
+      if(!label)return;
+      while(label.firstChild)label.removeChild(label.firstChild);
+      label.appendChild(document.createTextNode(hasFile?"\u2191 Replace":"+ Upload"));
+      var nextInput=document.createElement("input");
+      nextInput.type="file";
+      nextInput.setAttribute("data-gplink-doc-upload",String(docKey||""));
+      nextInput.accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic";
+      label.appendChild(nextInput);
+    }
     document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
     document.getElementById("pdfEditorOverlay").addEventListener("click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
