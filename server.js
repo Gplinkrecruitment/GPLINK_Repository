@@ -26134,6 +26134,53 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/admin/auth/reset-password' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'admin-reset-password'))) return;
+    let body;
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    var resetEmail = String(body.email || '').trim().toLowerCase();
+    if (!isValidEmail(resetEmail)) {
+      sendJson(res, 400, { ok: false, message: 'Please provide a valid email.' });
+      return;
+    }
+    // Only send reset if email belongs to an admin/VA
+    var isAdmin = ADMIN_EMAILS.has(resetEmail) || SUPER_ADMIN_EMAILS.has(resetEmail) || MONITORED_VA_EMAILS.includes(resetEmail);
+    if (!isAdmin && isSupabaseDbConfigured()) {
+      var roleCheck = await supabaseDbRequest('user_roles', 'select=role&user_id=eq.' + encodeURIComponent(resetEmail) + '&role=in.(admin,super_admin)&limit=1');
+      if (roleCheck.ok && Array.isArray(roleCheck.data) && roleCheck.data.length > 0) isAdmin = true;
+    }
+    if (isAdmin && isSupabaseConfigured()) {
+      var resetRedirectTo = APP_BASE_URL + '/pages/admin-signin?reset=true';
+      try {
+        if (isEmailConfigured() && SUPABASE_SERVICE_ROLE_KEY) {
+          var linkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+            method: 'POST',
+            headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'recovery', email: resetEmail, options: { redirect_to: resetRedirectTo } })
+          });
+          var linkData = await linkRes.json().catch(function () { return {}; });
+          var resetUrl = linkData.action_link || (linkData.properties && linkData.properties.action_link) || '';
+          if (resetUrl) {
+            await sendEmail({ to: resetEmail, subject: 'Reset your GP Link admin password', html: buildCareerEmailHtml({ title: 'Reset your password', body: 'We received a request to reset your GP Link admin password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: resetUrl, footer: 'If you didn\'t request this, you can safely ignore this email. This link expires in 1 hour.' }) });
+          } else {
+            await supabaseAuthRequest('recover', { email: resetEmail });
+          }
+        } else {
+          await supabaseAuthRequest('recover', { email: resetEmail });
+        }
+      } catch (err) {
+        console.error('[ADMIN] Password reset error:', err.message);
+        await supabaseAuthRequest('recover', { email: resetEmail }).catch(function () {});
+      }
+    }
+    // Always return success to prevent email enumeration
+    sendJson(res, 200, { ok: true, message: 'If an admin account exists, a reset link has been sent.' });
+    return;
+  }
+
   if (pathname === '/api/admin/auth/login' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'admin-login'))) return;
     let body;
