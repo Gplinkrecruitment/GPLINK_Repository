@@ -9187,13 +9187,16 @@ async function collectAdminDashboardData() {
         const tickets = [];
         const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
 
+        // Hardcoded non-GP accounts that must never appear in the GP list
+        var HIDDEN_GP_EMAILS = new Set(['khaleedmahmoud1211@gmail.com', 'hazel@mygplink.com.au', 'hello@mygplink.com.au']);
+
         for (const userId of userIds) {
           if (adminUserIds.has(userId)) continue;
           const profile = profileByUserId.get(userId) || {};
           const stateRow = stateByUserId.get(userId) || {};
           const email = typeof profile.email === 'string' ? profile.email : '';
-          // Belt-and-suspenders: also exclude by email using the admin login check + VA list
           var emailLc = email.toLowerCase();
+          if (HIDDEN_GP_EMAILS.has(emailLc)) continue;
           if (emailLc && (isAdminEmail(emailLc) || MONITORED_VA_EMAILS.includes(emailLc))) continue;
           const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
           const progress = getProgressSummary(userState);
