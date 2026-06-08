@@ -1209,6 +1209,68 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   .note-card{padding:10px 12px}
 }
 
+/* ── Zoom Call Scheduling ── */
+.zoom-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.zoom-modal-overlay.open{opacity:1;pointer-events:all}
+.zoom-modal{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.15);width:480px;max-width:90vw;max-height:90vh;overflow-y:auto}
+.zoom-modal-header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.zoom-modal-header h2{font-size:16px;font-weight:800;flex:1;margin:0}
+.zoom-modal-close{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.zoom-modal-body{padding:20px}
+.zoom-form-group{margin-bottom:16px}
+.zoom-form-label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-bottom:6px}
+.zoom-form-select,.zoom-form-textarea{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;background:#fff;box-sizing:border-box}
+.zoom-form-textarea{min-height:100px;resize:vertical}
+.zoom-form-hint{font-size:10px;color:var(--muted);margin-top:4px;font-style:italic}
+.zoom-form-checkboxes{display:flex;gap:14px}
+.zoom-form-checkboxes label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer}
+.zoom-modal-footer{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+.zoom-gp-block{background:#f0f7ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+/* Zoom task cards */
+.zoom-task-card{background:linear-gradient(135deg,#f0f7ff,#e8f4fd);border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-top:8px}
+.zoom-task-card.completed{background:linear-gradient(135deg,#ecfdf5,#d1fae5);border-color:#a7f3d0}
+.zoom-task-card.cancelled{background:#f8fafc;border-color:var(--line);opacity:.6}
+.zoom-task-card.no-show{background:#fef2f2;border-color:#fecaca}
+.zoom-task-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.zoom-task-icon{width:24px;height:24px;border-radius:6px;background:#2D8CFF;display:grid;place-items:center;color:#fff;font-size:11px;font-weight:800}
+.zoom-task-title{font-size:13px;font-weight:700;color:#1e40af;flex:1}
+.zoom-task-time{font-size:12px;color:var(--text);font-weight:600}
+.zoom-task-details{display:grid;gap:4px}
+.zoom-task-detail{font-size:11px;color:var(--muted)}
+.zoom-task-detail strong{color:var(--text);font-weight:600}
+.zoom-task-notes{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-top:8px;font-size:11px}
+.zoom-task-notes-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--amber);margin-bottom:3px}
+.zoom-task-actions{display:flex;gap:6px;margin-top:8px}
+.zoom-summary-toggle{cursor:pointer;color:var(--blue);font-weight:700;font-size:12px;margin-top:8px}
+.zoom-summary-content{margin-top:8px;font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap;background:#fff;border-radius:8px;padding:10px;border:1px solid var(--line)}
+/* Scheduled calls panel */
+.calls-panel{padding:16px 20px;max-width:900px;margin:0 auto}
+.calls-panel h2{font-size:18px;font-weight:800;margin:0 0 16px}
+.calls-group{margin-bottom:20px}
+.calls-group-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.calls-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#fff;margin-bottom:6px;cursor:pointer;transition:background .15s}
+.calls-row:hover{background:#f8fafc}
+.calls-row-avatar{width:32px;height:32px;border-radius:8px;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;flex-shrink:0}
+.calls-row-info{flex:1;min-width:0}
+.calls-row-name{font-size:13px;font-weight:700}
+.calls-row-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.calls-row-pills{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.calls-status-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase}
+.calls-status-badge.invited{background:#eff6ff;color:#2563eb}
+.calls-status-badge.booked{background:#ecfdf5;color:#059669}
+.calls-status-badge.completed{background:#f0fdf4;color:#16a34a}
+.calls-status-badge.cancelled{background:#f8fafc;color:#94a3b8}
+.calls-status-badge.no_show{background:#fef2f2;color:#dc2626}
+/* Call history pane */
+.call-history-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}
+.call-history-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.call-history-date{font-size:13px;font-weight:700}
+.call-history-stage{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#eff6ff;color:#2563eb}
+.call-history-notes{font-size:12px;color:var(--muted);margin-bottom:8px}
+.call-history-summary{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+.call-history-summary-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text);margin-bottom:4px}
+.call-history-summary-body{font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap}
+
   </style>
 </head>
 <body>
@@ -1248,6 +1310,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
+    <div class="view-tab" data-view="scheduled_calls">Calls</div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -1397,6 +1460,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div id="techUserBugsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
+<div id="scheduledCallsPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
@@ -1903,6 +1967,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     else if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
     else if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
     else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();/*TASK4 renderTicketsPanel()*/}
+    else if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
@@ -2605,6 +2670,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
 
     html+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
+    html+='<div id="zoom-calls-'+esc(c.id)+'"></div>';
+    setTimeout(function(){injectZoomCallsIntoTasksPane(c.id);},0);
     return html;
   }
 
@@ -3195,6 +3262,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${u.quals_approved||0}/${u.quals_required||0} docs</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
+            <button class="btn sm" onclick="openZoomScheduleModal({case_id:'${esc(c.id)}',user_id:'${esc(c.user_id||u.userId||"")}',stage:'${esc(c.stage||"")}',first_name:'${esc((gpName.split(" ")[0]||"").replace(/'/g,"\\\\'"))}',last_name:'${esc((gpName.split(" ").slice(1).join(" ")||"").replace(/'/g,"\\\\'"))}',email:'${esc(gpEmail||"")}',phone:'${esc(gpPhone||"")}'})" style="font-size:10px;padding:3px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Zoom</button>
             <button class="btn sm" data-impersonate-gp="${esc(c.user_id||u.userId||"")}" style="font-size:10px;padding:3px 8px;background:#d97706;color:#fff">View as GP</button>
           </div>
           <button class="pb-expand-toggle" data-pb-toggle title="Case management">\u25BE</button>
@@ -3222,8 +3290,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-subtab ${tab==="notes"?"active":""}" data-gp-tab="notes">Notes</div>
         <div class="gp-subtab ${tab==="documents"?"active":""}" data-gp-tab="documents">Documents${docCount!==null?' <span class="subtab-count">'+docCount+'</span>':''}</div>
         <div class="gp-subtab ${tab==="timeline"?"active":""}" data-gp-tab="timeline">Timeline</div>
+        <div class="gp-subtab ${tab==="call_history"?"active":""}" data-gp-tab="call_history">Calls</div>
       </div>`;
-      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):renderGpTasksPane(c);
+      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):tab==="call_history"?renderGpCallHistoryPane(c):renderGpTasksPane(c);
       el.innerHTML=`
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
@@ -5478,6 +5547,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }else if(view==="guide"){
         if(!S.guide.folders)await loadGuideData();
         renderGuidePanel();
+      }else if(view==="scheduled_calls"){
+        renderScheduledCallsPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -6879,7 +6950,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical","guidePanel":"guide"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Guide Tab ──────────────────────────────────────────────
@@ -8515,6 +8586,342 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     }
   }
+  // ── Zoom Call Scheduling ──────────────────────────────────────
+  var _zoomScheduleCase = null;
+
+  function openZoomScheduleModal(caseData) {
+    _zoomScheduleCase = caseData;
+    var overlay = document.getElementById('zoomScheduleOverlay');
+    var gpBlock = document.getElementById('zoomGpBlock');
+    var stageSelect = document.getElementById('zoomStageSelect');
+    var notesField = document.getElementById('zoomAdminNotes');
+    var initials = ((caseData.first_name || '')[0] || '') + ((caseData.last_name || '')[0] || '');
+    gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + initials.toUpperCase() + '</div>'
+      + '<div><div style="font-size:13px;font-weight:700">' + esc(caseData.first_name || '') + ' ' + esc(caseData.last_name || '') + '</div>'
+      + '<div style="font-size:11px;color:var(--muted)">' + esc(caseData.email || '') + (caseData.phone ? ' \u00b7 ' + esc(caseData.phone) : '') + '</div></div>';
+    stageSelect.value = caseData.stage || 'myintealth';
+    notesField.value = '';
+    document.getElementById('zoomNotifyWhatsapp').checked = true;
+    document.getElementById('zoomNotifyEmail').checked = true;
+    document.getElementById('zoomScheduleBtn').disabled = false;
+    document.getElementById('zoomScheduleBtn').textContent = 'Send Calendly Invite';
+    overlay.classList.add('open');
+  }
+  window.openZoomScheduleModal = openZoomScheduleModal;
+
+  function closeZoomScheduleModal() {
+    document.getElementById('zoomScheduleOverlay').classList.remove('open');
+    _zoomScheduleCase = null;
+  }
+  window.closeZoomScheduleModal = closeZoomScheduleModal;
+
+  async function submitZoomSchedule() {
+    if (!_zoomScheduleCase) return;
+    var btn = document.getElementById('zoomScheduleBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      var resp = await fetch('/api/admin/calls/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          case_id: _zoomScheduleCase.case_id,
+          user_id: _zoomScheduleCase.user_id,
+          stage: document.getElementById('zoomStageSelect').value,
+          admin_notes: document.getElementById('zoomAdminNotes').value.trim(),
+          notify_whatsapp: document.getElementById('zoomNotifyWhatsapp').checked,
+          notify_email: document.getElementById('zoomNotifyEmail').checked
+        })
+      });
+      var data = await resp.json();
+      if (data.ok) {
+        closeZoomScheduleModal();
+        showToast('Calendly invite sent to GP');
+        if (typeof renderDetail === 'function') renderDetail();
+      } else {
+        alert('Failed: ' + (data.message || 'Unknown error'));
+        btn.disabled = false;
+        btn.textContent = 'Send Calendly Invite';
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Send Calendly Invite';
+    }
+  }
+  window.submitZoomSchedule = submitZoomSchedule;
+
+  // ── Zoom Task Card Rendering ──────────────────────────────────
+  function renderZoomTaskCard(call) {
+    var statusCls = (call.status === 'completed') ? 'completed' : (call.status === 'cancelled') ? 'cancelled' : (call.status === 'no_show') ? 'no-show' : '';
+    var statusLabel = { invited: 'Invite Sent', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
+    var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : (call.status === 'invited' ? 'Awaiting GP booking' : '\u2014');
+    var html = '<div class="zoom-task-card ' + esc(statusCls) + '">';
+    html += '<div class="zoom-task-header">';
+    html += '<div class="zoom-task-icon">Z</div>';
+    html += '<div class="zoom-task-title">Assistance Call \u2014 ' + esc(call.stage || '') + '</div>';
+    html += '<span class="calls-status-badge ' + esc(call.status || '') + '">' + esc(statusLabel) + '</span>';
+    html += '</div>';
+    html += '<div class="zoom-task-details">';
+    html += '<div class="zoom-task-detail"><strong>Time:</strong> ' + esc(timeStr) + '</div>';
+    if (call.calendly_event_url) {
+      html += '<div class="zoom-task-detail"><strong>Calendly:</strong> <a href="' + esc(call.calendly_event_url) + '" target="_blank" rel="noopener" style="color:var(--blue)">View event</a></div>';
+    }
+    if (call.zoom_join_url && (call.status === 'booked' || call.status === 'invited')) {
+      html += '<div class="zoom-task-detail"><strong>Zoom:</strong> <a href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="color:var(--blue)">Join meeting</a></div>';
+    }
+    html += '</div>';
+    if (call.admin_notes) {
+      html += '<div class="zoom-task-notes"><div class="zoom-task-notes-label">Admin Notes</div>' + esc(call.admin_notes) + '</div>';
+    }
+    // Summary toggle for completed calls
+    if (call.status === 'completed' && call.meeting_summary) {
+      var sumId = 'zoom-sum-' + (call.id || '').replace(/[^a-zA-Z0-9]/g, '');
+      html += '<div class="zoom-summary-toggle" onclick="var el=document.getElementById(\'' + sumId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Meeting Summary \u25BE</div>';
+      html += '<div class="zoom-summary-content" id="' + sumId + '" style="display:none">' + esc(call.meeting_summary) + '</div>';
+    }
+    // Action buttons
+    if (call.status !== 'completed' && call.status !== 'cancelled') {
+      html += '<div class="zoom-task-actions">';
+      if (call.status === 'invited') {
+        html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
+      }
+      html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
+      if (call.status === 'booked') {
+        html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
+      }
+      html += '</div>';
+    }
+    if (call.status === 'completed' && !call.meeting_summary) {
+      html += '<div class="zoom-task-actions">';
+      html += '<button class="btn sm" onclick="retryZoomSummary(\'' + esc(call.id) + '\')" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Fetch Summary</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  async function resendZoomInvite(callId) {
+    if (!confirm('Resend the Calendly invite to this GP?')) return;
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/resend', { method: 'POST', credentials: 'same-origin' });
+      var d = await r.json();
+      if (d.ok) { showToast('Invite resent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.resendZoomInvite = resendZoomInvite;
+
+  async function cancelZoomCall(callId) {
+    if (!confirm('Cancel this scheduled call?')) return;
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'cancelled' }) });
+      var d = await r.json();
+      if (d.ok) { showToast('Call cancelled'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.cancelZoomCall = cancelZoomCall;
+
+  async function markZoomNoShow(callId) {
+    if (!confirm('Mark this call as a no-show?')) return;
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'no_show' }) });
+      var d = await r.json();
+      if (d.ok) { showToast('Marked as no-show'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.markZoomNoShow = markZoomNoShow;
+
+  async function retryZoomSummary(callId) {
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary', { method: 'POST', credentials: 'same-origin' });
+      var d = await r.json();
+      if (d.ok) { showToast('Summary fetched'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.retryZoomSummary = retryZoomSummary;
+
+  // ── Zoom calls in Tasks pane (async inject) ──────────────────
+  function injectZoomCallsIntoTasksPane(caseId) {
+    var container = document.getElementById('zoom-calls-' + caseId);
+    if (!container) return;
+    container.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:4px 0">Loading calls...</div>';
+    fetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok || !d.calls || !d.calls.length) { container.innerHTML = ''; return; }
+        var html = '<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--line)"><div style="font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Scheduled Calls</div>';
+        d.calls.forEach(function(call) { html += renderZoomTaskCard(call); });
+        html += '</div>';
+        container.innerHTML = html;
+      })
+      .catch(function() { container.innerHTML = ''; });
+  }
+
+  // ── Scheduled Calls Top-Level Panel (Task 14) ────────────────
+  async function renderScheduledCallsPanel() {
+    var panel = document.getElementById('scheduledCallsPanel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div style="color:var(--muted);font-size:13px">Loading...</div></div>';
+    try {
+      var r = await fetch('/api/admin/calls', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (!d.ok) { panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">Failed to load calls.</div></div>'; return; }
+      var calls = d.calls || [];
+      if (!calls.length) { panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">No scheduled calls yet.</div></div>'; return; }
+
+      // Group by: today, this week, later, unbooked
+      var now = new Date();
+      var todayStr = now.toISOString().slice(0, 10);
+      var weekEnd = new Date(now);
+      weekEnd.setDate(weekEnd.getDate() + (7 - weekEnd.getDay()));
+      var weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+      var groups = { today: [], thisWeek: [], later: [], unbooked: [] };
+      calls.forEach(function(call) {
+        if (!call.scheduled_at || call.status === 'invited') {
+          groups.unbooked.push(call);
+        } else {
+          var dateStr = new Date(call.scheduled_at).toISOString().slice(0, 10);
+          if (dateStr === todayStr) groups.today.push(call);
+          else if (dateStr <= weekEndStr) groups.thisWeek.push(call);
+          else groups.later.push(call);
+        }
+      });
+
+      var html = '<div class="calls-panel"><h2>Scheduled Calls</h2>';
+      var sections = [
+        { key: 'today', title: 'Today', items: groups.today },
+        { key: 'thisWeek', title: 'This Week', items: groups.thisWeek },
+        { key: 'later', title: 'Later', items: groups.later },
+        { key: 'unbooked', title: 'Awaiting Booking', items: groups.unbooked }
+      ];
+
+      sections.forEach(function(sec) {
+        if (!sec.items.length) return;
+        html += '<div class="calls-group">';
+        html += '<div class="calls-group-title">' + esc(sec.title) + ' (' + sec.items.length + ')</div>';
+        sec.items.forEach(function(call) {
+          var gpCase = (S.cases || []).find(function(c) { return c.id === call.case_id; });
+          var gpUser = (S.va.dashboard && S.va.dashboard.users || []).find(function(u) { return u.case_id === call.case_id || u.user_id === call.user_id; });
+          var gpName = (gpUser && gpUser.gp_name) || (gpCase && gpCase.gp_name) || 'Unknown GP';
+          var initials = gpName.split(' ').map(function(w) { return (w[0] || '').toUpperCase(); }).join('').slice(0, 2);
+          var statusLabel = { invited: 'Invited', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
+          var timeLabel = call.scheduled_at ? fmtDT(call.scheduled_at) : 'Not yet booked';
+
+          html += '<div class="calls-row" data-calls-row-case="' + esc(call.case_id || '') + '">';
+          html += '<div class="calls-row-avatar">' + esc(initials) + '</div>';
+          html += '<div class="calls-row-info">';
+          html += '<div class="calls-row-name">' + esc(gpName) + '</div>';
+          html += '<div class="calls-row-meta">' + esc(timeLabel) + (call.admin_notes ? ' \u2014 ' + esc(call.admin_notes.slice(0, 60)) + (call.admin_notes.length > 60 ? '...' : '') : '') + '</div>';
+          html += '</div>';
+          html += '<div class="calls-row-pills">';
+          html += '<span class="case-stage-pill stage-' + esc(call.stage || '') + '" style="font-size:10px;padding:2px 8px">' + esc(call.stage || '') + '</span>';
+          html += '<span class="calls-status-badge ' + esc(call.status || '') + '">' + esc(statusLabel) + '</span>';
+          if (call.zoom_join_url && (call.status === 'booked' || call.status === 'invited')) {
+            html += '<a class="btn sm" href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="font-size:10px;padding:2px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF" onclick="event.stopPropagation()">Join</a>';
+          }
+          html += '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+
+      html += '</div>';
+      panel.innerHTML = html;
+    } catch (e) {
+      panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">Error loading calls: ' + esc(e.message) + '</div></div>';
+    }
+  }
+
+  // ── Call History Sub-Tab (Task 15) ────────────────────────────
+  function renderGpCallHistoryPane(c) {
+    var caseId = c.id;
+    var html = '<div id="call-history-pane-' + esc(caseId) + '"><div style="color:var(--muted);font-size:13px;padding:8px 0">Loading call history...</div></div>';
+    setTimeout(function() { loadCallHistoryPane(caseId); }, 0);
+    return html;
+  }
+
+  async function loadCallHistoryPane(caseId) {
+    var container = document.getElementById('call-history-pane-' + caseId);
+    if (!container) return;
+    try {
+      var r = await fetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' });
+      var d = await r.json();
+      if (!d.ok || !d.calls || !d.calls.length) {
+        container.innerHTML = '<div class="empty">No calls found for this GP.</div>';
+        return;
+      }
+      var calls = d.calls;
+      var html = '';
+
+      // Show all calls, most recent first (already sorted by API)
+      calls.forEach(function(call) {
+        var statusLabel = { invited: 'Invite Sent', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
+        var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : 'Not yet booked';
+        html += '<div class="call-history-card">';
+        html += '<div class="call-history-header">';
+        html += '<div class="call-history-date">' + esc(timeStr) + '</div>';
+        html += '<span class="call-history-stage">' + esc(call.stage || '') + '</span>';
+        html += '<span class="calls-status-badge ' + esc(call.status || '') + '" style="margin-left:auto">' + esc(statusLabel) + '</span>';
+        html += '</div>';
+        if (call.admin_notes) {
+          html += '<div class="call-history-notes">' + esc(call.admin_notes) + '</div>';
+        }
+        // Action buttons for active calls
+        if (call.status !== 'completed' && call.status !== 'cancelled') {
+          html += '<div class="zoom-task-actions">';
+          if (call.zoom_join_url) {
+            html += '<a class="btn sm" href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Join Zoom</a>';
+          }
+          if (call.status === 'invited') {
+            html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
+          }
+          html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
+          if (call.status === 'booked') {
+            html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
+          }
+          html += '</div>';
+        }
+        // Meeting summary for completed calls
+        if (call.status === 'completed' && call.meeting_summary) {
+          html += '<div class="call-history-summary">';
+          html += '<div class="call-history-summary-title">Meeting Summary</div>';
+          html += '<div class="call-history-summary-body">' + esc(call.meeting_summary) + '</div>';
+          html += '</div>';
+        }
+        if (call.status === 'completed' && !call.meeting_summary) {
+          html += '<div class="zoom-task-actions">';
+          html += '<button class="btn sm" onclick="retryZoomSummary(\'' + esc(call.id) + '\')" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Fetch Summary</button>';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = '<div class="empty">Error loading calls: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  // Click handler for scheduled calls panel rows -> navigate to GP case
+  document.addEventListener('click', function(e) {
+    var callsRow = e.target.closest('[data-calls-row-case]');
+    if (callsRow) {
+      var caseId = callsRow.getAttribute('data-calls-row-case');
+      if (caseId) {
+        S.selectedCaseId = caseId;
+        S.gpsProfileTab = 'call_history';
+        S.view = 'gps';
+        document.querySelectorAll('.view-tab').forEach(function(t) { t.classList.toggle('active', t.getAttribute('data-view') === 'gps'); });
+        vaShowPanel('gps');
+        renderCaseList();
+        renderDetail();
+        document.getElementById('mainLayout').classList.add('detail-open');
+      }
+    }
+  });
+
   window._viewSppaDoc = _viewSppaDoc;
   window.closePdfEditor = closePdfEditor;
   window.ahpraEscalate = ahpraEscalate;
@@ -8525,5 +8932,40 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.resolveIncomingQuestion = resolveIncomingQuestion;
 })();
 </script>
+<div class="zoom-modal-overlay" id="zoomScheduleOverlay">
+  <div class="zoom-modal">
+    <div class="zoom-modal-header">
+      <div style="width:28px;height:28px;border-radius:8px;background:#2D8CFF;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:800">Z</div>
+      <h2>Schedule Assistance Call</h2>
+      <div class="zoom-modal-close" onclick="closeZoomScheduleModal()">&times;</div>
+    </div>
+    <div class="zoom-modal-body">
+      <div class="zoom-gp-block" id="zoomGpBlock"></div>
+      <div class="zoom-form-group">
+        <label class="zoom-form-label">Registration Stage</label>
+        <select class="zoom-form-select" id="zoomStageSelect">
+          <option value="myintealth">MyIntealth</option>
+          <option value="amc">AMC</option>
+          <option value="ahpra">AHPRA</option>
+        </select>
+      </div>
+      <div class="zoom-form-group">
+        <label class="zoom-form-label">Internal Notes <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#b45309">(admin only &mdash; GP won't see this)</span></label>
+        <textarea class="zoom-form-textarea" id="zoomAdminNotes" placeholder="What does the GP need help with? What should you review before the call?"></textarea>
+      </div>
+      <div class="zoom-form-group">
+        <label class="zoom-form-label">Notify GP via</label>
+        <div class="zoom-form-checkboxes">
+          <label><input type="checkbox" id="zoomNotifyWhatsapp" checked> WhatsApp</label>
+          <label><input type="checkbox" id="zoomNotifyEmail" checked> Email</label>
+        </div>
+      </div>
+    </div>
+    <div class="zoom-modal-footer">
+      <button class="btn" onclick="closeZoomScheduleModal()">Cancel</button>
+      <button class="btn primary" id="zoomScheduleBtn" style="background:#2D8CFF;border-color:#2D8CFF" onclick="submitZoomSchedule()">Send Calendly Invite</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
