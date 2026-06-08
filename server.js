@@ -28487,9 +28487,15 @@ Return ONLY valid JSON with no markdown formatting:
             }
           }
         }
+        // Auto-complete: if a Drive file exists but status is still not_requested, upgrade to completed
+        var resolvedStatus = ops.ops_status || 'not_requested';
+        if (driveFile && resolvedStatus === 'not_requested' && ops.id) {
+          resolvedStatus = 'completed';
+          supabaseDbRequest('practice_doc_ops', 'id=eq.' + encodeURIComponent(ops.id), { method: 'PATCH', body: { ops_status: 'completed' } }).catch(function (e) { console.error('[gp-documents] Auto-complete ops failed:', e.message); });
+        }
         gdPreparedByGpLink.push({
           key: doc.key, label: doc.label,
-          ops_status: ops.ops_status || 'not_requested',
+          ops_status: resolvedStatus,
           ops_id: ops.id || null,
           drive_file: driveFile
         });
