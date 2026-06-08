@@ -618,6 +618,49 @@
     .qp-copy-btn svg { width: 14px; height: 14px; }
     .qp-copy-btn.copied { background: #ecfdf5; color: var(--success); border-color: rgba(13, 124, 95, 0.2); }
 
+    /* ---- ELS PATHWAY ---- */
+    .els-select-wrap { margin-top: 10px; }
+    .els-select-label {
+      font-size: 11px; font-weight: 600; color: var(--ink-muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;
+    }
+    .els-select {
+      width: 100%; padding: 8px 12px;
+      font-size: 13px; font-weight: 500; font-family: var(--font-body, 'DM Sans', sans-serif);
+      color: var(--ink); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%237c849b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    .els-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .els-checklist {
+      margin-top: 12px; padding: 12px 14px;
+      background: #f0f5ff; border: 1px solid #d4e0f7; border-radius: 10px;
+      animation: elsSlide 0.25s ease;
+    }
+    @keyframes elsSlide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    .els-checklist-title {
+      font-size: 12px; font-weight: 700; color: var(--accent);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+    .els-checklist-title svg { width: 14px; height: 14px; }
+    .els-checklist ul { list-style: none; padding: 0; margin: 0; }
+    .els-checklist li {
+      font-size: 12px; color: var(--ink-soft); line-height: 1.5;
+      padding: 3px 0 3px 20px; position: relative;
+    }
+    .els-checklist li::before {
+      content: ''; position: absolute; left: 0; top: 7px;
+      width: 12px; height: 12px; border: 1.5px solid var(--border);
+      border-radius: 3px; background: #fff;
+    }
+    .els-saved-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600; color: var(--success); margin-top: 8px;
+    }
+    .els-saved-badge svg { width: 12px; height: 12px; }
+
     /* ---- ADDITIONAL DOCS MODAL ---- */
     .addl-doc-group-title {
       font-size: 12px; font-weight: 700; text-transform: uppercase;
@@ -2196,6 +2239,64 @@
   <script>
     // ─── CONSTANTS ───────────────────────────────────────────────
     const STORAGE_KEY = "gp_ahpra_progress";
+    const ELS_PATHWAY_DOCS = {
+      combined: {
+        title: "Combined Education Pathway",
+        docs: [
+          "Official transcripts showing qualification taught & assessed in English",
+          "Details of secondary education provider and enrolment dates (entered in AHPRA form)",
+          "Letter from education provider confirming English instruction (if not shown on transcript)"
+        ]
+      },
+      school: {
+        title: "School Education Pathway",
+        docs: [
+          "Details of primary & secondary education providers and enrolment dates (entered in AHPRA form)",
+          "Official transcripts showing qualification taught & assessed in English",
+          "Letter from education provider confirming English instruction (if not shown on transcript)",
+          "Home schooling evidence from Department of Education (if applicable)"
+        ]
+      },
+      advanced: {
+        title: "Advanced Education Pathway",
+        docs: [
+          "Official transcripts of professional qualification",
+          "Official transcripts of advanced education (degree level AQF 7+)",
+          "Letter from education provider confirming English instruction (if not shown on transcript)",
+          "Dates of any breaks taken during study (entered in AHPRA form)",
+          "Date of most recent study completion (must be within 2 years of application)"
+        ]
+      },
+      test: {
+        title: "Test Pathway",
+        docs: [
+          "Copy of test results with candidate number (IELTS / OET / PTE / TOEFL / Cambridge)",
+          "PTE Academic only: authorise AHPRA to access results through PTE system",
+          "If test > 2 years old + still working: CV in AHPRA format + employer letter confirming continuous employment",
+          "If test > 2 years old + enrolled in study: transcript showing continuous enrolment in Board-approved program",
+          "PLAB or NZREX: certified copy of test results (medicine applicants only)"
+        ]
+      },
+      native: {
+        title: "Native English Speaker",
+        docs: [
+          "No additional documents required \u2014 your country of training qualifies you automatically",
+          "Confirm your recognised country in the AHPRA application form"
+        ]
+      }
+    };
+    function buildElsChecklistHtml(pathwayKey) {
+      var pw = ELS_PATHWAY_DOCS[pathwayKey];
+      if (!pw) return '';
+      var docSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5H4a1.5 1.5 0 0 0-1.5 1.5v10A1.5 1.5 0 0 0 4 14.5h8A1.5 1.5 0 0 0 13.5 13V6L9 1.5z"/><path d="M9 1.5V6h4.5M10.5 9.5h-5M10.5 12h-5M6 7H5.5"/></svg>';
+      var checkSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5 6 12 2.5 8.5"/></svg>';
+      var items = pw.docs.map(function (d) { return '<li>' + d + '</li>'; }).join('');
+      return '<div class="els-checklist">' +
+        '<div class="els-checklist-title">' + docSvg + ' Documents for ' + pw.title + '</div>' +
+        '<ul>' + items + '</ul>' +
+        '<div class="els-saved-badge">' + checkSvg + ' Pathway saved \u2014 visible to your GP Link team</div>' +
+        '</div>';
+    }
     const TUTORIAL_SEEN_KEY = "gp_ahpra_tutorial_seen";
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
@@ -3813,12 +3914,33 @@
       '</div>';
 
       // Row 3: English language skills
+      var savedElsPathway = '';
+      try {
+        var _elsState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        savedElsPathway = _elsState.els_pathway || '';
+      } catch (e) {}
+      var elsOptions = [
+        { key: '', label: '\u2014 Choose your ELS pathway \u2014' },
+        { key: 'combined', label: 'Combined Education Pathway' },
+        { key: 'school', label: 'School Education Pathway' },
+        { key: 'advanced', label: 'Advanced Education Pathway' },
+        { key: 'test', label: 'Test Pathway (IELTS, OET, PTE, TOEFL, Cambridge)' },
+        { key: 'native', label: 'Native English Speaker (recognised country)' }
+      ];
+      var elsOptionsHtml = elsOptions.map(function (o) {
+        return '<option value="' + o.key + '"' + (o.key === savedElsPathway ? ' selected' : '') + '>' + o.label + '</option>';
+      }).join('');
       var row3 = '<div class="qp-row">' +
         '<div class="qp-num">3</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">English language skills</div>' +
           '<div class="qp-desc">Determine which pathway you are eligible for based on your training and practice history.</div>' +
           '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
+          '<div class="els-select-wrap">' +
+            '<div class="els-select-label">Select your pathway</div>' +
+            '<select class="els-select" id="elsPathwaySelect">' + elsOptionsHtml + '</select>' +
+          '</div>' +
+          '<div id="elsChecklistContainer">' + buildElsChecklistHtml(savedElsPathway) + '</div>' +
         '</div>' +
       '</div>';
 
@@ -4237,6 +4359,28 @@
         }
       }
     }
+
+    // ELS pathway selection handler
+    document.addEventListener("change", function (e) {
+      if (e.target && e.target.id === "elsPathwaySelect") {
+        var selectedKey = e.target.value;
+        var container = document.getElementById("elsChecklistContainer");
+        if (container) container.innerHTML = buildElsChecklistHtml(selectedKey);
+        // Save to state
+        try {
+          var ahpraState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+          if (selectedKey) {
+            ahpraState.els_pathway = selectedKey;
+          } else {
+            delete ahpraState.els_pathway;
+          }
+          ahpraState.updatedAt = new Date().toISOString();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(ahpraState));
+          if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+          if (selectedKey) showToast("ELS pathway saved");
+        } catch (e) {}
+      }
+    });
 
     // Tutorial toggle handler
     document.addEventListener('click', function(e) {
