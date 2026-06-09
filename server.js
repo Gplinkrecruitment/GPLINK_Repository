@@ -408,6 +408,69 @@ function buildCalendlyBookingUrl(correlationToken) {
   return CALENDLY_EVENT_URL + sep + 'utm_source=gplink&utm_medium=registration_call&utm_content=call_' + correlationToken;
 }
 
+function buildScheduledCallInsertPayload(input = {}) {
+  const nowIso = input.nowIso || new Date().toISOString();
+  return {
+    case_id: input.caseId,
+    user_id: input.userId,
+    stage: input.stage,
+    status: 'invited',
+    admin_notes: input.adminNotes || null,
+    correlation_token: input.correlationToken,
+    calendly_booking_url: input.bookingUrl,
+    calendly_event_type_uri: input.calendlyEventTypeUri || null,
+    duration_minutes: Number(input.durationMinutes || 30),
+    summary_status: 'not_requested',
+    created_by: input.createdBy || 'admin',
+    created_at: nowIso,
+    updated_at: nowIso
+  };
+}
+
+function getScheduledCallRegistrationTaskId(callRecord) {
+  if (!callRecord || typeof callRecord !== 'object') return null;
+  return callRecord.registration_task_id || callRecord.task_id || null;
+}
+
+function buildScheduledCallNotificationPatch(waResult = {}, emailResult = {}, options = {}) {
+  const nowIso = options.nowIso || new Date().toISOString();
+  const whatsappMessageId = waResult.messageId || waResult.message_id || waResult.id || null;
+  const emailMessageId = emailResult.messageId || emailResult.message_id || emailResult.id || null;
+  const notificationChannels = {
+    whatsapp: {
+      requested: !!options.whatsappRequested,
+      sent: !!waResult.ok,
+      message_id: whatsappMessageId
+    },
+    email: {
+      requested: !!options.emailRequested,
+      sent: !!emailResult.ok,
+      message_id: emailMessageId
+    }
+  };
+  if (waResult.error) notificationChannels.whatsapp.error = String(waResult.error).slice(0, 500);
+  if (emailResult.error) notificationChannels.email.error = String(emailResult.error).slice(0, 500);
+  const patch = {
+    invite_sent_at: nowIso,
+    notification_channels: notificationChannels,
+    whatsapp_message_id: whatsappMessageId,
+    email_message_id: emailMessageId,
+    updated_at: nowIso
+  };
+  if (options.resendCount !== undefined) patch.resend_count = options.resendCount;
+  return patch;
+}
+
+function normalizeScheduledCallForApi(callRecord) {
+  if (!callRecord || typeof callRecord !== 'object') return callRecord;
+  return {
+    ...callRecord,
+    booking_url: callRecord.calendly_booking_url || callRecord.booking_url || '',
+    task_id: getScheduledCallRegistrationTaskId(callRecord),
+    calendly_event_url: callRecord.calendly_event_uri || callRecord.calendly_event_url || ''
+  };
+}
+
 function verifyCalendlySignature(signatureHeader, rawBody, secret) {
   if (!signatureHeader || !secret) return false;
   const timestampCandidates = [];
@@ -459,12 +522,14 @@ function buildZoomValidationResponse(plainToken, secret) {
 async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload) {
   if (!eventId) return false;
   const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
-  if (existing && existing.length > 0) return true;
+  if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) return true;
   const redactedPayload = payload ? { event: payload.event, created_at: payload.created_at } : null;
-  await supabaseDbRequest('webhook_events', '', {
+  const inserted = await supabaseDbRequest('webhook_events', '', {
     method: 'POST',
-    body: [{ provider, event_id: eventId, event_type: eventType, payload: redactedPayload }]
+    headers: { Prefer: 'return=minimal' },
+    body: { provider, event_id: eventId, event_type: eventType, payload: redactedPayload }
   });
+  if (!inserted.ok && inserted.status === 409) return true;
   return false;
 }
 // ── End Zoom Call Scheduling helpers ──────────────────────
@@ -12712,7 +12777,7 @@ async function handleCalendlyInviteeCreated(payload) {
   if (scheduledAt) callPatch.scheduled_at = scheduledAt;
   if (zoomJoinUrl) callPatch.zoom_join_url = zoomJoinUrl;
   if (zoomMeetingId) callPatch.zoom_meeting_id = zoomMeetingId;
-  if (zoomMeetingPassword) callPatch.zoom_meeting_password = zoomMeetingPassword;
+  if (zoomMeetingPassword) callPatch.zoom_passcode = zoomMeetingPassword;
 
   await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
     method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
@@ -12720,9 +12785,10 @@ async function handleCalendlyInviteeCreated(payload) {
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
 
   // Update linked registration_tasks
-  if (callRecord.task_id) {
+  const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
+  if (registrationTaskId) {
     const scheduledLabel = scheduledAt ? new Date(scheduledAt).toUTCString() : 'time to be confirmed';
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: {
         status: mapCallStatusToTaskStatus('booked'),
@@ -12730,7 +12796,7 @@ async function handleCalendlyInviteeCreated(payload) {
         updated_at: now
       }
     });
-    console.log('[calendly invitee.created] Updated registration_task', callRecord.task_id, '→ waiting');
+    console.log('[calendly invitee.created] Updated registration_task', registrationTaskId, '→ waiting');
   }
 }
 
@@ -12768,8 +12834,10 @@ async function handleCalendlyInviteeCanceled(payload) {
       booked_at: null,
       zoom_join_url: null,
       zoom_meeting_id: null,
-      zoom_meeting_password: null,
+      zoom_passcode: null,
       calendly_event_uri: null,
+      calendly_old_invitee_uri: inviteeUri || null,
+      calendly_invitee_uri: null,
       // Preserve old invitee URI for audit trail via a note in metadata (best effort)
       updated_at: now
     };
@@ -12778,8 +12846,9 @@ async function handleCalendlyInviteeCanceled(payload) {
     });
     console.log('[calendly invitee.canceled] Rescheduling: reset scheduled_call', callRecord.id, '→ invited');
 
-    if (callRecord.task_id) {
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+    const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
+    if (registrationTaskId) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
         body: {
           status: mapCallStatusToTaskStatus('invited'),
@@ -12800,8 +12869,9 @@ async function handleCalendlyInviteeCanceled(payload) {
     });
     console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id);
 
-    if (callRecord.task_id) {
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+    const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
+    if (registrationTaskId) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
         body: {
           status: mapCallStatusToTaskStatus('cancelled'),
@@ -12933,15 +13003,16 @@ async function handleZoomMeetingEnded(payload) {
   });
   console.log('[zoom meeting.ended] Updated scheduled_call', callRecord.id, '→ completed, summary_status: pending');
 
-  if (callRecord.task_id) {
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(callRecord.task_id), {
+  const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
+  if (registrationTaskId) {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: {
         status: mapCallStatusToTaskStatus('completed'),
         updated_at: now
       }
     });
-    console.log('[zoom meeting.ended] Updated registration_task', callRecord.task_id, '→ completed');
+    console.log('[zoom meeting.ended] Updated registration_task', registrationTaskId, '→ completed');
   }
 }
 
@@ -24772,14 +24843,14 @@ async function handleApi(req, res, pathname) {
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
 
     // Verify case belongs to user
-    const caseCheck = await supabaseDbRequest('registration_cases', 'id=eq.' + caseId + '&user_id=eq.' + userId + '&select=id', { method: 'GET' });
+    const caseCheck = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&user_id=eq.' + encodeURIComponent(userId) + '&select=id', { method: 'GET' });
     if (!caseCheck.ok || !Array.isArray(caseCheck.data) || caseCheck.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Case not found or does not belong to user.' });
       return;
     }
 
     // Get GP profile
-    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + userId + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId) + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
     const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
     const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
     const gpLastName = String(profile.last_name || '').trim();
@@ -24789,21 +24860,23 @@ async function handleApi(req, res, pathname) {
     // Generate correlation token and booking URL
     const correlationToken = generateCorrelationToken();
     const bookingUrl = buildCalendlyBookingUrl(correlationToken);
+    const nowIso = new Date().toISOString();
+    const notifyWhatsapp = body && body.notify_whatsapp !== false;
+    const notifyEmail = body && body.notify_email !== false;
 
     // Create scheduled_calls record
     const callInsert = await supabaseDbRequest('scheduled_calls', '', {
       method: 'POST',
-      body: JSON.stringify({
-        case_id: caseId,
-        user_id: userId,
-        stage: stage,
-        status: 'invited',
-        correlation_token: correlationToken,
-        booking_url: bookingUrl,
-        admin_notes: adminNotes || null,
-        scheduled_by: admin.email || 'admin',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+      body: buildScheduledCallInsertPayload({
+        caseId,
+        userId,
+        stage,
+        adminNotes,
+        correlationToken,
+        bookingUrl,
+        calendlyEventTypeUri: CALENDLY_EVENT_TYPE_URI,
+        createdBy: admin.email || 'admin',
+        nowIso
       }),
       headers: { Prefer: 'return=representation' }
     });
@@ -24812,6 +24885,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const callRecord = Array.isArray(callInsert.data) ? callInsert.data[0] : callInsert.data;
+    if (!callRecord || !callRecord.id) {
+      console.error('[admin calls schedule] Supabase insert returned no scheduled_call row:', callInsert.status);
+      sendJson(res, 500, { ok: false, message: 'Failed to create scheduled call record.' });
+      return;
+    }
     const callId = callRecord.id;
 
     // Create registration task
@@ -24829,19 +24907,20 @@ async function handleApi(req, res, pathname) {
 
     // Link task back to scheduled_calls
     if (taskId) {
-      await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
         method: 'PATCH',
-        body: JSON.stringify({ task_id: taskId, updated_at: new Date().toISOString() })
+        headers: { Prefer: 'return=minimal' },
+        body: { registration_task_id: taskId, updated_at: new Date().toISOString() }
       });
     }
 
     // Send notifications (never include admin_notes)
     let waResult = { ok: false };
     let emailResult = { ok: false };
-    if (gpPhone) {
+    if (notifyWhatsapp && gpPhone) {
       waResult = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, stage, bookingUrl);
     }
-    if (gpEmail) {
+    if (notifyEmail && gpEmail) {
       const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
       emailResult = await sendEmail({
         to: gpEmail,
@@ -24852,13 +24931,12 @@ async function handleApi(req, res, pathname) {
     }
 
     // Update scheduled_calls with notification results
-    await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
       method: 'PATCH',
-      body: JSON.stringify({
-        whatsapp_sent: waResult.ok,
-        whatsapp_message_id: waResult.messageId || null,
-        email_sent: emailResult.ok,
-        updated_at: new Date().toISOString()
+      headers: { Prefer: 'return=minimal' },
+      body: buildScheduledCallNotificationPatch(waResult, emailResult, {
+        whatsappRequested: notifyWhatsapp,
+        emailRequested: notifyEmail
       })
     });
 
@@ -24897,7 +24975,7 @@ async function handleApi(req, res, pathname) {
     if (filterFrom) query += '&created_at=gte.' + encodeURIComponent(filterFrom);
     if (filterTo) query += '&created_at=lte.' + encodeURIComponent(filterTo);
     const result = await supabaseDbRequest('scheduled_calls', query, { method: 'GET' });
-    sendJson(res, 200, { ok: true, calls: result.ok && Array.isArray(result.data) ? result.data : [] });
+    sendJson(res, 200, { ok: true, calls: result.ok && Array.isArray(result.data) ? result.data.map(normalizeScheduledCallForApi) : [] });
     return;
   }
 
@@ -24910,12 +24988,12 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const callId = pathname.split('/').pop();
-    const result = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
+    const result = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId) + '&select=*', { method: 'GET' });
     if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
     }
-    sendJson(res, 200, { ok: true, call: result.data[0] });
+    sendJson(res, 200, { ok: true, call: normalizeScheduledCallForApi(result.data[0]) });
     return;
   }
 
@@ -24935,7 +25013,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Fetch current record
-    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
+    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId) + '&select=*', { method: 'GET' });
     if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
@@ -24950,7 +25028,9 @@ async function handleApi(req, res, pathname) {
     }
 
     // Mark no-show (only from booked status)
-    if (body && body.action === 'no_show') {
+    const requestedAction = String(body && (body.action || body.status) || '').trim();
+
+    if (requestedAction === 'no_show') {
       if (call.status !== 'booked') {
         sendJson(res, 409, { ok: false, message: 'Can only mark no-show when status is booked.' });
         return;
@@ -24960,7 +25040,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Cancel (from invited or booked)
-    if (body && body.action === 'cancel') {
+    if (requestedAction === 'cancel' || requestedAction === 'cancelled') {
       if (!['invited', 'booked'].includes(call.status)) {
         sendJson(res, 409, { ok: false, message: 'Can only cancel calls with status invited or booked.' });
         return;
@@ -24969,23 +25049,24 @@ async function handleApi(req, res, pathname) {
       patch.cancelled_at = new Date().toISOString();
     }
 
-    const updateRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
+    const updateRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
       method: 'PATCH',
-      body: JSON.stringify(patch),
+      body: patch,
       headers: { Prefer: 'return=representation' }
     });
 
     // Sync task status if status changed
-    if (patch.status && call.task_id) {
+    const registrationTaskId = getScheduledCallRegistrationTaskId(call);
+    if (patch.status && registrationTaskId) {
       const newTaskStatus = mapCallStatusToTaskStatus(patch.status);
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + call.task_id, {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH',
-        body: JSON.stringify({ status: newTaskStatus, updated_at: new Date().toISOString() })
+        body: { status: newTaskStatus, updated_at: new Date().toISOString() }
       });
     }
 
     const updated = updateRes.ok && Array.isArray(updateRes.data) && updateRes.data[0] ? updateRes.data[0] : { id: callId, ...patch };
-    sendJson(res, 200, { ok: true, call: updated });
+    sendJson(res, 200, { ok: true, call: normalizeScheduledCallForApi(updated) });
     return;
   }
 
@@ -25000,7 +25081,7 @@ async function handleApi(req, res, pathname) {
     const pathParts = pathname.split('/');
     const callId = pathParts[pathParts.length - 2];
 
-    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
+    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId) + '&select=*', { method: 'GET' });
     if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
@@ -25013,13 +25094,13 @@ async function handleApi(req, res, pathname) {
     }
 
     // Get GP profile for contact details
-    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + call.user_id + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
     const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
     const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
     const gpEmail = String(profile.email || '').trim();
     const gpPhone = String(profile.phone_number || profile.phone || '').trim();
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
-    const bookingUrl = call.booking_url;
+    const bookingUrl = call.calendly_booking_url || call.booking_url || '';
 
     let waResult = { ok: false };
     let emailResult = { ok: false };
@@ -25036,13 +25117,13 @@ async function handleApi(req, res, pathname) {
       });
     }
 
-    await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
       method: 'PATCH',
-      body: JSON.stringify({
-        whatsapp_sent: waResult.ok,
-        whatsapp_message_id: waResult.messageId || null,
-        email_sent: emailResult.ok,
-        updated_at: new Date().toISOString()
+      headers: { Prefer: 'return=minimal' },
+      body: buildScheduledCallNotificationPatch(waResult, emailResult, {
+        whatsappRequested: !!gpPhone,
+        emailRequested: !!gpEmail,
+        resendCount: Number(call.resend_count || 0) + 1
       })
     });
 
@@ -25054,20 +25135,21 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname.match(/^\/api\/admin\/calls\/[a-f0-9-]+\/fetch-summary$/)) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
-    if (!supabase) { sendJson(res, 503, { ok: false }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
 
     const callId = pathname.split('/')[4];
-    const rows = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=id,status,zoom_meeting_id,zoom_meeting_uuid,summary_status,summary_fetch_attempts', { method: 'GET' });
-    if (!rows || rows.length === 0) { sendJson(res, 404, { ok: false, message: 'Call not found' }); return; }
-    const call = rows[0];
+    const rows = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId) + '&select=id,status,zoom_meeting_id,zoom_meeting_uuid,summary_status,summary_fetch_attempts', { method: 'GET' });
+    const call = rows.ok && Array.isArray(rows.data) && rows.data[0] ? rows.data[0] : null;
+    if (!call) { sendJson(res, 404, { ok: false, message: 'Call not found' }); return; }
 
     if (call.status !== 'completed') { sendJson(res, 400, { ok: false, message: 'Call must be completed first' }); return; }
     if (call.summary_status === 'saved') { sendJson(res, 400, { ok: false, message: 'Summary already saved' }); return; }
 
     await fetchAndSaveZoomSummary(call);
 
-    const updated = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=summary_status,summary_error', { method: 'GET' });
-    sendJson(res, 200, { ok: true, summary_status: updated && updated[0] ? updated[0].summary_status : 'unknown' });
+    const updated = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId) + '&select=summary_status,summary_error', { method: 'GET' });
+    const updatedCall = updated.ok && Array.isArray(updated.data) && updated.data[0] ? updated.data[0] : null;
+    sendJson(res, 200, { ok: true, summary_status: updatedCall ? updatedCall.summary_status : 'unknown' });
     return;
   }
 
@@ -29767,15 +29849,16 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 401, { ok: false, message: 'Unauthorized' });
       return;
     }
-    if (!supabase) { sendJson(res, 503, { ok: false }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
 
     // Find calls needing summary retry: completed, summary pending or error, < 10 attempts
-    const pending = await supabaseDbRequest('scheduled_calls',
-      '?status=eq.completed&summary_status=in.(pending,error)&summary_fetch_attempts=lt.10&select=id,zoom_meeting_id,zoom_meeting_uuid,summary_fetch_attempts&order=completed_at.asc&limit=5',
+    const pendingRes = await supabaseDbRequest('scheduled_calls',
+      'status=eq.completed&summary_status=in.(pending,error)&summary_fetch_attempts=lt.10&select=id,zoom_meeting_id,zoom_meeting_uuid,summary_fetch_attempts&order=completed_at.asc&limit=5',
       { method: 'GET' }
     );
+    const pending = pendingRes.ok && Array.isArray(pendingRes.data) ? pendingRes.data : [];
 
-    if (!pending || pending.length === 0) {
+    if (pending.length === 0) {
       sendJson(res, 200, { ok: true, message: 'No pending summaries', retried: 0 });
       return;
     }

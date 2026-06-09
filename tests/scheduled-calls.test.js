@@ -45,6 +45,82 @@ describe('scheduled-calls helpers', () => {
     });
   });
 
+  describe('scheduled_calls payload builders', () => {
+    it('builds insert payload with migration column names', () => {
+      const { buildScheduledCallInsertPayload } = require('../server-test-helpers.js');
+      const nowIso = '2026-06-09T12:00:00.000Z';
+      const payload = buildScheduledCallInsertPayload({
+        caseId: 'case-1',
+        userId: 'user-1',
+        stage: 'ahpra',
+        adminNotes: 'Needs help with portal',
+        correlationToken: 'abc123',
+        bookingUrl: 'https://calendly.example/gp?utm_content=call_abc123',
+        calendlyEventTypeUri: 'https://api.calendly.com/event_types/event-1',
+        createdBy: 'admin@example.com',
+        nowIso
+      });
+
+      expect(payload).toEqual({
+        case_id: 'case-1',
+        user_id: 'user-1',
+        stage: 'ahpra',
+        status: 'invited',
+        admin_notes: 'Needs help with portal',
+        correlation_token: 'abc123',
+        calendly_booking_url: 'https://calendly.example/gp?utm_content=call_abc123',
+        calendly_event_type_uri: 'https://api.calendly.com/event_types/event-1',
+        duration_minutes: 30,
+        summary_status: 'not_requested',
+        created_by: 'admin@example.com',
+        created_at: nowIso,
+        updated_at: nowIso
+      });
+      expect(payload).not.toHaveProperty('booking_url');
+      expect(payload).not.toHaveProperty('scheduled_by');
+      expect(payload).not.toHaveProperty('task_id');
+    });
+
+    it('builds notification patch with JSONB channel state and message id columns', () => {
+      const { buildScheduledCallNotificationPatch } = require('../server-test-helpers.js');
+      const nowIso = '2026-06-09T12:10:00.000Z';
+      const patch = buildScheduledCallNotificationPatch(
+        { ok: true, messageId: 'wa-1' },
+        { ok: false, error: 'Resend disabled' },
+        { whatsappRequested: true, emailRequested: true, resendCount: 2, nowIso }
+      );
+
+      expect(patch).toEqual({
+        invite_sent_at: nowIso,
+        notification_channels: {
+          whatsapp: { requested: true, sent: true, message_id: 'wa-1' },
+          email: { requested: true, sent: false, message_id: null, error: 'Resend disabled' }
+        },
+        whatsapp_message_id: 'wa-1',
+        email_message_id: null,
+        updated_at: nowIso,
+        resend_count: 2
+      });
+      expect(patch).not.toHaveProperty('whatsapp_sent');
+      expect(patch).not.toHaveProperty('email_sent');
+    });
+
+    it('normalizes scheduled call API aliases without requiring legacy columns', () => {
+      const { normalizeScheduledCallForApi, getScheduledCallRegistrationTaskId } = require('../server-test-helpers.js');
+      const call = normalizeScheduledCallForApi({
+        id: 'call-1',
+        registration_task_id: 'task-1',
+        calendly_booking_url: 'https://calendly.example/book',
+        calendly_event_uri: 'https://api.calendly.com/events/event-1'
+      });
+
+      expect(getScheduledCallRegistrationTaskId(call)).toBe('task-1');
+      expect(call.task_id).toBe('task-1');
+      expect(call.booking_url).toBe('https://calendly.example/book');
+      expect(call.calendly_event_url).toBe('https://api.calendly.com/events/event-1');
+    });
+  });
+
   describe('verifyCalendlySignature', () => {
     const secret = 'test-calendly-webhook-secret';
 
