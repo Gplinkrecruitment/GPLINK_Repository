@@ -25049,6 +25049,46 @@ async function handleApi(req, res, pathname) {
       patch.cancelled_at = new Date().toISOString();
     }
 
+    // Reschedule (from booked, no_show, or cancelled — resets to invited with fresh booking URL)
+    if (requestedAction === 'reschedule') {
+      if (!['booked', 'no_show', 'cancelled'].includes(call.status)) {
+        sendJson(res, 409, { ok: false, message: 'Can only reschedule calls with status booked, no_show, or cancelled.' });
+        return;
+      }
+      const newToken = generateCorrelationToken();
+      const newBookingUrl = buildCalendlyBookingUrl(newToken);
+      patch.status = 'invited';
+      patch.correlation_token = newToken;
+      patch.calendly_booking_url = newBookingUrl;
+      patch.scheduled_at = null;
+      patch.booked_at = null;
+      patch.timezone = null;
+      patch.calendly_event_uri = null;
+      patch.calendly_old_invitee_uri = call.calendly_invitee_uri || null;
+      patch.calendly_invitee_uri = null;
+      patch.zoom_meeting_id = null;
+      patch.zoom_meeting_uuid = null;
+      patch.zoom_join_url = null;
+      patch.zoom_passcode = null;
+      patch.completed_at = null;
+      patch.cancelled_at = null;
+      patch.no_show_at = null;
+      patch.invite_sent_at = new Date().toISOString();
+      patch.resend_count = (call.resend_count || 0) + 1;
+
+      // Send fresh notifications
+      const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+      const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
+      const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
+      const gpEmail = String(profile.email || '').trim();
+      const gpPhone = String(profile.phone_number || profile.phone || '').trim();
+      const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+      const notifications = {};
+      if (gpPhone) notifications.whatsapp = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, newBookingUrl);
+      if (gpEmail) notifications.email = await sendEmail({ to: gpEmail, subject: 'Rescheduled: Book Your Zoom Assistance Call \u2014 GP Link', html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, newBookingUrl) });
+      patch.notification_channels = notifications;
+    }
+
     const updateRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
       method: 'PATCH',
       body: patch,

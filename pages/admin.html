@@ -8781,6 +8781,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
       if (call.status === 'booked') {
+        html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
         html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
       }
       html += '</div>';
@@ -8823,6 +8824,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.markZoomNoShow = markZoomNoShow;
+
+  async function rescheduleZoomCall(callId) {
+    if (!confirm('Reschedule this call? A new Calendly invite will be sent to the GP.')) return;
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'reschedule' }) });
+      var d = await r.json();
+      if (d.ok) { showOpsToast('Call rescheduled — new invite sent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.rescheduleZoomCall = rescheduleZoomCall;
 
   async function retryZoomSummary(callId) {
     try {
@@ -8961,17 +8972,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html += '<div class="call-history-notes">' + esc(call.admin_notes) + '</div>';
         }
         // Action buttons for active calls
-        if (call.status !== 'completed' && call.status !== 'cancelled') {
+        if (call.status !== 'completed') {
           html += '<div class="zoom-task-actions">';
-          if (call.zoom_join_url) {
+          if (call.zoom_join_url && call.status === 'booked') {
             html += '<a class="btn sm" href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Join Zoom</a>';
           }
           if (call.status === 'invited') {
             html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
           }
-          html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
+          if (call.status !== 'cancelled') {
+            html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
+          }
           if (call.status === 'booked') {
+            html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
             html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
+          }
+          if (call.status === 'no_show' || call.status === 'cancelled') {
+            html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
           }
           html += '</div>';
         }
