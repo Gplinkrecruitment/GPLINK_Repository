@@ -49,23 +49,41 @@ describe('scheduled-calls helpers', () => {
     const secret = 'test-calendly-webhook-secret';
 
     function makeCalendlySignature(timestamp, body, signingKey) {
-      const payload = timestamp + '.' + body;
-      const sig = crypto.createHmac('sha256', signingKey).update(payload).digest('hex');
+      const hmac = crypto.createHmac('sha256', signingKey);
+      hmac.update(timestamp + '.', 'utf8');
+      hmac.update(Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8'));
+      const sig = hmac.digest('hex');
       return 't=' + timestamp + ',v1=' + sig;
     }
 
-    it('accepts a valid signature', () => {
+    it('accepts a valid signature with Calendly Unix seconds timestamp', () => {
       const { verifyCalendlySignature } = require('../server-test-helpers.js');
       const body = '{"event":"invitee.created"}';
-      const ts = String(Date.now());
+      const ts = String(Math.floor(Date.now() / 1000));
       const header = makeCalendlySignature(ts, body, secret);
+      expect(verifyCalendlySignature(header, body, secret)).toBe(true);
+    });
+
+    it('accepts a valid signature over raw body bytes', () => {
+      const { verifyCalendlySignature } = require('../server-test-helpers.js');
+      const body = Buffer.from('{"event":"invitee.created","name":"Jose"}', 'utf8');
+      const ts = String(Math.floor(Date.now() / 1000));
+      const header = makeCalendlySignature(ts, body, secret);
+      expect(verifyCalendlySignature(header, body, secret)).toBe(true);
+    });
+
+    it('accepts a valid signature when multiple v1 values are present', () => {
+      const { verifyCalendlySignature } = require('../server-test-helpers.js');
+      const body = '{"event":"invitee.created"}';
+      const ts = String(Math.floor(Date.now() / 1000));
+      const header = makeCalendlySignature(ts, body, secret) + ',v1=' + '0'.repeat(64);
       expect(verifyCalendlySignature(header, body, secret)).toBe(true);
     });
 
     it('rejects an invalid signature', () => {
       const { verifyCalendlySignature } = require('../server-test-helpers.js');
       const body = '{"event":"invitee.created"}';
-      const ts = String(Date.now());
+      const ts = String(Math.floor(Date.now() / 1000));
       const header = makeCalendlySignature(ts, body, 'wrong-secret');
       expect(verifyCalendlySignature(header, body, secret)).toBe(false);
     });
@@ -73,9 +91,16 @@ describe('scheduled-calls helpers', () => {
     it('rejects a stale timestamp (> 5 min old)', () => {
       const { verifyCalendlySignature } = require('../server-test-helpers.js');
       const body = '{"event":"invitee.created"}';
-      const ts = String(Date.now() - 6 * 60 * 1000);
+      const ts = String(Math.floor(Date.now() / 1000) - 6 * 60);
       const header = makeCalendlySignature(ts, body, secret);
       expect(verifyCalendlySignature(header, body, secret)).toBe(false);
+    });
+
+    it('rejects a malformed signature without throwing', () => {
+      const { verifyCalendlySignature } = require('../server-test-helpers.js');
+      const body = '{"event":"invitee.created"}';
+      const ts = String(Math.floor(Date.now() / 1000));
+      expect(verifyCalendlySignature('t=' + ts + ',v1=not-hex', body, secret)).toBe(false);
     });
   });
 

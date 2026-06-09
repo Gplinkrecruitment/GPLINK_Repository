@@ -410,21 +410,37 @@ function buildCalendlyBookingUrl(correlationToken) {
 
 function verifyCalendlySignature(signatureHeader, rawBody, secret) {
   if (!signatureHeader || !secret) return false;
-  const parts = {};
+  const timestampCandidates = [];
+  const signatures = [];
   for (const pair of signatureHeader.split(',')) {
-    const [key, val] = pair.split('=', 2);
-    if (key && val) parts[key.trim()] = val.trim();
+    const idx = pair.indexOf('=');
+    if (idx <= 0) continue;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    if (key === 't' && val) timestampCandidates.push(val);
+    if (key === 'v1' && val) signatures.push(val);
   }
-  const timestamp = parts['t'];
-  const v1 = parts['v1'];
-  if (!timestamp || !v1) return false;
-  const age = Date.now() - Number(timestamp);
+  const timestamp = timestampCandidates[0];
+  if (!timestamp || signatures.length === 0) return false;
+  const timestampNumber = Number(timestamp);
+  if (!Number.isFinite(timestampNumber)) return false;
+  // Calendly sends Unix seconds in the t= value. Keep millisecond support for
+  // locally generated legacy test signatures, but preserve the original string
+  // in the signed payload.
+  const timestampMs = timestampNumber < 10000000000 ? timestampNumber * 1000 : timestampNumber;
+  const age = Date.now() - timestampMs;
   if (age > 5 * 60 * 1000 || age < -60 * 1000) return false;
-  const expected = require('crypto')
-    .createHmac('sha256', secret)
-    .update(timestamp + '.' + rawBody)
-    .digest('hex');
-  return require('crypto').timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+  const crypto = require('crypto');
+  const bodyBuffer = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody || ''), 'utf8');
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(timestamp + '.', 'utf8');
+  hmac.update(bodyBuffer);
+  const expectedBuf = Buffer.from(hmac.digest('hex'), 'hex');
+  return signatures.some((signature) => {
+    if (!/^[a-f0-9]{64}$/i.test(signature)) return false;
+    const candidateBuf = Buffer.from(signature, 'hex');
+    return candidateBuf.length === expectedBuf.length && crypto.timingSafeEqual(candidateBuf, expectedBuf);
+  });
 }
 
 function verifyZoomWebhookSignature(timestamp, rawBody, signature, secret) {
@@ -12527,26 +12543,22 @@ async function handleCalendlyWebhook(req, res) {
   }
 
   // Read raw body for signature verification
-  let rawBody;
+  let rawBodyBuffer;
   try {
-    rawBody = await new Promise((resolve, reject) => {
-      let data = '';
-      req.on('data', chunk => data += chunk);
-      req.on('end', () => resolve(data));
-      req.on('error', reject);
-    });
+    rawBodyBuffer = await readRawBody(req, 2 * 1024 * 1024);
   } catch (e) {
     console.error('[calendly-webhook] Failed to read body:', e && e.message);
     sendJson(res, 400, { ok: false, message: 'Failed to read body' });
     return;
   }
+  const rawBody = rawBodyBuffer.toString('utf8');
 
   // Verify Calendly HMAC signature
   const sigHeader = req.headers['calendly-webhook-signature'] || '';
-  console.log('[calendly-webhook] DEBUG sig header:', sigHeader ? sigHeader.slice(0, 60) + '...' : '(empty)');
-  console.log('[calendly-webhook] DEBUG raw body length:', rawBody ? rawBody.length : 0);
-  console.log('[calendly-webhook] DEBUG secret length:', CALENDLY_WEBHOOK_SECRET ? CALENDLY_WEBHOOK_SECRET.length : 0);
-  if (!verifyCalendlySignature(sigHeader, rawBody, CALENDLY_WEBHOOK_SECRET)) {
+  if (process.env.CALENDLY_WEBHOOK_DEBUG === '1') {
+    console.log('[calendly-webhook] DEBUG signature header present:', !!sigHeader, '| raw body bytes:', rawBodyBuffer.length);
+  }
+  if (!verifyCalendlySignature(sigHeader, rawBodyBuffer, CALENDLY_WEBHOOK_SECRET)) {
     console.warn('[calendly-webhook] Invalid signature from IP:', getClientIp(req));
     sendJson(res, 401, { ok: false, message: 'Unauthorized' });
     return;
