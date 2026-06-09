@@ -8729,7 +8729,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var data = await resp.json();
       if (data.ok) {
         closeZoomScheduleModal();
-        showToast('Calendly invite sent to GP');
+        showOpsToast('Calendly invite sent to GP');
         if (typeof renderDetail === 'function') renderDetail();
       } else {
         alert('Failed: ' + (data.message || 'Unknown error'));
@@ -8799,7 +8799,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/resend', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
-      if (d.ok) { showToast('Invite resent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Invite resent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.resendZoomInvite = resendZoomInvite;
@@ -8809,7 +8809,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'cancelled' }) });
       var d = await r.json();
-      if (d.ok) { showToast('Call cancelled'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Call cancelled'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.cancelZoomCall = cancelZoomCall;
@@ -8819,7 +8819,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'no_show' }) });
       var d = await r.json();
-      if (d.ok) { showToast('Marked as no-show'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Marked as no-show'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.markZoomNoShow = markZoomNoShow;
@@ -8828,7 +8828,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
-      if (d.ok) { showToast('Summary fetched'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Summary fetched'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.retryZoomSummary = retryZoomSummary;
