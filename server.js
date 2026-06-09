@@ -12543,6 +12543,9 @@ async function handleCalendlyWebhook(req, res) {
 
   // Verify Calendly HMAC signature
   const sigHeader = req.headers['calendly-webhook-signature'] || '';
+  console.log('[calendly-webhook] DEBUG sig header:', sigHeader ? sigHeader.slice(0, 60) + '...' : '(empty)');
+  console.log('[calendly-webhook] DEBUG raw body length:', rawBody ? rawBody.length : 0);
+  console.log('[calendly-webhook] DEBUG secret length:', CALENDLY_WEBHOOK_SECRET ? CALENDLY_WEBHOOK_SECRET.length : 0);
   if (!verifyCalendlySignature(sigHeader, rawBody, CALENDLY_WEBHOOK_SECRET)) {
     console.warn('[calendly-webhook] Invalid signature from IP:', getClientIp(req));
     sendJson(res, 401, { ok: false, message: 'Unauthorized' });
