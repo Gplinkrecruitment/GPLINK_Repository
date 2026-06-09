@@ -458,7 +458,7 @@ function buildZoomValidationResponse(plainToken, secret) {
 
 async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload) {
   if (!eventId) return false;
-  const existing = await supabaseDbRequest('webhook_events', '?provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
+  const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
   if (existing && existing.length > 0) return true;
   const redactedPayload = payload ? { event: payload.event, created_at: payload.created_at } : null;
   await supabaseDbRequest('webhook_events', '', {
@@ -20254,7 +20254,7 @@ async function handleApi(req, res, pathname) {
             'system:reconciliation');
           rfResults.push({ task_id: rfTask.id, title: rfTask.title, status: 'auto_completed', confidence: rfVerdict.confidence, evidence: rfVerdict.evidence });
         } else {
-          await supabaseDbRequest('registration_tasks', '?id=eq.' + rfTask.id,
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + rfTask.id,
             { method: 'PATCH', body: { priority: 'urgent' } });
           await _logCaseEvent(rfTask.case_id, rfTask.id, 'priority_change', 'Escalated to urgent by reconciliation',
             'Follow-up not fulfilled. ' + (rfVerdict.evidence || ''), 'system:reconciliation');
@@ -24772,14 +24772,14 @@ async function handleApi(req, res, pathname) {
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
 
     // Verify case belongs to user
-    const caseCheck = await supabaseDbRequest('registration_cases', '?id=eq.' + caseId + '&user_id=eq.' + userId + '&select=id', { method: 'GET' });
+    const caseCheck = await supabaseDbRequest('registration_cases', 'id=eq.' + caseId + '&user_id=eq.' + userId + '&select=id', { method: 'GET' });
     if (!caseCheck.ok || !Array.isArray(caseCheck.data) || caseCheck.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Case not found or does not belong to user.' });
       return;
     }
 
     // Get GP profile
-    const profileRes = await supabaseDbRequest('user_profiles', '?user_id=eq.' + userId + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + userId + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
     const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
     const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
     const gpLastName = String(profile.last_name || '').trim();
@@ -24829,7 +24829,7 @@ async function handleApi(req, res, pathname) {
 
     // Link task back to scheduled_calls
     if (taskId) {
-      await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
         method: 'PATCH',
         body: JSON.stringify({ task_id: taskId, updated_at: new Date().toISOString() })
       });
@@ -24852,7 +24852,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Update scheduled_calls with notification results
-    await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
       method: 'PATCH',
       body: JSON.stringify({
         whatsapp_sent: waResult.ok,
@@ -24910,7 +24910,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const callId = pathname.split('/').pop();
-    const result = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    const result = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
     if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
@@ -24935,7 +24935,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Fetch current record
-    const current = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
     if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
@@ -24969,7 +24969,7 @@ async function handleApi(req, res, pathname) {
       patch.cancelled_at = new Date().toISOString();
     }
 
-    const updateRes = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+    const updateRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
       method: 'PATCH',
       body: JSON.stringify(patch),
       headers: { Prefer: 'return=representation' }
@@ -24978,7 +24978,7 @@ async function handleApi(req, res, pathname) {
     // Sync task status if status changed
     if (patch.status && call.task_id) {
       const newTaskStatus = mapCallStatusToTaskStatus(patch.status);
-      await supabaseDbRequest('registration_tasks', '?id=eq.' + call.task_id, {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + call.task_id, {
         method: 'PATCH',
         body: JSON.stringify({ status: newTaskStatus, updated_at: new Date().toISOString() })
       });
@@ -25000,7 +25000,7 @@ async function handleApi(req, res, pathname) {
     const pathParts = pathname.split('/');
     const callId = pathParts[pathParts.length - 2];
 
-    const current = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=*', { method: 'GET' });
+    const current = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=*', { method: 'GET' });
     if (!current.ok || !Array.isArray(current.data) || current.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Call not found.' });
       return;
@@ -25013,7 +25013,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Get GP profile for contact details
-    const profileRes = await supabaseDbRequest('user_profiles', '?user_id=eq.' + call.user_id + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+    const profileRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + call.user_id + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
     const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
     const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
     const gpEmail = String(profile.email || '').trim();
@@ -25036,7 +25036,7 @@ async function handleApi(req, res, pathname) {
       });
     }
 
-    await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId, {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId, {
       method: 'PATCH',
       body: JSON.stringify({
         whatsapp_sent: waResult.ok,
@@ -25057,7 +25057,7 @@ async function handleApi(req, res, pathname) {
     if (!supabase) { sendJson(res, 503, { ok: false }); return; }
 
     const callId = pathname.split('/')[4];
-    const rows = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=id,status,zoom_meeting_id,zoom_meeting_uuid,summary_status,summary_fetch_attempts', { method: 'GET' });
+    const rows = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=id,status,zoom_meeting_id,zoom_meeting_uuid,summary_status,summary_fetch_attempts', { method: 'GET' });
     if (!rows || rows.length === 0) { sendJson(res, 404, { ok: false, message: 'Call not found' }); return; }
     const call = rows[0];
 
@@ -25066,7 +25066,7 @@ async function handleApi(req, res, pathname) {
 
     await fetchAndSaveZoomSummary(call);
 
-    const updated = await supabaseDbRequest('scheduled_calls', '?id=eq.' + callId + '&select=summary_status,summary_error', { method: 'GET' });
+    const updated = await supabaseDbRequest('scheduled_calls', 'id=eq.' + callId + '&select=summary_status,summary_error', { method: 'GET' });
     sendJson(res, 200, { ok: true, summary_status: updated && updated[0] ? updated[0].summary_status : 'unknown' });
     return;
   }
@@ -29953,7 +29953,7 @@ Return ONLY valid JSON with no markdown formatting:
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     if (!body || !body.case_id || !body.title) { sendJson(res, 400, { ok: false, message: 'case_id and title required.' }); return; }
     if (!body.related_stage && body.case_id) {
-      const caseRes = await supabaseDbRequest('registration_cases', '?id=eq.' + body.case_id + '&select=stage', { method: 'GET' });
+      const caseRes = await supabaseDbRequest('registration_cases', 'id=eq.' + body.case_id + '&select=stage', { method: 'GET' });
       if (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0) {
         body.related_stage = caseRes.data[0].stage;
       }
