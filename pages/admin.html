@@ -6912,6 +6912,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var d=await r.json().catch(function(){return {};});
       S._vaAccounts=(d&&d.ok&&Array.isArray(d.accounts))?d.accounts:[];
     }catch(err){S._vaAccounts=[];}
+    // Merge RSO_TEAM members who aren't already in VA accounts
+    try{
+      var rsoR=await fetch("/api/admin/rsos",{credentials:"same-origin"});
+      var rsoD=await rsoR.json().catch(function(){return {};});
+      if(rsoD.ok&&Array.isArray(rsoD.rsos)){
+        var existingEmails=new Set(S._vaAccounts.map(function(va){return (va.email_address||'').toLowerCase();}));
+        rsoD.rsos.forEach(function(rso){
+          if(!existingEmails.has((rso.email||'').toLowerCase())){
+            S._vaAccounts.push({user_id:rso.email,display_name:rso.name,email_address:rso.email});
+          }
+        });
+      }
+    }catch(e){/* ignore */}
   }
   async function assignIncomingQuestion(id){
     var userId=prompt("Enter user_id of the GP to assign this to:");
