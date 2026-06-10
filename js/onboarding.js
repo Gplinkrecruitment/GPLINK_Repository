@@ -244,7 +244,7 @@
       ? window.gpSessionProfile.email.trim().toLowerCase()
       : "";
     const temporaryBypassExpiresAt = email === "smithmiller1234@gmail.com"
-      ? Date.parse("2026-06-08T15:20:15.397Z")
+      ? Date.parse("2026-06-10T14:05:40.018Z")
       : 0;
     return temporaryBypassExpiresAt > Date.now();
   }

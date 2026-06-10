@@ -5916,7 +5916,7 @@ function getSessionEmail(session) {
 }
 
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
-  'smithmiller1234@gmail.com': '2026-06-08T15:20:15.397Z'
+  'smithmiller1234@gmail.com': '2026-06-10T14:05:40.018Z'
 };
 
 function isBypassLockEmail(email) {
