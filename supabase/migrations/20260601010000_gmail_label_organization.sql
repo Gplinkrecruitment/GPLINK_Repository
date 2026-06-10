@@ -40,8 +40,11 @@ ALTER TABLE practice_detected_contacts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE va_gmail_accounts FROM anon, authenticated;
 REVOKE ALL ON TABLE practice_detected_contacts FROM anon, authenticated;
 
-CREATE POLICY va_gmail_service_all ON va_gmail_accounts
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY practice_contacts_service_all ON practice_detected_contacts
-  FOR ALL USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'va_gmail_service_all' AND tablename = 'va_gmail_accounts') THEN
+    CREATE POLICY va_gmail_service_all ON va_gmail_accounts FOR ALL USING (auth.role() = 'service_role');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'practice_contacts_service_all' AND tablename = 'practice_detected_contacts') THEN
+    CREATE POLICY practice_contacts_service_all ON practice_detected_contacts FOR ALL USING (auth.role() = 'service_role');
+  END IF;
+END $$;

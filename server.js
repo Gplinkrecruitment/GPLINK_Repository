@@ -12687,6 +12687,10 @@ async function handleCalendlyInviteeCreated(payload) {
   const timezone = String(invitee.timezone || '');
   const scheduledEventUri = String((invitee.scheduled_event && invitee.scheduled_event.uri) || '');
 
+  // Extract invitee notes from questions_and_answers
+  const qna = Array.isArray(invitee.questions_and_answers) ? invitee.questions_and_answers : [];
+  const inviteeNotes = qna.map(q => String(q.answer || '').trim()).filter(Boolean).join('\n') || null;
+
   // Extract correlation token from utm_content (format: call_HEXTOKEN)
   const tracking = invitee.tracking || {};
   const utmContent = String(tracking.utm_content || '');
@@ -12778,6 +12782,7 @@ async function handleCalendlyInviteeCreated(payload) {
   if (zoomJoinUrl) callPatch.zoom_join_url = zoomJoinUrl;
   if (zoomMeetingId) callPatch.zoom_meeting_id = zoomMeetingId;
   if (zoomMeetingPassword) callPatch.zoom_passcode = zoomMeetingPassword;
+  if (inviteeNotes) callPatch.invitee_notes = inviteeNotes;
 
   await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
     method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch

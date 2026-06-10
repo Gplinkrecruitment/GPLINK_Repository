@@ -8767,6 +8767,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (call.admin_notes) {
       html += '<div class="zoom-task-notes"><div class="zoom-task-notes-label">Admin Notes</div>' + esc(call.admin_notes) + '</div>';
     }
+    if (call.invitee_notes) {
+      html += '<div class="zoom-task-notes" style="border-left:3px solid #2563eb;background:#eff6ff"><div class="zoom-task-notes-label" style="color:#2563eb">GP\'s Booking Notes</div>' + esc(call.invitee_notes) + '</div>';
+    }
     // Summary toggle for completed calls
     if (call.status === 'completed' && call.meeting_summary) {
       var sumId = 'zoom-sum-' + (call.id || '').replace(/[^a-zA-Z0-9]/g, '');
@@ -8970,6 +8973,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '</div>';
         if (call.admin_notes) {
           html += '<div class="call-history-notes">' + esc(call.admin_notes) + '</div>';
+        }
+        if (call.invitee_notes) {
+          html += '<div class="call-history-notes" style="border-left:3px solid #2563eb;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2563eb">GP\'s Booking Notes:</strong> ' + esc(call.invitee_notes) + '</div>';
         }
         // Action buttons for active calls
         if (call.status !== 'completed') {
