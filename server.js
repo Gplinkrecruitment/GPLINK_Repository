@@ -81,7 +81,16 @@ const CALENDLY_EVENT_URL = String(process.env.CALENDLY_EVENT_URL || '').trim();
 const CALENDLY_EVENT_TYPE_URI = String(process.env.CALENDLY_EVENT_TYPE_URI || '').trim();
 const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || '').trim();
 const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
-const CALL_SCHEDULING_CRON_SECRET = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
+// Vercel auto-injects CRON_SECRET for its own cron triggers; manual calls use the shared secret
+const _CRON_SECRET_PRIMARY = String(process.env.CRON_SECRET || '').trim();
+const _CRON_SECRET_SHARED = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
+function isValidCronSecret(token) {
+  const t = String(token || '').trim();
+  if (!t) return false;
+  if (_CRON_SECRET_PRIMARY && t === _CRON_SECRET_PRIMARY) return true;
+  if (_CRON_SECRET_SHARED && t === _CRON_SECRET_SHARED) return true;
+  return false;
+}
 // ── Zoho Sign ─────────────────────────────────────────────
 const {
   ZOHO_SIGN_SCOPES,
@@ -20731,7 +20740,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname === '/api/cron/call-summary-retry') {
     const csrAuthHeader = req.headers['authorization'] || '';
     const csrToken = csrAuthHeader.replace('Bearer ', '').trim();
-    if (!CALL_SCHEDULING_CRON_SECRET || csrToken !== CALL_SCHEDULING_CRON_SECRET) {
+    if (!isValidCronSecret(csrToken)) {
       sendJson(res, 401, { ok: false, message: 'Unauthorized' });
       return;
     }
@@ -20755,7 +20764,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname === '/api/cron/call-reminders') {
     const crAuthHeader = req.headers['authorization'] || '';
     const crToken = crAuthHeader.replace('Bearer ', '').trim();
-    if (!CALL_SCHEDULING_CRON_SECRET || crToken !== CALL_SCHEDULING_CRON_SECRET) {
+    if (!isValidCronSecret(crToken)) {
       sendJson(res, 401, { ok: false, message: 'Unauthorized' });
       return;
     }
