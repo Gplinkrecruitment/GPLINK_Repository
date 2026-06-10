@@ -8687,12 +8687,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpBlock = document.getElementById('zoomGpBlock');
     var stageSelect = document.getElementById('zoomStageSelect');
     var notesField = document.getElementById('zoomAdminNotes');
+    var rsoSelect = document.getElementById('zoomAssignedRso');
     var initials = ((caseData.first_name || '')[0] || '') + ((caseData.last_name || '')[0] || '');
     gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + initials.toUpperCase() + '</div>'
       + '<div><div style="font-size:13px;font-weight:700">' + esc(caseData.first_name || '') + ' ' + esc(caseData.last_name || '') + '</div>'
       + '<div style="font-size:11px;color:var(--muted)">' + esc(caseData.email || '') + (caseData.phone ? ' \u00b7 ' + esc(caseData.phone) : '') + '</div></div>';
     stageSelect.value = caseData.stage || 'myintealth';
     notesField.value = '';
+    rsoSelect.innerHTML = '<option value="">Unassigned</option>';
+    // Fetch RSO list for dropdown
+    fetch('/api/admin/rsos', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok && d.rsos) {
+        d.rsos.forEach(function(rso) {
+          var opt = document.createElement('option');
+          opt.value = rso.email;
+          opt.textContent = rso.name;
+          rsoSelect.appendChild(opt);
+        });
+      }
+    }).catch(function() { /* ignore — dropdown stays with Unassigned only */ });
     document.getElementById('zoomNotifyWhatsapp').checked = true;
     document.getElementById('zoomNotifyEmail').checked = true;
     document.getElementById('zoomScheduleBtn').disabled = false;
@@ -8722,6 +8735,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           user_id: _zoomScheduleCase.user_id,
           stage: document.getElementById('zoomStageSelect').value,
           admin_notes: document.getElementById('zoomAdminNotes').value.trim(),
+          assigned_rso_email: document.getElementById('zoomAssignedRso').value,
           notify_whatsapp: document.getElementById('zoomNotifyWhatsapp').checked,
           notify_email: document.getElementById('zoomNotifyEmail').checked
         })
@@ -8757,6 +8771,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     html += '</div>';
     html += '<div class="zoom-task-details">';
     html += '<div class="zoom-task-detail"><strong>Time:</strong> ' + esc(timeStr) + '</div>';
+    if (call.assigned_rso_name) {
+      html += '<div class="zoom-task-detail"><strong>RSO:</strong> ' + esc(call.assigned_rso_name) + '</div>';
+    }
     if (call.calendly_event_url) {
       html += '<div class="zoom-task-detail"><strong>Calendly:</strong> <a href="' + esc(call.calendly_event_url) + '" target="_blank" rel="noopener" style="color:var(--blue)">View event</a></div>';
     }
@@ -8971,6 +8988,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<span class="call-history-stage">' + esc(call.stage || '') + '</span>';
         html += '<span class="calls-status-badge ' + esc(call.status || '') + '" style="margin-left:auto">' + esc(statusLabel) + '</span>';
         html += '</div>';
+        if (call.assigned_rso_name) {
+          html += '<div class="call-history-notes" style="font-size:11px;color:var(--muted);padding:2px 0"><strong>RSO:</strong> ' + esc(call.assigned_rso_name) + '</div>';
+        }
         if (call.admin_notes) {
           html += '<div class="call-history-notes">' + esc(call.admin_notes) + '</div>';
         }
@@ -9056,6 +9076,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="zoom-modal-body">
       <div class="zoom-gp-block" id="zoomGpBlock"></div>
+      <div class="zoom-form-group">
+        <label class="zoom-form-label">Assigned RSO</label>
+        <select class="zoom-form-select" id="zoomAssignedRso">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
       <div class="zoom-form-group">
         <label class="zoom-form-label">Registration Stage</label>
         <select class="zoom-form-select" id="zoomStageSelect">

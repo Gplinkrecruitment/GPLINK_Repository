@@ -246,6 +246,10 @@ const SUPER_ADMIN_EMAILS = new Set(
     .filter(Boolean)
 );
 const CEO_EMAIL = String(process.env.CEO_EMAIL || '').trim().toLowerCase();
+const RSO_TEAM = [
+  { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243' },
+  { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '' }
+];
 let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
@@ -420,6 +424,8 @@ function buildScheduledCallInsertPayload(input = {}) {
     calendly_booking_url: input.bookingUrl,
     calendly_event_type_uri: input.calendlyEventTypeUri || null,
     duration_minutes: Number(input.durationMinutes || 30),
+    assigned_rso_email: input.assignedRsoEmail || null,
+    assigned_rso_name: input.assignedRsoName || null,
     summary_status: 'not_requested',
     created_by: input.createdBy || 'admin',
     created_at: nowIso,
@@ -24815,6 +24821,14 @@ async function handleApi(req, res, pathname) {
 
   // ── Admin Zoom call scheduling ──────────────────────────────────
 
+  // GET /api/admin/rsos — list RSO team members for assignment dropdown
+  if (req.method === 'GET' && pathname === '/api/admin/rsos') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    sendJson(res, 200, { ok: true, rsos: RSO_TEAM });
+    return;
+  }
+
   // POST /api/admin/calls/schedule
   if (req.method === 'POST' && pathname === '/api/admin/calls/schedule') {
     const admin = requireAdminSession(req, res);
@@ -24836,6 +24850,8 @@ async function handleApi(req, res, pathname) {
     const userId = String(body && body.user_id || '').trim();
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
+    const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
+    const assignedRso = assignedRsoEmail ? RSO_TEAM.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
     const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
     if (!caseId || !userId || !stage) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, user_id, stage.' });
@@ -24880,6 +24896,8 @@ async function handleApi(req, res, pathname) {
         correlationToken,
         bookingUrl,
         calendlyEventTypeUri: CALENDLY_EVENT_TYPE_URI,
+        assignedRsoEmail: assignedRso ? assignedRso.email : null,
+        assignedRsoName: assignedRso ? assignedRso.name : null,
         createdBy: admin.email || 'admin',
         nowIso
       }),
@@ -29915,6 +29933,109 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 200, { ok: true, retried });
+    return;
+  }
+
+  // ── Cron: send email + WhatsApp reminders to assigned RSOs 10 min before booked calls ──
+  // NOTE: Vercel Hobby tier only supports daily crons, so the */5 schedule in vercel.json won't
+  // actually fire. Use an external cron service (e.g. cron-job.org) or call this endpoint manually
+  // until the Vercel plan is upgraded. Auth: Bearer $CRON_SECRET header.
+  if (req.method === 'POST' && pathname === '/api/cron/call-reminders') {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!CALL_SCHEDULING_CRON_SECRET || token !== CALL_SCHEDULING_CRON_SECRET) {
+      sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+
+    try {
+      const now = new Date();
+      const fromIso = now.toISOString();
+      const toDate = new Date(now.getTime() + 15 * 60 * 1000);
+      const toIso = toDate.toISOString();
+
+      // Find booked calls in the next 15 minutes that haven't had a reminder sent
+      const callsRes = await supabaseDbRequest('scheduled_calls',
+        'select=id,assigned_rso_email,assigned_rso_name,stage,scheduled_at,zoom_join_url,admin_notes,invitee_notes,case_id,user_id&status=eq.booked&reminder_sent_at=is.null&scheduled_at=gte.' + encodeURIComponent(fromIso) + '&scheduled_at=lte.' + encodeURIComponent(toIso),
+        { method: 'GET' }
+      );
+      const calls = callsRes.ok && Array.isArray(callsRes.data) ? callsRes.data : [];
+      const needsReminder = calls.filter(c => c.assigned_rso_email);
+
+      if (needsReminder.length === 0) {
+        sendJson(res, 200, { ok: true, message: 'No reminders needed', reminded: 0 });
+        return;
+      }
+
+      let reminded = 0;
+      for (const call of needsReminder) {
+        // Look up GP name from user_profiles
+        let gpName = 'the GP';
+        try {
+          const profileRes = await supabaseDbRequest('user_profiles',
+            'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name',
+            { method: 'GET' }
+          );
+          const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
+          gpName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || 'the GP';
+        } catch (e) { /* fallback to default name */ }
+
+        const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage || '';
+        const rso = RSO_TEAM.find(r => r.email.toLowerCase() === (call.assigned_rso_email || '').toLowerCase());
+        const rsoPhone = rso ? rso.phone : '';
+
+        // Send WhatsApp reminder to RSO via DoubleTick
+        if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
+          const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
+          try {
+            await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: rsoPhone, body: waText }),
+              signal: AbortSignal.timeout(10000)
+            });
+          } catch (waErr) {
+            console.error('[call-reminders] WhatsApp send failed for call ' + call.id + ':', waErr.message);
+          }
+        }
+
+        // Send email reminder to RSO
+        try {
+          const notesSection = call.admin_notes ? '<p style="margin:12px 0 4px"><strong>Admin Notes:</strong></p><p style="margin:0;padding:8px 12px;background:#fef3c7;border-radius:6px">' + (call.admin_notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>' : '';
+          const inviteeNotesSection = call.invitee_notes ? '<p style="margin:12px 0 4px"><strong>GP\'s Booking Notes:</strong></p><p style="margin:0;padding:8px 12px;background:#eff6ff;border-radius:6px;border-left:3px solid #2563eb">' + (call.invitee_notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>' : '';
+          const zoomSection = call.zoom_join_url ? '<p style="margin:16px 0"><a href="' + call.zoom_join_url + '" style="display:inline-block;padding:10px 24px;background:#2D8CFF;color:#fff;text-decoration:none;border-radius:6px;font-weight:600">Join Zoom Meeting</a></p>' : '';
+          await sendEmail({
+            to: call.assigned_rso_email,
+            subject: 'Upcoming Zoom Call \u2014 ' + gpName + ' in 10 minutes',
+            html: '<div style="font-family:sans-serif;max-width:520px;margin:0 auto">'
+              + '<h2 style="color:#1e293b;margin:0 0 16px">Zoom Call Reminder</h2>'
+              + '<p style="margin:0 0 8px">You have a call with <strong>' + gpName.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</strong> starting in approximately 10 minutes.</p>'
+              + '<p style="margin:0 0 8px"><strong>Stage:</strong> ' + stageDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>'
+              + notesSection
+              + inviteeNotesSection
+              + zoomSection
+              + '</div>',
+            text: 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' Join: ' + call.zoom_join_url : '')
+          });
+        } catch (emailErr) {
+          console.error('[call-reminders] Email send failed for call ' + call.id + ':', emailErr.message);
+        }
+
+        // Mark reminder as sent
+        await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: { reminder_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        });
+        reminded++;
+      }
+
+      sendJson(res, 200, { ok: true, reminded });
+    } catch (err) {
+      console.error('[call-reminders] Error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'Reminder cron failed: ' + err.message });
+    }
     return;
   }
 
