@@ -6920,7 +6920,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var existingEmails=new Set(S._vaAccounts.map(function(va){return (va.email_address||'').toLowerCase();}));
         rsoD.rsos.forEach(function(rso){
           if(!existingEmails.has((rso.email||'').toLowerCase())){
-            S._vaAccounts.push({user_id:rso.email,display_name:rso.name,email_address:rso.email});
+            S._vaAccounts.push({user_id:rso.user_id||rso.email,display_name:rso.name,email_address:rso.email});
           }
         });
       }

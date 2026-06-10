@@ -256,8 +256,8 @@ const SUPER_ADMIN_EMAILS = new Set(
 );
 const CEO_EMAIL = String(process.env.CEO_EMAIL || '').trim().toLowerCase();
 const RSO_TEAM = [
-  { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243' },
-  { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '' }
+  { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243', user_id: '2f94f870-7ab2-4f71-98ad-bf3756ed88db' },
+  { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' }
 ];
 let _domainApiAccessTokenCache = new Map();
 
