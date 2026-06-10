@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 5. **BE TRANSPARENT.** If testing manually, say so explicitly. Never imply something happened automatically when it didn't.
 6. **ALWAYS COMMIT AND PUSH.** After every code change, commit and push to the remote repository immediately.
 7. **ALWAYS USE SUBAGENTS.** When executing implementation plans, always use subagent-driven development (one subagent per task). Never ask which execution approach to use.
+8. **EXTRAPOLATE END-TO-END.** When making changes, trace the full data flow from UI → API → database → back. Don't just add a dropdown without checking the save handler, the API endpoint, the DB column constraints, and the read-back display. Every feature must work end-to-end before it ships.
 
 ## Commands
 

@@ -29344,7 +29344,7 @@ Return ONLY valid JSON with no markdown formatting:
           var labelCaseRes = await supabaseDbRequest('registration_cases',
             'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
-          if (!labelCase) return;
+          if (!labelCase) throw new Error('Case not found for label setup');
 
           var gpProfileRes = await supabaseDbRequest('user_profiles',
             'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
@@ -29355,8 +29355,8 @@ Return ONLY valid JSON with no markdown formatting:
             'select=email_address,display_name&user_id=eq.' + encodeURIComponent(patch.assigned_va) + '&limit=1');
           var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
           if (!vaAcc) {
-            console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va);
-            return;
+            console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va, '— skipping label setup');
+            throw new Error('skip');
           }
 
           // Archive old VA's label if this is a reassignment
@@ -29483,7 +29483,7 @@ Return ONLY valid JSON with no markdown formatting:
           var rnCaseRes = await supabaseDbRequest('registration_cases',
             'select=user_id,gmail_label_id,gmail_label_hello_id,assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var rnCase = rnCaseRes.ok && rnCaseRes.data && rnCaseRes.data[0] ? rnCaseRes.data[0] : null;
-          if (!rnCase || !rnCase.assigned_va) return;
+          if (!rnCase || !rnCase.assigned_va) throw new Error('skip');
 
           var gpProfRes = await supabaseDbRequest('user_profiles',
             'select=first_name,last_name&user_id=eq.' + encodeURIComponent(rnCase.user_id) + '&limit=1');
