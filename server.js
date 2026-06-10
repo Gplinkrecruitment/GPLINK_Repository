@@ -81,7 +81,7 @@ const CALENDLY_EVENT_URL = String(process.env.CALENDLY_EVENT_URL || '').trim();
 const CALENDLY_EVENT_TYPE_URI = String(process.env.CALENDLY_EVENT_TYPE_URI || '').trim();
 const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || '').trim();
 const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
-const CALL_SCHEDULING_CRON_SECRET = String(process.env.CRON_SECRET || '').trim();
+const CALL_SCHEDULING_CRON_SECRET = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
 // ── Zoho Sign ─────────────────────────────────────────────
 const {
   ZOHO_SIGN_SCOPES,
