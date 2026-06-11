@@ -3084,7 +3084,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       var attachInfo=null;
       if(m.attachments){
-        var att=typeof m.attachments==='string'?JSON.parse(m.attachments||'[]'):m.attachments;
+        var att=m.attachments;
+        if(typeof att==='string'){try{att=JSON.parse(att||'[]');}catch(_e){att=[];}}
         if(Array.isArray(att)&&att.length)attachInfo=att.length+' attachment'+(att.length>1?'s':'');
       }
       merged.push({
