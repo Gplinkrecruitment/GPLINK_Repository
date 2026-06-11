@@ -116,3 +116,35 @@ classes. JS-generated inline styles are left alone.
 2. Push branch to origin — GitHub + Vercel git integration produces a preview build.
 3. Run an explicit preview deploy (`vercel`, not `vercel --prod`) for a direct URL.
 4. Do NOT merge to main; do NOT promote to production.
+
+## Addendum (2026-06-12, after preview feedback): admin/user host separation
+
+User feedback: clicking the Vercel preview lands on the GP onboarding, not the admin
+dashboard; admin and user sides must be completely separate.
+
+Root cause: admin access is host-gated via `ADMIN_ALLOWED_HOSTS`; preview hostnames are
+never in that allowlist, so admin pages/APIs 404 on previews and `/` always redirects to
+the user app. Separation was also one-way: dedicated admin hosts still served the entire
+GP app.
+
+Design:
+1. **`preview` host scope** — `getAdminHostScope()` returns `'preview'` when
+   `process.env.VERCEL_ENV === 'preview'` (checked after the explicit host allowlists).
+   `doesAdminRoleMatchHost` treats `preview` like `admin`/`local` (admin, staff, and
+   super_admin roles allowed). Admin login is still required; production deployments run
+   with `VERCEL_ENV=production` so this scope can never apply to live domains. Preview
+   deployments serve BOTH sides (they exist for testing).
+2. **Host-aware root** — `/` redirects to `/pages/admin` on `admin`/`super_admin`/
+   `preview` scopes, `/pages/index` otherwise. Local dev (`local` scope) keeps the user
+   app at root.
+3. **Two-way separation on dedicated admin hosts** (`admin`/`super_admin` scopes only) —
+   any page navigation (`.html` routes, blog) that is not one of the five admin pages
+   redirects to `/pages/admin-signin` UNLESS a user session exists. The user-session
+   exception is required by impersonation: `/api/admin/impersonate` sets a user session
+   cookie on the admin host (cookies are host-scoped, so the impersonated app must run
+   there). Assets (`/js`, `/media`, `/documents`, `sw.js`) and APIs are not page
+   navigations and are unaffected.
+
+Out of scope: moving impersonation to the user domain (requires a cross-host token
+handoff), Vercel Deployment Protection settings, and ensuring preview-environment env
+vars (ADMIN_EMAILS / AUTH_SECRET / Supabase) exist — flagged to the user instead.
