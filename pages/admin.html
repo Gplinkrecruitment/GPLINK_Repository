@@ -21,11 +21,11 @@
       /* surfaces */
       --bg2:#f8fafc;--bg3:#e2e8f0;--border:#dfe6f2;--surface:#f1f5f9;
       /* radii */
-      --radius:12px;--r-sm:6px;--r-md:8px;--r-full:999px;
+      --radius:12px;--r-sm:6px;--r-md:8px;--r-lg:16px;--r-full:999px;
       /* shadows */
-      --shadow:0 1px 3px rgba(15,23,42,.08);--shadow-lg:0 20px 60px rgba(15,23,42,.25);
+      --shadow:0 1px 3px rgba(15,23,42,.08);--shadow-lg:0 20px 50px -12px rgba(0,0,0,.3);
     }
-    /* component bases — shared geometry; per-class rules keep color intent */
+    /* component bases — shared geometry for buttons/cards/modals. Add new button/card classes to these groups. NOTE: some per-class rules deliberately re-declare default-looking values (font-weight:400, border-radius:0) to override this base — do not remove them. */
     .btn,.btn-action,.filter-btn,.tech-filter-btn,.support-filter-btn,.tools-subnav-btn,
     .tech-subnav-btn,.mc-subnav-btn,.guide-add-btn,.guide-mgmt-btn,.st-primary-btn,
     .st-nudge-btn,.st-more-btn,.ops-btn-secondary,.ops-btn-green,.ops-btn-danger,
@@ -39,7 +39,7 @@
     .todo-card,.integration-card,.els-admin-card,.drive-file-card,.zoom-task-card{
       background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
     }
-    .modal,.zoom-modal{border-radius:16px;box-shadow:var(--shadow-lg);background:var(--panel);}
+    .modal,.zoom-modal{border-radius:var(--r-lg);box-shadow:var(--shadow-lg);background:var(--panel);}
     *{box-sizing:border-box;margin:0}
     body{font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--bg);min-height:100vh}
     .top-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 20px;background:linear-gradient(120deg,var(--purple-1),var(--purple-2));color:#fff;flex-wrap:wrap}
@@ -212,7 +212,7 @@
     .wq-detail{font-size:11px;color:var(--muted);margin-top:1px}
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:none;place-items:center}
     .modal-overlay.open{display:grid}
-    .modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px -12px rgba(0,0,0,.3)}
+    .modal{padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto}
     .modal h3{font-size:16px;font-weight:800;margin-bottom:12px}
     .textarea{width:100%;min-height:60px;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;margin:8px 0}
     .textarea:focus{border-color:var(--blue);outline:none}
@@ -393,12 +393,12 @@
       .ops-action-row{flex-direction:column}
     }
     .agent-stack{display:grid;gap:12px}
-    .agent-hero{background:linear-gradient(135deg,var(--ink),#1e293b);color:#fff;border-radius:16px;padding:18px;border:1px solid rgba(255,255,255,.08)}
+    .agent-hero{background:linear-gradient(135deg,var(--ink),#1e293b);color:#fff;border-radius:var(--r-lg);padding:18px;border:1px solid rgba(255,255,255,.08)}
     .agent-hero h2{font-size:22px;font-weight:800;letter-spacing:-.03em;margin-bottom:4px}
     .agent-hero p{font-size:13px;color:rgba(255,255,255,.72);line-height:1.5}
     .agent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     .agent-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-    .agent-card{border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+    .agent-card{border-radius:var(--r-lg);padding:14px;box-shadow:var(--shadow)}
     .agent-card.dark{background:var(--ink);color:#fff;border-color:#1e293b}
     .agent-card h3{font-size:13px;font-weight:800;margin-bottom:10px}
     .agent-meta{font-size:11px;color:var(--muted);line-height:1.6}
@@ -821,7 +821,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     /* ══ SPPA Review panel + Correction modal ══ */
     .sppa-review-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:120;display:none;place-items:center}
     .sppa-review-overlay.open{display:grid}
-    .sppa-review-panel{background:#fff;border-radius:16px;max-width:900px;width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+    .sppa-review-panel{background:#fff;border-radius:var(--r-lg);max-width:900px;width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
     .sppa-review-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
     .sppa-review-header h3{font-size:16px;font-weight:800;margin:0}
     .sppa-review-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -829,11 +829,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .sppa-review-footer{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line)}
     .pdf-editor-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:140;display:none;place-items:center}
     .pdf-editor-overlay.open{display:grid}
-    .pdf-editor-panel{background:#fff;border-radius:16px;width:95vw;height:95vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden}
+    .pdf-editor-panel{background:#fff;border-radius:var(--r-lg);width:95vw;height:95vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden}
     .pdf-editor-panel iframe{flex:1;border:none;width:100%;height:100%}
     .correction-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:130;display:none;place-items:center}
     .correction-overlay.open{display:grid}
-    .correction-modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+    .correction-modal{background:#fff;border-radius:var(--r-lg);padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)}
     .correction-modal h3{font-size:16px;font-weight:800;margin:0 0 12px}
     .correction-modal label.radio-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px}
     .correction-modal .section-checks{display:grid;gap:4px;margin:10px 0}
@@ -1255,7 +1255,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 /* ── Zoom Call Scheduling ── */
 .zoom-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
 .zoom-modal-overlay.open{opacity:1;pointer-events:all}
-.zoom-modal{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.15);width:480px;max-width:90vw;max-height:90vh;overflow-y:auto}
+.zoom-modal{width:480px;max-width:90vw;max-height:90vh;overflow-y:auto}
 .zoom-modal-header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
 .zoom-modal-header h2{font-size:16px;font-weight:800;flex:1;margin:0}
 .zoom-modal-close{width:28px;height:28px;border-radius:var(--r-md);border:1px solid var(--line);background:#fff;display:grid;place-items:center;font-size:14px;color:var(--muted);cursor:pointer}
