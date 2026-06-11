@@ -19897,6 +19897,22 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div></body></html>`;
 }
 
+// User endpoints that create a session or run credential flows. Blocked on
+// dedicated admin hosts (see the gate in handleApi) so the admin side cannot
+// be used to sign in as a GP — impersonation is the only user-session path there.
+const USER_SESSION_CREATING_PATHS = new Set([
+  '/api/auth/send-code',
+  '/api/auth/signup',
+  '/api/auth/login',
+  '/api/auth/supabase-session-login',
+  '/api/auth/verify-code',
+  '/api/auth/oauth/token',
+  '/api/auth/set-password',
+  '/api/auth/request-password-reset',
+  '/api/auth/recovery-update-password',
+  '/api/auth/reset-password'
+]);
+
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -20927,6 +20943,18 @@ async function handleApi(req, res, pathname) {
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return;
+  }
+
+  // Dedicated admin hosts must not mint USER sessions or run user credential
+  // flows — the only legitimate user session there is created server-side by
+  // /api/admin/impersonate. Session reads (/api/auth/session, /api/auth/logout)
+  // stay available for impersonation. Preview and local scopes are not blocked.
+  if (USER_SESSION_CREATING_PATHS.has(pathname)) {
+    const apiHostScope = getAdminHostScope(req);
+    if (apiHostScope === 'admin' || apiHostScope === 'super_admin') {
+      sendJson(res, 404, { ok: false, message: 'Not found' });
+      return;
+    }
   }
 
   if (pathname === '/api/auth/prewarm' && req.method === 'POST') {
