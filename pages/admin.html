@@ -1517,6 +1517,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
   function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
+  function on(id,evt,fn){var el=document.getElementById(id);if(el)el.addEventListener(evt,fn);return el;}
   function _safeProtocolUrl(u,allowedProtocols,fallback){
     if(!u||typeof u!=="string")return esc(fallback||"");
     var raw=u.trim();
@@ -3864,12 +3865,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <button class="btn" data-close-modal>Close</button>
       </div>`;
     document.getElementById("modalOverlay").classList.add("open");
-    document.getElementById("sendReplyBtn").addEventListener("click",async()=>{
+    on("sendReplyBtn","click",async()=>{
       const txt=document.getElementById("replyInput").value.trim();if(!txt)return;
       const btn=document.getElementById("sendReplyBtn");btn.disabled=true;btn.textContent="Sending...";
       try{await fetch("/api/admin/tickets/"+encodeURIComponent(tid)+"/reply",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:txt,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Send Reply";}
     });
-    document.getElementById("toggleTixBtn").addEventListener("click",async()=>{
+    on("toggleTixBtn","click",async()=>{
       const btn=document.getElementById("toggleTixBtn"),nx=btn.getAttribute("data-next");btn.disabled=true;
       try{await fetch("/api/admin/tickets/"+encodeURIComponent(tid)+"/status",{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:nx,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;}
     });
@@ -3891,7 +3892,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>
       <div style="display:flex;gap:6px"><button class="btn primary" id="createTaskBtn">Create</button><button class="btn" data-close-modal>Cancel</button></div>`;
     document.getElementById("modalOverlay").classList.add("open");
-    document.getElementById("createTaskBtn").addEventListener("click",async()=>{
+    on("createTaskBtn","click",async()=>{
       const title=document.getElementById("newTaskTitle").value.trim();if(!title){alert("Title required");return;}
       const btn=document.getElementById("createTaskBtn");btn.disabled=true;btn.textContent="Creating...";
       try{await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),task_type:document.getElementById("newTaskType").value||'manual',related_document_key:document.getElementById("newTaskDocKey").value||null,priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
@@ -5481,7 +5482,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.body.appendChild(overlay);
     var closeModal=function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);};
     overlay.addEventListener("click",function(ev){if(ev.target===overlay)closeModal();});
-    document.getElementById("docPreviewClose").addEventListener("click",closeModal);
+    on("docPreviewClose","click",closeModal);
     // Render .docx client-side
     if(docxBlob){
       _loadDocxPreview().then(function(docxLib){
@@ -5575,7 +5576,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* ══ Events ══ */
   function bind(){
-    document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
+    on("searchInput","input",e=>{S.query=e.target.value||"";renderCaseList();});
     const gs=document.getElementById("globalSearch");
     if(gs){
       gs.addEventListener("input",e=>{runGlobalSearch((e.target.value||"").trim());});
@@ -5644,8 +5645,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderScheduledCallsPanel();
       }
     });
-    document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
-    document.getElementById("caseList").addEventListener("click",e=>{
+    on("filterBar","click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
+    on("caseList","click",e=>{
       const agentRun=e.target.closest("[data-agent-run-id]");
       if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderCaseList();renderDetail();loadAgentRun(S.agent.selectedRunId);return;}
       const card=e.target.closest("[data-case-id]");
@@ -5705,7 +5706,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderMedicalCentresPanel();
       }
     });
-    document.getElementById("detailContent").addEventListener("click",async e=>{
+    on("detailContent","click",async e=>{
       /* Close dropdowns on outside click */
       if(!e.target.closest(".st-dropdown")&&!e.target.closest("[data-more-menu]")){
         document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
@@ -6152,7 +6153,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const ts=e.target.closest("[data-toggle-step]");if(ts){const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
       const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
-    document.getElementById("modalOverlay").addEventListener("click",async e=>{
+    on("modalOverlay","click",async e=>{
       const copyBtn=e.target.closest("[data-copy-connect]");
       if(copyBtn){
         const provider=copyBtn.getAttribute("data-copy-connect");
@@ -6255,13 +6256,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       nextInput.accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic";
       label.appendChild(nextInput);
     }
-    document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
-    document.getElementById("pdfEditorOverlay").addEventListener("click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
-    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
-    document.getElementById("syncBtn").addEventListener("click",syncCases);
+    on("sppaReviewOverlay","click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
+    on("pdfEditorOverlay","click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
+    on("logoutBtn","click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
+    on("syncBtn","click",syncCases);
 
     /* Ops Queue bindings — stat card filter toggle */
-    document.getElementById("opsStats").addEventListener("click",function(e){
+    on("opsStats","click",function(e){
       var card=e.target.closest("[data-stat-key]");if(!card)return;
       var key=card.getAttribute("data-stat-key");
       // "open" card always clears filter (shows all active); other cards toggle
@@ -6269,7 +6270,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else{S._opsStatFilter=S._opsStatFilter===key?null:key;}
       loadOpsQueue();
     });
-    document.getElementById("opsTableBody").addEventListener("click",async e=>{
+    on("opsTableBody","click",async e=>{
       // Download document from data: URI
       var dlBtn=e.target.closest("[data-preview-doc]");
       if(dlBtn){
@@ -6584,7 +6585,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
 
     /* ── File upload change handler for ops queue ── */
-    document.getElementById("opsTableBody").addEventListener("change",async e=>{
+    on("opsTableBody","change",async e=>{
       var fileInput=e.target.closest("[data-ops-file-input]");
       if(!fileInput)return;
       var tid=fileInput.getAttribute("data-ops-file-input");
@@ -6605,10 +6606,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       };
       reader.readAsDataURL(file);
     });
-    document.getElementById("detailContent").addEventListener("input",e=>{
+    on("detailContent","input",e=>{
       if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}
     });
-    document.getElementById("detailContent").addEventListener("change",e=>{
+    on("detailContent","change",e=>{
       if(!e.target)return;
       /* File upload inside GP Profile task detail panels */
       var fileInput=e.target.closest("[data-ops-file-input]");
@@ -7951,7 +7952,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       document.getElementById("modalBody").innerHTML=html;
       var threadEl=document.getElementById("adminChatThread");
       if(threadEl)threadEl.scrollTop=threadEl.scrollHeight;
-      document.getElementById("adminChatSendBtn").addEventListener("click",async function(){
+      on("adminChatSendBtn","click",async function(){
         var txt=(document.getElementById("adminChatReplyInput").value||"").trim();
         if(!txt)return;
         var btn=document.getElementById("adminChatSendBtn");
@@ -8305,7 +8306,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Technical Hub ──
   var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null};
 
-  document.getElementById("technicalPanel").addEventListener("click",function(e){
+  on("technicalPanel","click",function(e){
     var subBtn=e.target.closest("[data-tech-view]");
     if(subBtn){
       var tv=subBtn.getAttribute("data-tech-view");
