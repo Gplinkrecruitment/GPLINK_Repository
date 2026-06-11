@@ -1698,8 +1698,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (dk === 'position_description') {
       if (task.document_html) {
         return '<div class="doc-task-actions">' +
-          '<button class="btn-action btn-review" onclick="openPDEditor(\'' + task.id + '\')">Edit & Review</button>' +
-          '<button class="btn-action btn-submit" onclick="approvePositionDescription(\'' + task.id + '\')">Approve & Send to GP</button>' +
+          '<button class="btn-action btn-review" onclick="openPDEditor(\'' + escAttr(task.id) + '\')">Edit & Review</button>' +
+          '<button class="btn-action btn-submit" onclick="approvePositionDescription(\'' + escAttr(task.id) + '\')">Approve & Send to GP</button>' +
           '</div>';
       }
       if (task.zoho_attachment_id || task.attachment_url) {
@@ -1714,7 +1714,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         'Hi ' + (pc.contactName || '') + ',\\n\\nWe require a position description for ' + gpName + '\\\'s Specialist Registration application with AHPRA at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the position description attached.\\n\\nKind regards,\\nGP Link Team');
       pdHtml += '<a class="btn-action btn-mailto" href="' + pdMailto + '">Email Practice</a>';
       pdHtml += '</div>';
-      pdHtml += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
+      pdHtml += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + escAttr(task.id) + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') pdHtml += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
       return pdHtml;
     }
@@ -1741,10 +1741,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         html += '</div>';
         html += '<div class="doc-task-actions">';
-        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review Document</button>';
-        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Approve &amp; Send to GP</button>';
-        html += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + task.id + '\')">Request Revision</button>';
-        html += '<button class="btn-action" onclick="dismissAttachment(\'' + task.id + '\')" style="color:#dc2626;">Dismiss</button>';
+        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + escAttr(task.id) + '\')">Review Document</button>';
+        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + escAttr(task.id) + '\')">Approve &amp; Send to GP</button>';
+        html += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + escAttr(task.id) + '\')">Request Revision</button>';
+        html += '<button class="btn-action" onclick="dismissAttachment(\'' + escAttr(task.id) + '\')" style="color:#dc2626;">Dismiss</button>';
         html += '</div>';
       } else if (task.zoho_attachment_id || task.attachment_url) {
         html += '<div class="doc-task-actions">';
@@ -1759,7 +1759,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<a class="btn-action btn-mailto" href="' + mailto + '">Email Practice for Contract</a>';
         html += '</div>';
       }
-      html += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
+      html += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + escAttr(task.id) + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') html += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
       return html;
     }
@@ -1786,10 +1786,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         html2 += '</div>';
         html2 += '<div class="doc-task-actions">';
-        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review Document</button>';
-        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Approve &amp; Send to GP</button>';
-        html2 += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + task.id + '\')">Request Revision</button>';
-        html2 += '<button class="btn-action" onclick="dismissAttachment(\'' + task.id + '\')" style="color:#dc2626;">Dismiss</button>';
+        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + escAttr(task.id) + '\')">Review Document</button>';
+        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + escAttr(task.id) + '\')">Approve &amp; Send to GP</button>';
+        html2 += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + escAttr(task.id) + '\')">Request Revision</button>';
+        html2 += '<button class="btn-action" onclick="dismissAttachment(\'' + escAttr(task.id) + '\')" style="color:#dc2626;">Dismiss</button>';
         html2 += '</div>';
       } else if (task.attachment_url) {
         html2 += '<div class="doc-task-actions">';
@@ -1804,7 +1804,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html2 += '<a class="btn-action btn-mailto" href="' + mailto2 + '">Email Practice for Supervisor CV</a>';
         html2 += '</div>';
       }
-      html2 += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
+      html2 += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + escAttr(task.id) + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') html2 += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
       return html2;
     }
