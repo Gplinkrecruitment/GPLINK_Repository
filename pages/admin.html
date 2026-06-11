@@ -2855,18 +2855,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpDocs=cache.gpDocuments;
     if(gpDocs===undefined)loadGpDocuments(c.user_id,c.id);
     var h='';
-    h+='<div class="inbox-section-title">Upload document</div>';
-    h+='<div class="drive-upload-row">';
-    h+='<label class="btn primary sm drive-upload-btn">Choose file\u2026<input type="file" data-drive-upload="'+esc(c.id)+'" style="position:absolute;inset:0;opacity:0;cursor:pointer" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv"></label>';
-    h+='<span class="drive-upload-status" id="driveUploadStatus"></span>';
-    h+='</div>';
     h+='<div id="driveFilesList">';
-    h+=renderCategorizedDocuments(gpDocs);
+    h+=renderCategorizedDocuments(gpDocs,c.id);
     h+='</div>';
     return h;
   }
 
-  function renderCategorizedDocuments(gpDocs){
+  function renderCategorizedDocuments(gpDocs,caseId){
     if(!gpDocs)return '<div class="empty">Loading\u2026</div>';
     var h='';
 
@@ -2914,11 +2909,24 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     h+='</div></div>';
 
-    // Section 4: Other Files (unmatched Drive files)
+    // Section 4: Other Files (unmatched Drive files) — also the upload target.
+    // Uploads here post to /api/admin/drive/upload, which drops the file in the
+    // case Drive folder unmatched, so it lands back in this section.
     var other=gpDocs.otherFiles||[];
-    if(other.length){
-      h+='<div class="doc-section">';
-      h+='<div class="doc-section-header"><span class="doc-section-title">Other Files</span><span class="doc-section-count">'+other.length+'</span></div>';
+    h+='<div class="doc-section">';
+    h+='<div class="doc-section-header"><span class="doc-section-title">Other Files</span>';
+    h+='<div style="display:flex;align-items:center;gap:10px">';
+    if(caseId){
+      h+='<div class="drive-upload-row">';
+      h+='<label class="btn primary sm drive-upload-btn">Upload file…<input type="file" data-drive-upload="'+esc(caseId)+'" style="position:absolute;inset:0;opacity:0;cursor:pointer" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv"></label>';
+      h+='<span class="drive-upload-status" id="driveUploadStatus"></span>';
+      h+='</div>';
+    }
+    h+='<span class="doc-section-count">'+other.length+'</span>';
+    h+='</div>';
+    h+='</div>';
+    if(!other.length)h+='<div class="empty">No files in this category.</div>';
+    else{
       h+='<div class="drive-files-grid">';
       other.forEach(function(f){
         var icon=driveFileIcon(f.mimeType);
@@ -2931,8 +2939,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           +'<div class="drive-file-meta">'+size+(size?' \u2022 ':'')+fmtR(f.modifiedTime)+'</div>'
           +'</div></div>';
       });
-      h+='</div></div>';
+      h+='</div>';
     }
+    h+='</div>';
 
     return h;
   }
@@ -3144,7 +3153,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       S.va.gpDetailCache[userId].driveFiles=new Array(totalFiles);
       var listEl=document.getElementById("driveFilesList");
       if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
-        listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments);
+        listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId);
       }
     }catch(err){console.error("[VA] loadGpDocuments failed",err);}
   }

@@ -29848,7 +29848,14 @@ Return ONLY valid JSON with no markdown formatting:
 
       // Prepared by GP LINK
       var gdOpsMap = {};
-      gdPracticeOps.forEach(function(op) { if (op && op.document_key) gdOpsMap[op.document_key] = op; });
+      gdPracticeOps.forEach(function(op) {
+        if (op && op.document_key) {
+          gdOpsMap[op.document_key] = op;
+          // Drive file id recorded at upload time links the file to its placeholder
+          // even when no practice_pack_child task exists for the doc key.
+          if (op.google_drive_file_id) gdDriveIdToDocKey[op.google_drive_file_id] = op.document_key;
+        }
+      });
 
       GP_LINK_DOCUMENT_META.forEach(function(doc) {
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
@@ -35752,10 +35759,13 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (driveErr) { console.error('[PracticeDocUpload] Drive upload failed:', driveErr.message); }
     }
 
-    // Mark ops_status as completed
+    // Mark ops_status as completed and record the Drive file id so the
+    // placeholder can be matched back even when no practice_pack_child task exists.
     await _ensurePracticeDocOps(caseId);
+    const opsPatch = { ops_status: 'completed' };
+    if (driveFileId) opsPatch.google_drive_file_id = driveFileId;
     await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
-      { method: 'PATCH', body: { ops_status: 'completed' } });
+      { method: 'PATCH', body: opsPatch });
 
     await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
     sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
