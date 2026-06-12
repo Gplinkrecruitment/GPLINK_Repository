@@ -24,12 +24,10 @@
       --border: var(--gp-border);
       --border-light: var(--gp-surface-sunken);
       --accent: var(--gp-blue);
-      --accent-glow: rgba(37, 99, 235, 0.12);
       --success: var(--gp-green);
       --warn-border: var(--gp-amber-border);
       --warn-text: var(--gp-amber);
       --hero-from: var(--gp-hero-ink);
-      --hero-to: #14203a;
       --sp-1: var(--gp-sp-1); --sp-2: var(--gp-sp-2); --sp-3: var(--gp-sp-3); --sp-4: var(--gp-sp-4);
       --sp-5: var(--gp-sp-5); --sp-6: var(--gp-sp-6); --sp-7: 28px; --sp-8: var(--gp-sp-8);
       --sp-10: var(--gp-sp-10); --sp-12: 48px;
@@ -91,11 +89,8 @@
     }
     .hero-sub-text {
       font-family: var(--gp-font-body);
-      font-size: 12px; color: rgba(255,255,255,0.35);
-      margin-top: 1px;
-      text-transform: uppercase;
-      letter-spacing: var(--gp-tracking-label);
-      font-weight: 700;
+      font-size: 12px; color: rgba(255,255,255,0.78);
+      font-weight: 500; margin-top: 2px;
     }
     .hero-icons { display: flex; gap: var(--sp-2); }
     .hero-icon-btn {
@@ -104,13 +99,13 @@
       border: 1px solid rgba(255,255,255,0.08);
       display: grid; place-items: center;
       cursor: pointer; position: relative;
-      transition: all var(--gp-dur-fast) var(--gp-ease);
+      transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease), background-color var(--gp-dur) var(--gp-ease), color var(--gp-dur) var(--gp-ease), border-color var(--gp-dur) var(--gp-ease);
       color: rgba(255,255,255,0.5);
     }
     .hero-icon-btn:hover { background: rgba(255,255,255,0.1); }
     .hero-icon-btn:focus-visible {
-      outline: none;
-      box-shadow: var(--gp-focus-ring);
+      outline: 2px solid rgba(255,255,255,0.85);
+      outline-offset: 2px;
     }
     .hero-icon-btn svg {
       width: 18px; height: 18px; stroke: currentColor;
@@ -171,7 +166,7 @@
       width: 100%;
       max-width: 300px;
       box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.55);
-      transition: all var(--gp-dur) var(--gp-ease);
+      transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease), background-color var(--gp-dur) var(--gp-ease), color var(--gp-dur) var(--gp-ease), border-color var(--gp-dur) var(--gp-ease);
     }
     .start-btn:hover {
       transform: translateY(-1px);

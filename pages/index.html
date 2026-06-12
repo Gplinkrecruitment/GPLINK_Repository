@@ -136,6 +136,11 @@
       color: rgba(255,255,255,0.78);
     }
     .hero-notif-btn:hover { background: rgba(255,255,255,0.14); }
+    .hero-notif-btn:focus-visible {
+      outline: 2px solid rgba(255,255,255,0.85);
+      outline-offset: 2px;
+      box-shadow: none;
+    }
     .hero-notif-btn svg {
       width: 18px; height: 18px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
@@ -153,7 +158,7 @@
 
     /* ─── GLASS PROGRESS CARD ─── */
     .glass-progress {
-      background: var(--gp-glass-bg);
+      background: rgba(255,255,255,0.86);
       backdrop-filter: var(--gp-glass-blur); -webkit-backdrop-filter: var(--gp-glass-blur);
       border: 1px solid var(--gp-glass-border);
       border-radius: var(--gp-r-lg);
@@ -172,12 +177,12 @@
     .glass-progress-label {
       font-size: 12px; font-weight: 700;
       text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
-      color: var(--gp-muted);
+      color: var(--gp-ink);
     }
 
     .glass-progress-percent {
       font-size: 13px; font-weight: 700;
-      color: var(--gp-blue-ink);
+      color: var(--gp-ink);
       font-variant-numeric: tabular-nums;
     }
 
@@ -259,11 +264,11 @@
       display: inline-flex; align-items: center; gap: 6px;
       margin-bottom: 6px;
       font-size: 12px; font-weight: 700;
-      color: rgba(255,255,255,0.82);
+      color: #fff;
       text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
     }
     .dream-banner-tag svg {
-      width: 16px; height: 16px; stroke: rgba(255,255,255,0.82);
+      width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
@@ -275,7 +280,7 @@
     }
 
     .dream-banner-sub {
-      font-size: 12px; color: rgba(255,255,255,0.72); line-height: 1.4;
+      font-size: 12px; color: rgba(255,255,255,0.92); line-height: 1.4;
     }
 
     .dream-banner-cta {
@@ -312,7 +317,11 @@
     }
 
     /* ─── JOURNEY LIST ─── */
-    .journey-list { display: grid; gap: 0; }
+    .journey-list {
+      display: grid; gap: 0;
+      box-shadow: var(--gp-shadow-sm);
+      border-radius: var(--gp-r-lg);
+    }
 
     .journey-step {
       background: var(--gp-surface); border: 1px solid var(--gp-border);
@@ -323,7 +332,6 @@
     .journey-step:last-child { border-radius: 0 0 var(--gp-r-lg) var(--gp-r-lg); }
     .journey-step:only-child { border-radius: var(--gp-r-lg); }
     .journey-step + .journey-step { border-top: none; }
-    .journey-list { box-shadow: var(--gp-shadow-sm); border-radius: var(--gp-r-lg); }
 
     .journey-step.active { border-color: var(--gp-blue-border); z-index: 1; position: relative; background: var(--gp-blue-soft); }
     .journey-step.locked { opacity: 0.45; }
@@ -408,10 +416,11 @@
     }
     .journey-body-cta:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -10px rgba(29, 78, 216, 0.6); }
     .journey-body-cta.done-cta {
-      background: var(--gp-green-soft); color: var(--gp-green); border: 1px solid var(--gp-green-border);
+      background: var(--gp-green-soft); color: var(--gp-green-ink); border: 1px solid var(--gp-green-border);
       box-shadow: none;
       cursor: default;
     }
+    .journey-body-cta.done-cta svg { stroke: var(--gp-green); }
     .journey-body-cta.done-cta:hover { transform: none; box-shadow: none; }
     .journey-body-cta svg {
       width: 14px; height: 14px; stroke: currentColor;
@@ -513,8 +522,8 @@
       white-space: nowrap; flex-shrink: 0;
       border: 1px solid transparent;
     }
-    .update-badge.action { background: var(--gp-amber-soft); color: var(--gp-amber); border-color: var(--gp-amber-border); }
-    .update-badge.success { background: var(--gp-green-soft); color: var(--gp-green); border-color: var(--gp-green-border); }
+    .update-badge.action { background: var(--gp-amber-soft); color: var(--gp-amber-ink); border-color: var(--gp-amber-border); }
+    .update-badge.success { background: var(--gp-green-soft); color: var(--gp-green-ink); border-color: var(--gp-green-border); }
     .update-badge.info { background: var(--gp-info-soft); color: var(--gp-blue-ink); border-color: var(--gp-info-border); }
     .update-badge.case { background: var(--gp-info-soft); color: var(--gp-blue-ink); border-color: var(--gp-info-border); }
 
@@ -607,6 +616,7 @@
       font-family: var(--gp-font-display);
       font-size: 18px; font-weight: 600; letter-spacing: -0.01em;
       color: var(--gp-ink);
+      text-transform: none;
     }
 
     .mobile-reg-close {
@@ -638,7 +648,7 @@
       font-size: 10px; font-weight: 700; padding: 3px 8px;
       text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
     }
-    .mobile-step-pill.done { border-color: var(--gp-green-border); background: var(--gp-green-soft); color: var(--gp-green); }
+    .mobile-step-pill.done { border-color: var(--gp-green-border); background: var(--gp-green-soft); color: var(--gp-green-ink); }
     .mobile-step-pill.current { border-color: var(--gp-info-border); background: var(--gp-info-soft); color: var(--gp-blue-ink); }
 
     .mobile-step-body {
@@ -663,7 +673,7 @@
       border-color: var(--gp-green-border);
     }
     .reg-row.done .reg-name, .reg-row.done .reg-sub {
-      color: var(--gp-green); text-decoration: line-through; text-decoration-thickness: 1.5px;
+      color: var(--gp-green-ink); text-decoration: line-through; text-decoration-thickness: 1.5px;
     }
     .reg-row.done::before, .reg-row.done::after {
       content: ""; position: absolute;
@@ -692,7 +702,7 @@
       transition: border-color var(--gp-dur-fast) var(--gp-ease), background-color var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
     }
     .reg-btn:hover { border-color: var(--gp-blue); transform: translateY(-1px); }
-    .reg-btn.done { background: var(--gp-green-soft); border-color: var(--gp-green-border); color: var(--gp-green); cursor: not-allowed; }
+    .reg-btn.done { background: var(--gp-green-soft); border-color: var(--gp-green-border); color: var(--gp-green-ink); cursor: not-allowed; }
     .reg-btn.locked { background: var(--gp-surface-sunken); border-color: var(--gp-border); color: var(--gp-muted); }
     .reg-btn.done:hover, .reg-btn.locked:hover { transform: none; border-color: var(--gp-green-border); }
     .reg-btn.locked:hover { border-color: var(--gp-border); }
