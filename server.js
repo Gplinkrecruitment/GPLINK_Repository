@@ -18878,6 +18878,42 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
   });
 }
 
+// Create (or reopen) a normal-priority manual-review task for a flagged qualification doc.
+async function createFlaggedDocTask(userId, documentKey, label, reason) {
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+  if (!gpCase) return null;
+
+  var existingRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
+    '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&status=in.(open,in_progress,waiting)&limit=1');
+  var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
+
+  if (existing) {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existing.id), {
+      method: 'PATCH',
+      body: { status: 'open', description: reason, updated_at: new Date().toISOString() }
+    });
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST',
+      body: [{ task_id: existing.id, case_id: gpCase.id, event_type: 'system', title: 'Document re-uploaded, flag reopened', detail: reason, actor: 'system' }]
+    });
+    return existing;
+  }
+
+  return _createRegTask(gpCase.id, {
+    task_type: 'flagged_doc',
+    title: 'Review flagged qualification: ' + (label || documentKey),
+    description: reason,
+    priority: 'normal',
+    source_trigger: 'prepared_doc_scan',
+    related_stage: 'myintealth',
+    related_document_key: documentKey,
+    _actor: 'system'
+  });
+}
+
 async function autoCloseDocReviewTask(userId, documentKey) {
   var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
