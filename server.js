@@ -1787,10 +1787,13 @@ async function matchResponseToTask(caseId, emailMeta) {
     }
   }
 
-  // Signal 3: AI content matching against open tasks
+  // Signal 3: AI content matching against open tasks. Exclude non-conversational
+  // task types (flagged_doc, zoom_call) so a general GP email is never guessed into a
+  // qualification-review or scheduled-call task — those aren't email threads.
   var openTasks = await supabaseDbRequest('registration_tasks',
     'select=id,task_type,title,description,status,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
-    '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=20');
+    '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)' +
+    '&task_type=not.in.(flagged_doc,zoom_call)&limit=20');
   if (!openTasks.ok || !Array.isArray(openTasks.data) || openTasks.data.length === 0) return null;
 
   return await aiMatchResponseToTask(emailMeta, openTasks.data);
@@ -2835,11 +2838,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
           if (gpCase && isAhpra) ahpraMatchMethod = 'ai_triage';
         }
-        // Fallback: if no matched GP or no case, use the first active case
-        if (!gpCase) {
-          var fallbackCaseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&status=eq.active&order=updated_at.desc&limit=1');
-          gpCase = fallbackCaseRes.ok && Array.isArray(fallbackCaseRes.data) && fallbackCaseRes.data[0] ? fallbackCaseRes.data[0] : null;
-        }
+        // No fallback: an email that doesn't match a registered GP stays unmatched
+        // (gpCase = null → task created with case_id = null → it shows in the Support
+        // page, NOT the Ops Queue, and gets no RSO assignee). Binding unmatched mail to
+        // the most-recently-active case caused cross-contamination (e.g. Vercel alerts
+        // landing on a GP's case and being assigned to their RSO).
 
         // Store AHPRA officer metadata on the matched case (only set fields not already stored)
         if (isAhpra && gpCase && gpCase.id) {
@@ -3041,9 +3044,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         }
 
         // Create email_triage task — skip if AHPRA action items or response matching
-        // already handled. For hello@ (public archive inbox) only create a task when
-        // the email is matched to a registered GP; unmatched hello@ mail stays archive-only.
-        if (!ahpraActionItemsCreated && !responseMatchedToTask && !(isArchiveInbox && !gpCase)) {
+        // already handled. Matched emails (gpCase set) → Ops Queue task assigned to the
+        // GP's RSO; unmatched emails (gpCase null, incl. hello@) → case_id null task that
+        // surfaces only in the Support page. (Noise/auto-replies are dropped earlier by
+        // preFilterEmail, so this does not flood Support.)
+        if (!ahpraActionItemsCreated && !responseMatchedToTask) {
         var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
         var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched \u2014 ';
 
