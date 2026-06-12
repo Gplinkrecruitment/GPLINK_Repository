@@ -28,6 +28,19 @@
   var certContext = null; // { key, title, callback } when in certification scan mode
 
   /* ── Helpers ── */
+  function canonicalQualKey(docType) {
+    var t = String(docType || '').toLowerCase();
+    if (t.indexOf('primary medical') !== -1 || t.indexOf('medical degree') !== -1) return 'primary_medical_degree';
+    if (t.indexOf('mrcgp') !== -1) return 'mrcgp_certified';
+    if (t.indexOf('cct') !== -1) return 'cct_certified';
+    if (t.indexOf('good standing') !== -1 || t.indexOf('registration status') !== -1) return 'certificate_good_standing';
+    if (t.indexOf('confirmation') !== -1 && t.indexOf('training') !== -1) return 'confirmation_training';
+    if (t.indexOf('micgp') !== -1) return 'micgp';
+    if (t.indexOf('cscst') !== -1) return 'cscst';
+    if (t.indexOf('frnzcgp') !== -1) return 'frnzcgp';
+    return null; // unknown → don't PUT (no canonical server key)
+  }
+
   function esc(s) {
     if (typeof s !== "string") return "";
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -634,6 +647,26 @@
             if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
           } catch (e) {}
 
+          // Also PUT to server so the verification pipeline can run (image branch)
+          try {
+            var _canonKey = canonicalQualKey(docType);
+            if (_canonKey) {
+              var _mime = file.type || 'image/jpeg';
+              fetch('/api/prepared-documents', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  country: (state && state.country) || 'uk',
+                  key: _canonKey,
+                  fileName: file.name,
+                  mimeType: _mime,
+                  fileSize: file.size || 0,
+                  fileDataUrl: 'data:' + _mime + ';base64,' + base64
+                })
+              }).catch(function(){});
+            }
+          } catch (e) {}
+
           var resultEl = document.getElementById("gpScanResult");
           if (resultEl) {
             var issuesHtml = "";
@@ -709,6 +742,26 @@
             };
             localStorage.setItem("gp_documents_prep", JSON.stringify(state));
             if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+          } catch (e) {}
+
+          // Also PUT to server so the verification pipeline can run (PDF branch)
+          try {
+            var _canonKey = canonicalQualKey(docType);
+            if (_canonKey) {
+              var _mime = file.type || 'application/pdf';
+              fetch('/api/prepared-documents', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  country: (state && state.country) || 'uk',
+                  key: _canonKey,
+                  fileName: file.name,
+                  mimeType: _mime,
+                  fileSize: file.size || 0,
+                  fileDataUrl: 'data:' + _mime + ';base64,' + base64
+                })
+              }).catch(function(){});
+            }
           } catch (e) {}
 
           var resultEl = document.getElementById("gpScanResult");

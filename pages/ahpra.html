@@ -25,7 +25,7 @@
   <script src="/js/state-sync.js?v=20260607a" defer></script>
   <script src="/js/updates-sync.js?v=20260527a" defer></script>
   <script src="/js/qualification-camera.js?v=20260527a" defer></script>
-  <script src="/js/qualification-scan.js?v=20260527a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260612a" defer></script>
   <script src="/js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -3207,6 +3207,25 @@
         state.docs[item.key] = { ...(state.docs[item.key] || {}), uploaded: true, fileName: file.name, status: "under_review" };
         state.updatedAt = new Date().toISOString();
         localStorage.setItem(DOC_KEY, JSON.stringify(state));
+        // Also PUT to server so the verification pipeline can run
+        try {
+          var _r = new FileReader();
+          _r.onload = function(){
+            fetch('/api/prepared-documents', {
+              method: 'PUT', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                country: (typeof getPageCountry === 'function' ? getPageCountry() : 'uk'),
+                key: item.key,
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                fileSize: file.size || 0,
+                fileDataUrl: _r.result
+              })
+            }).catch(function(){});
+          };
+          _r.readAsDataURL(file);
+        } catch (e) {}
         return true;
       }
       if (item.group === "gplink") {
