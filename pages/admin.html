@@ -2966,11 +2966,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(doc.updated_at){
       metaHtml+='<div class="doc-placeholder-meta">'+fmtR(doc.updated_at)+'</div>';
     }
+    // flag_reason overrides the status badge for candidate-prepared docs
+    var flagBadgeHtml='';
+    if(doc.flag_reason==='name_mismatch'){
+      flagBadgeHtml='<span class="doc-placeholder-status s-rejected">Name mismatch</span>';
+    }else if(doc.flag_reason==='failed_verification'){
+      flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
+    }
+    var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>');
     return '<div class="'+cls+'">'
       +thumbHtml
       +'<div class="doc-placeholder-info">'
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
-      +'<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>'
+      +badgeHtml
       +metaHtml
       +'</div></div>';
   }
