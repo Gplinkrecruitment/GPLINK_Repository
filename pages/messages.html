@@ -86,7 +86,7 @@
     .icon-btn {
       width: 40px; height: 40px; border: 0; background: transparent; border-radius: var(--gp-r-sm);
       display: grid; place-items: center; cursor: pointer; color: var(--gp-ink);
-      transition: background var(--gp-dur-fast) var(--gp-ease);
+      transition: background-color var(--gp-dur-fast) var(--gp-ease);
     }
     .icon-btn:hover { background: rgba(0,0,0,.05); }
     .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -154,9 +154,9 @@
       display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff;
     }
     .avatar-dot:first-child { margin-left: 0; }
-    .avatar-dot.purple { background: linear-gradient(135deg, #7c3aed, #6366f1); }
+    .avatar-dot.purple { background: linear-gradient(135deg, var(--gp-blue), var(--gp-blue-deep)); }
     .avatar-dot.blue { background: var(--gp-grad-brand); }
-    .avatar-dot.green { background: linear-gradient(135deg, var(--gp-green), #34d399); }
+    .avatar-dot.green { background: var(--gp-green); }
 
     .ticket-stats { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--gp-muted); }
     .ticket-stats span { display: inline-flex; align-items: center; gap: 3px; }
@@ -205,7 +205,7 @@
     .feedback-btn {
       width: 32px; height: 32px; border: 1px solid var(--gp-border); background: var(--gp-surface); border-radius: 8px;
       display: grid; place-items: center; cursor: pointer;
-      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
+      transition: background-color var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
     }
     .feedback-btn:hover { background: var(--gp-blue-soft); border-color: var(--gp-blue-border); }
     .feedback-btn.selected { background: var(--gp-info-soft); border-color: var(--gp-blue-border); }
@@ -325,7 +325,7 @@
     }
     .toggle {
       position: relative; width: 48px; height: 28px; border: 0; border-radius: var(--gp-r-pill);
-      background: var(--gp-border-strong); cursor: pointer; transition: background .2s; padding: 0;
+      background: var(--gp-border-strong); cursor: pointer; transition: background-color .2s; padding: 0;
     }
     .toggle.on { background: var(--gp-blue); }
     .toggle::after {
@@ -399,7 +399,7 @@
     .resolve-btn {
       flex: 1; border: 1px solid var(--gp-border); background: var(--gp-surface); border-radius: var(--gp-r-md); padding: 10px;
       font: inherit; font-size: 13px; font-weight: 700; color: var(--gp-ink); cursor: pointer; text-align: center;
-      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
+      transition: background-color var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
     }
     .resolve-btn:hover { background: var(--gp-surface-sunken); }
     .resolve-btn.primary { border-color: transparent; background: var(--gp-grad-brand); color: #fff; }
@@ -442,8 +442,8 @@
     .mobile-icon-wrap { position: relative; display: inline-grid; place-items: center; line-height: 1; }
     .mobile-tab-alert { position: absolute; top: -3px; right: -6px; width: 14px; height: 14px; border-radius: var(--gp-r-pill); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #fff; background: var(--gp-red); line-height: 1; pointer-events: none; }
     .mobile-tab-label { display: none; }
-    .mobile-tab-active { background: rgba(20,91,196,.11); color: #145bc4; }
-    .mobile-tab-active .mobile-tab-icon { color: #145bc4; }
+    .mobile-tab-active { background: var(--gp-blue-soft); color: var(--gp-blue-deep); }
+    .mobile-tab-active .mobile-tab-icon { color: var(--gp-blue-deep); }
     .mobile-tab-icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .mobile-tab-scan { transform: none; }
     .mobile-tab-scan .mobile-tab-icon {
@@ -547,7 +547,7 @@
     .chat-card:active { transform: scale(.98); }
     .chat-avatar {
       width: 40px; height: 40px; border-radius: 50%;
-      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      background: var(--gp-grad-brand);
       display: flex; align-items: center; justify-content: center;
       color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0;
     }
@@ -606,7 +606,7 @@
 
     <!-- ═══ VIEW: CHATS ═══ -->
     <div class="view active" id="viewChats">
-      <header class="view-header gp-reveal gp-reveal-1">
+      <header class="view-header">
         <div class="view-header-left">
           <h1 class="view-title">Chats</h1>
         </div>
@@ -620,7 +620,7 @@
 
     <!-- ═══ VIEW: MY TICKETS ═══ -->
     <div class="view" id="viewMyTickets">
-      <header class="view-header gp-reveal gp-reveal-1">
+      <header class="view-header">
         <div class="view-header-left">
           <h1 class="view-title">Support</h1>
         </div>
@@ -641,7 +641,7 @@
 
     <!-- ═══ VIEW: HELP CENTER ═══ -->
     <div class="view" id="viewHelpCenter">
-      <header class="view-header gp-reveal gp-reveal-1">
+      <header class="view-header">
         <div class="view-header-left">
           <h1 class="view-title">FAQ</h1>
         </div>

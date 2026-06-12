@@ -72,6 +72,116 @@
     --atmo-3:                rgba(37, 99, 235, 0.015);
   }
 
+  /* ── Dark mode (system preference fallback) ── */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --gp-canvas: #0f172a;
+      --gp-surface: #1e293b;
+      --gp-surface-sunken: #1a2332;
+      --gp-ink: #e2e8f0;
+      --gp-text: #cbd5e1;
+      --gp-muted: #94a3b8;
+      --gp-faint: #64748b;
+      --gp-border: #334155;
+      --gp-border-strong: #475569;
+      --gp-blue: #3b82f6;
+      --gp-blue-deep: #2563eb;
+      --gp-blue-ink: #93c5fd;
+      --gp-blue-soft: rgba(59, 130, 246, 0.12);
+      --gp-blue-border: rgba(59, 130, 246, 0.25);
+      --gp-green: #22c55e;
+      --gp-green-soft: #052e16;
+      --gp-green-border: rgba(34, 197, 94, 0.25);
+      --gp-green-ink: #4ade80;
+      --gp-amber: #f59e0b;
+      --gp-amber-soft: #422006;
+      --gp-amber-border: rgba(245, 158, 11, 0.25);
+      --gp-amber-ink: #fbbf24;
+      --gp-red: #f87171;
+      --gp-red-soft: #450a0a;
+      --gp-red-border: rgba(248, 113, 113, 0.3);
+      --gp-red-ink: #fca5a5;
+      --gp-glass-bg: rgba(30, 41, 59, 0.88);
+      --gp-shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 2px 10px -4px rgba(0,0,0,0.4);
+      --gp-shadow-md: 0 10px 30px -18px rgba(0,0,0,0.55);
+      --gp-shadow-lg: 0 24px 55px -24px rgba(0,0,0,0.65);
+      --bar-bg: rgba(11, 17, 32, 0.65);
+      --grain-opacity: 0.025;
+      --atmo-1: rgba(37, 99, 235, 0.12);
+      --atmo-2: rgba(99, 102, 241, 0.06);
+      --atmo-3: rgba(37, 99, 235, 0.04);
+      --ring-inner-bg: #0f172a;
+      --ring-inner-shadow: none;
+      --ring-track: rgba(255, 255, 255, 0.06);
+      --surface-glass-highlight: rgba(255, 255, 255, 0.04);
+      --surface-glass-shadow: rgba(0, 0, 0, 0.3);
+      --stat-bg: rgba(255, 255, 255, 0.03);
+      --stat-border: rgba(255, 255, 255, 0.05);
+      --stat-highlight: rgba(255, 255, 255, 0.03);
+      --stat-shadow: none;
+      --btn-bg: rgba(255, 255, 255, 0.06);
+      --btn-bg-hover: rgba(255, 255, 255, 0.1);
+      --btn-border: rgba(255, 255, 255, 0.06);
+      --btn-color: #cbd5e1;
+      --btn-color-hover: #fff;
+      --line-faint: rgba(255, 255, 255, 0.03);
+    }
+  }
+
+  /* ── Dark mode (explicit toggle) ── */
+  html.dark-mode {
+    --gp-canvas: #0f172a;
+    --gp-surface: #1e293b;
+    --gp-surface-sunken: #1a2332;
+    --gp-ink: #e2e8f0;
+    --gp-text: #cbd5e1;
+    --gp-muted: #94a3b8;
+    --gp-faint: #64748b;
+    --gp-border: #334155;
+    --gp-border-strong: #475569;
+    --gp-blue: #3b82f6;
+    --gp-blue-deep: #2563eb;
+    --gp-blue-ink: #93c5fd;
+    --gp-blue-soft: rgba(59, 130, 246, 0.12);
+    --gp-blue-border: rgba(59, 130, 246, 0.25);
+    --gp-green: #22c55e;
+    --gp-green-soft: #052e16;
+    --gp-green-border: rgba(34, 197, 94, 0.25);
+    --gp-green-ink: #4ade80;
+    --gp-amber: #f59e0b;
+    --gp-amber-soft: #422006;
+    --gp-amber-border: rgba(245, 158, 11, 0.25);
+    --gp-amber-ink: #fbbf24;
+    --gp-red: #f87171;
+    --gp-red-soft: #450a0a;
+    --gp-red-border: rgba(248, 113, 113, 0.3);
+    --gp-red-ink: #fca5a5;
+    --gp-glass-bg: rgba(30, 41, 59, 0.88);
+    --gp-shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 2px 10px -4px rgba(0,0,0,0.4);
+    --gp-shadow-md: 0 10px 30px -18px rgba(0,0,0,0.55);
+    --gp-shadow-lg: 0 24px 55px -24px rgba(0,0,0,0.65);
+    --bar-bg: rgba(11, 17, 32, 0.65);
+    --grain-opacity: 0.025;
+    --atmo-1: rgba(37, 99, 235, 0.12);
+    --atmo-2: rgba(99, 102, 241, 0.06);
+    --atmo-3: rgba(37, 99, 235, 0.04);
+    --ring-inner-bg: #0f172a;
+    --ring-inner-shadow: none;
+    --ring-track: rgba(255, 255, 255, 0.06);
+    --surface-glass-highlight: rgba(255, 255, 255, 0.04);
+    --surface-glass-shadow: rgba(0, 0, 0, 0.3);
+    --stat-bg: rgba(255, 255, 255, 0.03);
+    --stat-border: rgba(255, 255, 255, 0.05);
+    --stat-highlight: rgba(255, 255, 255, 0.03);
+    --stat-shadow: none;
+    --btn-bg: rgba(255, 255, 255, 0.06);
+    --btn-bg-hover: rgba(255, 255, 255, 0.1);
+    --btn-border: rgba(255, 255, 255, 0.06);
+    --btn-color: #cbd5e1;
+    --btn-color-hover: #fff;
+    --line-faint: rgba(255, 255, 255, 0.03);
+  }
+
   body {
     font-family: var(--gp-font-body);
     background: var(--bg);
@@ -216,7 +326,7 @@
   }
   .stat-label {
     font-size: var(--gp-fs-xs); font-weight: 700; letter-spacing: var(--gp-tracking-label); text-transform: uppercase;
-    color: var(--gp-faint); margin-bottom: 6px;
+    color: var(--gp-muted); margin-bottom: 6px;
   }
   .stat-value {
     font-family: var(--gp-font-display);
@@ -274,7 +384,7 @@
   /* ── Contract items ── */
   .contract-item {
     display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
-    padding: 11px 0; border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    padding: 11px 0; border-bottom: 1px solid var(--line-faint);
     font-size: 14px; font-weight: 600; color: var(--gp-text); line-height: 1.5;
   }
   .contract-item:last-child { border-bottom: none; }
@@ -356,7 +466,7 @@
 
   .next-steps-item {
     display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start;
-    padding: 12px 0; border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    padding: 12px 0; border-bottom: 1px solid var(--line-faint);
     text-align: left;
   }
   .next-steps-item:last-child { border-bottom: none; }
@@ -519,7 +629,7 @@
   </div>
 
   <!-- PRE-ACCEPT STATE -->
-  <div class="pre-accept gp-reveal">
+  <div class="pre-accept">
 
     <div class="hero">
       <div class="practice-block gp-reveal gp-reveal-1">
@@ -661,7 +771,7 @@
   </div><!-- /pre-accept -->
 
   <!-- POST-ACCEPT STATE -->
-  <div class="post-accept gp-reveal">
+  <div class="post-accept">
     <div class="celebration-card">
       <div class="celebration-icon">🎉</div>
       <div class="celebration-title">Placement Secured</div>
