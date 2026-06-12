@@ -4689,6 +4689,158 @@ function getVerifiedDocumentNames(onboardingState) {
 }
 
 /**
+ * Core Anthropic qualification-verification logic, extracted for reuse.
+ * Accepts a pre-built contentBlock (image or document), runs the AI call, and applies
+ * the name-match policy.  Does NOT call sendJson or recordUserAiCall — those are
+ * request-specific and must remain in the caller.
+ *
+ * @param {object} opts
+ * @param {object} opts.contentBlock  - Anthropic content block (image or document)
+ * @param {string} opts.documentType  - Sanitised document-type string
+ * @param {string} opts.expectedCountry - 2-letter country code or 'any'
+ * @param {string} opts.profileName   - Resolved full name for name-match policy
+ * @param {string[]} opts.verifiedNames - Names from previously verified documents
+ * @returns {Promise<{ok:true,verification:object}|{ok:false,status:number,message:string}>}
+ */
+async function verifyQualificationDocument({ contentBlock, documentType, expectedCountry, profileName, verifiedNames }) {
+  const dateRules = {
+    GB: 'August 2007 or later',
+    IE: '2009 or later',
+    NZ: '2010 or later'
+  };
+  const dateRule = dateRules[expectedCountry] || 'any date';
+
+  const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
+  const qualSystemPrompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
+
+VERIFICATION RULES:
+1. Is this the correct document type? Check for the correct issuing body:
+   UK documents:
+   - MRCGP: "Royal College of General Practitioners" (UK)
+   - CCT (Certificate of Completion of Training): Issued by the "General Medical Council" or "PMETB" (UK)
+   - Confirmation of Training: Letter from GMC confirming specialist/GP training posts
+   Ireland documents:
+   - MICGP: "Irish College of General Practitioners" (Ireland)
+   - CSCST (Certificate of Satisfactory Completion of Specialist Training): Issued by Irish medical authorities
+   - ICGP Confirmation Letter: Letter from ICGP confirming qualification under ICGP curriculum
+   New Zealand documents:
+   - FRNZCGP: "Royal New Zealand College of General Practitioners" (New Zealand)
+   - RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship under RNZCGP curriculum after GPEP
+   All countries:
+   - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
+   - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
+   - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
+   - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
+
+2. Check the date validity based on the per-request instructions.
+
+3. What full name appears on the document?
+
+4. Is the document legible?
+
+IMPORTANT:
+- Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
+- Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
+- If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
+  - "This appears to be a driver's licence, not an MRCGP certificate."
+  - "The document is too blurry to read. Please upload a clearer photo."
+  - "This certificate is dated before August 2007."
+- Never include warnings about privacy, security, or data sharing in the issues.
+
+Return ONLY valid JSON with no markdown formatting:
+{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
+
+  const qualUserPrompt = `Expected document type: ${documentType}
+${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}\n`}${isPrimaryMedDegree ? 'The date does not matter for primary medical degrees.' : `The date on the document must be from ${dateRule}.`}
+
+Verify this document.`;
+
+  const qualController = new AbortController();
+  const qualTimeout = setTimeout(() => qualController.abort(), 30000);
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: qualController.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 500,
+        system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
+        messages: [{
+          role: 'user',
+          content: [
+            contentBlock,
+            { type: 'text', text: qualUserPrompt }
+          ]
+        }]
+      })
+    });
+
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text().catch(() => '');
+      console.error('[AI Verify] Anthropic API error:', anthropicRes.status, errText);
+      let errMsg = 'AI service returned an error.';
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.error && errJson.error.message) errMsg = errJson.error.message;
+      } catch (e) {}
+      return { ok: false, status: 502, message: errMsg };
+    }
+
+    const anthropicData = await anthropicRes.json();
+    const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
+    const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
+    const cacheRead = (anthropicData.usage && anthropicData.usage.cache_read_input_tokens) || 0;
+    const cacheWrite = (anthropicData.usage && anthropicData.usage.cache_creation_input_tokens) || 0;
+    recordAnthropicSpend(inputTokens, outputTokens, cacheRead, cacheWrite);
+
+    const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
+    if (!textContent) {
+      return { ok: false, status: 502, message: 'AI returned empty response.' };
+    }
+
+    let verification;
+    try {
+      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
+    } catch (parseErr) {
+      console.error('[AI Verify] JSON parse failed:', textContent);
+      return { ok: false, status: 502, message: 'AI returned invalid response format.' };
+    }
+
+    applyQualificationNameMatchPolicy(verification, profileName, verifiedNames);
+
+    // Server-side date enforcement — don't trust AI alone
+    if (verification.verified && !isPrimaryMedDegree && verification.dateFound && expectedCountry !== 'any') {
+      const dateCutoffs = { GB: '2007-08-01', IE: '2009-01-01', NZ: '2010-01-01' };
+      const cutoff = dateCutoffs[expectedCountry];
+      if (cutoff) {
+        try {
+          const docDate = new Date(verification.dateFound);
+          const cutoffDate = new Date(cutoff);
+          if (!isNaN(docDate.getTime()) && docDate < cutoffDate) {
+            verification.verified = false;
+            verification.issues = verification.issues || [];
+            verification.issues.push('This document is dated ' + verification.dateFound + ', which is before the required date (' + dateRule + ') for the ' + expectedCountry + ' pathway.');
+          }
+        } catch (e) { /* non-critical — AI flagging is the fallback */ }
+      }
+    }
+
+    return { ok: true, verification };
+  } catch (fetchErr) {
+    console.error('[AI Verify] Fetch error:', fetchErr.message || fetchErr);
+    return { ok: false, status: 502, message: 'Failed to connect to AI service.' };
+  } finally {
+    clearTimeout(qualTimeout);
+  }
+}
+
+/**
  * Check a document name against profile name AND previously verified document names.
  * Returns { match: 'exact'|'fuzzy'|'mismatch'|'unknown', matchedAgainst: string|null }
  */
@@ -25785,160 +25937,28 @@ async function handleApi(req, res, pathname) {
       contentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data: aiImageBase64 } };
     }
 
-    const dateRules = {
-      GB: 'August 2007 or later',
-      IE: '2009 or later',
-      NZ: '2010 or later'
-    };
-    const dateRule = dateRules[expectedCountry] || 'any date';
-
-    const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
-    const qualSystemPrompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
-
-VERIFICATION RULES:
-1. Is this the correct document type? Check for the correct issuing body:
-   UK documents:
-   - MRCGP: "Royal College of General Practitioners" (UK)
-   - CCT (Certificate of Completion of Training): Issued by the "General Medical Council" or "PMETB" (UK)
-   - Confirmation of Training: Letter from GMC confirming specialist/GP training posts
-   Ireland documents:
-   - MICGP: "Irish College of General Practitioners" (Ireland)
-   - CSCST (Certificate of Satisfactory Completion of Specialist Training): Issued by Irish medical authorities
-   - ICGP Confirmation Letter: Letter from ICGP confirming qualification under ICGP curriculum
-   New Zealand documents:
-   - FRNZCGP: "Royal New Zealand College of General Practitioners" (New Zealand)
-   - RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship under RNZCGP curriculum after GPEP
-   All countries:
-   - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
-   - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
-   - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
-   - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
-
-2. Check the date validity based on the per-request instructions.
-
-3. What full name appears on the document?
-
-4. Is the document legible?
-
-IMPORTANT:
-- Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
-- Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
-- If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
-  - "This appears to be a driver's licence, not an MRCGP certificate."
-  - "The document is too blurry to read. Please upload a clearer photo."
-  - "This certificate is dated before August 2007."
-- Never include warnings about privacy, security, or data sharing in the issues.
-
-Return ONLY valid JSON with no markdown formatting:
-{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
-
-    const qualUserPrompt = `Expected document type: ${documentType}
-${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}\n`}${isPrimaryMedDegree ? 'The date does not matter for primary medical degrees.' : `The date on the document must be from ${dateRule}.`}
-
-Verify this document.`;
-
-    const qualController = new AbortController();
-    const qualTimeout = setTimeout(() => qualController.abort(), 30000);
-    try {
-      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        signal: qualController.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 500,
-          system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
-          messages: [{
-            role: 'user',
-            content: [
-              contentBlock,
-              { type: 'text', text: qualUserPrompt }
-            ]
-          }]
-        })
-      });
-
-      if (!anthropicRes.ok) {
-        const errText = await anthropicRes.text().catch(() => '');
-        console.error('[AI Verify] Anthropic API error:', anthropicRes.status, errText);
-        let errMsg = 'AI service returned an error.';
-        try {
-          const errJson = JSON.parse(errText);
-          if (errJson.error && errJson.error.message) errMsg = errJson.error.message;
-        } catch (e) {}
-        sendJson(res, 502, { ok: false, message: errMsg, statusCode: anthropicRes.status });
-        return;
-      }
-
-      const anthropicData = await anthropicRes.json();
-      const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
-      const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
-      const cacheRead = (anthropicData.usage && anthropicData.usage.cache_read_input_tokens) || 0;
-      const cacheWrite = (anthropicData.usage && anthropicData.usage.cache_creation_input_tokens) || 0;
-      recordAnthropicSpend(inputTokens, outputTokens, cacheRead, cacheWrite);
-      if (verifyEmail) recordUserAiCall(verifyEmail);
-
-      const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
-      if (!textContent) {
-        sendJson(res, 502, { ok: false, message: 'AI returned empty response.' });
-        return;
-      }
-
-      let verification;
+    // Name matching — check against profile name AND previously verified documents
+    let verifiedNames = [];
+    if (verifyEmail && isSupabaseDbConfigured()) {
       try {
-        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-        verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
-      } catch (parseErr) {
-        console.error('[AI Verify] JSON parse failed:', textContent);
-        sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
-        return;
-      }
-
-      // Name matching — check against profile name AND previously verified documents
-      let verifiedNames = [];
-      if (verifyEmail && isSupabaseDbConfigured()) {
-        try {
-          const userState = await getSupabaseUserStateByEmail(verifyEmail);
-          const onboarding = userState && userState.state && userState.state.gp_onboarding;
-          verifiedNames = getVerifiedDocumentNames(onboarding);
-        } catch (e) { /* non-critical — proceed with profile name only */ }
-      }
-
-      applyQualificationNameMatchPolicy(verification, profileName, verifiedNames);
-
-      // Server-side date enforcement — don't trust AI alone
-      if (verification.verified && !isPrimaryMedDegree && verification.dateFound && expectedCountry !== 'any') {
-        const dateCutoffs = { GB: '2007-08-01', IE: '2009-01-01', NZ: '2010-01-01' };
-        const cutoff = dateCutoffs[expectedCountry];
-        if (cutoff) {
-          try {
-            const docDate = new Date(verification.dateFound);
-            const cutoffDate = new Date(cutoff);
-            if (!isNaN(docDate.getTime()) && docDate < cutoffDate) {
-              verification.verified = false;
-              verification.issues = verification.issues || [];
-              verification.issues.push('This document is dated ' + verification.dateFound + ', which is before the required date (' + dateRule + ') for the ' + expectedCountry + ' pathway.');
-            }
-          } catch (e) { /* non-critical — AI flagging is the fallback */ }
-        }
-      }
-
-      sendJson(res, 200, {
-        ok: true,
-        verification,
-        spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount },
-        unlimitedRetries: AI_VERIFY_UNLIMITED_EMAILS.has((verifyEmail || '').toLowerCase())
-      });
-    } catch (fetchErr) {
-      console.error('[AI Verify] Fetch error:', fetchErr.message || fetchErr);
-      sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
-    } finally {
-      clearTimeout(qualTimeout);
+        const userState = await getSupabaseUserStateByEmail(verifyEmail);
+        const onboarding = userState && userState.state && userState.state.gp_onboarding;
+        verifiedNames = getVerifiedDocumentNames(onboarding);
+      } catch (e) { /* non-critical — proceed with profile name only */ }
     }
+
+    const result = await verifyQualificationDocument({ contentBlock, documentType, expectedCountry, profileName, verifiedNames });
+    if (!result.ok) {
+      sendJson(res, result.status || 502, { ok: false, message: result.message });
+      return;
+    }
+    if (verifyEmail) recordUserAiCall(verifyEmail);
+    sendJson(res, 200, {
+      ok: true,
+      verification: result.verification,
+      spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount },
+      unlimitedRetries: AI_VERIFY_UNLIMITED_EMAILS.has((verifyEmail || '').toLowerCase())
+    });
     return;
   }
 
