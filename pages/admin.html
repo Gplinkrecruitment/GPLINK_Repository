@@ -2636,6 +2636,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='</div>';
       {
         group.tasks.forEach(t=>{
+          if(t.task_type==='zoom_call'){
+            html+='<div id="zoomTaskCard_'+esc(t.id)+'" data-zoom-task-card="'+esc(t.id)+'" data-task-row="'+esc(t.id)+'"><div style="font-size:11px;color:var(--muted);padding:6px 0">Loading call…</div></div>';
+            return;
+          }
           const guided=getGuidedAction(t);
           const isWaiting=t.status==='waiting_on_practice'||t.status==='waiting_on_gp'||t.status==='waiting_on_external';
           const waitingDays=isWaiting&&t.updated_at?Math.floor((Date.now()-new Date(t.updated_at).getTime())/86400000):0;
@@ -2762,8 +2766,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
 
     html+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
-    html+='<div id="zoom-calls-'+esc(c.id)+'"></div>';
-    setTimeout(function(){injectZoomCallsIntoTasksPane(c.id);},0);
+    setTimeout(function(){fillZoomTaskCards(c.id);},0);
     return html;
   }
 
@@ -8782,13 +8785,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   // ── Zoom Task Card Rendering ──────────────────────────────────
   function renderZoomTaskCard(call) {
+    var stageDisplay = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[call.stage] || (call.stage || '');
     var statusCls = (call.status === 'completed') ? 'completed' : (call.status === 'cancelled') ? 'cancelled' : (call.status === 'no_show') ? 'no-show' : '';
     var statusLabel = { invited: 'Invite Sent', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
     var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : (call.status === 'invited' ? 'Awaiting GP booking' : '\u2014');
     var html = '<div class="zoom-task-card ' + esc(statusCls) + '">';
     html += '<div class="zoom-task-header">';
     html += '<div class="zoom-task-icon">Z</div>';
-    html += '<div class="zoom-task-title">Assistance Call \u2014 ' + esc(call.stage || '') + '</div>';
+    html += '<div class="zoom-task-title">Zoom Assistance Call \u2014 ' + esc(stageDisplay) + '</div>';
     html += '<span class="calls-status-badge ' + esc(call.status || '') + '">' + esc(statusLabel) + '</span>';
     html += '</div>';
     html += '<div class="zoom-task-details">';
@@ -8826,6 +8830,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
         html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
       }
+      html += '</div>';
+    }
+    if (call.status === 'cancelled') {
+      html += '<div class="zoom-task-actions">';
+      html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Schedule new call</button>';
       html += '</div>';
     }
     if (call.status === 'completed' && !call.meeting_summary) {
@@ -8886,22 +8895,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   window.retryZoomSummary = retryZoomSummary;
 
-  // ── Zoom calls in Tasks pane (async inject) ──────────────────
-  function injectZoomCallsIntoTasksPane(caseId) {
-    var container = document.getElementById('zoom-calls-' + caseId);
-    if (!container) return;
-    container.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:4px 0">Loading calls...</div>';
+  // Fill in-task call cards on the Tasks pane (unified call task)
+  function fillZoomTaskCards(caseId) {
+    var placeholders = document.querySelectorAll('[data-zoom-task-card]');
+    if (!placeholders.length) return;
     fetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (!d.ok || !d.calls || !d.calls.length) { container.innerHTML = ''; return; }
-        var html = '<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--line)"><div style="font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Scheduled Calls</div>';
-        d.calls.forEach(function(call) { html += renderZoomTaskCard(call); });
-        html += '</div>';
-        container.innerHTML = html;
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var calls = (d && d.ok && Array.isArray(d.calls)) ? d.calls : [];
+        // most-recent call per registration_task_id
+        var byTask = {};
+        calls.forEach(function(call){
+          var tid = call.registration_task_id;
+          if (!tid) return;
+          var prev = byTask[tid];
+          if (!prev || String(call.created_at||'') > String(prev.created_at||'')) byTask[tid] = call;
+        });
+        placeholders.forEach(function(ph){
+          var tid = ph.getAttribute('data-zoom-task-card');
+          var call = byTask[tid];
+          ph.innerHTML = call ? renderZoomTaskCard(call) : '<div style="font-size:11px;color:var(--muted);padding:6px 0">No scheduled call found.</div>';
+        });
       })
-      .catch(function() { container.innerHTML = ''; });
+      .catch(function(){
+        placeholders.forEach(function(ph){ ph.innerHTML=''; });
+      });
   }
+  window.fillZoomTaskCards = fillZoomTaskCards;
 
   // ── Scheduled Calls Top-Level Panel (Task 14) ────────────────
   async function renderScheduledCallsPanel() {

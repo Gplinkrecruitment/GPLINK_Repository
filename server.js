@@ -403,7 +403,7 @@ const CALL_STATUS_TO_TASK_STATUS = {
   invited: 'waiting_on_gp',
   booked: 'waiting',
   completed: 'completed',
-  cancelled: 'cancelled',
+  cancelled: 'waiting_on_gp', // cancelled keeps the task open as "needs rebooking" (see unified call task design)
   no_show: 'waiting_on_gp'
 };
 
@@ -12895,7 +12895,7 @@ async function handleCalendlyInviteeCanceled(payload) {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
         body: {
           status: mapCallStatusToTaskStatus('cancelled'),
-          description: 'Your scheduled call was cancelled. Please contact us if you need to rebook.',
+          description: 'Your scheduled call was cancelled — please book a new time to continue.',
           updated_at: now
         }
       });
@@ -25030,18 +25030,42 @@ async function handleApi(req, res, pathname) {
     }
     const callId = callRecord.id;
 
-    // Create registration task
-    const taskResult = await _createRegTask(caseId, {
-      task_type: 'zoom_call',
-      title: 'Zoom Assistance Call — ' + stageDisplay,
-      description: 'Waiting for GP to book a time slot',
-      status: 'waiting_on_gp',
-      priority: 'normal',
-      source_trigger: 'admin_scheduled',
-      related_stage: stage,
-      _actor: admin.email || 'admin'
-    });
-    const taskId = taskResult && taskResult.id ? taskResult.id : null;
+    // Reuse an existing open zoom_call task for this case+stage if one exists,
+    // so there is one persistent call task per stage (unified call task design).
+    let taskId = null;
+    const existingTaskRes = await supabaseDbRequest(
+      'registration_tasks',
+      'case_id=eq.' + encodeURIComponent(caseId) +
+      '&task_type=eq.zoom_call&related_stage=eq.' + encodeURIComponent(stage) +
+      '&status=not.in.(completed,complete,cancelled)&select=id&order=created_at.desc&limit=1',
+      { method: 'GET' }
+    );
+    if (existingTaskRes.ok && Array.isArray(existingTaskRes.data) && existingTaskRes.data[0] && existingTaskRes.data[0].id) {
+      taskId = existingTaskRes.data[0].id;
+      // Refresh the existing task so it reflects the newly scheduled call
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: {
+          title: 'Zoom Assistance Call — ' + stageDisplay,
+          description: 'Waiting for GP to book a time slot',
+          status: 'waiting_on_gp',
+          updated_at: new Date().toISOString()
+        }
+      });
+    } else {
+      const taskResult = await _createRegTask(caseId, {
+        task_type: 'zoom_call',
+        title: 'Zoom Assistance Call — ' + stageDisplay,
+        description: 'Waiting for GP to book a time slot',
+        status: 'waiting_on_gp',
+        priority: 'normal',
+        source_trigger: 'admin_scheduled',
+        related_stage: stage,
+        _actor: admin.email || 'admin'
+      });
+      taskId = taskResult && taskResult.id ? taskResult.id : null;
+    }
 
     // Link task back to scheduled_calls
     if (taskId) {
