@@ -261,6 +261,23 @@ const RSO_TEAM = [
   { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243', user_id: '2f94f870-7ab2-4f71-98ad-bf3756ed88db' },
   { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' }
 ];
+// Default RSO when a GP's case has no assigned_va. Hazel is the sole active RSO.
+// (The Smith Miller test case already carries assigned_va = Khaleed, so preferring
+// the case's assigned_va routes it correctly without special-casing.)
+const DEFAULT_RSO_USER_ID = (RSO_TEAM.find(function (r) { return r.email === 'hazel@mygplink.com.au'; }) || {}).user_id || null;
+
+// Resolve the RSO (registration_tasks.assignee UUID) for a GP's case: prefer the
+// case's assigned_va, else default to Hazel. knownAssignedVa: pass the loaded value
+// if available; undefined triggers a lookup, null/value is used as-is.
+async function resolveCaseRsoAssignee(caseId, knownAssignedVa) {
+  if (!caseId) return null;
+  let assignedVa = knownAssignedVa;
+  if (assignedVa === undefined) {
+    const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&select=assigned_va', { method: 'GET' });
+    assignedVa = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0].assigned_va : null;
+  }
+  return assignedVa || DEFAULT_RSO_USER_ID;
+}
 let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
@@ -2024,12 +2041,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
   }
-  // Master archive email is receive-only — never process or create tasks from it
-  if (emailAddress === MASTER_ARCHIVE_EMAIL) {
-    console.log('[Gmail] Skipping task processing for master archive email:', emailAddress);
-    return;
-  }
-  if (!isRegisteredVA) {
+  // hello@ (master archive) is now processed too, but ONLY for genuine inbound mail
+  // (INBOX label) matched to a registered GP — enforced by the per-message INBOX
+  // filter and the gpCase gate below. Silent archive copies are inserted label-only
+  // (no INBOX), so they are skipped and never become tasks.
+  var isArchiveInbox = (emailAddress === MASTER_ARCHIVE_EMAIL);
+  if (!isRegisteredVA && !isArchiveInbox) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
     return;
   }
@@ -2160,6 +2177,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         id: currentMsgId,
         format: 'full'
       });
+
+      // hello@: only process genuine inbound mail (INBOX). Silent archive copies
+      // are inserted label-only (no INBOX), so skip them to avoid duplicate tasks.
+      if (isArchiveInbox) {
+        var _msgLabels = (fullMsg.data && Array.isArray(fullMsg.data.labelIds)) ? fullMsg.data.labelIds : [];
+        if (_msgLabels.indexOf('INBOX') === -1) {
+          console.log('[Gmail] hello@ — skipping non-INBOX message (archive copy):', currentMsgId);
+          continue;
+        }
+      }
 
       // Extract email metadata
       var emailMeta = extractEmailMeta(fullMsg.data);
@@ -3013,8 +3040,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // Create email_triage task — skip if AHPRA action items or response matching already handled
-        if (!ahpraActionItemsCreated && !responseMatchedToTask) {
+        // Create email_triage task — skip if AHPRA action items or response matching
+        // already handled. For hello@ (public archive inbox) only create a task when
+        // the email is matched to a registered GP; unmatched hello@ mail stays archive-only.
+        if (!ahpraActionItemsCreated && !responseMatchedToTask && !(isArchiveInbox && !gpCase)) {
         var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
         var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched \u2014 ';
 
@@ -3034,6 +3063,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
+        // Route GP-matched email tasks to that GP's RSO (assigned_va, default Hazel).
+        var taskAssignee = gpCase ? await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va) : null;
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
           task_type: 'email_triage',
           title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
@@ -3041,6 +3072,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           priority: triageResult.urgency === 'urgent' ? 'urgent' : gpCase ? 'normal' : 'low',
           source_trigger: 'gmail_triage',
           related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
+          assignee: taskAssignee,
           gmail_message_id: currentMsgId,
           email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
           email_sender: emailMeta.sender || '',
