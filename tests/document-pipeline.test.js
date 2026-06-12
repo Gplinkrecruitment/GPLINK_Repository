@@ -5,7 +5,9 @@ import {
   isVisuallyClassifiable,
   isDocxMime,
   isDocMime,
-  buildClassificationPrompt
+  buildClassificationPrompt,
+  classifyQualificationOutcome,
+  buildFlagReason
 } from '../lib/document-pipeline.js';
 
 describe('classifyConfidenceAction', () => {
@@ -63,5 +65,59 @@ describe('buildClassificationPrompt', () => {
     const longText = 'x'.repeat(5000);
     const prompt = buildClassificationPrompt('CV', longText);
     expect(prompt.length).toBeLessThan(5000);
+  });
+});
+
+describe('classifyQualificationOutcome', () => {
+  it('approves when name matches (exact) and type is correct', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'exact', verified: true });
+    expect(r).toEqual({ action: 'approve', status: 'approved', reasonKind: null });
+  });
+  it('approves on fuzzy name match', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'fuzzy', verified: true });
+    expect(r.action).toBe('approve');
+  });
+  it('flags a name mismatch', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: true });
+    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'name_mismatch' });
+  });
+  it('flags when verification failed (wrong type / illegible)', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'exact', verified: false });
+    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
+  });
+  it('prioritises name mismatch over failed verification', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: false });
+    expect(r.reasonKind).toBe('name_mismatch');
+  });
+  it('treats unknown nameMatch as failed_verification when not verified', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'unknown', verified: false });
+    expect(r.reasonKind).toBe('failed_verification');
+  });
+  it('flags failed_verification when name is unknown but doc verified true', () => {
+    const r = classifyQualificationOutcome({ nameMatch: 'unknown', verified: true });
+    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
+  });
+});
+
+describe('buildFlagReason', () => {
+  it('builds a name mismatch reason naming both parties', () => {
+    const r = buildFlagReason('name_mismatch', {
+      nameFound: 'Mohammed Avais Hussain',
+      profileName: 'Smith Miller',
+      expectedLabel: 'Primary Medical Degree'
+    });
+    expect(r).toBe('Name on document ("Mohammed Avais Hussain") does not match account ("Smith Miller").');
+  });
+  it('handles a missing document name gracefully', () => {
+    const r = buildFlagReason('name_mismatch', { nameFound: '', profileName: 'Smith Miller', expectedLabel: 'Primary Medical Degree' });
+    expect(r).toBe('The name on the document does not match the account holder ("Smith Miller").');
+  });
+  it('builds a failed verification reason with the expected label', () => {
+    const r = buildFlagReason('failed_verification', { expectedLabel: 'MRCGP Certificate', issues: ['This appears to be a passport.'] });
+    expect(r).toBe('MRCGP Certificate could not be verified: This appears to be a passport.');
+  });
+  it('falls back when no issues are provided', () => {
+    const r = buildFlagReason('failed_verification', { expectedLabel: 'MRCGP Certificate', issues: [] });
+    expect(r).toBe('MRCGP Certificate could not be verified and needs manual review.');
   });
 });
