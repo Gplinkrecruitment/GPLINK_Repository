@@ -1452,9 +1452,14 @@
         })
         .then(function (res) { return res.json(); })
         .then(function (data) {
-          closeUploadModal();
           uploadSubmitBtn.textContent = "Upload";
-          if (data.ok) loadPbsStatus();
+          if (data.ok) {
+            closeUploadModal();
+            loadPbsStatus();
+          } else {
+            uploadSubmitBtn.disabled = false;
+            alert((data && data.error) || "Upload failed. Please try again.");
+          }
         })
         .catch(function () {
           uploadSubmitBtn.textContent = "Upload";
