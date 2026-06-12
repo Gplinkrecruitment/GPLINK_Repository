@@ -14,28 +14,29 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612">
   <style>
     :root {
-      --ink: #0c1222;
-      --ink-soft: #3d4663;
-      --ink-muted: #7c849b;
-      --surface: #f2f4f8;
-      --surface-raised: #ffffff;
-      --border: #e4e7ee;
-      --border-light: #eef0f4;
-      --accent: #1a56db;
-      --accent-glow: rgba(26, 86, 219, 0.12);
-      --success: #0d7c5f;
-      --warn-border: #e5a630;
-      --warn-text: #8a6316;
-      --hero-from: #0c1222;
-      --hero-to: #162036;
-      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
-      --sp-5: 20px; --sp-6: 24px; --sp-7: 28px; --sp-8: 32px;
-      --sp-10: 40px; --sp-12: 48px;
-      --font-heading: "Source Serif 4", Georgia, serif;
-      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --radius: 12px;
+      --ink: var(--gp-ink);
+      --ink-soft: var(--gp-text);
+      --ink-muted: var(--gp-muted);
+      --surface: var(--gp-canvas);
+      --surface-raised: var(--gp-surface);
+      --border: var(--gp-border);
+      --border-light: var(--gp-border);
+      --accent: var(--gp-blue);
+      --accent-glow: var(--gp-blue-soft);
+      --success: var(--gp-green);
+      --warn-border: var(--gp-amber);
+      --warn-text: var(--gp-amber);
+      --hero-from: #0b1322;
+      --hero-to: #14203a;
+      --sp-1: var(--gp-sp-1); --sp-2: var(--gp-sp-2); --sp-3: var(--gp-sp-3); --sp-4: var(--gp-sp-4);
+      --sp-5: var(--gp-sp-5); --sp-6: var(--gp-sp-6); --sp-7: 28px; --sp-8: var(--gp-sp-8);
+      --sp-10: var(--gp-sp-10); --sp-12: 48px;
+      --font-heading: var(--gp-font-display);
+      --font-body: var(--gp-font-body);
+      --radius: var(--gp-r-lg);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -51,6 +52,11 @@
       -webkit-font-smoothing: antialiased;
     }
 
+    a:focus-visible, button:focus-visible {
+      outline: none;
+      box-shadow: var(--gp-focus-ring);
+    }
+
     .dash-wrap {
       max-width: 960px;
       margin: 0 auto;
@@ -59,7 +65,7 @@
 
     /* ---- COMPACT DARK HEADER ---- */
     .hero-compact {
-      background: linear-gradient(170deg, var(--hero-from), var(--hero-to));
+      background: var(--gp-grad-hero);
       border-radius: 0 0 20px 20px;
       overflow: hidden;
       position: relative;
@@ -70,6 +76,15 @@
       background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
       background-size: 200px;
       opacity: 0.5;
+      pointer-events: none;
+    }
+    .hero-compact::after {
+      content: "";
+      position: absolute;
+      top: -60px; right: -80px;
+      width: 240px; height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(37,99,235,0.18) 0%, transparent 70%);
       pointer-events: none;
     }
     .hero-compact-pad {
@@ -86,11 +101,11 @@
     .hero-left { display: flex; align-items: center; gap: var(--sp-3); }
     .hero-avatar {
       width: 40px; height: 40px; border-radius: 50%;
-      background: linear-gradient(140deg, #3366cc, #5588dd);
+      background: var(--gp-grad-brand);
       display: grid; place-items: center;
       color: #fff; font-weight: 700; font-size: 14px;
       flex-shrink: 0;
-      box-shadow: 0 2px 8px -2px rgba(51, 102, 204, 0.4);
+      box-shadow: 0 2px 8px -2px rgba(37,99,235,0.45);
     }
     .hero-name {
       font-family: var(--font-body);
@@ -103,16 +118,16 @@
     }
     .hero-icons { display: flex; gap: var(--sp-2); }
     .hero-icon-btn {
-      width: 36px; height: 36px; border-radius: 10px;
+      width: 36px; height: 36px; border-radius: var(--gp-r-sm);
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.08);
       display: grid; place-items: center;
       cursor: pointer; position: relative;
-      transition: all .15s ease;
+      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
       color: rgba(255,255,255,0.5);
       text-decoration: none;
     }
-    .hero-icon-btn:hover { background: rgba(255,255,255,0.1); }
+    .hero-icon-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.14); }
     .hero-icon-btn svg {
       width: 18px; height: 18px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
@@ -120,7 +135,7 @@
     .header-badge {
       position: absolute; top: -4px; right: -4px;
       width: 16px; height: 16px; border-radius: 50%;
-      background: #dc2626; color: #fff;
+      background: var(--gp-red); color: #fff;
       font-size: 9px; font-weight: 800;
       display: inline-flex; align-items: center; justify-content: center;
       border: 2px solid var(--hero-from);
@@ -133,27 +148,33 @@
 
     /* ---- COUNTDOWN CARD (action-card variant) ---- */
     .action-card {
-      background: var(--surface-raised);
-      border-radius: 12px;
-      border: 1px solid var(--border);
+      background: var(--gp-surface);
+      border-radius: var(--gp-r-lg);
+      border: 1px solid var(--gp-border);
+      box-shadow: var(--gp-shadow-sm);
       padding: var(--sp-6) var(--sp-5);
       margin-bottom: var(--sp-6);
       text-align: center;
+      transition: box-shadow var(--gp-dur) var(--gp-ease), transform var(--gp-dur) var(--gp-ease);
+    }
+    .action-card:hover {
+      box-shadow: var(--gp-shadow-md);
+      transform: translateY(-2px);
     }
     .countdown-value {
       font-family: var(--font-heading);
       font-size: 48px; font-weight: 700;
-      letter-spacing: -0.03em; color: var(--accent);
+      letter-spacing: -0.03em; color: var(--gp-blue);
       line-height: 1;
     }
     .countdown-label {
-      font-size: 14px; font-weight: 500; color: var(--ink-muted);
+      font-size: 14px; font-weight: 500; color: var(--gp-muted);
       margin-top: var(--sp-1);
     }
     .countdown-date {
       display: inline-flex; align-items: center; gap: 6px;
-      margin-top: var(--sp-3); padding: 5px 12px; border-radius: 999px;
-      background: var(--accent-glow); color: var(--accent);
+      margin-top: var(--sp-3); padding: 5px 12px; border-radius: var(--gp-r-pill);
+      background: var(--gp-blue-soft); color: var(--gp-blue);
       font-size: 12px; font-weight: 600;
     }
 
@@ -163,30 +184,32 @@
       margin-bottom: var(--sp-6);
     }
     .progress-track {
-      flex: 1; height: 6px; border-radius: 999px;
-      background: var(--border-light); overflow: hidden;
+      flex: 1; height: 6px; border-radius: var(--gp-r-pill);
+      background: var(--gp-border); overflow: hidden;
     }
     .progress-fill {
-      height: 100%; border-radius: 999px;
-      background: linear-gradient(90deg, var(--accent), var(--success));
-      transition: width .4s ease;
+      height: 100%; border-radius: var(--gp-r-pill);
+      background: var(--gp-grad-brand);
+      transition: width .4s var(--gp-ease);
     }
     .progress-text {
-      font-size: 12px; font-weight: 600; color: var(--ink-muted);
+      font-size: var(--gp-fs-xs); font-weight: 600; color: var(--gp-muted);
       white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: var(--gp-tracking-label);
     }
 
     /* ---- SECTION TITLE ---- */
     .sec-title {
       font-family: var(--font-heading);
-      font-size: 20px; font-weight: 600;
-      color: var(--ink);
+      font-size: var(--gp-fs-lg); font-weight: 600;
+      color: var(--gp-ink);
       letter-spacing: -0.01em;
       line-height: 1.2;
       margin-bottom: var(--sp-1);
     }
     .sec-desc {
-      font-size: 13px; color: var(--ink-muted);
+      font-size: var(--gp-fs-sm); color: var(--gp-muted);
       line-height: 1.5; margin-bottom: var(--sp-4);
     }
 
@@ -195,18 +218,20 @@
     .check-item {
       display: flex; align-items: center; gap: var(--sp-3);
       padding: var(--sp-3) 0;
-      border-bottom: 1px solid var(--border-light);
-      cursor: pointer; transition: all .15s ease;
+      border-bottom: 1px solid var(--gp-border);
+      cursor: pointer;
+      transition: background var(--gp-dur-fast) var(--gp-ease);
       user-select: none; -webkit-user-select: none;
     }
     .check-item:last-child { border-bottom: 0; }
-    .check-item:hover { background: rgba(26, 86, 219, 0.03); }
+    .check-item:hover { background: var(--gp-blue-soft); border-radius: var(--gp-r-sm); padding-left: var(--sp-2); padding-right: var(--sp-2); }
     .check-item.checked { }
     .check-box {
       width: 22px; height: 22px; border-radius: 6px;
-      border: 2px solid var(--border);
+      border: 2px solid var(--gp-border-strong);
       display: grid; place-items: center;
-      flex-shrink: 0; transition: all .15s ease;
+      flex-shrink: 0;
+      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease), color var(--gp-dur-fast) var(--gp-ease);
       color: transparent;
     }
     .check-box svg {
@@ -214,26 +239,26 @@
       fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
     }
     .check-item.checked .check-box {
-      background: var(--success); border-color: var(--success); color: #fff;
+      background: var(--gp-green); border-color: var(--gp-green); color: #fff;
     }
     .check-copy { flex: 1; min-width: 0; }
     .check-title {
-      font-size: 14px; font-weight: 600; color: var(--ink);
+      font-size: 14px; font-weight: 600; color: var(--gp-ink);
       line-height: 1.3;
     }
     .check-due {
-      font-size: 12px; font-weight: 500; color: var(--ink-muted); margin-top: 1px;
+      font-size: 12px; font-weight: 500; color: var(--gp-muted); margin-top: 1px;
     }
     .check-item.checked .check-title {
-      color: var(--success); text-decoration: line-through;
-      text-decoration-color: rgba(13, 124, 95, 0.3);
+      color: var(--gp-green); text-decoration: line-through;
+      text-decoration-color: var(--gp-green-border);
     }
 
     /* ---- TIMELINE ---- */
     .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
     .timeline::before {
       content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
-      width: 2px; background: var(--border);
+      width: 2px; background: var(--gp-border);
     }
     .timeline-item {
       position: relative; padding: 0 0 var(--sp-5) var(--sp-5);
@@ -242,23 +267,24 @@
     .timeline-dot {
       position: absolute; left: -20px; top: 4px;
       width: 14px; height: 14px; border-radius: 50%;
-      background: var(--border-light); border: 2px solid var(--surface);
-      box-shadow: 0 0 0 2px var(--border);
+      background: var(--gp-surface-sunken); border: 2px solid var(--gp-surface);
+      box-shadow: 0 0 0 2px var(--gp-border);
     }
     .timeline-item.upcoming .timeline-dot {
-      background: var(--warn-border); box-shadow: 0 0 0 2px var(--warn-border);
+      background: var(--gp-amber); box-shadow: 0 0 0 2px var(--gp-amber-border);
     }
     .timeline-item.done .timeline-dot {
-      background: var(--success); box-shadow: 0 0 0 2px var(--success);
+      background: var(--gp-green); box-shadow: 0 0 0 2px var(--gp-green-border);
     }
     .timeline-date {
-      font-size: 11px; color: var(--ink-muted); font-weight: 600; margin-bottom: 2px;
+      font-size: 11px; color: var(--gp-muted); font-weight: 600; margin-bottom: 2px;
+      text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
     }
     .timeline-text {
-      font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.4;
+      font-size: 13px; font-weight: 600; color: var(--gp-ink); line-height: 1.4;
     }
     .timeline-detail {
-      font-size: 12px; color: var(--ink-soft); font-weight: 500; margin-top: 2px;
+      font-size: 12px; color: var(--gp-text); font-weight: 500; margin-top: 2px;
     }
 
     /* ---- LOADING ---- */
@@ -268,7 +294,7 @@
     }
     .loading-bar {
       height: 14px; border-radius: 8px;
-      background: linear-gradient(90deg, var(--border-light) 25%, var(--surface) 50%, var(--border-light) 75%);
+      background: linear-gradient(90deg, var(--gp-border) 25%, var(--gp-surface-sunken) 50%, var(--gp-border) 75%);
       background-size: 200% 100%;
       animation: shimmer 1.5s ease-in-out infinite;
     }
@@ -288,18 +314,17 @@
     }
     .btn-primary {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 12px 24px; border-radius: 10px;
-      background: var(--ink); color: #fff;
+      padding: 12px 24px; border-radius: var(--gp-r-md);
+      background: var(--gp-grad-brand); color: #fff;
       font-family: var(--font-body);
       font-size: 13px; font-weight: 600;
       border: 0; cursor: pointer;
-      box-shadow: 0 1px 3px rgba(12, 18, 34, 0.2);
-      transition: all .15s ease;
+      box-shadow: 0 8px 20px -10px rgba(29,78,216,.55);
+      transition: transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
     }
     .btn-primary:hover {
-      background: #1a2540;
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(12, 18, 34, 0.2);
+      box-shadow: 0 12px 24px -8px rgba(29,78,216,.6);
     }
     .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
     .btn-primary svg {
@@ -308,14 +333,14 @@
     }
     .btn-ghost {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 12px 20px; border-radius: 10px;
-      background: transparent; color: var(--ink-muted);
+      padding: 12px 20px; border-radius: var(--gp-r-md);
+      background: var(--gp-surface); color: var(--gp-text);
       font-family: var(--font-body);
       font-size: 13px; font-weight: 500;
-      border: 0; cursor: pointer;
-      transition: color .15s ease;
+      border: 1px solid var(--gp-border-strong); cursor: pointer;
+      transition: color var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
     }
-    .btn-ghost:hover { color: var(--ink); }
+    .btn-ghost:hover { color: var(--gp-ink); border-color: var(--gp-blue-border); box-shadow: var(--gp-shadow-sm); }
     .btn-ghost svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
@@ -325,13 +350,13 @@
     .step-title {
       font-family: var(--font-heading);
       font-size: 28px; font-weight: 600;
-      color: var(--ink);
-      letter-spacing: -0.02em;
+      color: var(--gp-ink);
+      letter-spacing: -0.01em;
       line-height: 1.15;
       margin-bottom: var(--sp-2);
     }
     .step-desc {
-      font-size: 14px; color: var(--ink-muted);
+      font-size: 14px; color: var(--gp-muted);
       line-height: 1.55; margin-bottom: var(--sp-6);
       max-width: 520px;
     }
@@ -347,21 +372,21 @@
     /* ---- STUCK HELP INLINE ---- */
     .stuck-line {
       display: block; text-align: center;
-      font-size: 12px; color: var(--ink-muted); line-height: 1.6;
+      font-size: 12px; color: var(--gp-muted); line-height: 1.6;
       margin-top: 16px;
     }
     .stuck-link {
       display: inline;
       font-size: 12px; font-weight: 600;
-      color: var(--ink-muted);
+      color: var(--gp-muted);
       background: none; border: none; padding: 0;
       cursor: pointer; font-family: var(--font-body);
       text-decoration: underline;
       text-underline-offset: 2px;
-      transition: color .15s;
+      transition: color var(--gp-dur-fast) var(--gp-ease);
     }
     .stuck-link:hover {
-      color: var(--ink);
+      color: var(--gp-ink);
     }
 
     /* ---- RESPONSIVE ---- */
@@ -383,17 +408,17 @@
         background: rgba(255,255,255,0.92);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border-bottom: 1px solid rgba(0,0,0,0.06);
+        border-bottom: 1px solid var(--gp-border);
         padding: 8px 40px;
       }
       .step-header-text { flex: 1; min-width: 0; }
       .step-header-bar .step-title {
         font-size: 22px; font-weight: 600;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.01em;
         line-height: 1.15; margin-bottom: 2px;
       }
       .step-header-bar .step-desc {
-        font-size: 13px; color: var(--ink-muted);
+        font-size: 13px; color: var(--gp-muted);
         line-height: 1.4; margin: 0; max-width: none;
       }
       .step-header-actions {
@@ -402,27 +427,27 @@
       }
 
       /* ─── DESKTOP SIDEBAR ─── */
-      .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background:linear-gradient(180deg,#0c1222 0%,#111827 100%); padding:24px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
-      .desktop-sidebar .sb-title { font-size:22px; font-weight:700; margin-bottom:4px; text-align:center; }
-      .desktop-sidebar .sb-sub { font-size:14px; color:rgba(255,255,255,0.3); margin-bottom:28px; text-align:center; }
-      .desktop-sidebar .sb-step { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:10px; cursor:pointer; transition:background 0.15s; }
+      .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background:var(--gp-grad-hero); padding:24px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
+      .desktop-sidebar .sb-title { font-family:var(--gp-font-display); font-size:22px; font-weight:600; letter-spacing:-0.01em; margin-bottom:4px; text-align:center; }
+      .desktop-sidebar .sb-sub { font-size:12px; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:28px; text-align:center; }
+      .desktop-sidebar .sb-step { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:var(--gp-r-sm); cursor:pointer; transition:background var(--gp-dur-fast) var(--gp-ease); }
       .desktop-sidebar .sb-step:hover { background:rgba(255,255,255,0.04); }
       .desktop-sidebar .sb-step.active { background:rgba(255,255,255,0.06); }
       .desktop-sidebar .sb-step.locked { opacity:0.4; cursor:not-allowed; }
       .desktop-sidebar .sb-num { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:1px; }
-      .desktop-sidebar .sb-num.done { background:#0d7c5f; color:#fff; }
-      .desktop-sidebar .sb-num.current { background:#2563eb; color:#fff; }
+      .desktop-sidebar .sb-num.done { background:var(--gp-green); color:#fff; }
+      .desktop-sidebar .sb-num.current { background:var(--gp-blue); color:#fff; }
       .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.3); }
       .desktop-sidebar .sb-step-title { font-size:15px; color:rgba(255,255,255,0.5); }
       .desktop-sidebar .sb-step.active .sb-step-title { color:#fff; font-weight:600; }
       .desktop-sidebar .sb-step-status { font-size:12px; color:rgba(255,255,255,0.25); margin-top:2px; }
       .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.4); }
       .desktop-sidebar .sb-connector { width:2px; height:12px; margin-left:34px; background:rgba(255,255,255,0.08); }
-      .desktop-sidebar .sb-connector.done { background:#0d7c5f; }
+      .desktop-sidebar .sb-connector.done { background:var(--gp-green); }
       .desktop-sidebar .sb-progress { margin-top:auto; padding-top:20px; border-top:1px solid rgba(255,255,255,0.06); }
-      .desktop-sidebar .sb-progress-label { font-size:11px; color:rgba(255,255,255,0.25); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
+      .desktop-sidebar .sb-progress-label { font-size:11px; color:rgba(255,255,255,0.25); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:8px; }
       .desktop-sidebar .sb-progress-bar { height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; }
-      .desktop-sidebar .sb-progress-fill { height:100%; background:linear-gradient(90deg,#0d7c5f,#10b981); border-radius:2px; transition:width 0.3s; }
+      .desktop-sidebar .sb-progress-fill { height:100%; background:linear-gradient(90deg,var(--gp-green),#10b981); border-radius:2px; transition:width 0.3s; }
       .desktop-sidebar .sb-progress-text { font-size:12px; color:rgba(255,255,255,0.3); margin-top:6px; }
       .desktop-sidebar .sb-help { margin-top:16px; font-size:13px; color:rgba(255,255,255,0.3); display:flex; align-items:center; gap:6px; text-decoration:none; }
       .desktop-sidebar .sb-help:hover { color:rgba(255,255,255,0.5); }
@@ -467,7 +492,7 @@
 
   <div class="dash-wrap">
     <!-- COMPACT DARK HEADER -->
-    <section class="hero-compact">
+    <section class="hero-compact gp-reveal gp-reveal-1">
       <div class="hero-compact-pad">
         <div class="hero-header">
           <div class="hero-left">
@@ -502,18 +527,18 @@
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content">
 
-      <h2 class="step-title mobile-step-title">Commencement</h2>
-      <p class="step-desc mobile-step-desc">Complete your pre-arrival and first day tasks before starting at your practice.</p>
+      <h2 class="step-title mobile-step-title gp-reveal gp-reveal-1">Commencement</h2>
+      <p class="step-desc mobile-step-desc gp-reveal gp-reveal-2">Complete your pre-arrival and first day tasks before starting at your practice.</p>
 
       <!-- COUNTDOWN -->
-      <div class="action-card">
+      <div class="action-card gp-reveal gp-reveal-2">
         <div class="countdown-value" id="countdownValue">--</div>
         <div class="countdown-label" id="countdownLabel">days until your start</div>
         <span class="countdown-date" id="countdownDate">Start date loading...</span>
       </div>
 
       <!-- PROGRESS -->
-      <div class="progress-row">
+      <div class="progress-row gp-reveal gp-reveal-3">
         <div class="progress-track">
           <div class="progress-fill" id="progressFill" style="width:0%"></div>
         </div>
@@ -521,9 +546,9 @@
       </div>
 
       <!-- PRE-ARRIVAL CHECKLIST -->
-      <h3 class="sec-title">Pre-Arrival Checklist</h3>
-      <p class="sec-desc">Tasks to complete before travelling to your practice location.</p>
-      <div class="checklist" id="preArrivalChecklist">
+      <h3 class="sec-title gp-reveal gp-reveal-3">Pre-Arrival Checklist</h3>
+      <p class="sec-desc gp-reveal gp-reveal-3">Tasks to complete before travelling to your practice location.</p>
+      <div class="checklist gp-reveal gp-reveal-4" id="preArrivalChecklist">
         <div class="check-item" data-key="travel_booked">
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <div class="check-copy">
@@ -542,14 +567,14 @@
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <div class="check-copy">
             <div class="check-title">Professional indemnity insurance</div>
-            <div class="check-desc" style="font-size:12px;color:var(--muted);margin-top:2px">Upload your certificate of currency as proof of coverage</div>
+            <div class="check-desc" style="font-size:12px;color:var(--gp-muted);margin-top:2px">Upload your certificate of currency as proof of coverage</div>
             <div class="check-due" data-due-offset="-7">Due 1 week before start</div>
             <div class="check-upload" style="margin-top:6px">
               <label class="btn btn-soft btn-sm" style="cursor:pointer;font-size:12px;display:inline-block">
                 Upload Certificate
                 <input type="file" data-indemnity-upload accept=".pdf,.png,.jpg,.jpeg" style="display:none">
               </label>
-              <span class="indemnity-status" style="font-size:11px;margin-left:8px;color:var(--muted)"></span>
+              <span class="indemnity-status" style="font-size:11px;margin-left:8px;color:var(--gp-muted)"></span>
             </div>
           </div>
         </div>
@@ -570,9 +595,9 @@
       </div>
 
       <!-- FIRST-DAY CHECKLIST -->
-      <h3 class="sec-title">First Day Checklist</h3>
-      <p class="sec-desc">Final tasks for your orientation and first day at the practice.</p>
-      <div class="checklist" id="firstDayChecklist">
+      <h3 class="sec-title gp-reveal gp-reveal-4">First Day Checklist</h3>
+      <p class="sec-desc gp-reveal gp-reveal-4">Final tasks for your orientation and first day at the practice.</p>
+      <div class="checklist gp-reveal gp-reveal-5" id="firstDayChecklist">
         <div class="check-item" data-key="orientation_scheduled">
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <div class="check-copy">
@@ -590,9 +615,9 @@
       </div>
 
       <!-- TIMELINE -->
-      <h3 class="sec-title">Key Dates</h3>
-      <p class="sec-desc">Important dates relative to your practice start date.</p>
-      <div class="timeline" id="commencementTimeline">
+      <h3 class="sec-title gp-reveal gp-reveal-5">Key Dates</h3>
+      <p class="sec-desc gp-reveal gp-reveal-5">Important dates relative to your practice start date.</p>
+      <div class="timeline gp-reveal gp-reveal-5" id="commencementTimeline">
         <div class="loading-bars">
           <span class="loading-bar"></span>
           <span class="loading-bar"></span>

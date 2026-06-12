@@ -33,6 +33,8 @@
   --gp-amber: #d97706;        --gp-amber-soft: #fdf3e1;  --gp-amber-border: #f4ddb0;
   --gp-red:   #dc2626;        --gp-red-soft:   #fdf0f0;  --gp-red-border:   #f5cfcf;
   --gp-info:  #2563eb;        --gp-info-soft:  #eff4ff;  --gp-info-border:  #d6e2fb;
+  /* Ink variants: text on the -soft fills (≥4.5:1 at small sizes) */
+  --gp-green-ink: #166534;    --gp-amber-ink: #92400e;   --gp-red-ink: #991b1b;
 
   /* ── Typography ─────────────────────────────────────────────── */
   --gp-font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
