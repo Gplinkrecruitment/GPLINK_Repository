@@ -306,9 +306,9 @@
       #${PANEL_ID} .item:hover { border-color: #cfe0fd; background: #f8fbff; }
       #${PANEL_ID} .item.read { opacity: .72; }
       #${PANEL_ID} .bar { width: 8px; height: 28px; border-radius: 999px; }
-      #${PANEL_ID} .item.action .bar { background: #f59e0b; }
+      #${PANEL_ID} .item.action .bar { background: #d97706; }
       #${PANEL_ID} .item.update .bar { background: #2563eb; }
-      #${PANEL_ID} .item.support .bar { background: #10b981; }
+      #${PANEL_ID} .item.support .bar { background: #16a34a; }
       #${PANEL_ID} .title {
         font-size: 13px;
         font-weight: 700;
@@ -322,9 +322,9 @@
         letter-spacing: .02em;
         text-transform: uppercase;
       }
-      #${PANEL_ID} .item.action .tag { color: #92400e; background: #ffedd5; border: 1px solid #fdba74; }
+      #${PANEL_ID} .item.action .tag { color: #92400e; background: #fdf3e1; border: 1px solid #f4ddb0; }
       #${PANEL_ID} .item.update .tag { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
-      #${PANEL_ID} .item.support .tag { color: #166534; background: #dcfce7; border: 1px solid #86efac; }
+      #${PANEL_ID} .item.support .tag { color: #166534; background: #eafaf0; border: 1px solid #c5ecd4; }
       @media (max-width: 767px) {
         #${PANEL_ID} {
           top: 8px;
