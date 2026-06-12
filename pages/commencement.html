@@ -108,8 +108,9 @@
       box-shadow: 0 2px 8px -2px rgba(37,99,235,0.45);
     }
     .hero-name {
-      font-family: var(--font-body);
-      font-size: 15px; font-weight: 700; color: #fff;
+      font-family: var(--gp-font-display);
+      font-size: 15px; font-weight: 600; color: #fff;
+      letter-spacing: -0.01em;
     }
     .hero-sub-text {
       font-family: var(--font-body);
@@ -224,7 +225,7 @@
       user-select: none; -webkit-user-select: none;
     }
     .check-item:last-child { border-bottom: 0; }
-    .check-item:hover { background: var(--gp-blue-soft); border-radius: var(--gp-r-sm); padding-left: var(--sp-2); padding-right: var(--sp-2); }
+    .check-item:hover { background-color: var(--gp-blue-soft); }
     .check-item.checked { }
     .check-box {
       width: 22px; height: 22px; border-radius: 6px;
@@ -250,7 +251,7 @@
       font-size: 12px; font-weight: 500; color: var(--gp-muted); margin-top: 1px;
     }
     .check-item.checked .check-title {
-      color: var(--gp-green); text-decoration: line-through;
+      color: var(--gp-green-ink); text-decoration: line-through;
       text-decoration-color: var(--gp-green-border);
     }
 
@@ -429,7 +430,7 @@
       /* ─── DESKTOP SIDEBAR ─── */
       .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background:var(--gp-grad-hero); padding:24px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
       .desktop-sidebar .sb-title { font-family:var(--gp-font-display); font-size:22px; font-weight:600; letter-spacing:-0.01em; margin-bottom:4px; text-align:center; }
-      .desktop-sidebar .sb-sub { font-size:12px; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:28px; text-align:center; }
+      .desktop-sidebar .sb-sub { font-size:12px; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:28px; text-align:center; }
       .desktop-sidebar .sb-step { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:var(--gp-r-sm); cursor:pointer; transition:background var(--gp-dur-fast) var(--gp-ease); }
       .desktop-sidebar .sb-step:hover { background:rgba(255,255,255,0.04); }
       .desktop-sidebar .sb-step.active { background:rgba(255,255,255,0.06); }
@@ -437,20 +438,20 @@
       .desktop-sidebar .sb-num { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:1px; }
       .desktop-sidebar .sb-num.done { background:var(--gp-green); color:#fff; }
       .desktop-sidebar .sb-num.current { background:var(--gp-blue); color:#fff; }
-      .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.3); }
+      .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.55); }
       .desktop-sidebar .sb-step-title { font-size:15px; color:rgba(255,255,255,0.5); }
       .desktop-sidebar .sb-step.active .sb-step-title { color:#fff; font-weight:600; }
-      .desktop-sidebar .sb-step-status { font-size:12px; color:rgba(255,255,255,0.25); margin-top:2px; }
-      .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.4); }
+      .desktop-sidebar .sb-step-status { font-size:12px; color:rgba(255,255,255,0.5); margin-top:2px; }
+      .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.7); }
       .desktop-sidebar .sb-connector { width:2px; height:12px; margin-left:34px; background:rgba(255,255,255,0.08); }
       .desktop-sidebar .sb-connector.done { background:var(--gp-green); }
       .desktop-sidebar .sb-progress { margin-top:auto; padding-top:20px; border-top:1px solid rgba(255,255,255,0.06); }
-      .desktop-sidebar .sb-progress-label { font-size:11px; color:rgba(255,255,255,0.25); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:8px; }
+      .desktop-sidebar .sb-progress-label { font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:var(--gp-tracking-label); margin-bottom:8px; }
       .desktop-sidebar .sb-progress-bar { height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; }
-      .desktop-sidebar .sb-progress-fill { height:100%; background:linear-gradient(90deg,var(--gp-green),#10b981); border-radius:2px; transition:width 0.3s; }
-      .desktop-sidebar .sb-progress-text { font-size:12px; color:rgba(255,255,255,0.3); margin-top:6px; }
-      .desktop-sidebar .sb-help { margin-top:16px; font-size:13px; color:rgba(255,255,255,0.3); display:flex; align-items:center; gap:6px; text-decoration:none; }
-      .desktop-sidebar .sb-help:hover { color:rgba(255,255,255,0.5); }
+      .desktop-sidebar .sb-progress-fill { height:100%; background:var(--gp-green); border-radius:2px; transition:width 0.3s; }
+      .desktop-sidebar .sb-progress-text { font-size:12px; color:rgba(255,255,255,0.5); margin-top:6px; }
+      .desktop-sidebar .sb-help { margin-top:16px; font-size:13px; color:rgba(255,255,255,0.5); display:flex; align-items:center; gap:6px; text-decoration:none; }
+      .desktop-sidebar .sb-help:hover { color:rgba(255,255,255,0.75); }
     }
     @media (max-width: 860px) {
       .desktop-sidebar { display: none; }

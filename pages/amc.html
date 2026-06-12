@@ -40,7 +40,7 @@
       --accent-glow: var(--gp-blue-soft);
       --success: var(--gp-green);
       --warn-border: var(--gp-amber);
-      --warn-text: #8a6316;
+      --warn-text: var(--gp-amber-ink);
       --hero-from: var(--gp-hero-ink);
       --hero-to: #14203a;
       --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
@@ -621,7 +621,7 @@
     }
     .reg-row.done .reg-name,
     .reg-row.done .reg-sub {
-      color: #166534;
+      color: var(--gp-green-ink);
       text-decoration: line-through;
       text-decoration-thickness: 1.5px;
     }
@@ -655,7 +655,7 @@
     .reg-btn.done {
       background: var(--gp-green-soft);
       border-color: var(--gp-green-border);
-      color: #166534;
+      color: var(--gp-green-ink);
       cursor: not-allowed;
     }
     .reg-btn.locked { background: var(--surface); border-color: var(--border); color: var(--ink-muted); }
@@ -752,8 +752,8 @@
     }
     .modal-card {
       width: min(480px, 100%); background: var(--surface-raised);
-      border-radius: var(--radius); border: 1px solid var(--border);
-      box-shadow: 0 24px 48px -16px rgba(12, 18, 34, 0.25);
+      border-radius: var(--gp-r-xl); border: 1px solid var(--border);
+      box-shadow: var(--gp-shadow-lg);
       padding: 20px; display: grid; gap: 12px;
       transform: translateY(20px) scale(0.92);
       opacity: 0;
@@ -761,7 +761,7 @@
       transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
     }
     .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
-    .modal-card h4 { font-size: 18px; font-weight: 700; }
+    .modal-card h4 { font-family: var(--gp-font-display); font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
     .modal-card p { font-size: 13px; color: var(--ink-soft); line-height: 1.5; font-weight: 500; }
     .modal-card textarea {
       width: 100%; min-height: 90px; border-radius: var(--gp-r-md);

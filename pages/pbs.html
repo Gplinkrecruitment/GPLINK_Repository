@@ -28,7 +28,7 @@
       --accent-glow: var(--gp-blue-soft);
       --success: var(--gp-green);
       --warn-border: var(--gp-amber);
-      --warn-text: var(--gp-amber);
+      --warn-text: var(--gp-amber-ink);
       --hero-from: #0b1322;
       --hero-to: #14203a;
       --sp-1: var(--gp-sp-1); --sp-2: var(--gp-sp-2); --sp-3: var(--gp-sp-3); --sp-4: var(--gp-sp-4);
@@ -108,13 +108,13 @@
       box-shadow: 0 2px 8px -2px rgba(37, 99, 235, 0.45);
     }
     .hero-name {
-      font-family: var(--font-display);
-      font-size: 15px; font-weight: 700; color: #fff;
+      font-family: var(--gp-font-display);
+      font-size: 15px; font-weight: 600; color: #fff;
       letter-spacing: -0.01em;
     }
     .hero-sub-text {
       font-family: var(--font-body);
-      font-size: 12px; color: rgba(255,255,255,0.45);
+      font-size: 12px; color: rgba(255,255,255,0.72);
       margin-top: 1px;
     }
     .hero-icons { display: flex; gap: var(--sp-2); }
@@ -145,11 +145,11 @@
     /* ---- STEP EYEBROW ---- */
     .step-eyebrow {
       font-family: var(--font-body);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: var(--gp-tracking-label);
-      color: rgba(255,255,255,0.35);
+      color: rgba(255,255,255,0.6);
       margin-bottom: var(--sp-3);
     }
 
@@ -179,7 +179,7 @@
       display: inline-flex; align-items: center; gap: 6px;
       padding: 8px 14px; border-radius: var(--gp-r-sm);
       font-size: 12px; font-weight: 500;
-      color: rgba(255,255,255,0.38);
+      color: rgba(255,255,255,0.6);
       white-space: nowrap; flex-shrink: 0;
       border: 1px solid transparent;
       cursor: pointer; background: transparent;
@@ -200,7 +200,12 @@
       font-size: 10px; font-weight: 600;
       background: rgba(255,255,255,0.09);
       color: rgba(255,255,255,0.42);
-      flex-shrink: 0; transition: all var(--gp-dur-fast) var(--gp-ease);
+      flex-shrink: 0;
+      transition: transform var(--gp-dur-fast) var(--gp-ease),
+                  box-shadow var(--gp-dur-fast) var(--gp-ease),
+                  color var(--gp-dur-fast) var(--gp-ease),
+                  border-color var(--gp-dur-fast) var(--gp-ease),
+                  background-color var(--gp-dur-fast) var(--gp-ease);
     }
     .tab-n svg {
       width: 11px; height: 11px; stroke: currentColor;
@@ -259,7 +264,7 @@
     }
     .warn.hidden { display: none; }
     .warn-title { font-size: 13px; font-weight: 600; color: var(--gp-amber); margin-bottom: 2px; }
-    .warn-text { font-size: 12px; color: var(--gp-amber); line-height: 1.45; opacity: 0.8; }
+    .warn-text { font-size: 12px; color: var(--warn-text); line-height: 1.45; }
 
     /* ---- INFO ROWS ---- */
     .info-rows { margin-bottom: var(--sp-7); }
@@ -290,9 +295,9 @@
     .status-text.not-started .status-dot { background: var(--ink-muted); }
     .status-text.in-progress { color: var(--gp-blue); }
     .status-text.in-progress .status-dot { background: var(--gp-blue); }
-    .status-text.submitted { color: var(--gp-amber); }
+    .status-text.submitted { color: var(--gp-amber-ink); }
     .status-text.submitted .status-dot { background: var(--gp-amber); }
-    .status-text.approved { color: var(--gp-green); }
+    .status-text.approved { color: var(--gp-green-ink); }
     .status-text.approved .status-dot { background: var(--gp-green); }
     .status-text.refused { color: var(--gp-red); }
     .status-text.refused .status-dot { background: var(--gp-red); }
@@ -418,8 +423,8 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       margin-top: 1px;
     }
-    .doc-rejection { font-size: 11px; color: var(--gp-red); font-weight: 500; margin-top: 2px; }
-    .doc-request-note { font-size: 11px; color: var(--gp-amber); font-weight: 500; margin-top: 2px; line-height: 1.4; }
+    .doc-rejection { font-size: 11px; color: var(--gp-red-ink); font-weight: 500; margin-top: 2px; }
+    .doc-request-note { font-size: 11px; color: var(--gp-amber-ink); font-weight: 500; margin-top: 2px; line-height: 1.4; }
     .doc-status {
       font-size: 11px; font-weight: 600; flex-shrink: 0;
       display: inline-flex; align-items: center; gap: 4px;
@@ -431,9 +436,9 @@
     .doc-status.missing .doc-status-dot { background: var(--ink-muted); }
     .doc-status.uploaded { color: var(--gp-blue); }
     .doc-status.uploaded .doc-status-dot { background: var(--gp-blue); }
-    .doc-status.under_review { color: var(--gp-amber); }
+    .doc-status.under_review { color: var(--gp-amber-ink); }
     .doc-status.under_review .doc-status-dot { background: var(--gp-amber); }
-    .doc-status.approved { color: var(--gp-green); }
+    .doc-status.approved { color: var(--gp-green-ink); }
     .doc-status.approved .doc-status-dot { background: var(--gp-green); }
     .doc-status.rejected { color: var(--gp-red); }
     .doc-status.rejected .doc-status-dot { background: var(--gp-red); }
@@ -457,7 +462,7 @@
     .doc-requested-badge {
       display: inline-flex; align-items: center; gap: 4px;
       font-size: 11px; font-weight: 600; flex-shrink: 0;
-      color: var(--gp-amber);
+      color: var(--gp-amber-ink);
     }
 
     /* ---- NOTES ---- */
@@ -710,7 +715,7 @@
       /* ─── DESKTOP SIDEBAR ─── */
       .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background: var(--gp-grad-hero); padding:24px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
       .desktop-sidebar .sb-title { font-family: var(--gp-font-display); font-size:20px; font-weight:600; margin-bottom:4px; text-align:center; letter-spacing:-0.01em; }
-      .desktop-sidebar .sb-sub { font-size:13px; color:rgba(255,255,255,0.35); margin-bottom:28px; text-align:center; }
+      .desktop-sidebar .sb-sub { font-size:13px; color:rgba(255,255,255,0.55); margin-bottom:28px; text-align:center; }
       .desktop-sidebar .sb-step { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:var(--gp-r-sm); cursor:pointer; transition:background-color var(--gp-dur-fast) var(--gp-ease); }
       .desktop-sidebar .sb-step:hover { background:rgba(255,255,255,0.05); }
       .desktop-sidebar .sb-step.active { background:rgba(255,255,255,0.08); }
@@ -718,19 +723,19 @@
       .desktop-sidebar .sb-num { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:1px; }
       .desktop-sidebar .sb-num.done { background: var(--gp-green); color:#fff; }
       .desktop-sidebar .sb-num.current { background: var(--gp-blue); color:#fff; }
-      .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.09); color:rgba(255,255,255,0.35); }
+      .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.09); color:rgba(255,255,255,0.55); }
       .desktop-sidebar .sb-step-title { font-size:15px; color:rgba(255,255,255,0.52); }
       .desktop-sidebar .sb-step.active .sb-step-title { color:#fff; font-weight:600; }
-      .desktop-sidebar .sb-step-status { font-size:12px; color:rgba(255,255,255,0.28); margin-top:2px; }
-      .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.45); }
+      .desktop-sidebar .sb-step-status { font-size:12px; color:rgba(255,255,255,0.5); margin-top:2px; }
+      .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.7); }
       .desktop-sidebar .sb-connector { width:2px; height:12px; margin-left:34px; background:rgba(255,255,255,0.09); }
       .desktop-sidebar .sb-connector.done { background: var(--gp-green); }
       .desktop-sidebar .sb-progress { margin-top:auto; padding-top:20px; border-top:1px solid rgba(255,255,255,0.07); }
-      .desktop-sidebar .sb-progress-label { font-size:12px; font-weight:700; color:rgba(255,255,255,0.28); text-transform:uppercase; letter-spacing: var(--gp-tracking-label); margin-bottom:8px; }
+      .desktop-sidebar .sb-progress-label { font-size:12px; font-weight:700; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing: var(--gp-tracking-label); margin-bottom:8px; }
       .desktop-sidebar .sb-progress-bar { height:4px; background:rgba(255,255,255,0.07); border-radius: var(--gp-r-pill); overflow:hidden; }
-      .desktop-sidebar .sb-progress-fill { height:100%; background: var(--gp-grad-brand); border-radius: var(--gp-r-pill); transition:width 0.3s; }
-      .desktop-sidebar .sb-progress-text { font-size:12px; color:rgba(255,255,255,0.32); margin-top:6px; }
-      .desktop-sidebar .sb-help { margin-top:16px; font-size:13px; color:rgba(255,255,255,0.32); display:flex; align-items:center; gap:6px; text-decoration:none; transition: color var(--gp-dur-fast) var(--gp-ease); }
+      .desktop-sidebar .sb-progress-fill { height:100%; background: var(--gp-green); border-radius: var(--gp-r-pill); transition:width 0.3s; }
+      .desktop-sidebar .sb-progress-text { font-size:12px; color:rgba(255,255,255,0.5); margin-top:6px; }
+      .desktop-sidebar .sb-help { margin-top:16px; font-size:13px; color:rgba(255,255,255,0.5); display:flex; align-items:center; gap:6px; text-decoration:none; transition: color var(--gp-dur-fast) var(--gp-ease); }
       .desktop-sidebar .sb-help:hover { color:rgba(255,255,255,0.55); }
     }
     @media (max-width: 860px) {
@@ -764,15 +769,6 @@
       .info-val { font-size: 13px; }
     }
 
-    /* ---- GP-REVEAL ENTRANCE ANIMATIONS ---- */
-    .reg-content > *:nth-child(1) { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) 0.05s both; }
-    .reg-content > *:nth-child(2) { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) 0.12s both; }
-    .reg-content > *:nth-child(3) { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) 0.19s both; }
-    .reg-content > *:nth-child(4) { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) 0.26s both; }
-    .reg-content > *:nth-child(5) { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) 0.33s both; }
-    @media (prefers-reduced-motion: reduce) {
-      .reg-content > * { animation: none !important; }
-    }
   </style>
 </head>
 <body>
@@ -846,10 +842,10 @@
     <div class="reg-content" id="caseContent" hidden>
 
       <!-- CASE SUMMARY (flat info rows) -->
-      <h2 class="step-title mobile-step-title" id="caseTitle">PBS & Medicare</h2>
-      <p class="step-desc mobile-step-desc" id="caseSub">Setup not yet started</p>
+      <h2 class="step-title mobile-step-title gp-reveal gp-reveal-1" id="caseTitle">PBS & Medicare</h2>
+      <p class="step-desc mobile-step-desc gp-reveal gp-reveal-2" id="caseSub">Setup not yet started</p>
 
-      <div class="info-rows" id="caseSummaryRows">
+      <div class="info-rows gp-reveal gp-reveal-3" id="caseSummaryRows">
         <div class="info-row">
           <span class="info-label">Overall status</span>
           <span class="info-val" id="caseStatusVal">
@@ -867,7 +863,7 @@
       </div>
 
       <!-- CURRENT ACTION -->
-      <div class="action-block" id="actionBlock">
+      <div class="action-block gp-reveal gp-reveal-4" id="actionBlock">
         <div class="action-indicator">
           <div class="action-indicator-dot"></div>
           <span class="action-indicator-label" id="actionLabel">Current step</span>
@@ -885,7 +881,7 @@
       </div>
 
       <!-- STEP 1: MEDICARE -->
-      <div id="medicareSection">
+      <div id="medicareSection" class="gp-reveal gp-reveal-5">
         <h3 class="sec-title">Medicare Provider Number</h3>
         <div class="info-rows" id="medicareMeta">
           <div class="info-row">

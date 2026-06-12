@@ -41,10 +41,10 @@
       --border: var(--gp-border);
       --border-light: var(--gp-border);
       --accent: var(--gp-blue);
-      --accent-glow: rgba(37, 99, 235, 0.12);
+      --accent-glow: var(--gp-blue-soft);
       --success: var(--gp-green);
       --warn-border: var(--gp-amber);
-      --warn-text: var(--gp-amber);
+      --warn-text: var(--gp-amber-ink);
       --hero-from: var(--gp-hero-ink);
       --hero-to: #14203a;
       --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
@@ -59,8 +59,8 @@
     img, video { max-width: 100%; height: auto; }
     button:focus-visible, a:focus-visible, select:focus-visible,
     input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-      outline: 2px solid var(--gp-blue);
-      outline-offset: 2px;
+      outline: none;
+      box-shadow: var(--gp-focus-ring);
     }
     h1, h2, h3, h4, p { overflow-wrap: anywhere; }
 
@@ -118,8 +118,9 @@
       box-shadow: 0 2px 8px -2px rgba(37, 99, 235, 0.4);
     }
     .hero-name {
-      font-family: var(--font-body);
-      font-size: 15px; font-weight: 700; color: #fff;
+      font-family: var(--gp-font-display);
+      font-size: 15px; font-weight: 600; color: #fff;
+      letter-spacing: -0.01em;
     }
     .hero-sub-text {
       font-family: var(--font-body);
@@ -153,11 +154,11 @@
     /* ---- STEP EYEBROW ---- */
     .step-eyebrow {
       font-family: var(--font-body);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: var(--gp-tracking-label);
-      color: rgba(255,255,255,0.42);
+      color: rgba(255,255,255,0.6);
       margin-bottom: var(--sp-3);
     }
 
@@ -630,7 +631,7 @@
     }
     .qp-copy-btn:hover { background: var(--gp-border); color: var(--ink-soft); border-color: var(--gp-border-strong); }
     .qp-copy-btn svg { width: 14px; height: 14px; }
-    .qp-copy-btn.copied { background: var(--gp-green-soft); color: var(--gp-green); border-color: var(--gp-green-border); }
+    .qp-copy-btn.copied { background: var(--gp-green-soft); color: var(--gp-green-ink); border-color: var(--gp-green-border); }
 
     /* ---- ELS PATHWAY ---- */
     .els-select-wrap { margin-top: 10px; }
@@ -697,7 +698,7 @@
       padding: 3px 8px; border-radius: 6px;
     }
     .addl-doc-status.ready {
-      background: var(--gp-green-soft); color: var(--gp-green);
+      background: var(--gp-green-soft); color: var(--gp-green-ink);
       border: 1px solid var(--gp-green-border);
     }
     .addl-doc-status.pending {
@@ -727,7 +728,7 @@
     }
     .btn-addl-small.accent:hover { background: var(--gp-blue-deep); }
     .btn-addl-small.success {
-      background: var(--gp-green-soft); color: var(--gp-green); border-color: var(--gp-green-border);
+      background: var(--gp-green-soft); color: var(--gp-green-ink); border-color: var(--gp-green-border);
     }
 
     /* ---- HELP POPOVER ---- */
@@ -948,7 +949,7 @@
     }
     .reg-row.done .reg-name,
     .reg-row.done .reg-sub {
-      color: var(--gp-green);
+      color: var(--gp-green-ink);
       text-decoration: line-through;
       text-decoration-thickness: 1.5px;
     }
@@ -974,13 +975,18 @@
       text-decoration: none; padding: 8px 14px; border-radius: 10px;
       font-size: 12px; font-weight: 600; white-space: nowrap;
       color: var(--accent); background: var(--accent-glow);
-      border: 1px solid rgba(37, 99, 235, 0.2); transition: all .15s ease;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      transition: transform var(--gp-dur-fast) var(--gp-ease),
+                  box-shadow var(--gp-dur-fast) var(--gp-ease),
+                  color var(--gp-dur-fast) var(--gp-ease),
+                  border-color var(--gp-dur-fast) var(--gp-ease),
+                  background-color var(--gp-dur-fast) var(--gp-ease);
     }
     .reg-btn:hover { background: rgba(37, 99, 235, 0.18); }
     .reg-btn.done {
       background: var(--gp-green-soft);
       border-color: var(--gp-green-border);
-      color: var(--gp-green);
+      color: var(--gp-green-ink);
       cursor: not-allowed;
     }
     .reg-btn.locked { background: var(--surface); border-color: var(--border); color: var(--ink-muted); }
@@ -1182,7 +1188,7 @@
     }
     .gate-blob-1 { width: 260px; height: 260px; background: #93c5fd; top: -80px; left: -40px; }
     .gate-blob-2 { width: 220px; height: 220px; background: #93c5fd; top: -40px; right: -60px; }
-    .gate-blob-3 { width: 180px; height: 180px; background: #fbbf24; top: 60px; left: 40%; opacity: 0.25; }
+    .gate-blob-3 { width: 180px; height: 180px; background: var(--gp-amber); top: 60px; left: 40%; opacity: 0.25; }
 
     /* -- Mobile: absolute doctor at top-right -- */
     .gate-doctor {
@@ -1382,7 +1388,7 @@
         overflow-y: auto;
       }
       .desktop-sidebar .sb-title { font-family: var(--font-heading); font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; text-align: center; }
-      .desktop-sidebar .sb-sub { font-size: 14px; color: rgba(255,255,255,0.3); margin-bottom: 28px; text-align: center; }
+      .desktop-sidebar .sb-sub { font-size: 14px; color: rgba(255,255,255,0.5); margin-bottom: 28px; text-align: center; }
       .desktop-sidebar .sb-step {
         display: flex; align-items: flex-start; gap: 12px;
         padding: 10px 12px; border-radius: 10px; margin-bottom: 0;
@@ -1398,11 +1404,11 @@
       }
       .desktop-sidebar .sb-num.done { background: var(--gp-green); color: #fff; }
       .desktop-sidebar .sb-num.current { background: var(--gp-blue); color: #fff; }
-      .desktop-sidebar .sb-num.pending { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.3); }
+      .desktop-sidebar .sb-num.pending { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
       .desktop-sidebar .sb-step-title { font-size: 15px; color: rgba(255,255,255,0.5); }
       .desktop-sidebar .sb-step.active .sb-step-title { color: #fff; font-weight: 600; }
-      .desktop-sidebar .sb-step-status { font-size: 12px; color: rgba(255,255,255,0.25); margin-top: 2px; }
-      .desktop-sidebar .sb-step.active .sb-step-status { color: rgba(255,255,255,0.4); }
+      .desktop-sidebar .sb-step-status { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+      .desktop-sidebar .sb-step.active .sb-step-status { color: rgba(255,255,255,0.7); }
       .desktop-sidebar .sb-connector {
         width: 2px; height: 12px; margin-left: 34px;
         background: rgba(255,255,255,0.08);
@@ -1595,7 +1601,7 @@
     }
     .intro-blob-3 {
       width: 160px; height: 160px;
-      background: radial-gradient(circle, #34d399, var(--gp-green));
+      background: radial-gradient(circle, var(--gp-green), var(--gp-green));
       bottom: 80px; left: 20px;
     }
 
@@ -1731,7 +1737,7 @@
     .intro-ready-text {
       text-align: center;
       font-size: 13px;
-      color: var(--gp-green);
+      color: var(--gp-green-ink);
       font-weight: 500;
       margin-bottom: 16px;
     }
@@ -1865,12 +1871,12 @@
     }
     .intro-doc-status.missing {
       background: var(--gp-red-soft);
-      color: var(--gp-red);
+      color: var(--gp-red-ink);
       border: 1px solid var(--gp-red-border);
     }
     .intro-doc-status.preparing {
       background: var(--gp-amber-soft);
-      color: var(--gp-amber);
+      color: var(--gp-amber-ink);
       border: 1px solid var(--gp-amber-border);
     }
     .intro-doc-status.requested {
@@ -1958,7 +1964,7 @@
     /* Uploaded state for doc card */
     .intro-doc-card.uploaded .intro-doc-status.missing {
       background: var(--gp-green-soft);
-      color: var(--gp-green);
+      color: var(--gp-green-ink);
       border-color: var(--gp-green-border);
     }
     .intro-doc-uploaded-row {
@@ -1966,7 +1972,7 @@
       align-items: center;
       gap: 6px;
       font-size: 12px;
-      color: var(--gp-green);
+      color: var(--gp-green-ink);
       font-weight: 500;
     }
     .intro-doc-uploaded-row svg {
@@ -2754,7 +2760,7 @@
           if (card) {
             card.classList.add("uploaded");
             var statusEl = document.getElementById("introDocStatus_" + docKey);
-            if (statusEl) { statusEl.textContent = "Uploaded"; statusEl.className = "intro-doc-status"; statusEl.style.background = "var(--gp-green-soft)"; statusEl.style.color = "var(--gp-green)"; }
+            if (statusEl) { statusEl.textContent = "Uploaded"; statusEl.className = "intro-doc-status"; statusEl.style.background = "var(--gp-green-soft)"; statusEl.style.color = "var(--gp-green-ink)"; }
             var actionsEl = card.querySelector(".intro-doc-actions");
             if (actionsEl) {
               var _uRow = document.createElement('div'); _uRow.className = 'intro-doc-uploaded-row';
