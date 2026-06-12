@@ -4,12 +4,19 @@ const CALL_STATUS_TO_TASK_STATUS = {
   invited: 'waiting_on_gp',
   booked: 'waiting',
   completed: 'completed',
-  cancelled: 'cancelled',
+  cancelled: 'waiting_on_gp', // cancelled keeps the task open as "needs rebooking"
   no_show: 'waiting_on_gp'
 };
 
 function mapCallStatusToTaskStatus(callStatus) {
   return CALL_STATUS_TO_TASK_STATUS[callStatus] || 'open';
+}
+
+// GP-driven call failures (no-show or GP cancellation) get one rebooking grace;
+// the 2nd failure auto-closes the linked task. Keep in sync with server.js.
+function computeCallFailureOutcome(prevFailedCount) {
+  const newCount = (Number(prevFailedCount) || 0) + 1;
+  return { newCount, autoClose: newCount >= 2 };
 }
 
 function generateCorrelationToken() {
@@ -125,6 +132,7 @@ function buildZoomValidationResponse(plainToken, secret) {
 
 module.exports = {
   mapCallStatusToTaskStatus,
+  computeCallFailureOutcome,
   generateCorrelationToken,
   buildScheduledCallInsertPayload,
   buildScheduledCallNotificationPatch,

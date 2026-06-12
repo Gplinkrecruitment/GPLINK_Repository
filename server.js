@@ -413,6 +413,14 @@ function mapCallStatusToTaskStatus(callStatus) {
   return CALL_STATUS_TO_TASK_STATUS[callStatus] || 'open';
 }
 
+// GP-driven call failures (no-show or GP cancellation) get one rebooking grace;
+// the 2nd failure auto-closes the linked task. Returns the new running count and
+// whether the task should be auto-cancelled. Keep in sync with server-test-helpers.js.
+function computeCallFailureOutcome(prevFailedCount) {
+  const newCount = (Number(prevFailedCount) || 0) + 1;
+  return { newCount, autoClose: newCount >= 2 };
+}
+
 function generateCorrelationToken() {
   return require('crypto').randomBytes(16).toString('hex');
 }
@@ -8394,7 +8402,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
-  const messageText = 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nThis link will let you choose from available time slots.';
+  const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   try {
     const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
       method: 'POST',
@@ -13053,26 +13061,41 @@ async function handleCalendlyInviteeCanceled(payload) {
       });
     }
   } else {
-    // Fully cancelled
+    // Fully cancelled by the GP — count toward the 2-strike auto-close (one
+    // rebooking grace; the 2nd GP-driven failure closes the task).
+    const cancelOutcome = computeCallFailureOutcome(callRecord.failed_attempt_count);
+    const failedCount = cancelOutcome.newCount;
+    const autoCloseTask = cancelOutcome.autoClose;
     const callPatch = {
       status: 'cancelled',
       cancelled_at: now,
+      failed_attempt_count: failedCount,
       updated_at: now
     };
+    if (autoCloseTask) {
+      const baseNotes = String(callRecord.admin_notes || '').trim();
+      callPatch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
+    }
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
     });
-    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id);
+    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id, '| failedCount:', failedCount, '| autoClose:', autoCloseTask);
 
     const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
     if (registrationTaskId) {
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: {
-          status: mapCallStatusToTaskStatus('cancelled'),
-          description: 'Your scheduled call was cancelled — please book a new time to continue.',
-          updated_at: now
-        }
+        body: autoCloseTask
+          ? {
+              status: 'cancelled',
+              description: 'Auto-cancelled after 2 missed/cancelled call attempts.',
+              updated_at: now
+            }
+          : {
+              status: mapCallStatusToTaskStatus('cancelled'),
+              description: 'Your scheduled call was cancelled — please book a new time to continue.',
+              updated_at: now
+            }
       });
     }
   }
@@ -19763,8 +19786,8 @@ function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl) {
   return '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">'
     + '<h2 style="color:#0f172a;font-size:20px">Zoom Assistance Call</h2>'
     + '<p style="color:#334155;font-size:14px;line-height:1.6">Hi ' + gpFirstName + ',</p>'
-    + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link registration support officer would like to schedule a Zoom call to help you with your <strong>' + stageDisplay + '</strong> stage.</p>'
-    + '<p style="color:#334155;font-size:14px;line-height:1.6">Please click the button below to choose a time that works for you:</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link team thinks a short Zoom call would be the best way to guide you through your <strong>' + stageDisplay + '</strong> stage.</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Please pick a time that works for you:</p>'
     + '<div style="text-align:center;margin:24px 0">'
     + '<a href="' + bookingUrl + '" style="display:inline-block;padding:12px 28px;background:#2D8CFF;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px">Book Your Time Slot</a>'
     + '</div>'
@@ -25213,14 +25236,14 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const caseId = String(body && body.case_id || '').trim();
-    const userId = String(body && body.user_id || '').trim();
+    let userId = String(body && body.user_id || '').trim();
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
     const assignedRso = assignedRsoEmail ? RSO_TEAM.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
     const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
-    if (!caseId || !userId || !stage) {
-      sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, user_id, stage.' });
+    if (!caseId || !stage) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, stage.' });
       return;
     }
     if (!VALID_STAGES.includes(stage)) {
@@ -25228,6 +25251,18 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
+
+    // Resolve user_id from the case when not supplied
+    if (!userId) {
+      const caseLookup = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&select=user_id', { method: 'GET' });
+      if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data[0] && caseLookup.data[0].user_id) {
+        userId = String(caseLookup.data[0].user_id).trim();
+      }
+      if (!userId) {
+        sendJson(res, 404, { ok: false, message: 'Case not found or has no associated user.' });
+        return;
+      }
+    }
 
     // Verify case belongs to user
     const caseCheck = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&user_id=eq.' + encodeURIComponent(userId) + '&select=id', { method: 'GET' });
@@ -25337,7 +25372,7 @@ async function handleApi(req, res, pathname) {
       const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
       emailResult = await sendEmail({
         to: gpEmail,
-        subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage',
+        subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage — GP Link",
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
       });
@@ -25442,6 +25477,7 @@ async function handleApi(req, res, pathname) {
 
     // Mark no-show (only from booked status)
     const requestedAction = String(body && (body.action || body.status) || '').trim();
+    let autoCloseTask = false; // set when a 2nd GP-driven failure should close the task
 
     if (requestedAction === 'no_show') {
       if (call.status !== 'booked') {
@@ -25450,6 +25486,14 @@ async function handleApi(req, res, pathname) {
       }
       patch.status = 'no_show';
       patch.no_show_at = new Date().toISOString();
+      // GP-driven failure: count toward the 2-strike auto-close (one rebooking grace).
+      const noShowOutcome = computeCallFailureOutcome(call.failed_attempt_count);
+      patch.failed_attempt_count = noShowOutcome.newCount;
+      if (noShowOutcome.autoClose) {
+        autoCloseTask = true;
+        const baseNotes = String(patch.admin_notes !== undefined ? patch.admin_notes : (call.admin_notes || '')).trim();
+        patch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
+      }
     }
 
     // Cancel (from invited or booked)
@@ -25508,13 +25552,16 @@ async function handleApi(req, res, pathname) {
       headers: { Prefer: 'return=representation' }
     });
 
-    // Sync task status if status changed
+    // Sync task status. Normally a call status maps to a task status; on the 2nd
+    // GP-driven failure (autoCloseTask) the task is cancelled instead of kept open.
     const registrationTaskId = getScheduledCallRegistrationTaskId(call);
-    if (patch.status && registrationTaskId) {
-      const newTaskStatus = mapCallStatusToTaskStatus(patch.status);
+    if (registrationTaskId && (patch.status || autoCloseTask)) {
+      const taskBody = autoCloseTask
+        ? { status: 'cancelled', description: 'Auto-cancelled after 2 missed/cancelled call attempts.', updated_at: new Date().toISOString() }
+        : { status: mapCallStatusToTaskStatus(patch.status), updated_at: new Date().toISOString() };
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH',
-        body: { status: newTaskStatus, updated_at: new Date().toISOString() }
+        body: taskBody
       });
     }
 

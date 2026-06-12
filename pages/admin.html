@@ -2691,6 +2691,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
+          // "Schedule call?" for GP-originated assistance tasks (whatsapp_help / email_triage)
+          html+=scheduleCallButtonHtml(t, (u.gp_email||c.gp_email||''));
           html+='<div style="position:relative;display:inline-block">';
           html+='<button class="st-more-btn" data-more-menu="'+esc(t.id)+'">\u2022\u2022\u2022</button>';
           html+='<div class="st-dropdown" id="dropdown-'+esc(t.id)+'">';
@@ -5398,6 +5400,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='</div>';
     }
     h+='<div class="ops-action-row" style="margin-top:12px">';
+    h+=scheduleCallButtonHtml(task, task.gp_email);
     h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Resolved</button>';
     h+='</div>';
     h+='</div>';
@@ -5414,6 +5417,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
+    if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
     if(task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
@@ -8960,6 +8964,56 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       });
   }
   window.fillZoomTaskCards = fillZoomTaskCards;
+
+  // ── "Schedule call?" on GP assistance tasks ──────────────────
+  // Extract a bare lowercase email address from a "Name <addr>" / "addr" string.
+  function extractEmailAddr(s){
+    if(!s) return '';
+    var str=String(s);
+    var m=str.match(/<([^>]+)>/);
+    if(m) return m[1].trim().toLowerCase();
+    var tok=str.split(/[\s,;]+/).find(function(x){return x.indexOf('@')>-1;});
+    return (tok||str).trim().toLowerCase();
+  }
+  // Returns the stage (myintealth/amc/ahpra) if a "Schedule call?" button should
+  // show for this assistance task, else null. Only GP-originated enquiries from a
+  // registered app GP qualify — never practices/non-app senders.
+  function callSchedulableStageForTask(t, gpEmail){
+    if(!t || !t.case_id) return null;
+    if(t.task_type!=='whatsapp_help' && t.task_type!=='email_triage') return null;
+    var stage=String(t.related_stage||'').toLowerCase();
+    if(['myintealth','amc','ahpra'].indexOf(stage)===-1) return null;
+    // whatsapp_help: case_id only exists when the inbound phone matched a
+    // registered GP, so it is inherently from the GP. email_triage: the AI can
+    // match a practice/officer email to the GP's case, so require the sender's
+    // address to equal the registered GP's email.
+    if(t.task_type==='email_triage'){
+      var sender=extractEmailAddr(t.email_sender||'');
+      var gp=String(gpEmail||'').trim().toLowerCase();
+      if(!sender || !gp || sender!==gp) return null;
+    }
+    return stage;
+  }
+  function scheduleCallButtonHtml(t, gpEmail){
+    var stage=callSchedulableStageForTask(t, gpEmail);
+    if(!stage) return '';
+    var label=({myintealth:'MyIntealth',amc:'AMC',ahpra:'AHPRA'})[stage]||stage;
+    return '<button type="button" onclick="event.stopPropagation();scheduleCallFromTask(\''+esc(t.id)+'\',\''+esc(t.case_id)+'\',\''+esc(stage)+'\')" title="Send this GP a Zoom booking link with a message that a call would best guide them through the '+esc(label)+' stage" style="padding:7px 13px;border-radius:8px;border:1px solid #bfdbfe;background:#eff6ff;color:#2563eb;font-weight:700;font-size:13px;cursor:pointer;margin-right:8px">📞 Schedule call?</button>';
+  }
+  async function scheduleCallFromTask(taskId, caseId, stage){
+    var label=({myintealth:'MyIntealth',amc:'AMC',ahpra:'AHPRA'})[stage]||stage;
+    if(!confirm('Send this GP a Zoom booking link for the '+label+' stage? They will get a message suggesting a call would best guide them through it.')) return;
+    try{
+      var r=await fetch('/api/admin/calls/schedule',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({case_id:caseId,stage:stage})});
+      var d=await r.json();
+      if(!d.ok){alert('Failed to schedule call: '+(d.message||'Unknown error'));return;}
+      // Flip the original assistance task to "waiting on GP" (awaiting their booking).
+      try{ await fetch('/api/admin/task?id='+encodeURIComponent(taskId),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'waiting_on_gp'})}); }catch(e){}
+      showOpsToast('Booking link sent to GP');
+      refreshAfterCallAction();
+    }catch(e){ alert('Error: '+e.message); }
+  }
+  window.scheduleCallFromTask = scheduleCallFromTask;
 
   // ── Scheduled Calls Top-Level Panel (Task 14) ────────────────
   async function renderScheduledCallsPanel() {
