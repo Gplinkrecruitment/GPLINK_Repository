@@ -34,14 +34,38 @@ describe('scheduled-calls helpers', () => {
       expect(mapCallStatusToTaskStatus('completed')).toBe('completed');
     });
 
-    it('maps cancelled to cancelled', () => {
+    it('maps cancelled to waiting_on_gp (task stays open as needs-rebooking)', () => {
       const { mapCallStatusToTaskStatus } = require('../server-test-helpers.js');
-      expect(mapCallStatusToTaskStatus('cancelled')).toBe('cancelled');
+      expect(mapCallStatusToTaskStatus('cancelled')).toBe('waiting_on_gp');
     });
 
     it('maps no_show to waiting_on_gp', () => {
       const { mapCallStatusToTaskStatus } = require('../server-test-helpers.js');
       expect(mapCallStatusToTaskStatus('no_show')).toBe('waiting_on_gp');
+    });
+  });
+
+  describe('computeCallFailureOutcome (2-strike auto-close)', () => {
+    const { computeCallFailureOutcome } = require('../server-test-helpers.js');
+
+    it('first GP-driven failure keeps the task open (rebooking grace)', () => {
+      const out = computeCallFailureOutcome(0);
+      expect(out).toEqual({ newCount: 1, autoClose: false });
+    });
+
+    it('second GP-driven failure auto-closes the task', () => {
+      const out = computeCallFailureOutcome(1);
+      expect(out).toEqual({ newCount: 2, autoClose: true });
+    });
+
+    it('treats null/undefined previous count as zero', () => {
+      expect(computeCallFailureOutcome(null)).toEqual({ newCount: 1, autoClose: false });
+      expect(computeCallFailureOutcome(undefined)).toEqual({ newCount: 1, autoClose: false });
+    });
+
+    it('stays auto-closed for any further failures', () => {
+      expect(computeCallFailureOutcome(2).autoClose).toBe(true);
+      expect(computeCallFailureOutcome(5).autoClose).toBe(true);
     });
   });
 

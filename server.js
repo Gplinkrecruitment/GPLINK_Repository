@@ -411,6 +411,14 @@ function mapCallStatusToTaskStatus(callStatus) {
   return CALL_STATUS_TO_TASK_STATUS[callStatus] || 'open';
 }
 
+// GP-driven call failures (no-show or GP cancellation) get one rebooking grace;
+// the 2nd failure auto-closes the linked task. Returns the new running count and
+// whether the task should be auto-cancelled. Keep in sync with server-test-helpers.js.
+function computeCallFailureOutcome(prevFailedCount) {
+  const newCount = (Number(prevFailedCount) || 0) + 1;
+  return { newCount, autoClose: newCount >= 2 };
+}
+
 function generateCorrelationToken() {
   return require('crypto').randomBytes(16).toString('hex');
 }
@@ -12878,26 +12886,41 @@ async function handleCalendlyInviteeCanceled(payload) {
       });
     }
   } else {
-    // Fully cancelled
+    // Fully cancelled by the GP — count toward the 2-strike auto-close (one
+    // rebooking grace; the 2nd GP-driven failure closes the task).
+    const cancelOutcome = computeCallFailureOutcome(callRecord.failed_attempt_count);
+    const failedCount = cancelOutcome.newCount;
+    const autoCloseTask = cancelOutcome.autoClose;
     const callPatch = {
       status: 'cancelled',
       cancelled_at: now,
+      failed_attempt_count: failedCount,
       updated_at: now
     };
+    if (autoCloseTask) {
+      const baseNotes = String(callRecord.admin_notes || '').trim();
+      callPatch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
+    }
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
     });
-    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id);
+    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id, '| failedCount:', failedCount, '| autoClose:', autoCloseTask);
 
     const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
     if (registrationTaskId) {
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: {
-          status: mapCallStatusToTaskStatus('cancelled'),
-          description: 'Your scheduled call was cancelled — please book a new time to continue.',
-          updated_at: now
-        }
+        body: autoCloseTask
+          ? {
+              status: 'cancelled',
+              description: 'Auto-cancelled after 2 missed/cancelled call attempts.',
+              updated_at: now
+            }
+          : {
+              status: mapCallStatusToTaskStatus('cancelled'),
+              description: 'Your scheduled call was cancelled — please book a new time to continue.',
+              updated_at: now
+            }
       });
     }
   }
@@ -25191,6 +25214,7 @@ async function handleApi(req, res, pathname) {
 
     // Mark no-show (only from booked status)
     const requestedAction = String(body && (body.action || body.status) || '').trim();
+    let autoCloseTask = false; // set when a 2nd GP-driven failure should close the task
 
     if (requestedAction === 'no_show') {
       if (call.status !== 'booked') {
@@ -25199,6 +25223,14 @@ async function handleApi(req, res, pathname) {
       }
       patch.status = 'no_show';
       patch.no_show_at = new Date().toISOString();
+      // GP-driven failure: count toward the 2-strike auto-close (one rebooking grace).
+      const noShowOutcome = computeCallFailureOutcome(call.failed_attempt_count);
+      patch.failed_attempt_count = noShowOutcome.newCount;
+      if (noShowOutcome.autoClose) {
+        autoCloseTask = true;
+        const baseNotes = String(patch.admin_notes !== undefined ? patch.admin_notes : (call.admin_notes || '')).trim();
+        patch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
+      }
     }
 
     // Cancel (from invited or booked)
@@ -25257,13 +25289,16 @@ async function handleApi(req, res, pathname) {
       headers: { Prefer: 'return=representation' }
     });
 
-    // Sync task status if status changed
+    // Sync task status. Normally a call status maps to a task status; on the 2nd
+    // GP-driven failure (autoCloseTask) the task is cancelled instead of kept open.
     const registrationTaskId = getScheduledCallRegistrationTaskId(call);
-    if (patch.status && registrationTaskId) {
-      const newTaskStatus = mapCallStatusToTaskStatus(patch.status);
+    if (registrationTaskId && (patch.status || autoCloseTask)) {
+      const taskBody = autoCloseTask
+        ? { status: 'cancelled', description: 'Auto-cancelled after 2 missed/cancelled call attempts.', updated_at: new Date().toISOString() }
+        : { status: mapCallStatusToTaskStatus(patch.status), updated_at: new Date().toISOString() };
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
         method: 'PATCH',
-        body: { status: newTaskStatus, updated_at: new Date().toISOString() }
+        body: taskBody
       });
     }
 
