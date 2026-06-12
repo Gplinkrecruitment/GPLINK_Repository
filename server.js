@@ -8227,7 +8227,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
-  const messageText = 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nThis link will let you choose from available time slots.';
+  const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   try {
     const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
       method: 'POST',
@@ -19535,8 +19535,8 @@ function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl) {
   return '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">'
     + '<h2 style="color:#0f172a;font-size:20px">Zoom Assistance Call</h2>'
     + '<p style="color:#334155;font-size:14px;line-height:1.6">Hi ' + gpFirstName + ',</p>'
-    + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link registration support officer would like to schedule a Zoom call to help you with your <strong>' + stageDisplay + '</strong> stage.</p>'
-    + '<p style="color:#334155;font-size:14px;line-height:1.6">Please click the button below to choose a time that works for you:</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link team thinks a short Zoom call would be the best way to guide you through your <strong>' + stageDisplay + '</strong> stage.</p>'
+    + '<p style="color:#334155;font-size:14px;line-height:1.6">Please pick a time that works for you:</p>'
     + '<div style="text-align:center;margin:24px 0">'
     + '<a href="' + bookingUrl + '" style="display:inline-block;padding:12px 28px;background:#2D8CFF;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px">Book Your Time Slot</a>'
     + '</div>'
@@ -24985,14 +24985,14 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const caseId = String(body && body.case_id || '').trim();
-    const userId = String(body && body.user_id || '').trim();
+    let userId = String(body && body.user_id || '').trim();
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
     const assignedRso = assignedRsoEmail ? RSO_TEAM.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
     const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
-    if (!caseId || !userId || !stage) {
-      sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, user_id, stage.' });
+    if (!caseId || !stage) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, stage.' });
       return;
     }
     if (!VALID_STAGES.includes(stage)) {
@@ -25000,6 +25000,18 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
+
+    // Resolve user_id from the case when not supplied
+    if (!userId) {
+      const caseLookup = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&select=user_id', { method: 'GET' });
+      if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data[0] && caseLookup.data[0].user_id) {
+        userId = String(caseLookup.data[0].user_id).trim();
+      }
+      if (!userId) {
+        sendJson(res, 404, { ok: false, message: 'Case not found or has no associated user.' });
+        return;
+      }
+    }
 
     // Verify case belongs to user
     const caseCheck = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId) + '&user_id=eq.' + encodeURIComponent(userId) + '&select=id', { method: 'GET' });
@@ -25109,7 +25121,7 @@ async function handleApi(req, res, pathname) {
       const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
       emailResult = await sendEmail({
         to: gpEmail,
-        subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage',
+        subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage — GP Link",
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
       });
