@@ -7,24 +7,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
   <style>
     :root {
-      --bg: #eef3fb;
-      --line: #dbe5f1;
-      --text: #0f172a;
-      --blue: #1d4ed8;
-      --shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.45);
+      --bg: var(--gp-canvas);
+      --line: var(--gp-border);
+      --text: var(--gp-ink);
+      --blue: var(--gp-blue-deep);
+      --shadow: var(--gp-shadow-md);
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: var(--gp-font-body);
       color: var(--text);
       background:
-        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
+        radial-gradient(880px 520px at 10% -10%, rgba(46, 107, 240, 0.1), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.1), transparent 58%),
         var(--bg);
       padding: 18px 12px 28px;
     }
@@ -37,11 +38,11 @@
     }
 
     .topbar {
-      border: 1px solid rgba(226, 232, 240, 0.82);
+      border: 1px solid var(--gp-border);
       border-radius: 16px;
       background: #ffffff;
       padding: 14px 16px;
-      box-shadow: 0 12px 25px -22px rgba(2, 6, 23, 0.25);
+      box-shadow: var(--gp-shadow-sm);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -55,42 +56,46 @@
 
     .back-link {
       text-decoration: none;
-      border: 1px solid #bfdbfe;
-      border-radius: 999px;
-      background: #eff6ff;
-      color: var(--blue);
+      border: 1px solid var(--gp-blue-border);
+      border-radius: var(--gp-r-pill);
+      background: var(--gp-blue-soft);
+      color: var(--gp-blue-ink);
       font-size: 12px;
-      font-weight: 750;
+      font-weight: 700;
       padding: 8px 12px;
-      transition: background .18s ease, transform .18s ease;
+      transition: background-color var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
     }
 
     .back-link:hover {
-      background: #dbeafe;
+      background: var(--gp-blue-border);
       transform: translateY(-1px);
     }
 
     .card {
       border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.92);
-      box-shadow: var(--shadow);
+      border-radius: var(--gp-r-lg);
+      background: var(--gp-surface);
+      box-shadow: var(--gp-shadow-sm);
       padding: 22px;
       line-height: 1.6;
     }
 
     h1 {
       margin: 0 0 8px;
+      font-family: var(--gp-font-display);
       font-size: 30px;
-      font-weight: 860;
+      font-weight: 600;
       letter-spacing: -0.01em;
+      color: var(--gp-ink);
     }
 
     h2 {
       margin: 18px 0 8px;
+      font-family: var(--gp-font-display);
       font-size: 17px;
-      font-weight: 800;
-      color: #1e3a8a;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--gp-blue-ink);
     }
 
     p {
@@ -107,13 +112,13 @@
     .legal-footer {
       text-align: center;
       font-size: 12px;
-      color: #64748b;
+      color: var(--gp-muted);
       line-height: 1.45;
       margin-top: 10px;
     }
 
     .legal-footer a {
-      color: #334155;
+      color: var(--gp-text);
       text-decoration: underline;
     }
   </style>
