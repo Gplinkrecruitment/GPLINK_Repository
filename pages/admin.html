@@ -4496,10 +4496,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsEmailTriage(task,msgs,docs);
     }else if(tt==='alt_supervisor_cv_review'){
       html=renderOpsAltSupervisorCvReview(task,msgs,docs);
+    }else if(tt==='zoom_call'){
+      html=await renderOpsZoomCall(task);
     }else{
       html=renderOpsGeneric(task,msgs,docs);
     }
     container.innerHTML=html;
+  }
+
+  // Render a zoom_call task in the Ops Queue as the rich call card (same as the
+  // GP profile), reflecting the most recently scheduled call for this task.
+  async function renderOpsZoomCall(task){
+    var call=null;
+    try{
+      var r=await fetch('/api/admin/calls?case_id='+encodeURIComponent(task.case_id||''),{credentials:'same-origin'});
+      var d=await r.json();
+      var calls=(d&&d.ok&&Array.isArray(d.calls))?d.calls:[];
+      calls.forEach(function(c){
+        if(c.registration_task_id!==task.id)return;
+        if(!call||String(c.created_at||'')>String(call.created_at||''))call=c;
+      });
+    }catch(e){}
+    if(!call){
+      return '<div class="ops-expand-section"><div class="ops-expand-desc">'+esc(task.description||'No scheduled call found.')+'</div></div>';
+    }
+    return '<div class="ops-expand-section">'+renderZoomTaskCard(call)+'</div>';
   }
 
   /* ── Helpers ── */
@@ -8819,8 +8840,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html += '<div class="zoom-summary-toggle" onclick="var el=document.getElementById(\'' + sumId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Meeting Summary \u25BE</div>';
       html += '<div class="zoom-summary-content" id="' + sumId + '" style="display:none">' + esc(call.meeting_summary) + '</div>';
     }
-    // Action buttons
-    if (call.status !== 'completed' && call.status !== 'cancelled') {
+    // Action buttons — Cancel/Reschedule/No Show only for live calls (backend
+    // rejects cancel unless status is invited/booked). no_show + cancelled are
+    // "needs rebooking" states and only offer Schedule new call.
+    if (call.status === 'invited' || call.status === 'booked') {
       html += '<div class="zoom-task-actions">';
       if (call.status === 'invited') {
         html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
@@ -8832,7 +8855,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       html += '</div>';
     }
-    if (call.status === 'cancelled') {
+    if (call.status === 'no_show' || call.status === 'cancelled') {
       html += '<div class="zoom-task-actions">';
       html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Schedule new call</button>';
       html += '</div>';
@@ -8846,12 +8869,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return html;
   }
 
+  // Refresh whichever view is showing after a call action (GP profile vs Ops Queue)
+  function refreshAfterCallAction() {
+    if (S.view === 'tools' && typeof loadOpsQueue === 'function') { loadOpsQueue(); }
+    else if (typeof renderDetail === 'function') { renderDetail(); }
+  }
+  window.refreshAfterCallAction = refreshAfterCallAction;
+
   async function resendZoomInvite(callId) {
     if (!confirm('Resend the Calendly invite to this GP?')) return;
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/resend', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Invite resent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Invite resent'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.resendZoomInvite = resendZoomInvite;
@@ -8861,7 +8891,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'cancelled' }) });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Call cancelled'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Call cancelled'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.cancelZoomCall = cancelZoomCall;
@@ -8871,7 +8901,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: 'no_show' }) });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Marked as no-show'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Marked as no-show'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.markZoomNoShow = markZoomNoShow;
@@ -8881,7 +8911,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'reschedule' }) });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Call rescheduled — new invite sent'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Call rescheduled — new invite sent'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.rescheduleZoomCall = rescheduleZoomCall;
@@ -8890,7 +8920,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Summary fetched'); renderDetail(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Summary fetched'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.retryZoomSummary = retryZoomSummary;
