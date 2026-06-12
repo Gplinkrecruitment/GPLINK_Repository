@@ -29983,6 +29983,7 @@ Return ONLY valid JSON with no markdown formatting:
           entry.file_name = userDoc.file_name || '';
           entry.file_url = userDoc.file_url || '';
           entry.updated_at = userDoc.updated_at || '';
+          entry.flag_reason = userDoc.flag_reason || '';
         }
         if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
