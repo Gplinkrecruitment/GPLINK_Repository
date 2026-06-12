@@ -112,7 +112,9 @@ const {
   isVisuallyClassifiable,
   isDocxMime,
   isDocMime,
-  buildClassificationPrompt
+  buildClassificationPrompt,
+  classifyQualificationOutcome,
+  buildFlagReason
 } = require('./lib/document-pipeline.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
@@ -4686,6 +4688,27 @@ function getVerifiedDocumentNames(onboardingState) {
     }
   }
   return names;
+}
+
+/**
+ * Build an Anthropic content block from a raw file buffer for use in
+ * verifyQualificationDocument. PDFs become document blocks; everything else
+ * becomes a base64 image block.
+ */
+function buildQualContentBlock(fileBuffer, mimeType) {
+  var mime = String(mimeType || '').trim().toLowerCase();
+  if (mime === 'application/pdf' || mime.indexOf('pdf') !== -1) {
+    return {
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') }
+    };
+  }
+  // For images, use whatever mime was given (fall back to jpeg)
+  var imgMime = mime && mime.startsWith('image/') ? mime : 'image/jpeg';
+  return {
+    type: 'image',
+    source: { type: 'base64', media_type: imgMime, data: fileBuffer.toString('base64') }
+  };
 }
 
 /**
@@ -18703,6 +18726,11 @@ async function pushDocumentNotificationToUser(userId, notification) {
 
 // ── Document Upload Pipeline ──────────────────────────────
 
+var QUALIFICATION_DOC_KEYS = new Set([
+  'primary_medical_degree', 'mrcgp_certified', 'cct_certified', 'mrcgp', 'cct',
+  'micgp', 'cscst', 'frnzcgp', 'certificate_good_standing', 'confirmation_training'
+]);
+
 function getDocumentLabelForKey(key) {
   var normalizedKey = String(key || '').trim();
   var labels = {
@@ -18945,6 +18973,41 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
     if (!storagePath) return;
     var fileBuffer = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
     if (!fileBuffer) return;
+
+    if (QUALIFICATION_DOC_KEYS.has(documentKey)) {
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var prof = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : null;
+      var profileName = prof ? [prof.first_name, prof.last_name].filter(Boolean).join(' ').trim() : '';
+      var docTypeLabel = getDocumentLabelForKey(documentKey) || documentKey;
+      var qualBlock = buildQualContentBlock(fileBuffer, mimeType || doc.mime_type);
+      var vres = await verifyQualificationDocument({
+        contentBlock: qualBlock,
+        documentType: docTypeLabel,
+        expectedCountry: String(countryCode || '').toUpperCase(),
+        profileName: profileName,
+        verifiedNames: []
+      }).catch(function () { return { ok: false }; });
+
+      if (vres && vres.ok && vres.verification) {
+        var v = vres.verification;
+        var outcome = classifyQualificationOutcome({ nameMatch: v.nameMatch, verified: v.verified });
+        if (outcome.action === 'flag') {
+          var reason = buildFlagReason(outcome.reasonKind, { nameFound: v.nameFound, profileName: profileName, expectedLabel: docTypeLabel, issues: v.issues });
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+            method: 'PATCH',
+            body: { status: 'under_review', flag_reason: outcome.reasonKind, rejection_reason: reason, updated_at: new Date().toISOString() }
+          });
+          await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason);
+          await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
+          return; // handled — skip the generic type-only pipeline
+        }
+        // approve path: clear any stale flag, then fall through to the existing pipeline
+        await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+          method: 'PATCH', body: { flag_reason: '', updated_at: new Date().toISOString() }
+        });
+      }
+      // if vres not ok (AI error), fall through to the existing generic pipeline
+    }
 
     var aiResult = await classifyDocumentWithAI(fileBuffer, mimeType || doc.mime_type, documentKey, expectedLabel);
     var confidence = aiResult.confidence;
