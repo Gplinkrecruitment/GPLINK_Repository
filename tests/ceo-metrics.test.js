@@ -352,4 +352,36 @@ describe('computePlacements + placementAppIds (tile == drilldown)', () => {
   });
 });
 
+describe('computeGpActivity + gpActivityCaseIds (#12/#36/#37)', () => {
+  const fx = makeFixture();
+  // full active population (NOT period filtered) excluding complete: c1,c2,c3,c4,c5,c6,c11
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW }).filter(c => c.stage !== 'complete');
+
+  it('bucket counts == gpActivityCaseIds length (#12)', () => {
+    const a = M.computeGpActivity(active, NOW);
+    ['active','inactive','cold'].forEach(b => {
+      const ids = M.gpActivityCaseIds(active, b, NOW);
+      const key = b === 'active' ? 'active_7d' : b === 'inactive' ? 'inactive_7_14d' : 'cold_14d_plus';
+      expect(ids.length).toBe(a[key]); // INVARIANT
+    });
+    // active(<=7d): c1(2),c4(3),c5(5),c6(1),c11(0) = 5
+    expect(a.active_7d).toBe(5);
+    // inactive(7-14): c2(10) = 1
+    expect(a.inactive_7_14d).toBe(1);
+    // cold(>14): c3(20) = 1
+    expect(a.cold_14d_plus).toBe(1);
+  });
+
+  it('cold_gps sorted by days_inactive desc before slice (#36)', () => {
+    // build extra cold cases to prove ordering survives the cap
+    const many = [];
+    for (let i = 0; i < 13; i++) many.push({ id: 'x'+i, user_id: 'ux'+i, stage: 'amc', status: 'active', last_gp_activity_at: ago(15 + i), updated_at: ago(15+i), created_at: ago(100) });
+    const a = M.computeGpActivity(many, NOW);
+    expect(a.cold_gps.length).toBe(10); // capped at 10
+    // most inactive first (x12 = 27 days)
+    expect(a.cold_gps[0].days_inactive).toBeGreaterThanOrEqual(a.cold_gps[1].days_inactive);
+    expect(a.cold_gps[0].days_inactive).toBe(27);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
