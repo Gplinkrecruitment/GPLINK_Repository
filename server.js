@@ -2062,12 +2062,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
   }
-  // hello@ (master archive) is now processed too, but ONLY for genuine inbound mail
-  // (INBOX label) matched to a registered GP — enforced by the per-message INBOX
-  // filter and the gpCase gate below. Silent archive copies are inserted label-only
-  // (no INBOX), so they are skipped and never become tasks.
+  // hello@ (master archive) inbox monitoring is DISABLED for now. We still archive VA
+  // correspondence INTO hello@ (silent label copies, written during VA processing
+  // below), but hello@'s own inbound mail is never processed into tasks. Ignoring it
+  // here is the safety net; the renew-gmail-watch cron also no longer renews hello@'s
+  // watch, so notifications stop once the current watch expires.
   var isArchiveInbox = (emailAddress === MASTER_ARCHIVE_EMAIL);
-  if (!isRegisteredVA && !isArchiveInbox) {
+  if (isArchiveInbox) {
+    console.log('[Gmail] hello@ inbox monitoring disabled; ignoring notification for', emailAddress);
+    return;
+  }
+  if (!isRegisteredVA) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
     return;
   }
@@ -20521,9 +20526,10 @@ async function handleApi(req, res, pathname) {
         var dvResult = await setupGmailWatch(dvAddr);
         cronResults.push({ email: dvAddr, success: !!(dvResult && dvResult.ok), expiry: dvResult && dvResult.ok ? dvResult.expiry : null, error: dvResult && !dvResult.ok ? dvResult.error : null });
       }
-      // Master archive watch
-      var helloResult = await setupGmailWatch(MASTER_ARCHIVE_EMAIL);
-      cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: !!(helloResult && helloResult.ok), expiry: helloResult && helloResult.ok ? helloResult.expiry : null, error: helloResult && !helloResult.ok ? helloResult.error : null });
+      // Master archive (hello@) inbox monitoring is disabled for now — do NOT renew
+      // its Gmail watch. Archiving copies INTO hello@ does not require a watch, so this
+      // does not affect record-keeping.
+      cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: true, skipped: true, reason: 'inbox monitoring disabled' });
     }
     sendJson(res, 200, { ok: true, results: cronResults });
     return;
