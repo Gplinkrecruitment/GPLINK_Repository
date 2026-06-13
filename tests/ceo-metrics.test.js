@@ -559,3 +559,33 @@ describe('trends shared status helpers', () => {
     });
   });
 });
+
+describe('KPI tile drilldown reconciliation (#24)', () => {
+  const NOW = FIXTURE.nowMs;
+  const TODAY = new Date(NOW).toISOString().slice(0, 10);
+  const interviewAppIds = new Set((FIXTURE.careerInterviews || []).map(i => i.application_id));
+  // Placed KPI counts unique active GPs holding a secured app and is independent of the
+  // applied_at period window; the secured placement drilldown is period-scoped by design
+  // (Tasks 3.2/3.3). They therefore reconcile under the periods the tile actually uses
+  // (no applied_at window): 'current' and 'all'. (#24)
+  for (const period of ['current','all']) {
+    it('Placed tile === secured placementAppIds unique GPs [' + period + ']', () => {
+      const cases = M.filterActiveCases(FIXTURE.cases, { allTime: period === 'all', nowMs: NOW });
+      const activeUserIds = M.activeUserIdSet(cases);
+      const kpi = M.computeKpis({ cases, allCases: FIXTURE.cases, tasks: FIXTURE.tasks, apps: FIXTURE.apps, careerRoles: FIXTURE.careerRoles, period, nowMs: NOW, todayStr: TODAY, activeUserIds });
+      const securedAppIds = M.placementAppIds(FIXTURE.apps, 'secured', activeUserIds, interviewAppIds, period, NOW);
+      const uniqueGps = new Set(FIXTURE.apps.filter(a => securedAppIds.includes(a.id)).map(a => a.user_id));
+      expect(uniqueGps.size).toBe(kpi.placed);
+    });
+  }
+  for (const period of ['current','7d','30d','all']) {
+    it('Overdue tile === isOverdue tasks on active cases [' + period + ']', () => {
+      const cases = M.filterActiveCases(FIXTURE.cases, { allTime: period === 'all', nowMs: NOW });
+      const ids = new Set(cases.map(c => c.id));
+      const activeUserIds = M.activeUserIdSet(cases);
+      const tasks = FIXTURE.tasks.filter(t => ids.has(t.case_id));
+      const kpi = M.computeKpis({ cases, allCases: FIXTURE.cases, tasks, apps: FIXTURE.apps, careerRoles: FIXTURE.careerRoles, period, nowMs: NOW, todayStr: TODAY, activeUserIds });
+      expect(tasks.filter(t => M.isOverdue(t, TODAY)).length).toBe(kpi.overdue_tasks);
+    });
+  }
+});

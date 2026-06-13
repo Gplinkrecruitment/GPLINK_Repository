@@ -36797,8 +36797,14 @@ Return ONLY valid JSON with no markdown formatting:
       var dAllCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
       var dActiveCases = dFilterCases((dAllCasesRes.ok && Array.isArray(dAllCasesRes.data)) ? dAllCasesRes.data : []);
       // Exact ids the funnel bar counted (#2/#56 — visa folds into pbs in the lib)
-      var barIds = new Set(ceoMetrics.pipelineCaseIds(dActiveCases, stage, { cumulative: isCumulativeDd }));
-      var dCases = dActiveCases.filter(function(c) { return barIds.has(c.id); });
+      var dCases;
+      if (stage === '__all__') {
+        // Total GPs tile (#24): every active case, count == kpi.total_gps
+        dCases = dActiveCases.slice();
+      } else {
+        var barIds = new Set(ceoMetrics.pipelineCaseIds(dActiveCases, stage, { cumulative: isCumulativeDd }));
+        dCases = dActiveCases.filter(function(c) { return barIds.has(c.id); });
+      }
       var dCaseIds = dCases.map(function(c) { return c.id; });
       var dTasks = [];
       if (dCaseIds.length > 0) {
@@ -36822,12 +36828,13 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'blockers') {
       var bCasesRes = await supabaseDbRequest('registration_cases', 'select=*&or=(status.eq.blocked,blocker_status.not.is.null)&order=updated_at.desc');
+      // Same active+period scope as the Blocked KPI (computed over filterActiveCases) (#24)
       var bCases = dFilterCases((bCasesRes.ok && Array.isArray(bCasesRes.data)) ? bCasesRes.data : []);
       var bItems = bCases.map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
           stage: c.stage, blocker_status: c.blocker_status || c.status, blocker_reason: c.blocker_reason || '',
-          days_stuck: c.last_gp_activity_at ? Math.floor((dNow - new Date(c.last_gp_activity_at).getTime()) / dDAY_MS) : 0,
+          days_blocked: ceoMetrics.computeBlockers([c], dNow)[0] ? ceoMetrics.computeBlockers([c], dNow)[0].days_blocked : 0,
           assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va,
           last_va_action_at: c.last_va_action_at, practice_name: c.practice_name
         };
@@ -36913,7 +36920,8 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'completions') {
       var compCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.complete&order=completed_at.desc.nullslast,updated_at.desc');
-      var compCases = dFilterCases((compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : []);
+      // All-time completions (excl. withdrawn only) so the list == completed_gps KPI / completions.total (#15)
+      var compCases = ((compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : []).filter(function(c) { return c.status !== 'withdrawn'; });
       var compItems = compCases.map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
