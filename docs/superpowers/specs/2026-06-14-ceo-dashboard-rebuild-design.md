@@ -64,6 +64,23 @@ Metrics that measure the wrong thing get corrected or relabelled:
 - CEO can assign/reassign a GP's RSO from the CEO view → a proper **RSO picker** (dropdown from `rso_team`), replacing the raw free-text UUID box (finding #44).
 - New `GET /api/ceo/rso/:id/summary` (GPs + task rollup for one RSO) and per-RSO filters on the relevant list endpoints.
 
+### C.1 RSO transfer carries the GP's email (build on existing machinery)
+
+When a GP is transferred to another RSO, the GP's labeled email threads must be **archived out of the old RSO's mailbox and delivered to the new RSO's mailbox, labeled under their assigned-GP label**.
+
+**This largely already exists** in the owner-change branch of `PUT /api/admin/case` (server.js:29593-29728), triggered today on `assigned_va` change:
+- `archiveLabelForVA` renames the old owner's label `Assigned/Dr X` → `Archived/Dr X` (server.js:3348) — the threads stay in the old mailbox but as an archived folder.
+- It fetches the GP's labeled message history (raw) from the old mailbox.
+- `createLabelsForCase` makes the `Assigned/Dr X` label in the new owner's mailbox, and `insertSilentCopy` writes the history into it (server.js:29652-29659) — i.e. the threads are delivered to the new RSO's email under their label.
+- The `hello@` archive label is renamed to the new owner (`buildHelloLabelName`).
+- It backfills by searching the new mailbox for the GP's address and labeling matching threads.
+
+**Rebuild work (wire + harden, don't rebuild):**
+- The CEO's RSO-reassignment action sets `assigned_rso` **and** drives this Gmail transfer. Because the mailbox follows the owner, `assigned_rso` and the mailbox-owner field move together on transfer (keep `assigned_va` in sync, or migrate the transfer trigger to key off `assigned_rso`). Grouping/oversight reads `assigned_rso`.
+- **Each RSO in the roster must have a registered Gmail mailbox** (`va_gmail_accounts`). Today if the new owner has no `va_gmail_accounts` row, `vaAcc` is null and the whole transfer silently no-ops inside a try/catch. The reassignment UI must require/verify the target RSO has a mailbox and surface a clear error instead of silently failing.
+- Verify end-to-end: after transfer, the old RSO shows the GP under `Archived/`, the new RSO sees the GP's threads under `Assigned/Dr X`, and `hello@` reflects the new owner.
+- (Optional, confirm with user) the current flow copies into the new mailbox but does not remove messages from the old mailbox's INBOX — only the label is moved to `Archived/`. If stricter separation is wanted (e.g. when an RSO leaves the team), add `removeLabelIds`/cleanup. Default: keep the archived copy.
+
 ### D. Action reliability
 
 - "Set Blocker → Blocked" violates the `blocker_status` CHECK constraint → fix the option mapping (send `status:'blocked'` + valid/null `blocker_status`) (findings #4, #19).
@@ -87,7 +104,7 @@ Gmail "processed 24h" wrong column → query `processed_at` (#20); reconnect ret
 | W0 | Standalone page + nav | page detachment |
 | W1 | Single source of truth (metric ↔ drilldown reconciliation; wire clickable KPI tiles to their drilldowns) | #1,#2,#3,#6,#9,#10,#11,#12,#24,#28,#29,#30,#31,#34,#38,#39,#40,#51,#52,#56,#63 |
 | W2 | Metric semantics correctness | #5,#8,#13,#14,#15,#16,#17,#18,#25,#27,#35,#36,#37,#41,#42,#43,#53,#54,#57,#58,#59,#60,#61,#62 |
-| W3 | RSO oversight + terminology | #22,#23,#33,#7,#32,#44; VA→RSO rename |
+| W3 | RSO oversight + terminology + email transfer on reassignment | #22,#23,#33,#7,#32,#44; VA→RSO rename; wire/harden Gmail thread transfer (§C.1) |
 | W4 | Action reliability | #4,#19,#26,#55,#64 |
 | W5 | Auth hardening | #50,#69,#70 |
 | W6 | Integration / Technical honesty | #20,#21,#45,#46,#47,#48,#49,#65,#66,#67,#68 |
@@ -121,4 +138,13 @@ Browser (standalone CEO page, super-admin session)
 
 1. `assigned_rso` is introduced as the durable owner, backfilled from `assigned_va`; `assigned_va` stays only for Gmail-mailbox routing. Confirm this split is acceptable (vs. fully migrating off `assigned_va`).
 2. Escalation target: make `escalated_to` a role marker ("CEO") rather than a user UUID — confirm there's no need to escalate to a *specific* person.
-3. "Avg 1st Reply" metric: fix the stamp, or drop the tile until a real first-reply signal exists?
+3. "Avg 1st Reply" metric: fix the stamp, or drop the tile until a real first-reply signal exists? → **CONFIRMED: fix it properly.**
+4. RSO transfer email handling (§C.1): default is to keep the archived copy in the old RSO's mailbox (label moved to `Archived/`) rather than deleting it. Confirm that's acceptable vs. hard-removing from the old mailbox.
+
+## Confirmed decisions (2026-06-14)
+
+- `assigned_rso` as durable owner, backfilled from `assigned_va`; `assigned_va` retained only for internal Gmail mechanics (CONFIRMED).
+- "Escalate to CEO" as a role marker, not a specific person (CONFIRMED).
+- Fix "Avg 1st Reply" properly (CONFIRMED).
+- Scope: fix all 70 (CONFIRMED).
+- On RSO transfer, the GP's labeled threads archive from the old RSO and are delivered+labeled to the new RSO's mailbox — build on the existing owner-change machinery (§C.1) (CONFIRMED requirement).
