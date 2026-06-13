@@ -1088,7 +1088,7 @@
       html += renderPipelineSection(data.pipeline);
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
-      html += renderVAWorkloadSection(data.va_workload);
+      html += renderRsoWorkloadSection(data.va_workload);
       html += renderVelocitySection(data.velocity);
       html += renderPlacementsSection(data.placements);
       html += renderActivitySection(data.gp_activity);
@@ -1267,23 +1267,23 @@
         '<div class="task-cell-label">' + esc(label) + '</div></div>';
     }
 
-    /* ── VA Workload ── */
-    function renderVAWorkloadSection(vas) {
-      if (!vas) return '';
-      if (vas.length === 0) return sectionCard('va', '&#x1F464;', 'VA Workload', '<div style="padding:12px 0;font-size:12px;color:var(--text-dim)">No VAs assigned yet</div>');
+    /* ── RSO Workload ── */
+    function renderRsoWorkloadSection(rsos) {
+      if (!rsos) return '';
+      if (rsos.length === 0) return sectionCard('rso', '&#x1F464;', 'RSO Workload', '<div style="padding:12px 0;font-size:12px;color:var(--text-dim)">No RSOs assigned yet</div>');
       var maxCases = 1;
-      for (var i = 0; i < vas.length; i++) { if (vas[i].case_count > maxCases) maxCases = vas[i].case_count; }
+      for (var i = 0; i < rsos.length; i++) { if (rsos[i].case_count > maxCases) maxCases = rsos[i].case_count; }
       var html = '';
-      for (var j = 0; j < vas.length; j++) {
-        var v = vas[j];
+      for (var j = 0; j < rsos.length; j++) {
+        var v = rsos[j];
         var pct = maxCases > 0 ? Math.round(v.case_count / maxCases * 100) : 0;
-        html += '<div class="va-row" data-drilldown="va" data-param="va_email=' + encodeURIComponent(v.va_email || '') + '">';
-        html += '<span class="va-name" title="' + esc(v.va_email) + '">' + esc(v.va_name) + '</span>';
+        html += '<div class="va-row" data-drilldown="rso" data-param="rso_id=' + encodeURIComponent(v.rso_id || '') + '">';
+        html += '<span class="va-name">' + esc(v.rso_name) + '</span>';
         html += '<div class="va-bar-wrap"><div class="va-bar" style="width:' + pct + '%"></div></div>';
         html += '<span class="va-stats">' + v.case_count + ' cases' + (v.overdue_tasks > 0 ? ' <span class="overdue">' + v.overdue_tasks + ' OD</span>' : '') + '</span>';
         html += '</div>';
       }
-      return sectionCard('va', '&#x1F464;', 'VA Workload', html);
+      return sectionCard('rso', '&#x1F464;', 'RSO Workload', html);
     }
 
     /* ── Velocity ── */
@@ -1476,7 +1476,7 @@
         html += '<div class="dd-actions">';
         if (caseId) {
           html += '<button class="btn btn-blue" onclick="openCreateTaskModal(\'' + esc(caseId) + '\', \'' + esc(name) + '\')">Create Task</button>';
-          html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(caseId) + '\')">Reassign VA</button>';
+          html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(caseId) + '\')">Reassign RSO</button>';
           html += '<button class="btn btn-purple" onclick="openStageChangeModal(\'' + esc(caseId) + '\')">Change Stage</button>';
           html += '<button class="btn" onclick="openBlockerModal(\'' + esc(caseId) + '\')">Set Blocker</button>';
           html += '<button class="btn" onclick="openNoteModal(\'' + esc(caseId) + '\', \'' + esc(item.task_id || '') + '\', \'' + esc(name) + '\')">Add Note</button>';
@@ -1494,7 +1494,7 @@
     function ddField(section, item) {
       var fields = [];
       if (item.substage) fields.push(['Substage', item.substage.replace(/_/g, ' ')]);
-      if (item.assigned_va) fields.push(['Assigned VA', item.assigned_va]);
+      if (item.assigned_rso || item.assigned_va) fields.push(['Assigned RSO', item.assigned_rso || item.assigned_va]);
       if (item.days_in_stage != null) fields.push(['Days in Stage', item.days_in_stage + 'd']);
       if (item.days_stuck != null) fields.push(['Days Stuck', item.days_stuck + 'd']);
       if (item.days_inactive != null) fields.push(['Days Inactive', item.days_inactive + 'd']);
@@ -1566,9 +1566,9 @@
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Create Task'; });
     }
 
-    /* Reassign VA */
+    /* Reassign RSO */
     function openReassignModal(caseId) {
-      var html = '<div class="modal-title">Reassign VA</div>';
+      var html = '<div class="modal-title">Reassign RSO</div>';
       html += '<div class="modal-field"><label class="modal-label">VA User ID</label><input class="modal-input" id="mVaId" placeholder="Enter VA user ID..." /></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-amber" id="mReassignSubmit" onclick="submitReassign(\'' + esc(caseId) + '\')">Reassign</button></div>';
       openModal(html);
