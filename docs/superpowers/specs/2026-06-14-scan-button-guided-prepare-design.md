@@ -238,3 +238,38 @@ Documents on its next load. The router and My Documents read identical state.
 - "Pick another": **collapsed dropdown, closed by default**. ✔ approved
 - Country-unknown: inline GB/IE/NZ chooser fallback. ✔ (owner deferred to recommendation)
 - Tip wording: editable per-document map. ✔ (owner deferred to recommendation)
+
+## Implementation notes & deviations (2026-06-14)
+
+Built and verified. Two deliberate deviations from the design above, for safety on a
+production-critical page:
+
+1. **`document-prep.js` carries its own `PREPARED_DOCS` rather than relocating the whole
+   `COUNTRY_DOCS` out of `my-documents.html`.** Ripping the config out of the inline page
+   script would create a hard parse-time load-order dependency (a failed/reordered include
+   would break the entire Documents page). Instead the shared module owns a standalone copy
+   of the "you provide" doc list, and `tests/document-prep.test.js` includes a **drift guard**
+   that fails if those keys/titles diverge from `my-documents.html`. Achieves the spec's
+   intent (no silent drift) without the runtime coupling risk.
+
+2. **The router surfaces the certified ("scannable") documents only.** Those are exactly the
+   camera+AI-certification documents the feature is about (and the ones with real-world lead
+   time). The lone non-cert prepared doc — the signed/dated CV (`cv_signed_dated`) — is a
+   plain upload, not a scan, and stays on the My Documents page. Progress reads "X of N"
+   over the certified docs. Adding the CV to the router later is trivial.
+
+Persistence reuses the proven `gpOpenCertScan` flow; on a certified result the router calls
+`gpDocPrep.markPreparedCertified()` which mirrors the My Documents certified branch (server
+`PUT /api/prepared-documents` + `gp_documents_prep` localStorage + state-sync push), so a
+scan started from the nav button on any page shows as done in My Documents.
+
+**Not yet covered (follow-ups):** the cert-fail 3-strike escalation
+(`handleCertFailure`/`CERT_SUPPORT_THRESHOLD`) is still My-Documents-only — a router-initiated
+cert failure shows the standard "Scan Failed / Try Again" modal but does not yet increment the
+manual-review counter. Visual/browser and live server round-trip not yet eyes-on tested
+(verified via `node --check`, 21 vitest tests incl. drift guard, and a DOM-shim integration
+run of the router).
+
+**Files:** `js/document-prep.js` (new), `js/qualification-scan.js` (router + trigger),
+`js/qualification-camera.js` (camera view, prior commit), `tests/document-prep.test.js` (new),
+`document-prep.js` script include added to 17 pages.
