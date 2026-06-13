@@ -22,8 +22,13 @@ describe('CEO standalone page UI', () => {
   });
 
   it('makes KPI tiles clickable via data-drilldown', () => {
-    // kpiCard must emit a data-drilldown attribute for the 4 wired tiles
-    expect(ceo).toMatch(/data-drilldown="placements"[^>]*data-param="status=secured"/);
+    // kpiCard must emit a data-drilldown attribute for the 4 wired tiles.
+    // The attribute is built by concatenation from kpiDrillMap, so the
+    // source-level evidence of the placements/status=secured wiring is the
+    // map entry (the literal data-drilldown="placements" never appears in
+    // source because drill.section/drill.param are interpolated at runtime).
+    expect(ceo).toMatch(/placed:\s*\{\s*section:\s*'placements',\s*param:\s*'status=secured'\s*\}/);
+    expect(ceo).toMatch(/data-drilldown="'\s*\+\s*drill\.section\s*\+\s*'"\s*data-param="'\s*\+\s*drill\.param/);
     expect(ceo).toMatch(/kpiDrillMap/);
   });
 

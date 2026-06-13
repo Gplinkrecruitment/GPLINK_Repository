@@ -1109,6 +1109,14 @@
       }
     }
 
+    // tile key -> { section, param } for the four tiles that have a matching drilldown
+    var kpiDrillMap = {
+      placed: { section: 'placements', param: 'status=secured' },
+      open_tasks: { section: 'tasks', param: 'status=open' },
+      overdue: { section: 'tasks', param: 'status=overdue' },
+      blocked: { section: 'blockers', param: '' }
+    };
+
     function kpiCard(label, value, accent, trendKey) {
       var trendHtml = '';
       if (trendsData && trendsData.weeks && trendsData.weeks.length >= 2) {
@@ -1120,19 +1128,21 @@
           overdue: null,
           blocked: null,
           placed: 'placements_secured',
-          completed: 'placements_secured'
+          completed: 'completions'
         };
         var field = trendMap[trendKey];
         if (field && tw && lw) {
           var cur = tw[field] || 0;
           var prev = lw[field] || 0;
           var diff = cur - prev;
-          if (diff > 0) trendHtml = '<div class="kpi-trend up">&#x25B2; +' + diff + ' this week</div>';
-          else if (diff < 0) trendHtml = '<div class="kpi-trend down">&#x25BC; ' + diff + ' this week</div>';
+          if (diff > 0) trendHtml = '<div class="kpi-trend up">&#x25B2; +' + diff + ' new this week</div>';
+          else if (diff < 0) trendHtml = '<div class="kpi-trend down">&#x25BC; ' + diff + ' vs last week</div>';
           else trendHtml = '<div class="kpi-trend flat">&#x2014; unchanged</div>';
         }
       }
-      return '<div class="kpi-card ' + accent + '">' +
+      var drill = kpiDrillMap[trendKey];
+      var drillAttr = drill ? ' data-drilldown="' + drill.section + '" data-param="' + drill.param + '" style="cursor:pointer"' : '';
+      return '<div class="kpi-card ' + accent + '"' + drillAttr + '>' +
         '<div class="kpi-label">' + esc(label) + '</div>' +
         '<div class="kpi-value">' + esc(value) + '</div>' +
         trendHtml +
@@ -1769,8 +1779,12 @@
       if (ddEl) {
         var section = ddEl.getAttribute('data-drilldown');
         var param = ddEl.getAttribute('data-param') || '';
-        var cardEl = ddEl.closest('.section-card');
+        var cardEl = ddEl.closest('.section-card') || document.querySelector('.section-card[data-section="' + section + '"]');
         handleDrilldownClick(section, param, cardEl);
+        // If the click originated on a KPI tile, scroll the target section into view
+        if (ddEl.classList.contains('kpi-card') && cardEl) {
+          cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         return;
       }
 
