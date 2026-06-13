@@ -2590,6 +2590,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return result;
   }
 
+  // Qualification documents the GP uploads themselves. A "Review uploaded: X"
+  // task (task_type 'review') for one of these is a document the admin must
+  // verify — it should open the document and offer approve/reject (emailing the
+  // GP), exactly like a flagged_doc, NOT be chased as a practice document or
+  // blindly "Mark Complete". Keep in sync with server.js QUALIFICATION_DOC_KEYS.
+  var QUAL_REVIEW_DOC_KEYS=new Set([
+    'primary_medical_degree','specialist_qualification',
+    'mrcgp_certified','cct_certified','micgp_certified','cscst_certified','frnzcgp_certified',
+    'icgp_confirmation_letter','rnzcgp_confirmation_letter',
+    'certificate_good_standing','certificate_of_good_standing',
+    'confirmation_training','confirmation_of_training',
+    'mrcgp','cct','micgp','cscst','frnzcgp'
+  ]);
+  function isQualDocReviewTask(t){
+    return !!(t&&t.task_type==='review'&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
+  }
+
   function getGuidedAction(t){
     const dk=t.related_document_key;
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
@@ -2601,6 +2618,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
       return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
+    }
+
+    // A generic "Review uploaded: X" task for a qualification document the GP
+    // uploaded: open it and approve/reject (the GP is emailed). Intercept before
+    // the practice-doc branch (a related_document_key would otherwise route it to
+    // "Email Practice") and before the plain 'review' branch ("Mark Complete").
+    if(isQualDocReviewTask(t)){
+      return{prompt:'Review the uploaded document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
     if(t.task_type==='practice_pack_child'||dk){
@@ -5580,7 +5605,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
-    var _isFlaggedDoc=task.task_type==='flagged_doc';
+    // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
+    // document both open the approve/reject review modal instead of a plain
+    // "Mark Complete" — the admin must actually look at the document.
+    var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task);
     if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
     if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
