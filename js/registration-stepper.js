@@ -9,13 +9,13 @@
     style.id = STYLE_ID;
     style.textContent = `
       .registration-stepper {
-        --rs-accent: #1a56db;
-        --rs-accent-soft: rgba(26, 86, 219, 0.12);
-        --rs-success: #0d7c5f;
-        --rs-line: #e4e7ee;
-        --rs-muted: #7c849b;
-        --rs-text: #0c1222;
-        --rs-subtext: #7c849b;
+        --rs-accent: var(--gp-blue, #2563eb);
+        --rs-accent-soft: rgba(37, 99, 235, 0.12);
+        --rs-success: var(--gp-green, #16a34a);
+        --rs-line: var(--gp-border, #e3e9f4);
+        --rs-muted: var(--gp-muted, #64748b);
+        --rs-text: var(--gp-ink, #0f172a);
+        --rs-subtext: var(--gp-muted, #64748b);
         font-family: "DM Sans", -apple-system, sans-serif;
         position: relative;
         width: 100%;
@@ -185,20 +185,20 @@
 
       .registration-stepper-step.is-locked .registration-stepper-circle {
         background: rgba(255,255,255,0.08);
-        border-color: #e4e7ee;
+        border-color: #e3e9f4;
         color: var(--rs-muted);
       }
 
       .registration-stepper-step.is-waiting .registration-stepper-circle {
         background: #fff;
-        border-color: #e4e7ee;
+        border-color: #e3e9f4;
         color: var(--rs-muted);
       }
 
       .registration-stepper-step.is-action_required .registration-stepper-circle {
-        background: #fff7ed;
-        border-color: #e5a630;
-        color: #8a6316;
+        background: #fdf3e1;
+        border-color: #f4ddb0;
+        color: #92400e;
       }
 
       /* Step body */
@@ -301,8 +301,8 @@
         z-index: 10;
         min-width: 180px;
         max-width: 270px;
-        background: #0c1222;
-        color: #e4e7ee;
+        background: #0f172a;
+        color: #e3e9f4;
         border-radius: 10px;
         padding: 8px 10px;
         font-size: 11px;

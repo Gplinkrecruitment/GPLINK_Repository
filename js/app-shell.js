@@ -893,8 +893,8 @@
     "/pages/index": function () {
       return skHero() +
         '<div class="sk-content">' +
-          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">' +
-            skText('sk-w3') + '<div class="sk-block sk-shimmer" style="height:8px;border-radius:4px;width:100%;background:#e4e7ee;"></div>' +
+          '<div style="background:#fff;border:1px solid #e3e9f4;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">' +
+            skText('sk-w3') + '<div class="sk-block sk-shimmer" style="height:8px;border-radius:4px;width:100%;background:#e3e9f4;"></div>' +
             '<div style="display:flex;gap:8px;">' + skText('sk-w2') + skText('sk-w2') + '</div>' +
           '</div>' +
           '<div style="margin-top:8px;">' + skText('sk-w3') + '</div>' +
@@ -922,7 +922,7 @@
           '<div class="sk-block sk-w5 sk-shimmer" style="height:12px;margin-bottom:20px;"></div>' +
         '</div>' +
         '<div class="sk-content">' +
-          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;">' +
+          '<div style="background:#fff;border:1px solid #e3e9f4;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;">' +
             skText('sk-w3') + skRow() + skRow() + skRow() +
           '</div>' +
           skCard() + skBtn() +
@@ -950,9 +950,9 @@
         '<div class="sk-content">' + skText('sk-w3') + skText('sk-w5') + skCard() + skRow() + skRow() + skRow() + skBtn() + '</div>';
     },
     "/pages/messages": function () {
-      return '<div style="padding:16px 20px;border-bottom:1px solid #e4e7ee;">' + skText('sk-w2') + '</div>' +
-        '<div style="display:flex;border-bottom:1px solid #e4e7ee;">' +
-          '<div style="flex:1;padding:12px;text-align:center;border-bottom:2px solid #1a56db;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+      return '<div style="padding:16px 20px;border-bottom:1px solid #e3e9f4;">' + skText('sk-w2') + '</div>' +
+        '<div style="display:flex;border-bottom:1px solid #e3e9f4;">' +
+          '<div style="flex:1;padding:12px;text-align:center;border-bottom:2px solid #2563eb;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
           '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
           '<div style="flex:1;padding:12px;text-align:center;"><div class="sk-block sk-shimmer" style="width:30px;height:10px;margin:0 auto;"></div></div>' +
         '</div>' +
@@ -963,17 +963,17 @@
     "/pages/account": function () {
       return '<div style="padding:20px;">' +
           '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">' +
-            '<div class="sk-avatar sk-shimmer" style="width:48px;height:48px;background:#e4e7ee;"></div>' +
+            '<div class="sk-avatar sk-shimmer" style="width:48px;height:48px;background:#e3e9f4;"></div>' +
             '<div class="sk-lines">' + '<div class="sk-line sk-line-light sk-w1 sk-shimmer"></div>' + '<div class="sk-line sk-line-light sk-w2 sk-shimmer"></div></div>' +
           '</div>' +
         '</div>' +
-        '<div style="display:flex;border-bottom:1px solid #e4e7ee;padding:0 20px;">' +
-          '<div style="flex:1;padding:10px 0;border-bottom:2px solid #1a56db;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
+        '<div style="display:flex;border-bottom:1px solid #e3e9f4;padding:0 20px;">' +
+          '<div style="flex:1;padding:10px 0;border-bottom:2px solid #2563eb;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
           '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:50px;height:10px;margin:0 auto;"></div></div>' +
           '<div style="flex:1;padding:10px 0;text-align:center;"><div class="sk-block sk-shimmer" style="width:70px;height:10px;margin:0 auto;"></div></div>' +
         '</div>' +
         '<div class="sk-content">' +
-          '<div style="background:#fff;border:1px solid #e4e7ee;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;">' +
+          '<div style="background:#fff;border:1px solid #e3e9f4;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;">' +
             skText('sk-w3') + skRow() + skRow() + skRow() + skRow() +
           '</div>' +
         '</div>';
