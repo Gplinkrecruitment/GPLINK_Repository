@@ -157,4 +157,30 @@ describe('shared filters + helpers', () => {
   });
 });
 
+describe('securedAppUserIds + computeKpis', () => {
+  const fx = makeFixture();
+
+  it('securedAppUserIds dedupes and includes placed (#8)', () => {
+    const set = M.securedAppUserIds(fx.apps);
+    // a5(placed,u6), a6(contract_signed,u11), a8(placement_secured,u6 dup) -> u6,u11
+    expect(Array.from(set).sort()).toEqual(['u11','u6']);
+  });
+
+  it('computeKpis: placed == unique secured GPs; completed_gps all-time; overdue via isOverdue', () => {
+    const k = M.computeKpis({ cases: fx.cases, tasks: fx.tasks, apps: fx.apps, careerRoles: fx.careerRoles, period: 'current', nowMs: NOW, todayStr: TODAY });
+    // active (non-withdrawn, non-stale) cases: c1..c7,c11 = 8 (c8 is >6mo stale -> excluded under 'current')
+    expect(k.total_gps).toBe(8);
+    // placed = unique secured GPs among active = u6,u11 = 2 (u8's app? u8 has no secured app)
+    expect(k.placed).toBe(2);
+    // open tasks on active cases: t1,t2,t3,t4,t5 (t6/t7 excluded by case; t8 cancelled) = 5
+    expect(k.open_tasks).toBe(5);
+    // overdue on active cases: t2(ago1), t3(escalated, ago2) ; t4 due TODAY not overdue = 2
+    expect(k.overdue_tasks).toBe(2);
+    // blocked active cases: c3,c4 = 2
+    expect(k.blocked_cases).toBe(2);
+    // completed_gps all-time: c7 + c8 (even though c8 is >6mo stale) = 2 (#15)
+    expect(k.completed_gps).toBe(2);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
