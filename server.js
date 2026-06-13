@@ -36568,6 +36568,93 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/rso/:id/summary — GPs under one RSO + task counts (#7,#32,#34)
+  var rsoSummaryMatch = pathname.match(/^\/api\/ceo\/rso\/([^\/]+)\/summary$/);
+  if (rsoSummaryMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rsoSumCtx = requireSuperAdminSession(req, res);
+    if (!rsoSumCtx) return;
+
+    var rsoId = decodeURIComponent(rsoSummaryMatch[1]);
+    var nowMs = Date.now();
+    var todayStr = new Date(nowMs).toISOString().slice(0, 10);
+
+    var [sumRoster, sumCasesRes, sumTasksRes] = await Promise.all([
+      loadRsoRoster({ includeInactive: true }),
+      supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
+    ]);
+
+    var sumAllCases = (sumCasesRes.ok && Array.isArray(sumCasesRes.data)) ? sumCasesRes.data : [];
+    var sumTasks = (sumTasksRes.ok && Array.isArray(sumTasksRes.data)) ? sumTasksRes.data : [];
+    var sumActive = ceoMetrics.filterActiveCases(sumAllCases, { allTime: false });
+
+    // RSO meta (null for the unassigned bucket; 404 if a real id isn't on the roster)
+    var rsoMeta = null;
+    if (rsoId === '__unassigned__') {
+      rsoMeta = { rso_id: '__unassigned__', rso_name: 'Unassigned', email: '', phone: '', active: true };
+    } else {
+      for (var ri = 0; ri < sumRoster.length; ri++) {
+        if (String(sumRoster[ri].user_id) === String(rsoId)) {
+          rsoMeta = {
+            rso_id: sumRoster[ri].user_id, rso_name: sumRoster[ri].name,
+            email: sumRoster[ri].email, phone: sumRoster[ri].phone || '',
+            active: sumRoster[ri].active !== false
+          };
+          break;
+        }
+      }
+      if (!rsoMeta) { sendJson(res, 404, { ok: false, message: 'RSO not found.' }); return; }
+    }
+
+    var caseIds = ceoMetrics.rsoCaseIds(sumActive, rsoId);
+    var caseIdSet = {};
+    caseIds.forEach(function (id) { caseIdSet[id] = true; });
+    var rsoCases = sumActive.filter(function (c) { return caseIdSet[c.id]; });
+
+    // Profiles for the GPs under this RSO
+    var userIds = rsoCases.map(function (c) { return c.user_id; }).filter(Boolean);
+    var profileMap = {};
+    if (userIds.length > 0) {
+      var profRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,email,first_name,last_name,phone&user_id=in.(' + userIds.join(',') + ')');
+      if (profRes.ok && Array.isArray(profRes.data)) {
+        profRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
+      }
+    }
+
+    var gps = rsoCases.map(function (c) {
+      var p = profileMap[c.user_id] || {};
+      var nm = [(p.first_name || ''), (p.last_name || '')].join(' ').trim();
+      return {
+        case_id: c.id,
+        user_id: c.user_id,
+        name: nm || p.email || 'Unknown',
+        email: p.email || '',
+        stage: c.stage,
+        status: c.status,
+        blocker_status: c.blocker_status || null
+      };
+    });
+
+    // Task counts on these cases (case-owner load, mirroring computeRsoWorkload #33)
+    var openCount = 0, overdueCount = 0;
+    for (var ti = 0; ti < sumTasks.length; ti++) {
+      var t = sumTasks[ti];
+      if (!caseIdSet[t.case_id]) continue;
+      openCount++;
+      if (ceoMetrics.isOverdue(t, todayStr)) overdueCount++;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      rso: rsoMeta,
+      gps: gps,
+      task_counts: { case_count: gps.length, open: openCount, overdue: overdueCount }
+    });
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════

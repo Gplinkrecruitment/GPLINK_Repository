@@ -610,3 +610,16 @@ describe('RSO oversight reconciliation', () => {
     expect(unassigned && unassigned.case_count).toBe(M.rsoCaseIds(active, '__unassigned__').length);
   });
 });
+
+describe('RSO summary reconciles with roster', () => {
+  it('rsoCaseIds length == computeRsoWorkload case_count per id', () => {
+    // Pin nowMs to the frozen fixture clock so the active-scope boundary is deterministic.
+    var active = M.filterActiveCases(FIXTURE.cases, { allTime: false, nowMs: FIXTURE.nowMs });
+    var rows = M.computeRsoWorkload(active, FIXTURE.tasks, FIXTURE.rsoRoster, FIXTURE.todayStr);
+    var byId = {};
+    rows.forEach(function (r) { byId[r.rso_id] = r.case_count; });
+    Object.keys(byId).forEach(function (id) {
+      expect(M.rsoCaseIds(active, id).length).toBe(byId[id]);
+    });
+  });
+});
