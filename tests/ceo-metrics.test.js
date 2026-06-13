@@ -433,4 +433,38 @@ describe('computeCompletions (#14/#15/#62)', () => {
   });
 });
 
+describe('cross-metric reconciliation (every metric == its drilldown list, every period)', () => {
+  const fx = makeFixture();
+
+  ['all','current','30d','14d','7d'].forEach(period => {
+    it('pipeline + placements reconcile @ ' + period, () => {
+      const active = M.filterActiveCases(fx.cases, { nowMs: NOW, allTime: period === 'all' });
+      const cumulative = period !== 'current';
+      // pipeline
+      M.computePipeline(active, { cumulative }).forEach(row => {
+        expect(M.pipelineCaseIds(active, row.key, { cumulative }).length).toBe(row.count);
+      });
+      // placements
+      const activeUsers = M.activeUserIdSet(active);
+      const interviewAppIds = new Set(fx.careerInterviews.map(i => i.application_id));
+      const p = M.computePlacements(fx.apps, fx.careerRoles, activeUsers, interviewAppIds, period, NOW);
+      ['applied','submitted_to_practice','interviewing','offers_made','secured'].forEach(b => {
+        expect(M.placementAppIds(fx.apps, b, activeUsers, interviewAppIds, period, NOW).length).toBe(p[b]);
+      });
+      // gp activity (period-independent population)
+      const activeNoComplete = active.filter(c => c.stage !== 'complete');
+      const ga = M.computeGpActivity(activeNoComplete, NOW);
+      [['active','active_7d'],['inactive','inactive_7_14d'],['cold','cold_14d_plus']].forEach(([b, key]) => {
+        expect(M.gpActivityCaseIds(activeNoComplete, b, NOW).length).toBe(ga[key]);
+      });
+      // rso workload
+      const activeIds = new Set(active.map(c => c.id));
+      const scopedTasks = fx.tasks.filter(t => activeIds.has(t.case_id));
+      M.computeRsoWorkload(active, scopedTasks, [], TODAY).forEach(row => {
+        expect(M.rsoCaseIds(active, row.rso_id).length).toBe(row.case_count);
+      });
+    });
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
