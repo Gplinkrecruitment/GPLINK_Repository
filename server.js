@@ -37611,8 +37611,23 @@ Return ONLY valid JSON with no markdown formatting:
           return;
         }
       }
-      var zsErr = 'Token refresh failed.';
-      sendJson(res, 200, { ok: false, message: zsErr + ' Please reconnect via the Zoho Sign card on the Integrations tab (GPs > Integrations).' });
+      // Refresh failed (or no refresh token) — offer full OAuth re-auth like Zoho Recruit
+      if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
+        sendJson(res, 200, { ok: false, message: 'Zoho Sign is not configured (missing client credentials).' });
+        return;
+      }
+      var zsAdminUserId = getSessionSupabaseUserId(ceoCtx.session) || '';
+      var zsReturnOrigin = (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers.host || 'admin.mygplink.com.au');
+      var zsOauthState = await createZohoSignOauthState(zsAdminUserId, ceoCtx.email || '', zsReturnOrigin);
+      var zsAuthUrl = new URL(getZohoSignAccountsServer() + '/oauth/v2/auth');
+      zsAuthUrl.searchParams.set('response_type', 'code');
+      zsAuthUrl.searchParams.set('client_id', ZOHO_SIGN_CLIENT_ID);
+      zsAuthUrl.searchParams.set('scope', ZOHO_SIGN_SCOPES.join(','));
+      zsAuthUrl.searchParams.set('redirect_uri', getZohoSignOauthRedirectUri());
+      zsAuthUrl.searchParams.set('access_type', 'offline');
+      zsAuthUrl.searchParams.set('prompt', 'consent');
+      zsAuthUrl.searchParams.set('state', zsOauthState);
+      sendJson(res, 200, { ok: false, action: 'oauth_required', oauthUrl: zsAuthUrl.toString(), message: 'Zoho Sign token expired. Redirecting to re-authorize...' });
       return;
     }
 
