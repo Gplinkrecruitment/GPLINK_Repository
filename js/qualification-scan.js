@@ -828,8 +828,10 @@
         // Open camera via QualCamera module
         if (window.QualCamera) {
           closeModal();
-          var camLabel = certContext ? certContext.title : "Scan Document";
-          window.QualCamera.open(camLabel, function (blob, err) {
+          var camOpts = certContext
+            ? { docLabel: certContext.title, docKey: certContext.key, requireCert: true }
+            : { docLabel: "Scan Document", requireCert: false };
+          window.QualCamera.open(camOpts, function (blob, err) {
             if (err) {
               openModal();
               showScanError(err);
