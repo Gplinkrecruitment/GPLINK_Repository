@@ -37343,7 +37343,7 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('gmail_watch_state', 'select=*&email_address=eq.hazel@mygplink.com.au&limit=1'),
       getZohoRecruitConnection(),
       getZohoSignConnection(),
-      supabaseDbRequest('processed_gmail_messages', 'select=id&created_at=gte.' + new Date(Date.now() - 86400000).toISOString() + '&limit=500')
+      supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&processed_at=gte.' + new Date(Date.now() - 86400000).toISOString() + '&limit=1000')
     ]);
 
     // Hydrate Anthropic spend
