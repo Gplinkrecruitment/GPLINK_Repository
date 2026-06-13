@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 6. **ALWAYS COMMIT AND PUSH.** After every code change, commit and push to the remote repository immediately.
 7. **ALWAYS USE SUBAGENTS.** When executing implementation plans, always use subagent-driven development (one subagent per task). Never ask which execution approach to use.
 8. **EXTRAPOLATE END-TO-END.** When making changes, trace the full data flow from UI → API → database → back. Don't just add a dropdown without checking the save handler, the API endpoint, the DB column constraints, and the read-back display. Every feature must work end-to-end before it ships.
+9. **EXPLAIN IN SIMPLE TERMS.** Always explain what you did and why in plain, non-technical language a non-engineer can follow. Avoid jargon; when a technical term is unavoidable, say what it means in everyday words. Lead with the plain-English summary, then add technical detail only if needed.
 
 ## Commands
 
