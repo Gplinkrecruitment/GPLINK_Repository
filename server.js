@@ -36542,71 +36542,33 @@ Return ONLY valid JSON with no markdown formatting:
 
     var now = Date.now();
     var DAY_MS = 86400000;
-    var SIX_MONTHS_MS = 180 * DAY_MS;
+    var SIX_MONTHS_MS = ceoMetrics.SIX_MONTHS_MS;
     var weekAgo = new Date(now - 7 * DAY_MS).toISOString();
+    var todayStr = new Date(now).toISOString().slice(0, 10);
 
     // Time filter: current (default), 7d, 14d, 30d, all
     var period = url.searchParams.get('period') || 'current';
-    var periodMs = period === '7d' ? 7 * DAY_MS : period === '14d' ? 14 * DAY_MS : period === '30d' ? 30 * DAY_MS : 0;
 
-    // Filter out withdrawn and 6-month inactive cases from all metrics
-    var cases = allCasesRaw.filter(function(c) {
-      if (c.status === 'withdrawn') return false;
-      var lastAct = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : (c.updated_at ? new Date(c.updated_at).getTime() : new Date(c.created_at).getTime());
-      if ((now - lastAct) > SIX_MONTHS_MS) return false;
-      // Apply period filter (except 'current' and 'all' which show everything active)
-      if (periodMs > 0) {
-        if ((now - lastAct) > periodMs) return false;
-      }
-      return true;
-    });
+    // Active-case set is the single source of truth: excludes withdrawn + >6mo stale,
+    // BUT 'all' skips the 6-month cut so "All Time" is honest (#52).
+    var cases = ceoMetrics.filterActiveCases(allCasesRaw, { allTime: period === 'all', nowMs: now });
 
-    // Build case ID set for filtering tasks/apps/tickets to active cases only
+    // Build case ID / user ID sets for scoping tasks/apps/tickets to active cases (#6/#40)
     var activeCaseIds = new Set();
-    var activeCaseUserIds = new Set();
-    for (var aci = 0; aci < cases.length; aci++) {
-      activeCaseIds.add(cases[aci].id);
-      if (cases[aci].user_id) activeCaseUserIds.add(cases[aci].user_id);
-    }
+    for (var aci = 0; aci < cases.length; aci++) activeCaseIds.add(cases[aci].id);
+    var activeCaseUserIds = ceoMetrics.activeUserIdSet(cases);
 
-    // Filter tasks to only those belonging to active (non-withdrawn, non-stale) cases
+    // Open tasks scoped to active cases (#6)
     var filteredTasks = tasks.filter(function(t) { return activeCaseIds.has(t.case_id); });
 
-    // Filter apps to only active GPs, and apply period filter if set
-    var filteredApps = apps.filter(function(a) {
-      if (!activeCaseUserIds.has(a.user_id)) return false;
-      if (periodMs > 0 && a.applied_at) {
-        if ((now - new Date(a.applied_at).getTime()) > periodMs) return false;
-      }
-      return true;
+    // KPIs — computed entirely by lib so card == drilldown (#1,#8,#15,#42)
+    var kpi = ceoMetrics.computeKpis({
+      cases: cases, allCases: allCasesRaw, tasks: filteredTasks, apps: apps,
+      careerRoles: roles, period: period, nowMs: now, todayStr: todayStr,
+      activeUserIds: activeCaseUserIds
     });
-
-    // Filter tickets to only active GPs, and apply period filter if set
-    var filteredTickets = tickets.filter(function(t) {
-      if (periodMs > 0 && t.created_at) {
-        if ((now - new Date(t.created_at).getTime()) > periodMs) return false;
-      }
-      return true;
-    });
-
-    // KPI — use unique GPs for "placed", filtered data for everything else
-    var SECURED_STATUSES = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
-    var securedApps = filteredApps.filter(function(a) { return SECURED_STATUSES.has((a.status || '').toLowerCase()); });
-    var uniquePlacedGps = new Set();
-    for (var sai = 0; sai < securedApps.length; sai++) { if (securedApps[sai].user_id) uniquePlacedGps.add(securedApps[sai].user_id); }
-    var openTickets = filteredTickets.filter(function(t) { return t.status !== 'closed'; });
-    var overdueTasks = filteredTasks.filter(function(t) { return t.due_date && new Date(t.due_date).getTime() < now && ['completed', 'cancelled'].indexOf(t.status) === -1; });
     var blockedCases = cases.filter(function(c) { return c.status === 'blocked' || c.blocker_status; });
-    var completedCases = cases.filter(function(c) { return c.stage === 'complete'; });
-
-    var kpi = {
-      total_gps: cases.length,
-      placed: uniquePlacedGps.size,
-      open_tasks: filteredTasks.length,
-      overdue_tasks: overdueTasks.length,
-      blocked_cases: blockedCases.length,
-      completed_gps: completedCases.length
-    };
+    var completedCases = allCasesRaw.filter(function(c) { return c.stage === 'complete' && c.status !== 'withdrawn'; });
 
     // Escalations — search ALL tasks (not just filtered) since escalations must always be visible
     // Check both: tasks with status='escalated' (post-migration) AND timeline fallback (pre-migration)
@@ -36654,66 +36616,28 @@ Return ONLY valid JSON with no markdown formatting:
       });
     }
 
-    // Pipeline — user-facing funnel order, excluding visa (deferred) and complete (shown in completions)
-    // Database stage progression order (for cumulative): myintealth(0) → amc(1) → career(2) → ahpra(3) → pbs(4) → commencement(5) → complete(6)
-    var DB_STAGE_ORDER = { myintealth: 0, amc: 1, career: 2, ahpra: 3, visa: 4, pbs: 4, commencement: 5, complete: 6 };
-    var FUNNEL_STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
-    var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
+    // Pipeline — funnel order + cumulative/snapshot semantics owned by lib (#3,#28,#56)
     var isCumulative = (period !== 'current');
-    var pipeline = [];
-    var pipelineCounts = {};
-    for (var si = 0; si < FUNNEL_STAGES.length; si++) pipelineCounts[FUNNEL_STAGES[si]] = { count: 0, blocked: 0 };
-    for (var ci2 = 0; ci2 < cases.length; ci2++) {
-      var caseStage = cases[ci2].stage || 'myintealth';
-      if (caseStage === 'visa') caseStage = 'pbs';
-      var caseDbIndex = DB_STAGE_ORDER[caseStage] !== undefined ? DB_STAGE_ORDER[caseStage] : 0;
-      var isBlocked = cases[ci2].status === 'blocked' || !!cases[ci2].blocker_status;
-      if (isCumulative) {
-        // Cumulative: count GP in every stage they've reached or passed
-        for (var fsi = 0; fsi < FUNNEL_STAGES.length; fsi++) {
-          var funnelDbIndex = DB_STAGE_ORDER[FUNNEL_STAGES[fsi]] !== undefined ? DB_STAGE_ORDER[FUNNEL_STAGES[fsi]] : 0;
-          if (caseDbIndex >= funnelDbIndex) {
-            pipelineCounts[FUNNEL_STAGES[fsi]].count++;
-            if (isBlocked) pipelineCounts[FUNNEL_STAGES[fsi]].blocked++;
-          }
-        }
-      } else {
-        // Current snapshot: count GP in their current stage only
-        if (pipelineCounts[caseStage]) {
-          pipelineCounts[caseStage].count++;
-          if (isBlocked) pipelineCounts[caseStage].blocked++;
-        }
-      }
-    }
-    for (var fi = 0; fi < FUNNEL_STAGES.length; fi++) {
-      pipeline.push({ key: FUNNEL_STAGES[fi], label: STAGE_LABELS[FUNNEL_STAGES[fi]], count: pipelineCounts[FUNNEL_STAGES[fi]].count, blocked: pipelineCounts[FUNNEL_STAGES[fi]].blocked });
+    var pipeline = ceoMetrics.computePipeline(cases, { cumulative: isCumulative });
+    var STAGE_LABELS = {};
+    for (var sli = 0; sli < ceoMetrics.FUNNEL_STAGES.length; sli++) {
+      STAGE_LABELS[ceoMetrics.FUNNEL_STAGES[sli].key] = ceoMetrics.FUNNEL_STAGES[sli].label;
     }
 
-    // Blockers
-    var blockers = blockedCases.map(function(c) {
+    // Blockers — days_blocked from blocker_set_at, single field name (#5/#57)
+    var blockers = ceoMetrics.computeBlockers(cases, now).map(function(b) {
       return {
-        case_id: c.id, user_id: c.user_id, gp_name: ceoGpName(c.user_id), gp_email: ceoGpEmail(c.user_id),
-        stage: c.stage, days_in_stage: c.last_gp_activity_at ? Math.floor((now - new Date(c.last_gp_activity_at).getTime()) / DAY_MS) : Math.floor((now - new Date(c.updated_at || c.created_at).getTime()) / DAY_MS),
-        blocker_status: c.blocker_status || c.status, blocker_reason: c.blocker_reason || '',
-        assigned_va: c.assigned_va ? ceoGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va
+        case_id: b.case_id, user_id: b.user_id, gp_name: ceoGpName(b.user_id), gp_email: ceoGpEmail(b.user_id),
+        stage: b.stage, days_blocked: b.days_blocked,
+        blocker_status: b.blocker_status, blocker_reason: b.blocker_reason,
+        assigned_va: b.assigned_rso ? ceoGpName(b.assigned_rso) : 'Unassigned', assigned_va_id: b.assigned_rso
       };
-    }).sort(function(a, b) { return b.days_in_stage - a.days_in_stage; });
+    });
 
-    // Task Health
-    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&order=completed_at.desc&limit=500');
+    // Task Health — overdue uses isOverdue to match KPI; avg over labelled window (#30,#31)
+    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&completed_at=gte.' + encodeURIComponent(new Date(now - ceoMetrics.SIX_MONTHS_MS).toISOString()) + '&order=completed_at.desc&limit=2000');
     var completedTasks = (completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [];
-    var completedThisWeek = completedTasks.filter(function(t) { return t.completed_at && t.completed_at >= weekAgo; }).length;
-    var resolveDurations = completedTasks.filter(function(t) { return t.completed_at && t.created_at; }).map(function(t) { return (new Date(t.completed_at).getTime() - new Date(t.created_at).getTime()) / DAY_MS; });
-    var avgResolveDays = resolveDurations.length > 0 ? Math.round((resolveDurations.reduce(function(a, b) { return a + b; }, 0) / resolveDurations.length) * 10) / 10 : 0;
-
-    var taskHealth = {
-      open: filteredTasks.filter(function(t) { return t.status === 'open'; }).length,
-      in_progress: filteredTasks.filter(function(t) { return t.status === 'in_progress'; }).length,
-      completed_this_week: completedThisWeek,
-      completed_total: completedTasks.length,
-      overdue: overdueTasks.length,
-      avg_resolve_days: avgResolveDays
-    };
+    var taskHealth = ceoMetrics.computeTaskHealth(filteredTasks, completedTasks, todayStr);
 
     // VA Workload — use case assigned_va, fall back to task assignee if case unassigned
     var vaMap = {};
@@ -36801,75 +36725,38 @@ Return ONLY valid JSON with no markdown formatting:
       velocity[STAGE_PAIRS[vsi][2]] = { avg_days: arr.length > 0 ? Math.round((arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) * 10) / 10 : null, sample_size: arr.length, label: fromLabel + ' \u2192 ' + toLabel };
     }
 
-    // Placements — each bucket is mutually exclusive (no double-counting)
-    var securedSet = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
-    var offerSet = new Set(['offer', 'offer_pending', 'offered']);
-    var excludeFromApplied = new Set(['withdrawn', 'rejected', 'hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed', 'offer', 'offer_pending', 'offered']);
-    var appInterviewIds = new Set(interviews.map(function(i) { return i.application_id; }));
-    var placements = {
-      applied: filteredApps.filter(function(a) { var s = (a.status || '').toLowerCase(); return !excludeFromApplied.has(s) && !appInterviewIds.has(a.id); }).length,
-      submitted_to_practice: filteredApps.filter(function(a) { return a.practice_submission_status && a.practice_submission_status !== 'pending_va_submission'; }).length,
-      interviewing: filteredApps.filter(function(a) { return appInterviewIds.has(a.id) && !securedSet.has((a.status || '').toLowerCase()); }).length,
-      offers_made: filteredApps.filter(function(a) { return ['offer', 'offer_pending', 'offered'].indexOf((a.status || '').toLowerCase()) > -1; }).length,
-      secured: securedApps.length,
-      active_roles: roles.filter(function(r) { return r.is_active; }).length
-    };
+    // Placements — buckets via shared status sets; ids match tiles in drilldown (#8,#9,#10,#11,#60,#61)
+    var interviewAppIds = new Set(interviews.map(function(i) { return i.application_id; }));
+    var placements = ceoMetrics.computePlacements(apps, roles, activeCaseUserIds, interviewAppIds, period, now);
+    placements.active_roles = roles.filter(function(r) { return r.is_active; }).length;
 
-    // GP Activity
-    var activeCases = cases.filter(function(c) { return c.stage !== 'complete' && c.status !== 'withdrawn'; });
-    var active7d = []; var inactive7_14d = []; var cold14d = [];
-    for (var ai = 0; ai < activeCases.length; ai++) {
-      var lastAct = activeCases[ai].last_gp_activity_at ? new Date(activeCases[ai].last_gp_activity_at).getTime() : new Date(activeCases[ai].created_at).getTime();
-      var daysSince = Math.floor((now - lastAct) / DAY_MS);
-      if (daysSince <= 7) active7d.push(activeCases[ai]);
-      else if (daysSince <= 14) inactive7_14d.push(activeCases[ai]);
-      else cold14d.push(activeCases[ai]);
-    }
+    // GP Activity — computed over full active population, INDEPENDENT of period (#12,#36,#37)
+    var gpActivityRaw = ceoMetrics.computeGpActivity(cases, now);
     var gpActivity = {
-      active_7d: active7d.length,
-      inactive_7_14d: inactive7_14d.length,
-      cold_14d_plus: cold14d.length,
-      cold_gps: cold14d.slice(0, 10).map(function(c) {
+      active_7d: gpActivityRaw.active_7d,
+      inactive_7_14d: gpActivityRaw.inactive_7_14d,
+      cold_14d_plus: gpActivityRaw.cold_14d_plus,
+      cold_gps: gpActivityRaw.cold_gps.map(function(c) {
         return {
-          case_id: c.id, user_id: c.user_id, gp_name: ceoGpName(c.user_id), gp_email: ceoGpEmail(c.user_id),
-          last_activity: c.last_gp_activity_at || c.created_at, stage: c.stage,
-          days_inactive: Math.floor((now - new Date(c.last_gp_activity_at || c.created_at).getTime()) / DAY_MS),
-          assigned_va: c.assigned_va ? ceoGpName(c.assigned_va) : 'Unassigned'
+          case_id: c.case_id, user_id: c.user_id, gp_name: ceoGpName(c.user_id), gp_email: ceoGpEmail(c.user_id),
+          last_activity: c.last_activity, stage: c.stage, days_inactive: c.days_inactive,
+          assigned_va: c.assigned_rso ? ceoGpName(c.assigned_rso) : 'Unassigned'
         };
-      }).sort(function(a, b) { return b.days_inactive - a.days_inactive; })
+      })
     };
 
-    // Tickets
-    var closedTickets = filteredTickets.filter(function(t) { return t.status === 'closed'; });
-    var resolvedThisWeek = closedTickets.filter(function(t) { return t.resolved_at && t.resolved_at >= weekAgo; }).length;
-    var resDurations = closedTickets.filter(function(t) { return t.resolved_at && t.created_at; }).map(function(t) { return (new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 3600000; });
-    var avgResolutionHours = resDurations.length > 0 ? Math.round((resDurations.reduce(function(a, b) { return a + b; }, 0) / resDurations.length) * 10) / 10 : null;
-    var replyDurations = closedTickets.filter(function(t) { return t.first_reply_at && t.created_at; }).map(function(t) { return (new Date(t.first_reply_at).getTime() - new Date(t.created_at).getTime()) / 3600000; });
-    var avgFirstReplyHours = replyDurations.length > 0 ? Math.round((replyDurations.reduce(function(a, b) { return a + b; }, 0) / replyDurations.length) * 10) / 10 : null;
+    // Tickets — scoping explicit, averages exclude nulls, no silent 500-cap (#39,#40)
+    var ticketStats = ceoMetrics.computeTicketMetrics(tickets, activeCaseUserIds, weekAgo);
 
-    var ticketStats = {
-      open: openTickets.length,
-      resolved_this_week: resolvedThisWeek,
-      resolved_total: closedTickets.length,
-      avg_resolution_hours: avgResolutionHours,
-      avg_first_reply_hours: avgFirstReplyHours
-    };
-
-    // Completions
-    var monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    var thisMonthCompleted = completedCases.filter(function(c) { var ct = c.completed_at || c.updated_at; return ct && ct >= monthStart; }).length;
-    var recentMilestones = stageEvents.slice(-20).reverse().slice(0, 5).map(function(ev) {
+    // Completions — total all-time, milestones globally sorted + humanized (#14,#15,#41,#62)
+    var completions = ceoMetrics.computeCompletions(completedCases, stageEvents, now);
+    completions.recent_milestones = completions.recent_milestones.map(function(m) {
       var mc = null;
-      for (var mci = 0; mci < cases.length; mci++) { if (cases[mci].id === ev.case_id) { mc = cases[mci]; break; } }
+      for (var mci = 0; mci < allCasesRaw.length; mci++) { if (allCasesRaw[mci].id === m.case_id) { mc = allCasesRaw[mci]; break; } }
       return {
-        gp_name: mc ? ceoGpName(mc.user_id) : 'Unknown',
-        milestone: ev.title || 'Stage change',
-        date: ev.created_at,
-        days_ago: Math.floor((now - new Date(ev.created_at).getTime()) / DAY_MS)
+        gp_name: mc ? ceoGpName(mc.user_id) : 'Unknown', milestone: m.milestone, date: m.date, days_ago: m.days_ago
       };
     });
-
-    var completions = { this_month: thisMonthCompleted, total: completedCases.length, recent_milestones: recentMilestones };
 
     sendJson(res, 200, {
       ok: true, refreshed_at: new Date().toISOString(), period: period,

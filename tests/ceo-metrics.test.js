@@ -493,3 +493,58 @@ describe('ceo-metrics API surface consumed by server endpoints', () => {
     expect(typeof ceoMetrics.SIX_MONTHS_MS).toBe('number');
   });
 });
+
+import { FIXTURE } from './ceo-metrics.fixture.js';
+
+describe('endpoint parity: every card count equals its drilldown id list length', () => {
+  const NOW_FX = FIXTURE.nowMs;
+  const TODAY_FX = new Date(NOW_FX).toISOString().slice(0, 10);
+  // career_interviews link apps into the interviewing bucket; the lib's placement helpers
+  // require this set so computePlacements and placementAppIds agree (contract signature).
+  const interviewAppIds = new Set((FIXTURE.careerInterviews || []).map(i => i.application_id));
+  const weekAgoIso = new Date(NOW_FX - 7 * 86400000).toISOString();
+
+  for (const period of ['current', '7d', '14d', '30d', 'all']) {
+    it('pipeline bar count === pipelineCaseIds length per stage [' + period + ']', () => {
+      const cases = M.filterActiveCases(FIXTURE.cases, { allTime: period === 'all', nowMs: NOW_FX });
+      const cumulative = period !== 'current';
+      const bars = M.computePipeline(cases, { cumulative });
+      for (const bar of bars) {
+        expect(M.pipelineCaseIds(cases, bar.key, { cumulative }).length, bar.key).toBe(bar.count);
+      }
+    });
+
+    it('placements tile === placementAppIds length per bucket [' + period + ']', () => {
+      const cases = M.filterActiveCases(FIXTURE.cases, { allTime: period === 'all', nowMs: NOW_FX });
+      const activeUserIds = M.activeUserIdSet(cases);
+      const p = M.computePlacements(FIXTURE.apps, FIXTURE.careerRoles, activeUserIds, interviewAppIds, period, NOW_FX);
+      for (const bucket of ['applied','submitted_to_practice','interviewing','offers_made','secured']) {
+        expect(M.placementAppIds(FIXTURE.apps, bucket, activeUserIds, interviewAppIds, period, NOW_FX).length, bucket).toBe(p[bucket]);
+      }
+    });
+
+    it('gp activity tile === gpActivityCaseIds length per bucket [' + period + ']', () => {
+      const cases = M.filterActiveCases(FIXTURE.cases, { allTime: period === 'all', nowMs: NOW_FX });
+      const a = M.computeGpActivity(cases, NOW_FX);
+      expect(M.gpActivityCaseIds(cases, 'active', NOW_FX).length).toBe(a.active_7d);
+      expect(M.gpActivityCaseIds(cases, 'inactive', NOW_FX).length).toBe(a.inactive_7_14d);
+      expect(M.gpActivityCaseIds(cases, 'cold', NOW_FX).length).toBe(a.cold_14d_plus);
+    });
+  }
+
+  it('task health overdue === overdue tasks via isOverdue (KPI parity, #30)', () => {
+    const cases = M.filterActiveCases(FIXTURE.cases, { allTime: true, nowMs: NOW_FX });
+    const ids = new Set(cases.map(c => c.id));
+    const tasks = FIXTURE.tasks.filter(t => ids.has(t.case_id));
+    const th = M.computeTaskHealth(tasks, FIXTURE.completedTasks, TODAY_FX);
+    const overdueList = tasks.filter(t => M.isOverdue(t, TODAY_FX));
+    expect(overdueList.length).toBe(th.overdue);
+  });
+
+  it('tickets open count === ticketIds open length (#38)', () => {
+    const cases = M.filterActiveCases(FIXTURE.cases, { allTime: true, nowMs: NOW_FX });
+    const activeUserIds = M.activeUserIdSet(cases);
+    const tm = M.computeTicketMetrics(FIXTURE.tickets, activeUserIds, weekAgoIso);
+    expect(M.ticketIds(FIXTURE.tickets, 'open', activeUserIds).length).toBe(tm.open);
+  });
+});
