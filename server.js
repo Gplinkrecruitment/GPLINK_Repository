@@ -29615,10 +29615,26 @@ Return ONLY valid JSON with no markdown formatting:
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const allowed = ['assigned_va', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
+    const allowed = ['assigned_va', 'assigned_rso', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
     patch.last_va_action_at = new Date().toISOString();
+
+    // ── RSO reassignment: set the Gmail mailbox owner (assigned_va) in lock-step
+    //    with assigned_rso, and refuse if the target RSO has no mailbox (#44, §C.1).
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_rso') && patch.assigned_rso) {
+      var rsoRosterRows = await loadRsoRoster({ includeInactive: true });
+      var rsoMailRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address,display_name');
+      var rsoMailRows = (rsoMailRes.ok && Array.isArray(rsoMailRes.data)) ? rsoMailRes.data : [];
+      var resolved = ceoMetrics.resolveRsoReassignmentTarget(rsoRosterRows, rsoMailRows, patch.assigned_rso);
+      if (!resolved.ok) {
+        sendJson(res, 400, { ok: false, message: resolved.error });
+        return;
+      }
+      // Lock-step: the mailbox that owns the Gmail labels follows the RSO.
+      patch.assigned_va = resolved.rso.user_id;
+    }
+
     // Fetch old assigned_va before patching (needed for label reassignment)
     var oldAssignedVa = null;
     if (patch.assigned_va) {
@@ -29650,6 +29666,8 @@ Return ONLY valid JSON with no markdown formatting:
             'select=email_address,display_name&user_id=eq.' + encodeURIComponent(patch.assigned_va) + '&limit=1');
           var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
           if (!vaAcc) {
+            // RSO-driven reassignments are guarded upstream (resolveRsoReassignmentTarget),
+            // so this only fires for legacy direct assigned_va writes with no mailbox.
             console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va, '— skipping label setup');
             throw new Error('skip');
           }

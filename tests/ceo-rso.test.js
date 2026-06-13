@@ -34,4 +34,9 @@ describe('resolveRsoReassignmentTarget', () => {
     expect(r.mailbox.email_address).toBe('hazel@mygplink.com.au');
     expect(r.rso.name).toBe('Hazel');
   });
+  it('lock-step: resolved RSO user_id is what the handler assigns to the mailbox owner', () => {
+    var r = resolveRsoReassignmentTarget(ROSTER, MAILBOXES, 'b2');
+    expect(r.ok).toBe(true);
+    expect(r.rso.user_id).toBe('b2'); // handler sets patch.assigned_va = r.rso.user_id
+  });
 });
