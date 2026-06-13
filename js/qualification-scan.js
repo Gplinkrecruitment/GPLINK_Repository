@@ -306,7 +306,7 @@
       "#" + MODAL_ID + ".open{display:flex;}" +
       ".scan-sheet{width:100%;max-width:500px;max-height:90vh;background:#fff;border-radius:20px 20px 0 0;overflow-y:auto;padding:0 0 env(safe-area-inset-bottom,0);animation:scanSlideUp .3s ease;}" +
       "@keyframes scanSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}" +
-      ".scan-bar{width:40px;height:4px;margin:10px auto 0;border-radius:4px;background:#d1d5db;}" +
+      ".scan-bar{width:40px;height:4px;margin:10px auto 0;border-radius:4px;background:#cbd7ea;}" +
       ".scan-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 20px 10px;}" +
       ".scan-hdr h3{margin:0;font-size:17px;font-weight:800;color:#0f172a;}" +
       ".scan-close{border:0;background:0 0;font-size:24px;color:#94a3b8;cursor:pointer;padding:4px 8px;line-height:1;}" +
@@ -314,8 +314,8 @@
       /* Two-button row for upload vs camera */
       ".scan-actions{display:flex;gap:10px;margin-bottom:14px;}" +
       ".scan-action-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 12px;border:2px solid #e2e8f0;border-radius:14px;background:#fafbfc;cursor:pointer;transition:border-color .2s,background .2s;}" +
-      ".scan-action-btn:active{background:#eff6ff;border-color:#3b82f6;}" +
-      ".scan-action-btn svg{width:32px;height:32px;stroke:#3b82f6;fill:none;stroke-width:1.5;}" +
+      ".scan-action-btn:active{background:#eff6ff;border-color:#2563eb;}" +
+      ".scan-action-btn svg{width:32px;height:32px;stroke:#2563eb;fill:none;stroke-width:1.5;}" +
       ".scan-action-btn span{font-size:13px;font-weight:700;color:#0f172a;}" +
       ".scan-action-btn small{font-size:11px;color:#64748b;}" +
       /* File card */
