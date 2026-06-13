@@ -468,3 +468,28 @@ describe('cross-metric reconciliation (every metric == its drilldown list, every
 });
 
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
+
+import * as ceoMetrics from '../lib/ceo-metrics.js';
+
+describe('ceo-metrics API surface consumed by server endpoints', () => {
+  const required = [
+    'filterActiveCases','caseAgeMs','withinPeriod','isOverdue','activeUserIdSet',
+    'computeKpis','computePipeline','pipelineCaseIds','computeBlockers',
+    'computeTaskHealth','computeRsoWorkload','rsoCaseIds','computePlacements',
+    'placementAppIds','securedAppUserIds','computeGpActivity','gpActivityCaseIds',
+    'computeTicketMetrics','ticketIds','computeCompletions',
+    'isSecuredStatus','isInterviewStatus','isOfferStatus'
+  ];
+  it('exports every function the endpoints call', () => {
+    for (const name of required) {
+      expect(typeof ceoMetrics[name], name).toBe('function');
+    }
+  });
+  it('exports the shared constants', () => {
+    expect(Array.isArray(ceoMetrics.OPEN_TASK_STATUSES)).toBe(true);
+    expect(Array.isArray(ceoMetrics.OVERDUE_EXCLUDED_STATUSES)).toBe(true);
+    expect(Array.isArray(ceoMetrics.FUNNEL_STAGES)).toBe(true);
+    expect(typeof ceoMetrics.DB_STAGE_ORDER).toBe('object');
+    expect(typeof ceoMetrics.SIX_MONTHS_MS).toBe('number');
+  });
+});

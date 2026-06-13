@@ -116,6 +116,7 @@ const {
   classifyQualificationOutcome,
   buildFlagReason
 } = require('./lib/document-pipeline.js');
+var ceoMetrics = require('./lib/ceo-metrics.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
 const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
