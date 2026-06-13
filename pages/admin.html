@@ -1499,6 +1499,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
 </div>
+<div id="docViewerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div id="docViewerTitle" style="font-weight:700;font-size:15px;color:#111827;">Document</div>
+      <button onclick="closeDocViewer()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="flex:1;overflow:auto;background:#f3f4f6;min-height:280px;display:flex;align-items:center;justify-content:center;">
+      <div id="docViewerLoading" style="color:#6b7280;font-size:13px;padding:40px;">Loading document…</div>
+      <img id="docViewerImg" alt="Document" style="display:none;max-width:100%;max-height:74vh;object-fit:contain;" />
+      <iframe id="docViewerFrame" title="Document" style="display:none;width:100%;height:74vh;border:none;background:#fff;"></iframe>
+      <div id="docViewerMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
 <script>
 (function(){
   "use strict";
@@ -2934,7 +2948,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="doc-section-grid">';
     if(!candidate.length)h+='<div class="empty">No documents in this category.</div>';
     candidate.forEach(function(doc){
-      h+=renderDocPlaceholderCard(doc,doc.status);
+      h+=renderDocPlaceholderCard(doc,doc.status,caseId);
     });
     h+='</div></div>';
 
@@ -2991,9 +3005,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return map[status]||status||'Pending';
   }
 
-  function renderDocPlaceholderCard(doc,status){
+  function renderDocPlaceholderCard(doc,status,caseId){
     var hasFile=!!doc.file_name||!!doc.file_url;
-    var cls='doc-placeholder-card'+(hasFile?' has-file':'');
+    // A document is viewable if the GP has actually uploaded something for it.
+    var viewable=caseId&&(!!doc.file_url||['approved','uploaded','under_review','rejected','accepted','received','needs_correction'].indexOf(status)>=0);
+    var viewAttrs=viewable
+      ?(' data-doc-view-url="'+escAttr('/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key))+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="cursor:pointer"')
+      :'';
+    var cls='doc-placeholder-card'+(hasFile?' has-file':'')+(viewable?' is-clickable':'');
     var statusCls='s-'+(status||'pending');
     var thumbHtml='<div class="doc-placeholder-thumb">\uD83D\uDCC4</div>';
     var metaHtml='';
@@ -3011,7 +3030,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
     }
     var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>');
-    return '<div class="'+cls+'">'
+    return '<div class="'+cls+'"'+viewAttrs+'>'
       +thumbHtml
       +'<div class="doc-placeholder-info">'
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
@@ -4089,6 +4108,37 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function previewTaskDoc(taskId) {
     window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
+  }
+
+  // ── Generic document viewer modal (click a Documents-tab placeholder to view) ──
+  var _docViewerObjUrl = null;
+  async function openDocViewer(fetchUrl,title){
+    document.getElementById('docViewerTitle').textContent=title||'Document';
+    var img=document.getElementById('docViewerImg'),frame=document.getElementById('docViewerFrame');
+    var loading=document.getElementById('docViewerLoading'),missing=document.getElementById('docViewerMissing');
+    img.style.display='none';frame.style.display='none';missing.style.display='none';loading.style.display='block';
+    document.getElementById('docViewerModal').style.display='flex';
+    if(_docViewerObjUrl){URL.revokeObjectURL(_docViewerObjUrl);_docViewerObjUrl=null;}
+    try{
+      var resp=await fetch(fetchUrl,{credentials:'same-origin'});
+      if(!resp.ok){
+        var dj=await resp.json().catch(function(){return{};});
+        loading.style.display='none';missing.style.display='block';
+        missing.textContent=dj.message||'No document is stored for this slot yet.';
+        return;
+      }
+      var blob=await resp.blob();
+      _docViewerObjUrl=URL.createObjectURL(blob);
+      loading.style.display='none';
+      if((blob.type||'').indexOf('image/')===0){img.src=_docViewerObjUrl;img.style.display='block';}
+      else{frame.src=_docViewerObjUrl;frame.style.display='block';}
+    }catch(e){loading.style.display='none';missing.style.display='block';missing.textContent='Could not load the document: '+e.message;}
+  }
+  function closeDocViewer(){
+    document.getElementById('docViewerModal').style.display='none';
+    document.getElementById('docViewerImg').src='';
+    document.getElementById('docViewerFrame').src='about:blank';
+    if(_docViewerObjUrl){URL.revokeObjectURL(_docViewerObjUrl);_docViewerObjUrl=null;}
   }
 
   // ── Flagged-document review modal (in-dashboard popup: view + approve/reject) ──
@@ -6091,6 +6141,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
       if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
+      const dvc=e.target.closest("[data-doc-view-url]");
+      if(dvc){
+        openDocViewer(dvc.getAttribute("data-doc-view-url")||"",dvc.getAttribute("data-doc-view-label")||"Document");
+        return;
+      }
       const dpc=e.target.closest("[data-drive-preview]");
       if(dpc){
         const name=dpc.getAttribute("data-drive-name")||"Document";
@@ -8652,6 +8707,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.openReviewDocModal = openReviewDocModal;
   window.closeReviewDocModal = closeReviewDocModal;
   window.submitReviewDoc = submitReviewDoc;
+  window.openDocViewer = openDocViewer;
+  window.closeDocViewer = closeDocViewer;
   window.approveDocument = approveDocument;
   window.requestRevision = requestRevision;
   window.dismissAttachment = dismissAttachment;

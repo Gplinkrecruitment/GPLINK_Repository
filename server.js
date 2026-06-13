@@ -33686,6 +33686,66 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Preview a GP's prepared/qualification document by case + key (admin) ──
+  // Powers click-to-view on the Documents-tab placeholder cards. Streams the file
+  // inline (same-origin) so it embeds in an in-dashboard popup.
+  if (pathname === '/api/admin/gp-document-preview' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const gdpAdmin = requireAdminSession(req, res);
+    if (!gdpAdmin) return;
+    const gdpCaseId = url.searchParams.get('case_id') || '';
+    const gdpKey = sanitizeUserString(url.searchParams.get('key') || '', 120);
+    if (!gdpCaseId || !gdpKey) { sendJson(res, 400, { ok: false, message: 'case_id and key required.' }); return; }
+
+    const gdpCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(gdpCaseId) + '&limit=1');
+    const gdpUserId = gdpCaseRes.ok && Array.isArray(gdpCaseRes.data) && gdpCaseRes.data[0] ? gdpCaseRes.data[0].user_id : null;
+    if (!gdpUserId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    const gdpStream = async (signedUrl) => {
+      const fr = await fetch(signedUrl).catch(() => null);
+      if (!fr || !fr.ok) return false;
+      const ct = fr.headers.get('content-type') || 'application/octet-stream';
+      const ab = await fr.arrayBuffer().catch(() => null);
+      if (!ab) return false;
+      res.writeHead(200, {
+        'Content-Type': ct,
+        'Content-Disposition': 'inline; filename="' + gdpKey + '"',
+        'Cache-Control': 'private, no-store',
+        ...SECURITY_HEADERS
+      });
+      res.end(Buffer.from(ab));
+      return true;
+    };
+
+    // 1. A user_documents row with a stored file.
+    const gdpRowRes = await supabaseDbRequest('user_documents',
+      'select=*&user_id=eq.' + encodeURIComponent(gdpUserId) + '&document_key=eq.' + encodeURIComponent(gdpKey) + '&limit=1');
+    const gdpRow = gdpRowRes.ok && Array.isArray(gdpRowRes.data) && gdpRowRes.data[0] ? gdpRowRes.data[0] : null;
+    if (gdpRow && (gdpRow.storage_path || gdpRow.file_url)) {
+      const s = await supabaseStorageCreateSignedUrl(gdpRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, gdpRow.storage_path || gdpRow.file_url, '');
+      if (s && await gdpStream(s)) return;
+    }
+
+    // 2. Original onboarding upload (separate key namespace).
+    const GDP_ONBOARDING = {
+      primary_medical_degree: 'onboarding_primary_med_degree',
+      specialist_qualification: 'onboarding_specialist_qualification',
+      onboarding_primary_med_degree: 'onboarding_primary_med_degree',
+      onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+    };
+    const gdpObKey = GDP_ONBOARDING[gdpKey];
+    if (gdpObKey) {
+      for (const ctry of ['uk', 'ie', 'nz']) {
+        const p = buildOnboardingDocumentStoragePath(gdpUserId, ctry, gdpObKey);
+        const s = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, p, '');
+        if (s && await gdpStream(s)) return;
+      }
+    }
+
+    sendJson(res, 404, { ok: false, message: 'No document is stored for this slot yet.' });
+    return;
+  }
+
   // ── Request Revision — create Gmail draft with document attached ──
   if (pathname === '/api/admin/va/task/request-revision' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
