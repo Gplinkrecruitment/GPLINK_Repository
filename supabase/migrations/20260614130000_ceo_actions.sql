@@ -1,8 +1,11 @@
 -- Phase 5: CEO action reliability + escalation semantics
 
 -- 1. escalated_to becomes a TEXT role marker (e.g. 'CEO'), not a UUID FK (#26).
---    Drop the partial index that referenced it as UUID, then convert.
+--    Drop the partial index AND the FK to auth.users(id) that referenced it as UUID,
+--    then convert. (The FK must go first or the type change is rejected: a uuid FK
+--    cannot point at a text column.)
 DROP INDEX IF EXISTS idx_reg_tasks_escalated;
+ALTER TABLE registration_tasks DROP CONSTRAINT IF EXISTS registration_tasks_escalated_to_fkey;
 ALTER TABLE registration_tasks
   ALTER COLUMN escalated_to TYPE text USING NULLIF(escalated_to::text, '');
 
