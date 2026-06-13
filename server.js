@@ -23910,7 +23910,7 @@ async function handleApi(req, res, pathname) {
     var resetAdminEmail = getSessionEmail(resetAdminCtx.session);
     if (!SUPER_ADMIN_EMAILS.has(resetAdminEmail)) { sendJson(res, 403, { ok: false, message: 'Super admin access required.' }); return; }
 
-    var resetBody = typeof req.body === 'object' && req.body ? req.body : {};
+    var resetBody; try { resetBody = (typeof req.body === 'object' && req.body) ? req.body : await readJsonBody(req); } catch (e) { resetBody = {}; }
     var resetEmail = String(resetBody.email || '').trim().toLowerCase();
     if (!resetEmail) { sendJson(res, 400, { ok: false, message: 'email is required.' }); return; }
 
