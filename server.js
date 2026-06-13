@@ -33592,14 +33592,55 @@ Return ONLY valid JSON with no markdown formatting:
     const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
     const rfDocLabel = getDocumentLabelForKey(rfTask.related_document_key) || 'document';
 
-    // Best-effort: update the stored document's flag state (no-op if no row exists).
+    // Reflect the decision on the GP's document placeholder (the "Prepared by Candidate"
+    // grid in the admin Documents tab). That grid reads user_documents by
+    // (user_id, document_key, country_code) with the country UPPERCASED. The GP often has
+    // no row for a flagged qualification because the file was uploaded via onboarding (a
+    // separate key namespace) — so UPSERT a row (a PATCH would no-op). Without this the
+    // slot stays "Pending" forever even after approval.
     if (rfUserId && rfTask.related_document_key) {
-      const rfDocPatch = rfDecision === 'approve'
-        ? { flag_reason: '', rejection_reason: '', status: 'uploaded', updated_at: new Date().toISOString() }
-        : { flag_reason: rfNote, rejection_reason: rfNote, status: 'rejected', updated_at: new Date().toISOString() };
-      await supabaseDbRequest('user_documents',
-        'user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfTask.related_document_key),
-        { method: 'PATCH', body: rfDocPatch });
+      // Resolve the country the documents view queries by (registration country; defaults to uk).
+      let rfRawCountry = 'uk';
+      const rfProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+      const rfStRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+      const rfProfRow = rfProfRes.ok && Array.isArray(rfProfRes.data) ? rfProfRes.data[0] : null;
+      const rfStRow = rfStRes.ok && Array.isArray(rfStRes.data) ? rfStRes.data[0] : null;
+      rfRawCountry = (rfProfRow && rfProfRow.registration_country) || (rfStRow && rfStRow.state && rfStRow.state.gp_selected_country) || 'uk';
+      if (typeof rfRawCountry === 'string') { try { const _pc = JSON.parse(rfRawCountry); if (typeof _pc === 'string') rfRawCountry = _pc; } catch (e) {} }
+      const rfCountry = normalizeDocumentCountry(rfRawCountry) || 'uk';
+
+      // Locate the GP's stored file (original onboarding upload) to attach to the record.
+      const ONBOARDING_KEY_FOR_QUAL = {
+        primary_medical_degree: 'onboarding_primary_med_degree',
+        specialist_qualification: 'onboarding_specialist_qualification'
+      };
+      let rfFileUrl = '';
+      const rfObKey = ONBOARDING_KEY_FOR_QUAL[rfTask.related_document_key];
+      if (rfObKey) {
+        for (const ctry of ['uk', 'ie', 'nz']) {
+          const obPath = buildOnboardingDocumentStoragePath(rfUserId, ctry, rfObKey);
+          const obTest = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, obPath, '');
+          if (obTest) { rfFileUrl = obPath; break; }
+        }
+      }
+
+      await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [{
+          user_id: rfUserId,
+          country_code: rfCountry.toUpperCase(),
+          document_key: rfTask.related_document_key,
+          status: rfDecision === 'approve' ? 'approved' : 'rejected',
+          flag_reason: '',
+          rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+          file_name: rfDocLabel,
+          file_url: rfFileUrl,
+          storage_path: rfFileUrl,
+          storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+          updated_at: new Date().toISOString()
+        }]
+      });
     }
 
     // Complete the task (both approve and reject close it).
