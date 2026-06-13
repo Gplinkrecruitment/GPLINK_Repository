@@ -406,4 +406,31 @@ describe('computeTicketMetrics + ticketIds (#39/#40)', () => {
   });
 });
 
+describe('computeCompletions (#14/#15/#62)', () => {
+  const fx = makeFixture();
+  const completeAll = fx.cases.filter(c => c.stage === 'complete' && c.status !== 'withdrawn'); // c7, c8
+
+  it('total all-time; this_month UTC + completed_at only (#15/#62)', () => {
+    const c = M.computeCompletions(completeAll, fx.stageEvents, NOW);
+    expect(c.total).toBe(2); // c7 (3d ago) + c8 (200d ago)
+    // this month (June 2026 UTC): c7 completed ago(3)=2026-06-11 -> in month; c8 ago(200) -> not
+    expect(c.this_month).toBe(1);
+  });
+  it('recent_milestones sorted globally by created_at desc + humanized labels (#14/#41)', () => {
+    const c = M.computeCompletions(completeAll, fx.stageEvents, NOW);
+    // newest stage event is c3 ago(1) -> career -> "Reached Secure Placement"
+    expect(c.recent_milestones[0].milestone).toBe('Reached Secure Placement');
+    // events are in strict created_at desc order
+    for (let i = 1; i < c.recent_milestones.length; i++) {
+      expect(new Date(c.recent_milestones[i-1].date) >= new Date(c.recent_milestones[i].date)).toBe(true);
+    }
+  });
+  it('a case with null completed_at does not count toward this_month (#62)', () => {
+    const withNull = [{ id: 'cz', user_id: 'uz', stage: 'complete', status: 'active', completed_at: null, updated_at: ago(1), created_at: ago(50) }];
+    const c = M.computeCompletions(withNull, [], NOW);
+    expect(c.total).toBe(1);
+    expect(c.this_month).toBe(0);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
