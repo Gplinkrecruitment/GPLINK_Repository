@@ -1883,7 +1883,9 @@
           fileName: payload.fileName,
           mimeType: payload.mimeType,
           fileSize: payload.fileSize,
-          fileDataUrl: payload.fileDataUrl
+          fileDataUrl: payload.fileDataUrl,
+          forceReview: !!payload.forceReview,
+          reviewReason: payload.reviewReason || ""
         })
       });
       const data = await response.json().catch(function() { return {}; });
@@ -2193,6 +2195,7 @@
       const country = getCountry();
       let state = loadDocsState(country);
       renderAll(country, state);
+      try { flushPendingDocUploads(); } catch (e) {}
       fetchPreparedDocumentFiles(country).then(function(files) {
         mergePreparedDocumentFiles(state, files);
         renderAll(country, state);
@@ -2321,8 +2324,12 @@
         if (counts[key]) delete counts[key];
       }
 
-      function handleCertFailure(key, state, country, title, msg) {
+      function handleCertFailure(key, state, country, title, msg, storedFile) {
         var fails = incCertFailCount(key);
+        if (fails >= CERT_SUPPORT_THRESHOLD && storedFile && storedFile.fileDataUrl) {
+          submitDocForManualReview(key, state, country, storedFile, title, stripHtmlToText(msg));
+          return;
+        }
         var showSupport = fails >= CERT_SUPPORT_THRESHOLD;
         var extra = showSupport
           ? '<br><span style="color:var(--gp-muted);font-size:12px;">If you still need help after 3 failed attempts, contact support.</span>'
@@ -2333,6 +2340,115 @@
         renderAll(country, state);
         showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
       }
+
+      function stripHtmlToText(html) {
+        if (!html) return '';
+        var tmp = document.createElement('div');
+        tmp.innerHTML = String(html);
+        return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      }
+
+      // Pending manual-review files are cached OUTSIDE the synced docs state.
+      // gp_documents_prep is mirrored to Supabase (js/state-sync.js), so we must NOT
+      // park multi-MB base64 there. Instead keep it in a per-doc localStorage key
+      // (local only, never synced) plus an in-memory fallback for quota failures.
+      var PENDING_DOC_PREFIX = "gp_pending_doc_";
+
+      function storePendingDocFile(key, storedFile) {
+        window.__gpPendingDocFiles = window.__gpPendingDocFiles || {};
+        window.__gpPendingDocFiles[key] = storedFile;
+        try {
+          localStorage.setItem(PENDING_DOC_PREFIX + key, JSON.stringify({
+            fileName: storedFile.fileName,
+            mimeType: storedFile.mimeType,
+            fileSize: storedFile.fileSize,
+            fileDataUrl: storedFile.fileDataUrl,
+            reviewReason: storedFile.reviewReason || ""
+          }));
+        } catch (e) { /* quota — in-memory fallback still covers this session */ }
+      }
+
+      function readPendingDocFile(key) {
+        var mem = window.__gpPendingDocFiles && window.__gpPendingDocFiles[key];
+        if (mem && mem.fileDataUrl) return mem;
+        try {
+          var raw = localStorage.getItem(PENDING_DOC_PREFIX + key);
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          return (parsed && parsed.fileDataUrl) ? parsed : null;
+        } catch (e) { return null; }
+      }
+
+      function clearPendingDocFile(key) {
+        if (window.__gpPendingDocFiles) delete window.__gpPendingDocFiles[key];
+        try { localStorage.removeItem(PENDING_DOC_PREFIX + key); } catch (e) {}
+      }
+
+      function submitDocForManualReview(key, state, country, storedFile, docTitle, reason) {
+        // Keep the file (cached separately), mark Under review, flag it as
+        // still-needs-sending, then upload. No base64 goes into the synced docs state.
+        state.docs[key] = applyStoredFile({
+          uploaded: true,
+          fileName: storedFile.fileName,
+          status: "under_review",
+          manualReview: true,
+          manualReviewReason: reason || "",
+          pendingServerUpload: true,
+          manualReviewSubmittedAt: new Date().toISOString()
+        }, storedFile);
+        storePendingDocFile(key, storedFile);
+        resetCertFailCount(key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + docTitle + "</strong> for manual review. Our team will check it within 24 hours.");
+        sendDocForManualReview(country, key, storedFile, reason);
+      }
+
+      function sendDocForManualReview(country, key, storedFile, reason) {
+        var payload = {
+          fileName: storedFile.fileName,
+          mimeType: storedFile.mimeType,
+          fileSize: storedFile.fileSize,
+          fileDataUrl: storedFile.fileDataUrl,
+          forceReview: true,
+          reviewReason: reason || ""
+        };
+        return savePreparedDocumentFile(country, key, payload).then(function() {
+          clearPendingDocFile(key);
+          if (state.docs[key]) {
+            state.docs[key].pendingServerUpload = false;
+            persistDocsState(state, true);
+          }
+        }).catch(function() {
+          // Stays pendingServerUpload:true with the cached file — retry layer will resend.
+        });
+      }
+
+      function flushPendingDocUploads() {
+        if (!state || !state.docs) return;
+        var pendingCountry = state.country || country;
+        Object.keys(state.docs).forEach(function(key) {
+          var d = state.docs[key];
+          if (!d || !d.pendingServerUpload) return;
+          var cached = readPendingDocFile(key);
+          if (!cached || !cached.fileDataUrl) return;
+          sendDocForManualReview(pendingCountry, key, {
+            fileName: cached.fileName || d.fileName,
+            mimeType: cached.mimeType || d.mimeType || "application/octet-stream",
+            fileSize: cached.fileSize || d.fileSize || 0,
+            fileDataUrl: cached.fileDataUrl
+          }, d.manualReviewReason || cached.reviewReason || "");
+        });
+      }
+      if (!window.__gpDocsOnlineFlushBound) {
+        window.__gpDocsOnlineFlushBound = true;
+        window.addEventListener("online", function() {
+          if (typeof window.__gpFlushPendingDocUploads === "function") {
+            window.__gpFlushPendingDocUploads();
+          }
+        });
+      }
+      window.__gpFlushPendingDocUploads = flushPendingDocUploads;
 
       function buildClassificationFailureMessage(docTitle, data) {
         var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
@@ -2452,7 +2568,7 @@
                   certifyReason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
                 }
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, certifyReason);
+                handleCertFailure(key, state, country, docTitle, certifyReason, storedFile);
               } else {
                 var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
                 if (data.classification && data.classification.identifiedAs) {
@@ -2462,11 +2578,11 @@
                   reason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
                 }
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, reason);
+                handleCertFailure(key, state, country, docTitle, reason, storedFile);
               }
             }).catch(function() {
               state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.", storedFile);
             });
             return;
           }
@@ -2477,7 +2593,7 @@
 
           if (typeof window.gpVerifyCertifiedDocument !== "function") {
             state.docs[key] = { uploaded: false, fileName: file.name };
-            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.");
+            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.", storedFile);
             return;
           }
 
@@ -2516,11 +2632,11 @@
               } else {
                 var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }));
+                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }), storedFile);
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.");
+              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.", storedFile);
             }
           }).catch(function(err) {
             state.docs[key] = { uploaded: false, fileName: file.name };
@@ -2529,7 +2645,8 @@
               state,
               country,
               docTitle,
-              (err && err.message) ? err.message : "Could not connect to verification service. Please try again."
+              (err && err.message) ? err.message : "Could not connect to verification service. Please try again.",
+              storedFile
             );
           });
         }).catch(function() {
@@ -2638,7 +2755,7 @@
                   ? result.verification.issues.join("<br>")
                   : "The document does not appear to be properly certified.";
                 state.docs[scanKey] = { uploaded: false, fileName: result.fileName || "" };
-                handleCertFailure(scanKey, state, country, scanDoc.title, issues);
+                handleCertFailure(scanKey, state, country, scanDoc.title, issues, storedFile);
               }
             });
           }

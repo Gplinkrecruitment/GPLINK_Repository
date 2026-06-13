@@ -24,7 +24,7 @@ If the upload fails due to a bad connection, the file stays cached locally and i
 - **RSO review queue** = `registration_tasks` rows with `task_type = 'doc_review'` + the matching `user_documents` row at `status = 'under_review'`. This is the same queue medium-confidence AI uploads already land in. Staff approve/reject from it today.
 - **Upload endpoint** = `PUT /api/prepared-documents` (server.js ~28120). Saves the file to Supabase storage + `user_documents`, then runs the background AI pipeline `processDocumentUpload`.
 - **Task creator** = `createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult)` (server.js ~18683). Idempotent — reuses/reopens an existing open `doc_review` task for the same doc key.
-- **Client file cache** = the document's `fileDataUrl` (base64) is already held in `state.docs[key]` / the prepared-docs localStorage. No new storage needed for the retry cache.
+- **Client file cache** = the document's `fileDataUrl` (base64). NOTE: the synced docs state (`gp_documents_prep`) is mirrored to Supabase (`js/state-sync.js`), so the pending file's base64 is cached in a **separate, non-synced** per-doc localStorage key (`gp_pending_doc_<key>`) plus an in-memory `window.__gpPendingDocFiles` fallback — never parked in the synced state.
 
 ## Design
 
@@ -41,7 +41,7 @@ If the upload fails due to a bad connection, the file stays cached locally and i
   - **Failure (network/storage):** leave `pendingServerUpload:true` and the cached file in place. Same reassuring popup (still "Under review") — the retry layer handles delivery. No "Contact support" dead-end.
 
 **d. Retry layer (new, small):**
-- `flushPendingDocUploads()` scans `state.docs` for entries with `pendingServerUpload:true` that still hold a cached `fileDataUrl`, and re-attempts `savePreparedDocumentFile(..., forceReview:true)` for each; clears the flag on success.
+- `flushPendingDocUploads()` scans `state.docs` for entries with `pendingServerUpload:true`, reads the cached file from `gp_pending_doc_<key>` (or the in-memory fallback) via `readPendingDocFile`, and re-attempts `savePreparedDocumentFile(..., forceReview:true)` for each; on success clears the flag and the cached file.
 - Triggered on: (i) `window.addEventListener("online", ...)`, and (ii) page/docs init (after state loads). Best-effort and idempotent (server `createDocReviewTask` dedupes).
 - If a pending doc has no cached `fileDataUrl` (e.g. evicted), leave it `under_review` + `pendingServerUpload` and let a later successful re-scan/upload resolve it; never crash.
 

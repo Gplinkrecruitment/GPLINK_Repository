@@ -28394,7 +28394,43 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Set status to processing
+    var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
+    var forceReview = body && body.forceReview === true;
+    var reviewReason = (body && typeof body.reviewReason === 'string')
+      ? body.reviewReason.trim().slice(0, 500)
+      : '';
+
+    if (forceReview) {
+      // Manual-review path: doctor exhausted AI scan attempts. Route straight to the
+      // RSO doc_review queue WITHOUT AI re-classification (which could auto-reject again).
+      await supabaseDbRequest('user_documents',
+        'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
+        { method: 'PATCH', body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() } });
+
+      try {
+        await createDocReviewTask(userId, payload.key, docLabel, null, {
+          reason: reviewReason || 'Submitted for manual review after 3 failed AI scan attempts',
+          identifiedAs: ''
+        });
+      } catch (taskErr) {
+        console.error('[PreparedDocuments] manual-review task creation error:', taskErr.message);
+      }
+
+      try {
+        await pushDocumentNotificationToUser(userId, {
+          type: 'info',
+          title: docLabel + ' under review',
+          detail: 'We\'re reviewing your document manually. This usually takes less than 24 hours.'
+        });
+      } catch (notifyErr) {
+        console.error('[PreparedDocuments] manual-review notify error:', notifyErr.message);
+      }
+
+      sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
+      return;
+    }
+
+    // Default path: mark processing and run the AI document pipeline.
     await supabaseDbRequest('user_documents',
       'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
       { method: 'PATCH', body: { status: 'processing', updated_at: new Date().toISOString() } });
@@ -28402,7 +28438,6 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, { ok: true, document: { ...saved, status: 'processing' } });
 
     // Background: run document pipeline
-    var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
     processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType).catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
