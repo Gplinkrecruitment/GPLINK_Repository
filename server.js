@@ -37557,11 +37557,13 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (intKey === 'gmail') {
       var results = [];
-      for (var vi = 0; vi < MONITORED_VA_EMAILS.length; vi++) {
-        var wr = await setupGmailWatch(MONITORED_VA_EMAILS[vi]);
-        results.push({ email: MONITORED_VA_EMAILS[vi], success: !!(wr && wr.ok), expiry: wr && wr.ok ? wr.expiry : null, error: wr && !wr.ok ? wr.error : null });
+      var gmailReconnectEmails = (Array.isArray(MONITORED_VA_EMAILS) && MONITORED_VA_EMAILS.length) ? MONITORED_VA_EMAILS : ['hazel@mygplink.com.au'];
+      for (var vi = 0; vi < gmailReconnectEmails.length; vi++) {
+        var wr = await setupGmailWatch(gmailReconnectEmails[vi]);
+        results.push({ email: gmailReconnectEmails[vi], success: !!(wr && wr.ok), expiry: wr && wr.ok ? wr.expiry : null, error: wr && !wr.ok ? (wr.error || 'Watch renewal failed') : null });
       }
-      sendJson(res, 200, { ok: true, action: 'watch_renewed', results: results });
+      var gmailReconnectOk = results.length > 0 && results.every(function (r) { return r.success; });
+      sendJson(res, gmailReconnectOk ? 200 : 502, { ok: gmailReconnectOk, action: 'watch_renewed', results: results, message: gmailReconnectOk ? null : 'One or more mailboxes failed to renew.' });
       return;
     }
 

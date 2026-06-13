@@ -8400,7 +8400,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           toast("Redirecting to re-authorize...","blue");
           window.location.href=d.oauthUrl;
           return;
-        }else{toast(d.message||"Reconnect failed","red");}
+        }else{
+          var failedMb=(Array.isArray(d.results)?d.results.filter(function(x){return !x.success;}):[]);
+          var failMsg=failedMb.length?("Reconnect failed: "+failedMb.map(function(x){return x.email+" ("+(x.error||"error")+")";}).join(", ")):(d.message||"Reconnect failed");
+          toast(failMsg,"red");
+        }
         reconBtn.textContent="Reconnect";reconBtn.disabled=false;
       }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
       return;
