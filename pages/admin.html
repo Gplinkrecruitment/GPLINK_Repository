@@ -8337,8 +8337,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpParam=urlParams.get("gp");
     if(gpParam){S.selectedCaseId=gpParam;S.view="gps";document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});vaShowPanel("gps");}
     if(isSA()){
-      const agentTab=document.getElementById("agentTab");
-      if(agentTab)agentTab.style.display="";
       var saWrap=document.getElementById("saToolsWrap");
       if(saWrap)saWrap.style.display="";
       var ceoTab=document.getElementById("ceoHomeTab");
