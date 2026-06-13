@@ -384,4 +384,26 @@ describe('computeGpActivity + gpActivityCaseIds (#12/#36/#37)', () => {
   });
 });
 
+describe('computeTicketMetrics + ticketIds (#39/#40)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+  const activeUsers = M.activeUserIdSet(active);
+
+  it('open count scoped to active GPs == ticketIds length (#40)', () => {
+    const t = M.computeTicketMetrics(fx.tickets, activeUsers, ago(7));
+    // open: tk1(u1 active), tk4(u9 withdrawn -> excluded) => 1
+    expect(t.open).toBe(1);
+    expect(M.ticketIds(fx.tickets, 'open', activeUsers)).toEqual(['tk1']);
+  });
+  it('resolved_this_week + averages exclude nulls, expose sample sizes (#39)', () => {
+    const t = M.computeTicketMetrics(fx.tickets, activeUsers, ago(7));
+    // resolved closed tickets among active GPs: tk2(u2, resolved ago2 -> this week), tk3(u3, resolved ago30)
+    expect(t.resolved_this_week).toBe(1);
+    expect(M.ticketIds(fx.tickets, 'resolved', activeUsers).sort()).toEqual(['tk2','tk3']);
+    // first-reply avg only over tickets with first_reply_at AND created_at: tk2 (ago10 -> ago9 = 24h)
+    expect(t.avg_first_reply_hours).toBe(24);
+    expect(t.avg_first_reply_sample_size).toBe(1); // tk3 has null first_reply_at
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
