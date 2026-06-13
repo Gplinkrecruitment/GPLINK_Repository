@@ -1304,7 +1304,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
   <div class="view-tabs">
-    <div class="view-tab" data-view="ceo-home" id="ceoHomeTab" style="display:none">Home Dashboard</div>
+    <a class="view-tab" id="ceoHomeTab" href="/pages/ceo-dashboard" style="display:none;text-decoration:none">CEO Command Centre &#x2197;</a>
     <div class="view-tab active" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
@@ -1447,9 +1447,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <h3 id="modalTitle"></h3>
       <div id="modalBody"></div>
     </div>
-  </div>
-<div id="ceoHomePanel" style="display:none;position:relative;width:100%;height:calc(100vh - 100px);"><iframe id="ceoHomeIframe" style="width:100%;height:100%;border:none;background:#0f1117;" src="about:blank"></iframe></div>
-<div id="technicalPanel" style="display:none">
+  </div><div id="technicalPanel" style="display:none">
   <div class="tech-subnav">
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
@@ -2014,12 +2012,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
     if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
-    if(S.view==="ceo-home"){
-      vaShowPanel("ceo-home");
-      var iframe=document.getElementById("ceoHomeIframe");
-      if(iframe&&!iframe.src.includes("ceo-dashboard"))iframe.src="/pages/ceo-dashboard";
-      return;
-    }
     S.view="tools";
     setActiveViewTab("tools");
     vaShowPanel("tools");
@@ -5685,9 +5677,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderSupportPanel();
       }else if(view==="tools"){
         renderToolsPanel();
-      }else if(view==="ceo-home"){
-        var iframe=document.getElementById("ceoHomeIframe");
-        if(iframe&&!iframe.src.includes("ceo-dashboard")){iframe.src="/pages/ceo-dashboard";}
       }else if(view==="technical"){
         loadTechnicalPanel();
       }else if(view==="guide"){
@@ -7109,7 +7098,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Guide Tab ──────────────────────────────────────────────
