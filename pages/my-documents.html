@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Your Document Progress - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
-  <script src="../js/auth-guard.js?v=20260607a" defer></script>
+  <script src="../js/auth-guard.js?v=20260614a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
@@ -604,6 +604,15 @@
       gap: 10px;
       box-shadow: var(--gp-shadow-sm);
       transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease), border-color var(--gp-dur) var(--gp-ease);
+    }
+
+    .doc-card-reupload-highlight {
+      animation: docReuploadPulse 1.4s ease-in-out 2;
+      border-color: var(--gp-amber-border, #f59e0b) !important;
+    }
+    @keyframes docReuploadPulse {
+      0%, 100% { box-shadow: var(--gp-shadow-sm); }
+      50% { box-shadow: 0 0 0 4px var(--gp-amber-soft, rgba(245, 158, 11, 0.28)); }
     }
 
     .doc-card:hover {
@@ -2079,6 +2088,7 @@
         var helpLink = item.help ? '<button class="show-me-how" type="button" data-help-idx="i' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
         var card = document.createElement("div");
         card.className = "doc-card";
+        card.setAttribute("data-doc-card", item.key);
         var refNumHtml = '';
         if (item.key === 'criminal_history') {
           var savedRef = itemState.referenceNumber || '';
@@ -2140,6 +2150,7 @@
         }
         var card = document.createElement("div");
         card.className = "doc-card";
+        card.setAttribute("data-doc-card", doc.key);
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + rejectionHtml + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
@@ -2192,14 +2203,42 @@
       renderProgress(country, state);
     }
 
+    // When an admin rejects a document, the GP gets an email whose "Re-upload"
+    // button links here with ?reupload=<doc_key>. Open the right tab, scroll the
+    // matching document card into view and pulse it so the GP lands exactly on the
+    // document they need to re-upload — not just the documents page. Runs after a
+    // render; retries on the next render if the card isn't built yet (idempotent).
+    var _reuploadDeepLinkDone = false;
+    function handleReuploadDeepLink() {
+      if (_reuploadDeepLinkDone) return;
+      var key;
+      try { key = new URLSearchParams(window.location.search).get("reupload"); } catch (e) { return; }
+      if (!key || !/^[a-z0-9_]+$/i.test(key)) return;
+      var card = document.querySelector('[data-doc-card="' + key + '"]');
+      if (!card) return; // cards not rendered yet — a later render will retry
+      _reuploadDeepLinkDone = true;
+      var panel = card.closest('[id^="panel-"]');
+      var tab = panel ? panel.id.replace("panel-", "") : "";
+      var switching = tab && tab !== activeDocTab && typeof switchDocTab === "function";
+      if (switching) { try { switchDocTab(tab); } catch (e) {} }
+      setTimeout(function() {
+        try { card.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        catch (e) { try { card.scrollIntoView(); } catch (e2) {} }
+        card.classList.add("doc-card-reupload-highlight");
+        setTimeout(function() { card.classList.remove("doc-card-reupload-highlight"); }, 4200);
+      }, switching ? 380 : 80);
+    }
+
     function bootDocumentModule() {
       const country = getCountry();
       let state = loadDocsState(country);
       renderAll(country, state);
+      try { handleReuploadDeepLink(); } catch (e) {}
       try { flushPendingDocUploads(); } catch (e) {}
       fetchPreparedDocumentFiles(country).then(function(files) {
         mergePreparedDocumentFiles(state, files);
         renderAll(country, state);
+        try { handleReuploadDeepLink(); } catch (e) {}
       }).catch(function() {});
       // Fetch authoritative GP LINK doc status from server (overrides stale localStorage)
       fetch("/api/gplink-docs-status", { credentials: "same-origin" })

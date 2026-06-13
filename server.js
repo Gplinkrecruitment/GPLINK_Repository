@@ -7744,6 +7744,156 @@ async function _createRegTask(caseId, data) {
   return task;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Account deletion / reinstatement (soft-delete → reinstate → purge)
+// ─────────────────────────────────────────────────────────────
+const ACCOUNT_ARCHIVE_GRACE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+// Short-lived signed token that authorizes reinstating a specific archived account.
+function createReinstateToken(email, supabaseUserId) {
+  const expiresAt = now() + 15 * 60 * 1000; // 15 minutes
+  const payload = base64UrlEncode(JSON.stringify({
+    reinstate: true,
+    email: String(email || '').trim().toLowerCase(),
+    supabaseUserId: String(supabaseUserId || '').trim(),
+    expiresAt
+  }));
+  return `${payload}.${hmacSign(payload)}`;
+}
+
+function parseReinstateToken(token) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = hmacSign(payload);
+  if (signature.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || parsed.reinstate !== true) return null;
+    if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= now()) return null;
+    return { email: String(parsed.email || ''), supabaseUserId: String(parsed.supabaseUserId || '') };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Look up archive status by user_id (preferred) or email. Returns the profile row or null.
+async function getAccountArchiveStatus(opts) {
+  if (!isSupabaseDbConfigured()) return null;
+  const sel = 'select=user_id,email,first_name,last_name,account_status,archived_at,purge_after';
+  let q;
+  if (opts && opts.userId) q = sel + '&user_id=eq.' + encodeURIComponent(opts.userId) + '&limit=1';
+  else if (opts && opts.email) q = sel + '&email=eq.' + encodeURIComponent(String(opts.email).trim().toLowerCase()) + '&limit=1';
+  else return null;
+  const r = await supabaseDbRequest('user_profiles', q);
+  return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+}
+
+async function resolveCeoUserId() {
+  if (!CEO_EMAIL || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(CEO_EMAIL) + '&limit=1');
+  return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0].user_id : null;
+}
+
+// A doctor "has an active placement" when a gp_applications row is marked hired.
+async function userHasActivePlacement(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return false;
+  const r = await supabaseDbRequest('gp_applications', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+  return r.ok && Array.isArray(r.data) && r.data.length > 0;
+}
+
+async function archiveUserAccount(userId, reason) {
+  const purgeAfter = new Date(now() + ACCOUNT_ARCHIVE_GRACE_MS).toISOString();
+  await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH',
+    body: {
+      account_status: 'archived',
+      archived_at: new Date().toISOString(),
+      purge_after: purgeAfter,
+      archived_reason: reason || 'user_requested',
+      updated_at: new Date().toISOString()
+    }
+  });
+  return purgeAfter;
+}
+
+async function reinstateUserAccount(userId) {
+  await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH',
+    body: {
+      account_status: 'active',
+      archived_at: null,
+      purge_after: null,
+      archived_reason: null,
+      updated_at: new Date().toISOString()
+    }
+  });
+  // Resolve any open "account deleted with active placement" CEO task.
+  try {
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (gpCase) {
+      const taskRes = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+        '&task_type=eq.account_deleted_active_placement&status=in.(open,in_progress,waiting,escalated,deferred,blocked)');
+      if (taskRes.ok && Array.isArray(taskRes.data)) {
+        for (const t of taskRes.data) { await _completeRegTask(t.id, gpCase.id, 'system'); }
+      }
+    }
+  } catch (e) { console.error('[reinstate] task resolve failed:', e && e.message); }
+}
+
+// When an active-placement doctor deletes, raise an urgent CEO task to find out why.
+async function createAccountDeletionCeoTask(userId, email) {
+  try {
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=id,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (!gpCase) return null;
+    const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const prof = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : {};
+    const name = [prof.first_name || '', prof.last_name || ''].join(' ').trim() || email;
+    const practice = gpCase.practice_name ? (' at ' + gpCase.practice_name) : '';
+    const ceoId = await resolveCeoUserId();
+    const data = {
+      task_type: 'account_deleted_active_placement',
+      title: 'Account deleted with active placement — find out why',
+      description: name + ' (' + email + ') deleted their GP Link account while holding an active placement' + practice +
+        '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).',
+      priority: 'urgent',
+      status: 'escalated',
+      escalated_reason: 'GP deleted account while holding an active placement',
+      escalated_at: new Date().toISOString(),
+      related_stage: 'career',
+      _actor: 'system'
+    };
+    if (ceoId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ceoId)) {
+      data.escalated_to = ceoId;
+    }
+    return await _createRegTask(gpCase.id, data);
+  } catch (e) {
+    console.error('[delete] CEO task creation failed:', e && e.message);
+    return null;
+  }
+}
+
+// Hard-delete the Supabase auth user (cascades user_profiles + user_state via FK on delete cascade).
+async function supabaseAuthAdminDeleteUser(userId) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) return false;
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    }
+  });
+  return resp.ok;
+}
+
 function inferStageFromDocKey(docKey) {
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
@@ -18796,16 +18946,26 @@ function getDocumentLabelForKey(key) {
   var labels = {
     primary_medical_degree: 'Primary Medical Degree',
     mrcgp: 'MRCGP Certificate',
+    mrcgp_certified: 'MRCGP Certificate',
     cct: 'Certificate of Completion of Training',
+    cct_certified: 'Certificate of Completion of Training',
     pmetb: 'PMETB Certificate',
     micgp: 'MICGP Certificate',
+    micgp_certified: 'MICGP Certificate',
     cscst: 'CSCST Certificate',
+    cscst_certified: 'CSCST Certificate',
     frnzcgp: 'FRNZCGP Fellowship Certificate',
+    frnzcgp_certified: 'FRNZCGP Fellowship Certificate',
+    icgp_confirmation_letter: 'ICGP Confirmation Letter',
+    rnzcgp_confirmation_letter: 'RNZCGP Confirmation Letter',
+    certificate_good_standing: 'Certificate of Good Standing',
     certificate_of_good_standing: 'Certificate of Good Standing',
     criminal_history_check: 'Criminal History Check',
     cv_signed_dated: 'CV (Signed and dated)',
     career_cover_letter: 'Cover Letter',
+    confirmation_training: 'Confirmation of Training',
     confirmation_of_training: 'Confirmation of Training',
+    specialist_qualification: 'Specialist Qualification',
     onboarding_specialist_qualification: 'Specialist Qualification',
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
@@ -21719,6 +21879,25 @@ async function handleApi(req, res, pathname) {
       }
 
       const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+
+      // Archived (soft-deleted) account → do not sign in; offer reinstatement instead.
+      if (isSupabaseDbConfigured()) {
+        const archStatus = await getAccountArchiveStatus({ userId: String(loginUser.id || ''), email });
+        if (archStatus && archStatus.account_status === 'archived') {
+          const dispName = [archStatus.first_name || '', archStatus.last_name || ''].join(' ').trim() || email;
+          sendJson(res, 200, {
+            ok: false,
+            archived: true,
+            reinstate: {
+              name: dispName,
+              purgeAfter: archStatus.purge_after,
+              token: createReinstateToken(email, String(loginUser.id || ''))
+            }
+          });
+          return;
+        }
+      }
+
       upsertLocalUserFromSupabaseUser(loginUser);
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
@@ -21777,6 +21956,114 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Account deletion (Apple 5.1.1(v)): soft-archive + optional CEO escalation ──
+  if (pathname === '/api/account/delete' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let dbody;
+    try { dbody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    if (String(dbody.confirm || '').trim().toUpperCase() !== 'DELETE') {
+      sendJson(res, 400, { ok: false, message: 'Please type DELETE to confirm.' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Account deletion is not available right now.' }); return; }
+    const prof = session.userProfile || {};
+    const email = String(prof.email || getSessionEmail(session) || '').trim().toLowerCase();
+    let userId = String(prof.supabaseUserId || '').trim();
+    if (!userId && email) {
+      const ps = await getAccountArchiveStatus({ email });
+      if (ps) userId = ps.user_id;
+    }
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
+    const hasPlacement = await userHasActivePlacement(userId);
+    const purgeAfter = await archiveUserAccount(userId, 'user_requested');
+    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    clearSession(res, req);
+    sendJson(res, 200, { ok: true, purgeAfter, message: 'Your account has been closed. You can reinstate it within 90 days by signing in again.' });
+    return;
+  }
+
+  // ── Reinstate an archived account from the sign-in reinstatement prompt ──
+  if (pathname === '/api/account/reinstate' && req.method === 'POST') {
+    let rbody;
+    try { rbody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const parsed = parseReinstateToken(String(rbody.token || ''));
+    if (!parsed) { sendJson(res, 401, { ok: false, message: 'This reinstatement link has expired. Please sign in again.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Not available right now.' }); return; }
+    const st = await getAccountArchiveStatus({ userId: parsed.supabaseUserId, email: parsed.email });
+    if (!st) { sendJson(res, 404, { ok: false, message: 'Account not found.' }); return; }
+    if (st.account_status === 'archived') { await reinstateUserAccount(st.user_id); }
+    const sessionProfile = getSessionProfileFromSupabaseUser({ id: st.user_id, email: st.email }, st.email);
+    setSession(res, sessionProfile);
+    sendJson(res, 200, { ok: true, redirectTo: '/pages/index.html', message: 'Welcome back — your account has been reinstated.' });
+    return;
+  }
+
+  // ── Admin/CEO: list archived accounts ──
+  if (pathname === '/api/admin/accounts/archived' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, accounts: [] }); return; }
+    const r = await supabaseDbRequest('user_profiles',
+      'select=user_id,email,first_name,last_name,archived_at,purge_after&account_status=eq.archived&order=archived_at.desc');
+    const rows = r.ok && Array.isArray(r.data) ? r.data : [];
+    const accounts = [];
+    for (const row of rows) {
+      accounts.push({
+        userId: row.user_id,
+        email: row.email,
+        name: [row.first_name || '', row.last_name || ''].join(' ').trim() || row.email,
+        archivedAt: row.archived_at,
+        purgeAfter: row.purge_after,
+        hasActivePlacement: await userHasActivePlacement(row.user_id)
+      });
+    }
+    sendJson(res, 200, { ok: true, accounts });
+    return;
+  }
+
+  // ── Admin/CEO: reinstate an archived account immediately ──
+  if (pathname === '/api/admin/accounts/reinstate' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let abody;
+    try { abody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const userId = String(abody.userId || '').trim();
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'userId is required.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Not available right now.' }); return; }
+    await reinstateUserAccount(userId);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Cron: purge archived accounts past their 90-day window.
+  //    Auto-erase is ON by default; set ACCOUNT_PURGE_DISABLED=true to make it a dry-run (log only). ──
+  if (req.method === 'GET' && pathname === '/api/cron/purge-accounts') {
+    const pgToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(pgToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', purged: 0 }); return; }
+    const enabled = String(process.env.ACCOUNT_PURGE_DISABLED || '').trim() !== 'true';
+    const nowIso = new Date().toISOString();
+    const due = await supabaseDbRequest('user_profiles',
+      'select=user_id,email&account_status=eq.archived&purge_after=lt.' + encodeURIComponent(nowIso));
+    const rows = due.ok && Array.isArray(due.data) ? due.data : [];
+    let purged = 0, retained = 0;
+    const candidates = [];
+    for (const row of rows) {
+      if (await userHasActivePlacement(row.user_id)) { retained++; continue; } // legal retention
+      candidates.push(row.email || row.user_id);
+      if (enabled) {
+        try {
+          const ok = await supabaseAuthAdminDeleteUser(row.user_id);
+          if (ok) purged++; else console.error('[purge-accounts] auth delete returned not-ok for', row.user_id);
+        } catch (e) { console.error('[purge-accounts] delete failed for', row.user_id, e && e.message); }
+      }
+    }
+    console.log('[purge-accounts] due=' + rows.length + ' purged=' + purged + ' retained=' + retained + ' dryRun=' + (!enabled) + ' candidates=' + JSON.stringify(candidates));
+    sendJson(res, 200, { ok: true, due: rows.length, purged, retained, dryRun: !enabled });
+    return;
+  }
+
   if (pathname === '/api/auth/supabase-session-login' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'supabase-session-login'))) return;
     let body;
@@ -21831,6 +22118,24 @@ async function handleApi(req, res, pathname) {
       return;
     }
     ensureSupabaseUserProfile(userData).catch(() => {});
+
+    // Archived (soft-deleted) account → do not sign in; offer reinstatement instead.
+    if (isSupabaseDbConfigured()) {
+      const archStatus = await getAccountArchiveStatus({ userId: String(userData.id || ''), email });
+      if (archStatus && archStatus.account_status === 'archived') {
+        const dispName = [archStatus.first_name || '', archStatus.last_name || ''].join(' ').trim() || email;
+        sendJson(res, 200, {
+          ok: false,
+          archived: true,
+          reinstate: {
+            name: dispName,
+            purgeAfter: archStatus.purge_after,
+            token: createReinstateToken(email, String(userData.id || ''))
+          }
+        });
+        return;
+      }
+    }
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
     setSession(res, sessionProfile);
@@ -33691,11 +33996,15 @@ Return ONLY valid JSON with no markdown formatting:
           'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
           'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
       } else {
+        // Deep-link straight to the document's re-upload card in My Documents
+        // (?reupload=<key> opens the right tab, scrolls to and highlights the card).
+        var rfReuploadUrl = APP_BASE_URL + '/pages/my-documents.html'
+          + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
         await sendGpNotificationEmail(rfUserId,
           'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
-          'Re-upload Document', APP_BASE_URL + '/pages/myintealth.html', '');
+          'Re-upload Document', rfReuploadUrl, '');
       }
     }
 

@@ -1454,10 +1454,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
     <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="archived-accounts">Archived Accounts</button>
   </div>
   <div id="techIntegrationsPanel"></div>
   <div id="techSystemBugsPanel" style="display:none"></div>
   <div id="techUserBugsPanel" style="display:none"></div>
+  <div id="techArchivedAccountsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
@@ -2588,6 +2590,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return result;
   }
 
+  // Qualification documents the GP uploads themselves. A "Review uploaded: X"
+  // task (task_type 'review') for one of these is a document the admin must
+  // verify — it should open the document and offer approve/reject (emailing the
+  // GP), exactly like a flagged_doc, NOT be chased as a practice document or
+  // blindly "Mark Complete". Keep in sync with server.js QUALIFICATION_DOC_KEYS.
+  var QUAL_REVIEW_DOC_KEYS=new Set([
+    'primary_medical_degree','specialist_qualification',
+    'mrcgp_certified','cct_certified','micgp_certified','cscst_certified','frnzcgp_certified',
+    'icgp_confirmation_letter','rnzcgp_confirmation_letter',
+    'certificate_good_standing','certificate_of_good_standing',
+    'confirmation_training','confirmation_of_training',
+    'mrcgp','cct','micgp','cscst','frnzcgp'
+  ]);
+  function isQualDocReviewTask(t){
+    return !!(t&&t.task_type==='review'&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
+  }
+
   function getGuidedAction(t){
     const dk=t.related_document_key;
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
@@ -2599,6 +2618,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
       return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
+    }
+
+    // A generic "Review uploaded: X" task for a qualification document the GP
+    // uploaded: open it and approve/reject (the GP is emailed). Intercept before
+    // the practice-doc branch (a related_document_key would otherwise route it to
+    // "Email Practice") and before the plain 'review' branch ("Mark Complete").
+    if(isQualDocReviewTask(t)){
+      return{prompt:'Review the uploaded document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
     if(t.task_type==='practice_pack_child'||dk){
@@ -5578,7 +5605,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
-    var _isFlaggedDoc=task.task_type==='flagged_doc';
+    // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
+    // document both open the approve/reject review modal instead of a plain
+    // "Mark Complete" — the admin must actually look at the document.
+    var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task);
     if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
     if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
@@ -8527,9 +8557,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
       document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
       document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
+      document.getElementById("techArchivedAccountsPanel").style.display=(tv==="archived-accounts"?"block":"none");
       if(tv==="integrations")loadIntegrations();
       else if(tv==="system-bugs")loadSystemBugs();
       else if(tv==="user-bugs")loadUserBugs();
+      else if(tv==="archived-accounts")archivedAccountsLoad();
+      return;
+    }
+    // Archived account reinstate
+    var reinstateBtn=e.target.closest("[data-archived-reinstate]");
+    if(reinstateBtn){
+      archivedAccountsReinstate(reinstateBtn.getAttribute("data-archived-reinstate"),reinstateBtn);
       return;
     }
     // Bug row expand
@@ -8594,7 +8632,73 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function loadTechnicalPanel(){
     if(techState.view==="integrations")loadIntegrations();
     else if(techState.view==="system-bugs")loadSystemBugs();
+    else if(techState.view==="archived-accounts")archivedAccountsLoad();
     else loadUserBugs();
+  }
+
+  // ── Archived Accounts (soft-deleted) ──────────────────────
+  async function archivedAccountsLoad(){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading archived accounts...</div>';
+    try{
+      var r=await fetch("/api/admin/accounts/archived",{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      var d=await r.json();
+      if(!d.ok||!Array.isArray(d.accounts)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load archived accounts: '+esc(d.message||'Unknown error')+'</div>';return;}
+      archivedAccountsRender(d.accounts);
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  function archivedAccountsRender(accounts){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    if(!accounts.length){
+      el.innerHTML='<div style="padding:24px;color:#6b7280;font-size:0.85rem;">No archived accounts.</div>';
+      return;
+    }
+    var html='<div class="tech-cards">';
+    for(var i=0;i<accounts.length;i++){
+      var a=accounts[i];
+      var name=a.name||a.email||'Unknown';
+      html+='<div class="tech-card" data-archived-row="'+escAttr(a.userId)+'">';
+      html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(name)+'</span>';
+      if(a.hasActivePlacement)html+='<span class="tech-status degraded">Active placement</span>';
+      html+='</div>';
+      html+='<div class="tech-detail"><b>Email:</b> '+esc(a.email||'—')+'</div>';
+      html+='<div class="tech-detail"><b>Archived:</b> '+esc(fmtD(a.archivedAt))+'</div>';
+      html+='<div class="tech-detail"><b>Purges:</b> '+esc(fmtD(a.purgeAfter))+'</div>';
+      html+='<button class="tech-reconnect" data-archived-reinstate="'+escAttr(a.userId)+'">Reinstate</button>';
+      html+='</div>';
+    }
+    html+='</div>';
+    el.innerHTML=html;
+  }
+
+  async function archivedAccountsReinstate(userId,btn){
+    if(!userId)return;
+    if(btn){btn.textContent="Reinstating...";btn.disabled=true;}
+    try{
+      var r=await fetch("/api/admin/accounts/reinstate",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:userId})});
+      var d=await r.json();
+      if(d.ok){
+        toast("Account reinstated","green");
+        var row=document.querySelector('[data-archived-row="'+(window.CSS&&CSS.escape?CSS.escape(userId):userId)+'"]');
+        if(row&&row.parentNode){
+          row.parentNode.removeChild(row);
+          var panel=document.getElementById("techArchivedAccountsPanel");
+          if(panel&&!panel.querySelector("[data-archived-row]")){archivedAccountsRender([]);}
+        }else{
+          archivedAccountsLoad();
+        }
+      }else{
+        toast("Reinstate failed: "+(d.message||""),"red");
+        if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+      }
+    }catch(err){
+      toast("Network error","red");
+      if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+    }
   }
 
   async function loadIntegrations(){
