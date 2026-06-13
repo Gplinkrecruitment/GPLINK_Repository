@@ -1454,10 +1454,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
     <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="archived-accounts">Archived Accounts</button>
   </div>
   <div id="techIntegrationsPanel"></div>
   <div id="techSystemBugsPanel" style="display:none"></div>
   <div id="techUserBugsPanel" style="display:none"></div>
+  <div id="techArchivedAccountsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
@@ -8527,9 +8529,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
       document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
       document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
+      document.getElementById("techArchivedAccountsPanel").style.display=(tv==="archived-accounts"?"block":"none");
       if(tv==="integrations")loadIntegrations();
       else if(tv==="system-bugs")loadSystemBugs();
       else if(tv==="user-bugs")loadUserBugs();
+      else if(tv==="archived-accounts")archivedAccountsLoad();
+      return;
+    }
+    // Archived account reinstate
+    var reinstateBtn=e.target.closest("[data-archived-reinstate]");
+    if(reinstateBtn){
+      archivedAccountsReinstate(reinstateBtn.getAttribute("data-archived-reinstate"),reinstateBtn);
       return;
     }
     // Bug row expand
@@ -8594,7 +8604,73 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function loadTechnicalPanel(){
     if(techState.view==="integrations")loadIntegrations();
     else if(techState.view==="system-bugs")loadSystemBugs();
+    else if(techState.view==="archived-accounts")archivedAccountsLoad();
     else loadUserBugs();
+  }
+
+  // ── Archived Accounts (soft-deleted) ──────────────────────
+  async function archivedAccountsLoad(){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading archived accounts...</div>';
+    try{
+      var r=await fetch("/api/admin/accounts/archived",{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      var d=await r.json();
+      if(!d.ok||!Array.isArray(d.accounts)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load archived accounts: '+esc(d.message||'Unknown error')+'</div>';return;}
+      archivedAccountsRender(d.accounts);
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  function archivedAccountsRender(accounts){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    if(!accounts.length){
+      el.innerHTML='<div style="padding:24px;color:#6b7280;font-size:0.85rem;">No archived accounts.</div>';
+      return;
+    }
+    var html='<div class="tech-cards">';
+    for(var i=0;i<accounts.length;i++){
+      var a=accounts[i];
+      var name=a.name||a.email||'Unknown';
+      html+='<div class="tech-card" data-archived-row="'+escAttr(a.userId)+'">';
+      html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(name)+'</span>';
+      if(a.hasActivePlacement)html+='<span class="tech-status degraded">Active placement</span>';
+      html+='</div>';
+      html+='<div class="tech-detail"><b>Email:</b> '+esc(a.email||'—')+'</div>';
+      html+='<div class="tech-detail"><b>Archived:</b> '+esc(fmtD(a.archivedAt))+'</div>';
+      html+='<div class="tech-detail"><b>Purges:</b> '+esc(fmtD(a.purgeAfter))+'</div>';
+      html+='<button class="tech-reconnect" data-archived-reinstate="'+escAttr(a.userId)+'">Reinstate</button>';
+      html+='</div>';
+    }
+    html+='</div>';
+    el.innerHTML=html;
+  }
+
+  async function archivedAccountsReinstate(userId,btn){
+    if(!userId)return;
+    if(btn){btn.textContent="Reinstating...";btn.disabled=true;}
+    try{
+      var r=await fetch("/api/admin/accounts/reinstate",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:userId})});
+      var d=await r.json();
+      if(d.ok){
+        toast("Account reinstated","green");
+        var row=document.querySelector('[data-archived-row="'+(window.CSS&&CSS.escape?CSS.escape(userId):userId)+'"]');
+        if(row&&row.parentNode){
+          row.parentNode.removeChild(row);
+          var panel=document.getElementById("techArchivedAccountsPanel");
+          if(panel&&!panel.querySelector("[data-archived-row]")){archivedAccountsRender([]);}
+        }else{
+          archivedAccountsLoad();
+        }
+      }else{
+        toast("Reinstate failed: "+(d.message||""),"red");
+        if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+      }
+    }catch(err){
+      toast("Network error","red");
+      if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+    }
   }
 
   async function loadIntegrations(){

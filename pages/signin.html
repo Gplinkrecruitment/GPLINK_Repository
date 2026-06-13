@@ -303,6 +303,124 @@
       background: var(--gp-green-soft);
     }
 
+    /* ── Reinstatement prompt (soft-deleted account) ── */
+    .reinstate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.62);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+    }
+
+    .reinstate-overlay.active { display: flex; }
+
+    .reinstate-card {
+      width: 100%;
+      max-width: 420px;
+      background: #fff;
+      border-radius: 20px;
+      padding: 28px 24px;
+      box-shadow: 0 30px 70px -20px rgba(2, 6, 23, 0.6);
+      text-align: left;
+    }
+
+    .reinstate-avatar {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 17px;
+      margin-bottom: 14px;
+    }
+
+    .reinstate-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      padding: 5px 11px;
+      border-radius: 999px;
+      margin-bottom: 14px;
+    }
+
+    .reinstate-card h3 {
+      font-size: 18px;
+      font-weight: 800;
+      margin: 0 0 6px;
+      color: #0f172a;
+    }
+
+    .reinstate-card p {
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.55;
+      margin: 0 0 10px;
+    }
+
+    .reinstate-countdown {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #0f172a;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 11px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+    }
+
+    .reinstate-countdown b { color: #dc2626; }
+
+    .reinstate-status {
+      min-height: 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #dc2626;
+      margin: 0 0 12px;
+    }
+
+    .reinstate-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .reinstate-btn {
+      flex: 1;
+      font: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      padding: 12px 16px;
+      border-radius: 13px;
+      border: 1px solid #d8dee7;
+      background: #fff;
+      color: #0f172a;
+      cursor: pointer;
+      transition: opacity var(--gp-dur) var(--gp-ease);
+    }
+
+    .reinstate-btn.ghost { color: #64748b; }
+
+    .reinstate-btn.primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border: 0;
+      color: #fff;
+      box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.8);
+    }
+
+    .reinstate-btn:disabled { opacity: 0.6; cursor: default; }
+
     .overlay-container {
       position: absolute;
       top: 0;
@@ -706,6 +824,24 @@
     </div>
   </section>
 
+  <div class="reinstate-overlay" id="reinstateOverlay" role="dialog" aria-modal="true" aria-labelledby="reinstateHeading">
+    <div class="reinstate-card">
+      <div class="reinstate-avatar" id="reinstateAvatar" aria-hidden="true"></div>
+      <span class="reinstate-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Scheduled for deletion
+      </span>
+      <h3 id="reinstateHeading">Welcome back</h3>
+      <p>Your account was closed and is scheduled to be permanently deleted. You can reinstate it now and pick up where you left off.</p>
+      <div class="reinstate-countdown" id="reinstateCountdown"></div>
+      <p class="reinstate-status" id="reinstateStatus" role="status" aria-live="polite"></p>
+      <div class="reinstate-row">
+        <button class="reinstate-btn ghost" id="reinstateDismissBtn" type="button">Not now</button>
+        <button class="reinstate-btn primary" id="reinstateConfirmBtn" type="button">Reinstate my account</button>
+      </div>
+    </div>
+  </div>
+
   <div class="legal gp-reveal gp-reveal-5">
     Trusted by GPs relocating from the UK, Ireland, and New Zealand.<br />
     <a href="privacy">Privacy Policy</a> · <a href="terms">Terms of Service</a><br />
@@ -768,6 +904,100 @@
       el.textContent = message;
       el.className = `status${type ? ` ${type}` : ""}`;
     }
+
+    // ── Reinstatement prompt (soft-deleted / archived accounts) ──
+    var _reinstateToken = null;
+
+    function initialsFromName(name) {
+      var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) return "GP";
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function showReinstatePrompt(reinstate) {
+      reinstate = reinstate || {};
+      var overlay = document.getElementById("reinstateOverlay");
+      var heading = document.getElementById("reinstateHeading");
+      var avatar = document.getElementById("reinstateAvatar");
+      var countdown = document.getElementById("reinstateCountdown");
+      var statusEl = document.getElementById("reinstateStatus");
+      var confirmBtn = document.getElementById("reinstateConfirmBtn");
+      if (!overlay) return;
+
+      _reinstateToken = reinstate.token || null;
+
+      var name = reinstate.name || "";
+      var firstName = String(name).trim().split(/\s+/)[0] || "";
+      heading.textContent = firstName ? `Welcome back, ${firstName}` : "Welcome back";
+      avatar.textContent = initialsFromName(name);
+
+      // Compute days remaining from purgeAfter (guard against null/invalid)
+      countdown.textContent = "Scheduled for permanent deletion soon.";
+      if (reinstate.purgeAfter) {
+        var purge = new Date(reinstate.purgeAfter);
+        var ms = purge.getTime();
+        if (!isNaN(ms)) {
+          var days = Math.ceil((ms - Date.now()) / 86400000);
+          if (days < 0) days = 0;
+          var formatted = purge.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+          var dayLabel = days === 1 ? "day" : "days";
+          countdown.innerHTML = `Permanent deletion in <b>${days} ${dayLabel}</b> · ${formatted}`;
+        }
+      }
+
+      if (statusEl) statusEl.textContent = "";
+      if (confirmBtn) confirmBtn.disabled = false;
+      overlay.classList.add("active");
+    }
+
+    function hideReinstatePrompt() {
+      var overlay = document.getElementById("reinstateOverlay");
+      if (overlay) overlay.classList.remove("active");
+      _reinstateToken = null;
+    }
+
+    async function submitReinstate() {
+      var statusEl = document.getElementById("reinstateStatus");
+      var confirmBtn = document.getElementById("reinstateConfirmBtn");
+      if (!_reinstateToken) {
+        if (statusEl) statusEl.textContent = "This reinstatement link is no longer valid. Please sign in again.";
+        return;
+      }
+      if (confirmBtn) confirmBtn.disabled = true;
+      if (statusEl) statusEl.textContent = "";
+      try {
+        var response = await fetch("/api/account/reinstate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ token: _reinstateToken })
+        });
+        var data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          if (statusEl) statusEl.textContent = data.message || "Unable to reinstate your account. Please try again.";
+          if (confirmBtn) confirmBtn.disabled = false;
+          return;
+        }
+        window.location.replace(data.redirectTo || "/pages/index.html");
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Network error. Please try again.";
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
+    }
+
+    (function wireReinstatePrompt() {
+      var confirmBtn = document.getElementById("reinstateConfirmBtn");
+      var dismissBtn = document.getElementById("reinstateDismissBtn");
+      if (confirmBtn) confirmBtn.addEventListener("click", submitReinstate);
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", function () {
+          hideReinstatePrompt();
+          var pw = document.getElementById("signinPassword");
+          if (pw) pw.value = "";
+        });
+      }
+    })();
 
     function clearErrors(formType) {
       const ids = formType === "signin"
@@ -1100,6 +1330,13 @@
           body: JSON.stringify({ accessToken: data.session.access_token })
         });
         const result = await response.json().catch(() => ({}));
+        if (result && result.archived) {
+          // Clean the OAuth params from the URL so a refresh doesn't re-trigger this
+          const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+          window.history.replaceState({}, "", cleanUrl);
+          showReinstatePrompt(result.reinstate);
+          return;
+        }
         if (!response.ok || !result.ok) {
           setStatus(signInStatusEl, result.message || "Unable to complete sign-in.", "error");
           return;
@@ -1274,6 +1511,10 @@
           body: JSON.stringify(payload)
         });
         const data = await response.json().catch(() => ({}));
+        if (data && data.archived) {
+          showReinstatePrompt(data.reinstate);
+          return;
+        }
         if (!response.ok || !data.ok) {
           setStatus(signInStatusEl, data.message || "Sign in failed.", "error");
           return;
