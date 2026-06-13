@@ -37714,7 +37714,7 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
     var ceStatus = url.searchParams.get('status') || 'open';
-    var ceSafeSelect = 'id,error_message,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,last_seen_at,resolved_by,resolved_at';
+    var ceSafeSelect = 'id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at';
     var ceQuery = ceStatus === 'all'
       ? 'select=' + ceSafeSelect + '&order=last_seen_at.desc&limit=200'
       : 'select=' + ceSafeSelect + '&status=eq.' + encodeURIComponent(ceStatus) + '&order=last_seen_at.desc&limit=200';
@@ -37744,7 +37744,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!newStatus || ['investigating', 'resolved', 'ignored'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be investigating, resolved, or ignored.' }); return; }
     var patch = { status: newStatus };
     if (newStatus === 'resolved' || newStatus === 'ignored') { patch.resolved_by = ceoCtx.email; patch.resolved_at = new Date().toISOString(); }
-    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId) + '&select=id,error_message,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,last_seen_at,resolved_by,resolved_at', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId) + '&select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
     sendJson(res, 200, { ok: true, error: r.data && r.data[0] ? r.data[0] : null });
     return;
