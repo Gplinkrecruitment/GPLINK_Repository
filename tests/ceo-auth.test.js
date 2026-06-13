@@ -99,6 +99,8 @@ describe('CEO dashboard page auth gating', () => {
     // With no session it 302s to admin-signin; the load-bearing assertion is it never
     // returns the HTML body.
     expect([302, 403, 404]).toContain(r.status);
-    expect(r.raw).not.toContain('<!DOCTYPE');
+    // Body-leak guard: the served page begins with lowercase '<!doctype html>',
+    // so this must be case-insensitive to genuinely assert the HTML body is never returned.
+    expect(r.raw).not.toMatch(/<!doctype/i);
   });
 });
