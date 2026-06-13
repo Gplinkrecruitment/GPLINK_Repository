@@ -22036,12 +22036,13 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // ── Cron: purge archived accounts past their 90-day window (dry-run unless ACCOUNT_PURGE_ENABLED=true) ──
+  // ── Cron: purge archived accounts past their 90-day window.
+  //    Auto-erase is ON by default; set ACCOUNT_PURGE_DISABLED=true to make it a dry-run (log only). ──
   if (req.method === 'GET' && pathname === '/api/cron/purge-accounts') {
     const pgToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
     if (!isValidCronSecret(pgToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', purged: 0 }); return; }
-    const enabled = String(process.env.ACCOUNT_PURGE_ENABLED || '').trim() === 'true';
+    const enabled = String(process.env.ACCOUNT_PURGE_DISABLED || '').trim() !== 'true';
     const nowIso = new Date().toISOString();
     const due = await supabaseDbRequest('user_profiles',
       'select=user_id,email&account_status=eq.archived&purge_after=lt.' + encodeURIComponent(nowIso));
