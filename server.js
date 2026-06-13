@@ -37792,7 +37792,14 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html' || pathname === '/pages/ceo-dashboard.html') && !isAllowedAdminHost(req)) {
+  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html') && !isAllowedAdminHost(req)) {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+
+  // CEO dashboard is delivered ONLY on the super-admin host scope (#69).
+  if (pathname === '/pages/ceo-dashboard.html' && getAdminHostScope(req) !== 'super_admin') {
     res.writeHead(404);
     res.end('Not found');
     return;
