@@ -5754,7 +5754,7 @@ Consumes `GET /api/ceo/rsos` (roster + aggregated metrics) and `GET /api/ceo/rso
             var g = gps[i];
             var gStage = g.stage === 'visa' ? 'pbs' : g.stage;
             html += '<div class="rso-gp-row">';
-            html += '<span class="name">' + esc(g.gp_name || 'Unknown') + (g.gp_email ? ' <span style="color:var(--text-dim);font-weight:400">' + esc(g.gp_email) + '</span>' : '') + '</span>';
+            html += '<span class="name">' + esc(g.name || 'Unknown') + (g.email ? ' <span style="color:var(--text-dim);font-weight:400">' + esc(g.email) + '</span>' : '') + '</span>';
             if (gStage) html += '<span class="pill ' + pillClass(gStage) + '">' + esc(STAGE_LABELS[gStage] || gStage) + '</span>';
             if (g.status) html += statusPill(g.status);
             html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(g.case_id) + '\')">Reassign RSO</button>';
