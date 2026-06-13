@@ -2557,7 +2557,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // was flagged, but it is NOT a practice document to chase — intercept it
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
-      return{prompt:'Review the flagged qualification document',label:'Review',action:'completeTask',taskId:t.id};
+      return{prompt:'Open the flagged document to review it, then mark complete from the ⋯ menu',label:'Review Document',action:'previewDoc',taskId:t.id};
     }
 
     if(t.task_type==='practice_pack_child'||dk){
@@ -5425,6 +5425,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
+    if(task.task_type==='flagged_doc')h+='<button class="ops-btn-secondary" onclick="previewTaskDoc(\''+escAttr(task.id)+'\')">View Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
     if(task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';

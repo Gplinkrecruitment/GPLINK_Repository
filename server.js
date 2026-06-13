@@ -33512,7 +33512,47 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    sendJson(res, 404, { ok: false, message: 'No document attached to this task.' });
+    // Flagged-qualification / review tasks (e.g. flagged_doc) don't carry the file on
+    // the task — it lives in the GP's own document storage (prepared scan upload or the
+    // original onboarding upload). Resolve it from there via related_document_key so the
+    // admin can actually open the document to review it.
+    if (task.related_document_key && task.case_id) {
+      const pdCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      const pdUserId = pdCaseRes.ok && Array.isArray(pdCaseRes.data) && pdCaseRes.data[0] ? pdCaseRes.data[0].user_id : null;
+      if (pdUserId) {
+        const redirectToSigned = (signedUrl) => {
+          res.writeHead(302, { Location: signedUrl, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+          res.end();
+        };
+
+        // 1. A user_documents / prepared-doc row matching the key (the GP's own upload).
+        const pdRowRes = await supabaseDbRequest('user_documents',
+          'select=*&user_id=eq.' + encodeURIComponent(pdUserId) + '&document_key=eq.' + encodeURIComponent(task.related_document_key) + '&limit=1');
+        const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
+        if (pdRow && (pdRow.storage_path || pdRow.file_url)) {
+          const pdSigned = await supabaseStorageCreateSignedUrl(pdRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, pdRow.storage_path || pdRow.file_url, '');
+          if (pdSigned) { redirectToSigned(pdSigned); return; }
+        }
+
+        // 2. The original onboarding upload (stored under a separate key namespace).
+        const ONBOARDING_KEY_FOR_QUAL = {
+          primary_medical_degree: 'onboarding_primary_med_degree',
+          specialist_qualification: 'onboarding_specialist_qualification',
+          onboarding_primary_med_degree: 'onboarding_primary_med_degree',
+          onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+        };
+        const onboardKey = ONBOARDING_KEY_FOR_QUAL[task.related_document_key];
+        if (onboardKey) {
+          for (const ctry of ['uk', 'ie', 'nz']) {
+            const obPath = buildOnboardingDocumentStoragePath(pdUserId, ctry, onboardKey);
+            const obSigned = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, obPath, '');
+            if (obSigned) { redirectToSigned(obSigned); return; }
+          }
+        }
+      }
+    }
+
+    sendJson(res, 404, { ok: false, message: 'No document is stored for this task. The GP may not have uploaded the file, or it was only scanned and not saved.' });
     return;
   }
 
