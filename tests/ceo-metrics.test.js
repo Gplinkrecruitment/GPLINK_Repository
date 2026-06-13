@@ -112,4 +112,49 @@ describe('ceo-metrics constants + status helpers', () => {
   });
 });
 
+describe('shared filters + helpers', () => {
+  const fx = makeFixture();
+
+  it('filterActiveCases drops withdrawn + >6mo stale by default (#15/#52)', () => {
+    const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+    const ids = active.map(c => c.id).sort();
+    // c9 withdrawn out; c8 & c10 stale(200d) out; everything else in (ids are .sort()ed)
+    expect(ids).toEqual(['c1','c11','c2','c3','c4','c5','c6','c7']);
+  });
+  it('filterActiveCases allTime keeps stale but still drops withdrawn (#52)', () => {
+    const active = M.filterActiveCases(fx.cases, { nowMs: NOW, allTime: true });
+    const ids = active.map(c => c.id).sort();
+    expect(ids).toEqual(['c1','c10','c11','c2','c3','c4','c5','c6','c7','c8']); // c9 still out
+    expect(ids).not.toContain('c9');
+  });
+  it('caseAgeMs uses last_gp_activity_at then updated_at then created_at (#37)', () => {
+    expect(M.caseAgeMs({ last_gp_activity_at: ago(5), updated_at: ago(1), created_at: ago(40) }, NOW)).toBe(5 * DAY);
+    expect(M.caseAgeMs({ last_gp_activity_at: null, updated_at: ago(8), created_at: ago(40) }, NOW)).toBe(8 * DAY);
+    expect(M.caseAgeMs({ last_gp_activity_at: null, updated_at: null, created_at: ago(40) }, NOW)).toBe(40 * DAY);
+  });
+  it('withinPeriod treats current/all as always true; otherwise compares to nowMs', () => {
+    expect(M.withinPeriod(ago(20), 'all', NOW)).toBe(true);
+    expect(M.withinPeriod(ago(20), 'current', NOW)).toBe(true);
+    expect(M.withinPeriod(ago(5), '7d', NOW)).toBe(true);
+    expect(M.withinPeriod(ago(10), '7d', NOW)).toBe(false);
+    expect(M.withinPeriod(ago(10), '14d', NOW)).toBe(true);
+    expect(M.withinPeriod(null, '7d', NOW)).toBe(false);
+  });
+  it('isOverdue: DATE compare, excludes completed/cancelled, includes escalated (#1/#30)', () => {
+    expect(M.isOverdue({ due_date: ago(2), status: 'open' }, TODAY)).toBe(true);
+    expect(M.isOverdue({ due_date: ago(2), status: 'escalated' }, TODAY)).toBe(true); // escalated still overdue
+    expect(M.isOverdue({ due_date: TODAY, status: 'open' }, TODAY)).toBe(false); // due today is NOT overdue
+    expect(M.isOverdue({ due_date: ago(2), status: 'completed' }, TODAY)).toBe(false);
+    expect(M.isOverdue({ due_date: ago(2), status: 'cancelled' }, TODAY)).toBe(false);
+    expect(M.isOverdue({ due_date: null, status: 'open' }, TODAY)).toBe(false);
+  });
+  it('activeUserIdSet returns user_ids of the active cases (#6/#40)', () => {
+    const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+    const set = M.activeUserIdSet(active);
+    expect(set.has('u1')).toBe(true);
+    expect(set.has('u9')).toBe(false); // withdrawn
+    expect(set.has('u10')).toBe(false); // stale
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };

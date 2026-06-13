@@ -247,8 +247,8 @@ describe('shared filters + helpers', () => {
   it('filterActiveCases drops withdrawn + >6mo stale by default (#15/#52)', () => {
     const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
     const ids = active.map(c => c.id).sort();
-    // c9 withdrawn out; c10 stale(200d) out; everything else in
-    expect(ids).toEqual(['c1','c2','c3','c4','c5','c6','c7','c8','c11']);
+    // c9 withdrawn out; c8 & c10 stale(200d) out; everything else in (ids are .sort()ed)
+    expect(ids).toEqual(['c1','c11','c2','c3','c4','c5','c6','c7']);
   });
   it('filterActiveCases allTime keeps stale but still drops withdrawn (#52)', () => {
     const active = M.filterActiveCases(fx.cases, { nowMs: NOW, allTime: true });
