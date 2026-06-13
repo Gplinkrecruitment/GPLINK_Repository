@@ -997,6 +997,8 @@
 
     /* ── Auth Check ── */
     var isEmbedded = (window.self !== window.top);
+    // Client-side check is defence-in-depth only; the server gate in server.js
+    // (ceo-dashboard.html block) is authoritative and 302s to /pages/admin-signin.
     function checkAuth() {
       return apiFetch('/api/admin/auth/session').then(function(d) {
         if (!d.ok || !d.authenticated) {
