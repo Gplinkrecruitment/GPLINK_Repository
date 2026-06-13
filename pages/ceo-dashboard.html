@@ -1566,26 +1566,51 @@
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Create Task'; });
     }
 
+    /* RSO roster cache (from /api/ceo/rsos) — populated lazily, refreshed on dashboard load */
+    var rsoRosterCache = null;
+    function loadRsoRoster() {
+      if (rsoRosterCache) return Promise.resolve(rsoRosterCache);
+      return apiFetch('/api/ceo/rsos').then(function(d) {
+        rsoRosterCache = (d && d.ok && Array.isArray(d.rsos)) ? d.rsos : [];
+        return rsoRosterCache;
+      }).catch(function() { rsoRosterCache = []; return rsoRosterCache; });
+    }
+
     /* Reassign RSO */
     function openReassignModal(caseId) {
       var html = '<div class="modal-title">Reassign RSO</div>';
-      html += '<div class="modal-field"><label class="modal-label">VA User ID</label><input class="modal-input" id="mVaId" placeholder="Enter VA user ID..." /></div>';
+      html += '<div class="modal-field"><label class="modal-label">RSO</label><select class="modal-select" id="mRsoSelect"><option value="">Loading RSOs...</option></select></div>';
+      html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">Reassigning transfers the GP\'s email threads to the new RSO\'s mailbox.</div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-amber" id="mReassignSubmit" onclick="submitReassign(\'' + esc(caseId) + '\')">Reassign</button></div>';
       openModal(html);
+      loadRsoRoster().then(function(rsos) {
+        var sel = document.getElementById('mRsoSelect');
+        if (!sel) return;
+        if (!rsos.length) { sel.innerHTML = '<option value="">No RSOs available</option>'; return; }
+        var opts = '<option value="">— Select RSO —</option>';
+        for (var i = 0; i < rsos.length; i++) {
+          var r = rsos[i];
+          if (r.active === false) continue;
+          opts += '<option value="' + esc(r.rso_id) + '">' + esc(r.rso_name) + (r.email ? ' (' + esc(r.email) + ')' : '') + '</option>';
+        }
+        sel.innerHTML = opts;
+      });
     }
 
     function submitReassign(caseId) {
-      var vaId = document.getElementById('mVaId').value.trim();
-      if (!vaId) { showToast('VA user ID required', 'error'); return; }
+      var sel = document.getElementById('mRsoSelect');
+      var rsoId = sel ? sel.value : '';
+      if (!rsoId) { showToast('Select an RSO', 'error'); return; }
       var btn = document.getElementById('mReassignSubmit');
       btn.disabled = true;
+      btn.textContent = 'Reassigning...';
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId), {
         method: 'PUT',
-        body: { assigned_va: vaId }
+        body: { assigned_rso: rsoId }
       }).then(function(d) {
-        if (d.ok) { showToast('VA reassigned', 'success'); closeModal(); refreshDashboard(); }
-        else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
-      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
+        if (d.ok) { showToast('RSO reassigned & email transferred', 'success'); closeModal(); refreshDashboard(); }
+        else { showToast('Failed: ' + (d.message || 'Reassign failed'), 'error'); btn.disabled = false; btn.textContent = 'Reassign'; }
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Reassign'; });
     }
 
     /* Change Stage */
@@ -1874,7 +1899,8 @@
         // Load dashboard + trends in parallel
         Promise.all([
           refreshDashboard(),
-          refreshTrends()
+          refreshTrends(),
+          loadRsoRoster()
         ]).then(function() {
           startRefreshLoop();
           refreshLabelTimerId = setInterval(updateRefreshLabel, 1000);
