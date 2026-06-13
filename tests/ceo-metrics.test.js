@@ -270,4 +270,38 @@ describe('computeTaskHealth (#30/#31)', () => {
   });
 });
 
+describe('computeRsoWorkload + rsoCaseIds (#7/#32/#34)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+  const activeIds = new Set(active.map(c => c.id));
+  const scopedTasks = fx.tasks.filter(t => activeIds.has(t.case_id));
+  const roster = [
+    { rso_id: 'rsoA', rso_name: 'Khaleed' },
+    { rso_id: 'rsoB', rso_name: 'Hazel' }
+  ];
+
+  it('groups by assigned_rso with __unassigned__ bucket; count == rsoCaseIds length (#32)', () => {
+    const rows = M.computeRsoWorkload(active, scopedTasks, roster, TODAY);
+    rows.forEach(row => {
+      const ids = M.rsoCaseIds(active, row.rso_id);
+      expect(ids.length).toBe(row.case_count); // INVARIANT
+    });
+    const a = rows.find(r => r.rso_id === 'rsoA');
+    // rsoA active cases: c1,c2,c6,c7 = 4
+    expect(a.case_count).toBe(4);
+    const unassigned = rows.find(r => r.rso_id === '__unassigned__');
+    // c4 (assigned_rso null) ; c10 stale excluded already
+    expect(unassigned.case_count).toBe(1);
+    expect(M.rsoCaseIds(active, '__unassigned__')).toEqual(['c4']);
+  });
+
+  it('open_tasks/overdue_tasks attributed to case owner, match scoped task list (#33)', () => {
+    const rows = M.computeRsoWorkload(active, scopedTasks, roster, TODAY);
+    const a = rows.find(r => r.rso_id === 'rsoA');
+    // tasks on rsoA cases: t1(c1 open), t2(c1 in_progress overdue), t3(c2 escalated overdue) = 3 open, 2 overdue
+    expect(a.open_tasks).toBe(3);
+    expect(a.overdue_tasks).toBe(2);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
