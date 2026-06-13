@@ -36784,27 +36784,25 @@ Return ONLY valid JSON with no markdown formatting:
 
     var dNow = Date.now();
     var dDAY_MS = 86400000;
-    var dSIX_MONTHS_MS = 180 * dDAY_MS;
     var dPeriod = url.searchParams.get('period') || 'current';
-    var dPeriodMs = dPeriod === '7d' ? 7 * dDAY_MS : dPeriod === '14d' ? 14 * dDAY_MS : dPeriod === '30d' ? 30 * dDAY_MS : 0;
+    var dTodayStr = new Date(dNow).toISOString().slice(0, 10);
+    // Same active-case definition as the dashboard (#34/#52)
     function dFilterCases(arr) {
-      return arr.filter(function(c) {
-        if (c.status === 'withdrawn') return false;
-        var la = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : (c.updated_at ? new Date(c.updated_at).getTime() : new Date(c.created_at).getTime());
-        if ((dNow - la) > dSIX_MONTHS_MS) return false;
-        if (dPeriodMs > 0 && (dNow - la) > dPeriodMs) return false;
-        return true;
-      });
+      return ceoMetrics.filterActiveCases(arr, { allTime: dPeriod === 'all', nowMs: dNow });
     }
 
     if (section === 'pipeline') {
       var stage = url.searchParams.get('stage') || 'myintealth';
-      var dCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.' + encodeURIComponent(stage) + '&order=updated_at.desc');
-      var dCases = dFilterCases((dCasesRes.ok && Array.isArray(dCasesRes.data)) ? dCasesRes.data : []);
+      var isCumulativeDd = (dPeriod !== 'current');
+      var dAllCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
+      var dActiveCases = dFilterCases((dAllCasesRes.ok && Array.isArray(dAllCasesRes.data)) ? dAllCasesRes.data : []);
+      // Exact ids the funnel bar counted (#2/#56 — visa folds into pbs in the lib)
+      var barIds = new Set(ceoMetrics.pipelineCaseIds(dActiveCases, stage, { cumulative: isCumulativeDd }));
+      var dCases = dActiveCases.filter(function(c) { return barIds.has(c.id); });
       var dCaseIds = dCases.map(function(c) { return c.id; });
       var dTasks = [];
       if (dCaseIds.length > 0) {
-        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
+        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')');
         dTasks = (dTasksRes.ok && Array.isArray(dTasksRes.data)) ? dTasksRes.data : [];
       }
       var dTaskCountByCase = {};
@@ -36813,7 +36811,7 @@ Return ONLY valid JSON with no markdown formatting:
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
           substage: c.substage || '', assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va,
-          days_in_stage: c.last_gp_activity_at ? Math.floor((dNow - new Date(c.last_gp_activity_at).getTime()) / dDAY_MS) : Math.floor((dNow - new Date(c.updated_at || c.created_at).getTime()) / dDAY_MS),
+          days_in_stage: Math.floor(ceoMetrics.caseAgeMs(c, dNow) / dDAY_MS),
           status: c.status, blocker_status: c.blocker_status, blocker_reason: c.blocker_reason,
           open_task_count: dTaskCountByCase[c.id] || 0, last_gp_activity_at: c.last_gp_activity_at, last_va_action_at: c.last_va_action_at, practice_name: c.practice_name
         };
@@ -36840,21 +36838,28 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'tasks') {
       var tStatusFilter = url.searchParams.get('status') || 'open';
-      var tQuery = 'select=*&order=priority.asc,created_at.desc&limit=200';
-      if (tStatusFilter === 'overdue') {
-        tQuery += '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&due_date=lt.' + new Date().toISOString().slice(0, 10);
-      } else {
-        tQuery += '&status=eq.' + encodeURIComponent(tStatusFilter);
+      // Active-case scope so the list matches the active-only KPI (#6)
+      var tAllCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
+      var tActiveCases = dFilterCases((tAllCasesRes.ok && Array.isArray(tAllCasesRes.data)) ? tAllCasesRes.data : []);
+      var tActiveCaseIds = tActiveCases.map(function(c) { return c.id; });
+      var tTaskList = [];
+      if (tActiveCaseIds.length > 0) {
+        // Fetch all open-work tasks for active cases, then bucket in JS via the lib (#1/#30)
+        var tQuery = 'select=*&case_id=in.(' + tActiveCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc';
+        var tTasksRes = await supabaseDbRequest('registration_tasks', tQuery);
+        var tAllOpen = (tTasksRes.ok && Array.isArray(tTasksRes.data)) ? tTasksRes.data : [];
+        if (tStatusFilter === 'overdue') {
+          tTaskList = tAllOpen.filter(function(t) { return ceoMetrics.isOverdue(t, dTodayStr); });
+        } else if (tStatusFilter === 'open') {
+          tTaskList = tAllOpen.filter(function(t) { return t.status === 'open'; });
+        } else if (tStatusFilter === 'all_open') {
+          tTaskList = tAllOpen;
+        } else {
+          tTaskList = tAllOpen.filter(function(t) { return t.status === tStatusFilter; });
+        }
       }
-      var tTasksRes = await supabaseDbRequest('registration_tasks', tQuery);
-      var tTaskList = (tTasksRes.ok && Array.isArray(tTasksRes.data)) ? tTasksRes.data : [];
-      var tCaseIds = [];
-      for (var tti = 0; tti < tTaskList.length; tti++) { if (tCaseIds.indexOf(tTaskList[tti].case_id) === -1) tCaseIds.push(tTaskList[tti].case_id); }
       var tCaseLookup = {};
-      if (tCaseIds.length > 0) {
-        var tCRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,assigned_va&id=in.(' + tCaseIds.join(',') + ')');
-        if (tCRes.ok && Array.isArray(tCRes.data)) { for (var tci2 = 0; tci2 < tCRes.data.length; tci2++) tCaseLookup[tCRes.data[tci2].id] = tCRes.data[tci2]; }
-      }
+      for (var tcl = 0; tcl < tActiveCases.length; tcl++) tCaseLookup[tActiveCases[tcl].id] = tActiveCases[tcl];
       var tItems = tTaskList.map(function(t) {
         var tc = tCaseLookup[t.case_id] || {};
         return {
@@ -36870,19 +36875,16 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'activity') {
       var aBucket = url.searchParams.get('bucket') || 'cold';
+      // GP activity is a staleness measure over the FULL active population (#12), period-independent.
+      // Use allTime active set (drops withdrawn + >6mo) but NOT the period window.
       var aCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=neq.complete&status=neq.withdrawn&order=last_gp_activity_at.asc.nullsfirst');
-      var aCases = dFilterCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : []);
-      var aItems = aCases.filter(function(c) {
-        var la = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : new Date(c.created_at).getTime();
-        var d = Math.floor((dNow - la) / dDAY_MS);
-        if (aBucket === 'active') return d <= 7;
-        if (aBucket === 'inactive') return d > 7 && d <= 14;
-        return d > 14;
-      }).map(function(c) {
+      var aActiveAll = ceoMetrics.filterActiveCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [], { allTime: false, nowMs: dNow });
+      var aBucketIds = new Set(ceoMetrics.gpActivityCaseIds(aActiveAll, aBucket, dNow));
+      var aItems = aActiveAll.filter(function(c) { return aBucketIds.has(c.id); }).map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
           stage: c.stage, last_activity: c.last_gp_activity_at || c.created_at,
-          days_inactive: Math.floor((dNow - new Date(c.last_gp_activity_at || c.created_at).getTime()) / dDAY_MS),
+          days_inactive: Math.floor(ceoMetrics.caseAgeMs(c, dNow) / dDAY_MS),
           assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va
         };
       });
@@ -36891,16 +36893,21 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     if (section === 'tickets') {
-      var stTicketsRes = await supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.desc&limit=100');
-      var stTicketList = (stTicketsRes.ok && Array.isArray(stTicketsRes.data)) ? stTicketsRes.data : [];
-      var stItems = stTicketList.map(function(t) {
+      var stBucket = url.searchParams.get('status') || 'open';
+      var stCasesRes = await supabaseDbRequest('registration_cases', 'select=user_id,status,last_gp_activity_at,updated_at,created_at,stage&order=updated_at.desc');
+      var stActiveCases = dFilterCases((stCasesRes.ok && Array.isArray(stCasesRes.data)) ? stCasesRes.data : []);
+      var stActiveUserIds = ceoMetrics.activeUserIdSet(stActiveCases);
+      var stTicketsRes = await supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=1000');
+      var stAllTickets = (stTicketsRes.ok && Array.isArray(stTicketsRes.data)) ? stTicketsRes.data : [];
+      var stWantedIds = new Set(ceoMetrics.ticketIds(stAllTickets, stBucket, stActiveUserIds));
+      var stItems = stAllTickets.filter(function(t) { return stWantedIds.has(t.id); }).map(function(t) {
         return {
           ticket_id: t.id, user_id: t.user_id, case_id: t.case_id, gp_name: dGpName(t.user_id), gp_email: dGpEmail(t.user_id),
           title: t.title, category: t.category, priority: t.priority, status: t.status,
           created_at: t.created_at, days_open: Math.floor((dNow - new Date(t.created_at).getTime()) / dDAY_MS)
         };
       });
-      sendJson(res, 200, { ok: true, section: 'tickets', items: stItems });
+      sendJson(res, 200, { ok: true, section: 'tickets', status: stBucket, items: stItems });
       return;
     }
 
@@ -36919,23 +36926,26 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     if (section === 'placements') {
-      var plStatusFilter = url.searchParams.get('status') || 'all';
-      var plSECURED = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
-      var plAppsRes = await supabaseDbRequest('gp_applications', 'select=*&order=updated_at.desc&limit=300');
+      var plBucket = url.searchParams.get('status') || 'applied';
+      // Active-GP scope + same period as the tile (#9)
+      var plCasesRes = await supabaseDbRequest('registration_cases', 'select=user_id,status,last_gp_activity_at,updated_at,created_at,stage&order=updated_at.desc');
+      var plActiveCases = dFilterCases((plCasesRes.ok && Array.isArray(plCasesRes.data)) ? plCasesRes.data : []);
+      var plActiveUserIds = ceoMetrics.activeUserIdSet(plActiveCases);
+      var plAppsRes = await supabaseDbRequest('gp_applications', 'select=*');
       var plAllApps = (plAppsRes.ok && Array.isArray(plAppsRes.data)) ? plAppsRes.data : [];
-      var plInterviewsRes = await supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled');
-      var plAllInterviews = (plInterviewsRes.ok && Array.isArray(plInterviewsRes.data)) ? plInterviewsRes.data : [];
-      var plInterviewByAppId = {};
-      for (var pli = 0; pli < plAllInterviews.length; pli++) { plInterviewByAppId[plAllInterviews[pli].application_id] = plAllInterviews[pli]; }
       var plRolesRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,location_label');
       var plAllRoles = (plRolesRes.ok && Array.isArray(plRolesRes.data)) ? plRolesRes.data : [];
       var plRoleById = {};
       for (var pri = 0; pri < plAllRoles.length; pri++) plRoleById[plAllRoles[pri].id] = plAllRoles[pri];
-      var plFiltered = plAllApps;
-      if (plStatusFilter === 'secured') plFiltered = plAllApps.filter(function(a) { return plSECURED.has((a.status || '').toLowerCase()); });
-      else if (plStatusFilter === 'interviewing') plFiltered = plAllApps.filter(function(a) { return !!plInterviewByAppId[a.id]; });
-      else if (plStatusFilter === 'applied') plFiltered = plAllApps.filter(function(a) { return ['withdrawn', 'rejected'].indexOf((a.status || '').toLowerCase()) === -1; });
-      var plItems = plFiltered.map(function(a) {
+      var plInterviewsRes = await supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled');
+      var plAllInterviews = (plInterviewsRes.ok && Array.isArray(plInterviewsRes.data)) ? plInterviewsRes.data : [];
+      var plInterviewByAppId = {};
+      for (var pli = 0; pli < plAllInterviews.length; pli++) { plInterviewByAppId[plAllInterviews[pli].application_id] = plAllInterviews[pli]; }
+      // Same interview-membership set the dashboard tile uses (#11)
+      var plInterviewAppIds = new Set(plAllInterviews.map(function(i) { return i.application_id; }));
+      // Exact ids the tile counted (#10/#11 — interviewing UNION career_interviews handled in lib)
+      var plWantedIds = new Set(ceoMetrics.placementAppIds(plAllApps, plBucket, plActiveUserIds, plInterviewAppIds, dPeriod, dNow));
+      var plItems = plAllApps.filter(function(a) { return plWantedIds.has(a.id); }).map(function(a) {
         var role = plRoleById[a.career_role_id] || {};
         var interview = plInterviewByAppId[a.id];
         return {
@@ -36946,7 +36956,7 @@ Return ONLY valid JSON with no markdown formatting:
           interview_date: interview ? interview.scheduled_at : null, interview_status: interview ? interview.status : null
         };
       });
-      sendJson(res, 200, { ok: true, section: 'placements', status: plStatusFilter, items: plItems });
+      sendJson(res, 200, { ok: true, section: 'placements', status: plBucket, items: plItems });
       return;
     }
 
