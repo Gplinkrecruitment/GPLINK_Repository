@@ -93,11 +93,18 @@
     }
     .header-title span { color: var(--text-muted); font-weight: 500; }
     .header-right { display: flex; align-items: center; gap: 12px; }
-    .time-filter-bar { display: flex; align-items: center; gap: 6px; padding: 8px 24px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); }
+    .time-filter-bar { display: flex; align-items: center; gap: 6px; padding: 8px 24px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--panel-border); }
     .time-filter-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-right: 4px; }
-    .time-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
-    .time-btn:hover { border-color: var(--accent); color: var(--text); }
-    .time-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .time-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--panel-border); background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+    .time-btn:hover { border-color: var(--blue); color: var(--text); }
+    .time-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+    /* ═══ STANDALONE TOP NAV ═══ */
+    .ceo-topnav { display: flex; align-items: center; gap: 4px; padding: 0 24px; background: var(--bg-elevated); border-bottom: 1px solid var(--panel-border); position: sticky; top: 60px; z-index: 90; }
+    .ceo-topnav a, .ceo-topnav .nav-item { padding: 11px 14px; font-size: 13px; font-weight: 600; color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+    .ceo-topnav .nav-item:hover, .ceo-topnav a:hover { color: var(--text); }
+    .ceo-topnav .nav-item.active { color: var(--text); border-bottom-color: var(--blue); }
+    .ceo-topnav .nav-spacer { flex: 1; }
+    .ceo-topnav .nav-back { color: var(--text-dim); font-weight: 500; }
     .escalation-badge {
       display: none;
       align-items: center; gap: 6px;
@@ -877,6 +884,14 @@
       </div>
     </header>
 
+    <!-- STANDALONE TOP NAV -->
+    <nav class="ceo-topnav" id="ceoTopNav">
+      <div class="nav-item active" data-tab="overview">Overview</div>
+      <div class="nav-item" data-tab="rsos">RSO Oversight</div>
+      <div class="nav-spacer"></div>
+      <a class="nav-back" href="/pages/admin" title="Back to Admin">&#x2190; Admin</a>
+    </nav>
+
     <!-- TIME FILTER -->
     <div class="time-filter-bar" id="timeFilterBar">
       <span class="time-filter-label">Period:</span>
@@ -894,6 +909,7 @@
         <div class="loading-text">Authenticating &amp; loading dashboard...</div>
       </div>
     </div>
+    <div class="content" id="rsoContent" style="display:none"></div>
   </div>
 
   <!-- MODAL -->
@@ -1820,6 +1836,21 @@
       var all = document.querySelectorAll('.time-btn');
       for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i].getAttribute('data-period') === p);
       refreshDashboard();
+    });
+
+    /* ── Standalone top-nav tabs ── */
+    var currentTab = 'overview';
+    document.getElementById('ceoTopNav').addEventListener('click', function(e) {
+      var item = e.target.closest('.nav-item[data-tab]');
+      if (!item) return;
+      var tab = item.getAttribute('data-tab');
+      if (tab === currentTab) return;
+      currentTab = tab;
+      var items = document.querySelectorAll('#ceoTopNav .nav-item');
+      for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', items[i].getAttribute('data-tab') === tab);
+      document.getElementById('mainContent').style.display = (tab === 'overview') ? '' : 'none';
+      document.getElementById('rsoContent').style.display = (tab === 'rsos') ? '' : 'none';
+      if (tab === 'rsos') loadRsoOversight();
     });
 
     /* ═══ INIT ═══ */
