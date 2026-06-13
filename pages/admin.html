@@ -1563,7 +1563,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
-  function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
+  function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"')).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
   function on(id,evt,fn){var el=document.getElementById(id);if(el)el.addEventListener(evt,fn);return el;}
   function _safeProtocolUrl(u,allowedProtocols,fallback){
     if(!u||typeof u!=="string")return esc(fallback||"");
