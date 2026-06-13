@@ -1472,6 +1472,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
 </div>
+<div id="reviewDocModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+      <div>
+        <div id="reviewDocTitle" style="font-weight:700;font-size:15px;color:#111827;">Review flagged document</div>
+        <div id="reviewDocReason" style="font-size:12px;color:#b45309;margin-top:3px;"></div>
+      </div>
+      <button onclick="closeReviewDocModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="flex:1;overflow:auto;background:#f3f4f6;min-height:280px;display:flex;align-items:center;justify-content:center;">
+      <div id="reviewDocLoading" style="color:#6b7280;font-size:13px;padding:40px;">Loading document…</div>
+      <img id="reviewDocImg" alt="Document" style="display:none;max-width:100%;max-height:60vh;object-fit:contain;" />
+      <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:60vh;border:none;background:#fff;"></iframe>
+      <div id="reviewDocMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
+    </div>
+    <div style="padding:14px 18px;border-top:1px solid #e5e7eb;">
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject)</span></label>
+      <textarea id="reviewDocNote" rows="2" placeholder="Reason for rejection / note to the GP…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <div id="reviewDocError" style="color:#dc2626;font-size:12px;margin-top:6px;display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
+        <button onclick="closeReviewDocModal()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;color:#374151;">Cancel</button>
+        <button id="reviewDocRejectBtn" onclick="submitReviewDoc('reject')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Reject — request re-upload</button>
+        <button id="reviewDocApproveBtn" onclick="submitReviewDoc('approve')" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Approve</button>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
 (function(){
   "use strict";
@@ -2557,7 +2584,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // was flagged, but it is NOT a practice document to chase — intercept it
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
-      return{prompt:'Open the flagged document to review it, then mark complete from the ⋯ menu',label:'Review Document',action:'previewDoc',taskId:t.id};
+      return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
     if(t.task_type==='practice_pack_child'||dk){
@@ -4064,6 +4091,68 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
   }
 
+  // ── Flagged-document review modal (in-dashboard popup: view + approve/reject) ──
+  var _reviewDocObjUrl = null;
+  var _reviewDocTaskId = null;
+  async function openReviewDocModal(taskId){
+    var _pools=[].concat(S.tasks||[],S.opsTasksAll||[],S.opsTasks||[]);
+    var task=_pools.find(function(t){return t&&t.id===taskId;})||{};
+    _reviewDocTaskId=taskId;
+    document.getElementById('reviewDocTitle').textContent=task.title||'Review flagged document';
+    document.getElementById('reviewDocReason').textContent=task.description||'';
+    document.getElementById('reviewDocNote').value='';
+    var err=document.getElementById('reviewDocError'); err.style.display='none'; err.textContent='';
+    var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
+    var loading=document.getElementById('reviewDocLoading'), missing=document.getElementById('reviewDocMissing');
+    img.style.display='none'; frame.style.display='none'; missing.style.display='none'; loading.style.display='block';
+    document.getElementById('reviewDocApproveBtn').disabled=false;
+    document.getElementById('reviewDocRejectBtn').disabled=false;
+    document.getElementById('reviewDocModal').style.display='flex';
+    if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
+    try{
+      var resp=await fetch('/api/admin/va/task/preview-document?task_id='+encodeURIComponent(taskId),{credentials:'same-origin'});
+      if(!resp.ok){
+        var dj=await resp.json().catch(function(){return{};});
+        loading.style.display='none'; missing.style.display='block';
+        missing.textContent=dj.message||'No document is stored for this task.';
+        return;
+      }
+      var blob=await resp.blob();
+      _reviewDocObjUrl=URL.createObjectURL(blob);
+      loading.style.display='none';
+      if((blob.type||'').indexOf('image/')===0){ img.src=_reviewDocObjUrl; img.style.display='block'; }
+      else { frame.src=_reviewDocObjUrl; frame.style.display='block'; }
+    }catch(e){
+      loading.style.display='none'; missing.style.display='block';
+      missing.textContent='Could not load the document: '+e.message;
+    }
+  }
+  function closeReviewDocModal(){
+    document.getElementById('reviewDocModal').style.display='none';
+    document.getElementById('reviewDocImg').src='';
+    document.getElementById('reviewDocFrame').src='about:blank';
+    if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
+    _reviewDocTaskId=null;
+  }
+  async function submitReviewDoc(decision){
+    if(!_reviewDocTaskId)return;
+    var note=document.getElementById('reviewDocNote').value.trim();
+    var err=document.getElementById('reviewDocError');
+    if(decision==='reject'&&!note){err.textContent='A reason is required to reject — the GP will see it.';err.style.display='block';return;}
+    err.style.display='none';
+    var approveBtn=document.getElementById('reviewDocApproveBtn'),rejectBtn=document.getElementById('reviewDocRejectBtn');
+    approveBtn.disabled=true;rejectBtn.disabled=true;
+    try{
+      var res=await fetch('/api/admin/va/task/review-flagged-doc',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:_reviewDocTaskId,decision:decision,note:note})});
+      var d=await res.json().catch(function(){return{};});
+      if(!d.ok){err.textContent=d.message||'Action failed.';err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;return;}
+      closeReviewDocModal();
+      if(typeof showOpsToast==='function')showOpsToast(d.message||'Done','green');
+      if(typeof loadOpsQueue==='function')loadOpsQueue();
+      if(typeof loadAll==='function')loadAll(true);
+    }catch(e){err.textContent='Network error: '+e.message;err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;}
+  }
+
   async function approveDocument(taskId) {
     if (!confirm('Submit this document to the GP and mark task complete?')) return;
     try {
@@ -5425,9 +5514,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
-    if(task.task_type==='flagged_doc')h+='<button class="ops-btn-secondary" onclick="previewTaskDoc(\''+escAttr(task.id)+'\')">View Document</button>';
+    var _isFlaggedDoc=task.task_type==='flagged_doc';
+    if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
-    if(task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
     return h;
@@ -5901,6 +5991,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(action==="completeTask"){completeTask(taskId);}
         else if(action==="resolveEmail"){resolveEmailTask(btn,taskId);}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
+        else if(action==="reviewFlaggedDoc"){openReviewDocModal(taskId);}
         else if(action==="generatePD"){generatePositionDescription(taskId);}
         else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
         else if(action==="openWhatsApp"){
@@ -8558,6 +8649,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // Expose functions used by inline onclick handlers (IIFE escape)
   window.setupGmailWatch = setupGmailWatch;
   window.previewTaskDoc = previewTaskDoc;
+  window.openReviewDocModal = openReviewDocModal;
+  window.closeReviewDocModal = closeReviewDocModal;
+  window.submitReviewDoc = submitReviewDoc;
   window.approveDocument = approveDocument;
   window.requestRevision = requestRevision;
   window.dismissAttachment = dismissAttachment;

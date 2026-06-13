@@ -33520,9 +33520,23 @@ Return ONLY valid JSON with no markdown formatting:
       const pdCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
       const pdUserId = pdCaseRes.ok && Array.isArray(pdCaseRes.data) && pdCaseRes.data[0] ? pdCaseRes.data[0].user_id : null;
       if (pdUserId) {
-        const redirectToSigned = (signedUrl) => {
-          res.writeHead(302, { Location: signedUrl, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
-          res.end();
+        // Stream the bytes through our own origin (inline) rather than 302-redirecting to
+        // the Supabase signed URL — this lets the admin dashboard embed the document in an
+        // in-page modal (<img>/<iframe>) without cross-origin / X-Frame-Options issues.
+        const streamSigned = async (signedUrl) => {
+          const fr = await fetch(signedUrl).catch(() => null);
+          if (!fr || !fr.ok) return false;
+          const ct = fr.headers.get('content-type') || 'application/octet-stream';
+          const ab = await fr.arrayBuffer().catch(() => null);
+          if (!ab) return false;
+          res.writeHead(200, {
+            'Content-Type': ct,
+            'Content-Disposition': 'inline; filename="' + (task.attachment_filename || 'document') + '"',
+            'Cache-Control': 'private, no-store',
+            ...SECURITY_HEADERS
+          });
+          res.end(Buffer.from(ab));
+          return true;
         };
 
         // 1. A user_documents / prepared-doc row matching the key (the GP's own upload).
@@ -33531,7 +33545,7 @@ Return ONLY valid JSON with no markdown formatting:
         const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
         if (pdRow && (pdRow.storage_path || pdRow.file_url)) {
           const pdSigned = await supabaseStorageCreateSignedUrl(pdRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, pdRow.storage_path || pdRow.file_url, '');
-          if (pdSigned) { redirectToSigned(pdSigned); return; }
+          if (pdSigned && await streamSigned(pdSigned)) return;
         }
 
         // 2. The original onboarding upload (stored under a separate key namespace).
@@ -33546,13 +33560,88 @@ Return ONLY valid JSON with no markdown formatting:
           for (const ctry of ['uk', 'ie', 'nz']) {
             const obPath = buildOnboardingDocumentStoragePath(pdUserId, ctry, onboardKey);
             const obSigned = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, obPath, '');
-            if (obSigned) { redirectToSigned(obSigned); return; }
+            if (obSigned && await streamSigned(obSigned)) return;
           }
         }
       }
     }
 
     sendJson(res, 404, { ok: false, message: 'No document is stored for this task. The GP may not have uploaded the file, or it was only scanned and not saved.' });
+    return;
+  }
+
+  // ── Review a flagged qualification document: approve / reject + email the GP ──
+  // Both decisions complete the task. Reject requires a reason (sent to the GP).
+  if (pathname === '/api/admin/va/task/review-flagged-doc' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let rfBody; try { rfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    const rfTaskId = rfBody && rfBody.task_id ? String(rfBody.task_id).trim() : '';
+    const rfDecision = rfBody && rfBody.decision ? String(rfBody.decision).trim().toLowerCase() : '';
+    const rfNote = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 1000) : '';
+    if (!rfTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (rfDecision !== 'approve' && rfDecision !== 'reject') { sendJson(res, 400, { ok: false, message: 'decision must be approve or reject.' }); return; }
+    if (rfDecision === 'reject' && !rfNote) { sendJson(res, 400, { ok: false, message: 'A reason is required when rejecting — the GP will see it.' }); return; }
+
+    const rfTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rfTaskId) + '&limit=1');
+    const rfTask = rfTaskRes.ok && Array.isArray(rfTaskRes.data) && rfTaskRes.data[0] ? rfTaskRes.data[0] : null;
+    if (!rfTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+    const rfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rfTask.case_id || '') + '&limit=1');
+    const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
+    const rfDocLabel = getDocumentLabelForKey(rfTask.related_document_key) || 'document';
+
+    // Best-effort: update the stored document's flag state (no-op if no row exists).
+    if (rfUserId && rfTask.related_document_key) {
+      const rfDocPatch = rfDecision === 'approve'
+        ? { flag_reason: '', rejection_reason: '', status: 'uploaded', updated_at: new Date().toISOString() }
+        : { flag_reason: rfNote, rejection_reason: rfNote, status: 'rejected', updated_at: new Date().toISOString() };
+      await supabaseDbRequest('user_documents',
+        'user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfTask.related_document_key),
+        { method: 'PATCH', body: rfDocPatch });
+    }
+
+    // Complete the task (both approve and reject close it).
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rfTaskId),
+      { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, updated_at: new Date().toISOString() } });
+
+    // Email the GP.
+    if (rfUserId) {
+      if (rfDecision === 'approve') {
+        await sendGpNotificationEmail(rfUserId,
+          'Document Verified — GP Link',
+          'Your ' + rfDocLabel + ' has been verified, {{name}}',
+          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
+          'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
+      } else {
+        await sendGpNotificationEmail(rfUserId,
+          'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
+          'Please re-upload your ' + rfDocLabel + ', {{name}}',
+          'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
+          'Re-upload Document', APP_BASE_URL + '/pages/myintealth.html', '');
+      }
+    }
+
+    // Timeline + outbound message record so the conversation thread reflects it.
+    await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change',
+      rfDecision === 'approve' ? 'Flagged document approved' : 'Flagged document rejected — re-upload requested',
+      (rfNote ? 'Note: ' + rfNote + ' — ' : '') + 'GP emailed.', adminCtx.email);
+    await supabaseDbRequest('task_messages', '', {
+      method: 'POST',
+      body: [{
+        task_id: rfTaskId,
+        case_id: rfTask.case_id,
+        direction: 'outbound',
+        channel: 'email',
+        sender: adminCtx.email,
+        subject: rfDecision === 'approve' ? (rfDocLabel + ' verified') : ('Re-upload requested: ' + rfDocLabel),
+        body_text: rfDecision === 'approve' ? ('Approved.' + (rfNote ? ' Note: ' + rfNote : '')) : ('Rejected. Reason: ' + rfNote),
+        created_at: new Date().toISOString()
+      }]
+    });
+
+    sendJson(res, 200, { ok: true, message: rfDecision === 'approve' ? 'Document approved — GP notified.' : 'Re-upload requested — GP notified.' });
     return;
   }
 
