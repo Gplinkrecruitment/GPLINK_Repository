@@ -6639,16 +6639,12 @@ function requireSuperAdminSession(req, res) {
   return adminCtx;
 }
 
+// CEO access is super-admin access: it requires the super-admin host scope AND a
+// super-admin role (same gate as requireSuperAdminSession). The legacy CEO_EMAIL-only
+// branch was unreachable on the super-admin host (requireAdminSession 403s non-super
+// roles there) and contradictory on the employee host, so it is removed (#70).
 function requireCeoSession(req, res) {
-  var adminCtx = requireAdminSession(req, res);
-  if (!adminCtx) return null;
-  var isCeo = CEO_EMAIL && adminCtx.email.toLowerCase() === CEO_EMAIL;
-  var isSuperAdmin = adminCtx.role === 'super_admin';
-  if (!isCeo && !isSuperAdmin) {
-    sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
-    return null;
-  }
-  return adminCtx;
+  return requireSuperAdminSession(req, res);
 }
 
 function ensureAgentOutputRoot() {
