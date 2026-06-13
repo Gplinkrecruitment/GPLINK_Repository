@@ -183,4 +183,49 @@ describe('securedAppUserIds + computeKpis', () => {
   });
 });
 
+describe('computePipeline + pipelineCaseIds (count == drilldown length)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW }); // c1..c8,c11
+
+  it('snapshot mode: count == its case-ids length per stage; visa folds into pbs (#56)', () => {
+    const pipe = M.computePipeline(active, { cumulative: false });
+    pipe.forEach(row => {
+      const ids = M.pipelineCaseIds(active, row.key, { cumulative: false });
+      expect(ids.length).toBe(row.count); // INVARIANT
+    });
+    const pbs = pipe.find(r => r.key === 'pbs');
+    // snapshot pbs = c5(pbs) + c6(visa->pbs) = 2
+    expect(pbs.count).toBe(2);
+    expect(M.pipelineCaseIds(active, 'pbs', { cumulative: false }).sort()).toEqual(['c5','c6']);
+  });
+
+  it('rows are emitted in FUNNEL_STAGES order, complete excluded (#28)', () => {
+    const pipe = M.computePipeline(active, { cumulative: false });
+    expect(pipe.map(r => r.key)).toEqual(['myintealth','amc','career','ahpra','pbs','commencement']);
+  });
+
+  it('cumulative mode: monotonic narrowing + invariant holds (#2/#28/#29)', () => {
+    const pipe = M.computePipeline(active, { cumulative: true });
+    pipe.forEach(row => {
+      const ids = M.pipelineCaseIds(active, row.key, { cumulative: true });
+      expect(ids.length).toBe(row.count); // INVARIANT
+    });
+    // reached-or-passed myintealth = all non-complete active = c1,c2,c3,c4,c5,c6,c11 = 7
+    expect(pipe.find(r => r.key === 'myintealth').count).toBe(7);
+    // narrows monotonically top->bottom
+    const counts = pipe.map(r => r.count);
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i-1]);
+  });
+
+  it('blocked counted ONCE at current stage, not at every passed stage (#3)', () => {
+    const pipe = M.computePipeline(active, { cumulative: true });
+    const totalBlocked = pipe.reduce((s, r) => s + r.blocked, 0);
+    // active blocked cases = c3(career), c4(ahpra) = 2 total across the whole funnel
+    expect(totalBlocked).toBe(2);
+    expect(pipe.find(r => r.key === 'career').blocked).toBe(1); // c3
+    expect(pipe.find(r => r.key === 'ahpra').blocked).toBe(1);  // c4
+    expect(pipe.find(r => r.key === 'myintealth').blocked).toBe(0); // not double-counted
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
