@@ -36504,6 +36504,70 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/rsos — roster + per-RSO workload aggregates (#22,#32,#33).
+  // Attribution (#33): case_count is cases OWNED via assigned_rso; open_tasks/
+  // overdue_tasks are tasks ON those owned cases (case-owner load), so the roster
+  // numbers reconcile with rsoCaseIds and the summary endpoint.
+  if (pathname === '/api/ceo/rsos' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rsoListCtx = requireCeoSession(req, res);
+    if (!rsoListCtx) return;
+
+    var nowMs = Date.now();
+    var todayStr = new Date(nowMs).toISOString().slice(0, 10);
+
+    var [rosterRows, rsoCasesRes, rsoTasksRes] = await Promise.all([
+      loadRsoTeam({ includeInactive: false }),
+      supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
+    ]);
+
+    var allCases = (rsoCasesRes.ok && Array.isArray(rsoCasesRes.data)) ? rsoCasesRes.data : [];
+    var rsoTasks = (rsoTasksRes.ok && Array.isArray(rsoTasksRes.data)) ? rsoTasksRes.data : [];
+    var activeCases = ceoMetrics.filterActiveCases(allCases, { allTime: false });
+
+    // loadRsoTeam rows are shaped { user_id, name, email, phone, active }.
+    // computeRsoWorkload seeds buckets from { rso_id, rso_name }.
+    var workloadRoster = rosterRows.map(function (r) { return { rso_id: r.user_id, rso_name: r.name }; });
+
+    // workload: [{rso_id, rso_name, case_count, open_tasks, overdue_tasks}]
+    var workload = ceoMetrics.computeRsoWorkload(activeCases, rsoTasks, workloadRoster, todayStr);
+    var workloadById = {};
+    for (var w = 0; w < workload.length; w++) { workloadById[workload[w].rso_id] = workload[w]; }
+
+    var rsos = rosterRows.map(function (r) {
+      var stats = workloadById[r.user_id] || { case_count: 0, open_tasks: 0, overdue_tasks: 0 };
+      return {
+        rso_id: r.user_id,
+        rso_name: r.name,
+        email: r.email,
+        phone: r.phone || '',
+        active: r.active !== false,
+        case_count: stats.case_count,
+        open_tasks: stats.open_tasks,
+        overdue_tasks: stats.overdue_tasks
+      };
+    });
+
+    // Surface the unassigned bucket if computeRsoWorkload produced one (#32).
+    var un = workloadById['__unassigned__'];
+    if (un && un.case_count > 0) {
+      rsos.push({
+        rso_id: '__unassigned__',
+        rso_name: 'Unassigned',
+        email: '',
+        phone: '',
+        active: true,
+        case_count: un.case_count,
+        open_tasks: un.open_tasks,
+        overdue_tasks: un.overdue_tasks
+      });
+    }
+
+    sendJson(res, 200, { ok: true, rsos: rsos });
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════

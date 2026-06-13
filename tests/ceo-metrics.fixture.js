@@ -72,8 +72,16 @@ const stageEvents = [
   { case_id: 'c2', created_at: ago(8), title: 'Stage advanced to ahpra', metadata: { from_stage: 'career', to_stage: 'ahpra' } }
 ];
 
+// Two-RSO roster keyed to the cases' assigned_rso values so computeRsoWorkload
+// seeds both named buckets; c4 (assigned_rso null) drives the __unassigned__ bucket.
+const rsoRoster = [
+  { rso_id: 'rsoA', rso_name: 'RSO Alpha' },
+  { rso_id: 'rsoB', rso_name: 'RSO Beta' }
+];
+
 export const FIXTURE = {
   nowMs: NOW,
+  todayStr: TODAY,
   cases,
   tasks,
   completedTasks,
@@ -81,5 +89,6 @@ export const FIXTURE = {
   careerInterviews,
   careerRoles,
   tickets,
-  stageEvents
+  stageEvents,
+  rsoRoster
 };

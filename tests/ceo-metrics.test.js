@@ -589,3 +589,24 @@ describe('KPI tile drilldown reconciliation (#24)', () => {
     });
   }
 });
+
+describe('RSO oversight reconciliation', () => {
+  it('every RSO row case_count equals rsoCaseIds length (incl. __unassigned__)', () => {
+    // Deterministic active-scope: pin nowMs to the frozen fixture clock so the
+    // 6-month staleness boundary doesn't depend on the wall clock.
+    var active = M.filterActiveCases(FIXTURE.cases, { allTime: false, nowMs: FIXTURE.nowMs });
+    var roster = FIXTURE.rsoRoster;
+    // Fixture must seed a roster + a null-assigned_rso active case so both the
+    // named and __unassigned__ buckets are exercised by this invariant.
+    expect(Array.isArray(roster) && roster.length >= 2).toBe(true);
+    var rows = M.computeRsoWorkload(active, FIXTURE.tasks, roster, FIXTURE.todayStr);
+    rows.forEach(function (row) {
+      expect(row.case_count).toBe(M.rsoCaseIds(active, row.rso_id).length);
+    });
+    // Both bucket kinds present and reconciling.
+    var named = rows.find(function (r) { return r.rso_id !== '__unassigned__' && r.case_count > 0; });
+    var unassigned = rows.find(function (r) { return r.rso_id === '__unassigned__'; });
+    expect(named && named.case_count).toBe(M.rsoCaseIds(active, named && named.rso_id).length);
+    expect(unassigned && unassigned.case_count).toBe(M.rsoCaseIds(active, '__unassigned__').length);
+  });
+});
