@@ -30565,7 +30565,7 @@ Return ONLY valid JSON with no markdown formatting:
     const taskId = url.searchParams.get('id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at'];
+    const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at', 'escalated_by'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
     if (patch.status === 'completed') {
@@ -30576,14 +30576,17 @@ Return ONLY valid JSON with no markdown formatting:
     var isEscalating = (patch.status === 'escalated');
     var escalationReason = patch.escalated_reason || null;
     var escalationFields = {};
-    // escalated_to is UUID FK — only include if it looks like a valid UUID, skip plain strings like "CEO"
-    if (patch.escalated_to !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(patch.escalated_to)) {
-      escalationFields.escalated_to = patch.escalated_to;
+    // escalated_to is now a TEXT role marker (e.g. 'CEO'), not a UUID (#26).
+    if (patch.escalated_to !== undefined && patch.escalated_to !== null && String(patch.escalated_to).trim()) {
+      escalationFields.escalated_to = String(patch.escalated_to).trim().slice(0, 64);
     }
     if (patch.escalated_reason !== undefined) escalationFields.escalated_reason = patch.escalated_reason;
     if (patch.escalated_at !== undefined) escalationFields.escalated_at = patch.escalated_at;
     else if (isEscalating) escalationFields.escalated_at = new Date().toISOString();
-    delete patch.escalated_to; delete patch.escalated_reason; delete patch.escalated_at;
+    // Record the REAL escalator from the session, not a hardcoded value (#27).
+    if (isEscalating) escalationFields.escalated_by = adminCtx.email;
+    else if (patch.escalated_by !== undefined) escalationFields.escalated_by = patch.escalated_by;
+    delete patch.escalated_to; delete patch.escalated_reason; delete patch.escalated_at; delete patch.escalated_by;
     // Merge into metadata JSON if requested
     if (body && body.metadata_merge && typeof body.metadata_merge === 'object') {
       try {
@@ -30624,6 +30627,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (updated) {
       var evTitle = isEscalating ? 'Escalated to CEO' : 'Task updated: ' + Object.keys(patch).join(', ');
       var evDetail = isEscalating ? (escalationReason || 'No reason provided') : JSON.stringify(patch);
+      // actor is the real escalator; dashboard reads escalated_by from the column, fallback from this actor (#27).
       await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
