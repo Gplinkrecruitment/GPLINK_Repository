@@ -2601,6 +2601,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
+    // "Review uploaded: X" tasks are doc-review tasks about the GP's own upload —
+    // they carry a related_document_key but are NOT a practice document to chase.
+    // Route them through the same approve/reject workflow as flagged_doc, and
+    // intercept before the practice-doc branch so they never render "Email Practice".
+    if(t.task_type==='review'&&dk){
+      return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
+    }
+
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
@@ -5578,10 +5586,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
-    var _isFlaggedDoc=task.task_type==='flagged_doc';
-    if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
+    // flagged_doc and "Review uploaded: X" (task_type review + doc key) are both manual
+    // doc-review tasks about the GP's own upload — open the approve/reject modal, not a
+    // bare "Mark Complete" (the review decision completes the task and emails the GP).
+    var _isDocReview=task.task_type==='flagged_doc'||(task.task_type==='review'&&task.related_document_key);
+    if(_isDocReview)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
-    if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    if(!_isDocReview&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
     return h;
