@@ -854,7 +854,7 @@
   </style>
 </head>
 <body>
-<script src="/js/error-reporter.js?v=20260527a"></script>
+<script src="/js/error-reporter.js?v=20260614a"></script>
   <div class="page-wrap">
     <!-- HEADER -->
     <header class="header">
@@ -1592,7 +1592,7 @@
       html += '<option value="waiting_on_gp">Waiting on GP</option>';
       html += '<option value="waiting_on_practice">Waiting on Practice</option>';
       html += '<option value="waiting_on_external">Waiting on External</option>';
-      html += '<option value="blocked">Blocked</option>';
+      html += '<option value="internal_review">Internal Review</option>';
       html += '<option value="">Clear Blocker</option>';
       html += '</select></div>';
       html += '<div class="modal-field"><label class="modal-label">Reason</label><textarea class="modal-textarea" id="mBlockerReason" placeholder="Describe the blocker..."></textarea></div>';
@@ -1605,9 +1605,8 @@
       var reason = document.getElementById('mBlockerReason').value.trim();
       var btn = document.getElementById('mBlockerSubmit');
       btn.disabled = true;
+      // Server normalizes blocker_status -> CHECK-safe status + blocker_set_at (#4/#19/#5).
       var body = { blocker_status: status || null, blocker_reason: reason || null };
-      if (!status) body.status = 'active';
-      else body.status = 'blocked';
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId), {
         method: 'PUT',
         body: body

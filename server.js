@@ -117,6 +117,7 @@ const {
   buildFlagReason
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
+var ceoActions = require('./lib/ceo-actions');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
 const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
@@ -29618,6 +29619,14 @@ Return ONLY valid JSON with no markdown formatting:
     const allowed = ['assigned_va', 'assigned_rso', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // Blocker handling: map UI payload to a CHECK-safe patch and stamp blocker_set_at (#4/#19/#5).
+    if (body && body.blocker_status !== undefined) {
+      var blockerPatch = ceoActions.normalizeBlockerPatch(body, new Date().toISOString());
+      patch.status = blockerPatch.status;
+      patch.blocker_status = blockerPatch.blocker_status;
+      patch.blocker_reason = blockerPatch.blocker_reason;
+      patch.blocker_set_at = blockerPatch.blocker_set_at;
+    }
     patch.last_va_action_at = new Date().toISOString();
 
     // ── RSO reassignment: set the Gmail mailbox owner (assigned_va) in lock-step
