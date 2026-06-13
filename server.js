@@ -5115,6 +5115,10 @@ function getAdminHostScope(req) {
   if (!hostname) return '';
   if (SUPER_ADMIN_ALLOWED_HOSTS.has(hostname)) return 'super_admin';
   if (ADMIN_ALLOWED_HOSTS.has(hostname)) return 'admin';
+  // Vercel preview deployments get rotating hostnames that can never be in the
+  // allowlists; treat them as admin-capable so previews can exercise the admin
+  // side. Production deployments run with VERCEL_ENV=production, never 'preview'.
+  if (process.env.VERCEL_ENV === 'preview') return 'preview';
   if (NODE_ENV !== 'production' && isLoopbackHostname(hostname)) return 'local';
   return '';
 }
@@ -5123,6 +5127,7 @@ function getAdminHostLabel(scope) {
   if (scope === 'super_admin') return 'CEO / Super Admin';
   if (scope === 'admin') return 'Employee Admin';
   if (scope === 'local') return 'Local Admin';
+  if (scope === 'preview') return 'Preview Admin';
   return 'Admin';
 }
 
@@ -5130,7 +5135,7 @@ function doesAdminRoleMatchHost(role, hostScope) {
   const normalizedRole = normalizeAdminRole(role);
   if (!normalizedRole) return false;
   if (hostScope === 'super_admin') return normalizedRole === 'super_admin';
-  return hostScope === 'admin' || hostScope === 'local';
+  return hostScope === 'admin' || hostScope === 'local' || hostScope === 'preview';
 }
 
 function getAdminRoleFromSession(session) {
@@ -20203,6 +20208,22 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div></body></html>`;
 }
 
+// User endpoints that create a session or run credential flows. Blocked on
+// dedicated admin hosts (see the gate in handleApi) so the admin side cannot
+// be used to sign in as a GP — impersonation is the only user-session path there.
+const USER_SESSION_CREATING_PATHS = new Set([
+  '/api/auth/send-code',
+  '/api/auth/signup',
+  '/api/auth/login',
+  '/api/auth/supabase-session-login',
+  '/api/auth/verify-code',
+  '/api/auth/oauth/token',
+  '/api/auth/set-password',
+  '/api/auth/request-password-reset',
+  '/api/auth/recovery-update-password',
+  '/api/auth/reset-password'
+]);
+
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -21233,6 +21254,18 @@ async function handleApi(req, res, pathname) {
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return;
+  }
+
+  // Dedicated admin hosts must not mint USER sessions or run user credential
+  // flows — the only legitimate user session there is created server-side by
+  // /api/admin/impersonate. Session reads (/api/auth/session, /api/auth/logout)
+  // stay available for impersonation. Preview and local scopes are not blocked.
+  if (USER_SESSION_CREATING_PATHS.has(pathname)) {
+    const apiHostScope = getAdminHostScope(req);
+    if (apiHostScope === 'admin' || apiHostScope === 'super_admin') {
+      sendJson(res, 404, { ok: false, message: 'Not found' });
+      return;
+    }
   }
 
   if (pathname === '/api/auth/prewarm' && req.method === 'POST') {
@@ -37504,17 +37537,21 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === '/') {
-    res.writeHead(302, { Location: '/pages/index' });
+    const rootScope = getAdminHostScope(req);
+    const adminRoot = rootScope === 'admin' || rootScope === 'super_admin' || rootScope === 'preview';
+    res.writeHead(302, { Location: adminRoot ? '/pages/admin' : '/pages/index' });
     res.end();
     return;
   }
 
-  // Blog pages (public, no auth required)
-  if (pathname === '/blog' || pathname === '/blog/') {
-    serveStatic(req, res, '/pages/blog.html');
-    return;
-  }
-  if (pathname.startsWith('/blog/')) {
+  // Blog pages (public, no auth required — but not on dedicated admin hosts)
+  if (pathname === '/blog' || pathname === '/blog/' || pathname.startsWith('/blog/')) {
+    const blogScope = getAdminHostScope(req);
+    if (blogScope === 'admin' || blogScope === 'super_admin') {
+      res.writeHead(302, { Location: '/pages/admin-signin' });
+      res.end();
+      return;
+    }
     serveStatic(req, res, '/pages/blog.html');
     return;
   }
@@ -37550,6 +37587,25 @@ async function handleRequest(req, res) {
     pathname.startsWith('/media/images/') ||
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
+
+  // Dedicated admin hosts serve ONLY the admin side. The single exception is an
+  // active user session, which on these hosts can only be created by admin
+  // impersonation (session cookies are host-scoped, so the impersonated app must
+  // run on this host). Assets (/js, /media, /documents) and APIs are unaffected.
+  const ADMIN_PAGE_PATHS = new Set([
+    '/pages/admin.html',
+    '/pages/admin-signin.html',
+    '/pages/admin-visa.html',
+    '/pages/admin-pbs.html',
+    '/pages/ceo-dashboard.html'
+  ]);
+  const pageHostScope = getAdminHostScope(req);
+  const isDedicatedAdminHost = pageHostScope === 'admin' || pageHostScope === 'super_admin';
+  if (isDedicatedAdminHost && !ADMIN_PAGE_PATHS.has(pathname) && !session && pathname.endsWith('.html')) {
+    res.writeHead(302, { Location: '/pages/admin-signin' });
+    res.end();
+    return;
+  }
 
   if (shouldProtectPath(pathname) && !session && !adminSession) {
     res.writeHead(302, { Location: '/pages/signin' });
@@ -37683,6 +37739,9 @@ module.exports.__testUtils = {
   collectDomainResidentialSearchListings,
   extractDomainListingCoordinates,
   crossCheckDocumentName,
+  doesAdminRoleMatchHost,
+  getAdminHostLabel,
+  getAdminHostScope,
   hasUsableFullName,
   matchNames,
   matchesDomainAgencyListingMarket,
