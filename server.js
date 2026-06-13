@@ -1871,7 +1871,19 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
 }
 
 var GMAIL_DOCUMENT_EXTENSIONS = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
-var GMAIL_NOREPLY_PATTERNS = /^(noreply|no-reply|donotreply|do-not-reply|newsletter|marketing|mailer-daemon|postmaster)@/i;
+var GMAIL_NOREPLY_PATTERNS = /^(noreply|no-reply|no_reply|donotreply|do-not-reply|do_not_reply|newsletter|marketing|mailer-daemon|mailer|postmaster|bounce|bounces|notifications?|notify|alerts?|automated|auto-confirm|account-security|security-noreply)@/i;
+// Infrastructure / SaaS / developer-tooling senders that are never GP, medical-centre,
+// or regulator correspondence. Matched against the sender's domain (suffix match, so
+// subdomains like notifications.github.com also match).
+var GMAIL_SERVICE_DOMAINS = [
+  'vercel.com', 'github.com', 'githubusercontent.com', 'gitlab.com', 'bitbucket.org',
+  'sentry.io', 'netlify.com', 'render.com', 'cloudflare.com', 'cloudflarestatus.com',
+  'supabase.io', 'supabase.com', 'npmjs.com', 'datadoghq.com', 'pagerduty.com',
+  'statuspage.io', 'atlassian.com', 'atlassian.net', 'slack.com', 'notion.so',
+  'accounts.google.com', 'cloud.google.com',
+  'amazonaws.com', 'aws.amazon.com', 'azure.com', 'microsoft.com', 'digitalocean.com',
+  'stripe.com', 'twilio.com', 'sendgrid.net', 'mailgun.org', 'postmarkapp.com'
+];
 
 function preFilterEmail(emailMeta) {
   if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@mygplink.com.au')) {
@@ -1879,6 +1891,12 @@ function preFilterEmail(emailMeta) {
   }
   if (GMAIL_NOREPLY_PATTERNS.test(emailMeta.sender || '')) {
     return { pass: false, reason: 'marketing' };
+  }
+  var senderDomain = String(emailMeta.sender || '').toLowerCase().split('@')[1] || '';
+  if (senderDomain && GMAIL_SERVICE_DOMAINS.some(function (d) {
+    return senderDomain === d || senderDomain.endsWith('.' + d);
+  })) {
+    return { pass: false, reason: 'service_notification' };
   }
   if (emailMeta.headers && emailMeta.headers['list-unsubscribe']) {
     return { pass: false, reason: 'marketing' };
