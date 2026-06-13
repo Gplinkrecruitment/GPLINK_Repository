@@ -3009,12 +3009,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var hasFile=!!doc.file_name||!!doc.file_url;
     // A document is viewable if the GP has actually uploaded something for it.
     var viewable=caseId&&(!!doc.file_url||['approved','uploaded','under_review','rejected','accepted','received','needs_correction'].indexOf(status)>=0);
+    var previewUrl=viewable?('/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key)):'';
     var viewAttrs=viewable
-      ?(' data-doc-view-url="'+escAttr('/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key))+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="cursor:pointer"')
+      ?(' data-doc-view-url="'+escAttr(previewUrl)+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="cursor:pointer"')
       :'';
     var cls='doc-placeholder-card'+(hasFile?' has-file':'')+(viewable?' is-clickable':'');
     var statusCls='s-'+(status||'pending');
-    var thumbHtml='<div class="doc-placeholder-thumb">\uD83D\uDCC4</div>';
+    // Real document thumbnail (image scans render directly; PDFs/others fall back to the
+    // icon via onerror) \u2014 matches the "Prepared by GP LINK" cards.
+    var thumbHtml=viewable
+      ?('<img src="'+escAttr(previewUrl)+'" class="doc-placeholder-thumb" alt="" style="object-fit:cover" onerror="gpDocThumbError(this)">')
+      :'<div class="doc-placeholder-thumb">\uD83D\uDCC4</div>';
     var metaHtml='';
     if(doc.file_name){
       metaHtml='<div class="doc-placeholder-meta">'+esc(doc.file_name)+'</div>';
@@ -4108,6 +4113,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function previewTaskDoc(taskId) {
     window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
+  }
+
+  // Thumbnail <img> failed to render (e.g. a PDF) — swap it for the document icon.
+  function gpDocThumbError(img){
+    if(!img||!img.parentNode)return;
+    var d=document.createElement('div');
+    d.className='doc-placeholder-thumb';
+    d.textContent='📄';
+    img.parentNode.replaceChild(d,img);
   }
 
   // ── Generic document viewer modal (click a Documents-tab placeholder to view) ──
@@ -8709,6 +8723,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.submitReviewDoc = submitReviewDoc;
   window.openDocViewer = openDocViewer;
   window.closeDocViewer = closeDocViewer;
+  window.gpDocThumbError = gpDocThumbError;
   window.approveDocument = approveDocument;
   window.requestRevision = requestRevision;
   window.dismissAttachment = dismissAttachment;
