@@ -29623,7 +29623,7 @@ Return ONLY valid JSON with no markdown formatting:
     // ── RSO reassignment: set the Gmail mailbox owner (assigned_va) in lock-step
     //    with assigned_rso, and refuse if the target RSO has no mailbox (#44, §C.1).
     if (Object.prototype.hasOwnProperty.call(patch, 'assigned_rso') && patch.assigned_rso) {
-      var rsoRosterRows = await loadRsoRoster({ includeInactive: true });
+      var rsoRosterRows = await loadRsoTeam({ includeInactive: true });
       var rsoMailRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address,display_name');
       var rsoMailRows = (rsoMailRes.ok && Array.isArray(rsoMailRes.data)) ? rsoMailRes.data : [];
       var resolved = ceoMetrics.resolveRsoReassignmentTarget(rsoRosterRows, rsoMailRows, patch.assigned_rso);
