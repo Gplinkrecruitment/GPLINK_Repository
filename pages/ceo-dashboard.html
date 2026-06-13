@@ -1239,7 +1239,7 @@
           var bStage = b.stage === 'visa' ? 'pbs' : b.stage;
           rows += '<span class="blocker-stage">' + esc(STAGE_LABELS[bStage] || bStage) + '</span>';
           rows += '<span class="blocker-reason" title="' + esc(b.blocker_reason || b.blocker_status || '') + '">' + esc(b.blocker_reason || b.blocker_status || '--') + '</span>';
-          rows += '<span class="blocker-days">' + fmtDays(b.days_in_stage) + '</span>';
+          rows += '<span class="blocker-days" title="Days blocked">' + fmtDays(b.days_blocked != null ? b.days_blocked : b.days_in_stage) + '</span>';
           rows += '</div>';
         }
         if (blockers.length > 8) {
@@ -1254,6 +1254,7 @@
       if (!th) return '';
       var html = '<div class="task-grid">';
       html += taskCell(fmtNum(th.open), 'Open', 'var(--blue)');
+      html += taskCell(fmtNum(th.in_progress), 'In Progress', 'var(--amber)');
       html += taskCell(fmtNum(th.completed_this_week), 'Done This Week', 'var(--green)');
       html += taskCell(fmtNum(th.overdue), 'Overdue', th.overdue > 0 ? 'var(--red)' : 'var(--text)');
       html += taskCell(th.avg_resolve_days != null ? th.avg_resolve_days.toFixed(1) + 'd' : '--', 'Avg Resolve', 'var(--text)');
@@ -1373,6 +1374,16 @@
     }
 
     /* ── Completions ── */
+    function humanizeMilestone(text) {
+      if (!text) return 'reached a milestone';
+      // Map raw "Stage advanced to amc" / "amc" slugs to friendly stage labels
+      var m = String(text).match(/(?:advanced to|reached|stage[:\s]+)\s*([a-z_]+)/i);
+      var slug = m ? m[1].toLowerCase() : String(text).trim().toLowerCase();
+      if (STAGE_LABELS[slug]) return 'reached ' + STAGE_LABELS[slug];
+      if (slug === 'complete') return 'completed registration';
+      return text; // already humanized server-side
+    }
+
     function renderCompletionsSection(comp) {
       if (!comp) return '';
       var html = '<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">';
@@ -1389,7 +1400,7 @@
         var m = milestones[i];
         html += '<div class="milestone-row">';
         html += '<div class="milestone-dot"></div>';
-        html += '<div class="milestone-text"><strong>' + esc(m.gp_name) + '</strong> ' + esc(m.milestone) + '</div>';
+        html += '<div class="milestone-text"><strong>' + esc(m.gp_name) + '</strong> ' + esc(humanizeMilestone(m.milestone)) + '</div>';
         html += '<div class="milestone-ago">' + (m.days_ago != null ? m.days_ago + 'd ago' : relativeTime(m.date)) + '</div>';
         html += '</div>';
       }
@@ -1462,7 +1473,7 @@
         html += '<div class="dd-row-summary" onclick="toggleDdRow(' + i + ')">';
         html += '<span class="dd-row-name">' + esc(name) + (item.gp_email ? ' <span style="color:var(--text-dim);font-weight:400">' + esc(item.gp_email) + '</span>' : '') + '</span>';
         html += '<span class="dd-row-pills">';
-        if (item.stage) html += '<span class="pill ' + pillClass(item.stage) + '">' + esc(STAGE_LABELS[item.stage] || item.stage) + '</span> ';
+        if (item.stage) { var ddStage = item.stage === 'visa' ? 'pbs' : item.stage; html += '<span class="pill ' + pillClass(ddStage) + '">' + esc(STAGE_LABELS[ddStage] || ddStage) + '</span> '; }
         if (item.status) html += statusPill(item.status) + ' ';
         if (item.priority) html += priorityPill(item.priority) + ' ';
         if (item.blocker_status) html += '<span class="pill pill-red">' + esc(item.blocker_status.replace(/_/g, ' ')) + '</span> ';
@@ -1495,8 +1506,8 @@
       var fields = [];
       if (item.substage) fields.push(['Substage', item.substage.replace(/_/g, ' ')]);
       if (item.assigned_rso || item.assigned_va) fields.push(['Assigned RSO', item.assigned_rso || item.assigned_va]);
-      if (item.days_in_stage != null) fields.push(['Days in Stage', item.days_in_stage + 'd']);
-      if (item.days_stuck != null) fields.push(['Days Stuck', item.days_stuck + 'd']);
+      if (item.days_blocked != null) fields.push(['Days Blocked', item.days_blocked + 'd']);
+      else if (item.days_in_stage != null) fields.push(['Days Blocked', item.days_in_stage + 'd']);
       if (item.days_inactive != null) fields.push(['Days Inactive', item.days_inactive + 'd']);
       if (item.days_open != null) fields.push(['Days Open', item.days_open + 'd']);
       if (item.open_task_count != null) fields.push(['Open Tasks', item.open_task_count]);
