@@ -37339,8 +37339,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ceoCtx) return;
 
     // Parallel fetches
+    var gmailMonitored = (Array.isArray(MONITORED_VA_EMAILS) && MONITORED_VA_EMAILS.length) ? MONITORED_VA_EMAILS : ['hazel@mygplink.com.au'];
     var [gmailWatchRes, zrConn, zsConn, processedCountRes] = await Promise.all([
-      supabaseDbRequest('gmail_watch_state', 'select=*&email_address=eq.hazel@mygplink.com.au&limit=1'),
+      supabaseDbRequest('gmail_watch_state', 'select=*&email_address=in.(' + gmailMonitored.map(function (em) { return encodeURIComponent(em); }).join(',') + ')'),
       getZohoRecruitConnection(),
       getZohoSignConnection(),
       supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&processed_at=gte.' + new Date(Date.now() - 86400000).toISOString() + '&limit=1000')
@@ -37351,28 +37352,34 @@ Return ONLY valid JSON with no markdown formatting:
     var today = new Date().toISOString().slice(0, 10);
     if (anthropicDailySpend.date !== today) anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
 
-    var gmailWatch = gmailWatchRes.ok && Array.isArray(gmailWatchRes.data) && gmailWatchRes.data[0] ? gmailWatchRes.data[0] : null;
     var gmailConfigured = isGmailConfigured();
-    var gmailClientError = _gmailClientErrors['hazel@mygplink.com.au'] || null;
+    var gmailWatchRows = (gmailWatchRes.ok && Array.isArray(gmailWatchRes.data)) ? gmailWatchRes.data : [];
+    var gmailWatchByEmail = {};
+    for (var gwi = 0; gwi < gmailWatchRows.length; gwi++) { gmailWatchByEmail[gmailWatchRows[gwi].email_address] = gmailWatchRows[gwi]; }
     var processedCount24h = processedCountRes.ok && Array.isArray(processedCountRes.data) ? processedCountRes.data.length : 0;
 
     var integrations = [];
 
-    // Gmail
-    var gmailStatus = 'disconnected';
-    if (gmailConfigured && gmailWatch && !gmailClientError) {
-      var watchExpiry = gmailWatch.watch_expiry ? new Date(gmailWatch.watch_expiry) : null;
-      gmailStatus = (watchExpiry && watchExpiry.getTime() > Date.now()) ? 'connected' : 'degraded';
-    } else if (gmailConfigured) { gmailStatus = 'degraded'; }
+    // Gmail — aggregate across every monitored mailbox (worst-case status)
+    var gmailMailboxes = gmailMonitored.map(function (em) {
+      var w = gmailWatchByEmail[em] || null;
+      var active = !!(w && w.watch_expiry && new Date(w.watch_expiry).getTime() > Date.now());
+      var clientError = _gmailClientErrors[em] || null;
+      var mbStatus = 'disconnected';
+      if (gmailConfigured && w && !clientError) mbStatus = active ? 'connected' : 'degraded';
+      else if (gmailConfigured) mbStatus = 'degraded';
+      return { email: em, watch_expiry: w ? w.watch_expiry : null, watch_active: active, last_history_id: w ? w.history_id : null, client_error: clientError, status: mbStatus };
+    });
+    var gmailStatus = 'connected';
+    if (!gmailConfigured) gmailStatus = 'disconnected';
+    else if (gmailMailboxes.some(function (m) { return m.status === 'disconnected'; })) gmailStatus = 'disconnected';
+    else if (gmailMailboxes.some(function (m) { return m.status === 'degraded'; })) gmailStatus = 'degraded';
     integrations.push({
       key: 'gmail', name: 'Gmail (Auto-Parse)', status: gmailStatus,
       details: {
-        monitored_email: 'hazel@mygplink.com.au',
-        watch_expiry: gmailWatch ? gmailWatch.watch_expiry : null,
-        watch_active: gmailWatch ? !!(gmailWatch.watch_expiry && new Date(gmailWatch.watch_expiry).getTime() > Date.now()) : false,
-        last_history_id: gmailWatch ? gmailWatch.history_id : null,
+        monitored_emails: gmailMonitored,
+        mailboxes: gmailMailboxes,
         processed_count_24h: processedCount24h,
-        client_error: gmailClientError,
         configured: gmailConfigured
       },
       can_reconnect: true, reconnect_action: 'setup_watch'
