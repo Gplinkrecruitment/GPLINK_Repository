@@ -37428,13 +37428,13 @@ Return ONLY valid JSON with no markdown formatting:
         return {};
       }) : Promise.resolve({ ok: false, ms: 0, error: 'No API key', extra: {} }),
 
-      // DoubleTick: verify API key with a read-only call
+      // DoubleTick: verify API key with a read-only authenticated call; any non-2xx is unhealthy
       DOUBLETICK_API_KEY ? pingWithTimeout(async function (signal) {
-        var r = await fetch(DOUBLETICK_BASE_URL + '/me', {
+        var r = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/templates', {
           method: 'GET', signal: signal,
           headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' }
         });
-        if (r.status === 401 || r.status === 403) throw new Error('Invalid API key (HTTP ' + r.status + ')');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         return {};
       }) : Promise.resolve({ ok: false, ms: 0, error: 'No API key', extra: {} }),
 
