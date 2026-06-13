@@ -228,4 +228,25 @@ describe('computePipeline + pipelineCaseIds (count == drilldown length)', () => 
   });
 });
 
+describe('computeBlockers (#57)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+
+  it('one row per blocked active case, days_blocked from blocker_set_at', () => {
+    const rows = M.computeBlockers(active, NOW);
+    expect(rows.map(r => r.case_id).sort()).toEqual(['c3','c4']);
+    const c3 = rows.find(r => r.case_id === 'c3');
+    expect(c3.days_blocked).toBe(12); // blocker_set_at = ago(12)
+    expect(c3.blocker_status).toBe('waiting_on_gp');
+    const c4 = rows.find(r => r.case_id === 'c4');
+    // c4 has null blocker_set_at -> fall back to caseAgeMs (last_gp_activity_at ago(3))
+    expect(c4.days_blocked).toBe(3);
+  });
+
+  it('sorted by days_blocked desc', () => {
+    const rows = M.computeBlockers(active, NOW);
+    expect(rows[0].case_id).toBe('c3'); // 12 > 3
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
