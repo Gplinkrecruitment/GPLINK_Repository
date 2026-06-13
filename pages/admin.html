@@ -2552,6 +2552,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
     const hasHtml=!!t.document_html;
 
+    // flagged_doc is an internal manual-review task about the GP's own uploaded
+    // document. It carries a related_document_key to identify which qualification
+    // was flagged, but it is NOT a practice document to chase — intercept it
+    // before the practice-doc branch so it never renders "Email Practice".
+    if(t.task_type==='flagged_doc'){
+      return{prompt:'Review the flagged qualification document',label:'Review',action:'completeTask',taskId:t.id};
+    }
+
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
