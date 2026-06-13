@@ -37677,7 +37677,7 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: false, reconnect_action: null
     });
 
-    // DoubleTick — live-verified via /me
+    // DoubleTick — live-verified via /whatsapp/templates
     var dtStatus = 'disconnected';
     if (dtPing.ok && DOUBLETICK_WEBHOOK_SECRET) dtStatus = 'connected';
     else if (dtPing.ok) dtStatus = 'degraded';

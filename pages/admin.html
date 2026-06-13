@@ -8446,9 +8446,54 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var keys=Object.keys(det);
         for(var k=0;k<keys.length;k++){
           var val=det[keys[k]];
-          if(val===null||val===undefined)val='—';
-          if(typeof val==="boolean")val=val?'Yes':'No';
           var label=keys[k].replace(/_/g,' ');
+          if(val===null||val===undefined){
+            html+='<div class="tech-detail"><b>'+esc(label)+':</b> —</div>';
+            continue;
+          }
+          if(Array.isArray(val)){
+            // Render each array element as its own sub-row. Objects (e.g. Gmail
+            // mailboxes: {email,status,watch_expiry,client_error,...}) get a
+            // structured sub-row; scalars (e.g. monitored_emails strings) render plainly.
+            html+='<div class="tech-detail"><b>'+esc(label)+':</b></div>';
+            if(val.length===0){
+              html+='<div class="tech-detail" style="padding-left:12px;color:#999;">—</div>';
+            }else{
+              for(var ai=0;ai<val.length;ai++){
+                var item=val[ai];
+                if(item!==null&&typeof item==="object"){
+                  var primary=item.email||item.name||item.label||'';
+                  var st=item.status!==undefined&&item.status!==null?String(item.status):'';
+                  var err=item.client_error!==undefined&&item.client_error!==null?String(item.client_error):'';
+                  var sub='<div class="tech-detail" style="padding-left:12px;">';
+                  if(primary)sub+='<b>'+esc(String(primary))+'</b>';
+                  if(st)sub+=(primary?' — ':'')+'<span class="tech-status '+esc(st)+'">'+esc(st)+'</span>';
+                  if(err)sub+='<div style="color:#dc2626;font-size:0.78rem;">'+esc(err)+'</div>';
+                  if(!primary&&!st&&!err){
+                    // Unknown object shape: fall back to key:value lines.
+                    var ikeys=Object.keys(item);
+                    for(var iki=0;iki<ikeys.length;iki++){var iv=item[ikeys[iki]];sub+='<div style="font-size:0.78rem;">'+esc(ikeys[iki].replace(/_/g,' '))+': '+esc(iv===null||iv===undefined?'—':String(iv))+'</div>';}
+                  }
+                  sub+='</div>';
+                  html+=sub;
+                }else{
+                  html+='<div class="tech-detail" style="padding-left:12px;">'+esc(String(item))+'</div>';
+                }
+              }
+            }
+            continue;
+          }
+          if(typeof val==="object"){
+            // Plain object: render key:value lines.
+            html+='<div class="tech-detail"><b>'+esc(label)+':</b></div>';
+            var okeys=Object.keys(val);
+            for(var oki=0;oki<okeys.length;oki++){
+              var ov=val[okeys[oki]];
+              html+='<div class="tech-detail" style="padding-left:12px;font-size:0.82rem;"><b>'+esc(okeys[oki].replace(/_/g,' '))+':</b> '+esc(ov===null||ov===undefined?'—':String(ov))+'</div>';
+            }
+            continue;
+          }
+          if(typeof val==="boolean")val=val?'Yes':'No';
           html+='<div class="tech-detail"><b>'+esc(label)+':</b> '+esc(String(val))+'</div>';
         }
         if(int.can_reconnect){
