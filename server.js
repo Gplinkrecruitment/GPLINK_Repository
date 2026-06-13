@@ -23932,9 +23932,14 @@ async function handleApi(req, res, pathname) {
       var resetCaseId = resetCase.id;
 
       // 3. Set case stage to 'ahpra'
+      var resetFromStage = resetCase.stage || null;
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(resetCaseId), {
         method: 'PATCH', body: { stage: 'ahpra' }
       });
+      // Log the transition so reset-driven stage changes contribute a velocity sample (#35).
+      if (resetFromStage !== 'ahpra') {
+        await _logCaseEvent(resetCaseId, null, 'stage_change', 'Stage advanced to ahpra', null, 'system', { from_stage: resetFromStage, to_stage: 'ahpra' });
+      }
 
       // 4. Cancel ALL open registration_tasks for that case
       var resetTasksRes = await supabaseDbRequest('registration_tasks',
@@ -31097,7 +31102,11 @@ Return ONLY valid JSON with no markdown formatting:
       if (!regCase) { skipped++; continue; }
       const stage = _deriveStageFromState(state);
       if (stage !== regCase.stage) {
-        await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { stage: stage } });
+        const stagePatch = { stage: stage };
+        if (stage === 'complete') stagePatch.completed_at = new Date().toISOString();
+        await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: stagePatch });
+        // Log the transition so velocity samples are not biased by silent sync advances (#35).
+        await _logCaseEvent(regCase.id, null, 'stage_change', 'Stage advanced to ' + stage, null, 'system', { from_stage: regCase.stage, to_stage: stage });
         updated++;
       }
       // (kickoff tasks removed — ops queue tracks stage progress via real tasks)
