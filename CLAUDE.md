@@ -79,9 +79,9 @@ Single test: `npx vitest run tests/oauth.test.js`
 - `js/registration-stepper.js` — Registration progress tracking
 
 ### Registration Flow (v1)
-Secure Placement (non-blocking start) -> MyIntealth -> AMC -> AHPRA (requires placement + AMC) -> PBS & Medicare -> Commencement
+Secure Placement (non-blocking start) -> MyIntealth -> AMC -> AHPRA (requires placement + AMC) -> Visa -> PBS & Medicare -> Commencement
 
-The Visa application step is deferred for the v1 release. The server logic, `pages/visa.html`, and `pages/admin-visa.html` remain in place — only the user-facing journey entry points have been removed. See `docs/deferred-visa-application.md` for details and the steps required to re-enable it.
+The Visa step (Step 5, between AHPRA and PBS & Medicare) was re-enabled on 2026-05-12. It shows an informational 482 → 186 permanent residency pathway and is always accessible (never locked). See `docs/deferred-visa-application.md` for history.
 
 ### Database
 - Supabase (PostgreSQL) in production, migrations in `supabase/migrations/`
