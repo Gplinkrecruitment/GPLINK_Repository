@@ -37000,12 +37000,15 @@ Return ONLY valid JSON with no markdown formatting:
     var tNow = Date.now();
     var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
 
-    var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes] = await Promise.all([
-      supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo),
-      supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&limit=2000'),
-      supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&limit=1000'),
-      supabaseDbRequest('gp_applications', 'select=applied_at,status,updated_at&applied_at=gte.' + twelveWeeksAgo),
-      supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo)
+    var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
+      supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
+      // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
+      supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
+      supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
+      // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
+      supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
     ]);
 
     var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
@@ -37013,6 +37016,7 @@ Return ONLY valid JSON with no markdown formatting:
     var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
     var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
     var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
+    var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
 
     function getWeekStart(dateStr) {
       var d = new Date(dateStr);
@@ -37022,11 +37026,12 @@ Return ONLY valid JSON with no markdown formatting:
       return monday.toISOString().slice(0, 10);
     }
 
-    var trSECURED = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
     var weeks = {};
+    var securedUserIdsByWeek = {}; // week_start -> Set(user_id) to dedupe placements (#42)
     for (var wi = 0; wi < 12; wi++) {
       var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
-      weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0 };
+      weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0, completions_done: 0 };
+      securedUserIdsByWeek[ws] = new Set();
     }
 
     for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
@@ -37040,9 +37045,20 @@ Return ONLY valid JSON with no markdown formatting:
     }
     for (var wai = 0; wai < trApps.length; wai++) {
       if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
-      if (trSECURED.has((trApps[wai].status || '').toLowerCase()) && trApps[wai].updated_at) { var wk7 = getWeekStart(trApps[wai].updated_at); if (weeks[wk7]) weeks[wk7].placements_secured++; }
+      // Secured bucketed by updated_at (its only timestamp), counted once per GP per week (#18/#42/#43)
+      if (ceoMetrics.isSecuredStatus(trApps[wai].status) && trApps[wai].updated_at) {
+        var wk7 = getWeekStart(trApps[wai].updated_at);
+        if (weeks[wk7] && trApps[wai].user_id && !securedUserIdsByWeek[wk7].has(trApps[wai].user_id)) {
+          securedUserIdsByWeek[wk7].add(trApps[wai].user_id);
+          weeks[wk7].placements_secured++;
+        }
+      }
     }
     for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
+    // Real completions series so the 'Completed' KPI arrow reflects GPs completing, not placements (#16/#25)
+    for (var wcdi = 0; wcdi < trComplete.length; wcdi++) {
+      if (trComplete[wcdi].completed_at) { var wk9 = getWeekStart(trComplete[wcdi].completed_at); if (weeks[wk9]) weeks[wk9].completions_done++; }
+    }
 
     var weekList = Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
     sendJson(res, 200, { ok: true, weeks: weekList });

@@ -548,3 +548,14 @@ describe('endpoint parity: every card count equals its drilldown id list length'
     expect(M.ticketIds(FIXTURE.tickets, 'open', activeUserIds).length).toBe(tm.open);
   });
 });
+
+describe('trends shared status helpers', () => {
+  it('isSecuredStatus includes placed (Zoho stage) and the legacy secured set', () => {
+    ['hired','secured','placed','placement_secured','offer_accepted','contract_signed'].forEach(function(s) {
+      expect(M.isSecuredStatus(s), s).toBe(true);
+    });
+    ['applied','interview','offer','rejected','withdrawn'].forEach(function(s) {
+      expect(M.isSecuredStatus(s), s).toBe(false);
+    });
+  });
+});
