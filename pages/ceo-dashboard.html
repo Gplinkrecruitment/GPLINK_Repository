@@ -878,7 +878,7 @@
   </style>
 </head>
 <body>
-<script src="/js/error-reporter.js?v=20260614a"></script>
+<script src="/js/error-reporter.js?v=20260614b"></script>
   <div class="page-wrap">
     <!-- HEADER -->
     <header class="header">
@@ -1105,7 +1105,7 @@
       html += renderPipelineSection(data.pipeline);
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
-      html += renderRsoWorkloadSection(data.va_workload);
+      html += renderRsoWorkloadSection(data.rso_workload || data.va_workload);
       html += renderVelocitySection(data.velocity);
       html += renderPlacementsSection(data.placements);
       html += renderActivitySection(data.gp_activity);
@@ -1126,10 +1126,12 @@
       }
     }
 
-    // tile key -> { section, param } for the four tiles that have a matching drilldown
+    // tile key -> { section, param, panel? } for the tiles that have a matching drilldown.
+    // section = API drilldown section; panel (optional) = id suffix of the on-page
+    // drilldown panel to render into when it differs from the section name.
     var kpiDrillMap = {
-      placed: { section: 'placements', param: 'status=secured' },
-      open_tasks: { section: 'tasks', param: 'status=open' },
+      placed: { section: 'placed', param: '', panel: 'placements' },
+      open_tasks: { section: 'tasks', param: 'status=all_open' },
       overdue: { section: 'tasks', param: 'status=overdue' },
       blocked: { section: 'blockers', param: '' }
     };
@@ -1158,7 +1160,7 @@
         }
       }
       var drill = kpiDrillMap[trendKey];
-      var drillAttr = drill ? ' data-drilldown="' + drill.section + '" data-param="' + drill.param + '" style="cursor:pointer"' : '';
+      var drillAttr = drill ? ' data-drilldown="' + drill.section + '" data-param="' + drill.param + '"' + (drill.panel ? ' data-panel="' + drill.panel + '"' : '') + ' style="cursor:pointer"' : '';
       return '<div class="kpi-card ' + accent + '"' + drillAttr + '>' +
         '<div class="kpi-label">' + esc(label) + '</div>' +
         '<div class="kpi-value">' + esc(value) + '</div>' +
@@ -1295,8 +1297,8 @@
       for (var j = 0; j < rsos.length; j++) {
         var v = rsos[j];
         var pct = maxCases > 0 ? Math.round(v.case_count / maxCases * 100) : 0;
-        html += '<div class="va-row" data-drilldown="rso" data-param="rso_id=' + encodeURIComponent(v.rso_id || '') + '">';
-        html += '<span class="va-name">' + esc(v.rso_name) + '</span>';
+        html += '<div class="va-row" data-drilldown="rso" data-section="rso" data-param="rso_id=' + encodeURIComponent(v.rso_id || '') + '">';
+        html += '<span class="va-name"' + (v.rso_email ? ' title="' + esc(v.rso_email) + '"' : '') + '>' + esc(v.rso_name) + '</span>';
         html += '<div class="va-bar-wrap"><div class="va-bar" style="width:' + pct + '%"></div></div>';
         html += '<span class="va-stats">' + v.case_count + ' cases' + (v.overdue_tasks > 0 ? ' <span class="overdue">' + v.overdue_tasks + ' OD</span>' : '') + '</span>';
         html += '</div>';
@@ -1438,8 +1440,9 @@
     }
 
     /* ═══ DRILLDOWN ═══ */
-    function handleDrilldownClick(section, param, cardEl) {
-      var panel = document.getElementById('dd-' + section);
+    function handleDrilldownClick(section, param, cardEl, panelId) {
+      panelId = panelId || section;
+      var panel = document.getElementById('dd-' + panelId);
       if (!panel) return;
 
       // Toggle off if same drilldown
@@ -1452,13 +1455,13 @@
 
       // Close any other open drilldown
       if (activeDrilldown) {
-        var oldPanel = document.getElementById('dd-' + activeDrilldown.section);
+        var oldPanel = document.getElementById('dd-' + (activeDrilldown.panelId || activeDrilldown.section));
         if (oldPanel) { oldPanel.classList.remove('open'); oldPanel.innerHTML = ''; }
       }
 
       panel.classList.add('open');
       panel.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0 auto"></div><div style="margin-top:8px">Loading details...</div></div>';
-      activeDrilldown = { section: section, param: param, cardEl: cardEl };
+      activeDrilldown = { section: section, param: param, cardEl: cardEl, panelId: panelId };
 
       var periodParam = currentPeriod ? 'period=' + currentPeriod : '';
       var paramStr = [param, periodParam].filter(Boolean).join('&');
@@ -1540,7 +1543,7 @@
       if (item.category) fields.push(['Category', item.category]);
       if (item.total_days != null) fields.push(['Total Days', item.total_days + 'd']);
       if (item.last_gp_activity_at) fields.push(['GP Activity', relativeTime(item.last_gp_activity_at)]);
-      if (item.last_va_action_at) fields.push(['VA Action', relativeTime(item.last_va_action_at)]);
+      if (item.last_va_action_at) fields.push(['RSO Action', relativeTime(item.last_va_action_at)]);
       if (item.last_activity) fields.push(['Last Active', relativeTime(item.last_activity)]);
       if (item.applied_at) fields.push(['Applied', relativeTime(item.applied_at)]);
       if (item.completed_at) fields.push(['Completed', relativeTime(item.completed_at)]);
@@ -1636,7 +1639,14 @@
         method: 'PUT',
         body: { assigned_rso: rsoId }
       }).then(function(d) {
-        if (d.ok) { showToast('RSO reassigned & email transferred', 'success'); closeModal(); refreshDashboard(); }
+        if (d.ok) {
+          if (d.email_transferred === false || d.transfer_error) {
+            showToast('RSO reassigned, but email transfer failed: ' + (d.transfer_error || 'unknown error'), 'error');
+          } else {
+            showToast('RSO reassigned & email transferred', 'success');
+          }
+          closeModal(); refreshDashboard();
+        }
         else { showToast('Failed: ' + (d.message || 'Reassign failed'), 'error'); btn.disabled = false; btn.textContent = 'Reassign'; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Reassign'; });
     }
@@ -1762,8 +1772,8 @@
 
     function respondEscalation(taskId, gpName) {
       var html = '<div class="modal-title">Respond to Escalation</div>';
-      html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Add a note and return to VA for ' + esc(gpName) + '</div>';
-      html += '<div class="modal-field"><label class="modal-label">Note</label><textarea class="modal-textarea" id="mEscNote" placeholder="Your response to the VA..."></textarea></div>';
+      html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Add a note and return to RSO for ' + esc(gpName) + '</div>';
+      html += '<div class="modal-field"><label class="modal-label">Note</label><textarea class="modal-textarea" id="mEscNote" placeholder="Your response to the RSO..."></textarea></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mEscSubmit" onclick="submitEscResponse(\'' + esc(taskId) + '\')">Send Response</button></div>';
       openModal(html);
     }
@@ -1775,7 +1785,7 @@
       btn.disabled = true;
       apiFetch('/api/ceo/escalation/' + encodeURIComponent(taskId) + '/respond', { method: 'POST', body: { note: note } })
         .then(function(d) {
-          if (d.ok) { showToast('Response sent, returned to VA', 'success'); closeModal(); refreshDashboard(); }
+          if (d.ok) { showToast('Response sent, returned to RSO', 'success'); closeModal(); refreshDashboard(); }
           else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
         }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }
@@ -1836,8 +1846,9 @@
       if (ddEl) {
         var section = ddEl.getAttribute('data-drilldown');
         var param = ddEl.getAttribute('data-param') || '';
-        var cardEl = ddEl.closest('.section-card') || document.querySelector('.section-card[data-section="' + section + '"]');
-        handleDrilldownClick(section, param, cardEl);
+        var panelId = ddEl.getAttribute('data-panel') || section;
+        var cardEl = ddEl.closest('.section-card') || document.querySelector('.section-card[data-section="' + panelId + '"]');
+        handleDrilldownClick(section, param, cardEl, panelId);
         // If the click originated on a KPI tile, scroll the target section into view
         if (ddEl.classList.contains('kpi-card') && cardEl) {
           cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
