@@ -1656,8 +1656,10 @@
       if (!text) { showToast('Note text required', 'error'); return; }
       var btn = document.getElementById('mNoteSubmit');
       btn.disabled = true;
-      var url = '/api/admin/case/note?id=' + encodeURIComponent(caseId);
-      if (taskId) url = '/api/admin/case/note?id=' + encodeURIComponent(caseId);
+      // Tie the note to the task when a taskId is supplied; otherwise file it on the case (#64).
+      var url = taskId
+        ? '/api/admin/task/note?id=' + encodeURIComponent(taskId)
+        : '/api/admin/case/note?id=' + encodeURIComponent(caseId);
       apiFetch(url, {
         method: 'POST',
         body: { text: text }
