@@ -170,7 +170,12 @@
     }
     clearClientAuthCaches();
     if (!isPublicPage && !isOnboardingPage) {
-      window.location.replace("/pages/signin");
+      // Preserve where the user was headed (e.g. a re-upload deep link) so sign-in
+      // can return them there instead of dumping them on the default dashboard.
+      var _dest = window.location.pathname + window.location.search;
+      var _suffix = (_dest && _dest !== "/pages/index" && _dest !== "/pages/index.html")
+        ? "?next=" + encodeURIComponent(_dest) : "";
+      window.location.replace("/pages/signin" + _suffix);
     }
   });
 

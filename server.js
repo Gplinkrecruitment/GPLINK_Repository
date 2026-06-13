@@ -33996,11 +33996,15 @@ Return ONLY valid JSON with no markdown formatting:
           'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
           'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
       } else {
+        // Deep-link straight to the document's re-upload card in My Documents
+        // (?reupload=<key> opens the right tab, scrolls to and highlights the card).
+        var rfReuploadUrl = APP_BASE_URL + '/pages/my-documents.html'
+          + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
         await sendGpNotificationEmail(rfUserId,
           'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
-          'Re-upload Document', APP_BASE_URL + '/pages/myintealth.html', '');
+          'Re-upload Document', rfReuploadUrl, '');
       }
     }
 
