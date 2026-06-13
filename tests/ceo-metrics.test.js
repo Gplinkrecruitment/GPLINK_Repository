@@ -249,4 +249,25 @@ describe('computeBlockers (#57)', () => {
   });
 });
 
+describe('computeTaskHealth (#30/#31)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+  const activeIds = new Set(active.map(c => c.id));
+  const scopedTasks = fx.tasks.filter(t => activeIds.has(t.case_id));
+
+  it('open/in_progress counts + overdue matches isOverdue', () => {
+    const th = M.computeTaskHealth(scopedTasks, fx.completedSample, TODAY);
+    expect(th.open).toBe(2);        // t1, t5
+    expect(th.in_progress).toBe(1); // t2
+    expect(th.overdue).toBe(2);     // t2, t3 (t4 due today excluded)
+  });
+  it('completed_this_week + labelled avg over sample (#31)', () => {
+    const th = M.computeTaskHealth(scopedTasks, fx.completedSample, TODAY);
+    expect(th.completed_this_week).toBe(1); // ct1 completed ago(2)
+    // avg of 7d and 9d = 8.0
+    expect(th.avg_resolve_days).toBe(8);
+    expect(th.avg_resolve_sample_size).toBe(2);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
