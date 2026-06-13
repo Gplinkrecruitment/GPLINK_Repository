@@ -37878,7 +37878,24 @@ async function handleRequest(req, res) {
     }
   }
 
-  if (pathname !== '/pages/admin.html' && pathname !== '/pages/ceo-dashboard.html' && !isPublic && !session && !adminSession && (pathname.endsWith('.html') || pathname === '/')) {
+  if (pathname === '/pages/ceo-dashboard.html') {
+    if (!adminSession) {
+      res.writeHead(302, { Location: '/pages/admin-signin' });
+      res.end();
+      return;
+    }
+    const ceoRole = getAdminRoleFromSession(adminSession);
+    const ceoHostScope = getAdminHostScope(req);
+    // Must be on the super-admin host scope AND hold a super-admin role.
+    if (ceoHostScope !== 'super_admin' || !doesAdminRoleMatchHost(ceoRole, ceoHostScope) || !isSuperAdminRole(ceoRole)) {
+      clearAdminSession(res);
+      res.writeHead(302, { Location: '/pages/admin-signin' });
+      res.end();
+      return;
+    }
+  }
+
+  if (pathname !== '/pages/admin.html' && !isPublic && !session && !adminSession && (pathname.endsWith('.html') || pathname === '/')) {
     if (AUTH_DISABLED) {
       if (shouldServeAppShell(url, pathname)) {
         serveStatic(req, res, '/pages/app-shell.html');
