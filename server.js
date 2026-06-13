@@ -27199,6 +27199,15 @@ Return ONLY valid JSON with no markdown formatting:
     if (!updatedTicket) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
     invalidateAdminDashboardCache();
 
+    // Stamp first_reply_at on the matching support_tickets row on the FIRST admin reply (#13).
+    if (isSupabaseDbConfigured()) {
+      try {
+        await supabaseDbRequest('support_tickets',
+          'source_ticket_id=eq.' + encodeURIComponent(ticketId) + '&first_reply_at=is.null',
+          { method: 'PATCH', body: { first_reply_at: now } });
+      } catch (frErr) { console.error('[Ticket reply] first_reply_at stamp failed:', frErr.message); }
+    }
+
     // Send email notification to GP about the reply
     const replyUserId = await getSupabaseUserIdByEmail(candidateEmail);
     if (replyUserId) {
@@ -31607,12 +31616,7 @@ Return ONLY valid JSON with no markdown formatting:
     else { patch.resolved_at = null; patch.resolved_by = null; }
     const r = await supabaseDbRequest('support_tickets', 'id=eq.' + encodeURIComponent(ticketId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
-    // Set first_reply_at if this is the first admin interaction
-    if (updated && !updated.first_reply_at) {
-      await supabaseDbRequest('support_tickets', 'id=eq.' + encodeURIComponent(ticketId) + '&first_reply_at=is.null', {
-        method: 'PATCH', body: { first_reply_at: new Date().toISOString() }
-      });
-    }
+    // first_reply_at is now stamped on the first admin reply (see /api/admin/tickets/:id/reply), NOT at close (#13).
     if (!updated) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
     // Also mirror to the legacy user-state JSON so /api/support/tickets stays consistent
     try {
