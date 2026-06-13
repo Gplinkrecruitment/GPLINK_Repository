@@ -39,4 +39,18 @@ describe('resolveRsoReassignmentTarget', () => {
     expect(r.ok).toBe(true);
     expect(r.rso.user_id).toBe('b2'); // handler sets patch.assigned_va = r.rso.user_id
   });
+  it('rejects an inactive RSO (deactivated owners cannot receive transfers) (#14)', () => {
+    var r = resolveRsoReassignmentTarget(ROSTER, MAILBOXES, 'c3');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('Target RSO is inactive.');
+    expect(r.rso.name).toBe('Inactive Person'); // rso row is carried for the caller
+  });
+  it('inactive check fires BEFORE the mailbox check, even when a mailbox exists (#14)', () => {
+    var mailboxesWithInactive = MAILBOXES.concat([
+      { user_id: 'c3', email_address: 'inactive@x.com', display_name: 'Inactive Person' }
+    ]);
+    var r = resolveRsoReassignmentTarget(ROSTER, mailboxesWithInactive, 'c3');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('Target RSO is inactive.');
+  });
 });

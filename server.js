@@ -10070,6 +10070,48 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   }
 }
 
+// Return an EXACT row count for a PostgREST query using the Content-Range header
+// (Prefer: count=exact), instead of fetching rows and using .length — which caps
+// at the limit and lies above it (#17). Returns { ok, count } (count=null on failure).
+async function supabaseCountRequest(pathname, query = '') {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: false, count: null };
+  }
+  const queryPart = query ? `?${query}` : '';
+  const url = `${SUPABASE_URL}/rest/v1/${pathname}${queryPart}`;
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    // count=planned avoids the full-scan cost of count=exact while still returning a
+    // real total in Content-Range; range 0-0 means we transfer at most one row.
+    Prefer: 'count=planned',
+    Range: '0-0'
+  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(url, { method: 'GET', signal: controller.signal, headers });
+    // Content-Range looks like "0-0/1234" or "*/1234"; the slash-suffix is the total.
+    const cr = response.headers.get('content-range') || '';
+    const slash = cr.lastIndexOf('/');
+    let total = null;
+    if (slash !== -1) {
+      const tail = cr.slice(slash + 1).trim();
+      if (tail && tail !== '*') {
+        const parsed = parseInt(tail, 10);
+        if (!Number.isNaN(parsed)) total = parsed;
+      }
+    }
+    // Drain the (tiny) body so the connection can be reused.
+    try { await response.text(); } catch (e) {}
+    return { ok: response.ok && total !== null, count: total };
+  } catch (err) {
+    return { ok: false, count: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeUrlBase(value, fallback = '') {
   const input = String(value || '').trim();
   if (!input) return fallback;
@@ -29654,6 +29696,15 @@ Return ONLY valid JSON with no markdown formatting:
       patch.assigned_va = resolved.rso.user_id;
     }
 
+    // ── Reverse lock-step (#4): an admin-page reassignment changes assigned_va
+    //    directly (the mailbox owner) without touching assigned_rso. Keep the CEO
+    //    attribution source-of-truth (assigned_rso) in sync so the dashboard
+    //    workload/owner numbers don't drift from admin reassignments.
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va
+        && !Object.prototype.hasOwnProperty.call(patch, 'assigned_rso')) {
+      patch.assigned_rso = patch.assigned_va;
+    }
+
     // Fetch old assigned_va before patching (needed for label reassignment)
     var oldAssignedVa = null;
     if (patch.assigned_va) {
@@ -29669,6 +29720,11 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── Gmail Label Management on VA assignment ──
+    // Capture whether the Gmail label transfer succeeded so the caller learns the
+    // truth instead of the try/catch silently swallowing failures (#12).
+    // null = no transfer attempted; true = succeeded; false = failed (see emailTransferError).
+    var emailTransferred = null;
+    var emailTransferError = null;
     if (patch.assigned_va) {
       try {
           var labelCaseRes = await supabaseDbRequest('registration_cases',
@@ -29731,6 +29787,8 @@ Return ONLY valid JSON with no markdown formatting:
 
           // Create labels for the new VA
           var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
+          // Core label/mailbox transfer succeeded (backfill below is best-effort) (#12).
+          emailTransferred = true;
 
           // Insert history messages into new VA's label (reassignment)
           if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
@@ -29806,6 +29864,15 @@ Return ONLY valid JSON with no markdown formatting:
           }
       } catch (err) {
         console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
+        // 'skip' is the intentional no-mailbox sentinel (not a real transfer failure);
+        // every other throw is a genuine failure surfaced to the caller (#12).
+        if (err && err.message === 'skip') {
+          emailTransferred = false;
+          emailTransferError = 'No Gmail mailbox registered for the new owner; labels not transferred.';
+        } else {
+          emailTransferred = false;
+          emailTransferError = String(err && err.message || err).slice(0, 300);
+        }
       }
     }
 
@@ -29960,7 +30027,12 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
+    sendJson(res, 200, {
+      ok: true,
+      case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null,
+      email_transferred: emailTransferred,
+      transfer_error: emailTransferError
+    });
     return;
   }
 
@@ -36620,7 +36692,7 @@ Return ONLY valid JSON with no markdown formatting:
     var todayStr = new Date(nowMs).toISOString().slice(0, 10);
 
     var [sumRoster, sumCasesRes, sumTasksRes] = await Promise.all([
-      loadRsoRoster({ includeInactive: true }),
+      loadRsoTeam({ includeInactive: true }),
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
       supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
     ]);
@@ -36831,31 +36903,25 @@ Return ONLY valid JSON with no markdown formatting:
     var completedTasks = (completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [];
     var taskHealth = ceoMetrics.computeTaskHealth(filteredTasks, completedTasks, todayStr);
 
-    // VA Workload — use case assigned_va, fall back to task assignee if case unassigned
-    var vaMap = {};
-    var caseEffectiveVa = {}; // case_id -> effective VA id
-    for (var vi = 0; vi < cases.length; vi++) {
-      var vaId = cases[vi].assigned_va || null;
-      // If case has no assigned_va, check if any task for this case has an assignee
-      if (!vaId) {
-        for (var fti = 0; fti < tasks.length; fti++) {
-          if (tasks[fti].case_id === cases[vi].id && tasks[fti].assignee && profileByUserId[tasks[fti].assignee]) { vaId = tasks[fti].assignee; break; }
-        }
-      }
-      vaId = vaId || '__unassigned__';
-      caseEffectiveVa[cases[vi].id] = vaId;
-      if (!vaMap[vaId]) vaMap[vaId] = { va_id: vaId, va_email: '', va_name: vaId === '__unassigned__' ? 'Unassigned' : ceoGpName(vaId), case_count: 0, open_tasks: 0, overdue_tasks: 0 };
-      vaMap[vaId].case_count++;
-      if (vaId !== '__unassigned__') vaMap[vaId].va_email = ceoGpEmail(vaId);
-    }
-    for (var ti = 0; ti < filteredTasks.length; ti++) {
-      var tVaId = caseEffectiveVa[filteredTasks[ti].case_id] || '__unassigned__';
-      if (vaMap[tVaId]) {
-        vaMap[tVaId].open_tasks++;
-        if (filteredTasks[ti].due_date && new Date(filteredTasks[ti].due_date).getTime() < now) vaMap[tVaId].overdue_tasks++;
-      }
-    }
-    var vaWorkload = Object.values(vaMap).sort(function(a, b) { return b.case_count - a.case_count; });
+    // RSO Workload — case-owner load model keyed on assigned_rso (#5/#10/#11).
+    // Computed entirely by the lib so card == drilldown and overdue uses isOverdue (#10).
+    // Roster includes inactive RSOs so reassigned/zero-case owners still show.
+    var workloadRosterRows = await loadRsoTeam({ includeInactive: true });
+    var workloadRoster = workloadRosterRows.map(function (r) { return { rso_id: r.user_id, rso_name: r.name }; });
+    var rsoEmailById = {};
+    for (var wri = 0; wri < workloadRosterRows.length; wri++) { rsoEmailById[workloadRosterRows[wri].user_id] = workloadRosterRows[wri].email || ''; }
+    var rsoWorkload = ceoMetrics.computeRsoWorkload(cases, filteredTasks, workloadRoster, todayStr).map(function (w) {
+      return {
+        rso_id: w.rso_id,
+        rso_name: w.rso_name,
+        rso_email: w.rso_id === '__unassigned__' ? '' : (rsoEmailById[w.rso_id] || ceoGpEmail(w.rso_id) || ''),
+        case_count: w.case_count,
+        open_tasks: w.open_tasks,
+        overdue_tasks: w.overdue_tasks
+      };
+    });
+    // va_workload kept as an alias to the SAME array for backward compatibility.
+    var vaWorkload = rsoWorkload;
 
     // Velocity — compute avg days between stage transitions
     // Fetch title too for fallback parsing of old events without metadata
@@ -36922,8 +36988,11 @@ Return ONLY valid JSON with no markdown formatting:
     var placements = ceoMetrics.computePlacements(apps, roles, activeCaseUserIds, interviewAppIds, period, now);
     placements.active_roles = roles.filter(function(r) { return r.is_active; }).length;
 
-    // GP Activity — computed over full active population, INDEPENDENT of period (#12,#36,#37)
-    var gpActivityRaw = ceoMetrics.computeGpActivity(cases, now);
+    // GP Activity — computed over full active population, INDEPENDENT of period (#12,#36,#37).
+    // EXCLUDE completed cases so the card population matches the activity drilldown,
+    // which queries stage=neq.complete (#9).
+    var activityCases = cases.filter(function(c) { return c.stage !== 'complete'; });
+    var gpActivityRaw = ceoMetrics.computeGpActivity(activityCases, now);
     var gpActivity = {
       active_7d: gpActivityRaw.active_7d,
       inactive_7_14d: gpActivityRaw.inactive_7_14d,
@@ -36953,7 +37022,7 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, {
       ok: true, refreshed_at: new Date().toISOString(), period: period,
       kpi: kpi, escalations: escalations, pipeline: pipeline, blockers: blockers, task_health: taskHealth,
-      va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
+      rso_workload: rsoWorkload, va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
     });
     return;
@@ -37160,6 +37229,81 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    if (section === 'placed') {
+      // Placed KPI drilldown: unique ACTIVE users with a secured app, period-INDEPENDENT.
+      // One row per user — reconciles with computeKpis.placed (#2/#8).
+      var pdCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
+      // computeKpis.placed scopes secured users to the active population, NOT the period window.
+      var pdActiveCases = ceoMetrics.filterActiveCases((pdCasesRes.ok && Array.isArray(pdCasesRes.data)) ? pdCasesRes.data : [], { allTime: false, nowMs: dNow });
+      var pdActiveUserIds = ceoMetrics.activeUserIdSet(pdActiveCases);
+      var pdAppsRes = await supabaseDbRequest('gp_applications', 'select=*');
+      var pdAllApps = (pdAppsRes.ok && Array.isArray(pdAppsRes.data)) ? pdAppsRes.data : [];
+      // Unique user_ids with at least one secured/placed app, intersected with active users.
+      var pdSecuredUserIds = ceoMetrics.securedAppUserIds(pdAllApps);
+      var pdRolesRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,location_label');
+      var pdRolesArr = (pdRolesRes.ok && Array.isArray(pdRolesRes.data)) ? pdRolesRes.data : [];
+      var pdRoleById = {};
+      for (var pdri = 0; pdri < pdRolesArr.length; pdri++) pdRoleById[pdRolesArr[pdri].id] = pdRolesArr[pdri];
+      // Best secured app per user (one row per user).
+      var pdSecuredAppByUser = {};
+      for (var pdai = 0; pdai < pdAllApps.length; pdai++) {
+        var pdApp = pdAllApps[pdai];
+        if (!pdApp.user_id || !ceoMetrics.isSecuredStatus(pdApp.status)) continue;
+        if (!pdSecuredUserIds.has(pdApp.user_id) || !pdActiveUserIds.has(pdApp.user_id)) continue;
+        if (!pdSecuredAppByUser[pdApp.user_id]) pdSecuredAppByUser[pdApp.user_id] = pdApp;
+      }
+      var pdCaseByUser = {};
+      for (var pdci = 0; pdci < pdActiveCases.length; pdci++) { if (pdActiveCases[pdci].user_id && !pdCaseByUser[pdActiveCases[pdci].user_id]) pdCaseByUser[pdActiveCases[pdci].user_id] = pdActiveCases[pdci]; }
+      var pdItems = Object.keys(pdSecuredAppByUser).map(function(uid) {
+        var a = pdSecuredAppByUser[uid];
+        var role = pdRoleById[a.career_role_id] || {};
+        var c = pdCaseByUser[uid] || {};
+        return {
+          user_id: uid, case_id: c.id || null, gp_name: dGpName(uid), gp_email: dGpEmail(uid),
+          stage: c.stage || '', status: a.status,
+          role_title: role.title || 'GP Role', practice_name: role.practice_name || a.practice_contact_name || '',
+          location: role.location_label || '', secured_at: a.updated_at || a.applied_at || null
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'placed', items: pdItems });
+      return;
+    }
+
+    if (section === 'rso') {
+      // RSO workload drilldown: active cases OWNED by this RSO via assigned_rso,
+      // or assigned_rso IS NULL for the unassigned bucket (#6). Shaped like sibling
+      // sections (gp_name/gp_email/stage/open task info).
+      var rdRsoId = url.searchParams.get('rso_id') || '';
+      var rdCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
+      var rdActiveCases = dFilterCases((rdCasesRes.ok && Array.isArray(rdCasesRes.data)) ? rdCasesRes.data : []);
+      var rdCaseIds = ceoMetrics.rsoCaseIds(rdActiveCases, rdRsoId || '__unassigned__');
+      var rdCaseIdSet = {};
+      rdCaseIds.forEach(function(id) { rdCaseIdSet[id] = true; });
+      var rdCases = rdActiveCases.filter(function(c) { return rdCaseIdSet[c.id]; });
+      var rdTasks = [];
+      if (rdCaseIds.length > 0) {
+        var rdTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + rdCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')');
+        rdTasks = (rdTasksRes.ok && Array.isArray(rdTasksRes.data)) ? rdTasksRes.data : [];
+      }
+      var rdOpenByCase = {}, rdOverdueByCase = {};
+      for (var rdti = 0; rdti < rdTasks.length; rdti++) {
+        var rdt = rdTasks[rdti];
+        rdOpenByCase[rdt.case_id] = (rdOpenByCase[rdt.case_id] || 0) + 1;
+        if (ceoMetrics.isOverdue(rdt, dTodayStr)) rdOverdueByCase[rdt.case_id] = (rdOverdueByCase[rdt.case_id] || 0) + 1;
+      }
+      var rdItems = rdCases.map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          stage: c.stage, status: c.status, blocker_status: c.blocker_status || null,
+          assigned_rso: c.assigned_rso || null,
+          open_tasks: rdOpenByCase[c.id] || 0, overdue_tasks: rdOverdueByCase[c.id] || 0,
+          last_va_action_at: c.last_va_action_at, practice_name: c.practice_name
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'rso', rso_id: rdRsoId || '__unassigned__', items: rdItems });
+      return;
+    }
+
     if (section === 'va') {
       var vaEmail = url.searchParams.get('va_email') || '';
       var vaProfileRes = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(vaEmail) + '&limit=1');
@@ -37344,7 +37488,8 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('gmail_watch_state', 'select=*&email_address=in.(' + gmailMonitored.map(function (em) { return encodeURIComponent(em); }).join(',') + ')'),
       getZohoRecruitConnection(),
       getZohoSignConnection(),
-      supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&processed_at=gte.' + new Date(Date.now() - 86400000).toISOString() + '&limit=1000')
+      // True 24h count via Content-Range total, not a capped row fetch (#17).
+      supabaseCountRequest('processed_gmail_messages', 'select=gmail_message_id&processed_at=gte.' + new Date(Date.now() - 86400000).toISOString())
     ]);
 
     // Hydrate Anthropic spend
@@ -37356,19 +37501,52 @@ Return ONLY valid JSON with no markdown formatting:
     var gmailWatchRows = (gmailWatchRes.ok && Array.isArray(gmailWatchRes.data)) ? gmailWatchRes.data : [];
     var gmailWatchByEmail = {};
     for (var gwi = 0; gwi < gmailWatchRows.length; gwi++) { gmailWatchByEmail[gmailWatchRows[gwi].email_address] = gmailWatchRows[gwi]; }
-    var processedCount24h = processedCountRes.ok && Array.isArray(processedCountRes.data) ? processedCountRes.data.length : 0;
+    var processedCount24h = (processedCountRes && processedCountRes.ok && typeof processedCountRes.count === 'number') ? processedCountRes.count : 0;
 
     var integrations = [];
 
-    // Gmail — aggregate across every monitored mailbox (worst-case status)
+    // ── LIVE HEALTH CHECKS (all in parallel, 5s timeout each) ──
+    async function pingWithTimeout(fn, timeoutMs) {
+      var start = Date.now();
+      try {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || 5000);
+        var result = await fn(ctrl.signal);
+        clearTimeout(timer);
+        return { ok: true, ms: Date.now() - start, error: null, extra: result || {} };
+      } catch (err) {
+        return { ok: false, ms: Date.now() - start, error: String(err && err.message || err).slice(0, 200), extra: {} };
+      }
+    }
+
+    // Gmail live ping (#13): actively authenticate the service account against each
+    // monitored mailbox via getProfile, so a broken service-account auth flips the
+    // card to degraded instead of falsely reporting connected from cached watch state.
+    // Bounded + try-caught exactly like the other pings.
+    var gmailPings = await Promise.all(gmailMonitored.map(function (em) {
+      if (!gmailConfigured) return Promise.resolve({ ok: false, ms: 0, error: 'Not configured', extra: {} });
+      return pingWithTimeout(async function () {
+        var gmail = await getGmailClient(em);
+        if (!gmail) throw new Error(_gmailClientErrors[em] || 'Gmail client init failed');
+        var prof = await gmail.users.getProfile({ userId: em });
+        return { email_address: prof && prof.data ? prof.data.emailAddress : em };
+      });
+    }));
+    var gmailPingByEmail = {};
+    for (var gpi = 0; gpi < gmailMonitored.length; gpi++) { gmailPingByEmail[gmailMonitored[gpi]] = gmailPings[gpi]; }
+
+    // Gmail — aggregate across every monitored mailbox (worst-case status), now
+    // gated on the LIVE auth ping in addition to cached watch state (#13).
     var gmailMailboxes = gmailMonitored.map(function (em) {
       var w = gmailWatchByEmail[em] || null;
       var active = !!(w && w.watch_expiry && new Date(w.watch_expiry).getTime() > Date.now());
-      var clientError = _gmailClientErrors[em] || null;
+      var ping = gmailPingByEmail[em] || { ok: false, error: null };
+      // Prefer the live ping error; fall back to any cached client error.
+      var clientError = (!ping.ok ? (ping.error || _gmailClientErrors[em]) : null) || null;
       var mbStatus = 'disconnected';
-      if (gmailConfigured && w && !clientError) mbStatus = active ? 'connected' : 'degraded';
-      else if (gmailConfigured) mbStatus = 'degraded';
-      return { email: em, watch_expiry: w ? w.watch_expiry : null, watch_active: active, last_history_id: w ? w.history_id : null, client_error: clientError, status: mbStatus };
+      if (gmailConfigured && w && ping.ok) mbStatus = active ? 'connected' : 'degraded';
+      else if (gmailConfigured) mbStatus = 'degraded'; // configured but watch missing or auth ping failed
+      return { email: em, watch_expiry: w ? w.watch_expiry : null, watch_active: active, last_history_id: w ? w.history_id : null, client_error: clientError, ping_ok: ping.ok, ping_ms: ping.ms || 0, status: mbStatus };
     });
     var gmailStatus = 'connected';
     if (!gmailConfigured) gmailStatus = 'disconnected';
@@ -37384,20 +37562,6 @@ Return ONLY valid JSON with no markdown formatting:
       },
       can_reconnect: true, reconnect_action: 'setup_watch'
     });
-
-    // ── LIVE HEALTH CHECKS (all in parallel, 5s timeout each) ──
-    async function pingWithTimeout(fn, timeoutMs) {
-      var start = Date.now();
-      try {
-        var ctrl = new AbortController();
-        var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || 5000);
-        var result = await fn(ctrl.signal);
-        clearTimeout(timer);
-        return { ok: true, ms: Date.now() - start, error: null, extra: result || {} };
-      } catch (err) {
-        return { ok: false, ms: Date.now() - start, error: String(err && err.message || err).slice(0, 200), extra: {} };
-      }
-    }
 
     var [roleCountRes, zrPing, zsPing, aiPing, dtPing, gdPing] = await Promise.all([
       supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500'),
