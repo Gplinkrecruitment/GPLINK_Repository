@@ -304,4 +304,52 @@ describe('computeRsoWorkload + rsoCaseIds (#7/#32/#34)', () => {
   });
 });
 
+describe('computePlacements + placementAppIds (tile == drilldown)', () => {
+  const fx = makeFixture();
+  const active = M.filterActiveCases(fx.cases, { nowMs: NOW });
+  const activeUsers = M.activeUserIdSet(active);
+  const interviewAppIds = new Set(fx.careerInterviews.map(i => i.application_id)); // {a3}
+
+  function call(period) {
+    return M.computePlacements(fx.apps, fx.careerRoles, activeUsers, interviewAppIds, period, NOW);
+  }
+  function ids(bucket, period) {
+    return M.placementAppIds(fx.apps, bucket, activeUsers, interviewAppIds, period, NOW);
+  }
+
+  ['all','current','30d','14d','7d'].forEach(period => {
+    it('every bucket count == placementAppIds length @ ' + period, () => {
+      const p = call(period);
+      ['applied','submitted_to_practice','interviewing','offers_made','secured'].forEach(b => {
+        expect(ids(b, period).length).toBe(p[b]); // INVARIANT
+      });
+    });
+  });
+
+  it('secured includes placed + dedup not applied at app level; active scoping drops a7 (#8/#9)', () => {
+    const p = call('all');
+    // secured apps among active users: a5(placed,u6), a6(contract_signed,u11), a8(placement_secured,u6) = 3 app rows
+    expect(p.secured).toBe(3);
+    // a7 (withdrawn-case GP u9) excluded from applied
+    expect(ids('applied','all')).not.toContain('a7');
+    expect(ids('applied','all')).toContain('a1');
+  });
+  it('interviewing = status UNION interview membership, minus secured (#11)', () => {
+    const p = call('all');
+    // a3 (interview_scheduled + in interviewAppIds) = 1
+    expect(p.interviewing).toBe(1);
+    expect(ids('interviewing','all')).toEqual(['a3']);
+    // a3 must NOT also be in applied
+    expect(ids('applied','all')).not.toContain('a3');
+  });
+  it('offers_made uses offer set; not in applied (#10/#61)', () => {
+    const p = call('all');
+    expect(ids('offers_made','all')).toEqual(['a4']);
+    expect(ids('applied','all')).not.toContain('a4');
+  });
+  it('active_roles counts is_active roles', () => {
+    expect(call('all').active_roles).toBe(1);
+  });
+});
+
 export { makeFixture, NOW, TODAY, DAY, ago, ahead };
