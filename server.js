@@ -266,6 +266,45 @@ const RSO_TEAM = [
 // the case's assigned_va routes it correctly without special-casing.)
 const DEFAULT_RSO_USER_ID = (RSO_TEAM.find(function (r) { return r.email === 'hazel@mygplink.com.au'; }) || {}).user_id || null;
 
+// Normalize/merge the RSO roster: prefer DB rows from rso_team; fall back to the
+// in-memory RSO_TEAM seed when the table is empty or unreachable (local dev).
+// Pure (no DB) so it can be unit-tested; loadRsoTeam() does the fetch.
+function mergeRsoRoster(dbRows, seedArray, opts) {
+  var includeInactive = !!(opts && opts.includeInactive);
+  var rows = Array.isArray(dbRows) ? dbRows : [];
+  var source = rows.length ? rows : (Array.isArray(seedArray) ? seedArray : []);
+  var fromDb = rows.length > 0;
+  return source
+    .map(function (r) {
+      return {
+        user_id: r.user_id || null,
+        name: r.name || '',
+        email: r.email || '',
+        phone: r.phone || '',
+        active: (r.active === undefined || r.active === null) ? true : !!r.active
+      };
+    })
+    .filter(function (r) {
+      if (!r.user_id) return false;
+      // Seed rows are all considered active; only DB rows carry an active flag to filter on.
+      if (fromDb && !includeInactive && !r.active) return false;
+      return true;
+    });
+}
+
+// Async: read the editable rso_team table, falling back to the RSO_TEAM seed.
+// supabaseDbRequest returns ok:false (503) when Supabase is not configured (local dev),
+// in which case we transparently use the seed array.
+async function loadRsoTeam(opts) {
+  try {
+    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active&order=name.asc', { method: 'GET' });
+    var rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+    return mergeRsoRoster(rows, RSO_TEAM, opts);
+  } catch (e) {
+    return mergeRsoRoster([], RSO_TEAM, opts);
+  }
+}
+
 // Resolve the RSO (registration_tasks.assignee UUID) for a GP's case: prefer the
 // case's assigned_va, else default to Hazel. knownAssignedVa: pass the loaded value
 // if available; undefined triggers a lookup, null/value is used as-is.
@@ -37740,6 +37779,7 @@ if (process.env.VERCEL) {
 }
 
 module.exports.createServer = createServer;
+module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.__testUtils = {
   applyQualificationNameMatchPolicy,
   buildDomainAgencyBrandSearchQueries,
