@@ -39,6 +39,37 @@ function getWithHost(path, { host, cookie } = {}) {
   });
 }
 
+// --- Headless gp_admin_session minting -------------------------------------
+// There is no callable OTP/password admin-login endpoint in test mode, so we
+// mint a signed admin session cookie exactly the way the server does:
+//   token = base64url(JSON.stringify({ userProfile, expiresAt })) + '.' + hmac-sha512(payload, AUTH_SECRET)
+// (mirrors createSignedSessionToken/hmacSign in server.js). getAdminSession()
+// validates this signature and getAdminRoleFromSession() reads userProfile.adminRole.
+function base64UrlEncode(input) {
+  return Buffer.from(String(input), 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function mintAdminCookie(email, adminRole) {
+  const expiresAt = Date.now() + 60 * 60 * 1000; // 1h in the future
+  const userProfile = { email, adminRole };
+  const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  const token = `${payload}.${sig}`;
+  return `gp_admin_session=${encodeURIComponent(token)}`;
+}
+
+function superCookie() {
+  return mintAdminCookie('super@gplink-test.local', 'super_admin');
+}
+
+function adminCookie() {
+  return mintAdminCookie('staff@gplink-test.local', 'admin');
+}
+
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   // NODE_ENV='test' boots the server without the production Supabase-key requirement
@@ -101,6 +132,28 @@ describe('CEO dashboard page auth gating', () => {
     expect([302, 403, 404]).toContain(r.status);
     // Body-leak guard: the served page begins with lowercase '<!doctype html>',
     // so this must be case-insensitive to genuinely assert the HTML body is never returned.
+    expect(r.raw).not.toMatch(/<!doctype/i);
+  });
+
+  it('super-admin session on super-admin host -> serves CEO page (#50)', async () => {
+    const cookie = superCookie();   // gp_admin_session for super@gplink-test.local
+    const r = await getWithHost('/pages/ceo-dashboard', { host: SUPER_HOST, cookie });
+    expect(r.status).toBe(200);
+    expect(r.raw).toMatch(/<!doctype/i);
+  });
+
+  it('plain-admin session on super-admin host -> denied, no HTML (#50,#70)', async () => {
+    const cookie = adminCookie();   // gp_admin_session for staff@gplink-test.local
+    const r = await getWithHost('/pages/ceo-dashboard', { host: SUPER_HOST, cookie });
+    expect(r.status).toBe(302);
+    expect(r.location).toContain('/pages/admin-signin');
+    expect(r.raw).not.toMatch(/<!doctype/i);
+  });
+
+  it('super-admin session but on employee admin host -> 404 (wrong host scope) (#69)', async () => {
+    const cookie = superCookie();
+    const r = await getWithHost('/pages/ceo-dashboard', { host: ADMIN_HOST, cookie });
+    expect(r.status).toBe(404); // blocked by the super-admin host gate before session check
     expect(r.raw).not.toMatch(/<!doctype/i);
   });
 });
