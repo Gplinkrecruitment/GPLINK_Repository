@@ -21158,6 +21158,7 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 200, { ok: true, message: 'No reminders needed', reminded: 0 });
         return;
       }
+      const rsoRoster = await loadRsoTeam({ includeInactive: true });
       let reminded = 0;
       for (const call of needsReminder) {
         let gpName = 'the GP';
@@ -21170,7 +21171,7 @@ async function handleApi(req, res, pathname) {
           gpName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || 'the GP';
         } catch (e) { /* fallback */ }
         const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage || '';
-        const rso = RSO_TEAM.find(r => r.email.toLowerCase() === (call.assigned_rso_email || '').toLowerCase());
+        const rso = rsoRoster.find(r => r.email.toLowerCase() === (call.assigned_rso_email || '').toLowerCase());
         const rsoPhone = rso ? rso.phone : '';
         if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
           const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
@@ -25311,10 +25312,12 @@ async function handleApi(req, res, pathname) {
   // ── Admin Zoom call scheduling ──────────────────────────────────
 
   // GET /api/admin/rsos — list RSO team members for assignment dropdown
+  // Reads the editable rso_team table; the in-memory RSO_TEAM array is a seed/fallback.
   if (req.method === 'GET' && pathname === '/api/admin/rsos') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
-    sendJson(res, 200, { ok: true, rsos: RSO_TEAM });
+    const rsos = await loadRsoTeam();
+    sendJson(res, 200, { ok: true, rsos: rsos });
     return;
   }
 
@@ -25340,7 +25343,8 @@ async function handleApi(req, res, pathname) {
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
-    const assignedRso = assignedRsoEmail ? RSO_TEAM.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
+    const scheduleRsoRoster = await loadRsoTeam({ includeInactive: true });
+    const assignedRso = assignedRsoEmail ? scheduleRsoRoster.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
     const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
     if (!caseId || !stage) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, stage.' });
