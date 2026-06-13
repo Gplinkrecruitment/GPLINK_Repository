@@ -37271,22 +37271,53 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    var escTaskRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,escalated_to,status&id=eq.' + encodeURIComponent(escTaskId) + '&limit=1');
+    var escTaskRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,escalated_to,status,title&id=eq.' + encodeURIComponent(escTaskId) + '&limit=1');
     var escTask = (escTaskRes.ok && Array.isArray(escTaskRes.data) && escTaskRes.data[0]) ? escTaskRes.data[0] : null;
     if (!escTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     if (escTask.status !== 'escalated') { sendJson(res, 400, { ok: false, message: 'Task is not escalated.' }); return; }
 
-    var escPatch = { status: 'open', escalated_to: null, escalated_at: null };
-    if (escAction === 'resolve') { escPatch.escalated_reason = null; }
+    // Resolve the assigned RSO (mailbox owner) so the note is delivered to them (#55).
+    var escCaseRes = await supabaseDbRequest('registration_cases', 'select=assigned_va,assigned_rso&id=eq.' + encodeURIComponent(escTask.case_id) + '&limit=1');
+    var escCaseRow = (escCaseRes.ok && Array.isArray(escCaseRes.data) && escCaseRes.data[0]) ? escCaseRes.data[0] : {};
+    var escRsoId = escCaseRow.assigned_va || escCaseRow.assigned_rso || null;
+    var escRsoEmail = '';
+    if (escRsoId) {
+      var escRsoAccRes = await supabaseDbRequest('va_gmail_accounts', 'select=email_address&user_id=eq.' + encodeURIComponent(escRsoId) + '&limit=1');
+      escRsoEmail = (escRsoAccRes.ok && Array.isArray(escRsoAccRes.data) && escRsoAccRes.data[0]) ? (escRsoAccRes.data[0].email_address || '') : '';
+    }
+
+    // Clear escalated_reason on BOTH respond and resolve so a returned task carries no stale reason (#55).
+    var escPatch = { status: 'open', escalated_to: null, escalated_at: null, escalated_by: null, escalated_reason: null };
 
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(escTaskId), { method: 'PATCH', body: escPatch });
 
     var escEvTitle = escAction === 'resolve' ? 'CEO resolved escalation' : 'CEO response';
     await _logCaseEvent(escTask.case_id, escTaskId, escAction === 'resolve' ? 'escalation' : 'note', escEvTitle, escNote || null, ceoCtx.email);
 
+    // On respond, surface the CEO note as an actionable internal message on the task thread the RSO sees (#55).
+    if (escAction === 'respond' && escNote) {
+      try {
+        await supabaseDbRequest('task_messages', '', {
+          method: 'POST',
+          body: [{
+            task_id: escTaskId,
+            case_id: escTask.case_id,
+            direction: 'internal',
+            channel: 'internal',
+            sender: ceoCtx.email,
+            recipient: escRsoEmail || null,
+            subject: 'CEO response — action required: ' + (escTask.title || 'Escalation'),
+            body_text: escNote
+          }]
+        });
+      } catch (msgErr) {
+        console.error('[CEO escalation respond] task_messages insert failed:', msgErr.message);
+      }
+    }
+
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(escTask.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
 
-    sendJson(res, 200, { ok: true, action: escAction, task_id: escTaskId });
+    sendJson(res, 200, { ok: true, action: escAction, task_id: escTaskId, delivered_to: escRsoEmail || null });
     return;
   }
 
