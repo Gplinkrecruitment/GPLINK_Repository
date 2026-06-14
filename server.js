@@ -51,6 +51,18 @@ const SUPER_ADMIN_ALLOWED_HOSTS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+// On NON-production Vercel deployments (preview), trust the deployment's own
+// Vercel-assigned host(s) for super-admin scope, so the CEO / super-admin surface is
+// viewable on preview URLs without per-URL env configuration. PRODUCTION IS EXCLUDED:
+// Vercel sets VERCEL_ENV='production' on the production deployment, so this set stays
+// empty there and production still honours only SUPER_ADMIN_ALLOWED_HOSTS.
+const PREVIEW_SUPER_ADMIN_HOSTS = new Set();
+if (String(process.env.VERCEL_ENV || '').toLowerCase() !== 'production') {
+  [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL]
+    .map((value) => String(value || '').trim().toLowerCase().split('/')[0].split(':')[0])
+    .filter(Boolean)
+    .forEach((host) => PREVIEW_SUPER_ADMIN_HOSTS.add(host));
+}
 const DEFAULT_DB_FILE_PATH = process.env.VERCEL
   ? path.join('/tmp', 'app-db.json')
   : path.join(process.cwd(), 'data', 'app-db.json');
@@ -5178,6 +5190,7 @@ function getAdminHostScope(req) {
   const hostname = getRequestHostname(req);
   if (!hostname) return '';
   if (SUPER_ADMIN_ALLOWED_HOSTS.has(hostname)) return 'super_admin';
+  if (PREVIEW_SUPER_ADMIN_HOSTS.has(hostname)) return 'super_admin';
   if (ADMIN_ALLOWED_HOSTS.has(hostname)) return 'admin';
   if (NODE_ENV !== 'production' && isLoopbackHostname(hostname)) return 'local';
   return '';
