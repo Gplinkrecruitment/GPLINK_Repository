@@ -827,9 +827,10 @@
     var s = document.createElement("style");
     s.id = "gpScanRouterStyle";
     s.textContent =
-      "#" + ROUTER_ID + "{position:fixed;inset:0;z-index:9998;display:none;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.45);}" +
-      "#" + ROUTER_ID + ".open{display:flex;}" +
-      ".gsr-sheet{width:100%;max-width:500px;max-height:90vh;overflow-y:auto;background:#fff;border-radius:20px 20px 0 0;padding:0 16px calc(env(safe-area-inset-bottom,0) + 18px);animation:scanSlideUp .3s ease;font-family:'DM Sans',system-ui,sans-serif;}" +
+      "#" + ROUTER_ID + "{position:fixed;inset:0;z-index:9998;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.45);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s ease,visibility 0s linear .34s;}" +
+      "#" + ROUTER_ID + ".open{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .3s ease,visibility 0s;}" +
+      ".gsr-sheet{width:100%;max-width:500px;max-height:90vh;overflow-y:auto;background:#fff;border-radius:20px 20px 0 0;padding:0 16px calc(env(safe-area-inset-bottom,0) + 18px);font-family:'DM Sans',system-ui,sans-serif;transform:translateY(100%);transition:transform .34s cubic-bezier(.32,.72,0,1);will-change:transform;}" +
+      "#" + ROUTER_ID + ".open .gsr-sheet{transform:translateY(0);}" +
       ".gsr-grip{width:40px;height:4px;border-radius:4px;background:#d1d5db;margin:10px auto 2px;}" +
       ".gsr-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 4px;}" +
       ".gsr-hdr h3{margin:0;font-size:17px;font-weight:800;color:#0f172a;}" +
@@ -849,8 +850,11 @@
       ".gsr-dd{border:1px solid #e2e8f0;border-radius:13px;overflow:hidden;background:#fff;}" +
       ".gsr-dd-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;padding:14px;border:0;background:#fff;cursor:pointer;font-size:13.5px;font-weight:700;color:#0f172a;}" +
       ".gsr-dd-toggle .n{font-size:11px;font-weight:800;color:#2563eb;background:#eff6ff;border-radius:999px;padding:1px 8px;margin-left:8px;}" +
-      ".gsr-dd-toggle .chev{color:#94a3b8;font-size:11px;}" +
-      ".gsr-dd-body{border-top:1px solid #e2e8f0;padding:6px;}" +
+      ".gsr-dd-toggle .chev{color:#94a3b8;font-size:11px;display:inline-block;transition:transform .25s ease;}" +
+      ".gsr-dd.open .gsr-dd-toggle .chev{transform:rotate(180deg);}" +
+      ".gsr-dd-body{max-height:0;overflow:hidden;transition:max-height .3s ease;}" +
+      ".gsr-dd.open .gsr-dd-body{border-top:1px solid #e2e8f0;}" +
+      ".gsr-dd-inner{padding:6px;}" +
       ".gsr-row{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:10px;cursor:pointer;width:100%;border:0;background:0;text-align:left;}" +
       ".gsr-row+.gsr-row{border-top:1px solid #f1f5f9;}" +
       ".gsr-row .ic{width:26px;height:26px;border-radius:7px;background:#eff6ff;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}" +
@@ -947,9 +951,9 @@
       html += '<div class="gsr-dd">' +
         '<button class="gsr-dd-toggle" type="button" data-router-action="toggle">' +
           '<span>Pick another document<span class="n">' + rest.length + ' left</span></span>' +
-          '<span class="chev">' + (routerDropdownOpen ? '▲' : '▼') + '</span>' +
+          '<span class="chev">▼</span>' +
         '</button>' +
-        (routerDropdownOpen ? '<div class="gsr-dd-body">' + rest.map(routerDocRow).join('') + '</div>' : '') +
+        '<div class="gsr-dd-body"><div class="gsr-dd-inner">' + rest.map(routerDocRow).join('') + '</div></div>' +
       '</div>';
     }
     body.innerHTML = html;
@@ -962,6 +966,7 @@
     routerDropdownOpen = false;
     routerShowAll = false;
     renderRouter();
+    void el.offsetWidth;            // flush styles so the slide-up transition plays on first open
     el.classList.add("open");
   }
 
@@ -1016,7 +1021,16 @@
       e.preventDefault();
       var ra = rAction.getAttribute("data-router-action");
       if (ra === "close") { closeRouter(); return; }
-      if (ra === "toggle") { routerDropdownOpen = !routerDropdownOpen; renderRouter(); return; }
+      if (ra === "toggle") {
+        routerDropdownOpen = !routerDropdownOpen;
+        var dd = rAction.closest(".gsr-dd");
+        if (dd) {
+          dd.classList.toggle("open", routerDropdownOpen);
+          var ddBody = dd.querySelector(".gsr-dd-body");
+          if (ddBody) ddBody.style.maxHeight = routerDropdownOpen ? (ddBody.scrollHeight + "px") : "0px";
+        }
+        return;
+      }
       if (ra === "rescan") { routerShowAll = true; routerDropdownOpen = false; renderRouter(); return; }
       return;
     }
