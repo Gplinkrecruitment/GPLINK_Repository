@@ -18,7 +18,20 @@ describe('CEO standalone page UI', () => {
 
   it('has its own standalone top nav (not iframe-only)', () => {
     expect(ceo).toMatch(/class="ceo-topnav"/);
-    expect(ceo).toMatch(/href="\/pages\/admin"/); // back-to-admin link
+  });
+
+  it('unified menu: CEO nav links to the admin work-lists (Ops Queue, GPs, etc.)', () => {
+    // The CEO Command Centre is one workspace: its top nav carries the work-lists
+    // as links into the existing admin implementation (no duplicated tab code).
+    expect(ceo).toMatch(/href="\/pages\/admin\?view=tools"/);   // Ops Queue
+    expect(ceo).toMatch(/href="\/pages\/admin\?view=gps"/);     // GPs
+    expect(ceo).toMatch(/href="\/pages\/admin\?view=medicalcentres"/);
+    expect(ceo).toMatch(/href="\/pages\/admin\?view=technical"/);
+    // And the admin page surfaces the executive views back in the same menu.
+    expect(admin).toMatch(/id="ceoOverviewTab"[^>]*href="\/pages\/ceo-dashboard"/);
+    expect(admin).toMatch(/id="ceoRsoOversightTab"[^>]*href="\/pages\/ceo-dashboard\?tab=rsos"/);
+    // The confusing self-referential "CEO Command Centre ->" nav item is gone.
+    expect(admin).not.toMatch(/CEO Command Centre &#x2197;/);
   });
 
   it('makes KPI tiles clickable via data-drilldown', () => {

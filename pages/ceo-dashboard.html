@@ -878,7 +878,7 @@
   </style>
 </head>
 <body>
-<script src="/js/error-reporter.js?v=20260614b"></script>
+<script src="/js/error-reporter.js?v=20260615a"></script>
   <div class="page-wrap">
     <!-- HEADER -->
     <header class="header">
@@ -905,8 +905,13 @@
     <nav class="ceo-topnav" id="ceoTopNav">
       <div class="nav-item active" data-tab="overview">Overview</div>
       <div class="nav-item" data-tab="rsos">RSO Oversight</div>
-      <div class="nav-spacer"></div>
-      <a class="nav-back" href="/pages/admin" title="Back to Admin">&#x2190; Admin</a>
+      <a class="nav-item" href="/pages/admin?view=tools">Ops Queue</a>
+      <a class="nav-item" href="/pages/admin?view=gps">GPs</a>
+      <a class="nav-item" href="/pages/admin?view=medicalcentres">Medical Centres</a>
+      <a class="nav-item" href="/pages/admin?view=support">Support</a>
+      <a class="nav-item" href="/pages/admin?view=guide">Guide</a>
+      <a class="nav-item" href="/pages/admin?view=scheduled_calls">Calls</a>
+      <a class="nav-item" href="/pages/admin?view=technical">Technical</a>
     </nav>
 
     <!-- TIME FILTER -->
@@ -1934,6 +1939,14 @@
       document.getElementById('rsoContent').style.display = (tab === 'rsos') ? '' : 'none';
       if (tab === 'rsos') loadRsoOversight();
     });
+    /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO Oversight tab on load
+       (used by the unified-nav "RSO Oversight" link from the admin work-list page). */
+    try {
+      if (new URLSearchParams(location.search).get('tab') === 'rsos') {
+        var _rsoTab = document.querySelector('#ceoTopNav .nav-item[data-tab="rsos"]');
+        if (_rsoTab) _rsoTab.click();
+      }
+    } catch (e) {}
 
     /* ═══ RSO OVERSIGHT (standalone tab) ═══ */
     function loadRsoOversight() {

@@ -1304,7 +1304,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
   <div class="view-tabs">
-    <a class="view-tab" id="ceoHomeTab" href="/pages/ceo-dashboard" style="display:none;text-decoration:none">CEO Command Centre &#x2197;</a>
+    <a class="view-tab" id="ceoOverviewTab" href="/pages/ceo-dashboard" style="display:none;text-decoration:none">Overview</a>
+    <a class="view-tab" id="ceoRsoOversightTab" href="/pages/ceo-dashboard?tab=rsos" style="display:none;text-decoration:none">RSO Oversight</a>
     <div class="view-tab active" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
@@ -8328,13 +8329,24 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(isSA()){
       var saWrap=document.getElementById("saToolsWrap");
       if(saWrap)saWrap.style.display="";
-      var ceoTab=document.getElementById("ceoHomeTab");
-      if(ceoTab)ceoTab.style.display="";
+      var ovTab=document.getElementById("ceoOverviewTab");
+      if(ovTab)ovTab.style.display="";
+      var rsoOvTab=document.getElementById("ceoRsoOversightTab");
+      if(rsoOvTab)rsoOvTab.style.display="";
       var mcTab=document.getElementById("medicalCentresTab");
       if(mcTab)mcTab.style.display="";
       var techTab=document.getElementById("technicalTab");
       if(techTab)techTab.style.display="";
     }
+    /* Unified-nav deep link: /pages/admin?view=<tab> opens that work-list on load
+       (used by the CEO Command Centre menu items). Defaults to Ops Queue when absent. */
+    try{
+      var viewParam=new URLSearchParams(location.search).get("view");
+      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","technical"];
+      if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !((viewParam==="medicalcentres"||viewParam==="technical")&&!isSA())){
+        S.view=viewParam;
+      }
+    }catch(e){}
     loadAll();
     S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll(false,true);},15000);
   }).catch(err=>{
