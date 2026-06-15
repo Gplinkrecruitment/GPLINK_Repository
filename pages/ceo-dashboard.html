@@ -2957,8 +2957,13 @@
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
       var total = sections.reduce(function(n, s) { return n + s.docs.length; }, 0);
+      var docCaseId = gpDetailCache && gpDetailCache.caseId;
       var html = '<div class="ceo-ops-section-head">Documents <span class="count">' + total + '</span>';
-      if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + esc(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:auto">Open Drive folder</a>';
+      // General "upload to this GP's Drive folder" — works for any case, independent of
+      // practice-pack tasks (reuses POST /api/admin/drive/upload). Per-document upload/
+      // approve/revision buttons (gated on a matching task) are rendered on the rows below.
+      if (docCaseId) html += '<label class="btn ceo-doc-upload-btn" style="margin-left:auto">Upload file…<input type="file" data-ceo-drive-upload="' + esc(docCaseId) + '" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv" style="display:none"></label>';
+      if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + esc(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:' + (docCaseId ? '12px' : 'auto') + '">Open Drive folder</a>';
       html += '</div>';
       for (var si = 0; si < sections.length; si++) {
         var sec = sections[si];
@@ -3085,6 +3090,28 @@
           showToast('Error: ' + ((d && (d.message || d.error)) || 'Unknown error'), 'error');
         }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+    }
+
+    // GP Documents action: upload an arbitrary file to this GP's Google Drive folder.
+    // Works for any case, independent of practice-pack tasks. Reuses the unchanged
+    // POST /api/admin/drive/upload?case_id= (JSON {fileName, fileData(base64), mimeType}).
+    // The uploaded file appears in the documents payload, so refresh the documents cache.
+    function ceoDriveUpload(caseId, inputEl) {
+      var file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file || !caseId) return;
+      var reader = new FileReader();
+      reader.onload = function() {
+        apiFetch('/api/admin/drive/upload?case_id=' + encodeURIComponent(caseId), {
+          method: 'POST',
+          body: { fileName: file.name, fileData: reader.result, mimeType: file.type || 'application/octet-stream' }
+        }).then(function(d) {
+          if (!d || !d.ok) { showToast((d && d.message) || 'Upload failed', 'error'); return; }
+          showToast('File uploaded to Drive', 'success');
+          if (inputEl) inputEl.value = '';
+          refreshGpDocuments();
+        }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+      };
+      reader.readAsDataURL(file);
     }
 
     // Render this GP file's call history newest-first. Each row shows a status pill,
@@ -3272,7 +3299,9 @@
     // re-renders. The task id is carried on the input's data-ceo-doc-upload attribute.
     document.addEventListener('change', function(e) {
       var uploadInput = e.target.closest('input[data-ceo-doc-upload]');
-      if (uploadInput) ceoDocUpload(uploadInput.getAttribute('data-ceo-doc-upload'), uploadInput);
+      if (uploadInput) { ceoDocUpload(uploadInput.getAttribute('data-ceo-doc-upload'), uploadInput); return; }
+      var driveInput = e.target.closest('input[data-ceo-drive-upload]');
+      if (driveInput) ceoDriveUpload(driveInput.getAttribute('data-ceo-drive-upload'), driveInput);
     });
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
