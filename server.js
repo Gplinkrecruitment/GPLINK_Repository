@@ -36904,6 +36904,70 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/rso/:id/support — case-linked support tickets owned by one RSO (#per-RSO support)
+  var rsoSupportMatch = pathname.match(/^\/api\/ceo\/rso\/([^\/]+)\/support$/);
+  if (rsoSupportMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rsoSupportCtx = requireSuperAdminSession(req, res);
+    if (!rsoSupportCtx) return;
+
+    var rsoSupportId = decodeURIComponent(rsoSupportMatch[1]);
+
+    // Load support tickets (column names mirror the /api/admin/va/tickets reads).
+    var rsoSupportRes = await supabaseDbRequest('support_tickets',
+      'select=id,user_id,case_id,title,body,category,stage,priority,status,thread_json,first_reply_at,resolved_at,resolved_by,created_at,updated_at&order=created_at.desc');
+    var rsoSupportTickets = (rsoSupportRes.ok && Array.isArray(rsoSupportRes.data)) ? rsoSupportRes.data : [];
+
+    // Cases for those tickets → caseById (carrying assigned_rso for the grouping).
+    var rsoSupportCaseIds = [];
+    var seenSupportCase = {};
+    for (var sci = 0; sci < rsoSupportTickets.length; sci++) {
+      var scid = rsoSupportTickets[sci].case_id;
+      if (scid && !seenSupportCase[scid]) { seenSupportCase[scid] = true; rsoSupportCaseIds.push(scid); }
+    }
+    var supportCaseById = {};
+    if (rsoSupportCaseIds.length > 0) {
+      var supportCasesRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,assigned_rso,practice_name&id=in.(' + rsoSupportCaseIds.map(encodeURIComponent).join(',') + ')');
+      if (supportCasesRes.ok && Array.isArray(supportCasesRes.data)) {
+        supportCasesRes.data.forEach(function (c) { supportCaseById[c.id] = c; });
+      }
+    }
+
+    // Filter to this RSO's tickets (case-owner model; mirrors supportTicketsForRso / __unassigned__).
+    var rsoTickets = ceoMetrics.supportTicketsForRso(rsoSupportTickets, supportCaseById, rsoSupportId);
+
+    // GP names/emails for the ticket owners.
+    var rsoSupportUserIds = [];
+    var seenSupportUser = {};
+    for (var sui = 0; sui < rsoTickets.length; sui++) {
+      var suid = rsoTickets[sui].user_id;
+      if (suid && !seenSupportUser[suid]) { seenSupportUser[suid] = true; rsoSupportUserIds.push(suid); }
+    }
+    var supportProfileMap = {};
+    if (rsoSupportUserIds.length > 0) {
+      var supportProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name,email&user_id=in.(' + rsoSupportUserIds.map(encodeURIComponent).join(',') + ')');
+      if (supportProfRes.ok && Array.isArray(supportProfRes.data)) {
+        supportProfRes.data.forEach(function (p) { supportProfileMap[p.user_id] = p; });
+      }
+    }
+
+    var supportEnriched = rsoTickets.map(function (t) {
+      var p = supportProfileMap[t.user_id] || {};
+      var c = (t.case_id && supportCaseById[t.case_id]) || {};
+      var gpName = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown');
+      return Object.assign({}, t, {
+        gp_name: gpName,
+        gp_email: p.email || '',
+        practice_name: c.practice_name || null
+      });
+    });
+
+    sendJson(res, 200, { ok: true, rso_id: rsoSupportId, tickets: supportEnriched });
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════
