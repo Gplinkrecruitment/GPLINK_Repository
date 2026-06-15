@@ -623,3 +623,24 @@ describe('RSO summary reconciles with roster', () => {
     });
   });
 });
+
+describe('opsTasksForRso (per-RSO ops grouping)', () => {
+  const tasks = [
+    { id: 't1', case_id: 'c1' },
+    { id: 't2', case_id: 'c2' },
+    { id: 't3', case_id: null }
+  ];
+  const caseById = {
+    c1: { assigned_rso: 'rsoA' },
+    c2: { assigned_rso: null }
+  };
+
+  it('returns only the tasks whose case is assigned to the given RSO', () => {
+    expect(M.opsTasksForRso(tasks, caseById, 'rsoA').map(t => t.id)).toEqual(['t1']);
+  });
+
+  it('buckets null-rso and case-less tasks under __unassigned__', () => {
+    // c2 has null assigned_rso; t3 has no case -> both __unassigned__
+    expect(M.opsTasksForRso(tasks, caseById, '__unassigned__').map(t => t.id)).toEqual(['t2', 't3']);
+  });
+});
