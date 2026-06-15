@@ -790,6 +790,18 @@
     .help-popover .cert-note p { margin: 0 0 6px; }
     .help-popover .cert-note ul { padding-left: 16px; margin: 0; }
     .help-popover .cert-note li { margin-bottom: 3px; }
+    .help-popover .cert-note .cert-quote { font-style: italic; color: var(--gp-blue-deep); font-weight: 600; margin: 8px 0; }
+    .help-popover .cert-illustration { margin-top: 16px; border-radius: var(--gp-r-md); border: 1px solid var(--gp-border); background: var(--gp-surface-sunken); padding: 16px 18px; display: flex; gap: 16px; align-items: flex-start; }
+    .help-popover .cert-doc-mock { flex-shrink: 0; width: 110px; border-radius: 8px; background: var(--gp-green-soft); border: 1px solid var(--gp-green-border); padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+    .help-popover .cert-doc-mock .doc-header { font-size: 10px; font-weight: 800; color: var(--gp-green-ink); letter-spacing: -0.02em; }
+    .help-popover .cert-doc-mock .doc-accent { height: 4px; width: 36px; border-radius: 2px; background: var(--gp-green); }
+    .help-popover .cert-doc-mock .doc-line { height: 3px; border-radius: 1.5px; background: rgba(6, 78, 59, 0.18); }
+    .help-popover .cert-doc-mock .doc-line.short { width: 60%; }
+    .help-popover .cert-doc-mock .doc-line.med { width: 80%; }
+    .help-popover .cert-annotation { flex: 1; min-width: 0; }
+    .help-popover .cert-annotation .ann-quote { font-size: 11px; font-style: italic; color: var(--gp-text); font-weight: 500; line-height: 1.5; margin: 0 0 10px; }
+    .help-popover .cert-annotation .ann-details { font-size: 11px; color: var(--gp-muted); font-weight: 500; line-height: 1.55; }
+    .help-popover .cert-annotation .ann-sig { margin: 8px 0 6px; font-family: var(--gp-font-display); font-size: 18px; font-style: italic; color: var(--gp-text); }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -3609,11 +3621,11 @@
       uk: {
         institution: [
           { key: "certificate_good_standing", title: "Certificate of Good Standing",
-            help: { title: "Certificate of Good Standing", steps: ['Log in to your <a href="https://www.gmc-uk.org/registration-and-licensing">GMC Online account</a>', 'In the left hand menu choose "My registration"', 'Then open "My CCPS requests"', "Request the certificate to be sent directly to Ahpra", 'Ask the GMC to email it directly to Ahpra at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>'], reminder: "Reminder: the GMC must send this directly to Ahpra (COGS@ahpra.gov.au), not to you." } },
+            help: { title: "Certificate of Good Standing", steps: ['Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0">GMC Online account</a>', 'In the left hand menu choose "My registration"', 'Then open "My CCPS requests"', "Request the certificate to be sent directly to Ahpra", 'Ask the GMC to email it directly to Ahpra at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>'], reminder: "Reminder: the GMC must send this directly to Ahpra (COGS@ahpra.gov.au), not to you." } },
           { key: "confirmation_training", title: "Confirmation of Training",
-            help: { title: "Confirmation of Training", steps: ['<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training">Email portfolio@gmc-uk.org</a>', "State that you require confirmation of your specialist / GP training posts", "GMC will review the request and send you an application form to complete", "Complete the form and return it as instructed", 'Ask the GMC to send the confirmation of training directly to AHPRA by email to <a href="mailto:registration18@ahpra.gov.au">registration18@ahpra.gov.au</a>'], reminder: "Reminder: the confirmation of training must be sent by the GMC directly to Ahpra (registration18@ahpra.gov.au), not to you." } },
+            help: { title: "Confirmation of Training", steps: ['<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training&body=Dear%20GMC%20Portfolio%20Team%2C%0A%0AI%20am%20writing%20to%20request%20confirmation%20of%20my%20specialist%20%2F%20GP%20training%20posts.%20I%20require%20this%20documentation%20for%20my%20application%20to%20the%20Australian%20Health%20Practitioner%20Regulation%20Agency%20(Ahpra).%0A%0APlease%20advise%20on%20the%20next%20steps%20and%20any%20forms%20I%20need%20to%20complete.%0A%0AKind%20regards">Email portfolio@gmc-uk.org</a>', "State that you require confirmation of your specialist / GP training posts", "GMC will review the request and send you an application form to complete", "Complete the form and return it as instructed", 'Ask the GMC to send the confirmation of training directly to AHPRA by email to <a href="mailto:registration18@ahpra.gov.au">registration18@ahpra.gov.au</a>'], reminder: "Reminder: the confirmation of training must be sent by the GMC directly to Ahpra (registration18@ahpra.gov.au), not to you." } },
           { key: "criminal_history", title: "Criminal History Check",
-            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>'] } }
+            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>', "Look out for an email from Fit2Work that will include your reference page. The reference page will include a reference number starting with <strong>FIT</strong> followed by 7 digits (e.g. <strong>FIT1234567</strong>). Enter this reference number below before marking as requested."] } }
         ],
         prepared: [
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
@@ -3636,9 +3648,9 @@
       ie: {
         institution: [
           { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status",
-            help: { title: "Certificate of Good Standing", steps: ['Log in to the <a href="https://portal.medicalcouncil.ie/html/login.html?ui_locales=en/1000" target="_blank" rel="noopener noreferrer">Medical Council of Ireland Doctors Portal</a>.', "Request a Certificate of Good Standing / Current Professional Status.", "Select the recipient as Australian Health Practitioner Regulation Agency / Medical Board of Australia.", 'Ask MCI to send it directly to AHPRA at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>.'], reminder: "Reminder: MCI must send this directly to Ahpra (COGS@ahpra.gov.au), not to you." } },
+            help: { title: "Certificate of Good Standing / Registration Status", steps: ['Log in to the <a href="https://portal.medicalcouncil.ie/html/login.html?ui_locales=en/1000" target="_blank" rel="noopener noreferrer">Medical Council of Ireland Doctors Portal</a>.', "Request a Certificate of Good Standing / Current Professional Status.", "Select the recipient as Australian Health Practitioner Regulation Agency / Medical Board of Australia.", 'Ask MCI to send it directly to AHPRA at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>.'], reminder: "Reminder: MCI must send this directly to Ahpra (COGS@ahpra.gov.au), not to you." } },
           { key: "criminal_history", title: "Criminal History Check",
-            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>'] } }
+            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>', "Look out for an email from Fit2Work that will include your reference page. The reference page will include a reference number starting with <strong>FIT</strong> followed by 7 digits (e.g. <strong>FIT1234567</strong>). Enter this reference number below before marking as requested."] } }
         ],
         prepared: [
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree",
@@ -3663,9 +3675,9 @@
       nz: {
         institution: [
           { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status",
-            help: { title: "Certificate of Good Standing", steps: ["Log in to <a href=\"https://mymcnz.org.nz/Account/LogOn?ReturnUrl=%2f\" target=\"_blank\" rel=\"noopener noreferrer\">myMCNZ</a>", "Request a Certificate of Professional Status (COPS)", "Select / send it to Australian Health Practitioner Regulation Agency / Medical Board of Australia", "Ask MCNZ to email it directly to AHPRA at <a href=\"mailto:COGS@ahpra.gov.au\">COGS@ahpra.gov.au</a>"] } },
+            help: { title: "Certificate of Good Standing / Registration Status", steps: ["Log in to <a href=\"https://mymcnz.org.nz/Account/LogOn?ReturnUrl=%2f\" target=\"_blank\" rel=\"noopener noreferrer\">myMCNZ</a>", "Request a Certificate of Professional Status (COPS)", "Select / send it to Australian Health Practitioner Regulation Agency / Medical Board of Australia", "Ask MCNZ to email it directly to AHPRA at <a href=\"mailto:COGS@ahpra.gov.au\">COGS@ahpra.gov.au</a>"] } },
           { key: "criminal_history", title: "Criminal History Check",
-            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>'] } }
+            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>', "Look out for an email from Fit2Work that will include your reference page. The reference page will include a reference number starting with <strong>FIT</strong> followed by 7 digits (e.g. <strong>FIT1234567</strong>). Enter this reference number below before marking as requested."] } }
         ],
         prepared: [
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree",
@@ -3696,9 +3708,35 @@
     var ahpraHelpCertNote = document.getElementById('ahpraHelpCertNote');
     var ahpraHelpClose = document.getElementById('ahpraHelpClose');
 
-    var CERT_NOTE_HTML = '<p style="font-weight:600;margin-bottom:8px;">Before uploading, each required document must be certified by an authorised person (e.g. JP, solicitor, pharmacist).</p>' +
-      '<p>The certifier must write or stamp on a copy of the original document:</p>' +
-      '<ul><li>Their signature</li><li>Their printed name</li><li>Their qualification or title</li><li>The date of certification</li><li>A statement such as: <em>"I have sighted the original document and certify this to be a true copy"</em></li></ul>';
+    var CERT_NOTE_HTML = '<p>Before uploading, each required document must be certified as a true copy of the original by a solicitor or public notary.</p>' +
+      '<p>On the copy of the document, the certifier must write or stamp:</p>' +
+      '<p class="cert-quote">"I have sighted the original document and certify this to be a true copy of the original."</p>' +
+      '<p>They must also include:</p>' +
+      '<ul>' +
+        '<li>Their signature</li>' +
+        '<li>Their full name</li>' +
+        '<li>Their occupation or profession</li>' +
+        '<li>Their profession or registration number (if applicable)</li>' +
+        '<li>Their phone number</li>' +
+        '<li>The date</li>' +
+        '<li>Their stamp or seal (if relevant)</li>' +
+      '</ul>' +
+      '<div class="cert-illustration">' +
+        '<div class="cert-doc-mock">' +
+          '<div class="doc-header">Certificate</div>' +
+          '<div class="doc-accent"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+          '<div class="doc-line med"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+        '</div>' +
+        '<div class="cert-annotation">' +
+          '<div class="ann-quote"><em>I have sighted the original document and certify this to be a true copy of the original.</em></div>' +
+          '<div class="ann-sig">J. Smith</div>' +
+          '<div class="ann-details">Name, date, contact phone number, occupation or profession and profession number (if applicable).</div>' +
+        '</div>' +
+      '</div>';
 
     function openAhpraHelpPopover(helpData) {
       if (!ahpraHelpPopover) return;
