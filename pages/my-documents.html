@@ -1320,9 +1320,10 @@
                 'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0">GMC Online account</a>',
                 'In the left hand menu choose "My registration"',
                 'Then open "My CCPS requests"',
-                "Request the certificate to be sent directly to Ahpra"
+                "Request the certificate to be sent directly to Ahpra",
+                'Ask the GMC to email it directly to Ahpra at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>'
               ],
-              reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
+              reminder: "Reminder: the GMC must send this directly to Ahpra (COGS@ahpra.gov.au), not to you."
             }
           },
           {
@@ -1387,7 +1388,16 @@
             title: "CV (Signed and dated)",
             help: {
               title: "CV",
-              steps: ["Upload your signed and dated CV"]
+              steps: [
+                "Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.",
+                "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>",
+                "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).",
+                "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>",
+                "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.",
+                "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.",
+                "Upload your signed and dated CV"
+              ],
+              reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement."
             }
           }
         ]
