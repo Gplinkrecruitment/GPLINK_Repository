@@ -857,11 +857,11 @@
 
     .help-popover {
       position: fixed;
-      top: 50%;
+      top: calc(50% - var(--gp-shell-bottom-clearance, 0px) / 2);
       left: 50%;
       transform: translate(-50%, -50%) scale(0.95);
       width: min(440px, calc(100vw - 32px));
-      max-height: calc(100vh - 40px);
+      max-height: calc(100vh - 40px - var(--gp-shell-bottom-clearance, 0px));
       overflow-y: auto;
       border-radius: var(--gp-r-xl);
       border: 1px solid var(--gp-border);
