@@ -918,6 +918,8 @@
     .ceo-gp-detail-tab.active { color: var(--text); border-bottom-color: var(--blue); }
     .ceo-gp-detail-pane { margin-top: 16px; }
     .ceo-gp-detail-placeholder { padding: 14px 12px; }
+    .ceo-gp-task-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .ceo-gp-tasks-toggle { font-size: 11px; padding: 4px 10px; }
     .ceo-gp-detail-empty { padding: 14px 12px; font-size: 13px; color: var(--text-dim); border: 1px dashed var(--panel-border); border-radius: var(--radius-md, 8px); }
 
     /* ═══ RESPONSIVE ═══ */
@@ -2094,12 +2096,14 @@
     // Sub-tabs reuse this without refetching. Later tasks may extend it (timeline/docs/calls caches).
     var gpDetailCache = null;
     var gpDetailTab = 'tasks';
+    var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
     function openGpDetail(caseId, rsoId) {
       var c = document.getElementById('rsoContent');
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading GP file...</div></div>';
       gpDetailTab = 'tasks';
+      gpTasksShowAll = false;
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
@@ -2154,8 +2158,8 @@
     }
 
     // Dispatcher: render the active GP-file sub-tab into #gpDetailPane.
-    // For 3a.1 only 'tasks' is filled by a later task; the others show a placeholder
-    // that subsequent Phase 3a tasks (3a.2-3a.5) replace.
+    // 'tasks' is filled by renderGpTasksTab (3a.2); the others show a placeholder
+    // that subsequent Phase 3a tasks (3a.3-3a.5) replace.
     function renderGpDetailTab(tab) {
       gpDetailTab = tab;
       var tabsEl = document.getElementById('gpDetailTabs');
@@ -2167,11 +2171,102 @@
       }
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
+      if (tab === 'tasks') { renderGpTasksTab(); return; }
       pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
     }
 
-    // Sub-tab click delegation for the GP file.
+    // DB stage progression (mirrors lib/ceo-metrics.js DB_STAGE_ORDER) used to order
+    // the Tasks sub-tab groups; visa shares pbs's slot, complete sits above the funnel.
+    var GP_TASK_STAGE_ORDER = { myintealth: 0, amc: 1, career: 2, ahpra: 3, pbs: 4, visa: 4, commencement: 5, complete: 6 };
+    var GP_TASK_DONE_STATUSES = ['completed', 'cancelled'];
+
+    // Pure mirror of lib/ceo-metrics.js gpTasksByStage (the authoritative, unit-tested
+    // contract): filter completed/cancelled unless showAll, group by related_stage in
+    // DB stage order (unknown stages after, no-stage bucket '__none__' last), preserving
+    // input order within a group, annotating each task with an overdue flag.
+    function gpTasksByStage(tasks, showAll) {
+      var order = [];
+      var groups = {};
+      function bucket(key) { if (!groups[key]) { groups[key] = []; order.push(key); } return groups[key]; }
+      (tasks || []).forEach(function(t) {
+        if (!t) return;
+        if (!showAll && GP_TASK_DONE_STATUSES.indexOf(t.status) !== -1) return;
+        var key = t.related_stage ? String(t.related_stage) : '__none__';
+        var due = opsDueIndicator(t.due_date);
+        var isDone = GP_TASK_DONE_STATUSES.indexOf(t.status) !== -1;
+        var row = {}; for (var k in t) { if (Object.prototype.hasOwnProperty.call(t, k)) row[k] = t[k]; }
+        row.__overdue = !isDone && due.overdue && !!t.due_date;
+        row.__dueLabel = due.label;
+        bucket(key).push(row);
+      });
+      function rank(key) {
+        if (key === '__none__') return [2, 0];
+        if (GP_TASK_STAGE_ORDER[key] !== undefined) return [0, GP_TASK_STAGE_ORDER[key]];
+        return [1, order.indexOf(key)];
+      }
+      return order.slice().sort(function(a, b) {
+        var ra = rank(a), rb = rank(b);
+        return ra[0] - rb[0] || ra[1] - rb[1];
+      }).map(function(key) { return { stage: key, tasks: groups[key] }; });
+    }
+
+    function gpTaskStageLabel(stage) {
+      if (stage === '__none__') return 'No stage';
+      var s = stage === 'visa' ? 'pbs' : stage;
+      return STAGE_LABELS[s] || stage;
+    }
+
+    // Render the cached tasks[] for the open GP file (read-only). Active tasks only by
+    // default, grouped by related_stage, with a toggle to show completed/cancelled too.
+    function renderGpTasksTab() {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var all = (gpDetailCache && gpDetailCache.tasks) || [];
+      var groups = gpTasksByStage(all, gpTasksShowAll);
+      var shownCount = groups.reduce(function(n, g) { return n + g.tasks.length; }, 0);
+
+      var html = '<div class="ceo-ops-section-head">Tasks <span class="count">' + shownCount + '</span>';
+      html += '<button class="btn ceo-gp-tasks-toggle" id="gpTasksToggle" style="margin-left:auto">' + (gpTasksShowAll ? 'Hide completed' : 'Show all') + '</button>';
+      html += '</div>';
+
+      if (!shownCount) {
+        html += '<div class="ceo-ops-empty">' + (gpTasksShowAll ? 'No tasks for this GP.' : 'No active tasks for this GP.') + '</div>';
+        pane.innerHTML = html;
+        return;
+      }
+
+      for (var gi = 0; gi < groups.length; gi++) {
+        var grp = groups[gi];
+        html += '<div class="ceo-ops-group">';
+        html += '<div class="ceo-ops-group-head" onclick="toggleOpsGroup(this)">';
+        html += '<span class="ceo-ops-group-caret">&#x25BC;</span>';
+        html += '<span class="ceo-ops-group-name">' + esc(gpTaskStageLabel(grp.stage)) + '</span>';
+        html += '<span class="ceo-ops-group-count">' + grp.tasks.length + ' task' + (grp.tasks.length === 1 ? '' : 's') + '</span>';
+        html += '</div>';
+        html += '<div class="ceo-ops-group-body">';
+        for (var ti = 0; ti < grp.tasks.length; ti++) {
+          var task = grp.tasks[ti];
+          html += '<div class="ceo-ops-row">';
+          html += '<div class="ceo-ops-row-main">';
+          html += '<div class="ceo-ops-row-title">' + esc(task.title || '(untitled task)') + '</div>';
+          if (task.task_type) html += '<div class="ceo-ops-row-sub">' + esc(task.task_type.replace(/_/g, ' ')) + '</div>';
+          html += '</div>';
+          html += '<div class="ceo-gp-task-pills">';
+          html += priorityPill(task.priority);
+          if (task.status) html += statusPill(task.status);
+          html += '</div>';
+          html += '<span class="ceo-ops-due' + (task.__overdue ? ' overdue' : '') + '">' + esc(task.__dueLabel) + '</span>';
+          html += '</div>';
+        }
+        html += '</div></div>';
+      }
+      pane.innerHTML = html;
+    }
+
+    // Sub-tab click delegation for the GP file (+ Tasks show-all toggle).
     document.addEventListener('click', function(e) {
+      var toggleBtn = e.target.closest('#gpTasksToggle');
+      if (toggleBtn) { gpTasksShowAll = !gpTasksShowAll; renderGpTasksTab(); return; }
       var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
       if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); }
     });

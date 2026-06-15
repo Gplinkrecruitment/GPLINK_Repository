@@ -665,3 +665,44 @@ describe('callsForRso (per-RSO scheduled calls by email)', () => {
     expect(M.callsForRso(calls, null).map(c => c.id)).toEqual(['k3', 'k4']);
   });
 });
+
+describe('gpTasksByStage (GP file Tasks sub-tab grouping)', () => {
+  const TODAY = '2026-06-14';
+  const tasks = [
+    { id: 't1', related_stage: 'ahpra', status: 'open', due_date: '2026-06-10' },     // active, overdue
+    { id: 't2', related_stage: 'myintealth', status: 'completed', due_date: '2026-06-01' }, // completed -> hidden by default
+    { id: 't3', related_stage: 'ahpra', status: 'in_progress', due_date: '2026-06-20' }, // active, not overdue
+    { id: 't4', related_stage: null, status: 'waiting', due_date: null },              // active, no stage
+    { id: 't5', related_stage: 'amc', status: 'cancelled', due_date: '2026-06-05' },   // cancelled -> hidden by default
+    { id: 't6', related_stage: 'amc', status: 'escalated', due_date: '2026-06-30' }    // active
+  ];
+
+  it('excludes completed/cancelled by default and groups active tasks by related_stage in DB stage order, none-stage last', () => {
+    const groups = M.gpTasksByStage(tasks, { showAll: false, todayStr: TODAY });
+    // active tasks: t1,t3 (ahpra), t4 (none), t6 (amc). amc(idx1) before ahpra(idx3), none last.
+    expect(groups.map(g => g.stage)).toEqual(['amc', 'ahpra', '__none__']);
+    expect(groups.map(g => g.tasks.map(t => t.id))).toEqual([['t6'], ['t1', 't3'], ['t4']]);
+  });
+
+  it('showAll includes completed/cancelled tasks', () => {
+    const groups = M.gpTasksByStage(tasks, { showAll: true, todayStr: TODAY });
+    // now myintealth(idx0,t2), amc(idx1,t5+t6), ahpra(idx3,t1+t3), none(t4)
+    expect(groups.map(g => g.stage)).toEqual(['myintealth', 'amc', 'ahpra', '__none__']);
+    expect(groups.map(g => g.tasks.map(t => t.id))).toEqual([['t2'], ['t5', 't6'], ['t1', 't3'], ['t4']]);
+  });
+
+  it('marks overdue active tasks via isOverdue (completed/cancelled never overdue)', () => {
+    const groups = M.gpTasksByStage(tasks, { showAll: true, todayStr: TODAY });
+    const byId = {};
+    groups.forEach(g => g.tasks.forEach(t => { byId[t.id] = t; }));
+    expect(byId.t1.overdue).toBe(true);   // open + past due
+    expect(byId.t3.overdue).toBe(false);  // future due
+    expect(byId.t4.overdue).toBe(false);  // no due_date
+    expect(byId.t5.overdue).toBe(false);  // cancelled -> never overdue even though past due
+  });
+
+  it('returns [] for empty/missing tasks', () => {
+    expect(M.gpTasksByStage(null, { todayStr: TODAY })).toEqual([]);
+    expect(M.gpTasksByStage([], { todayStr: TODAY })).toEqual([]);
+  });
+});
