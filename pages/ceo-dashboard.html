@@ -912,6 +912,7 @@
     .ceo-gp-detail-blocker { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 14px; border: 1px solid rgba(239,68,68,0.3); background: var(--red-dim); border-radius: var(--radius-md, 8px); }
     .ceo-gp-detail-blocker-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--red); }
     .ceo-gp-detail-blocker-reason { font-size: 13px; color: var(--text); }
+    .ceo-gp-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     .ceo-gp-detail-tabs { display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid var(--panel-border); }
     .ceo-gp-detail-tab { padding: 8px 14px; font-size: 13px; font-weight: 600; font-family: var(--sans); color: var(--text-muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; }
     .ceo-gp-detail-tab:hover { color: var(--text); }
@@ -1702,7 +1703,7 @@
           description: document.getElementById('mTaskDesc').value.trim() || null
         }
       }).then(function(d) {
-        if (d.ok) { showToast('Task created', 'success'); closeModal(); refreshDashboard(); }
+        if (d.ok) { showToast('Task created', 'success'); closeModal(); refreshDashboard(); refreshGpDetailIfOpen(); }
         else { showToast('Failed: ' + (d.message || 'Unknown error'), 'error'); btn.disabled = false; btn.textContent = 'Create Task'; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Create Task'; });
     }
@@ -1781,7 +1782,7 @@
         method: 'PUT',
         body: { gp_verified_stage: stage }
       }).then(function(d) {
-        if (d.ok) { showToast('Stage changed to ' + (STAGE_LABELS[stage] || stage), 'success'); closeModal(); refreshDashboard(); }
+        if (d.ok) { showToast('Stage changed to ' + (STAGE_LABELS[stage] || stage), 'success'); closeModal(); refreshDashboard(); refreshGpDetailIfOpen(); }
         else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }
@@ -1812,7 +1813,7 @@
         method: 'PUT',
         body: body
       }).then(function(d) {
-        if (d.ok) { showToast(status ? 'Blocker set' : 'Blocker cleared', 'success'); closeModal(); refreshDashboard(); }
+        if (d.ok) { showToast(status ? 'Blocker set' : 'Blocker cleared', 'success'); closeModal(); refreshDashboard(); refreshGpDetailIfOpen(); }
         else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }
@@ -1839,6 +1840,7 @@
           if (d.email_sent) parts.push('Email');
           showToast('Nudge sent via ' + parts.join(' + '), 'success');
           closeModal();
+          refreshGpDetailIfOpen();
         }
         else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
@@ -1865,7 +1867,13 @@
         method: 'POST',
         body: { text: text }
       }).then(function(d) {
-        if (d.ok) { showToast('Note added', 'success'); closeModal(); }
+        if (d.ok) {
+          showToast('Note added', 'success');
+          closeModal();
+          // Case-level note added from the open GP file → surface it in the Notes sub-tab.
+          if (!taskId && gpDetailCache && gpDetailCache.caseId === caseId) gpDetailTab = 'notes';
+          refreshGpDetailIfOpen();
+        }
         else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }
@@ -2180,6 +2188,20 @@
           html += '</div>';
         }
 
+        // Header case actions — reuse the existing CEO action modals, passing this GP's
+        // caseId/user_id/gp_name. Each modal's submit handler calls refreshGpDetailIfOpen()
+        // on success, so the GP file re-fetches + re-renders. Add Note (no taskId) files a
+        // case-level note → lands in the Notes sub-tab after the refresh.
+        var gpName = cs.gp_name || 'Unknown';
+        var gpUserId = cs.user_id || '';
+        html += '<div class="ceo-gp-detail-actions">';
+        html += '<button class="btn btn-blue" onclick="openCreateTaskModal(\'' + esc(caseId) + '\', \'' + esc(gpName) + '\')">Add Task</button>';
+        html += '<button class="btn" onclick="openNoteModal(\'' + esc(caseId) + '\', \'\', \'' + esc(gpName) + '\')">Add Note</button>';
+        html += '<button class="btn btn-purple" onclick="openStageChangeModal(\'' + esc(caseId) + '\')">Change Stage</button>';
+        html += '<button class="btn btn-red" onclick="openBlockerModal(\'' + esc(caseId) + '\')">Set Blocker / On Hold</button>';
+        html += '<button class="btn btn-purple" onclick="openNudgeModal(\'' + esc(gpUserId) + '\', \'' + esc(gpName) + '\')">Send Nudge</button>';
+        html += '</div>';
+
         // Sub-tab nav
         var tabs = [
           { key: 'tasks', label: 'Tasks' },
@@ -2335,6 +2357,26 @@
         gpDetailCache.tasks = d.tasks || [];
         gpDetailCache.timeline = d.timeline || [];
         if (gpDetailTab === 'tasks') renderGpTasksTab();
+      });
+    }
+
+    // Re-fetch the open GP file (if any) after a header case action and re-render the
+    // active sub-tab. Reuses the existing CEO action modals (openCreateTaskModal,
+    // openNoteModal, openStageChangeModal, openBlockerModal, openNudgeModal): their
+    // submit handlers call this on success so the GP file reflects the change. No-op
+    // when no GP file is open (so it never alters the modals' dashboard-refresh path).
+    function refreshGpDetailIfOpen() {
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!caseId) return Promise.resolve();
+      // Drop the timeline cache so a newly added note shows up in the Notes/Timeline tabs.
+      gpTimelineCache = null;
+      return apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
+        if (!d || !d.ok) return;
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return; // GP file changed mid-flight
+        gpDetailCache.case = d.case || gpDetailCache.case;
+        gpDetailCache.tasks = d.tasks || [];
+        gpDetailCache.timeline = d.timeline || [];
+        renderGpDetailTab(gpDetailTab);
       });
     }
 
