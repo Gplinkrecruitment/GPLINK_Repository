@@ -3628,11 +3628,11 @@ const GP_DOCUMENT_META = {
   ie: [
     { key: 'micgp_certified', label: 'MICGP certificate', source: 'prepared_by_you' },
     { key: 'cscst_certified', label: 'CSCST certificate', source: 'prepared_by_you' },
-    { key: 'icgp_confirmation_letter', label: 'ICGP confirmation letter', source: 'prepared_by_you' }
+    { key: 'icgp_confirmation_letter', label: 'ICGP confirmation letter', source: 'institution_docs' }
   ],
   nz: [
     { key: 'frnzcgp_certified', label: 'FRNZCGP certificate', source: 'prepared_by_you' },
-    { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP confirmation letter', source: 'prepared_by_you' }
+    { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP confirmation letter', source: 'institution_docs' }
   ]
 };
 
