@@ -1,79 +1,67 @@
-# CEO Unified Workspace — Design
+# CEO Unified Workspace — Design (Separate Build)
 
-**Date:** 2026-06-15
+**Date:** 2026-06-15 (revised after user direction)
 **Branch:** `worktree-ceo-detach-email-routing`
 **Status:** Design — awaiting user review before the implementation plan
 
 ## Goal
 
-Make the CEO Command Centre a **single self-contained workspace** where every operational area lives in one place — **dark-themed**, leading with **Overview + RSO Oversight**, with the day-to-day work (ops tasks, calls, support, GPs) **reorganized under each RSO**. The CEO never gets bounced to the light "admin" page Hazel uses. RSOs (e.g. Hazel) keep their existing lighter page with their reduced tab set.
+Make the CEO Command Centre a **single self-contained dark workspace** where every operational area lives in one place, with the day-to-day work (ops tasks, calls, support, GPs) **reorganized under each RSO**. The CEO never leaves their own page.
 
-## Architecture decision (chosen: Option 1 — one engine, two skins)
+## HARD CONSTRAINT (user direction)
 
-**Evolve `pages/admin.html` into the single, role + theme-conditional workspace.** Do NOT duplicate the operational UI into `pages/ceo-dashboard.html`.
+**Do NOT touch the RSO admin page.** `pages/admin.html` (Hazel's screen) must be left completely alone — no edits, no risk. This is a **separate build**: all new work lives in the CEO's own page.
 
-Why: `admin.html` already holds the ~7,800 lines of operational UI (Ops Queue, GPs, Medical Centres, Support, Guide, Calls, Technical) that RSOs depend on. Option 2 (porting it all into a separate dark CEO page) would clone that code into a second file that must be maintained in lockstep forever — guaranteed drift and double the bug surface. Option 1 keeps **one codebase** and renders it two ways by role:
+## Architecture (Separate Build)
 
-- **Super-admin (CEO):** dark theme, nav leads with Overview + RSO Oversight, work reorganized per-RSO, Medical Centres + Technical as company-wide tabs.
-- **RSO (Hazel):** unchanged — light theme, her current subset (Ops Queue, GPs, Support, Guide, Calls).
+- **All CEO UI is built into `pages/ceo-dashboard.html`** (already dark) — the operational areas become in-page tabs under the existing unified nav, with ops/calls/support/GPs organized under **RSO Oversight** per RSO.
+- **`pages/admin.html` is NOT modified.** Hazel keeps her exact current page. (It already contains super-admin-only links to the CEO page; those are harmless to RSOs and are left as-is — no further edits.)
+- **Server:** add NEW `/api/ceo/*` read endpoints for the CEO's per-RSO data (ops, calls, support, GP rosters, case detail). Do **not** change the shape/behavior of existing `/api/admin/*` endpoints (Hazel's page depends on them). For **actions** (complete task, resolve email, send reply, upload/approve document, schedule call, etc.) the CEO page **reuses the existing `/api/admin/*` action endpoints** — they are admin-session gated and a super-admin passes; calling them changes nothing about Hazel's UI.
+- **The CEO page links to `/pages/admin` are removed** (the work now lives in-page), so the CEO never bounces to Hazel's screen.
 
-The standalone `pages/ceo-dashboard.html` is **retired** (redirects to `/pages/admin`). Its Overview + RSO Oversight rendering moves into `admin.html` as views. Everything already built carries over unchanged: `lib/ceo-metrics.js`, all `/api/ceo/*` endpoints, the migrations, the metric reconciliation.
+**Accepted trade-off:** the operational render logic is re-implemented (dark) in the CEO page rather than shared with `admin.html`. This is duplication that must be kept roughly in sync over time — accepted in exchange for never touching/risking the RSO admin page. (This is the "Option 2" cost we discussed.)
 
-## Theming approach (the foundation, and the main risk)
+## What carries over unchanged
 
-`admin.html` has one light `:root` and ~172 hard-coded light hex colours. To get a dark CEO skin without breaking the RSO light UI:
+`lib/ceo-metrics.js`, all existing `/api/ceo/*` endpoints, the two migrations, the metric reconciliation, the dark theme tokens, auth gating, and the Overview + RSO Oversight tabs already in the CEO page. We build **on top** of the CEO page that already exists.
 
-1. **Tokenize:** replace hard-coded colours with CSS variables (`var(--bg)`, `--panel`, `--text`, `--line`, `--blue`, etc.), reusing the token names already defined in `ceo-dashboard.html`'s dark theme so the two match.
-2. **Additive dark override:** add a `body.ceo-dark { ... }` block that overrides those variables to the dark palette. Default (no class) stays **exactly** the current light theme — RSOs are untouched.
-3. **Apply by role:** set `document.body.classList.add('ceo-dark')` only when `isSA()`.
+## Per-area plan (all built in the dark CEO page)
 
-This is done **first** so every subsequent area renders dark for free. It is the highest-risk step (a missed hard-coded colour = a light patch on a dark screen), so it gets its own phase + a visual pass.
-
-## Per-area plan
-
-| Area | Per-RSO? | Where it lives for the CEO | Notes |
+| Area | Per-RSO? | Where it lives | Data |
 |---|---|---|---|
-| **Ops tasks** | Yes (via `case.assigned_rso`) | **Under RSO Oversight**, per RSO + an "Unassigned" bucket | `/api/admin/ops/queue` already loads the case; expose `assigned_rso` (1-line) + a `?rso=` filter. Caseless "Unknown" emails → Unassigned. |
-| **Calls** | Yes (`scheduled_calls.assigned_rso_email`) | **Under RSO Oversight**, per RSO | Already RSO-tagged; `/api/admin/calls` works for super-admin. |
-| **GPs** | Yes (strong) | **Under RSO Oversight** → RSO → their GPs → full case detail (tasks/notes/docs/timeline/calls) | Largest area. Reuses `/api/admin/case`, `/api/admin/tasks`, `/api/admin/gp-documents`, `/api/admin/calls`, `/api/admin/candidate-summary`. |
-| **Support** | Partial | **Under RSO Oversight**, per RSO | Needs the support endpoint to include case-linked items + group by `assigned_rso` (today it filters `case_id IS NULL`). |
-| **Medical Centres** | No (org-wide) | Its own company-wide dark tab | Read-only directory; `/api/admin/medical-centres` unchanged. |
-| **Technical** | No (org-wide) | Its own company-wide dark tab | Server already CEO-gated (`/api/ceo/integrations`, `/api/ceo/technical/*`); front-end port only. |
-| **Overview** | — | First tab (executive dashboard) | Folded in from `ceo-dashboard.html`; reuses `/api/ceo/dashboard` + drilldowns. |
-| **RSO Oversight** | — | Second tab; the operational hub | Folded in; RSO cards → drill into an RSO → their ops/calls/support/GPs. |
+| **Ops tasks** | Yes (`case.assigned_rso`) | Under RSO Oversight → each RSO + "Unassigned" | NEW `/api/ceo/rso/:id/ops` (reads the same tasks as `/api/admin/ops/queue`, grouped by RSO). Caseless "Unknown" emails → Unassigned. Actions reuse existing endpoints. |
+| **Calls** | Yes (`scheduled_calls.assigned_rso_email`) | Under RSO Oversight → each RSO | NEW `/api/ceo/rso/:id/calls` (or reuse `/api/admin/calls` read-only, filtered client-side). |
+| **GPs** | Yes | Under RSO Oversight → RSO → GP list → full case detail (tasks/notes/docs/timeline/calls) | Reuse read endpoints (`/api/admin/case`, `/api/admin/tasks`, `/api/admin/gp-documents`, `/api/admin/candidate-summary`); actions reuse existing. Largest area. |
+| **Support** | Partial | Under RSO Oversight → each RSO | NEW `/api/ceo/rso/:id/support` that includes case-linked tickets grouped by `assigned_rso` (does not alter the existing admin support endpoint). |
+| **Medical Centres** | No (org-wide) | Its own company-wide dark tab | Read-only; reuse `/api/admin/medical-centres` (GET). |
+| **Technical** | No (org-wide) | Its own company-wide dark tab | Server already CEO-gated (`/api/ceo/integrations`, `/api/ceo/technical/*`); front-end only. |
+| **Overview** | — | First tab (already built) | `/api/ceo/dashboard` + drilldowns. |
+| **RSO Oversight** | — | Second tab; the spine | Already built; gains the per-RSO ops/calls/support/GPs drill-in. |
 
-**RSO Oversight becomes the spine.** For the CEO, the per-RSO drill-in is where ops tasks, calls, support, and GPs for that RSO all live — exactly the "everything under the corresponding RSO tab" you asked for.
+**RSO Oversight is the spine:** for the CEO, opening an RSO shows that RSO's ops tasks, calls, support, and GPs — "everything under the corresponding RSO tab," exactly as asked.
 
-## What stays the same for RSOs (Hazel)
+## Phased build order (each ships to preview)
 
-`admin.html` light theme, her current tabs and flat lists, untouched. All role-conditional: `isSA()` gates the dark theme, the Overview/RSO-Oversight tabs, the per-RSO reorganization, and the Medical Centres/Technical tabs. A non-super-admin sees today's page.
-
-## Phased build order
-
-- **Phase A — Dark theme foundation.** Tokenize `admin.html` colours, add `body.ceo-dark`, apply on `isSA()`. Verify RSO light UI is pixel-unchanged and the CEO view is fully dark. (Foundational; highest CSS risk.)
-- **Phase B — Fold in Overview + RSO Oversight.** Move the executive dashboard + RSO Oversight into `admin.html` as the first two super-admin views; retire the cross-links. (Now the CEO home is in-page.)
-- **Phase C — Ops + Calls under RSO Oversight.** Per-RSO ops task board + calls inside the RSO drill-in. The headline win.
-- **Phase D — GPs per RSO.** RSO → GP list → full case detail (the biggest area), dark.
-- **Phase E — Support per RSO.** Endpoint change + per-RSO support inside the drill-in.
-- **Phase F — Medical Centres + Technical.** Company-wide dark tabs.
-- **Phase G — Retire `ceo-dashboard.html`** (redirect to `/pages/admin`), cleanup, final adversarial review + end-to-end verification.
-
-Each phase ships independently and is verifiable on the preview branch, so you see progress at every step rather than at the end.
+- **Phase 1 — In-page shell + Ops under RSO Oversight.** Convert the CEO nav's operational items from links-to-admin into in-page tabs (dark panels); build the per-RSO ops task board inside the RSO drill-in (`/api/ceo/rso/:id/ops`), actions wired to existing endpoints. The headline win + the self-contained shell.
+- **Phase 2 — Calls under RSO Oversight.** Per-RSO calls in the drill-in.
+- **Phase 3 — GPs per RSO.** RSO → GP list → full dark case detail. The biggest area; its own phase with end-to-end action verification.
+- **Phase 4 — Support per RSO.**
+- **Phase 5 — Medical Centres + Technical** as company-wide dark tabs.
+- **Phase 6 — Final adversarial review + live verification + cleanup** (confirm `admin.html` is byte-for-byte untouched).
 
 ## Risks
 
-1. **Theming regression for RSOs** — the dark override must be strictly additive; any missed hard-coded colour shows as a light patch. Mitigation: tokenize systematically + a visual diff pass for the RSO (light) path.
-2. **GPs area size** — ~15 read + ~20 write endpoints; the riskiest port. It gets its own phase with end-to-end verification of each action.
-3. **Support RSO attribution** — requires an endpoint change that could affect Hazel's support list; must stay backward-compatible for the RSO view.
-4. **Scope** — this is large (xlarge). Phasing keeps each step reviewable and shippable.
+1. **Duplication drift** — the CEO ops/GPs/calls render logic duplicates admin.html's; future changes must be applied in both. Mitigation: reuse the same server endpoints/data so only the rendering differs, and document the paired locations.
+2. **GPs area size** — the largest port (~15 read + ~20 action endpoints); its own phase + per-action verification.
+3. **Action reuse correctness** — the CEO page calls `/api/admin/*` action endpoints; verify each persists and reads back (no change to those endpoints).
 
-## Verification
+## Non-negotiable verification each phase
 
-- Per phase: full vitest suite green, inline-script compiles, `node --check`, and a live read-only check against prod where data-backed (as done in the original rebuild).
-- RSO (light) path explicitly verified unchanged after the theming phase.
-- Final: adversarial multi-agent review + runtime smoke of every CEO surface.
+- Full vitest suite green, inline-script compiles, `node --check`.
+- **`git diff` confirms `pages/admin.html` is unchanged** (the hard constraint).
+- Live read-only reconciliation/runtime check where data-backed.
 
 ## Out of scope
 
+- No change to `pages/admin.html` or the RSO experience.
 - No change to the GP-facing app.
-- No change to RSO capabilities or their existing workflow beyond what's already shipped.
