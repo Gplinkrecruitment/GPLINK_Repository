@@ -19284,10 +19284,21 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
           await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
           return; // handled — skip the generic type-only pipeline
         }
-        // approve path: clear any stale flag, then fall through to the existing pipeline
+        // approve path: clear any stale flag.
         await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
           method: 'PATCH', body: { flag_reason: '', updated_at: new Date().toISOString() }
         });
+        // Onboarding qualifications are collected only to name-match the GP and to
+        // store the file for them to download later (at the MyIntealth step). A doc
+        // that PASSED AI verification needs NO manual RSO review task — only flagged
+        // ones do. Close any prior flag and stop before the generic pipeline would
+        // create a "Review uploaded …" doc_review task. (Non-onboarding prepared-doc
+        // uploads fall through to the existing doc_review pipeline so the RSO still
+        // reviews those.)
+        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification') {
+          await autoCloseDocReviewTask(userId, documentKey);
+          return;
+        }
       }
       // if vres not ok (AI error), fall through to the existing generic pipeline
     }
