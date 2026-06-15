@@ -961,6 +961,7 @@
     .ceo-gp-call-notes { margin-top: 6px; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
     .ceo-gp-call-summary { margin-top: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--panel-border); border-radius: var(--radius-sm, 6px); white-space: pre-wrap; word-break: break-word; }
     .ceo-gp-call-summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+    .ceo-gp-call-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
@@ -2662,11 +2663,11 @@
       });
     }
 
-    // Render this GP file's call history newest-first (read-only). Each row shows a
-    // status pill, scheduled time, assigned RSO, admin notes, a meeting summary for
-    // completed calls, and a Join link when a zoom_join_url is present. Resend/cancel/
-    // reschedule actions are deferred to Phase 3b. The endpoint returns calls already
-    // ordered created_at.desc (newest-first).
+    // Render this GP file's call history newest-first. Each row shows a status pill,
+    // scheduled time, assigned RSO, admin notes, a meeting summary for completed calls,
+    // a Join link when a zoom_join_url is present, plus per-call actions (resend/cancel/
+    // reschedule/no-show) gated by status to match admin.html. The endpoint returns calls
+    // already ordered created_at.desc (newest-first).
     function renderGpCallsPane(calls) {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
@@ -2697,6 +2698,23 @@
         if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
           html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';
         }
+        // Per-call actions, gated by status to match admin.html (the backend rejects a
+        // cancel unless status is invited/booked; no_show + cancelled are "needs
+        // rebooking" states). Resend only for invited; No Show only for booked.
+        var cs = (c.status || '').toLowerCase();
+        var cid = esc(c.id);
+        var actions = '';
+        if (cs === 'invited' || cs === 'booked') {
+          if (cs === 'invited') actions += '<button class="btn btn-blue" onclick="ceoGpCallResend(event, \'' + cid + '\')">Resend invite</button>';
+          actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
+          if (cs === 'booked') {
+            actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
+            actions += '<button class="btn btn-amber" onclick="ceoGpCallNoShow(event, \'' + cid + '\')">No Show</button>';
+          }
+        } else if (cs === 'no_show' || cs === 'cancelled') {
+          actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
+        }
+        if (actions) html += '<div class="ceo-gp-call-actions">' + actions + '</div>';
         html += '</div>';
       }
       pane.innerHTML = html;
@@ -2732,6 +2750,72 @@
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         var pane = document.getElementById('gpDetailPane');
         if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Calls</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Bust the per-GP calls cache and re-fetch GET /api/admin/calls?case_id= → re-render.
+    // Called after a successful call action so the Calls tab reflects the new status.
+    function refreshGpDetailCalls() {
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!caseId) return;
+      gpCallsCache = null;
+      loadGpCalls(caseId);
+    }
+
+    // Per-call actions from the GP Calls sub-tab. Reuse the admin call endpoints
+    // (super-admin's requireAdminSession) with the exact shapes admin.html sends:
+    //   resend     → POST /api/admin/calls/<id>/resend
+    //   cancel     → PATCH /api/admin/calls/<id> { status:'cancelled' }
+    //   no-show    → PATCH /api/admin/calls/<id> { status:'no_show' }
+    //   reschedule → PATCH /api/admin/calls/<id> { action:'reschedule' }
+    // On success: re-fetch calls → re-render. Failure shows a toast (checks parsed { ok }).
+    function ceoGpCallApiAction(ev, opts) {
+      if (ev) { ev.stopPropagation(); }
+      var btn = ev && ev.target ? ev.target : null;
+      if (btn) btn.disabled = true;
+      apiFetch(opts.path, opts.fetchOpts).then(function(d) {
+        if (d && d.ok) {
+          showToast(opts.successMsg, 'success');
+          refreshGpDetailCalls();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
+          if (btn) btn.disabled = false;
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      });
+    }
+    function ceoGpCallResend(ev, callId) {
+      if (!confirm('Resend the Calendly invite to this GP?')) return;
+      ceoGpCallApiAction(ev, {
+        path: '/api/admin/calls/' + encodeURIComponent(callId) + '/resend',
+        fetchOpts: { method: 'POST' },
+        successMsg: 'Invite resent'
+      });
+    }
+    function ceoGpCallCancel(ev, callId) {
+      if (!confirm('Cancel this scheduled call?')) return;
+      ceoGpCallApiAction(ev, {
+        path: '/api/admin/calls/' + encodeURIComponent(callId),
+        fetchOpts: { method: 'PATCH', body: { status: 'cancelled' } },
+        successMsg: 'Call cancelled'
+      });
+    }
+    function ceoGpCallNoShow(ev, callId) {
+      if (!confirm('Mark this call as a no-show?')) return;
+      ceoGpCallApiAction(ev, {
+        path: '/api/admin/calls/' + encodeURIComponent(callId),
+        fetchOpts: { method: 'PATCH', body: { status: 'no_show' } },
+        successMsg: 'Marked as no-show'
+      });
+    }
+    function ceoGpCallReschedule(ev, callId) {
+      if (!confirm('Reschedule this call? A new Calendly invite will be sent to the GP.')) return;
+      ceoGpCallApiAction(ev, {
+        path: '/api/admin/calls/' + encodeURIComponent(callId),
+        fetchOpts: { method: 'PATCH', body: { action: 'reschedule' } },
+        successMsg: 'Call rescheduled — new invite sent'
       });
     }
 
