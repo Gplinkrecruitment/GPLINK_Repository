@@ -898,6 +898,28 @@
     .ceo-calls-join { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #2D8CFF; color: #fff; border: 1px solid #2D8CFF; text-decoration: none; white-space: nowrap; }
     .ceo-calls-join:hover { background: #1f7ae0; }
 
+    /* ═══ GP FILE (read-only) under an RSO ═══ */
+    .rso-gp-row .name.gp-open-link { cursor: pointer; }
+    .rso-gp-row .name.gp-open-link:hover { color: var(--blue); }
+    .ceo-gp-detail-head { margin-bottom: 12px; }
+    .ceo-gp-detail-back { font-size: 13px; }
+    .ceo-gp-detail-profile { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border: 1px solid var(--panel-border); border-radius: var(--radius-lg); background: var(--panel); }
+    .ceo-gp-detail-id { flex: 1; min-width: 0; }
+    .ceo-gp-detail-name { font-size: 18px; font-weight: 700; color: var(--text); }
+    .ceo-gp-detail-contact { font-size: 12px; color: var(--text-dim); margin-top: 4px; word-break: break-word; }
+    .ceo-gp-detail-practice { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .ceo-gp-detail-pills { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+    .ceo-gp-detail-blocker { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 14px; border: 1px solid rgba(239,68,68,0.3); background: var(--red-dim); border-radius: var(--radius-md, 8px); }
+    .ceo-gp-detail-blocker-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--red); }
+    .ceo-gp-detail-blocker-reason { font-size: 13px; color: var(--text); }
+    .ceo-gp-detail-tabs { display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid var(--panel-border); }
+    .ceo-gp-detail-tab { padding: 8px 14px; font-size: 13px; font-weight: 600; font-family: var(--sans); color: var(--text-muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; }
+    .ceo-gp-detail-tab:hover { color: var(--text); }
+    .ceo-gp-detail-tab.active { color: var(--text); border-bottom-color: var(--blue); }
+    .ceo-gp-detail-pane { margin-top: 16px; }
+    .ceo-gp-detail-placeholder { padding: 14px 12px; }
+    .ceo-gp-detail-empty { padding: 14px 12px; font-size: 13px; color: var(--text-dim); border: 1px dashed var(--panel-border); border-radius: var(--radius-md, 8px); }
+
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
       .section-grid { grid-template-columns: 1fr; }
@@ -2042,9 +2064,10 @@
             var g = gps[i];
             var gStage = g.stage === 'visa' ? 'pbs' : g.stage;
             html += '<div class="rso-gp-row">';
-            html += '<span class="name">' + esc(g.name || 'Unknown') + (g.email ? ' <span style="color:var(--text-dim);font-weight:400">' + esc(g.email) + '</span>' : '') + '</span>';
+            html += '<span class="name gp-open-link" onclick="openGpDetail(\'' + esc(g.case_id) + '\', \'' + esc(rsoId) + '\')">' + esc(g.name || 'Unknown') + (g.email ? ' <span style="color:var(--text-dim);font-weight:400">' + esc(g.email) + '</span>' : '') + '</span>';
             if (gStage) html += '<span class="pill ' + pillClass(gStage) + '">' + esc(STAGE_LABELS[gStage] || gStage) + '</span>';
             if (g.status) html += statusPill(g.status);
+            html += '<button class="btn btn-blue" onclick="openGpDetail(\'' + esc(g.case_id) + '\', \'' + esc(rsoId) + '\')">Open</button>';
             html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(g.case_id) + '\')">Reassign RSO</button>';
             html += '</div>';
           }
@@ -2065,6 +2088,93 @@
         loadRsoCalls(rsoId);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
+
+    /* ═══ GP FILE (read-only) under an RSO ═══ */
+    // Cache of the most recently opened GP file: { caseId, rsoId, case, tasks, timeline }.
+    // Sub-tabs reuse this without refetching. Later tasks may extend it (timeline/docs/calls caches).
+    var gpDetailCache = null;
+    var gpDetailTab = 'tasks';
+
+    // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
+    function openGpDetail(caseId, rsoId) {
+      var c = document.getElementById('rsoContent');
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading GP file...</div></div>';
+      gpDetailTab = 'tasks';
+      apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
+        if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
+        gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
+        var cs = gpDetailCache.case;
+        var dispStage = cs.stage === 'visa' ? 'pbs' : cs.stage;
+
+        var html = '<div class="ceo-gp-detail">';
+        // Header: back link + profile
+        html += '<div class="ceo-gp-detail-head">';
+        html += '<span class="rso-detail-back ceo-gp-detail-back" onclick="openRsoDetail(\'' + esc(rsoId) + '\')">&#x2190; Back to RSO</span>';
+        html += '</div>';
+        html += '<div class="ceo-gp-detail-profile">';
+        html += '<div class="ceo-gp-detail-id">';
+        html += '<h2 class="ceo-gp-detail-name">' + esc(cs.gp_name || 'Unknown') + '</h2>';
+        var contactBits = [];
+        if (cs.gp_email) contactBits.push(esc(cs.gp_email));
+        if (cs.gp_phone) contactBits.push(esc(cs.gp_phone));
+        if (contactBits.length) html += '<div class="ceo-gp-detail-contact">' + contactBits.join(' &middot; ') + '</div>';
+        if (cs.practice_name) html += '<div class="ceo-gp-detail-practice">' + esc(cs.practice_name) + '</div>';
+        html += '</div>';
+        html += '<div class="ceo-gp-detail-pills">';
+        if (dispStage) html += '<span class="pill ' + pillClass(dispStage) + '">' + esc(STAGE_LABELS[dispStage] || dispStage) + '</span>';
+        if (cs.status) html += statusPill(cs.status);
+        html += '</div>';
+        html += '</div>';
+        if (cs.blocker_status) {
+          html += '<div class="ceo-gp-detail-blocker">';
+          html += '<span class="ceo-gp-detail-blocker-label">Blocked</span>';
+          if (cs.blocker_reason) html += '<span class="ceo-gp-detail-blocker-reason">' + esc(cs.blocker_reason) + '</span>';
+          html += '</div>';
+        }
+
+        // Sub-tab nav
+        var tabs = [
+          { key: 'tasks', label: 'Tasks' },
+          { key: 'notes', label: 'Notes' },
+          { key: 'timeline', label: 'Timeline' },
+          { key: 'documents', label: 'Documents' },
+          { key: 'calls', label: 'Calls' }
+        ];
+        html += '<div class="ceo-gp-detail-tabs" id="gpDetailTabs">';
+        for (var ti = 0; ti < tabs.length; ti++) {
+          html += '<button class="ceo-gp-detail-tab' + (tabs[ti].key === gpDetailTab ? ' active' : '') + '" data-gp-tab="' + tabs[ti].key + '">' + esc(tabs[ti].label) + '</button>';
+        }
+        html += '</div>';
+        html += '<div class="ceo-gp-detail-pane" id="gpDetailPane"></div>';
+        html += '</div>';
+
+        c.innerHTML = html;
+        renderGpDetailTab(gpDetailTab);
+      }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
+    }
+
+    // Dispatcher: render the active GP-file sub-tab into #gpDetailPane.
+    // For 3a.1 only 'tasks' is filled by a later task; the others show a placeholder
+    // that subsequent Phase 3a tasks (3a.2-3a.5) replace.
+    function renderGpDetailTab(tab) {
+      gpDetailTab = tab;
+      var tabsEl = document.getElementById('gpDetailTabs');
+      if (tabsEl) {
+        var btns = tabsEl.querySelectorAll('.ceo-gp-detail-tab');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].classList.toggle('active', btns[i].getAttribute('data-gp-tab') === tab);
+        }
+      }
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+    }
+
+    // Sub-tab click delegation for the GP file.
+    document.addEventListener('click', function(e) {
+      var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
+      if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); }
+    });
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
     function loadRsoOps(rsoId) {
