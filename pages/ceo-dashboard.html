@@ -951,6 +951,16 @@
     .ceo-gp-doc-view { font-size: 11px; padding: 4px 12px; flex-shrink: 0; }
     .ceo-gp-doc-noview { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
 
+    .ceo-gp-call { padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); background: var(--panel); margin-bottom: 8px; }
+    .ceo-gp-call-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .ceo-gp-call-time { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
+    .ceo-gp-call-join { margin-left: auto; font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #2D8CFF; color: #fff; border: 1px solid #2D8CFF; text-decoration: none; white-space: nowrap; }
+    .ceo-gp-call-join:hover { background: #1f7ae0; }
+    .ceo-gp-call-rso { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+    .ceo-gp-call-notes { margin-top: 6px; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .ceo-gp-call-summary { margin-top: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--panel-border); border-radius: var(--radius-sm, 6px); white-space: pre-wrap; word-break: break-word; }
+    .ceo-gp-call-summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
       .section-grid { grid-template-columns: 1fr; }
@@ -2128,6 +2138,7 @@
     var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
     var gpTimelineCache = null; // Timeline sub-tab: { caseId, events:[] } fetched once per GP file.
     var gpDocumentsCache = null; // Documents sub-tab: { caseId, sections:[], driveFolder } fetched once per GP file.
+    var gpCallsCache = null; // Calls sub-tab: { caseId, calls:[] } fetched once per GP file.
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
     function openGpDetail(caseId, rsoId) {
@@ -2208,6 +2219,7 @@
       if (tab === 'notes') { renderGpNotesTab(); return; }
       if (tab === 'timeline') { renderGpTimelineTab(); return; }
       if (tab === 'documents') { renderGpDocumentsTab(); return; }
+      if (tab === 'calls') { renderGpCallsTab(); return; }
       pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
     }
 
@@ -2524,6 +2536,79 @@
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         var pane = document.getElementById('gpDetailPane');
         if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Documents</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Render this GP file's call history newest-first (read-only). Each row shows a
+    // status pill, scheduled time, assigned RSO, admin notes, a meeting summary for
+    // completed calls, and a Join link when a zoom_join_url is present. Resend/cancel/
+    // reschedule actions are deferred to Phase 3b. The endpoint returns calls already
+    // ordered created_at.desc (newest-first).
+    function renderGpCallsPane(calls) {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var list = calls || [];
+      var html = '<div class="ceo-ops-section-head">Calls <span class="count">' + list.length + '</span></div>';
+      if (!list.length) {
+        html += '<div class="ceo-gp-detail-empty">No calls for this GP yet.</div>';
+        pane.innerHTML = html;
+        return;
+      }
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        var timeLabel = c.scheduled_at ? fmtCallTime(c.scheduled_at) : 'Not yet booked';
+        html += '<div class="ceo-gp-call">';
+        html += '<div class="ceo-gp-call-head">';
+        html += callStatusPill(c.status);
+        html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
+        if (c.zoom_join_url) {
+          html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
+        }
+        html += '</div>';
+        if (c.assigned_rso_name) {
+          html += '<div class="ceo-gp-call-rso">RSO: ' + esc(c.assigned_rso_name) + '</div>';
+        }
+        if (c.admin_notes) {
+          html += '<div class="ceo-gp-call-notes">' + esc(c.admin_notes) + '</div>';
+        }
+        if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
+          html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';
+        }
+        html += '</div>';
+      }
+      pane.innerHTML = html;
+    }
+
+    // Calls sub-tab: fetch this GP's calls once (cached per GP file), then render. Read-only.
+    function renderGpCallsTab() {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (gpCallsCache && gpCallsCache.caseId === caseId) {
+        renderGpCallsPane(gpCallsCache.calls);
+        return;
+      }
+      pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+      loadGpCalls(caseId);
+    }
+
+    // Fetch GET /api/admin/calls?case_id=<caseId>, cache, render. Read-only.
+    function loadGpCalls(caseId) {
+      apiFetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId)).then(function(d) {
+        // Guard against a stale response after the user switched GP files.
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        if (!d || !d.ok) {
+          var pane = document.getElementById('gpDetailPane');
+          if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Calls</div><div class="ceo-gp-detail-empty">Failed to load calls: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var calls = d.calls || [];
+        gpCallsCache = { caseId: caseId, calls: calls };
+        if (gpDetailTab === 'calls') renderGpCallsPane(calls);
+      }).catch(function(e) {
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        var pane = document.getElementById('gpDetailPane');
+        if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Calls</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
       });
     }
 
