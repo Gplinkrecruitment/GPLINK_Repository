@@ -878,6 +878,29 @@
     .ceo-mc-stat-value { font-size: 20px; font-weight: 700; font-family: var(--mono); }
     .ceo-mc-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
 
+    /* ═══ TECHNICAL (read-only integrations + health) ═══ */
+    .ceo-tech-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+    .ceo-tech-card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-lg); padding: 18px; transition: border-color 0.15s; }
+    .ceo-tech-card:hover { border-color: var(--panel-border-hover); }
+    .ceo-tech-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .ceo-tech-name { font-size: 14px; font-weight: 700; }
+    .ceo-tech-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; background: rgba(255,255,255,0.06); color: var(--text-muted); }
+    .ceo-tech-badge.connected { background: var(--green-dim); color: var(--green); }
+    .ceo-tech-badge.degraded { background: var(--amber-dim); color: var(--amber); }
+    .ceo-tech-badge.disconnected { background: var(--red-dim); color: var(--red); }
+    .ceo-tech-detail { font-size: 12px; color: var(--text-muted); margin-top: 6px; word-break: break-word; line-height: 1.5; }
+    .ceo-tech-detail b { color: var(--text); font-weight: 600; }
+    .ceo-tech-subrow { font-size: 12px; color: var(--text-muted); margin-top: 4px; padding-left: 12px; word-break: break-word; }
+    .ceo-tech-subrow b { color: var(--text); font-weight: 600; }
+    .ceo-tech-subkv { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .ceo-tech-err { font-size: 11px; color: var(--red); margin-top: 2px; }
+    .ceo-tech-health { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+    .ceo-tech-strip { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); padding: 10px 14px; font-size: 12px; color: var(--text-muted); }
+    .ceo-tech-strip-label { font-weight: 700; color: var(--text); }
+    .ceo-tech-strip-val { font-family: var(--mono); font-weight: 700; color: var(--text); }
+    .ceo-tech-strip-sub { color: var(--text-dim); }
+    .ceo-tech-strip-na { color: var(--text-dim); font-style: italic; }
+
     /* ═══ PER-RSO OPS BOARD (under RSO Oversight) ═══ */
     .ceo-ops-section { margin-top: 22px; }
     .ceo-ops-section-head { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
@@ -1064,7 +1087,7 @@
       <a class="nav-item" href="/pages/admin?view=support">Support</a>
       <a class="nav-item" href="/pages/admin?view=guide">Guide</a>
       <a class="nav-item" href="/pages/admin?view=scheduled_calls">Calls</a>
-      <a class="nav-item" href="/pages/admin?view=technical">Technical</a>
+      <div class="nav-item" data-tab="technical">Technical</div>
     </nav>
 
     <!-- TIME FILTER -->
@@ -1086,6 +1109,7 @@
     </div>
     <div class="content" id="rsoContent" style="display:none"></div>
     <div class="content" id="mcContent" style="display:none"></div>
+    <div class="content" id="techContent" style="display:none"></div>
   </div>
 
   <!-- MODAL -->
@@ -2224,6 +2248,154 @@
         setMedicalCentresStatus(btn.getAttribute('data-mc-status'));
       });
     })();
+
+    /* ═══ TECHNICAL (read-only integrations + health) ═══ */
+    // Cache the integrations payload so re-clicking the Technical tab doesn't
+    // refetch (the integrations endpoint runs live external pings, so it is slow).
+    var techCache = null;
+    function loadTechnical() {
+      if (techCache) { renderTechnical(techCache); return; }
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading integrations (live health checks)...</div></div>';
+      // Use a raw fetch (not apiFetch) so we can detect 401/403 by HTTP status and
+      // show a re-login message, mirroring admin.html's loadIntegrations.
+      fetch('/api/ceo/integrations', { credentials: 'same-origin' }).then(function(r) {
+        if (r.status === 401 || r.status === 403) {
+          c.innerHTML = '<div class="drilldown-empty">Session expired. <a href="/pages/admin-signin" style="color:var(--blue);text-decoration:underline">Log in again</a></div>';
+          return null;
+        }
+        return r.json();
+      }).then(function(d) {
+        if (d === null) return; // already handled (re-login)
+        if (!d || !d.ok || !Array.isArray(d.integrations)) {
+          c.innerHTML = '<div class="drilldown-empty">Failed to load integrations: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        techCache = d.integrations;
+        renderTechnical(techCache);
+      }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
+    }
+
+    // Map an integration/mailbox status to a badge colour class.
+    function techStatusClass(status) {
+      if (status === 'connected') return 'connected';
+      if (status === 'degraded' || status === 'configured') return 'degraded';
+      if (status === 'disconnected') return 'disconnected';
+      return 'unknown';
+    }
+    function techStatusLabel(status) {
+      if (status === 'degraded') return 'Needs Attention';
+      if (status === 'configured') return 'Configured';
+      return status;
+    }
+
+    // Render one detail value (scalar / boolean / array / object) as readable rows.
+    function techDetailRow(label, val) {
+      var lbl = esc(label.replace(/_/g, ' '));
+      if (val === null || val === undefined) {
+        return '<div class="ceo-tech-detail"><b>' + lbl + ':</b> &mdash;</div>';
+      }
+      if (typeof val === 'boolean') {
+        return '<div class="ceo-tech-detail"><b>' + lbl + ':</b> ' + (val ? 'Yes' : 'No') + '</div>';
+      }
+      if (Array.isArray(val)) {
+        var out = '<div class="ceo-tech-detail"><b>' + lbl + ':</b></div>';
+        if (!val.length) { out += '<div class="ceo-tech-subrow" style="color:var(--text-dim)">&mdash;</div>'; return out; }
+        for (var ai = 0; ai < val.length; ai++) {
+          var item = val[ai];
+          if (item !== null && typeof item === 'object') {
+            // Structured object (e.g. Gmail mailboxes): primary + status badge + error.
+            var primary = item.email || item.name || item.label || '';
+            var st = (item.status !== undefined && item.status !== null) ? String(item.status) : '';
+            var err = (item.client_error !== undefined && item.client_error !== null) ? String(item.client_error) : '';
+            var sub = '<div class="ceo-tech-subrow">';
+            if (primary) sub += '<b>' + esc(primary) + '</b>';
+            if (st) sub += (primary ? ' ' : '') + '<span class="ceo-tech-badge ' + techStatusClass(st) + '">' + esc(techStatusLabel(st)) + '</span>';
+            if (err) sub += '<div class="ceo-tech-err">' + esc(err) + '</div>';
+            if (!primary && !st && !err) {
+              var ikeys = Object.keys(item);
+              for (var iki = 0; iki < ikeys.length; iki++) {
+                var iv = item[ikeys[iki]];
+                sub += '<div class="ceo-tech-subkv">' + esc(ikeys[iki].replace(/_/g, ' ')) + ': ' + esc(iv === null || iv === undefined ? '—' : (typeof iv === 'boolean' ? (iv ? 'Yes' : 'No') : String(iv))) + '</div>';
+              }
+            }
+            sub += '</div>';
+            out += sub;
+          } else {
+            out += '<div class="ceo-tech-subrow">' + esc(String(item)) + '</div>';
+          }
+        }
+        return out;
+      }
+      if (typeof val === 'object') {
+        var ovo = '<div class="ceo-tech-detail"><b>' + lbl + ':</b></div>';
+        var okeys = Object.keys(val);
+        for (var ok = 0; ok < okeys.length; ok++) {
+          var ov = val[okeys[ok]];
+          ovo += '<div class="ceo-tech-subkv">' + esc(okeys[ok].replace(/_/g, ' ')) + ': ' + esc(ov === null || ov === undefined ? '—' : (typeof ov === 'boolean' ? (ov ? 'Yes' : 'No') : String(ov))) + '</div>';
+        }
+        return ovo;
+      }
+      return '<div class="ceo-tech-detail"><b>' + lbl + ':</b> ' + esc(String(val)) + '</div>';
+    }
+
+    function renderTechnical(integrations) {
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      var html = '<div class="ceo-mc-head"><h2 style="font-size:16px;font-weight:700">Technical</h2></div>';
+      if (!integrations.length) {
+        html += '<div class="drilldown-empty">No integrations reported.</div>';
+      } else {
+        html += '<div class="ceo-tech-cards">';
+        for (var i = 0; i < integrations.length; i++) {
+          var it = integrations[i];
+          html += '<div class="ceo-tech-card">';
+          html += '<div class="ceo-tech-card-head"><span class="ceo-tech-name">' + esc(it.name || it.key || 'Integration') + '</span>'
+            + '<span class="ceo-tech-badge ' + techStatusClass(it.status) + '">' + esc(techStatusLabel(it.status)) + '</span></div>';
+          var det = it.details || {};
+          var dkeys = Object.keys(det);
+          for (var k = 0; k < dkeys.length; k++) { html += techDetailRow(dkeys[k], det[dkeys[k]]); }
+          // Reconnect / Sync buttons are intentionally NOT rendered here. They trigger
+          // live external calls (Gmail watch renewal, Zoho OAuth) and are a DEFERRED
+          // follow-up — Phase 5 Technical is read-only display.
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      // Health stat strips (system bugs + client errors) are appended below the grid.
+      html += '<div class="ceo-tech-health" id="techHealthStrips">'
+        + '<div class="ceo-tech-strip" id="techBugsStrip"><span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">—</span></div>'
+        + '<div class="ceo-tech-strip" id="techErrStrip"><span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
+        + '</div>';
+      c.innerHTML = html;
+      loadTechnicalHealth();
+    }
+
+    // Fetch the two health summaries independently; a failure of either shows a
+    // muted "unavailable" note in that strip rather than breaking the whole tab.
+    function loadTechnicalHealth() {
+      var bugStrip = document.getElementById('techBugsStrip');
+      var errStrip = document.getElementById('techErrStrip');
+      if (bugStrip) {
+        apiFetch('/api/ceo/technical/system-bugs?status=open').then(function(d) {
+          if (!bugStrip) return;
+          if (!d || !d.ok || !d.summary) { bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
+          var s = d.summary;
+          bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">' + (s.open || 0)
+            + '</span> <span class="ceo-tech-strip-sub">(critical ' + (s.critical || 0) + ' / high ' + (s.high || 0) + ')</span>';
+        }).catch(function() { if (bugStrip) bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
+      }
+      if (errStrip) {
+        apiFetch('/api/ceo/technical/client-errors?status=open').then(function(d) {
+          if (!errStrip) return;
+          if (!d || !d.ok || !d.summary) { errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
+          var s = d.summary;
+          errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">open ' + (s.open || 0)
+            + '</span> <span class="ceo-tech-strip-sub">/ 24h occurrences ' + (s.total_occurrences_24h || 0) + '</span>';
+        }).catch(function() { if (errStrip) errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
+      }
+    }
 
     function openRsoDetail(rsoId) {
       var c = document.getElementById('rsoContent');
