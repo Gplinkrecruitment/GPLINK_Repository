@@ -2304,11 +2304,92 @@
           if (task.status) html += statusPill(task.status);
           html += '</div>';
           html += '<span class="ceo-ops-due' + (task.__overdue ? ' overdue' : '') + '">' + esc(task.__dueLabel) + '</span>';
+          // Per-task actions — done/cancelled tasks have no further action.
+          var taskDone = GP_TASK_DONE_STATUSES.indexOf(task.status) !== -1;
+          if (!taskDone) {
+            var tid = esc(task.id);
+            html += '<div class="ceo-ops-actions">';
+            if (task.status !== 'in_progress') html += '<button class="btn btn-blue" onclick="ceoGpTaskAction(event, \'' + tid + '\', \'in_progress\')">Start</button>';
+            if (task.status !== 'waiting') html += '<button class="btn btn-amber" onclick="ceoGpTaskAction(event, \'' + tid + '\', \'waiting\')">Waiting</button>';
+            html += '<button class="btn btn-green" onclick="ceoGpTaskAction(event, \'' + tid + '\', \'completed\')">Complete</button>';
+            if (task.status !== 'escalated') html += '<button class="btn btn-amber" onclick="ceoGpTaskEscalate(event, \'' + tid + '\')">Escalate to CEO</button>';
+            html += '</div>';
+          }
           html += '</div>';
         }
         html += '</div></div>';
       }
       pane.innerHTML = html;
+    }
+
+    // Re-fetch the open GP's case and refresh gpDetailCache, then re-render the Tasks
+    // tab. Returns a promise; rejects (via reject in caller) only on hard error. Keeps
+    // gpDetailCache.case/tasks/timeline consistent with GET /api/admin/case?id=.
+    function refreshGpDetailTasks() {
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!caseId) return Promise.resolve();
+      return apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
+        if (!d || !d.ok) return;
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return; // GP file changed mid-flight
+        gpDetailCache.case = d.case || gpDetailCache.case;
+        gpDetailCache.tasks = d.tasks || [];
+        gpDetailCache.timeline = d.timeline || [];
+        if (gpDetailTab === 'tasks') renderGpTasksTab();
+      });
+    }
+
+    // Per-task status action from the GP Tasks sub-tab. Reuses PUT /api/admin/task
+    // (super-admin's requireAdminSession). On success: re-fetch case → refresh cache →
+    // re-render. Failure shows a toast; checks both res.ok and the parsed { ok }.
+    function ceoGpTaskAction(ev, taskId, status) {
+      if (ev) { ev.stopPropagation(); }
+      var btn = ev && ev.target ? ev.target : null;
+      if (btn) btn.disabled = true;
+      apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+        method: 'PUT',
+        body: { status: status }
+      }).then(function(d) {
+        if (d && d.ok) {
+          var labels = { completed: 'completed', in_progress: 'started', waiting: 'set to waiting' };
+          showToast('Task ' + (labels[status] || 'updated'), 'success');
+          refreshGpDetailTasks();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
+          if (btn) btn.disabled = false;
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      });
+    }
+
+    // Escalate a GP task to the CEO. No existing CEO-page "escalate to CEO" flow exists
+    // (resolveEscalation/respondEscalation handle the inbound direction), so use the
+    // documented PUT /api/admin/task escalation shape: status escalated + escalated_to
+    // 'CEO' + escalated_reason from a prompt. The server records escalated_by/_at.
+    function ceoGpTaskEscalate(ev, taskId) {
+      if (ev) { ev.stopPropagation(); }
+      var reason = prompt('Escalate this task to the CEO — reason:');
+      if (reason === null) return; // cancelled
+      reason = reason.trim();
+      if (!reason) { showToast('A reason is required to escalate', 'error'); return; }
+      var btn = ev && ev.target ? ev.target : null;
+      if (btn) btn.disabled = true;
+      apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+        method: 'PUT',
+        body: { status: 'escalated', escalated_to: 'CEO', escalated_reason: reason }
+      }).then(function(d) {
+        if (d && d.ok) {
+          showToast('Task escalated to CEO', 'success');
+          refreshGpDetailTasks();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
+          if (btn) btn.disabled = false;
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      });
     }
 
     // Pure mirrors of lib/ceo-metrics.js (the authoritative, unit-tested contracts).
