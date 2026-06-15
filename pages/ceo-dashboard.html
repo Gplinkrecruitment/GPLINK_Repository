@@ -855,6 +855,29 @@
     .rso-gp-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
     .rso-gp-row .name { font-weight: 600; flex: 1; }
 
+    /* ═══ MEDICAL CENTRES (company-wide tab, read-only) ═══ */
+    .ceo-mc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .ceo-mc-toggle { display: inline-flex; gap: 4px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); padding: 3px; }
+    .ceo-mc-toggle-btn { padding: 6px 14px; font-size: 12px; font-weight: 600; color: var(--text-muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; transition: color 0.15s, background 0.15s; }
+    .ceo-mc-toggle-btn:hover { color: var(--text); }
+    .ceo-mc-toggle-btn.active { color: #fff; background: var(--blue); }
+    .ceo-mc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+    .ceo-mc-card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-lg); padding: 18px; transition: border-color 0.15s, transform 0.15s; }
+    .ceo-mc-card:hover { border-color: var(--panel-border-hover); transform: translateY(-1px); }
+    .ceo-mc-name { font-size: 15px; font-weight: 700; }
+    .ceo-mc-name a { color: var(--blue); text-decoration: none; }
+    .ceo-mc-name a:hover { text-decoration: underline; }
+    .ceo-mc-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .ceo-mc-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+    .ceo-mc-contact { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; word-break: break-word; }
+    .ceo-mc-contact-name { font-weight: 600; color: var(--text); }
+    .ceo-mc-contact a { color: var(--text-muted); text-decoration: none; }
+    .ceo-mc-contact a:hover { color: var(--text); text-decoration: underline; }
+    .ceo-mc-stats { display: flex; gap: 18px; margin-top: 14px; }
+    .ceo-mc-stat { display: flex; flex-direction: column; }
+    .ceo-mc-stat-value { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+    .ceo-mc-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+
     /* ═══ PER-RSO OPS BOARD (under RSO Oversight) ═══ */
     .ceo-ops-section { margin-top: 22px; }
     .ceo-ops-section-head { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
@@ -1037,7 +1060,7 @@
       <div class="nav-item active" data-tab="overview">Overview</div>
       <div class="nav-item" data-tab="rsos">RSO Oversight</div>
       <a class="nav-item" href="/pages/admin?view=gps">GPs</a>
-      <a class="nav-item" href="/pages/admin?view=medicalcentres">Medical Centres</a>
+      <div class="nav-item" data-tab="medical">Medical Centres</div>
       <a class="nav-item" href="/pages/admin?view=support">Support</a>
       <a class="nav-item" href="/pages/admin?view=guide">Guide</a>
       <a class="nav-item" href="/pages/admin?view=scheduled_calls">Calls</a>
@@ -1062,6 +1085,7 @@
       </div>
     </div>
     <div class="content" id="rsoContent" style="display:none"></div>
+    <div class="content" id="mcContent" style="display:none"></div>
   </div>
 
   <!-- MODAL -->
@@ -2063,6 +2087,14 @@
     });
 
     /* ── Standalone top-nav tabs ── */
+    // Panel registry: maps a tab key to the id of the content panel it shows, and
+    // (optionally) to the loader to call when the tab is opened. New tabs are added
+    // here so the dispatcher scales without new branches. Loaders/panels added in
+    // later tasks may not exist yet (techContent/loadTechnical arrive in 5.2), so
+    // every lookup is guarded — a missing panel is a no-op and TAB_LOADERS.technical
+    // stays undefined until defined.
+    var TAB_PANELS = { overview: 'mainContent', rsos: 'rsoContent', medical: 'mcContent', technical: 'techContent' };
+    var TAB_LOADERS = { rsos: loadRsoOversight, medical: loadMedicalCentres, technical: typeof loadTechnical === 'function' ? loadTechnical : undefined };
     var currentTab = 'overview';
     document.getElementById('ceoTopNav').addEventListener('click', function(e) {
       var item = e.target.closest('.nav-item[data-tab]');
@@ -2072,9 +2104,8 @@
       currentTab = tab;
       var items = document.querySelectorAll('#ceoTopNav .nav-item');
       for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', items[i].getAttribute('data-tab') === tab);
-      document.getElementById('mainContent').style.display = (tab === 'overview') ? '' : 'none';
-      document.getElementById('rsoContent').style.display = (tab === 'rsos') ? '' : 'none';
-      if (tab === 'rsos') loadRsoOversight();
+      Object.keys(TAB_PANELS).forEach(function(k) { var el = document.getElementById(TAB_PANELS[k]); if (el) el.style.display = (k === tab) ? '' : 'none'; });
+      if (TAB_LOADERS[tab]) TAB_LOADERS[tab]();
     });
     /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO Oversight tab on load
        (used by the unified-nav "RSO Oversight" link from the admin work-list page). */
@@ -2114,6 +2145,85 @@
       html += '</div>';
       c.innerHTML = html;
     }
+
+    /* ═══ MEDICAL CENTRES (company-wide standalone tab, read-only) ═══ */
+    // Cache results per status so re-clicking the tab (or toggling Open/Filled)
+    // doesn't refetch. Keyed by 'open'|'filled'. Read-only — no add/edit.
+    var mcCache = {};
+    var mcStatus = 'open';
+    function loadMedicalCentres() {
+      // Re-clicking the tab should not refetch if we already have data for the
+      // current status — just re-render from cache.
+      if (mcCache[mcStatus]) { renderMedicalCentres(mcCache[mcStatus], mcStatus); return; }
+      var c = document.getElementById('mcContent');
+      if (!c) return;
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading medical centres...</div></div>';
+      apiFetch('/api/admin/medical-centres?status=' + encodeURIComponent(mcStatus)).then(function(d) {
+        if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed to load medical centres: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
+        var centres = Array.isArray(d.centres) ? d.centres : [];
+        mcCache[mcStatus] = centres;
+        renderMedicalCentres(centres, mcStatus);
+      }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
+    }
+
+    // Open/Filled toggle: switch the active status and (re)load. Wired via the
+    // delegated #mcContent click handler below so re-rendering keeps it live.
+    function setMedicalCentresStatus(status) {
+      if (status !== 'open' && status !== 'filled') return;
+      if (status === mcStatus && mcCache[mcStatus]) return;
+      mcStatus = status;
+      loadMedicalCentres();
+    }
+
+    function renderMedicalCentres(centres, status) {
+      var c = document.getElementById('mcContent');
+      if (!c) return;
+      var head = '<div class="ceo-mc-head">'
+        + '<h2 style="font-size:16px;font-weight:700">Medical Centres</h2>'
+        + '<div class="ceo-mc-toggle">'
+        + '<button class="ceo-mc-toggle-btn' + (status === 'open' ? ' active' : '') + '" data-mc-status="open">Open</button>'
+        + '<button class="ceo-mc-toggle-btn' + (status === 'filled' ? ' active' : '') + '" data-mc-status="filled">Filled</button>'
+        + '</div></div>';
+      if (!centres.length) { c.innerHTML = head + '<div class="drilldown-empty">No medical centres found.</div>'; return; }
+      var html = head + '<div class="ceo-mc-grid">';
+      for (var i = 0; i < centres.length; i++) {
+        var m = centres[i];
+        var name = m.practice_name || m.client_name || 'Unknown Practice';
+        html += '<div class="ceo-mc-card">';
+        if (m.website) {
+          html += '<div class="ceo-mc-name"><a href="' + esc(m.website) + '" target="_blank" rel="noopener">' + esc(name) + '</a></div>';
+        } else {
+          html += '<div class="ceo-mc-name">' + esc(name) + '</div>';
+        }
+        if (m.location) html += '<div class="ceo-mc-sub">' + esc(m.location) + '</div>';
+        var meta = [];
+        if (m.work_type) meta.push(esc(m.work_type));
+        if (m.billing_type) meta.push(esc(m.billing_type));
+        if (meta.length) html += '<div class="ceo-mc-meta">' + meta.join(' &middot; ') + '</div>';
+        if (m.contact_name || m.contact_email || m.contact_phone) {
+          html += '<div class="ceo-mc-contact">';
+          if (m.contact_name) html += '<div class="ceo-mc-contact-name">' + esc(m.contact_name) + '</div>';
+          if (m.contact_email) html += '<div><a href="mailto:' + esc(m.contact_email) + '">' + esc(m.contact_email) + '</a></div>';
+          if (m.contact_phone) html += '<div><a href="tel:' + esc(m.contact_phone) + '">' + esc(m.contact_phone) + '</a></div>';
+          html += '</div>';
+        }
+        html += '<div class="ceo-mc-stats"><div class="ceo-mc-stat"><span class="ceo-mc-stat-value">' + (m.open_positions || 0) + '</span><span class="ceo-mc-stat-label">' + (status === 'filled' ? 'Positions' : 'Open Positions') + '</span></div></div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      c.innerHTML = html;
+    }
+
+    // Delegated click handler for the Open/Filled toggle inside #mcContent.
+    (function() {
+      var mc = document.getElementById('mcContent');
+      if (!mc) return;
+      mc.addEventListener('click', function(e) {
+        var btn = e.target.closest('.ceo-mc-toggle-btn[data-mc-status]');
+        if (!btn) return;
+        setMedicalCentresStatus(btn.getAttribute('data-mc-status'));
+      });
+    })();
 
     function openRsoDetail(rsoId) {
       var c = document.getElementById('rsoContent');
