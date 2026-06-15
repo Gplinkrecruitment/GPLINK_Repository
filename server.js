@@ -36780,6 +36780,96 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/rso/:id/ops — open ops tasks owned by one RSO, grouped-ready (#per-RSO ops)
+  var rsoOpsMatch = pathname.match(/^\/api\/ceo\/rso\/([^\/]+)\/ops$/);
+  if (rsoOpsMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rsoOpsCtx = requireSuperAdminSession(req, res);
+    if (!rsoOpsCtx) return;
+
+    var rsoOpsId = decodeURIComponent(rsoOpsMatch[1]);
+
+    // Active tasks (same statuses as the admin ops queue), excluding caseless whatsapp_help.
+    var opsTasksRes = await supabaseDbRequest('registration_tasks',
+      'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=2000');
+    var opsTasks = (opsTasksRes.ok && Array.isArray(opsTasksRes.data) ? opsTasksRes.data : []).filter(function (t) {
+      return !(t.task_type === 'whatsapp_help' && !t.case_id);
+    });
+
+    // Cases for those tasks → caseById (carrying assigned_rso for the grouping).
+    var opsCaseIds = [];
+    var seenOpsCase = {};
+    for (var oci = 0; oci < opsTasks.length; oci++) {
+      var ocid = opsTasks[oci].case_id;
+      if (ocid && !seenOpsCase[ocid]) { seenOpsCase[ocid] = true; opsCaseIds.push(ocid); }
+    }
+    var caseById = {};
+    if (opsCaseIds.length > 0) {
+      var opsCasesRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,assigned_rso,practice_name&id=in.(' + opsCaseIds.map(encodeURIComponent).join(',') + ')');
+      if (opsCasesRes.ok && Array.isArray(opsCasesRes.data)) {
+        opsCasesRes.data.forEach(function (c) { caseById[c.id] = c; });
+      }
+    }
+
+    // Filter to this RSO's tasks (case-owner model; mirrors _caseRsoKey / __unassigned__).
+    var rsoOpsTasks = ceoMetrics.opsTasksForRso(opsTasks, caseById, rsoOpsId);
+
+    // GP names for the owning cases.
+    var opsUserIds = [];
+    var seenOpsUser = {};
+    for (var oui = 0; oui < rsoOpsTasks.length; oui++) {
+      var ocase = caseById[rsoOpsTasks[oui].case_id];
+      var ouid = ocase && ocase.user_id;
+      if (ouid && !seenOpsUser[ouid]) { seenOpsUser[ouid] = true; opsUserIds.push(ouid); }
+    }
+    var opsProfileMap = {};
+    if (opsUserIds.length > 0) {
+      var opsProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name,email&user_id=in.(' + opsUserIds.map(encodeURIComponent).join(',') + ')');
+      if (opsProfRes.ok && Array.isArray(opsProfRes.data)) {
+        opsProfRes.data.forEach(function (p) { opsProfileMap[p.user_id] = p; });
+      }
+    }
+
+    var opsEnriched = rsoOpsTasks.map(function (t) {
+      var c = caseById[t.case_id] || {};
+      var p = opsProfileMap[c.user_id] || {};
+      var gpName = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown');
+      return {
+        id: t.id,
+        title: t.title || '',
+        task_type: t.task_type || '',
+        status: t.status || '',
+        priority: t.priority || 'normal',
+        due_date: t.due_date || null,
+        gp_name: gpName,
+        gp_user_id: c.user_id || null,
+        case_id: t.case_id || null,
+        gmail_thread_id: t.gmail_thread_id || null,
+        gmail_message_id: t.gmail_message_id || null,
+        email_sender: t.email_sender || null
+      };
+    });
+
+    // Sort by priority/urgency, then due date (earliest/most-urgent first; no due date last).
+    var OPS_PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
+    opsEnriched.sort(function (a, b) {
+      var ra = (a.priority in OPS_PRIORITY_RANK) ? OPS_PRIORITY_RANK[a.priority] : 2;
+      var rb = (b.priority in OPS_PRIORITY_RANK) ? OPS_PRIORITY_RANK[b.priority] : 2;
+      if (ra !== rb) return ra - rb;
+      var da = a.due_date || '';
+      var db = b.due_date || '';
+      if (da && db) return da < db ? -1 : (da > db ? 1 : 0);
+      if (da && !db) return -1;
+      if (!da && db) return 1;
+      return 0;
+    });
+
+    sendJson(res, 200, { ok: true, rso_id: rsoOpsId, tasks: opsEnriched });
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════
