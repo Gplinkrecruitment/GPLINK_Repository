@@ -34057,6 +34057,34 @@ Return ONLY valid JSON with no markdown formatting:
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rfTaskId),
       { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, updated_at: new Date().toISOString() } });
 
+    // Lift the GP's "under review" restriction once every flagged qualification is
+    // resolved. A flagged qualification puts the account into account_status
+    // 'under_review' (restricted mode — the GP only gets MyIntealth + Account and
+    // sees the "Account Under Review" gate everywhere else). The modal promises
+    // "verify your qualifications and resume full access", but nothing delivered
+    // that — approving the doc never restored access. On APPROVE, if no other
+    // flagged_doc tasks remain open for this case, set the account back to active.
+    if (rfDecision === 'approve' && rfUserId) {
+      try {
+        const remainingFlags = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(rfTask.case_id) +
+          '&task_type=eq.flagged_doc&status=in.(open,in_progress,waiting)&limit=1');
+        const noFlagsLeft = remainingFlags.ok && Array.isArray(remainingFlags.data) && remainingFlags.data.length === 0;
+        if (noFlagsLeft) {
+          const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+          const curState = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state && typeof stRes.data[0].state === 'object') ? stRes.data[0].state : null;
+          if (curState && curState.account_status === 'under_review') {
+            curState.account_status = 'active';
+            await upsertSupabaseUserState(rfUserId, curState, new Date().toISOString());
+            sendAccountActivatedEmail(rfUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
+            await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change', 'Account restriction lifted — all flagged qualifications verified', 'account_status set to active', adminCtx.email);
+          }
+        }
+      } catch (restoreErr) {
+        console.error('[ReviewFlaggedDoc] account restore error:', restoreErr.message);
+      }
+    }
+
     // Email the GP.
     if (rfUserId) {
       if (rfDecision === 'approve') {
