@@ -6967,7 +6967,7 @@
         {
           key: "visa",
           title: "Visa Application",
-          summary: "Start your 482→186 visa pathway once registration timing is confirmed.",
+          summary: "Begin your 482→186 visa pathway — you can start this at any time.",
           status: "pending",
           started: false,
           href: "visa"
@@ -9763,14 +9763,21 @@
         const status = normalizeChecklistStatus(item && item.status);
         const title = String(item && item.title || `Step ${index + 1}`).trim();
         const started = item && item.started === true;
-        const unlocked = bypassAll || !blockedBy;
+        // Visa Application is an independent step the GP can begin at any time —
+        // the 482→186 pathway runs in parallel with registration (the nav journey
+        // already treats it as unlocked). It is never locked, and it must not gate
+        // the steps that follow it.
+        const isAlwaysAvailable = String(item && item.key || "") === "visa" || /visa/i.test(title);
+        const unlocked = bypassAll || !blockedBy || isAlwaysAvailable;
         const actionLabel = status === "complete"
           ? "Completed"
           : (!unlocked ? "Locked" : (started || status === "current" ? "Continue" : "Get Started"));
         const helperText = unlocked
           ? String(item && item.summary || "").trim()
           : `Please complete ${blockedBy} to unlock ${title}.`;
-        const nextBlockedBy = blockedBy || (status === "complete" ? null : title);
+        const nextBlockedBy = isAlwaysAvailable
+          ? blockedBy
+          : (blockedBy || (status === "complete" ? null : title));
         const derived = {
           key: String(item && item.key || `step_${index + 1}`),
           title,
