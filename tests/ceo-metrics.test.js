@@ -760,3 +760,59 @@ describe('mergeGpTimeline (GP file Timeline sub-tab)', () => {
     expect(M.mergeGpTimeline(null, messages).map(e => e.id)).toEqual(['m2', 'm1']);
   });
 });
+
+describe('gpDocumentSections (GP file Documents sub-tab)', () => {
+  const documents = {
+    directToAhpra: [
+      { label: 'Passport', status: 'verified', file_url: 'https://a/passport', file_name: 'passport.pdf', updated_at: '2026-06-10T09:00:00Z' }
+    ],
+    preparedByCandidate: [
+      { document_key: 'cv', ops_status: 'pending', webViewLink: 'https://a/cv', name: 'cv.docx', updated_at: '2026-06-11T09:00:00Z' },
+      { label: 'Cover letter', status: null, updated_at: null } // no link -> not viewable
+    ],
+    preparedByGpLink: [],
+    otherFiles: [
+      { label: 'Misc', ops_status: 'uploaded', file_url: 'https://a/misc', name: 'misc.png', updated_at: '2026-06-12T09:00:00Z' }
+    ]
+  };
+
+  it('returns the four categories in fixed order with their human labels', () => {
+    const sections = M.gpDocumentSections(documents);
+    expect(sections.map(s => s.key)).toEqual(['directToAhpra', 'preparedByCandidate', 'preparedByGpLink', 'otherFiles']);
+    expect(sections.map(s => s.label)).toEqual(['Direct to AHPRA', 'Prepared by Candidate', 'Prepared by GP LINK', 'Other Files']);
+  });
+
+  it('normalizes each doc, preferring the primary field name then the alias', () => {
+    const sections = M.gpDocumentSections(documents);
+    const byKey = {};
+    sections.forEach(s => { byKey[s.key] = s.docs; });
+    // directToAhpra: label/status/file_url/file_name forms
+    expect(byKey.directToAhpra[0]).toEqual({
+      label: 'Passport', status: 'verified', url: 'https://a/passport', fileName: 'passport.pdf', updatedAt: '2026-06-10T09:00:00Z'
+    });
+    // preparedByCandidate first uses the alias forms (document_key/ops_status/webViewLink/name)
+    expect(byKey.preparedByCandidate[0]).toEqual({
+      label: 'cv', status: 'pending', url: 'https://a/cv', fileName: 'cv.docx', updatedAt: '2026-06-11T09:00:00Z'
+    });
+    // second has no link -> url null
+    expect(byKey.preparedByCandidate[1].url).toBe(null);
+    // otherFiles uses ops_status + file_url + name
+    expect(byKey.otherFiles[0]).toEqual({
+      label: 'Misc', status: 'uploaded', url: 'https://a/misc', fileName: 'misc.png', updatedAt: '2026-06-12T09:00:00Z'
+    });
+  });
+
+  it('preserves doc order within a category and keeps empty categories', () => {
+    const sections = M.gpDocumentSections(documents);
+    const byKey = {};
+    sections.forEach(s => { byKey[s.key] = s.docs; });
+    expect(byKey.preparedByCandidate.map(d => d.label)).toEqual(['cv', 'Cover letter']);
+    expect(byKey.preparedByGpLink).toEqual([]); // empty category still present
+  });
+
+  it('handles missing/empty input by returning the four empty sections', () => {
+    expect(M.gpDocumentSections(null).map(s => s.key)).toEqual(['directToAhpra', 'preparedByCandidate', 'preparedByGpLink', 'otherFiles']);
+    expect(M.gpDocumentSections(null).every(s => s.docs.length === 0)).toBe(true);
+    expect(M.gpDocumentSections({}).every(s => s.docs.length === 0)).toBe(true);
+  });
+});

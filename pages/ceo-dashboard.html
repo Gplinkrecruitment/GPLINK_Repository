@@ -936,6 +936,20 @@
     .ceo-gp-tl-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
     .ceo-gp-tl-who { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
     .ceo-gp-tl-time { font-size: 11px; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; flex-shrink: 0; }
+    /* Documents sub-tab */
+    .ceo-gp-drive-link { font-size: 11px; color: var(--accent, #4a9eff); text-decoration: none; }
+    .ceo-gp-drive-link:hover { text-decoration: underline; }
+    .ceo-gp-doc-section { margin-top: 14px; }
+    .ceo-gp-doc-section:first-of-type { margin-top: 8px; }
+    .ceo-gp-doc-section-head { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+    .ceo-gp-doc-count { color: var(--text-dim); font-weight: 500; }
+    .ceo-gp-doc-empty { padding: 8px 12px; font-size: 12px; color: var(--text-dim); }
+    .ceo-gp-doc-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); background: var(--panel); margin-bottom: 6px; }
+    .ceo-gp-doc-main { flex: 1; min-width: 0; }
+    .ceo-gp-doc-label { font-weight: 600; font-size: 13px; color: var(--text); word-break: break-word; }
+    .ceo-gp-doc-file { font-size: 11px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px; word-break: break-all; }
+    .ceo-gp-doc-view { font-size: 11px; padding: 4px 12px; flex-shrink: 0; }
+    .ceo-gp-doc-noview { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
 
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
@@ -2113,6 +2127,7 @@
     var gpDetailTab = 'tasks';
     var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
     var gpTimelineCache = null; // Timeline sub-tab: { caseId, events:[] } fetched once per GP file.
+    var gpDocumentsCache = null; // Documents sub-tab: { caseId, sections:[], driveFolder } fetched once per GP file.
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
     function openGpDetail(caseId, rsoId) {
@@ -2121,6 +2136,7 @@
       gpDetailTab = 'tasks';
       gpTasksShowAll = false;
       gpTimelineCache = null;
+      gpDocumentsCache = null;
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
@@ -2191,6 +2207,7 @@
       if (tab === 'tasks') { renderGpTasksTab(); return; }
       if (tab === 'notes') { renderGpNotesTab(); return; }
       if (tab === 'timeline') { renderGpTimelineTab(); return; }
+      if (tab === 'documents') { renderGpDocumentsTab(); return; }
       pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
     }
 
@@ -2410,6 +2427,103 @@
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         var pane = document.getElementById('gpDetailPane');
         if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Timeline</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Pure mirror of lib/ceo-metrics.js gpDocumentSections (the authoritative,
+    // unit-tested contract): normalize the four document categories into a fixed-order
+    // list of { key, label, docs }, keeping empty categories, preserving doc order, and
+    // normalizing each doc to { label, status, url, fileName, updatedAt } (primary field
+    // then admin alias).
+    var GP_DOCUMENT_CATEGORIES = [
+      { key: 'directToAhpra', label: 'Direct to AHPRA' },
+      { key: 'preparedByCandidate', label: 'Prepared by Candidate' },
+      { key: 'preparedByGpLink', label: 'Prepared by GP LINK' },
+      { key: 'otherFiles', label: 'Other Files' }
+    ];
+    function gpDocumentSections(documents) {
+      var src = documents || {};
+      return GP_DOCUMENT_CATEGORIES.map(function(cat) {
+        var list = Array.isArray(src[cat.key]) ? src[cat.key] : [];
+        var docs = list.filter(function(d) { return !!d; }).map(function(d) {
+          return {
+            label: (d.label != null && d.label !== '') ? d.label : (d.document_key || ''),
+            status: (d.status != null && d.status !== '') ? d.status : (d.ops_status || null),
+            url: d.file_url || d.webViewLink || null,
+            fileName: d.file_name || d.name || null,
+            updatedAt: d.updated_at || null
+          };
+        });
+        return { key: cat.key, label: cat.label, docs: docs };
+      });
+    }
+
+    // Render the four document categories for the open GP file (read-only). Each doc
+    // shows its label, a status pill, the file name, and a View link when a URL is
+    // present (opens in a new tab). Upload/approve are deferred to Phase 3b.
+    function renderGpDocumentsPane(sections, driveFolder) {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var total = sections.reduce(function(n, s) { return n + s.docs.length; }, 0);
+      var html = '<div class="ceo-ops-section-head">Documents <span class="count">' + total + '</span>';
+      if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + esc(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:auto">Open Drive folder</a>';
+      html += '</div>';
+      for (var si = 0; si < sections.length; si++) {
+        var sec = sections[si];
+        html += '<div class="ceo-gp-doc-section">';
+        html += '<div class="ceo-gp-doc-section-head">' + esc(sec.label) + ' <span class="ceo-gp-doc-count">' + sec.docs.length + '</span></div>';
+        if (!sec.docs.length) {
+          html += '<div class="ceo-gp-doc-empty">No documents.</div>';
+        } else {
+          for (var di = 0; di < sec.docs.length; di++) {
+            var doc = sec.docs[di];
+            html += '<div class="ceo-gp-doc-row">';
+            html += '<div class="ceo-gp-doc-main">';
+            html += '<div class="ceo-gp-doc-label">' + esc(doc.label || '(untitled)') + '</div>';
+            if (doc.fileName) html += '<div class="ceo-gp-doc-file">' + esc(doc.fileName) + '</div>';
+            html += '</div>';
+            if (doc.status) html += statusPill(doc.status);
+            if (doc.url) html += '<a class="btn btn-blue ceo-gp-doc-view" href="' + esc(doc.url) + '" target="_blank" rel="noopener">View</a>';
+            else html += '<span class="ceo-gp-doc-noview">No file</span>';
+            html += '</div>';
+          }
+        }
+        html += '</div>';
+      }
+      pane.innerHTML = html;
+    }
+
+    // Documents sub-tab: fetch the GP documents once (cached per GP file), normalize
+    // into the four sections, and render. Read-only.
+    function renderGpDocumentsTab() {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (gpDocumentsCache && gpDocumentsCache.caseId === caseId) {
+        renderGpDocumentsPane(gpDocumentsCache.sections, gpDocumentsCache.driveFolder);
+        return;
+      }
+      pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+      loadGpDocuments(caseId);
+    }
+
+    // Fetch GET /api/admin/gp-documents?case_id=<caseId>, normalize, cache, render.
+    function loadGpDocuments(caseId) {
+      apiFetch('/api/admin/gp-documents?case_id=' + encodeURIComponent(caseId)).then(function(d) {
+        // Guard against a stale response after the user switched GP files.
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        if (!d || !d.ok) {
+          var pane = document.getElementById('gpDetailPane');
+          if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Documents</div><div class="ceo-gp-detail-empty">Failed to load documents: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var sections = gpDocumentSections(d.documents || {});
+        gpDocumentsCache = { caseId: caseId, sections: sections, driveFolder: d.driveFolder || null };
+        if (gpDetailTab === 'documents') renderGpDocumentsPane(sections, gpDocumentsCache.driveFolder);
+      }).catch(function(e) {
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        var pane = document.getElementById('gpDetailPane');
+        if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Documents</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
       });
     }
 
