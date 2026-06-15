@@ -36870,6 +36870,40 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/rso/:id/calls — scheduled calls owned by one RSO (#per-RSO calls)
+  var rsoCallsMatch = pathname.match(/^\/api\/ceo\/rso\/([^\/]+)\/calls$/);
+  if (rsoCallsMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rsoCallsCtx = requireSuperAdminSession(req, res);
+    if (!rsoCallsCtx) return;
+
+    var rsoCallsId = decodeURIComponent(rsoCallsMatch[1]);
+
+    // The CEO :id is the RSO's user_id, but scheduled_calls link by email.
+    // Resolve id → email via the roster ('__unassigned__' → null email bucket).
+    var rsoCallsEmail = null;
+    if (rsoCallsId !== '__unassigned__') {
+      var rsoCallsRoster = await loadRsoTeam({ includeInactive: true });
+      var rsoCallsEntry = null;
+      for (var rce = 0; rce < rsoCallsRoster.length; rce++) {
+        if (rsoCallsRoster[rce].user_id === rsoCallsId) { rsoCallsEntry = rsoCallsRoster[rce]; break; }
+      }
+      rsoCallsEmail = (rsoCallsEntry && rsoCallsEntry.email) || null;
+      // Known-RSO id but no roster entry/email → no email to match calls on.
+      if (!rsoCallsEmail) { sendJson(res, 200, { ok: true, rso_id: rsoCallsId, calls: [] }); return; }
+    }
+
+    // Load calls the way GET /api/admin/calls does, then filter by RSO email.
+    var rsoCallsRes = await supabaseDbRequest('scheduled_calls', 'select=*&order=created_at.desc&limit=100', { method: 'GET' });
+    var rsoCallsAll = (rsoCallsRes.ok && Array.isArray(rsoCallsRes.data))
+      ? rsoCallsRes.data.map(normalizeScheduledCallForApi)
+      : [];
+    var rsoCallsFiltered = ceoMetrics.callsForRso(rsoCallsAll, rsoCallsEmail);
+
+    sendJson(res, 200, { ok: true, rso_id: rsoCallsId, calls: rsoCallsFiltered });
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════
