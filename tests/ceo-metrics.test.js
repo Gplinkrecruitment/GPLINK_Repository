@@ -644,3 +644,24 @@ describe('opsTasksForRso (per-RSO ops grouping)', () => {
     expect(M.opsTasksForRso(tasks, caseById, '__unassigned__').map(t => t.id)).toEqual(['t2', 't3']);
   });
 });
+
+describe('callsForRso (per-RSO scheduled calls by email)', () => {
+  const calls = [
+    { id: 'k1', assigned_rso_email: 'a@x.com' },
+    { id: 'k2', assigned_rso_email: 'B@X.com' },
+    { id: 'k3', assigned_rso_email: '' },
+    { id: 'k4' }
+  ];
+
+  it('filters by assigned_rso_email (exact)', () => {
+    expect(M.callsForRso(calls, 'a@x.com').map(c => c.id)).toEqual(['k1']);
+  });
+
+  it('matches case-insensitively', () => {
+    expect(M.callsForRso(calls, 'b@x.com').map(c => c.id)).toEqual(['k2']);
+  });
+
+  it('null/empty email returns calls with no assigned_rso_email (unassigned)', () => {
+    expect(M.callsForRso(calls, null).map(c => c.id)).toEqual(['k3', 'k4']);
+  });
+});
