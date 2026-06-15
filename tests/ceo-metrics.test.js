@@ -645,6 +645,29 @@ describe('opsTasksForRso (per-RSO ops grouping)', () => {
   });
 });
 
+describe('supportTicketsForRso (per-RSO support tickets by linked case)', () => {
+  const caseById = { c1:{ id:'c1', assigned_rso:'rA' }, c2:{ id:'c2', assigned_rso:'rB' }, c3:{ id:'c3' } };
+  const tickets = [
+    { id:1, case_id:'c1' }, { id:2, case_id:'c2' }, { id:3, case_id:'c1' },
+    { id:4, case_id:'c3' },      // case has no assigned_rso → unassigned
+    { id:5, case_id:null },      // no case → unassigned
+    { id:6 }                     // missing case_id → unassigned
+  ];
+
+  it('returns the tickets whose linked case is assigned to the given RSO', () => {
+    expect(M.supportTicketsForRso(tickets, caseById, 'rA').map(t => t.id)).toEqual([1, 3]);
+    expect(M.supportTicketsForRso(tickets, caseById, 'rB').map(t => t.id)).toEqual([2]);
+  });
+
+  it('buckets no-case / no-rso tickets under __unassigned__', () => {
+    expect(M.supportTicketsForRso(tickets, caseById, '__unassigned__').map(t => t.id)).toEqual([4, 5, 6]);
+  });
+
+  it('returns [] for null tickets input', () => {
+    expect(M.supportTicketsForRso(null, caseById, 'rA')).toEqual([]);
+  });
+});
+
 describe('callsForRso (per-RSO scheduled calls by email)', () => {
   const calls = [
     { id: 'k1', assigned_rso_email: 'a@x.com' },
