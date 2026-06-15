@@ -898,6 +898,26 @@
     .ceo-calls-join { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #2D8CFF; color: #fff; border: 1px solid #2D8CFF; text-decoration: none; white-space: nowrap; }
     .ceo-calls-join:hover { background: #1f7ae0; }
 
+    /* ═══ PER-RSO SUPPORT TICKETS (matches .ceo-ops-* / .ceo-calls-*) ═══ */
+    .ceo-support-section { margin-top: 22px; }
+    .ceo-support-section-head { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .ceo-support-section-head .count { font-family: var(--mono); font-weight: 700; color: var(--text); }
+    .ceo-support-empty { padding: 14px 12px; font-size: 13px; color: var(--text-dim); border: 1px dashed var(--panel-border); border-radius: var(--radius-md, 8px); }
+    .ceo-support-group { border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); margin-bottom: 10px; overflow: hidden; background: var(--panel); }
+    .ceo-support-group-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.02); }
+    .ceo-support-group-name { font-weight: 700; font-size: 13px; flex: 1; }
+    .ceo-support-group-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+    .ceo-support-group-body { border-top: 1px solid var(--panel-border); }
+    .ceo-support-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
+    .ceo-support-row:last-child { border-bottom: none; }
+    .ceo-support-row-main { flex: 1; min-width: 0; }
+    .ceo-support-row-title { font-weight: 600; font-size: 13px; color: var(--text); }
+    .ceo-support-row-gp { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .ceo-support-row-snippet { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
+    .ceo-support-row-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+    .ceo-support-time { font-size: 11px; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
+    .ceo-support-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
     /* ═══ GP FILE (read-only) under an RSO ═══ */
     .rso-gp-row .name.gp-open-link { cursor: pointer; }
     .rso-gp-row .name.gp-open-link:hover { color: var(--blue); }
@@ -2136,9 +2156,15 @@
         html += '<div class="ceo-calls-section-head">Scheduled Calls</div>';
         html += '<div class="drilldown-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
         html += '</div>';
+        // Per-RSO support tickets board (case-linked tickets owned by this RSO, grouped Open/Resolved). Filled async below.
+        html += '<div class="ceo-support-section" id="ceoSupportBoard">';
+        html += '<div class="ceo-support-section-head">Support Tickets</div>';
+        html += '<div class="drilldown-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+        html += '</div>';
         c.innerHTML = html;
         loadRsoOps(rsoId);
         loadRsoCalls(rsoId);
+        loadRsoSupport(rsoId);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
 
@@ -2950,6 +2976,14 @@
         else if (action === 'revise') ceoDocRequestRevision(taskId);
         return;
       }
+      // Support board resolve/reopen — delegated so it survives board re-renders.
+      var supportBtn = e.target.closest('[data-ceo-support-action]');
+      if (supportBtn) {
+        var ticketId = supportBtn.getAttribute('data-ticket');
+        var supportAction = supportBtn.getAttribute('data-ceo-support-action');
+        ceoSupportTicketAction(supportAction, ticketId, supportBtn);
+        return;
+      }
       var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
       if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); }
     });
@@ -3128,6 +3162,135 @@
       }).catch(function(e) {
         var board = document.getElementById('ceoCallsBoard');
         if (board) board.innerHTML = '<div class="ceo-calls-section-head">Scheduled Calls</div><div class="ceo-calls-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Track the RSO whose support board is currently open, so the resolve/reopen
+    // delegated handler can re-fetch + re-render the right board after an action.
+    var ceoSupportRsoId = null;
+
+    // Status pill for a support ticket (open/closed), reusing the dashboard .pill tokens.
+    function supportStatusPill(status) {
+      var s = (status || '').toLowerCase();
+      if (s === 'open') return '<span class="pill pill-amber">Open</span>';
+      if (s === 'closed') return '<span class="pill pill-green">Resolved</span>';
+      return '<span class="pill pill-muted">' + esc(status || '--') + '</span>';
+    }
+
+    // Category pill for a support ticket.
+    function supportCategoryPill(category) {
+      if (!category) return '';
+      return '<span class="pill pill-muted">' + esc(String(category).replace(/_/g, ' ')) + '</span>';
+    }
+
+    // Best-effort one-line snippet for a ticket: prefer the body, else the last
+    // thread_json message text. Trimmed to a readable length.
+    function supportSnippet(t) {
+      var text = '';
+      if (t.body && String(t.body).trim()) {
+        text = String(t.body).trim();
+      } else if (Array.isArray(t.thread_json) && t.thread_json.length) {
+        var last = t.thread_json[t.thread_json.length - 1];
+        text = (last && last.text) ? String(last.text).trim() : '';
+      }
+      if (!text) return '';
+      if (text.length > 160) text = text.slice(0, 159) + '…';
+      return text;
+    }
+
+    // Fetch + render this RSO's case-linked support tickets into #ceoSupportBoard,
+    // grouped into Open (status open) and Resolved (status closed).
+    function loadRsoSupport(rsoId) {
+      ceoSupportRsoId = rsoId;
+      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/support').then(function(d) {
+        var board = document.getElementById('ceoSupportBoard');
+        if (!board) return;
+        if (!d || !d.ok) {
+          board.innerHTML = '<div class="ceo-support-section-head">Support Tickets</div><div class="ceo-support-empty">Failed to load support tickets: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var tickets = d.tickets || [];
+        var head = '<div class="ceo-support-section-head">Support Tickets <span class="count">' + tickets.length + '</span></div>';
+        if (!tickets.length) { board.innerHTML = head + '<div class="ceo-support-empty">No case-linked support tickets for this RSO.</div>'; return; }
+
+        var groups = { open: [], closed: [] };
+        for (var i = 0; i < tickets.length; i++) {
+          var st = (tickets[i].status || '').toLowerCase();
+          if (st === 'closed') groups.closed.push(tickets[i]);
+          else groups.open.push(tickets[i]);
+        }
+
+        var sections = [
+          { key: 'open', title: 'Open', items: groups.open },
+          { key: 'closed', title: 'Resolved', items: groups.closed }
+        ];
+
+        var html = head;
+        var rendered = 0;
+        for (var si = 0; si < sections.length; si++) {
+          var sec = sections[si];
+          if (!sec.items.length) continue;
+          rendered += sec.items.length;
+          html += '<div class="ceo-support-group">';
+          html += '<div class="ceo-support-group-head">';
+          html += '<span class="ceo-support-group-name">' + esc(sec.title) + '</span>';
+          html += '<span class="ceo-support-group-count">' + sec.items.length + ' ticket' + (sec.items.length === 1 ? '' : 's') + '</span>';
+          html += '</div>';
+          html += '<div class="ceo-support-group-body">';
+          for (var ti = 0; ti < sec.items.length; ti++) {
+            var t = sec.items[ti];
+            var isOpen = (t.status || '').toLowerCase() !== 'closed';
+            var snippet = supportSnippet(t);
+            html += '<div class="ceo-support-row">';
+            html += '<div class="ceo-support-row-main">';
+            html += '<div class="ceo-support-row-title">' + esc(t.title || '(untitled ticket)') + '</div>';
+            html += '<div class="ceo-support-row-gp">' + esc(t.gp_name || 'Unknown GP') + (t.practice_name ? ' &middot; ' + esc(t.practice_name) : '') + '</div>';
+            if (snippet) html += '<div class="ceo-support-row-snippet">' + esc(snippet) + '</div>';
+            html += '<div class="ceo-support-row-pills">';
+            html += supportStatusPill(t.status);
+            html += supportCategoryPill(t.category);
+            if (t.priority) html += priorityPill(t.priority);
+            html += '</div>';
+            html += '</div>';
+            html += '<span class="ceo-support-time">' + esc(fmtCallTime(t.created_at)) + '</span>';
+            html += '<div class="ceo-support-actions">';
+            if (isOpen) {
+              html += '<button class="btn btn-green" data-ceo-support-action="resolve" data-ticket="' + esc(t.id) + '">Resolve</button>';
+            } else {
+              html += '<button class="btn btn-amber" data-ceo-support-action="reopen" data-ticket="' + esc(t.id) + '">Reopen</button>';
+            }
+            html += '</div>';
+            html += '</div>';
+          }
+          html += '</div></div>';
+        }
+        if (!rendered) { board.innerHTML = head + '<div class="ceo-support-empty">No open or resolved support tickets for this RSO.</div>'; return; }
+        board.innerHTML = html;
+      }).catch(function(e) {
+        var board = document.getElementById('ceoSupportBoard');
+        if (board) board.innerHTML = '<div class="ceo-support-section-head">Support Tickets</div><div class="ceo-support-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Resolve/reopen a support ticket via the existing admin ticket-update endpoint
+    // (reused, unchanged), then re-fetch + re-render the open RSO's support board.
+    function ceoSupportTicketAction(action, ticketId, btn) {
+      var newStatus = action === 'resolve' ? 'closed' : 'open';
+      if (btn) btn.disabled = true;
+      apiFetch('/api/admin/va/ticket/' + encodeURIComponent(ticketId), {
+        method: 'PUT',
+        body: { status: newStatus }
+      }).then(function(d) {
+        if (d && d.ok) {
+          showToast(action === 'resolve' ? 'Ticket resolved' : 'Ticket reopened', 'success');
+          if (ceoSupportRsoId) loadRsoSupport(ceoSupportRsoId);
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
+          if (btn) btn.disabled = false;
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
       });
     }
 
