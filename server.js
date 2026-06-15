@@ -20447,7 +20447,7 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260510c'
+      build: '20260616-certillus'
     });
     return;
   }
