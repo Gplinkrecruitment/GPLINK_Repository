@@ -788,17 +788,17 @@ describe('gpDocumentSections (GP file Documents sub-tab)', () => {
     sections.forEach(s => { byKey[s.key] = s.docs; });
     // directToAhpra: label/status/file_url/file_name forms
     expect(byKey.directToAhpra[0]).toEqual({
-      label: 'Passport', status: 'verified', url: 'https://a/passport', fileName: 'passport.pdf', updatedAt: '2026-06-10T09:00:00Z'
+      key: '', label: 'Passport', status: 'verified', url: 'https://a/passport', fileName: 'passport.pdf', updatedAt: '2026-06-10T09:00:00Z'
     });
     // preparedByCandidate first uses the alias forms (document_key/ops_status/webViewLink/name)
     expect(byKey.preparedByCandidate[0]).toEqual({
-      label: 'cv', status: 'pending', url: 'https://a/cv', fileName: 'cv.docx', updatedAt: '2026-06-11T09:00:00Z'
+      key: 'cv', label: 'cv', status: 'pending', url: 'https://a/cv', fileName: 'cv.docx', updatedAt: '2026-06-11T09:00:00Z'
     });
     // second has no link -> url null
     expect(byKey.preparedByCandidate[1].url).toBe(null);
     // otherFiles uses ops_status + file_url + name
     expect(byKey.otherFiles[0]).toEqual({
-      label: 'Misc', status: 'uploaded', url: 'https://a/misc', fileName: 'misc.png', updatedAt: '2026-06-12T09:00:00Z'
+      key: '', label: 'Misc', status: 'uploaded', url: 'https://a/misc', fileName: 'misc.png', updatedAt: '2026-06-12T09:00:00Z'
     });
   });
 
@@ -814,5 +814,44 @@ describe('gpDocumentSections (GP file Documents sub-tab)', () => {
     expect(M.gpDocumentSections(null).map(s => s.key)).toEqual(['directToAhpra', 'preparedByCandidate', 'preparedByGpLink', 'otherFiles']);
     expect(M.gpDocumentSections(null).every(s => s.docs.length === 0)).toBe(true);
     expect(M.gpDocumentSections({}).every(s => s.docs.length === 0)).toBe(true);
+  });
+
+  it('preserves the document key on each normalized doc', () => {
+    const documents = { preparedByGpLink: [{ key: 'offer_contract', label: 'Offer/contract', ops_status: 'awaiting_practice' }] };
+    const sections = M.gpDocumentSections(documents);
+    expect(sections.find(s => s.key === 'preparedByGpLink').docs[0].key).toBe('offer_contract');
+  });
+
+  it('falls back to document_key when key is absent', () => {
+    const documents = { preparedByGpLink: [{ document_key: 'supervisor_cv', label: 'Supervisor CV' }] };
+    const sections = M.gpDocumentSections(documents);
+    expect(sections.find(s => s.key === 'preparedByGpLink').docs[0].key).toBe('supervisor_cv');
+  });
+});
+
+describe('document action helpers', () => {
+  const tasks = [
+    { id:'t-old', task_type:'practice_pack_child', related_document_key:'offer_contract', status:'completed' },
+    { id:'t1', task_type:'practice_pack_child', related_document_key:'offer_contract', status:'in_progress', attachment_url:'data:...', gmail_message_id:'g1' },
+    { id:'t2', task_type:'practice_pack_child', related_document_key:'supervisor_cv', status:'open' },
+    { id:'t3', task_type:'email_triage', related_document_key:'offer_contract', status:'open' }
+  ];
+
+  it('docTaskForKey returns the newest non-terminal practice_pack_child task for the key', () => {
+    expect(M.docTaskForKey(tasks, 'offer_contract').id).toBe('t1'); // skips completed t-old, ignores email_triage t3
+    expect(M.docTaskForKey(tasks, 'supervisor_cv').id).toBe('t2');
+  });
+
+  it('docTaskForKey returns null for no match / empty / null inputs', () => {
+    expect(M.docTaskForKey(tasks, 'section_g')).toBe(null);
+    expect(M.docTaskForKey(tasks, '')).toBe(null);
+    expect(M.docTaskForKey(null, 'offer_contract')).toBe(null);
+  });
+
+  it('docActionsFor mirrors admin.html gating', () => {
+    expect(M.docActionsFor(tasks[1])).toEqual({ upload:true, approve:true, requestRevision:true });
+    expect(M.docActionsFor(tasks[2])).toEqual({ upload:true, approve:false, requestRevision:false });
+    expect(M.docActionsFor({ related_document_key:'section_g', attachment_url:'x' })).toEqual({ upload:false, approve:true, requestRevision:false });
+    expect(M.docActionsFor(null)).toEqual({ upload:false, approve:false, requestRevision:false });
   });
 });
