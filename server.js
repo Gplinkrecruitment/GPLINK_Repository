@@ -27178,10 +27178,14 @@ Return ONLY valid JSON with no markdown formatting:
         const cases = Array.isArray(parsedCases) ? parsedCases : [];
         cases.push(ticket);
 
+        // Creating a qualification-help ticket must NOT restrict the account.
+        // Restricted mode ('under_review') is reserved for genuinely flagged
+        // qualifications (set by the onboarding flow when AI verification fails).
+        // A GP asking for help should keep full access while the team assists —
+        // otherwise merely requesting support locks them out of the whole app.
         const nextState = {
           ...existingState,
           gpLinkSupportCases: JSON.stringify(cases),
-          account_status: 'under_review',
           updatedAt: now
         };
         await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
@@ -27193,7 +27197,7 @@ Return ONLY valid JSON with no markdown formatting:
       const cases = Array.isArray(parsedCases) ? parsedCases : [];
       cases.push(ticket);
       userState.gpLinkSupportCases = JSON.stringify(cases);
-      userState.account_status = 'under_review';
+      // Do NOT restrict the account just for requesting qualification help (see note above).
       userState.updatedAt = now;
       dbState.userState[email] = userState;
       saveDbState(dbState);
