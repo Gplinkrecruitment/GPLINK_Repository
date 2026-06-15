@@ -20,13 +20,17 @@ describe('CEO standalone page UI', () => {
     expect(ceo).toMatch(/class="ceo-topnav"/);
   });
 
-  it('unified menu: CEO nav links to the admin work-lists (Ops Queue, GPs, etc.)', () => {
+  it('unified menu: CEO nav links to the admin work-lists (GPs, etc.); Ops Queue now lives under RSO Oversight', () => {
     // The CEO Command Centre is one workspace: its top nav carries the work-lists
     // as links into the existing admin implementation (no duplicated tab code).
-    expect(ceo).toMatch(/href="\/pages\/admin\?view=tools"/);   // Ops Queue
+    // Ops is no longer a standalone link — it is reached by opening an RSO under
+    // RSO Oversight, so the ?view=tools "Ops Queue" nav item is gone.
+    expect(ceo).not.toMatch(/href="\/pages\/admin\?view=tools"/);   // Ops Queue removed
     expect(ceo).toMatch(/href="\/pages\/admin\?view=gps"/);     // GPs
     expect(ceo).toMatch(/href="\/pages\/admin\?view=medicalcentres"/);
     expect(ceo).toMatch(/href="\/pages\/admin\?view=technical"/);
+    // Ops now lives under RSO Oversight: the page wires a per-RSO ops fetch.
+    expect(ceo).toMatch(/\/api\/ceo\/rso\/[^]*?\/ops/);
     // And the admin page surfaces the executive views back in the same menu.
     expect(admin).toMatch(/id="ceoOverviewTab"[^>]*href="\/pages\/ceo-dashboard"/);
     expect(admin).toMatch(/id="ceoRsoOversightTab"[^>]*href="\/pages\/ceo-dashboard\?tab=rsos"/);
