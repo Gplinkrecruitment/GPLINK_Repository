@@ -1408,19 +1408,6 @@
             }
           },
           {
-            key: "icgp_confirmation_letter",
-            title: "ICGP Confirmation Letter",
-            actionLabel: "Mark Requested",
-            help: {
-              title: "ICGP Confirmation Letter",
-              steps: [
-                "Contact ICGP Membership Services",
-                "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway"
-              ],
-              reminder: "Reminder: request that ICGP sends the confirmation letter directly to Ahpra."
-            }
-          },
-          {
             key: "criminal_history",
             title: "Criminal History Check",
             actionLabel: "Mark Requested",
@@ -1467,6 +1454,20 @@
             }
           },
           {
+            key: "icgp_confirmation_letter",
+            title: "Certified copy of ICGP Confirmation Letter",
+            help: {
+              title: "ICGP Confirmation Letter",
+              steps: [
+                "Contact ICGP Membership Services",
+                "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway",
+                "If needed, request verification of training through ICGP"
+              ],
+              certNote: true,
+              reminder: "This is the key supporting letter for Irish GPs."
+            }
+          },
+          {
             key: "cv_signed_dated",
             title: "CV (Signed and dated)",
             help: {
@@ -1489,19 +1490,6 @@
                 "Request your current certificate of good standing / registration status from the relevant New Zealand authority",
                 "Ensure it is provided in a format acceptable for Ahpra"
               ]
-            }
-          },
-          {
-            key: "rnzcgp_confirmation_letter",
-            title: "RNZCGP Confirmation Letter",
-            actionLabel: "Mark Requested",
-            help: {
-              title: "RNZCGP Confirmation Letter",
-              steps: [
-                "Contact RNZCGP",
-                "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
-              ],
-              reminder: "Reminder: request that RNZCGP sends the confirmation letter directly to Ahpra."
             }
           },
           {
@@ -1534,6 +1522,18 @@
               steps: [
                 "Upload a certified copy of your FRNZCGP certificate",
                 "If needed, contact RNZCGP for replacement or confirmation"
+              ],
+              certNote: true
+            }
+          },
+          {
+            key: "rnzcgp_confirmation_letter",
+            title: "Certified copy of RNZCGP Confirmation Letter",
+            help: {
+              title: "RNZCGP Confirmation Letter",
+              steps: [
+                "Contact RNZCGP",
+                "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
               ],
               certNote: true
             }
