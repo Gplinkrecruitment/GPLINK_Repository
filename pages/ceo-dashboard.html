@@ -2653,7 +2653,10 @@
           if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Documents</div><div class="ceo-gp-detail-empty">Failed to load documents: ' + esc((d && d.message) || 'Unknown error') + '</div>';
           return;
         }
-        var sections = gpDocumentSections(d.documents || {});
+        // /api/admin/gp-documents returns the four category arrays FLAT at the top level
+        // ({ ok, country, directToAhpra, preparedByCandidate, preparedByGpLink, otherFiles }),
+        // not nested under a `documents` key — pass the whole response to the normalizer.
+        var sections = gpDocumentSections(d);
         gpDocumentsCache = { caseId: caseId, sections: sections, driveFolder: d.driveFolder || null };
         if (gpDetailTab === 'documents') renderGpDocumentsPane(sections, gpDocumentsCache.driveFolder);
       }).catch(function(e) {
