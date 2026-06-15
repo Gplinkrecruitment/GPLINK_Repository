@@ -7895,6 +7895,9 @@ async function supabaseAuthAdminDeleteUser(userId) {
 }
 
 function inferStageFromDocKey(docKey) {
+  // Qualification documents the GP uploads/scans during onboarding belong to the
+  // dedicated "onboarding" review stage — not AHPRA (practice pack) or career.
+  if (isQualificationDocKey(docKey)) return 'onboarding';
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
     'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra'
@@ -8967,6 +8970,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const nextDocs = nxt.docs.docs || {};
     for (const key of Object.keys(nextDocs)) {
       if (INSTITUTION_DOCUMENT_KEYS.has(key)) continue;
+      // Qualification documents are captured + reviewed through the onboarding flow
+      // (flagged_doc / doc_review under the "onboarding" stage, with the GP's file
+      // attached and the AI reason recorded). Creating a second generic
+      // "Review uploaded: X" task here duplicated them under the AHPRA stage with no
+      // reason and no openable file — skip them.
+      if (isQualificationDocKey(key)) continue;
       const pv = prevDocs[key] || {};
       const nv = nextDocs[key] || {};
       if (nv.uploaded === true && !pv.uploaded) {
@@ -18938,7 +18947,12 @@ async function pushDocumentNotificationToUser(userId, notification) {
 
 var QUALIFICATION_DOC_KEYS = new Set([
   'primary_medical_degree', 'mrcgp_certified', 'cct_certified', 'mrcgp', 'cct',
-  'micgp', 'cscst', 'frnzcgp', 'certificate_good_standing', 'confirmation_training'
+  'micgp', 'cscst', 'frnzcgp', 'certificate_good_standing', 'confirmation_training',
+  // Onboarding storage-layer keys: the document pipeline (processDocumentUpload)
+  // receives onboarding qualification uploads under these keys, so they must take
+  // the qualification branch — otherwise a flagged onboarding cert would also get
+  // a generic doc_review task (a cross-type duplicate of the flagged_doc task).
+  'onboarding_primary_med_degree', 'onboarding_specialist_qualification'
 ]);
 
 function getDocumentLabelForKey(key) {
@@ -18970,6 +18984,48 @@ function getDocumentLabelForKey(key) {
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
   return labels[normalizedKey] || '';
+}
+
+// ── Onboarding qualification document key helpers ──────────────────────────
+// A single logical qualification document can arrive under several key spellings
+// depending on which capture flow produced it: the onboarding wizard
+// (primary_med_degree / mrcgp_cert / micgp_cert / frnzcgp_cert / cscst_cert), the
+// onboarding storage layer (onboarding_primary_med_degree /
+// onboarding_specialist_qualification), or a "My Documents" / scan upload
+// (primary_medical_degree / mrcgp_certified ...). canonicalQualKey collapses the
+// ONBOARDING-origin variants onto the two canonical keys that BOTH the admin
+// document-preview and review-flagged-doc endpoints understand
+// (primary_medical_degree / specialist_qualification) so each document yields a
+// single review task and its stored file is always resolvable. Non-onboarding
+// keys are returned unchanged so their own user_documents rows still resolve.
+function canonicalQualKey(key) {
+  var k = String(key || '').trim().toLowerCase();
+  var map = {
+    primary_med_degree: 'primary_medical_degree',
+    onboarding_primary_med_degree: 'primary_medical_degree',
+    mrcgp_cert: 'specialist_qualification',
+    micgp_cert: 'specialist_qualification',
+    frnzcgp_cert: 'specialist_qualification',
+    cscst_cert: 'specialist_qualification',
+    onboarding_specialist_qualification: 'specialist_qualification'
+  };
+  return map[k] || key;
+}
+
+// Onboarding-origin qualification key spellings (wizard + storage + canonical).
+var ONBOARDING_QUAL_KEYS = new Set([
+  'primary_med_degree', 'onboarding_primary_med_degree', 'primary_medical_degree',
+  'mrcgp_cert', 'micgp_cert', 'frnzcgp_cert', 'cscst_cert',
+  'onboarding_specialist_qualification', 'specialist_qualification'
+]);
+
+// Recognises any qualification document key across all capture-flow spellings.
+// Used to keep onboarding qualification reviews out of the generic AHPRA
+// "Review uploaded: X" automation, which would otherwise mis-file them under the
+// AHPRA stage with no reason and no openable file.
+function isQualificationDocKey(key) {
+  var k = String(key || '').trim();
+  return QUALIFICATION_DOC_KEYS.has(k) || ONBOARDING_QUAL_KEYS.has(k);
 }
 
 async function extractDocxTextWithMammoth(buffer) {
@@ -19085,9 +19141,10 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
+  var canonKey = canonicalQualKey(documentKey);
   var existingRes = await supabaseDbRequest('registration_tasks',
     'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(canonKey) +
     '&status=in.(open,in_progress,waiting)&limit=1');
   var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
 
@@ -19108,7 +19165,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     return existing;
   }
 
-  var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
   var gpName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || 'GP';
 
@@ -19119,7 +19176,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     status: 'open',
     source_trigger: 'doc_upload',
     related_stage: inferStageFromDocKey(documentKey),
-    related_document_key: documentKey,
+    related_document_key: canonKey,
     ai_match_confidence: confidence,
     ai_match_reasoning: aiResult.reason || '',
     _actor: 'system'
@@ -19132,9 +19189,10 @@ async function createFlaggedDocTask(userId, documentKey, label, reason) {
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
+  var canonKey = canonicalQualKey(documentKey);
   var existingRes = await supabaseDbRequest('registration_tasks',
     'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(canonKey) +
     '&status=in.(open,in_progress,waiting)&limit=1');
   var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
 
@@ -19156,8 +19214,8 @@ async function createFlaggedDocTask(userId, documentKey, label, reason) {
     description: reason,
     priority: 'normal',
     source_trigger: 'prepared_doc_scan',
-    related_stage: 'myintealth',
-    related_document_key: documentKey,
+    related_stage: 'onboarding',
+    related_document_key: canonKey,
     _actor: 'system'
   });
 }
@@ -19167,13 +19225,18 @@ async function autoCloseDocReviewTask(userId, documentKey) {
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return;
 
+  // Match the canonical key tasks were created with, and close BOTH the doc_review
+  // and any open flagged_doc for this document — e.g. a previously-flagged
+  // qualification that now passes verification on re-upload.
+  var canonKey = canonicalQualKey(documentKey);
   var taskRes = await supabaseDbRequest('registration_tasks',
     'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
-    '&status=in.(open,in_progress,waiting)&limit=1');
-  var task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
-  if (task) {
-    await _completeRegTask(task.id, gpCase.id, 'ai_auto');
+    '&task_type=in.(doc_review,flagged_doc)&related_document_key=eq.' + encodeURIComponent(canonKey) +
+    '&status=in.(open,in_progress,waiting)');
+  if (taskRes.ok && Array.isArray(taskRes.data)) {
+    for (var i = 0; i < taskRes.data.length; i++) {
+      await _completeRegTask(taskRes.data[i].id, gpCase.id, 'ai_auto');
+    }
   }
 }
 
@@ -26280,15 +26343,11 @@ async function handleApi(req, res, pathname) {
                   const flagReason = (docInfo.scanResult && Array.isArray(docInfo.scanResult.issues) && docInfo.scanResult.issues.length > 0)
                     ? docInfo.scanResult.issues.join('; ')
                     : (docInfo.status === 'support_requested' ? 'GP requested manual review support' : 'Max retries exceeded or verification failed');
-                  await _createRegTask(regCase.id, {
-                    task_type: 'flagged_doc',
-                    title: 'Review flagged qualification: ' + docLabel,
-                    description: 'AI flagged this document for manual review. Reason: ' + flagReason,
-                    priority: 'high',
-                    source_trigger: 'qualification_scan',
-                    related_stage: 'myintealth',
-                    _actor: 'system'
-                  });
+                  // Route through createFlaggedDocTask so the task lands under the
+                  // "onboarding" stage, carries a canonical related_document_key (so the
+                  // RSO can open the stored file) and de-duplicates against any task the
+                  // background document pipeline already created for the same document.
+                  await createFlaggedDocTask(userId, docKey, docLabel, 'AI flagged this document for manual review. Reason: ' + flagReason);
                 }
               }
             }
@@ -38252,6 +38311,9 @@ if (process.env.VERCEL) {
 module.exports.createServer = createServer;
 module.exports.__testUtils = {
   applyQualificationNameMatchPolicy,
+  canonicalQualKey,
+  isQualificationDocKey,
+  inferStageFromDocKey,
   buildDomainAgencyBrandSearchQueries,
   buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,

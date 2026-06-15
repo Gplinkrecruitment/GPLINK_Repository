@@ -1540,7 +1540,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     {key:"pbs",label:"PBS & Medicare",num:6},
     {key:"commencement",label:"Commencement",num:7}
   ];
-  const STAGE_ORDER=["placement","myintealth","amc","ahpra","visa","pbs","commencement"];
+  const STAGE_ORDER=["onboarding","placement","myintealth","amc","ahpra","visa","pbs","commencement"];
   const ELS_PATHWAY_DOCS = {
     combined: { title: "Combined Education Pathway", docs: ["Official transcripts showing qualification taught & assessed in English", "Details of secondary education provider and enrolment dates (entered in AHPRA form)", "Letter from education provider confirming English instruction (if not shown on transcript)"] },
     school: { title: "School Education Pathway", docs: ["Details of primary & secondary education providers and enrolment dates (entered in AHPRA form)", "Official transcripts showing qualification taught & assessed in English", "Letter from education provider confirming English instruction (if not shown on transcript)", "Home schooling evidence from Department of Education (if applicable)"] },
@@ -2597,14 +2597,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // blindly "Mark Complete". Keep in sync with server.js QUALIFICATION_DOC_KEYS.
   var QUAL_REVIEW_DOC_KEYS=new Set([
     'primary_medical_degree','specialist_qualification',
+    'onboarding_primary_med_degree','onboarding_specialist_qualification',
     'mrcgp_certified','cct_certified','micgp_certified','cscst_certified','frnzcgp_certified',
     'icgp_confirmation_letter','rnzcgp_confirmation_letter',
     'certificate_good_standing','certificate_of_good_standing',
     'confirmation_training','confirmation_of_training',
     'mrcgp','cct','micgp','cscst','frnzcgp'
   ]);
+  // A "Review uploaded: X" (task_type 'review') OR a doc-pipeline "Review uploaded
+  // X for Dr Y" (task_type 'doc_review') task for a qualification document the GP
+  // uploaded themselves: open it and approve/reject (the GP is emailed), exactly
+  // like a flagged_doc — NOT chase it as a practice document ("Email Practice").
   function isQualDocReviewTask(t){
-    return !!(t&&t.task_type==='review'&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
+    return !!(t&&(t.task_type==='review'||t.task_type==='doc_review')&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
   }
 
   function getGuidedAction(t){
@@ -2691,7 +2696,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=stageLabel?stageLabel.label:group.stage==="other"?"Other":"Unknown";
+      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
