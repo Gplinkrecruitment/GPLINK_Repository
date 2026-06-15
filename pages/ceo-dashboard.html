@@ -921,6 +921,21 @@
     .ceo-gp-task-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .ceo-gp-tasks-toggle { font-size: 11px; padding: 4px 10px; }
     .ceo-gp-detail-empty { padding: 14px 12px; font-size: 13px; color: var(--text-dim); border: 1px dashed var(--panel-border); border-radius: var(--radius-md, 8px); }
+    /* Notes sub-tab */
+    .ceo-gp-note { padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); background: var(--panel); margin-bottom: 8px; }
+    .ceo-gp-note-body { font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .ceo-gp-note-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--text-dim); }
+    .ceo-gp-note-actor { font-weight: 600; color: var(--text-muted); }
+    .ceo-gp-note-time { font-family: var(--mono); }
+    /* Timeline sub-tab */
+    .ceo-gp-tl-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
+    .ceo-gp-tl-row:last-child { border-bottom: none; }
+    .ceo-gp-tl-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; width: 18px; text-align: center; }
+    .ceo-gp-tl-main { flex: 1; min-width: 0; }
+    .ceo-gp-tl-title { font-weight: 600; font-size: 13px; color: var(--text); word-break: break-word; }
+    .ceo-gp-tl-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+    .ceo-gp-tl-who { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+    .ceo-gp-tl-time { font-size: 11px; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; flex-shrink: 0; }
 
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
@@ -2097,6 +2112,7 @@
     var gpDetailCache = null;
     var gpDetailTab = 'tasks';
     var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
+    var gpTimelineCache = null; // Timeline sub-tab: { caseId, events:[] } fetched once per GP file.
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
     function openGpDetail(caseId, rsoId) {
@@ -2104,6 +2120,7 @@
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading GP file...</div></div>';
       gpDetailTab = 'tasks';
       gpTasksShowAll = false;
+      gpTimelineCache = null;
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
@@ -2172,6 +2189,8 @@
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
       if (tab === 'tasks') { renderGpTasksTab(); return; }
+      if (tab === 'notes') { renderGpNotesTab(); return; }
+      if (tab === 'timeline') { renderGpTimelineTab(); return; }
       pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
     }
 
@@ -2261,6 +2280,137 @@
         html += '</div></div>';
       }
       pane.innerHTML = html;
+    }
+
+    // Pure mirrors of lib/ceo-metrics.js (the authoritative, unit-tested contracts).
+    // gpNotesFromTimeline: notes = timeline entries with event_type 'note', newest first.
+    function gpNotesFromTimeline(timeline) {
+      return (timeline || [])
+        .filter(function(e) { return e && e.event_type === 'note'; })
+        .slice()
+        .sort(function(a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+    }
+    // mergeGpTimeline: timeline events + comms messages into one newest-first stream,
+    // each tagged with kind ('event' | 'message') for icon/layout selection.
+    function mergeGpTimeline(timeline, messages) {
+      var merged = [];
+      (timeline || []).forEach(function(e) { if (e) merged.push(Object.assign({}, e, { kind: 'event' })); });
+      (messages || []).forEach(function(m) { if (m) merged.push(Object.assign({}, m, { kind: 'message' })); });
+      return merged.sort(function(a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+    }
+
+    // Render the cached note timeline entries for the open GP file (read-only).
+    // Add-note input is deferred to Phase 3b.
+    function renderGpNotesTab() {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var notes = gpNotesFromTimeline((gpDetailCache && gpDetailCache.timeline) || []);
+      var html = '<div class="ceo-ops-section-head">Notes <span class="count">' + notes.length + '</span></div>';
+      if (!notes.length) {
+        html += '<div class="ceo-gp-detail-empty">No notes for this GP yet.</div>';
+        pane.innerHTML = html;
+        return;
+      }
+      for (var i = 0; i < notes.length; i++) {
+        var n = notes[i];
+        var body = n.detail || n.title || '';
+        html += '<div class="ceo-gp-note">';
+        html += '<div class="ceo-gp-note-body">' + esc(body) + '</div>';
+        html += '<div class="ceo-gp-note-meta">';
+        if (n.actor) html += '<span class="ceo-gp-note-actor">' + esc(n.actor) + '</span>';
+        html += '<span class="ceo-gp-note-time">' + esc(fmtCallTime(n.created_at)) + '</span>';
+        html += '</div>';
+        html += '</div>';
+      }
+      pane.innerHTML = html;
+    }
+
+    // Icon for a merged timeline entry, by message channel or event_type.
+    function gpTimelineIcon(e) {
+      if (e.kind === 'message') {
+        var ch = (e.channel || '').toLowerCase();
+        if (ch === 'sms') return '💬';        // speech balloon
+        if (ch === 'whatsapp') return '📱';   // mobile phone
+        if (ch === 'call' || ch === 'voice') return '📞'; // telephone receiver
+        return '✉️';                           // envelope (email/default)
+      }
+      var et = (e.event_type || '').toLowerCase();
+      if (et === 'note') return '📝';          // memo
+      if (et === 'stage_change') return '🚩';  // triangular flag
+      if (et === 'task_completed') return '✅';      // check mark
+      if (et === 'task_created') return '➕';        // heavy plus
+      if (et === 'blocker' || et === 'blocked') return '⛔'; // no entry
+      return '•';                                   // bullet
+    }
+
+    // Render the merged GP timeline (events + comms messages), newest first (read-only).
+    function renderGpTimelinePane(events) {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var html = '<div class="ceo-ops-section-head">Timeline <span class="count">' + events.length + '</span></div>';
+      if (!events.length) {
+        html += '<div class="ceo-gp-detail-empty">No timeline activity for this GP yet.</div>';
+        pane.innerHTML = html;
+        return;
+      }
+      for (var i = 0; i < events.length; i++) {
+        var e = events[i];
+        var title, sub, who;
+        if (e.kind === 'message') {
+          var dir = (e.direction === 'inbound') ? 'In' : 'Out';
+          title = (e.subject ? esc(e.subject) : esc((e.channel || 'message') + ' ' + dir.toLowerCase()));
+          sub = e.body_text ? esc(String(e.body_text).slice(0, 160)) : '';
+          who = e.sender || e.recipient || '';
+        } else {
+          title = esc(e.title || (e.event_type || 'event').replace(/_/g, ' '));
+          sub = e.detail ? esc(e.detail) : '';
+          who = e.actor || '';
+        }
+        html += '<div class="ceo-gp-tl-row">';
+        html += '<span class="ceo-gp-tl-icon">' + gpTimelineIcon(e) + '</span>';
+        html += '<div class="ceo-gp-tl-main">';
+        html += '<div class="ceo-gp-tl-title">' + title + '</div>';
+        if (sub) html += '<div class="ceo-gp-tl-sub">' + sub + '</div>';
+        if (who) html += '<div class="ceo-gp-tl-who">' + esc(who) + '</div>';
+        html += '</div>';
+        html += '<span class="ceo-gp-tl-time">' + esc(fmtCallTime(e.created_at)) + '</span>';
+        html += '</div>';
+      }
+      pane.innerHTML = html;
+    }
+
+    // Timeline sub-tab: fetch the full case timeline + comms once (cached per GP file),
+    // merge + sort newest-first, and render. Read-only.
+    function renderGpTimelineTab() {
+      var pane = document.getElementById('gpDetailPane');
+      if (!pane) return;
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (gpTimelineCache && gpTimelineCache.caseId === caseId) {
+        renderGpTimelinePane(gpTimelineCache.events);
+        return;
+      }
+      pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+      loadGpTimeline(caseId);
+    }
+
+    // Fetch GET /api/admin/case/timeline?id=<caseId>, merge timeline[]+messages[], cache, render.
+    function loadGpTimeline(caseId) {
+      apiFetch('/api/admin/case/timeline?id=' + encodeURIComponent(caseId)).then(function(d) {
+        // Guard against a stale response after the user switched GP files.
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        if (!d || !d.ok) {
+          var pane = document.getElementById('gpDetailPane');
+          if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Timeline</div><div class="ceo-gp-detail-empty">Failed to load timeline: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var events = mergeGpTimeline(d.timeline || [], d.messages || []);
+        gpTimelineCache = { caseId: caseId, events: events };
+        if (gpDetailTab === 'timeline') renderGpTimelinePane(events);
+      }).catch(function(e) {
+        if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
+        var pane = document.getElementById('gpDetailPane');
+        if (pane) pane.innerHTML = '<div class="ceo-ops-section-head">Timeline</div><div class="ceo-gp-detail-empty">Error: ' + esc(e.message) + '</div>';
+      });
     }
 
     // Sub-tab click delegation for the GP file (+ Tasks show-all toggle).

@@ -706,3 +706,57 @@ describe('gpTasksByStage (GP file Tasks sub-tab grouping)', () => {
     expect(M.gpTasksByStage([], { todayStr: TODAY })).toEqual([]);
   });
 });
+
+describe('gpNotesFromTimeline (GP file Notes sub-tab)', () => {
+  const timeline = [
+    { id: 'e1', event_type: 'note', title: 'First note', detail: 'd1', actor: 'RSO A', created_at: '2026-06-10T09:00:00Z' },
+    { id: 'e2', event_type: 'stage_change', title: 'Moved to AHPRA', detail: 'd2', actor: 'system', created_at: '2026-06-11T09:00:00Z' },
+    { id: 'e3', event_type: 'note', title: 'Latest note', detail: 'd3', actor: 'RSO B', created_at: '2026-06-12T09:00:00Z' },
+    { id: 'e4', event_type: 'task_completed', title: 'Task done', detail: 'd4', actor: 'RSO A', created_at: '2026-06-13T09:00:00Z' },
+    { id: 'e5', event_type: 'note', title: 'Middle note', detail: 'd5', actor: 'RSO A', created_at: '2026-06-11T12:00:00Z' }
+  ];
+
+  it('keeps only event_type === "note", newest first by created_at', () => {
+    // notes are e1(06-10), e5(06-11 12:00), e3(06-12); newest-first -> e3, e5, e1
+    expect(M.gpNotesFromTimeline(timeline).map(n => n.id)).toEqual(['e3', 'e5', 'e1']);
+  });
+
+  it('preserves the original note fields', () => {
+    const first = M.gpNotesFromTimeline(timeline)[0];
+    expect(first).toMatchObject({ id: 'e3', detail: 'd3', actor: 'RSO B' });
+  });
+
+  it('returns [] for empty/missing timeline', () => {
+    expect(M.gpNotesFromTimeline(null)).toEqual([]);
+    expect(M.gpNotesFromTimeline([])).toEqual([]);
+  });
+});
+
+describe('mergeGpTimeline (GP file Timeline sub-tab)', () => {
+  const timeline = [
+    { id: 'tl1', event_type: 'note', title: 'A note', detail: 'nd', actor: 'RSO A', created_at: '2026-06-10T09:00:00Z' },
+    { id: 'tl2', event_type: 'stage_change', title: 'To AHPRA', detail: 'sd', actor: 'system', created_at: '2026-06-12T09:00:00Z' }
+  ];
+  const messages = [
+    { id: 'm1', direction: 'outbound', channel: 'email', sender: 'ops@gp', recipient: 'gp@x', subject: 'Welcome', body_text: 'Hi there', created_at: '2026-06-11T09:00:00Z' },
+    { id: 'm2', direction: 'inbound', channel: 'sms', sender: 'gp@x', recipient: 'ops@gp', subject: null, body_text: 'Thanks', created_at: '2026-06-13T09:00:00Z' }
+  ];
+
+  it('merges timeline + messages, newest first by created_at', () => {
+    // created_at order desc: m2(06-13), tl2(06-12), m1(06-11), tl1(06-10)
+    expect(M.mergeGpTimeline(timeline, messages).map(e => e.id)).toEqual(['m2', 'tl2', 'm1', 'tl1']);
+  });
+
+  it('tags each entry with its kind (event vs message)', () => {
+    const byId = {};
+    M.mergeGpTimeline(timeline, messages).forEach(e => { byId[e.id] = e; });
+    expect(byId.tl1.kind).toBe('event');
+    expect(byId.m1.kind).toBe('message');
+  });
+
+  it('handles missing/empty inputs', () => {
+    expect(M.mergeGpTimeline(null, null)).toEqual([]);
+    expect(M.mergeGpTimeline(timeline, null).map(e => e.id)).toEqual(['tl2', 'tl1']);
+    expect(M.mergeGpTimeline(null, messages).map(e => e.id)).toEqual(['m2', 'm1']);
+  });
+});
