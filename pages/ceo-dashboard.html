@@ -855,6 +855,29 @@
     .rso-gp-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
     .rso-gp-row .name { font-weight: 600; flex: 1; }
 
+    /* ═══ PER-RSO OPS BOARD (under RSO Oversight) ═══ */
+    .ceo-ops-section { margin-top: 22px; }
+    .ceo-ops-section-head { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .ceo-ops-section-head .count { font-family: var(--mono); font-weight: 700; color: var(--text); }
+    .ceo-ops-empty { padding: 14px 12px; font-size: 13px; color: var(--text-dim); border: 1px dashed var(--panel-border); border-radius: var(--radius-md, 8px); }
+    .ceo-ops-group { border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); margin-bottom: 10px; overflow: hidden; background: var(--panel); }
+    .ceo-ops-group-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; user-select: none; background: rgba(255,255,255,0.02); }
+    .ceo-ops-group-head:hover { background: rgba(255,255,255,0.04); }
+    .ceo-ops-group-caret { font-size: 11px; color: var(--text-muted); transition: transform 0.15s; }
+    .ceo-ops-group.collapsed .ceo-ops-group-caret { transform: rotate(-90deg); }
+    .ceo-ops-group-name { font-weight: 700; font-size: 13px; flex: 1; }
+    .ceo-ops-group-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+    .ceo-ops-group-body { border-top: 1px solid var(--panel-border); }
+    .ceo-ops-group.collapsed .ceo-ops-group-body { display: none; }
+    .ceo-ops-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
+    .ceo-ops-row:last-child { border-bottom: none; }
+    .ceo-ops-row-main { flex: 1; min-width: 0; }
+    .ceo-ops-row-title { font-weight: 600; font-size: 13px; color: var(--text); }
+    .ceo-ops-row-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .ceo-ops-due { font-size: 11px; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
+    .ceo-ops-due.overdue { color: var(--red); font-weight: 700; }
+    .ceo-ops-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
       .section-grid { grid-template-columns: 1fr; }
@@ -2008,8 +2031,129 @@
           }
           html += '</div>';
         }
+        // Per-RSO ops board (open ops tasks owned by this RSO, grouped by GP). Filled async below.
+        html += '<div class="ceo-ops-section" id="ceoOpsBoard">';
+        html += '<div class="ceo-ops-section-head">Open Ops Tasks</div>';
+        html += '<div class="drilldown-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
+        html += '</div>';
         c.innerHTML = html;
+        loadRsoOps(rsoId);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
+    }
+
+    // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
+    function loadRsoOps(rsoId) {
+      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/ops').then(function(d) {
+        var board = document.getElementById('ceoOpsBoard');
+        if (!board) return;
+        if (!d || !d.ok) {
+          board.innerHTML = '<div class="ceo-ops-section-head">Open Ops Tasks</div><div class="ceo-ops-empty">Failed to load ops tasks: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var tasks = d.tasks || [];
+        var head = '<div class="ceo-ops-section-head">Open Ops Tasks <span class="count">' + tasks.length + '</span></div>';
+        if (!tasks.length) { board.innerHTML = head + '<div class="ceo-ops-empty">No open ops tasks for this RSO.</div>'; return; }
+
+        // Group by gp_name, preserving the server's priority/due ordering within each group.
+        var order = [];
+        var groups = {};
+        for (var i = 0; i < tasks.length; i++) {
+          var t = tasks[i];
+          var gp = t.gp_name || 'Unknown GP';
+          if (!groups[gp]) { groups[gp] = { name: gp, gp_user_id: t.gp_user_id || null, items: [] }; order.push(gp); }
+          groups[gp].items.push(t);
+        }
+
+        var html = head;
+        for (var gi = 0; gi < order.length; gi++) {
+          var grp = groups[order[gi]];
+          html += '<div class="ceo-ops-group">';
+          html += '<div class="ceo-ops-group-head" onclick="toggleOpsGroup(this)">';
+          html += '<span class="ceo-ops-group-caret">&#x25BC;</span>';
+          html += '<span class="ceo-ops-group-name">' + esc(grp.name) + '</span>';
+          html += '<span class="ceo-ops-group-count">' + grp.items.length + ' task' + (grp.items.length === 1 ? '' : 's') + '</span>';
+          if (grp.gp_user_id) html += '<button class="btn" onclick="ceoOpsOpenGp(event, \'' + esc(grp.gp_user_id) + '\')">Open GP</button>';
+          html += '</div>';
+          html += '<div class="ceo-ops-group-body">';
+          for (var ti = 0; ti < grp.items.length; ti++) {
+            var task = grp.items[ti];
+            var due = opsDueIndicator(task.due_date);
+            html += '<div class="ceo-ops-row" id="ceoOpsRow_' + esc(task.id) + '">';
+            html += '<div class="ceo-ops-row-main">';
+            html += '<div class="ceo-ops-row-title">' + esc(task.title || '(untitled task)') + '</div>';
+            var subBits = [];
+            if (task.task_type) subBits.push(esc(task.task_type.replace(/_/g, ' ')));
+            if (task.priority && task.priority !== 'normal') subBits.push(esc(task.priority));
+            html += '<div class="ceo-ops-row-sub">' + (subBits.length ? subBits.join(' &middot; ') : '&mdash;') + '</div>';
+            html += '</div>';
+            html += '<span class="ceo-ops-due' + (due.overdue ? ' overdue' : '') + '">' + esc(due.label) + '</span>';
+            html += '<div class="ceo-ops-actions">';
+            if ((task.task_type || '').indexOf('email') >= 0 && task.gmail_thread_id) {
+              html += '<button class="btn btn-blue" onclick="ceoOpsViewEmail(event, \'' + esc(task.gmail_thread_id) + '\')">View email</button>';
+            }
+            html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
+            html += '</div>';
+            html += '</div>';
+          }
+          html += '</div></div>';
+        }
+        board.innerHTML = html;
+      }).catch(function(e) {
+        var board = document.getElementById('ceoOpsBoard');
+        if (board) board.innerHTML = '<div class="ceo-ops-section-head">Open Ops Tasks</div><div class="ceo-ops-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    // Due/overdue indicator for an ops row. Returns { label, overdue }.
+    function opsDueIndicator(due) {
+      if (!due) return { label: 'No due date', overdue: false };
+      var dueMs = new Date(due).getTime();
+      if (isNaN(dueMs)) return { label: 'No due date', overdue: false };
+      var diffDays = Math.floor((dueMs - Date.now()) / 86400000);
+      if (diffDays < 0) return { label: 'Overdue ' + Math.abs(diffDays) + 'd', overdue: true };
+      if (diffDays === 0) return { label: 'Due today', overdue: true };
+      return { label: 'Due in ' + diffDays + 'd', overdue: false };
+    }
+
+    // Collapse/expand a GP ops group.
+    function toggleOpsGroup(headEl) {
+      var grp = headEl.closest('.ceo-ops-group');
+      if (grp) grp.classList.toggle('collapsed');
+    }
+
+    // View email: open the Gmail thread in a new tab.
+    function ceoOpsViewEmail(ev, threadId) {
+      if (ev) ev.stopPropagation();
+      if (!threadId) { showToast('No email thread linked to this task.', 'error'); return; }
+      window.open('https://mail.google.com/mail/u/0/#all/' + encodeURIComponent(threadId), '_blank');
+    }
+
+    // Mark an ops task done via the existing admin task-update endpoint, then refresh the board.
+    function ceoOpsMarkDone(ev, taskId, rsoId) {
+      if (ev) ev.stopPropagation();
+      var btn = ev && ev.target ? ev.target : null;
+      if (btn) btn.disabled = true;
+      apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+        method: 'PUT',
+        body: { status: 'completed' }
+      }).then(function(d) {
+        if (d && d.ok) {
+          showToast('Task marked done', 'success');
+          loadRsoOps(rsoId);
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
+          if (btn) btn.disabled = false;
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      });
+    }
+
+    // Open GP detail — placeholder until Phase 3 wires the full GP drill-in.
+    function ceoOpsOpenGp(ev, gpUserId) {
+      if (ev) ev.stopPropagation();
+      showToast('GP detail view arrives in a later phase.', 'info');
     }
 
     /* ═══ INIT ═══ */
