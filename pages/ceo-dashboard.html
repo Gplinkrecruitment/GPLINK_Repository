@@ -2384,6 +2384,23 @@
       });
     }
 
+    // Drop the cached Documents payload so the next render re-fetches /api/admin/gp-documents.
+    // If the Documents sub-tab is currently open, re-render it now (renderGpDocumentsTab
+    // re-fetches via loadGpDocuments because the cache was just cleared).
+    function refreshGpDocuments() {
+      gpDocumentsCache = null;
+      if (gpDetailTab === 'documents') renderGpDocumentsTab();
+    }
+
+    // After a document action (upload/approve/request-revision) the underlying task state
+    // changes (attachment_url, gmail_message_id, status), so refresh BOTH the cached task
+    // rows (refreshGpDetailTasks) and the cached documents payload (refreshGpDocuments) so
+    // the action buttons re-gate correctly on the next render.
+    function refreshGpDocsAndTasks() {
+      refreshGpDetailTasks();
+      refreshGpDocuments();
+    }
+
     // Per-task status action from the GP Tasks sub-tab. Reuses PUT /api/admin/task
     // (super-admin's requireAdminSession). On success: re-fetch case → refresh cache →
     // re-render. Failure shows a toast; checks both res.ok and the parsed { ok }.
@@ -2710,6 +2727,61 @@
       });
     }
 
+    // GP Documents action: upload a file for a GP LINK pack document (offer_contract /
+    // supervisor_cv). Reuses the unchanged POST /api/admin/va/task/upload-document
+    // (super-admin passes its requireAdminSession). file_data is a base64 data URL via
+    // FileReader.readAsDataURL, matching how admin.html uploads. Body is passed as an
+    // object so apiFetch JSON-stringifies it and sets Content-Type: application/json.
+    function ceoDocUpload(taskId, inputEl) {
+      var file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function() {
+        apiFetch('/api/admin/va/task/upload-document', {
+          method: 'POST',
+          body: { task_id: taskId, file_data: reader.result, file_name: file.name }
+        }).then(function(d) {
+          if (!d || !d.ok) { showToast((d && d.message) || 'Upload failed', 'error'); return; }
+          showToast('Document uploaded', 'success');
+          refreshGpDocsAndTasks();
+        }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // GP Documents action: approve the document and send it to the GP. Reuses the
+    // unchanged POST /api/admin/va/task/approve-document.
+    function ceoDocApprove(taskId) {
+      if (!confirm('Approve this document and send it to the GP?')) return;
+      apiFetch('/api/admin/va/task/approve-document', {
+        method: 'POST',
+        body: { task_id: taskId }
+      }).then(function(d) {
+        if (!d || !d.ok) { showToast((d && d.message) || 'Approval failed', 'error'); return; }
+        showToast('Approved & sent', 'success');
+        refreshGpDocsAndTasks();
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+    }
+
+    // GP Documents action: create a revision-request draft in Gmail (document attached for
+    // the practice) and open the draft in a new tab. Reuses the unchanged POST
+    // /api/admin/va/task/request-revision.
+    function ceoDocRequestRevision(taskId) {
+      if (!confirm('Create a revision-request draft in Gmail? The document is attached for the practice.')) return;
+      apiFetch('/api/admin/va/task/request-revision', {
+        method: 'POST',
+        body: { task_id: taskId }
+      }).then(function(d) {
+        if (d && d.ok && d.draft_url) {
+          window.open(d.draft_url, '_blank', 'noopener');
+          showToast('Draft created — add your note and send', 'success');
+          refreshGpDocsAndTasks();
+        } else {
+          showToast('Error: ' + ((d && (d.message || d.error)) || 'Unknown error'), 'error');
+        }
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+    }
+
     // Render this GP file's call history newest-first. Each row shows a status pill,
     // scheduled time, assigned RSO, admin notes, a meeting summary for completed calls,
     // a Join link when a zoom_join_url is present, plus per-call actions (resend/cancel/
@@ -2866,12 +2938,28 @@
       });
     }
 
-    // Sub-tab click delegation for the GP file (+ Tasks show-all toggle).
+    // Sub-tab click delegation for the GP file (+ Tasks show-all toggle + Documents actions).
     document.addEventListener('click', function(e) {
       var toggleBtn = e.target.closest('#gpTasksToggle');
       if (toggleBtn) { gpTasksShowAll = !gpTasksShowAll; renderGpTasksTab(); return; }
+      var docActionBtn = e.target.closest('[data-ceo-doc-action]');
+      if (docActionBtn) {
+        var taskId = docActionBtn.getAttribute('data-task');
+        var action = docActionBtn.getAttribute('data-ceo-doc-action');
+        if (action === 'approve') ceoDocApprove(taskId);
+        else if (action === 'revise') ceoDocRequestRevision(taskId);
+        return;
+      }
       var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
       if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); }
+    });
+
+    // Documents upload delegation: the hidden file input lives inside a label button that
+    // renderGpDocumentsPane re-renders, so delegate the change at document level to survive
+    // re-renders. The task id is carried on the input's data-ceo-doc-upload attribute.
+    document.addEventListener('change', function(e) {
+      var uploadInput = e.target.closest('input[data-ceo-doc-upload]');
+      if (uploadInput) ceoDocUpload(uploadInput.getAttribute('data-ceo-doc-upload'), uploadInput);
     });
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
