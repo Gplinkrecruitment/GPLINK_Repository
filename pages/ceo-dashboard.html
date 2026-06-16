@@ -3178,7 +3178,11 @@
     function renderCeoEmailPanel(t, cs, openTaskCount) {
       cs = cs || {};
       // Subject: strip admin's leading mail glyphs + "AHPRA:/Email:" prefix from the title.
-      var emailSubject = (t.title || '').replace(/^[✉️⚠️\s]*(AHPRA:\s*|Email:\s*)/, '');
+      // NOTE: use an ALTERNATION here, NOT a character class. Emoji code points inside a regex
+      // character class parse fine in V8/Node but throw "Invalid regular expression: Range out of
+      // order in character class" in Safari/JavaScriptCore, which crashes the whole inline script.
+      // The atoms below are: whitespace, envelope emoji, warning emoji, and the variation selector.
+      var emailSubject = (t.title || '').replace(/^(?:\s|✉|⚠|️)*(AHPRA:\s*|Email:\s*)/, '');
       var gmailUrl = t.gmail_thread_id ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(t.gmail_thread_id) : '';
       var epState = gpEmailPanels[t.id] || {};
       var epOpen = !!epState.open;
