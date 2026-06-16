@@ -190,9 +190,12 @@ const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').tr
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
 const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
-const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
-const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-20250514').trim() || 'claude-opus-4-20250514';
+const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
+// Document scanning/verification always uses the most current Claude model.
+// Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
+// other call sites (some of which set `temperature`, which the newest Opus rejects).
+const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -273,7 +276,8 @@ const SUPER_ADMIN_EMAILS = new Set(
 const CEO_EMAIL = String(process.env.CEO_EMAIL || '').trim().toLowerCase();
 const RSO_TEAM = [
   { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243', user_id: '2f94f870-7ab2-4f71-98ad-bf3756ed88db' },
-  { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' }
+  { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' },
+  { name: 'GP Link Admin', email: 'hello@mygplink.com.au', phone: '', user_id: '9c35e6f6-f7a2-4d33-afd7-06c59d9d4ae7' }
 ];
 // Default RSO when a GP's case has no assigned_va. Hazel is the sole active RSO.
 // (The Smith Miller test case already carries assigned_va = Khaleed, so preferring
@@ -762,7 +766,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+          body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
         });
         clearTimeout(timeout);
         var aiData = await aiRes.json();
@@ -837,7 +841,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var opusRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: ctrl2.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
+          body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
         });
         clearTimeout(to2);
         var opusData = await opusRes.json();
@@ -1052,7 +1056,7 @@ async function scanContractSignatures(buffer, mimeType, filename) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: ANTHROPIC_MODEL,
         max_tokens: 500,
         temperature: 0,
         messages: [{ role: 'user', content: contentBlocks }]
@@ -1115,7 +1119,7 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: ANTHROPIC_MODEL,
         max_tokens: 500,
         messages: [{ role: 'user', content: contentBlocks }]
       })
@@ -1384,11 +1388,16 @@ async function checkZohoContractReupload(zoho, app) {
 }
 
 // ── Gmail integration (Phase 1b) ──
-const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
-  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
 const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
-const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim();
+const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim().toLowerCase();
+// Admin/archive inboxes that must NEVER be watched or turned into Ops Queue tasks.
+// hello@ receives vendor + admin mail (Vercel, Anthropic, Zapier, Zoom…) and silent case-copies;
+// watching it floods the queue with "Unmatched" triage tasks. Excluded regardless of env config.
+const NEVER_PROCESS_EMAILS = new Set([MASTER_ARCHIVE_EMAIL, 'hello@mygplink.com.au'].filter(Boolean));
+const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+  .filter(e => !NEVER_PROCESS_EMAILS.has(e));
 
 function isGmailConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
@@ -1781,7 +1790,7 @@ async function extractAhpraActionItems(emailMeta) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: ANTHROPIC_MODEL,
         max_tokens: 1000,
         temperature: 0,
         system: 'Extract action items from AHPRA officer emails. Return JSON only.',
@@ -1886,7 +1895,7 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: ANTHROPIC_MODEL,
         max_tokens: 300,
         temperature: 0,
         messages: [{ role: 'user', content: prompt }]
@@ -2109,21 +2118,24 @@ async function getPlacedGPsForTriage() {
 }
 
 async function processGmailNotification(emailAddress, notifiedHistoryId) {
+  // Normalize — Pub/Sub may deliver mixed-case; watch state + processed records are stored lowercase.
+  emailAddress = String(emailAddress || '').trim().toLowerCase();
+  // hello@ (master archive) inbox monitoring is DISABLED. We still archive VA
+  // correspondence INTO hello@ (silent label copies, written during VA processing
+  // below), but hello@'s own inbound mail is never processed into tasks. This guard
+  // runs FIRST and is env-independent (NEVER_PROCESS_EMAILS), so even if hello@ is
+  // mistakenly listed in MONITORED_VA_EMAILS or registered as a VA account, it is
+  // never triaged. The renew-gmail-watch cron also no longer renews hello@'s watch,
+  // so notifications stop once the current watch expires.
+  if (NEVER_PROCESS_EMAILS.has(emailAddress)) {
+    console.log('[Gmail] hello@/archive inbox monitoring disabled; ignoring notification for', emailAddress);
+    return;
+  }
   var isRegisteredVA = MONITORED_VA_EMAILS.includes(emailAddress);
   if (!isRegisteredVA) {
     var vaAccountRes = await supabaseDbRequest('va_gmail_accounts',
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
-  }
-  // hello@ (master archive) inbox monitoring is DISABLED for now. We still archive VA
-  // correspondence INTO hello@ (silent label copies, written during VA processing
-  // below), but hello@'s own inbound mail is never processed into tasks. Ignoring it
-  // here is the safety net; the renew-gmail-watch cron also no longer renews hello@'s
-  // watch, so notifications stop once the current watch expires.
-  var isArchiveInbox = (emailAddress === MASTER_ARCHIVE_EMAIL);
-  if (isArchiveInbox) {
-    console.log('[Gmail] hello@ inbox monitoring disabled; ignoring notification for', emailAddress);
-    return;
   }
   if (!isRegisteredVA) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
@@ -2256,16 +2268,6 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         id: currentMsgId,
         format: 'full'
       });
-
-      // hello@: only process genuine inbound mail (INBOX). Silent archive copies
-      // are inserted label-only (no INBOX), so skip them to avoid duplicate tasks.
-      if (isArchiveInbox) {
-        var _msgLabels = (fullMsg.data && Array.isArray(fullMsg.data.labelIds)) ? fullMsg.data.labelIds : [];
-        if (_msgLabels.indexOf('INBOX') === -1) {
-          console.log('[Gmail] hello@ — skipping non-INBOX message (archive copy):', currentMsgId);
-          continue;
-        }
-      }
 
       // Extract email metadata
       var emailMeta = extractEmailMeta(fullMsg.data);
@@ -2907,8 +2909,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // Priority 5: Existing AI triage match (fallback for all emails including AHPRA)
-        if (!gpCase && triageResult.matched_gp_user_id) {
+        // Priority 5: Existing AI triage match (fallback for all emails including AHPRA).
+        // Only trust a HIGH-CONFIDENCE match. The triage model is asked to pick a GP from
+        // a list and will return a best guess even for clearly unrelated mail (e.g. a Vercel
+        // 500-error alert), flagging it via needs_triage / low confidence. Binding those
+        // guesses to a case cross-contaminates the GP's record (their AI summary's "Recent
+        // Communications", their RSO's queue). Require confidence >= 0.7 and not needs_triage,
+        // otherwise leave the email unmatched (case_id = null → Support page, not a GP case).
+        if (!gpCase && triageResult.matched_gp_user_id && !triageResult.needs_triage && (triageResult.confidence || 0) >= 0.7) {
           var caseRes = await supabaseDbRequest('registration_cases',
             'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
@@ -3220,6 +3228,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 }
 
 async function setupGmailWatch(userEmail) {
+  // Hard backstop: never register a watch on admin/archive inboxes (hello@). Watching
+  // floods the Ops Queue with vendor/admin mail; archiving copies INTO hello@ needs no watch.
+  if (NEVER_PROCESS_EMAILS.has(String(userEmail || '').trim().toLowerCase())) {
+    console.log('[Gmail] Refusing to watch never-process inbox:', userEmail);
+    return { ok: false, skipped: true, reason: 'inbox monitoring disabled', error: 'monitoring disabled for ' + userEmail };
+  }
   if (!GOOGLE_PUBSUB_TOPIC) {
     console.error('[Gmail] GOOGLE_PUBSUB_TOPIC not configured');
     return { ok: false, error: 'GOOGLE_PUBSUB_TOPIC env var is not set' };
@@ -4911,7 +4925,7 @@ Verify this document.`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: ANTHROPIC_SCAN_MODEL,
         max_tokens: 500,
         system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{
@@ -5535,7 +5549,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: ANTHROPIC_MODEL,
         max_tokens: 4,
         messages: [{
           role: 'user',
@@ -5875,120 +5889,6 @@ async function handleDoubleTickWebhook(req, res) {
     console.error('[doubletick-webhook] Unexpected error:', err && err.message);
     sendJson(res, 500, { ok: false, message: 'Internal error' });
   }
-}
-
-const QUAL_SCAN_OPTIONS = [
-  { key: 'primary_medical_degree', label: 'Primary medical degree', patterns: [/primary medical degree/i, /\bmbbs\b/i, /\bmbchb\b/i, /\bmb bch bao\b/i, /\bmd\b/i, /\bbmed\b/i, /medical degree/i] },
-  { key: 'mrcgp_certified', label: 'MRCGP certificate', patterns: [/\bmrcgp\b/i, /member of the royal college of general practitioners/i] },
-  { key: 'cct_certified', label: 'CCT certificate', patterns: [/\bcct\b/i, /certificate of completion of training/i, /\bpmetb\b/i] },
-  { key: 'micgp_certified', label: 'MICGP certificate', patterns: [/\bmicgp\b/i, /member.*irish college of general practitioners/i] },
-  { key: 'cscst_certified', label: 'CSCST certificate', patterns: [/\bcscst\b/i, /certificate of satisfactory completion of specialist training/i] },
-  { key: 'icgp_confirmation_letter', label: 'ICGP Confirmation Letter', patterns: [/\bicgp\b.*confirm/i, /irish college.*confirm/i] },
-  { key: 'frnzcgp_certified', label: 'FRNZCGP certificate', patterns: [/\bfrnzcgp\b/i, /fellow.*royal new zealand college/i] },
-  { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP Confirmation Letter', patterns: [/\brnzcgp\b.*confirm/i, /new zealand college.*confirm/i] },
-  { key: 'cv_signed_dated', label: 'Signed CV', patterns: [/\bcurriculum vitae\b/i, /\bcv\b/i, /resume/i, /signed and dated/i] },
-  { key: 'certificate_good_standing', label: 'Certificate of good standing', patterns: [/good standing/i, /certificate of standing/i, /registration status/i] },
-  { key: 'confirmation_training', label: 'Confirmation of training', patterns: [/confirmation of training/i, /training completion/i, /specialist training/i] },
-  { key: 'criminal_history', label: 'Criminal history check', patterns: [/criminal history/i, /police clearance/i, /background check/i, /dbs check/i, /fit2work/i] }
-];
-
-function heuristicQualificationClassification(fileName, snippet) {
-  const text = `${String(fileName || '')}\n${String(snippet || '')}`.slice(0, 16000);
-  let best = null;
-  for (const option of QUAL_SCAN_OPTIONS) {
-    let score = 0;
-    option.patterns.forEach((pattern) => {
-      if (pattern.test(text)) score += 1;
-    });
-    if (!best || score > best.score) {
-      best = { option, score };
-    }
-  }
-
-  if (!best || best.score <= 0) {
-    return {
-      key: 'primary_medical_degree',
-      label: 'Primary medical degree',
-      confidence: 0.35,
-      reason: 'No exact qualification keywords found. Defaulting to Primary medical degree.'
-    };
-  }
-
-  const confidence = Math.min(0.96, 0.45 + (best.score * 0.16));
-  return {
-    key: best.option.key,
-    label: best.option.label,
-    confidence,
-    reason: 'Matched qualification keywords in file name/content.'
-  };
-}
-
-async function classifyQualificationWithAI(fileName, textSnippet) {
-  const prompt = [
-    'Classify this doctor qualification document into exactly one key.',
-    'Valid keys: primary_medical_degree, mrcgp_certified, cct_certified, micgp_certified, cscst_certified, icgp_confirmation_letter, frnzcgp_certified, rnzcgp_confirmation_letter, cv_signed_dated, certificate_good_standing, confirmation_training, criminal_history.',
-    'Return strict JSON with: key, confidence (0..1), reason.',
-    `file_name: ${String(fileName || '').slice(0, 260)}`,
-    `text_snippet: ${String(textSnippet || '').slice(0, 7000)}`
-  ].join('\n');
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
-        input: prompt,
-        max_output_tokens: 180,
-        temperature: 0
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('AI model request failed');
-    }
-    const payload = await response.json();
-    const text = payload && typeof payload.output_text === 'string'
-      ? payload.output_text
-      : '';
-    if (!text) throw new Error('AI model returned empty output');
-
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      const objMatch = text.match(/\{[\s\S]*\}/);
-      if (objMatch) parsed = JSON.parse(objMatch[0]);
-    }
-    if (!parsed || typeof parsed !== 'object') throw new Error('AI response JSON invalid');
-
-    const selectedKey = String(parsed.key || '').trim();
-    const valid = QUAL_SCAN_OPTIONS.find((item) => item.key === selectedKey);
-    if (!valid) throw new Error('AI selected unsupported key');
-
-    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.7)));
-    const reason = String(parsed.reason || 'Classified by AI model').slice(0, 220);
-    return { key: valid.key, label: valid.label, confidence, reason };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function classifyQualificationDocument(fileName, textSnippet) {
-  if (OPENAI_API_KEY) {
-    try {
-      return await classifyQualificationWithAI(fileName, textSnippet);
-    } catch (err) {
-      // Fall back to deterministic keyword classifier.
-    }
-  }
-  return heuristicQualificationClassification(fileName, textSnippet);
 }
 
 function joinDialPhone(countryDial, phoneNumber) {
@@ -19196,7 +19096,7 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: ANTHROPIC_SCAN_MODEL,
         max_tokens: 200,
         system: systemPrompt,
         messages: [{ role: 'user', content: contentBlocks }]
@@ -20847,8 +20747,8 @@ async function handleApi(req, res, pathname) {
       var dynVaRes = await supabaseDbRequest('va_gmail_accounts', 'select=email_address&watch_active=eq.true');
       var dynVas = dynVaRes.ok && Array.isArray(dynVaRes.data) ? dynVaRes.data : [];
       for (var dvi = 0; dvi < dynVas.length; dvi++) {
-        var dvAddr = dynVas[dvi].email_address;
-        if (MONITORED_VA_EMAILS.includes(dvAddr)) continue;
+        var dvAddr = String(dynVas[dvi].email_address || '').trim().toLowerCase();
+        if (MONITORED_VA_EMAILS.includes(dvAddr) || NEVER_PROCESS_EMAILS.has(dvAddr)) continue;
         var dvResult = await setupGmailWatch(dvAddr);
         cronResults.push({ email: dvAddr, success: !!(dvResult && dvResult.ok), expiry: dvResult && dvResult.ok ? dvResult.expiry : null, error: dvResult && !dvResult.ok ? dvResult.error : null });
       }
@@ -20858,6 +20758,76 @@ async function handleApi(req, res, pathname) {
       cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: true, skipped: true, reason: 'inbox monitoring disabled' });
     }
     sendJson(res, 200, { ok: true, results: cronResults });
+    return;
+  }
+
+  // Cron: detect newer Claude models — raise a CEO-ONLY task when a newer Opus model ships.
+  // The whole app reads ANTHROPIC_MODEL / ANTHROPIC_SCAN_MODEL, so upgrading is a one-line env
+  // change; this just notifies the CEO so they review cost + API compatibility before switching.
+  if (req.method === 'GET' && pathname === '/api/cron/check-model-updates') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    try {
+      var cmKey = String(process.env.ANTHROPIC_API_KEY || '').trim();
+      if (!cmKey) { sendJson(res, 200, { ok: true, skipped: 'no ANTHROPIC_API_KEY' }); return; }
+      var cmController = new AbortController();
+      var cmTimer = setTimeout(function () { cmController.abort(); }, 20000);
+      var cmResp;
+      try {
+        cmResp = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+          signal: cmController.signal,
+          headers: { 'x-api-key': cmKey, 'anthropic-version': '2023-06-01' }
+        });
+      } finally { clearTimeout(cmTimer); }
+      if (!cmResp || !cmResp.ok) { sendJson(res, 200, { ok: false, error: 'models API ' + (cmResp ? cmResp.status : 'no response') }); return; }
+      var cmData = await cmResp.json();
+      var cmModels = (cmData && Array.isArray(cmData.data)) ? cmData.data : [];
+      // Newest Opus by created_at. Opus-family only on purpose: avoids auto-suggesting the
+      // pricier Fable tier or a Sonnet/Haiku downgrade. The CEO can still choose another family.
+      var cmOpus = cmModels
+        .filter(function (m) { return String(m.id || '').indexOf('claude-opus-') === 0; })
+        .sort(function (a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+      var cmLatest = cmOpus[0] || null;
+      var cmCurrent = ANTHROPIC_MODEL;
+      var cmCurrentEntry = cmModels.find(function (m) { return m.id === cmCurrent; }) || null;
+      var cmLatestTs = cmLatest ? new Date(cmLatest.created_at || 0).getTime() : 0;
+      var cmCurrentTs = cmCurrentEntry ? new Date(cmCurrentEntry.created_at || 0).getTime() : 0;
+      var cmNewer = !!cmLatest && cmLatest.id !== cmCurrent && cmLatestTs > cmCurrentTs;
+      if (!cmNewer) { sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest ? cmLatest.id : null, newer: false }); return; }
+
+      // Dedup: don't recreate if an open CEO task already names this exact model.
+      var cmExisting = await supabaseDbRequest('registration_tasks',
+        'select=id,title&task_type=eq.model_update_available&status=in.(open,in_progress,waiting,escalated,deferred,blocked)');
+      var cmAlready = cmExisting.ok && Array.isArray(cmExisting.data)
+        && cmExisting.data.some(function (t) { return String(t.title || '').indexOf(cmLatest.id) > -1; });
+      if (cmAlready) { sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task: 'already_open' }); return; }
+
+      // CEO-only: status 'escalated' surfaces it on the CEO escalations board (which lists ALL
+      // escalated tasks regardless of case/assignee), and escalated_to 'CEO' is the role marker
+      // convention (#26). case_id is null — this is a company-level alert, not a GP case.
+      var cmTaskData = {
+        task_type: 'model_update_available',
+        title: 'New Claude model available: ' + cmLatest.id + ' — review and switch',
+        description: 'A newer Opus model (' + cmLatest.id + ', released ' + String(cmLatest.created_at || '').slice(0, 10)
+          + ') is available.\n\nThe app currently runs ' + cmCurrent + ' for general AI and ' + ANTHROPIC_SCAN_MODEL
+          + ' for document scanning. To switch: set ANTHROPIC_MODEL (and/or ANTHROPIC_SCAN_MODEL) in Vercel to '
+          + cmLatest.id + ' and redeploy — no code changes needed.\n\nHeads-up: Opus 4.7+ reject the `temperature` parameter, '
+          + 'and the general-AI calls still pass it — so moving ANTHROPIC_MODEL past 4.6 needs those temperature params stripped first. '
+          + 'Document scanning already runs without temperature, so ANTHROPIC_SCAN_MODEL can move freely.',
+        priority: 'normal',
+        status: 'escalated',
+        escalated_to: 'CEO',
+        escalated_reason: 'Newer Claude model available: ' + cmLatest.id,
+        escalated_at: new Date().toISOString(),
+        escalated_by: 'system',
+        _actor: 'system'
+      };
+      var cmTask = await _createRegTask(null, cmTaskData);
+      console.log('[Cron] Model update CEO task created for', cmLatest.id);
+      sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task_id: cmTask ? cmTask.id : null });
+    } catch (cmErr) {
+      console.error('[Cron] check-model-updates failed:', cmErr && cmErr.message);
+      sendJson(res, 200, { ok: false, error: cmErr && cmErr.message });
+    }
     return;
   }
 
@@ -26739,7 +26709,7 @@ Check this document for certification markings.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 300,
           system: [{ type: 'text', text: certSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -26894,7 +26864,7 @@ Classify this document.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 150,
           system: [{ type: 'text', text: classifySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -27136,7 +27106,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 200,
           system: [{ type: 'text', text: idSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -27770,34 +27740,6 @@ Return ONLY valid JSON with no markdown formatting:
 
     console.log(`[UpdateName] Account ${email} name updated to: ${firstName} ${lastName} (auto-matched from documents)`);
     sendJson(res, 200, { ok: true, firstName, lastName });
-    return;
-  }
-
-  if (pathname === '/api/ai/scan-qualification' && req.method === 'POST') {
-    const session = requireSession(req, res);
-    if (!session) return;
-
-    let body;
-    try {
-      body = await readJsonBody(req);
-    } catch (err) {
-      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
-      return;
-    }
-
-    const fileName = sanitizeUserString(body.fileName, 260);
-    const textSnippet = sanitizeUserString(body.textSnippet, 8000);
-    if (!fileName) {
-      sendJson(res, 400, { ok: false, message: 'File name is required.' });
-      return;
-    }
-
-    const classification = await classifyQualificationDocument(fileName, textSnippet);
-    sendJson(res, 200, {
-      ok: true,
-      classification,
-      scannedAt: new Date().toISOString()
-    });
     return;
   }
 
@@ -30501,7 +30443,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-6',
+          model: ANTHROPIC_MODEL,
           max_tokens: 200,
           temperature: 0,
           system: 'You extract follow-up actions from case management notes. Today is ' + today + '. Return JSON only, no markdown. If no follow-up is needed, return {"followup":null}. If a follow-up exists, return {"followup":{"action":"<what to do>","deadline":"<YYYY-MM-DD>","condition":"<if any, else null>"}}. Interpret relative dates (e.g. "Monday" = next Monday, "Friday" = this Friday if today is before Friday, else next Friday).',
@@ -31490,7 +31432,7 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-opus-4-20250514',
+            model: ANTHROPIC_MODEL,
             max_tokens: 1000,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]
