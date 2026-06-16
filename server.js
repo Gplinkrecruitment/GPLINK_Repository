@@ -8684,9 +8684,12 @@ async function getUserQualificationSnapshot(userId, country) {
   if (!isSupabaseDbConfigured() || !userId) return { country: country || null, required: [], approved: [], uploaded_unverified: [], missing: [] };
   const countryCode = (country || 'GB').toUpperCase();
   const required = VA_REQUIRED_QUALS_BY_COUNTRY[countryCode] || VA_REQUIRED_QUALS_BY_COUNTRY.GB;
+  // user_documents stores country_code lowercase (normalizeDocumentCountry); the
+  // uppercase countryCode above is only the key into the required-quals map.
+  const dbCountry = normalizeDocumentCountry(country || 'GB') || 'uk';
   const docsRes = await supabaseDbRequest(
     'user_documents',
-    'select=document_key,status,file_name,updated_at,storage_path&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(countryCode)
+    'select=document_key,status,file_name,updated_at,storage_path&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(dbCountry)
   );
   const docs = docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [];
   const docByKey = {};
@@ -30541,8 +30544,8 @@ Return ONLY valid JSON with no markdown formatting:
       var gdAllDocs = gdShared.concat(gdCountryDocs);
 
       // 4. Get user_documents from DB
-      var gdNormalizedCountry = gdCountry.toUpperCase();
-      var gdUserDocsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId) + '&country_code=eq.' + encodeURIComponent(gdNormalizedCountry));
+      // user_documents stores country_code lowercase; gdCountry is already normalized.
+      var gdUserDocsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId) + '&country_code=eq.' + encodeURIComponent(gdCountry));
       var gdUserDocs = gdUserDocsRes.ok && Array.isArray(gdUserDocsRes.data) ? gdUserDocsRes.data : [];
       var gdUserDocsByKey = {};
       gdUserDocs.forEach(function(d) { if (d && d.document_key) gdUserDocsByKey[d.document_key] = d; });
@@ -34177,13 +34180,24 @@ Return ONLY valid JSON with no markdown formatting:
           if (obTest) { rfFileUrl = obPath; break; }
         }
       }
+      // Reuse the GP's own uploaded file (e.g. a prepared-doc upload from the
+      // 3-failed-scan manual-review flow) so approving/rejecting doesn't blank the
+      // document. Match on document_key across any country casing and pick the row
+      // that actually has a stored file.
+      if (!rfFileUrl) {
+        const rfExistRes = await supabaseDbRequest('user_documents',
+          'select=file_url,storage_path&user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfTask.related_document_key) + '&order=updated_at.desc');
+        const rfExist = (rfExistRes.ok && Array.isArray(rfExistRes.data) ? rfExistRes.data : [])
+          .find(function (r) { return r && (r.storage_path || r.file_url); });
+        if (rfExist) rfFileUrl = rfExist.storage_path || rfExist.file_url;
+      }
 
       await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: [{
           user_id: rfUserId,
-          country_code: rfCountry.toUpperCase(),
+          country_code: rfCountry,
           document_key: rfTask.related_document_key,
           status: rfDecision === 'approve' ? 'approved' : 'rejected',
           flag_reason: '',
