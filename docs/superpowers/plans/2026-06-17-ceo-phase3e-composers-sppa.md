@@ -68,6 +68,7 @@
 
 - [ ] **Step 1:** `node --check server.js && node --check lib/ceo-metrics.js`.
 - [ ] **Step 2:** inline-script compile both pages.
+- [ ] **Step 2b (SAFARI GUARDRAIL):** run the non-ASCII-regex-character-class scan (see ENV) and confirm CLEAN — emoji/multibyte in a regex `[...]` compiles in Node/V8 but crashes the whole page in Safari, and `node --check` won't catch it. Any hit is a MUST-FIX (rewrite as alternation/`\uXXXX`).
 - [ ] **Step 3:** full suite — `node node_modules/vitest/vitest.mjs run` (NOT npx) — green.
 - [ ] **Step 4 (HARD CONSTRAINT):** `git diff --stat origin/worktree-ceo-detach-email-routing -- pages/admin.html` EMPTY.
 - [ ] **Step 5 (parity checklist):** confirm EVERY former "Handled from RSO tools" note is now a real control, and that ALL CEO email sends (composer + SPPA send-to-candidate/practice) route through `/api/ceo/*` with `from=hello@` (NOT the admin sender). Confirm the admin `/api/admin/email/send` + `/sppa-send-*` default behavior (from hazel@) is unchanged. List anything still deferred. State clearly that hello@ sending is verified by code-trace and the first real prod send is the live confirmation. No commit.
