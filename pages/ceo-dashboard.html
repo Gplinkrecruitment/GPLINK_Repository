@@ -1140,6 +1140,14 @@
 
     /* ── Case stage pill (admin 90) ── */
     .gp-parity .case-stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+    /* Case-management form (ported from admin .case-mgmt / .case-field, dark-converted) */
+    .gp-parity .case-mgmt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media(max-width:600px){.gp-parity .case-mgmt{grid-template-columns:1fr}}
+    .gp-parity .case-field{display:grid;gap:3px}
+    .gp-parity .case-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+    .gp-parity .case-field select,.gp-parity .case-field input,.gp-parity .case-field textarea{padding:7px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;background:var(--panel);color:var(--text)}
+    .gp-parity .case-field select:focus,.gp-parity .case-field input:focus,.gp-parity .case-field textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(96,165,250,.15)}
+    .gp-parity .pb-rso-unassigned{color:var(--red)}
 
     /* ═══ SCROLLBAR ═══ */
     ::-webkit-scrollbar { width: 6px; }
@@ -2570,20 +2578,49 @@
         html += '<div class="ceo-gp-detail-head">';
         html += '<span class="rso-detail-back ceo-gp-detail-back" onclick="openRsoDetail(\'' + esc(rsoId) + '\')">&#x2190; Back to RSO</span>';
         html += '</div>';
-        html += '<div class="ceo-gp-detail-profile">';
-        html += '<div class="ceo-gp-detail-id">';
-        html += '<h2 class="ceo-gp-detail-name">' + esc(cs.gp_name || 'Unknown') + '</h2>';
-        var contactBits = [];
-        if (cs.gp_email) contactBits.push(esc(cs.gp_email));
-        if (cs.gp_phone) contactBits.push(esc(cs.gp_phone));
-        if (contactBits.length) html += '<div class="ceo-gp-detail-contact">' + contactBits.join(' &middot; ') + '</div>';
-        if (cs.practice_name) html += '<div class="ceo-gp-detail-practice">' + esc(cs.practice_name) + '</div>';
+        // ── Profile header parity (dark port of admin .profile-bar, 3445–3478) ──
+        var gpName = cs.gp_name || 'Unknown';
+        var gpUserId = cs.user_id || '';
+        var gpCountry = cs.registration_country || cs.gp_selected_country || '';
+        // RSO display name: prefer the roster match for this GP file's rsoId, then the
+        // case's stored attribution, else Unassigned (rule 2: graceful fallback).
+        var rsoName = '';
+        if (Array.isArray(rsoRosterCache) && rsoId) {
+          var _rsoMatch = rsoRosterCache.find(function(r) { return r.rso_id === rsoId; });
+          if (_rsoMatch) rsoName = _rsoMatch.rso_name || '';
+        }
+        if (!rsoName) rsoName = cs.assigned_rso_name || '';
+        // Last GP activity dot — same 7d/3d red/amber/green thresholds as admin.
+        var _actTs = cs.last_gp_activity_at || cs.updated_at || cs.created_at || '';
+        var _actDays = _actTs ? Math.floor((Date.now() - new Date(_actTs).getTime()) / 86400000) : -1;
+        var _actColor = _actDays >= 7 ? 'var(--red)' : _actDays >= 3 ? 'var(--amber)' : 'var(--green)';
+        var _actLabel = _actTs ? relativeTime(_actTs) : 'unknown';
+        // Avatar initials from the GP name (mirror admin ini()).
+        var _ini = (gpName || '?').split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase();
+
+        html += '<div class="gp-parity">';
+        html += '<div class="profile-bar">';
+        html += '<div class="pb-avatar">' + esc(_ini) + '</div>';
+        html += '<div class="pb-info">';
+        html += '<div class="pb-name">' + esc(gpName) + '</div>';
+        // Meta line: email · phone · country · practice · RSO. Practice rendered as plain
+        // text (the CEO page has no practice-navigation handler — rule 2: omit the link,
+        // keep the value). WhatsApp/quals omitted (not present in gpDetailCache.case).
+        var _meta = esc(cs.gp_email || '');
+        if (cs.gp_phone) _meta += ' • ' + esc(cs.gp_phone);
+        if (gpCountry) _meta += ' • ' + esc(gpCountry);
+        if (cs.practice_name) _meta += ' • ' + esc(cs.practice_name);
+        _meta += rsoName ? ' • RSO: ' + esc(rsoName) : ' • <span class="pb-rso-unassigned">Unassigned</span>';
+        html += '<div class="pb-meta">' + _meta + '</div>';
+        html += '<div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:' + _actColor + '"><span style="width:6px;height:6px;border-radius:50%;background:' + _actColor + ';display:inline-block"></span>Last GP activity: ' + esc(_actLabel) + '</span></div>';
         html += '</div>';
-        html += '<div class="ceo-gp-detail-pills">';
+        html += '<div class="pb-pills">';
         if (dispStage) html += '<span class="pill ' + pillClass(dispStage) + '">' + esc(STAGE_LABELS[dispStage] || dispStage) + '</span>';
         if (cs.status) html += statusPill(cs.status);
         html += '</div>';
+        html += '<button class="pb-expand-toggle" onclick="toggleCaseMgmtPanel(this)" title="Case management">&#x25BE;</button>';
         html += '</div>';
+
         if (cs.blocker_status) {
           html += '<div class="ceo-gp-detail-blocker">';
           html += '<span class="ceo-gp-detail-blocker-label">Blocked</span>';
@@ -2594,15 +2631,41 @@
         // Header case actions — reuse the existing CEO action modals, passing this GP's
         // caseId/user_id/gp_name. Each modal's submit handler calls refreshGpDetailIfOpen()
         // on success, so the GP file re-fetches + re-renders. Add Note (no taskId) files a
-        // case-level note → lands in the Notes sub-tab after the refresh.
-        var gpName = cs.gp_name || 'Unknown';
-        var gpUserId = cs.user_id || '';
+        // case-level note → lands in the Notes sub-tab after the refresh. Zoom opens a
+        // minimal scheduler that POSTs /api/admin/calls/schedule; View as GP opens the
+        // existing impersonate endpoint in a new tab (admin parity, 3458–3464).
         html += '<div class="ceo-gp-detail-actions">';
+        html += '<button class="btn btn-purple" onclick="openNudgeModal(\'' + esc(gpUserId) + '\', \'' + esc(gpName) + '\')">Send Nudge</button>';
         html += '<button class="btn btn-blue" onclick="openCreateTaskModal(\'' + esc(caseId) + '\', \'' + esc(gpName) + '\')">Add Task</button>';
         html += '<button class="btn" onclick="openNoteModal(\'' + esc(caseId) + '\', \'\', \'' + esc(gpName) + '\')">Add Note</button>';
         html += '<button class="btn btn-purple" onclick="openStageChangeModal(\'' + esc(caseId) + '\')">Change Stage</button>';
         html += '<button class="btn btn-red" onclick="openBlockerModal(\'' + esc(caseId) + '\')">Set Blocker / On Hold</button>';
-        html += '<button class="btn btn-purple" onclick="openNudgeModal(\'' + esc(gpUserId) + '\', \'' + esc(gpName) + '\')">Send Nudge</button>';
+        html += '<button class="btn btn-blue" onclick="openCeoZoomModal(\'' + esc(caseId) + '\', \'' + esc(gpUserId) + '\', \'' + esc(cs.stage || '') + '\')">Zoom</button>';
+        if (gpUserId) html += '<button class="btn btn-amber" onclick="window.open(\'/api/admin/impersonate?user_id=' + encodeURIComponent(gpUserId) + '\', \'_blank\')">View as GP</button>';
+        html += '</div>';
+
+        // Expandable case-management panel (ported from admin renderCaseManagementForm,
+        // 2542–2562): Assigned RSO (reuses openReassignModal — the CEO reassign+thread-
+        // transfer flow), Status + VA Verified Stage dropdowns saved via PUT /api/admin/case.
+        html += '<div class="pb-expand-panel" id="pbExpandPanel">';
+        html += '<div class="case-mgmt">';
+        html += '<div class="case-field"><label>Assigned RSO</label>';
+        html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(caseId) + '\')" style="justify-content:flex-start">' + (rsoName ? esc(rsoName) + ' — Reassign' : 'Unassigned — Assign RSO') + '</button></div>';
+        var _statuses = ['active', 'on_hold', 'complete', 'withdrawn'];
+        html += '<div class="case-field"><label>Status</label><select id="caseMgmtStatus">';
+        for (var _si = 0; _si < _statuses.length; _si++) {
+          html += '<option value="' + _statuses[_si] + '"' + (cs.status === _statuses[_si] ? ' selected' : '') + '>' + _statuses[_si] + '</option>';
+        }
+        html += '</select></div>';
+        html += '<div class="case-field"><label>VA Verified Stage</label><select id="caseMgmtVerifiedStage">';
+        html += '<option value=""' + (!cs.gp_verified_stage ? ' selected' : '') + '>Not verified</option>';
+        for (var _vi = 0; _vi < STAGES.length; _vi++) {
+          html += '<option value="' + STAGES[_vi] + '"' + (cs.gp_verified_stage === STAGES[_vi] ? ' selected' : '') + '>' + esc(STAGE_LABELS[STAGES[_vi]] || STAGES[_vi]) + '</option>';
+        }
+        html += '</select></div>';
+        html += '<div style="display:flex;gap:6px;align-items:end"><button class="btn btn-blue" id="caseMgmtSave" onclick="saveCaseMgmt(\'' + esc(caseId) + '\', \'' + esc(rsoId) + '\')">Save Changes</button></div>';
+        html += '</div>';
+        html += '</div>';
         html += '</div>';
 
         // Sub-tab nav
@@ -2789,6 +2852,86 @@
     function refreshGpDocuments() {
       gpDocumentsCache = null;
       if (gpDetailTab === 'documents') renderGpDocumentsTab();
+    }
+
+    /* ── Profile-header case-management controls (3d.2) ── */
+
+    // Toggle the expandable case-management panel under the profile bar (mirror admin's
+    // data-pb-toggle behaviour: flip the panel's .open class).
+    function toggleCaseMgmtPanel(btn) {
+      var panel = document.getElementById('pbExpandPanel');
+      if (panel) panel.classList.toggle('open');
+    }
+
+    // Save Status + VA Verified Stage from the case-management panel via PUT /api/admin/case
+    // (the same allowed fields admin's saveCase sends). On success re-open the GP file so the
+    // header pills + panel reflect the change. RSO reassignment is handled separately by the
+    // Assigned RSO button (openReassignModal → /api/admin/case {assigned_rso} + thread transfer).
+    function saveCaseMgmt(caseId, rsoId) {
+      var statusEl = document.getElementById('caseMgmtStatus');
+      var stageEl = document.getElementById('caseMgmtVerifiedStage');
+      var btn = document.getElementById('caseMgmtSave');
+      var body = {
+        status: statusEl ? (statusEl.value || null) : null,
+        gp_verified_stage: stageEl ? (stageEl.value || null) : null
+      };
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId), { method: 'PUT', body: body }).then(function(d) {
+        if (d && d.ok) {
+          showToast('Case updated', 'success');
+          refreshDashboard();
+          // Full re-render so the header stage/status pills + panel selections reflect.
+          if (gpDetailCache && gpDetailCache.caseId === caseId) openGpDetail(caseId, rsoId);
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Save failed'), 'error');
+          if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      });
+    }
+
+    // Minimal Zoom/call scheduler (admin parity for the profile-header Zoom button). The
+    // /api/admin/calls/schedule endpoint requires case_id + a stage in {myintealth,amc,ahpra};
+    // optional admin_notes. Sends a Calendly invite to the GP (no live send during build — this
+    // only fires on an explicit click at runtime). Refreshes the open GP file on success.
+    var CEO_ZOOM_STAGES = ['myintealth', 'amc', 'ahpra'];
+    function openCeoZoomModal(caseId, userId, currentStage) {
+      var defStage = CEO_ZOOM_STAGES.indexOf(currentStage) !== -1 ? currentStage : 'myintealth';
+      var html = '<div class="modal-title">Schedule Call</div>';
+      html += '<div class="modal-field"><label class="modal-label">Stage</label><select class="modal-select" id="mZoomStage">';
+      for (var i = 0; i < CEO_ZOOM_STAGES.length; i++) {
+        html += '<option value="' + CEO_ZOOM_STAGES[i] + '"' + (CEO_ZOOM_STAGES[i] === defStage ? ' selected' : '') + '>' + esc(STAGE_LABELS[CEO_ZOOM_STAGES[i]] || CEO_ZOOM_STAGES[i]) + '</option>';
+      }
+      html += '</select></div>';
+      html += '<div class="modal-field"><label class="modal-label">Notes (optional)</label><textarea class="modal-textarea" id="mZoomNotes" placeholder="Internal notes for this call..."></textarea></div>';
+      html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">Sends the GP a Calendly invite for the selected stage.</div>';
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mZoomSubmit" onclick="submitCeoZoom(\'' + esc(caseId) + '\', \'' + esc(userId) + '\')">Send Invite</button></div>';
+      openModal(html);
+    }
+
+    function submitCeoZoom(caseId, userId) {
+      var stageEl = document.getElementById('mZoomStage');
+      var notesEl = document.getElementById('mZoomNotes');
+      var btn = document.getElementById('mZoomSubmit');
+      var body = { case_id: caseId, stage: stageEl ? stageEl.value : '' };
+      if (userId) body.user_id = userId;
+      if (notesEl && notesEl.value.trim()) body.admin_notes = notesEl.value.trim();
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+      apiFetch('/api/admin/calls/schedule', { method: 'POST', body: body }).then(function(d) {
+        if (d && d.ok) {
+          showToast('Calendly invite sent', 'success');
+          closeModal();
+          refreshGpDetailTasks();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Schedule failed'), 'error');
+          if (btn) { btn.disabled = false; btn.textContent = 'Send Invite'; }
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Send Invite'; }
+      });
     }
 
     // After a document action (upload/approve/request-revision) the underlying task state
