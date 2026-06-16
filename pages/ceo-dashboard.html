@@ -1121,6 +1121,11 @@
     .gp-parity .et-reply-area{width:100%;min-height:120px;padding:10px;font-family:inherit;font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);resize:vertical}
     .gp-parity .et-btn-row{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
     .gp-parity .et-note{font-size:10px;color:var(--muted);margin-left:8px}
+    /* admin .btn.sm / .btn.primary (admin 31–33), scoped under .gp-parity for the email-triage
+       panel's buttons; .primary keeps #fff text on the (already-dark) --blue token. */
+    .gp-parity .btn.sm{padding:5px 10px;font-size:11px}
+    .gp-parity .btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .gp-parity .btn.primary:hover{filter:brightness(1.1)}
 
     /* ── Dropdown Menu (admin 977–981) ── */
     .gp-parity .st-dropdown{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:4px 0;display:none}
@@ -2558,6 +2563,9 @@
     var gpDetailCache = null;
     var gpDetailTab = 'tasks';
     var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
+    // Per-task email-triage panel state (port of admin S.openEmailPanels): keyed by task id,
+    // each { open:bool, reply:string } so open/generated-reply state survives Tasks re-renders.
+    var gpEmailPanels = {};
     var gpTimelineCache = null; // Timeline sub-tab: { caseId, events:[] } fetched once per GP file.
     var gpDocumentsCache = null; // Documents sub-tab: { caseId, sections:[], driveFolder } fetched once per GP file.
     var gpCallsCache = null; // Calls sub-tab: { caseId, calls:[] } fetched once per GP file.
@@ -3077,6 +3085,13 @@
           html += '</div>';
           html += '</div>'; // .st-actions
           html += '</div>'; // .st-top
+
+          // Email-triage expanded panel (port of admin renderGpTasksPane 2797–2831). Sits
+          // inside .stage-task, after .st-top; toggled open by clicking the row (handler below).
+          if (t.task_type === 'email_triage') {
+            html += renderCeoEmailPanel(t, cs, tasks.length);
+          }
+
           html += '</div>'; // .stage-task
         });
 
@@ -3085,6 +3100,50 @@
 
       html += '<div style="margin-top:12px"><button class="btn" onclick="openCreateTaskModal(\'' + esc((gpDetailCache && gpDetailCache.caseId) || '') + '\', \'' + esc(cs.gp_name || '') + '\')">+ Add Task</button></div>';
       pane.innerHTML = html;
+    }
+
+    // Email-triage expanded panel markup (port of admin renderGpTasksPane 2797–2831, dark).
+    // Email block (from/subject/body + Open-in-Gmail), GP Context grid (stage/practice/open
+    // tasks — Qualifications omitted: not carried in gpDetailCache, porting rule 2), Suggested
+    // Reply (Generate → reply textarea + Copy + Open Gmail to Reply), and ✓ Mark Resolved with
+    // its inline "reply via Gmail first" error. Open/reply state persists in gpEmailPanels so a
+    // Tasks re-render keeps the panel open and the generated reply. All values through esc().
+    function renderCeoEmailPanel(t, cs, openTaskCount) {
+      cs = cs || {};
+      // Subject: strip admin's leading mail glyphs + "AHPRA:/Email:" prefix from the title.
+      var emailSubject = (t.title || '').replace(/^[✉️⚠️\s]*(AHPRA:\s*|Email:\s*)/, '');
+      var gmailUrl = t.gmail_thread_id ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(t.gmail_thread_id) : '';
+      var epState = gpEmailPanels[t.id] || {};
+      var epOpen = !!epState.open;
+      var epReply = epState.reply || '';
+
+      var h = '<div class="et-panel" id="et-panel-' + esc(t.id) + '" style="display:' + (epOpen ? 'block' : 'none') + '">';
+      h += '<div class="et-section"><div class="et-section-title">Email</div>';
+      h += '<div class="et-email-from">From: ' + esc(t.email_sender || 'Unknown') + '</div>';
+      h += '<div style="font-size:12px;margin-top:2px"><strong>Subject:</strong> ' + esc(emailSubject) + '</div>';
+      if (t.email_body_snippet) h += '<div class="et-email-body">' + esc(t.email_body_snippet) + '</div>';
+      if (gmailUrl) h += '<a class="btn sm" href="' + ceoSafeUrl(gmailUrl) + '" target="_blank" rel="noopener" style="margin-top:8px">🔗 Open in Gmail</a>';
+      h += '</div>';
+      h += '<div class="et-section"><div class="et-section-title">GP Context</div>';
+      h += '<div class="et-ctx-grid">';
+      h += '<div class="et-ctx-item"><div class="et-ctx-label">Stage</div>' + esc(cs.stage || 'Unknown') + '</div>';
+      h += '<div class="et-ctx-item"><div class="et-ctx-label">Practice</div>' + esc(cs.practice_name || 'Not placed') + '</div>';
+      h += '<div class="et-ctx-item"><div class="et-ctx-label">Open Tasks</div>' + (openTaskCount || 0) + '</div>';
+      h += '</div></div>';
+      h += '<div class="et-section"><div class="et-section-title">Suggested Reply</div>';
+      h += '<button class="btn sm primary" data-generate-reply="' + esc(t.id) + '">' + (epReply ? '✓ Reply Generated' : 'Generate Suggested Reply') + '</button>';
+      h += '<div id="et-reply-wrap-' + esc(t.id) + '" style="display:' + (epReply ? 'block' : 'none') + ';margin-top:8px">';
+      h += '<textarea class="et-reply-area" id="et-reply-' + esc(t.id) + '">' + esc(epReply) + '</textarea>';
+      h += '<div class="et-btn-row"><button class="btn sm" data-copy-reply="' + esc(t.id) + '">Copy to Clipboard</button>';
+      if (gmailUrl) h += '<a class="btn sm" href="' + ceoSafeUrl(gmailUrl) + '" target="_blank" rel="noopener">Open Gmail to Reply</a>';
+      h += '<span class="et-note">This is a suggestion — edit as needed before sending.</span></div>';
+      h += '</div></div>';
+      h += '<div class="et-btn-row" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px">';
+      h += '<button class="btn sm" data-resolve-email="' + esc(t.id) + '">✓ Mark Resolved</button>';
+      h += '<div class="et-resolve-error" id="et-error-' + esc(t.id) + '" style="display:none;color:var(--red);font-size:12px;font-weight:600;background:var(--red-dim);padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found — please reply via Gmail before resolving.</div>';
+      h += '</div>';
+      h += '</div>';
+      return h;
     }
 
     // Re-fetch the open GP's case and refresh gpDetailCache, then re-render the Tasks
@@ -3272,6 +3331,79 @@
         showToast('Error: ' + e.message, 'error');
         if (btn) btn.disabled = false;
       });
+    }
+
+    // Resolve an email-triage task (port of admin's data-resolve-email handler, 6029–6056).
+    // Checks for a Gmail reply first via POST /api/admin/email-triage/check-reply; only marks
+    // the task complete when the GP/RSO has actually replied, otherwise surfaces the inline
+    // "reply via Gmail before resolving" error. Reuses ceoGpTaskAction for the completion so the
+    // refresh/re-render path is identical to every other task action. NO email is sent here.
+    function ceoResolveEmailTask(ev, taskId) {
+      if (ev) { ev.stopPropagation(); }
+      // Either the et-panel "✓ Mark Resolved" button or the dropdown "✓ Mark Complete" item can
+      // start this flow; capture whichever was clicked so its original label restores on failure.
+      var resolveBtn = (ev && ev.target && ev.target.closest) ? ev.target.closest('[data-resolve-email],[data-complete-task]') : null;
+      var origText = resolveBtn ? resolveBtn.textContent : '';
+      var errorEl = document.getElementById('et-error-' + taskId);
+      if (resolveBtn) { resolveBtn.disabled = true; resolveBtn.textContent = 'Checking…'; }
+      if (errorEl) errorEl.style.display = 'none';
+      apiFetch('/api/admin/email-triage/check-reply', {
+        method: 'POST',
+        body: { taskId: taskId }
+      }).then(function(d) {
+        if (d && d.ok && d.replied) {
+          // Replied — complete the task. ceoGpTaskAction handles toast + refresh/re-render.
+          ceoGpTaskAction(ev, taskId, 'completed');
+        } else {
+          if (errorEl) errorEl.style.display = 'inline-block';
+          if (resolveBtn) { resolveBtn.textContent = origText; resolveBtn.disabled = false; }
+        }
+      }).catch(function(e) {
+        if (errorEl) errorEl.style.display = 'inline-block';
+        if (resolveBtn) { resolveBtn.textContent = origText; resolveBtn.disabled = false; }
+      });
+    }
+
+    // Generate an AI-suggested reply for an email-triage task (port of admin's data-generate-reply
+    // handler, 5995–6026) via POST /api/admin/email-triage/suggest-reply. On success reveals the
+    // reply textarea, fills it, and persists open+reply state in gpEmailPanels so a Tasks re-render
+    // keeps the panel open with the generated text. NO email is sent — this only drafts a reply.
+    function ceoGenerateEmailReply(ev, taskId) {
+      if (ev) { ev.stopPropagation(); }
+      var btn = (ev && ev.target && ev.target.closest) ? ev.target.closest('[data-generate-reply]') : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+      apiFetch('/api/admin/email-triage/suggest-reply', {
+        method: 'POST',
+        body: { taskId: taskId }
+      }).then(function(d) {
+        if (d && d.ok && d.suggestedReply) {
+          var replyWrap = document.getElementById('et-reply-wrap-' + taskId);
+          var replyArea = document.getElementById('et-reply-' + taskId);
+          if (replyWrap) replyWrap.style.display = 'block';
+          if (replyArea) replyArea.value = d.suggestedReply;
+          if (btn) btn.textContent = '✓ Reply Generated';
+          if (!gpEmailPanels[taskId]) gpEmailPanels[taskId] = {};
+          gpEmailPanels[taskId].open = true;
+          gpEmailPanels[taskId].reply = d.suggestedReply;
+        } else {
+          if (btn) { btn.textContent = 'Failed — try again'; btn.disabled = false; }
+        }
+      }).catch(function(e) {
+        if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; }
+      });
+    }
+
+    // Copy the generated reply to the clipboard (port of admin's data-copy-reply handler,
+    // 6059–6069). Flashes "✓ Copied!" on the button, then restores its label.
+    function ceoCopyEmailReply(ev, taskId) {
+      if (ev) { ev.stopPropagation(); }
+      var copyArea = document.getElementById('et-reply-' + taskId);
+      var btn = (ev && ev.target && ev.target.closest) ? ev.target.closest('[data-copy-reply]') : null;
+      if (copyArea && copyArea.value && navigator.clipboard) {
+        navigator.clipboard.writeText(copyArea.value).then(function() {
+          if (btn) { btn.textContent = '✓ Copied!'; setTimeout(function() { btn.textContent = 'Copy to Clipboard'; }, 2000); }
+        });
+      }
     }
 
     // Pure mirrors of lib/ceo-metrics.js (the authoritative, unit-tested contracts).
@@ -3806,6 +3938,31 @@
         }
         return;
       }
+      // Email-triage panel item controls (port of admin 5995–6069). Handle these BEFORE the
+      // row-click toggle so a click inside the panel acts on the control, not the row.
+      var genReplyBtn = e.target.closest('[data-generate-reply]');
+      if (genReplyBtn) { ceoGenerateEmailReply(e, genReplyBtn.getAttribute('data-generate-reply')); return; }
+      var copyReplyBtn = e.target.closest('[data-copy-reply]');
+      if (copyReplyBtn) { ceoCopyEmailReply(e, copyReplyBtn.getAttribute('data-copy-reply')); return; }
+      var resolveEmailBtn = e.target.closest('[data-resolve-email]');
+      if (resolveEmailBtn) { ceoResolveEmailTask(e, resolveEmailBtn.getAttribute('data-resolve-email')); return; }
+
+      // Toggle the email-triage panel on row click (port of admin 5981–5992): only when the
+      // click isn't on a button/anchor/dropdown/the panel itself/a task-detail panel/a textarea,
+      // so the row stays interactive. Persists open state in gpEmailPanels across re-renders.
+      var etRow = e.target.closest('[data-task-row]');
+      if (etRow && !e.target.closest('button') && !e.target.closest('a') && !e.target.closest('.st-dropdown') && !e.target.closest('.et-panel') && !e.target.closest('.gp-task-detail') && !e.target.closest('textarea')) {
+        var etTaskId = etRow.getAttribute('data-task-row');
+        var etPanel = document.getElementById('et-panel-' + etTaskId);
+        if (etPanel) {
+          var etNowOpen = etPanel.style.display === 'none';
+          etPanel.style.display = etNowOpen ? 'block' : 'none';
+          if (!gpEmailPanels[etTaskId]) gpEmailPanels[etTaskId] = {};
+          gpEmailPanels[etTaskId].open = etNowOpen;
+          return;
+        }
+      }
+
       // Dropdown / guided-action items. Each closes the menu first, then dispatches.
       function closeAllDropdowns() {
         var dds = document.querySelectorAll('.st-dropdown.open');
