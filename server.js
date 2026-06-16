@@ -190,9 +190,12 @@ const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').tr
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
 const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
-const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
+// Document scanning/verification always uses the most current Claude model.
+// Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
+// other call sites (some of which set `temperature`, which the newest Opus rejects).
+const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -4922,7 +4925,7 @@ Verify this document.`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: ANTHROPIC_SCAN_MODEL,
         max_tokens: 500,
         system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{
@@ -5886,120 +5889,6 @@ async function handleDoubleTickWebhook(req, res) {
     console.error('[doubletick-webhook] Unexpected error:', err && err.message);
     sendJson(res, 500, { ok: false, message: 'Internal error' });
   }
-}
-
-const QUAL_SCAN_OPTIONS = [
-  { key: 'primary_medical_degree', label: 'Primary medical degree', patterns: [/primary medical degree/i, /\bmbbs\b/i, /\bmbchb\b/i, /\bmb bch bao\b/i, /\bmd\b/i, /\bbmed\b/i, /medical degree/i] },
-  { key: 'mrcgp_certified', label: 'MRCGP certificate', patterns: [/\bmrcgp\b/i, /member of the royal college of general practitioners/i] },
-  { key: 'cct_certified', label: 'CCT certificate', patterns: [/\bcct\b/i, /certificate of completion of training/i, /\bpmetb\b/i] },
-  { key: 'micgp_certified', label: 'MICGP certificate', patterns: [/\bmicgp\b/i, /member.*irish college of general practitioners/i] },
-  { key: 'cscst_certified', label: 'CSCST certificate', patterns: [/\bcscst\b/i, /certificate of satisfactory completion of specialist training/i] },
-  { key: 'icgp_confirmation_letter', label: 'ICGP Confirmation Letter', patterns: [/\bicgp\b.*confirm/i, /irish college.*confirm/i] },
-  { key: 'frnzcgp_certified', label: 'FRNZCGP certificate', patterns: [/\bfrnzcgp\b/i, /fellow.*royal new zealand college/i] },
-  { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP Confirmation Letter', patterns: [/\brnzcgp\b.*confirm/i, /new zealand college.*confirm/i] },
-  { key: 'cv_signed_dated', label: 'Signed CV', patterns: [/\bcurriculum vitae\b/i, /\bcv\b/i, /resume/i, /signed and dated/i] },
-  { key: 'certificate_good_standing', label: 'Certificate of good standing', patterns: [/good standing/i, /certificate of standing/i, /registration status/i] },
-  { key: 'confirmation_training', label: 'Confirmation of training', patterns: [/confirmation of training/i, /training completion/i, /specialist training/i] },
-  { key: 'criminal_history', label: 'Criminal history check', patterns: [/criminal history/i, /police clearance/i, /background check/i, /dbs check/i, /fit2work/i] }
-];
-
-function heuristicQualificationClassification(fileName, snippet) {
-  const text = `${String(fileName || '')}\n${String(snippet || '')}`.slice(0, 16000);
-  let best = null;
-  for (const option of QUAL_SCAN_OPTIONS) {
-    let score = 0;
-    option.patterns.forEach((pattern) => {
-      if (pattern.test(text)) score += 1;
-    });
-    if (!best || score > best.score) {
-      best = { option, score };
-    }
-  }
-
-  if (!best || best.score <= 0) {
-    return {
-      key: 'primary_medical_degree',
-      label: 'Primary medical degree',
-      confidence: 0.35,
-      reason: 'No exact qualification keywords found. Defaulting to Primary medical degree.'
-    };
-  }
-
-  const confidence = Math.min(0.96, 0.45 + (best.score * 0.16));
-  return {
-    key: best.option.key,
-    label: best.option.label,
-    confidence,
-    reason: 'Matched qualification keywords in file name/content.'
-  };
-}
-
-async function classifyQualificationWithAI(fileName, textSnippet) {
-  const prompt = [
-    'Classify this doctor qualification document into exactly one key.',
-    'Valid keys: primary_medical_degree, mrcgp_certified, cct_certified, micgp_certified, cscst_certified, icgp_confirmation_letter, frnzcgp_certified, rnzcgp_confirmation_letter, cv_signed_dated, certificate_good_standing, confirmation_training, criminal_history.',
-    'Return strict JSON with: key, confidence (0..1), reason.',
-    `file_name: ${String(fileName || '').slice(0, 260)}`,
-    `text_snippet: ${String(textSnippet || '').slice(0, 7000)}`
-  ].join('\n');
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
-        input: prompt,
-        max_output_tokens: 180,
-        temperature: 0
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('AI model request failed');
-    }
-    const payload = await response.json();
-    const text = payload && typeof payload.output_text === 'string'
-      ? payload.output_text
-      : '';
-    if (!text) throw new Error('AI model returned empty output');
-
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      const objMatch = text.match(/\{[\s\S]*\}/);
-      if (objMatch) parsed = JSON.parse(objMatch[0]);
-    }
-    if (!parsed || typeof parsed !== 'object') throw new Error('AI response JSON invalid');
-
-    const selectedKey = String(parsed.key || '').trim();
-    const valid = QUAL_SCAN_OPTIONS.find((item) => item.key === selectedKey);
-    if (!valid) throw new Error('AI selected unsupported key');
-
-    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.7)));
-    const reason = String(parsed.reason || 'Classified by AI model').slice(0, 220);
-    return { key: valid.key, label: valid.label, confidence, reason };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function classifyQualificationDocument(fileName, textSnippet) {
-  if (OPENAI_API_KEY) {
-    try {
-      return await classifyQualificationWithAI(fileName, textSnippet);
-    } catch (err) {
-      // Fall back to deterministic keyword classifier.
-    }
-  }
-  return heuristicQualificationClassification(fileName, textSnippet);
 }
 
 function joinDialPhone(countryDial, phoneNumber) {
@@ -19207,7 +19096,7 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: ANTHROPIC_SCAN_MODEL,
         max_tokens: 200,
         system: systemPrompt,
         messages: [{ role: 'user', content: contentBlocks }]
@@ -26750,7 +26639,7 @@ Check this document for certification markings.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 300,
           system: [{ type: 'text', text: certSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -26905,7 +26794,7 @@ Classify this document.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 150,
           system: [{ type: 'text', text: classifySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -27147,7 +27036,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 200,
           system: [{ type: 'text', text: idSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
@@ -27781,34 +27670,6 @@ Return ONLY valid JSON with no markdown formatting:
 
     console.log(`[UpdateName] Account ${email} name updated to: ${firstName} ${lastName} (auto-matched from documents)`);
     sendJson(res, 200, { ok: true, firstName, lastName });
-    return;
-  }
-
-  if (pathname === '/api/ai/scan-qualification' && req.method === 'POST') {
-    const session = requireSession(req, res);
-    if (!session) return;
-
-    let body;
-    try {
-      body = await readJsonBody(req);
-    } catch (err) {
-      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
-      return;
-    }
-
-    const fileName = sanitizeUserString(body.fileName, 260);
-    const textSnippet = sanitizeUserString(body.textSnippet, 8000);
-    if (!fileName) {
-      sendJson(res, 400, { ok: false, message: 'File name is required.' });
-      return;
-    }
-
-    const classification = await classifyQualificationDocument(fileName, textSnippet);
-    sendJson(res, 200, {
-      ok: true,
-      classification,
-      scannedAt: new Date().toISOString()
-    });
     return;
   }
 
