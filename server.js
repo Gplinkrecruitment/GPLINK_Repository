@@ -20462,7 +20462,7 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260617-gp-parity'
+      build: '20260617-safari-hotfix'
     });
     return;
   }
