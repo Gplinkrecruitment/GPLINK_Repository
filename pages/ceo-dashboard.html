@@ -1146,6 +1146,53 @@
     .gp-parity .gp-task-detail{border-top:1px solid var(--line);background:var(--bg-elevated);border-radius:0 0 10px 10px}
     .gp-parity .gp-task-detail-inner{padding:2px 0 0}
 
+    /* ── Task-detail "ops" views (port of admin .ops-* 261–319, dark-converted per porting
+       rule 1: #fff->--panel, #f8fafc->--bg-elevated, light green/blue/amber/red bg+text ->
+       matching dark tokens). Only the read-only display classes used by the CEO's ported
+       renderers are included (thread, docs, banners, badges, action-row, description). The
+       ops view sits inside .gp-task-detail-inner (admin keeps its padding:2px 0 0; the ops-*
+       classes provide their own spacing, identical to admin). ── */
+    .gp-parity .ops-expand-section{margin-bottom:14px}
+    .gp-parity .ops-expand-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px}
+    .gp-parity .ops-expand-desc{font-size:12px;color:var(--text);line-height:1.5;margin:6px 0 10px;white-space:pre-wrap}
+    .gp-parity .ops-loading-detail{text-align:center;padding:20px;color:var(--muted);font-size:12px}
+    .gp-parity .ops-response-banner{background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px}
+    .gp-parity .ops-response-title{font-size:12px;font-weight:700;color:var(--green);display:flex;align-items:center;gap:6px}
+    .gp-parity .ops-response-text{font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;white-space:pre-wrap;max-height:120px;overflow:auto}
+    .gp-parity .ops-response-meta{font-size:10px;color:var(--muted);margin-top:4px}
+    .gp-parity .ops-doc-preview{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+    .gp-parity .ops-doc-thumb{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:11px;min-width:180px}
+    .gp-parity .ops-doc-icon{width:28px;height:28px;background:var(--blue-dim);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .gp-parity .ops-doc-version-old{opacity:.5}
+    .gp-parity .ops-doc-version-old .ops-doc-thumb{border-style:dashed}
+    .gp-parity .ops-action-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    .gp-parity .ops-btn-green{background:var(--green);color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:filter .15s}
+    .gp-parity .ops-btn-green:hover{filter:brightness(1.12)}
+    .gp-parity .ops-btn-secondary{background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+    .gp-parity .ops-btn-secondary:hover{background:var(--bg3)}
+    .gp-parity .ops-btn-danger{background:var(--panel);color:var(--red);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+    .gp-parity .ops-btn-danger:hover{background:var(--red-dim)}
+    .gp-parity .ops-match-badge{display:inline-block;padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;background:var(--green-dim);color:var(--green)}
+    .gp-parity .ops-match-badge.low{background:var(--amber-dim);color:var(--amber)}
+    .gp-parity .ops-original-email{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px}
+    .gp-parity .ops-email-content{font-size:12px;color:var(--text);line-height:1.6;margin-top:4px;white-space:pre-wrap;max-height:150px;overflow:auto}
+    .gp-parity .ops-email-from{font-size:11px;color:var(--muted);margin-bottom:4px}
+    .gp-parity .ops-action-link-inline{font-size:11px;font-weight:700;color:var(--blue);cursor:pointer;display:inline-block;margin-top:6px;text-decoration:none}
+    .gp-parity .ops-action-link-inline:hover{text-decoration:underline}
+    .gp-parity .ops-action-item-box{background:var(--amber-dim);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius);padding:10px 14px;margin:10px 0}
+    .gp-parity .ops-conversation-thread{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin:10px 0;max-height:260px;overflow:auto}
+    .gp-parity .ops-msg{padding:8px 0;border-bottom:1px solid var(--line)}
+    .gp-parity .ops-msg:last-child{border-bottom:none}
+    .gp-parity .ops-msg-header{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+    .gp-parity .ops-msg-dir{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
+    .gp-parity .ops-msg-outbound .ops-msg-dir{background:var(--blue-dim);color:var(--blue)}
+    .gp-parity .ops-msg-inbound .ops-msg-dir{background:var(--green-dim);color:var(--green)}
+    .gp-parity .ops-msg-channel{font-size:10px;color:var(--muted)}
+    .gp-parity .ops-msg-time{font-size:10px;color:var(--muted);margin-left:auto}
+    .gp-parity .ops-msg-body{font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap;max-height:80px;overflow:auto;margin-top:2px}
+    .gp-parity .ops-msg-subject{font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px}
+    .gp-parity .ops-nudge-indicator{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:6px 12px;font-size:11px;font-weight:700;margin-top:8px;display:inline-block}
+
     /* ── Case stage pill (admin 90) ── */
     .gp-parity .case-stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
     /* Case-management form (ported from admin .case-mgmt / .case-field, dark-converted) */
@@ -3014,7 +3061,11 @@
           var isNext = isFirstActiveTask;
           if (isNext) isFirstActiveTask = false;
 
-          html += '<div class="stage-task' + (isNext ? ' active-next' : '') + (t.task_type === 'email_triage' ? ' unlocked-email' : '') + (isWaiting ? ' st-waiting-state' : '') + '" data-task-row="' + esc(t.id) + '">';
+          // Tasks with an interactive task-detail panel (Task 3d.6): clicking the row expands
+          // an accordion (port of admin _hasDetailPanel 2726). Mirrors admin exactly:
+          // practice_pack_child (except section_g) + AHPRA + alt-supervisor-CV.
+          var hasDetailPanel = (t.task_type === 'practice_pack_child' && t.related_document_key && t.related_document_key !== 'section_g') || t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item' || t.task_type === 'alt_supervisor_cv_review';
+          html += '<div class="stage-task' + (isNext ? ' active-next' : '') + (t.task_type === 'email_triage' ? ' unlocked-email' : '') + (isWaiting ? ' st-waiting-state' : '') + '" data-task-row="' + esc(t.id) + '"' + (hasDetailPanel ? ' data-gp-expand-task="' + esc(t.id) + '" style="cursor:pointer"' : '') + '>';
           html += '<div class="st-top">';
           html += '<div class="st-body">';
           html += '<div class="st-title">' + esc(t.title || '');
@@ -3051,7 +3102,11 @@
 
           html += '</div>'; // .st-body
           html += '<div class="st-actions">';
-          if (guided.action) {
+          // When the row has its own task-detail panel, admin shows NO primary button — the row
+          // click expands the accordion instead (admin 2763–2767). Match that exactly.
+          if (hasDetailPanel) {
+            // No button — row click expands (accordion style).
+          } else if (guided.action) {
             html += '<button class="st-primary-btn" data-guided-action="' + esc(guided.action) + '" data-task-id="' + esc(t.id) + '"' + (guided.dk ? ' data-doc-key="' + esc(guided.dk) + '"' : '') + '>' + esc(guided.label) + '</button>';
           }
           // "Schedule call?" for GP-originated assistance tasks (whatsapp_help / email_triage).
@@ -3090,6 +3145,12 @@
           // inside .stage-task, after .st-top; toggled open by clicking the row (handler below).
           if (t.task_type === 'email_triage') {
             html += renderCeoEmailPanel(t, cs, tasks.length);
+          }
+
+          // Task-detail accordion container (port of admin 2833–2836). Filled lazily by
+          // loadGpTaskDetail when the row is clicked (handler below). Hidden by default.
+          if (hasDetailPanel) {
+            html += '<div class="gp-task-detail" id="gpTaskDetail_' + esc(t.id) + '" data-gp-task-detail="' + esc(t.id) + '" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
           html += '</div>'; // .stage-task
@@ -3144,6 +3205,400 @@
       h += '</div>';
       h += '</div>';
       return h;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       Task-detail accordion (Task 3d.6) — dark port of admin.html's renderOps* views.
+
+       The detail panel opens beneath document/AHPRA/SPPA/alt-supervisor-CV task rows.
+       PARITY SCOPE (porting rule 2 + Task 3d.6 NOTE): admin's renderOps* renderers embed
+       interactive composers (data-ops-send-email / data-ops-send-revision / data-ops-send-
+       ahpra-email / data-ops-send-gp-email / data-ops-submit-drive / data-ops-upload-own,
+       and SPPA state-machine buttons: openSppaReview, sppaOverrideQ7, sppaMarkReturned,
+       openPdfEditor, _viewSppaDoc, _isPrereqDone, altCvSubmit, ahpraAcknowledge/Escalate,
+       loadCcContacts). Those depend on admin-only handlers/state the CEO page does not have
+       and that Phase 3d does NOT wire. So the CEO ports the cleanly-portable READ-ONLY views
+       faithfully — original email / AHPRA request, response-type badge, conflict banner,
+       practice-response banner, the message thread, the documents list, descriptions — and
+       REUSES the CEO's existing document controls (Approve & send / Request revision / Upload
+       new version) where they overlap, via the already-wired data-ceo-doc-* delegation. The
+       send/compose/SPPA-edit actions are intentionally surfaced as a read-only note pointing
+       to the RSO admin tooling rather than faked. Each gap is recorded in the task report.
+       ──────────────────────────────────────────────────────────────────────────── */
+
+    // Read-only display helpers — verbatim ports of admin opsSnippet/opsFormatDate/
+    // opsRelativeTime/opsRenderThread/opsRenderDocs (admin 4723–4794), using esc + ceoSafeUrl.
+    function ceoOpsSnippet(text, max) {
+      if (!text) return '';
+      var t = (text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      return t.length > max ? t.slice(0, max) + '…' : t;
+    }
+    function ceoOpsFormatDate(iso) {
+      if (!iso) return '—';
+      var d = new Date(iso);
+      return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+    }
+    function ceoOpsRelativeTime(iso) {
+      if (!iso) return '';
+      var diff = Date.now() - new Date(iso).getTime();
+      var days = Math.floor(diff / 86400000);
+      if (days > 0) return days + 'd ago';
+      var hrs = Math.floor(diff / 3600000);
+      if (hrs > 0) return hrs + 'h ago';
+      var mins = Math.floor(diff / 60000);
+      return (mins > 0 ? mins + 'm ago' : 'just now');
+    }
+    // Conversation thread (port of admin opsRenderThread 4743–4764): newest-first, in/out
+    // direction badge, channel, sender, relative time, optional "Open in Gmail" link.
+    function ceoOpsRenderThread(msgs) {
+      if (!msgs || !msgs.length) return '';
+      var sorted = msgs.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+      var h = '<div class="ops-conversation-thread">';
+      sorted.forEach(function(m) {
+        var dirCls = m.direction === 'outbound' ? 'ops-msg-outbound' : 'ops-msg-inbound';
+        var dirLabel = m.direction === 'outbound' ? 'Sent' : 'Received';
+        var chLabel = (m.channel === 'whatsapp' ? 'WhatsApp' : 'Email');
+        var gmailLink = m.gmail_message_id ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(m.gmail_message_id) : (m.gmail_thread_id ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(m.gmail_thread_id) : '');
+        h += '<div class="ops-msg ' + dirCls + '">'
+          + '<div class="ops-msg-header"><span class="ops-msg-dir">' + dirLabel + '</span><span class="ops-msg-channel">' + esc(chLabel) + '</span>';
+        if (m.sender) h += '<span class="ops-msg-channel">· ' + esc(m.sender) + '</span>';
+        h += '<span class="ops-msg-time">' + ceoOpsRelativeTime(m.created_at) + '</span>';
+        if (gmailLink) h += '<a href="' + ceoSafeUrl(gmailLink) + '" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:600;text-decoration:none">Open in Gmail ↗</a>';
+        h += '</div>';
+        if (m.subject) h += '<div class="ops-msg-subject">' + esc(m.subject) + '</div>';
+        h += '<div class="ops-msg-body">' + esc(ceoOpsSnippet(m.body_text || m.body_html || '', 400)) + '</div>';
+        h += '</div>';
+      });
+      h += '</div>';
+      return h;
+    }
+    // Documents list (port of admin opsRenderDocs 4765–4794): icon, filename, size, current/
+    // previous-version state, "View →" link. Inline data: URLs (no signed-preview flow on the
+    // CEO page) are surfaced as a plain note rather than a broken preview button (porting rule 2).
+    function ceoOpsRenderDocs(docs) {
+      if (!docs || !docs.length) return '';
+      var h = '<div class="ops-doc-preview">';
+      docs.forEach(function(d) {
+        var isCurrent = d.is_current !== false;
+        var cls = isCurrent ? '' : 'ops-doc-version-old';
+        var sizeStr = d.size_bytes ? (Math.round(d.size_bytes / 1024) + 'KB') : '';
+        var icon = '📄';
+        if (d.mime_type && d.mime_type.indexOf('pdf') > -1) icon = '📄';
+        else if (d.mime_type && d.mime_type.indexOf('image') > -1) icon = '🖼';
+        var previewUrl = d.google_drive_url || d.attachment_url || '';
+        h += '<div class="' + cls + '">';
+        h += '<div class="ops-doc-thumb">';
+        h += '<div class="ops-doc-icon">' + icon + '</div>';
+        h += '<div><div style="font-weight:700">' + esc(d.filename || 'Document') + '</div>';
+        if (sizeStr) h += '<div style="font-size:10px;color:var(--muted)">' + sizeStr + '</div>';
+        if (!isCurrent) h += '<div style="font-size:10px;color:var(--muted)">Previous version</div>';
+        h += '</div>';
+        if (previewUrl && !previewUrl.startsWith('data:')) {
+          h += '<a href="' + ceoSafeUrl(previewUrl) + '" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View →</a>';
+        } else if (previewUrl) {
+          h += '<span style="margin-left:auto;font-size:10px;color:var(--muted)">stored file</span>';
+        }
+        h += '</div></div>';
+      });
+      h += '</div>';
+      return h;
+    }
+
+    // Read-only note pointing the reviewer to the RSO admin tools for the interactive
+    // compose/send/edit actions that the CEO page does not (yet) port. Keeps parity honest.
+    function ceoOpsRsoToolNote(text) {
+      return '<div style="font-size:11px;color:var(--muted);background:var(--bg2);border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin-top:10px">'
+        + 'ℹ️ ' + esc(text || 'This send/compose action is performed from the RSO’s admin tools.')
+        + '</div>';
+    }
+
+    // The CEO document controls (Approve & send / Request revision / Upload new version) reuse
+    // the already-wired data-ceo-doc-* delegation (ceoDocApprove/ceoDocRequestRevision/
+    // ceoDocUpload). Render them for a document task when there is a current uploaded doc.
+    function ceoOpsDocControls(task, currentDocs) {
+      if (!task || !task.id) return '';
+      var h = '<div class="ops-action-row">';
+      if (currentDocs && currentDocs.length) {
+        h += '<button class="ops-btn-green" data-ceo-doc-action="approve" data-task="' + esc(task.id) + '">Approve &amp; Send to GP</button>';
+        h += '<button class="ops-btn-danger" data-ceo-doc-action="revise" data-task="' + esc(task.id) + '">Request Revision</button>';
+      }
+      h += '<label class="ops-btn-secondary" style="display:inline-flex;align-items:center;cursor:pointer">Upload New Version'
+        + '<input type="file" data-ceo-doc-upload="' + esc(task.id) + '" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" style="display:none"></label>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── Practice Pack Child (read-only port of admin renderOpsPracticePackChild 5100) ──
+    // Shows the practice response banner (+ AI match badge), the current document(s), the
+    // thread, and the CEO document controls. Admin's send/revision email composers depend on
+    // admin-only data-ops-send-* handlers and are surfaced as an RSO-tool note (Task 3d.6 NOTE).
+    function renderCeoOpsPracticePackChild(task, msgs, docs) {
+      var hasInbound = msgs.some(function(m) { return m.direction === 'inbound'; });
+      var currentDocs = docs.filter(function(d) { return d.is_current !== false; });
+      var hasDoc = currentDocs.length > 0;
+      var lastInbound = msgs.filter(function(m) { return m.direction === 'inbound'; }).pop();
+      var h = '<div class="ops-expand-section">';
+
+      // State B: practice responded with a document — response banner + doc + controls.
+      if (hasInbound && hasDoc) {
+        var conf = lastInbound && typeof lastInbound.ai_match_confidence === 'number' ? Math.round(lastInbound.ai_match_confidence * 100) : '';
+        var confCls = conf && conf < 70 ? 'low' : '';
+        h += '<div class="ops-response-banner">';
+        h += '<div class="ops-response-title">Practice Response';
+        if (conf) h += ' <span class="ops-match-badge ' + confCls + '">' + conf + '% match</span>';
+        h += '</div>';
+        if (lastInbound) h += '<div class="ops-response-text">' + esc(ceoOpsSnippet(lastInbound.body_text || lastInbound.body_html || '', 300)) + '</div>';
+        if (lastInbound) h += '<div class="ops-response-meta">From: ' + esc(lastInbound.sender || '—') + ' · ' + ceoOpsFormatDate(lastInbound.created_at) + '</div>';
+        h += '</div>';
+        h += ceoOpsRenderDocs(currentDocs);
+        var diffNote = task.ai_match_reasoning || '';
+        if (task.related_document_key === 'offer_contract' && diffNote) {
+          h += '<div style="background:var(--amber-dim);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;margin:8px 0;font-size:12px;color:var(--text)">';
+          h += '<strong>⚠️ Contract analysis:</strong> ' + esc(diffNote);
+          h += '</div>';
+        }
+        h += ceoOpsDocControls(task, currentDocs);
+        if (msgs.length > 1) h += ceoOpsRenderThread(msgs);
+        h += '</div>';
+        return h;
+      }
+
+      // State C: waiting on practice — show thread + nudge indicator (read-only).
+      if (task.status === 'waiting_on_practice' && !hasInbound) {
+        h += '<div class="ops-expand-label">Waiting on practice</div>';
+        h += ceoOpsRenderThread(msgs);
+        if (!msgs.length) h += '<div style="font-size:12px;color:var(--muted)">Email sent to practice. Awaiting response.</div>';
+        var lastOutbound = msgs.filter(function(m) { return m.direction === 'outbound'; }).pop();
+        var daysSince = lastOutbound ? Math.floor((Date.now() - new Date(lastOutbound.created_at).getTime()) / 86400000) : 0;
+        if (daysSince >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + daysSince + ' days since last outreach — consider a follow-up</div>';
+        h += ceoOpsRsoToolNote('Nudge the practice and send document requests from the RSO’s admin tools.');
+        h += '</div>';
+        return h;
+      }
+
+      // State A: no messages yet — describe what is needed; show any docs + controls.
+      h += '<div class="ops-expand-label">Request document from practice</div>';
+      h += '<div style="font-size:12px;color:var(--text)">' + esc(task.title || 'Document') + ' — awaiting request to ' + esc(task.practice_name || 'the practice') + '.</div>';
+      if (docs.length) h += ceoOpsRenderDocs(currentDocs);
+      h += ceoOpsDocControls(task, currentDocs);
+      h += ceoOpsRsoToolNote('Email the practice to request this document from the RSO’s admin tools.');
+      h += '</div>';
+      return h;
+    }
+
+    // ── Alt Supervisor CV Review (read-only port of admin renderOpsAltSupervisorCvReview 5069) ──
+    // Shows the matched-CV banner, the thread, and the CV documents. Submit / Review-SPPA
+    // buttons depend on admin-only altCvSubmit/openSppaReview and are noted, not faked.
+    function renderCeoOpsAltSupervisorCvReview(task, msgs, docs) {
+      var meta = task.metadata || {};
+      if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      var matchedCvs = Array.isArray(meta.matched_cvs) ? meta.matched_cvs : [];
+      var h = '<div class="ops-expand-section">';
+      h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      h += '<span style="color:var(--blue)">📄 Alternate supervisor CV(s) received from practice — review against SPPA-00</span>';
+      h += '</div>';
+      if (matchedCvs.length > 0) {
+        h += '<div style="margin-bottom:10px">';
+        matchedCvs.forEach(function(cv) {
+          h += '<div style="font-size:12px;margin:4px 0;padding:6px 10px;background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:6px;color:var(--text)">'
+            + '<strong>' + esc(cv.cvName || '') + '</strong> → matched to SPPA-00 alt supervisor: <strong>' + esc(cv.matchedSupervisor || '') + '</strong>'
+            + '<span style="margin-left:8px;font-size:10px;color:var(--muted)">(' + Math.round((cv.confidence || 0) * 100) + '% confidence)</span>'
+            + '</div>';
+        });
+        h += '</div>';
+      }
+      h += ceoOpsRenderThread(msgs);
+      h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px;color:var(--text)">CV Documents</div>';
+      h += ceoOpsRenderDocs(docs);
+      h += ceoOpsRsoToolNote('Submit the alternate CV to the GP and review the SPPA-00 from the RSO’s admin tools.');
+      h += '</div>';
+      return h;
+    }
+
+    // ── AHPRA Action Item (read-only port of admin renderOpsAhpraActionItem 5267) ──
+    // Shows the response-type badge, the AHPRA officer request (or task description), the
+    // document(s), and the thread. The reply/revision/escalation composers depend on admin-
+    // only handlers and are surfaced as an RSO-tool note (Task 3d.6 NOTE).
+    function renderCeoOpsAhpraActionItem(task, msgs, docs) {
+      var gpName = task.gp_name || 'the GP';
+      var meta = task.metadata || {};
+      if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      var ahpraOfficerEmail = task.ahpra_officer_email || meta.ahpra_officer_email || '';
+      var firstInbound = msgs.find(function(m) { return m.direction === 'inbound'; });
+      var currentDocs = docs.filter(function(d) { return d.is_current !== false; });
+      var hasDoc = currentDocs.length > 0;
+      var gmailMsgId = task.source_gmail_message_id || '';
+      var gmailLink = gmailMsgId ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(gmailMsgId) : '';
+      var responseType = task.response_type || meta.response_type || 'request_from_gp';
+      var taskCategory = task.category || meta.category || '';
+      if (taskCategory === 'application_update' && responseType !== 'status_update') responseType = 'status_update';
+      // GP-responded-with-document detection (port of admin's outbound-then-inbound logic).
+      var hasGpResponse = false, outboundSent = false;
+      msgs.forEach(function(m) {
+        if (m.direction === 'outbound') outboundSent = true;
+        if (outboundSent && m.direction === 'inbound') hasGpResponse = true;
+      });
+      var h = '<div class="ops-expand-section">';
+
+      // Response-type badge (port of admin's rtBadge maps 5367–5369), dark-converted.
+      var rtBadgeColor = { direct_reply: 'var(--green)', request_from_gp: 'var(--blue)', request_from_practice: 'var(--purple)', amend_document: 'var(--red)', status_update: 'var(--text-muted)', escalation: 'var(--red)' };
+      var rtBadgeLabel = { direct_reply: 'Direct Reply', request_from_gp: 'Request from GP', request_from_practice: 'Request from Practice', amend_document: 'Amendment Needed', status_update: 'Status Update', escalation: 'Escalation Required' };
+      h += '<div style="margin-bottom:8px"><span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;background:' + (rtBadgeColor[responseType] || 'var(--text-muted)') + '">' + esc(rtBadgeLabel[responseType] || responseType) + '</span></div>';
+
+      // AHPRA officer request (or task description) — read-only port of _ahpraOfficerEmailHtml.
+      if (firstInbound) {
+        h += '<div class="ops-original-email">';
+        h += '<div class="ops-expand-label">AHPRA Officer Request</div>';
+        h += '<div class="ops-email-from">' + esc(firstInbound.sender || ahpraOfficerEmail || '—') + ' · ' + ceoOpsFormatDate(firstInbound.created_at) + '</div>';
+        h += '<div class="ops-email-content">' + esc(ceoOpsSnippet(firstInbound.body_text || firstInbound.body_html || '', 400)) + '</div>';
+        if (gmailLink) h += '<a class="ops-action-link-inline" href="' + ceoSafeUrl(gmailLink) + '" target="_blank">Open full email →</a>';
+        h += '</div>';
+      } else if (task.description) {
+        h += '<div class="ops-original-email">';
+        h += '<div class="ops-expand-label">AHPRA Action Required</div>';
+        h += '<div class="ops-email-content">' + esc(task.description) + '</div>';
+        h += '</div>';
+      }
+
+      if (hasGpResponse && hasDoc) {
+        h += ceoOpsRenderThread(msgs);
+        h += ceoOpsRenderDocs(currentDocs);
+        h += ceoOpsRsoToolNote('Reply to the AHPRA officer (with the document attached) from the RSO’s admin tools.');
+      } else if (task.status === 'waiting_on_gp') {
+        h += '<div class="ops-expand-label">Waiting on GP</div>';
+        h += ceoOpsRenderThread(msgs);
+        if (!msgs.length) h += '<div style="font-size:12px;color:var(--muted)">Message sent to GP for Dr ' + esc(gpName) + '. Awaiting response.</div>';
+      } else {
+        // State A — show what is needed (read-only). The interactive officer/GP/practice
+        // composers and Acknowledge/Escalate buttons live in the RSO admin tools.
+        h += '<div class="ops-action-item-box">';
+        h += '<div class="ops-expand-label">Action Required</div>';
+        h += '<div style="font-size:12px;font-weight:700;color:var(--text)">' + esc(task.title || '—') + '</div>';
+        if (task.description) h += '<div style="font-size:12px;color:var(--text);margin-top:4px">' + esc(task.description) + '</div>';
+        h += '</div>';
+        if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
+        h += ceoOpsRsoToolNote('Reply to AHPRA, request from the GP/practice, or escalate from the RSO’s admin tools.');
+      }
+      h += '</div>';
+      return h;
+    }
+
+    // ── SPPA-00 (read-only port of admin renderOpsSppa00 4797) ──
+    // Shows the SPPA lifecycle state, conflict banner, thread, and documents. The SPPA state-
+    // machine actions (Send to candidate, Preview/Override PDF, Mark returned, Resend) depend
+    // on admin-only handlers (openSppaReview/sppaOverrideQ7/sppaMarkReturned/_isPrereqDone)
+    // and are surfaced as an RSO-tool note (Task 3d.6 NOTE).
+    function renderCeoOpsSppa00(task, msgs, docs) {
+      var meta = task.metadata || {};
+      if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      var sppaState = meta.sppa_state || '';
+      var currentDocs = docs.filter(function(d) { return d.is_current !== false; });
+      var h = '<div class="ops-expand-section">';
+
+      if (!sppaState) {
+        // Locked: prerequisite states are computed admin-side; show the gate read-only.
+        h += '<div class="ops-expand-label">Waiting for prerequisites</div>';
+        h += '<div style="font-size:12px;color:var(--muted);padding:8px 0">Supervisor CV and Offer / Contract must be on file before the SPPA-00 can be prepared.</div>';
+        h += '</div>';
+        return h;
+      }
+
+      var stateLabel = { ready_to_send: 'Ready to send to candidate', sent_to_candidate: 'Sent to candidate — awaiting return', gp_returned: 'GP returned — review and send to practice' };
+      h += '<div class="ops-expand-label">' + esc(stateLabel[sppaState] || sppaState) + '</div>';
+
+      // Conflict banner (port of admin conflictBanner 4821–4838), dark-converted.
+      if (meta.is_conflict && meta.confidence !== 'low') {
+        h += '<div style="background:var(--amber-dim);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
+        h += '<b style="color:var(--amber)">⚠ AI detected conflict of interest:</b> Supervisor <b>' + esc(meta.supervisor_name || '') + '</b> is the practice owner/director. Q7 marked <b>YES</b>.';
+        if (meta.reasoning) h += '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--amber)">AI reasoning</summary><p style="margin:4px 0 0;color:var(--muted)">' + esc(meta.reasoning) + '</p></details>';
+        h += '</div>';
+      } else if (!meta.is_conflict && meta.confidence !== 'low') {
+        h += '<div style="background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        h += '<span style="color:var(--green)">✓ No conflict of interest detected. Q7 marked <b>NO</b>.</span>';
+        h += '</div>';
+      } else {
+        h += '<div style="background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        h += '<b style="color:var(--red)">⚠ AI could not determine with confidence. Manual review required.</b>';
+        h += '</div>';
+      }
+      if (sppaState === 'sent_to_candidate' && meta.sent_to_candidate_at) {
+        var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_candidate_email || '') + '</div>';
+        if (days >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + days + ' days since sent — consider a follow-up</div>';
+      }
+      h += ceoOpsRenderThread(msgs);
+      if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
+      h += ceoOpsRsoToolNote('Send/preview the SPPA-00, override Q7, or mark it returned from the RSO’s admin tools.');
+      h += '</div>';
+      return h;
+    }
+
+    // ── Generic fallback (read-only port of admin renderOpsGeneric 5597) ──
+    function renderCeoOpsGeneric(task, msgs, docs) {
+      var h = '<div class="ops-expand-section">';
+      if (task.description) h += '<div class="ops-expand-desc">' + esc(task.description) + '</div>';
+      if (msgs.length) h += ceoOpsRenderThread(msgs);
+      if (docs.length) h += ceoOpsRenderDocs(docs);
+      var gmailMsgId = task.source_gmail_message_id || '';
+      var gmailLink = gmailMsgId ? 'https://mail.google.com/mail/u/0/#inbox/' + encodeURIComponent(gmailMsgId) : '';
+      if (gmailLink) h += '<a class="ops-action-link-inline" href="' + ceoSafeUrl(gmailLink) + '" target="_blank">Open email thread →</a>';
+      h += '</div>';
+      return h;
+    }
+
+    // loadGpTaskDetail (port of admin 5762): fetch task messages + documents, then dispatch by
+    // task_type to the dark renderOps* renderers. Mirrors admin's dispatch exactly: sppa_00
+    // practice_pack_child -> SPPA; ahpra_correspondence/ahpra_action_item -> AHPRA;
+    // alt_supervisor_cv_review -> alt-CV; everything else with a detail panel -> practice pack.
+    function loadGpTaskDetail(taskId) {
+      var container = document.querySelector('[data-gp-task-detail="' + taskId + '"] .gp-task-detail-inner');
+      if (!container) return;
+      container.innerHTML = '<div class="ops-loading-detail">Loading…</div>';
+      var list = (gpDetailCache && gpDetailCache.tasks) || [];
+      var task = null;
+      for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === taskId) { task = list[i]; break; } }
+      if (!task) { container.innerHTML = '<div style="padding:12px;color:var(--red)">Task not found</div>'; return; }
+      var pc = task.practice_contact || {};
+      var md = task.metadata || {};
+      if (typeof md === 'string') try { md = JSON.parse(md); } catch (e) { md = {}; }
+      var adapted = Object.assign({}, task, {
+        practice_contact_email: pc.contactEmail || pc.email || task.practice_contact_email || '',
+        practice_contact_name: pc.contactName || pc.name || task.practice_contact_name || '',
+        practice_name: pc.practiceName || task.practice_name || '',
+        ahpra_officer_name: task.ahpra_officer_name || md.ahpra_officer_name || '',
+        ahpra_officer_email: task.ahpra_officer_email || md.ahpra_officer_email || '',
+        response_type: task.response_type || md.response_type || 'request_from_gp',
+        amend_target: task.amend_target || md.amend_target || null,
+        on_file_documents: task.on_file_documents || md.on_file_documents || [],
+        draft_response: task.draft_response || md.draft_response || null,
+        source_gmail_message_id: task.source_gmail_message_id || md.source_gmail_message_id || ''
+      });
+      Promise.all([
+        apiFetch('/api/admin/task/messages?taskId=' + encodeURIComponent(taskId)).catch(function() { return {}; }),
+        apiFetch('/api/admin/task/documents?taskId=' + encodeURIComponent(taskId)).catch(function() { return {}; })
+      ]).then(function(res) {
+        var mRes = res[0] || {}, dRes = res[1] || {};
+        var msgs = (mRes.ok && Array.isArray(mRes.messages)) ? mRes.messages : [];
+        var docs = (dRes.ok && Array.isArray(dRes.documents)) ? dRes.documents : [];
+        // Re-resolve the container in case the panel was re-rendered while fetching.
+        var c2 = document.querySelector('[data-gp-task-detail="' + taskId + '"] .gp-task-detail-inner');
+        if (!c2) return;
+        var tt = adapted.task_type || '';
+        if (adapted.related_document_key === 'sppa_00' && tt === 'practice_pack_child') {
+          c2.innerHTML = renderCeoOpsSppa00(adapted, msgs, docs);
+        } else if (tt === 'ahpra_correspondence' || tt === 'ahpra_action_item') {
+          c2.innerHTML = renderCeoOpsAhpraActionItem(adapted, msgs, docs);
+        } else if (tt === 'alt_supervisor_cv_review') {
+          c2.innerHTML = renderCeoOpsAltSupervisorCvReview(adapted, msgs, docs);
+        } else if (tt === 'practice_pack_child') {
+          c2.innerHTML = renderCeoOpsPracticePackChild(adapted, msgs, docs);
+        } else {
+          c2.innerHTML = renderCeoOpsGeneric(adapted, msgs, docs);
+        }
+      }).catch(function(e) {
+        var c3 = document.querySelector('[data-gp-task-detail="' + taskId + '"] .gp-task-detail-inner');
+        if (c3) c3.innerHTML = '<div style="padding:12px;color:var(--red)">Failed to load detail: ' + esc((e && e.message) || 'Unknown error') + '</div>';
+      });
     }
 
     // Re-fetch the open GP's case and refresh gpDetailCache, then re-render the Tasks
@@ -3946,6 +4401,43 @@
       if (copyReplyBtn) { ceoCopyEmailReply(e, copyReplyBtn.getAttribute('data-copy-reply')); return; }
       var resolveEmailBtn = e.target.closest('[data-resolve-email]');
       if (resolveEmailBtn) { ceoResolveEmailTask(e, resolveEmailBtn.getAttribute('data-resolve-email')); return; }
+
+      // Document controls inside a task-detail panel (Approve & send / Request revision). These
+      // reuse ceoDocApprove/ceoDocRequestRevision. Handle them BEFORE the expand toggle so the
+      // expand handler's "interactive element" early-return doesn't swallow the click. (The
+      // matching data-ceo-doc-action handler further below covers the Documents tab as well.)
+      var detailDocBtn = e.target.closest('.gp-task-detail [data-ceo-doc-action]');
+      if (detailDocBtn) {
+        e.stopPropagation();
+        var ddAction = detailDocBtn.getAttribute('data-ceo-doc-action');
+        var ddTaskId = detailDocBtn.getAttribute('data-task');
+        if (ddAction === 'approve') ceoDocApprove(ddTaskId);
+        else if (ddAction === 'revise') ceoDocRequestRevision(ddTaskId);
+        return;
+      }
+
+      // ── Expand/collapse the task-detail accordion (Task 3d.6; port of admin 6237–6255) ──
+      // Only for rows carrying data-gp-expand-task (document/AHPRA/SPPA/alt-CV tasks). Ignore
+      // clicks inside the detail panel or on interactive elements so the row stays usable.
+      var gpExpBtn = e.target.closest('[data-gp-expand-task]');
+      if (gpExpBtn) {
+        if (e.target.closest('.gp-task-detail') || e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('textarea') || e.target.closest('[contenteditable]') || e.target.closest('label') || e.target.closest('.ops-action-row')) return;
+        var tid = gpExpBtn.getAttribute('data-gp-expand-task');
+        var panel = document.getElementById('gpTaskDetail_' + tid);
+        if (!panel) return;
+        // Accordion: close any other open detail panel first.
+        var openPanels = document.querySelectorAll('.gp-task-detail');
+        for (var pi = 0; pi < openPanels.length; pi++) {
+          if (openPanels[pi].id !== 'gpTaskDetail_' + tid && openPanels[pi].style.display === 'block') openPanels[pi].style.display = 'none';
+        }
+        if (panel.style.display === 'none') {
+          panel.style.display = 'block';
+          loadGpTaskDetail(tid);
+        } else {
+          panel.style.display = 'none';
+        }
+        return;
+      }
 
       // Toggle the email-triage panel on row click (port of admin 5981–5992): only when the
       // click isn't on a button/anchor/dropdown/the panel itself/a task-detail panel/a textarea,
