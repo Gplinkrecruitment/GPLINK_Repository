@@ -763,7 +763,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+          body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
         });
         clearTimeout(timeout);
         var aiData = await aiRes.json();
@@ -838,7 +838,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var opusRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: ctrl2.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
+          body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
         });
         clearTimeout(to2);
         var opusData = await opusRes.json();
@@ -1053,7 +1053,7 @@ async function scanContractSignatures(buffer, mimeType, filename) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 500,
         temperature: 0,
         messages: [{ role: 'user', content: contentBlocks }]
@@ -1116,7 +1116,7 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 500,
         messages: [{ role: 'user', content: contentBlocks }]
       })
@@ -1787,7 +1787,7 @@ async function extractAhpraActionItems(emailMeta) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 1000,
         temperature: 0,
         system: 'Extract action items from AHPRA officer emails. Return JSON only.',
@@ -1892,7 +1892,7 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 300,
         temperature: 0,
         messages: [{ role: 'user', content: prompt }]
@@ -2906,8 +2906,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // Priority 5: Existing AI triage match (fallback for all emails including AHPRA)
-        if (!gpCase && triageResult.matched_gp_user_id) {
+        // Priority 5: Existing AI triage match (fallback for all emails including AHPRA).
+        // Only trust a HIGH-CONFIDENCE match. The triage model is asked to pick a GP from
+        // a list and will return a best guess even for clearly unrelated mail (e.g. a Vercel
+        // 500-error alert), flagging it via needs_triage / low confidence. Binding those
+        // guesses to a case cross-contaminates the GP's record (their AI summary's "Recent
+        // Communications", their RSO's queue). Require confidence >= 0.7 and not needs_triage,
+        // otherwise leave the email unmatched (case_id = null → Support page, not a GP case).
+        if (!gpCase && triageResult.matched_gp_user_id && !triageResult.needs_triage && (triageResult.confidence || 0) >= 0.7) {
           var caseRes = await supabaseDbRequest('registration_cases',
             'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
@@ -5540,7 +5546,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 4,
         messages: [{
           role: 'user',
@@ -30506,7 +30512,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-6',
+          model: ANTHROPIC_MODEL,
           max_tokens: 200,
           temperature: 0,
           system: 'You extract follow-up actions from case management notes. Today is ' + today + '. Return JSON only, no markdown. If no follow-up is needed, return {"followup":null}. If a follow-up exists, return {"followup":{"action":"<what to do>","deadline":"<YYYY-MM-DD>","condition":"<if any, else null>"}}. Interpret relative dates (e.g. "Monday" = next Monday, "Friday" = this Friday if today is before Friday, else next Friday).',
@@ -31495,7 +31501,7 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-opus-4-6',
+            model: ANTHROPIC_MODEL,
             max_tokens: 1000,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]

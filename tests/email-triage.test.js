@@ -21,7 +21,7 @@ describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
     const { aiMatchEmail } = await import('../lib/ai-matching.js');
     await aiMatchEmail({ sender: 's@x.com', subject: 'x', body: 'x', attachments: [] }, [{ task_id: 't1', document_type: 'offer_contract', gp_name: 'Dr X' }]);
     expect(capturedBody.length).toBe(1);
-    expect(capturedBody[0].model).toBe('claude-opus-4-20250514');
+    expect(capturedBody[0].model).toBe(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6');
     expect(capturedBody[0].system).toBeDefined();
     const sysBlocks = Array.isArray(capturedBody[0].system) ? capturedBody[0].system : [capturedBody[0].system];
     expect(sysBlocks[0].cache_control).toEqual({ type: 'ephemeral' });
