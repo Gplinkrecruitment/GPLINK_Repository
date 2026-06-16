@@ -3106,8 +3106,14 @@
           // click expands the accordion instead (admin 2763–2767). Match that exactly.
           if (hasDetailPanel) {
             // No button — row click expands (accordion style).
-          } else if (guided.action) {
+          } else if (guided.action === 'completeTask' || guided.action === 'resolveEmail' || guided.action === 'openWhatsApp' || guided.action === 'reviewFlaggedDoc') {
+            // Only render a primary button for guided actions the CEO page actually wires.
             html += '<button class="st-primary-btn" data-guided-action="' + esc(guided.action) + '" data-task-id="' + esc(t.id) + '"' + (guided.dk ? ' data-doc-key="' + esc(guided.dk) + '"' : '') + '>' + esc(guided.label) + '</button>';
+          } else if (guided.action) {
+            // Admin's deep doc/SPPA composer for this action isn't ported to the CEO page yet
+            // (live-email composers / PDF editor — Phase 3e gap). Show an honest read-only note
+            // rather than a button that does nothing.
+            html += '<span style="font-size:10px;color:var(--text-dim);font-style:italic;align-self:center;white-space:nowrap">Handled from RSO tools</span>';
           }
           // "Schedule call?" for GP-originated assistance tasks (whatsapp_help / email_triage).
           html += scheduleCallButtonHtml(t, gpEmail);
@@ -4215,6 +4221,58 @@
       reader.readAsDataURL(file);
     }
 
+    // GP Tasks action: review a flagged / qualification-review document. Dark port of admin's
+    // openReviewDocModal + submitReviewDoc — previews the uploaded doc, then Approve or Reject
+    // (reject requires a note; the GP is emailed). Reuses the unchanged GET
+    // /api/admin/va/task/preview-document and POST /api/admin/va/task/review-flagged-doc.
+    var _ceoReviewDocObjUrl = null;
+    function ceoReviewFlaggedDoc(taskId) {
+      var t = findCeoTask(taskId) || {};
+      var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
+      if (t.description) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(t.description) + '</div>';
+      html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
+      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP</label>';
+      html += '<textarea id="ceoReviewDocNote" rows="2" style="width:100%;margin-top:4px;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>';
+      html += '<div id="ceoReviewDocError" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>';
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>';
+      html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject — request re-upload</button>';
+      html += '<button class="btn btn-green" id="ceoReviewDocApprove" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'approve\')">Approve</button></div>';
+      openModal(html);
+      if (_ceoReviewDocObjUrl) { URL.revokeObjectURL(_ceoReviewDocObjUrl); _ceoReviewDocObjUrl = null; }
+      fetch('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), { credentials: 'same-origin' }).then(function(resp) {
+        var box = document.getElementById('ceoReviewDocPreview');
+        if (!box) return;
+        if (!resp.ok) { return resp.json().catch(function() { return {}; }).then(function(dj) { box.innerHTML = '<div style="color:var(--red);font-size:13px;padding:24px">' + esc(dj.message || 'No document is stored for this task.') + '</div>'; }); }
+        return resp.blob().then(function(blob) {
+          _ceoReviewDocObjUrl = URL.createObjectURL(blob);
+          if ((blob.type || '').indexOf('image/') === 0) box.innerHTML = '<img alt="Document" src="' + _ceoReviewDocObjUrl + '" style="max-width:100%;max-height:50vh;object-fit:contain" />';
+          else box.innerHTML = '<iframe title="Document" src="' + _ceoReviewDocObjUrl + '" style="width:100%;height:50vh;border:none;background:#fff"></iframe>';
+        });
+      }).catch(function(e) {
+        var box = document.getElementById('ceoReviewDocPreview');
+        if (box) box.innerHTML = '<div style="color:var(--red);font-size:13px;padding:24px">Could not load the document: ' + esc(e.message) + '</div>';
+      });
+    }
+    function submitCeoReviewDoc(taskId, decision) {
+      var noteEl = document.getElementById('ceoReviewDocNote');
+      var err = document.getElementById('ceoReviewDocError');
+      var note = noteEl ? noteEl.value.trim() : '';
+      if (decision === 'reject' && !note) { if (err) { err.textContent = 'A reason is required to reject — the GP will see it.'; err.style.display = 'block'; } return; }
+      if (err) err.style.display = 'none';
+      var ap = document.getElementById('ceoReviewDocApprove'), rj = document.getElementById('ceoReviewDocReject');
+      if (ap) ap.disabled = true; if (rj) rj.disabled = true;
+      apiFetch('/api/admin/va/task/review-flagged-doc', {
+        method: 'POST',
+        body: { task_id: taskId, decision: decision, note: note }
+      }).then(function(d) {
+        if (!d || !d.ok) { if (err) { err.textContent = (d && d.message) || 'Action failed.'; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; return; }
+        if (_ceoReviewDocObjUrl) { URL.revokeObjectURL(_ceoReviewDocObjUrl); _ceoReviewDocObjUrl = null; }
+        closeModal();
+        showToast(d.message || (decision === 'approve' ? 'Document approved' : 'Re-upload requested'), 'success');
+        refreshGpDetailTasks();
+      }).catch(function(e) { if (err) { err.textContent = 'Network error: ' + e.message; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; });
+    }
+
     // Render this GP file's call history newest-first. Each row shows a status pill,
     // scheduled time, assigned RSO, admin notes, a meeting summary for completed calls,
     // a Join link when a zoom_join_url is present, plus per-call actions (resend/cancel/
@@ -4512,9 +4570,9 @@
           else showToast('No WhatsApp conversation link for this GP', 'error');
           return;
         }
-        if (gAction === 'reviewFlaggedDoc' || gAction === 'previewDoc' || gAction === 'editPD') {
-          if (typeof ceoOpenTaskDetail === 'function') ceoOpenTaskDetail(gTaskId);
-          else showToast('Open the Documents tab to review this document', 'info');
+        if (gAction === 'reviewFlaggedDoc') { ceoReviewFlaggedDoc(gTaskId); return; }
+        if (gAction === 'previewDoc' || gAction === 'editPD') {
+          showToast('This document is reviewed from the RSO admin tools', 'info');
           return;
         }
         if (gAction === 'sendSppa') {
