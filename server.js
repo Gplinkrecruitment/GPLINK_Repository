@@ -20761,6 +20761,76 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: detect newer Claude models — raise a CEO-ONLY task when a newer Opus model ships.
+  // The whole app reads ANTHROPIC_MODEL / ANTHROPIC_SCAN_MODEL, so upgrading is a one-line env
+  // change; this just notifies the CEO so they review cost + API compatibility before switching.
+  if (req.method === 'GET' && pathname === '/api/cron/check-model-updates') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    try {
+      var cmKey = String(process.env.ANTHROPIC_API_KEY || '').trim();
+      if (!cmKey) { sendJson(res, 200, { ok: true, skipped: 'no ANTHROPIC_API_KEY' }); return; }
+      var cmController = new AbortController();
+      var cmTimer = setTimeout(function () { cmController.abort(); }, 20000);
+      var cmResp;
+      try {
+        cmResp = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+          signal: cmController.signal,
+          headers: { 'x-api-key': cmKey, 'anthropic-version': '2023-06-01' }
+        });
+      } finally { clearTimeout(cmTimer); }
+      if (!cmResp || !cmResp.ok) { sendJson(res, 200, { ok: false, error: 'models API ' + (cmResp ? cmResp.status : 'no response') }); return; }
+      var cmData = await cmResp.json();
+      var cmModels = (cmData && Array.isArray(cmData.data)) ? cmData.data : [];
+      // Newest Opus by created_at. Opus-family only on purpose: avoids auto-suggesting the
+      // pricier Fable tier or a Sonnet/Haiku downgrade. The CEO can still choose another family.
+      var cmOpus = cmModels
+        .filter(function (m) { return String(m.id || '').indexOf('claude-opus-') === 0; })
+        .sort(function (a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+      var cmLatest = cmOpus[0] || null;
+      var cmCurrent = ANTHROPIC_MODEL;
+      var cmCurrentEntry = cmModels.find(function (m) { return m.id === cmCurrent; }) || null;
+      var cmLatestTs = cmLatest ? new Date(cmLatest.created_at || 0).getTime() : 0;
+      var cmCurrentTs = cmCurrentEntry ? new Date(cmCurrentEntry.created_at || 0).getTime() : 0;
+      var cmNewer = !!cmLatest && cmLatest.id !== cmCurrent && cmLatestTs > cmCurrentTs;
+      if (!cmNewer) { sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest ? cmLatest.id : null, newer: false }); return; }
+
+      // Dedup: don't recreate if an open CEO task already names this exact model.
+      var cmExisting = await supabaseDbRequest('registration_tasks',
+        'select=id,title&task_type=eq.model_update_available&status=in.(open,in_progress,waiting,escalated,deferred,blocked)');
+      var cmAlready = cmExisting.ok && Array.isArray(cmExisting.data)
+        && cmExisting.data.some(function (t) { return String(t.title || '').indexOf(cmLatest.id) > -1; });
+      if (cmAlready) { sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task: 'already_open' }); return; }
+
+      var cmCeoId = await resolveCeoUserId();
+      var cmTaskData = {
+        task_type: 'model_update_available',
+        title: 'New Claude model available: ' + cmLatest.id + ' — review and switch',
+        description: 'A newer Opus model (' + cmLatest.id + ', released ' + String(cmLatest.created_at || '').slice(0, 10)
+          + ') is available.\n\nThe app currently runs ' + cmCurrent + ' for general AI and ' + ANTHROPIC_SCAN_MODEL
+          + ' for document scanning. To switch: set ANTHROPIC_MODEL (and/or ANTHROPIC_SCAN_MODEL) in Vercel to '
+          + cmLatest.id + ' and redeploy — no code changes needed.\n\nHeads-up: Opus 4.7+ reject the `temperature` parameter, '
+          + 'and the general-AI calls still pass it — so moving ANTHROPIC_MODEL past 4.6 needs those temperature params stripped first. '
+          + 'Document scanning already runs without temperature, so ANTHROPIC_SCAN_MODEL can move freely.',
+        priority: 'normal',
+        status: 'escalated',
+        escalated_reason: 'Newer Claude model available: ' + cmLatest.id,
+        escalated_at: new Date().toISOString(),
+        _actor: 'system'
+      };
+      // CEO-only: escalate to the CEO user so it surfaces on the CEO board, not any RSO's queue.
+      if (cmCeoId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cmCeoId)) {
+        cmTaskData.escalated_to = cmCeoId;
+      }
+      var cmTask = await _createRegTask(null, cmTaskData);
+      console.log('[Cron] Model update CEO task created for', cmLatest.id, '— CEO:', cmCeoId || '(unresolved)');
+      sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task_id: cmTask ? cmTask.id : null, escalated_to: cmCeoId || null });
+    } catch (cmErr) {
+      console.error('[Cron] check-model-updates failed:', cmErr && cmErr.message);
+      sendJson(res, 200, { ok: false, error: cmErr && cmErr.message });
+    }
+    return;
+  }
+
   // Cron: refresh Zoho Sign token (before same-origin — called by Vercel cron every 30 min)
   if (req.method === 'GET' && pathname === '/api/cron/refresh-zoho-sign-token') {
     var zseCronSecret = String(process.env.CRON_SECRET || '').trim();
