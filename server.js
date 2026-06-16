@@ -34089,9 +34089,14 @@ Return ONLY valid JSON with no markdown formatting:
         };
 
         // 1. A user_documents / prepared-doc row matching the key (the GP's own upload).
+        //    Several rows can share one document_key (e.g. country_code casing like
+        //    "UK" vs "uk" creates duplicate rows on upsert). Pull them all, newest first,
+        //    and pick the one that actually has a stored file — skipping stale/empty rows
+        //    so a rejected row with a blank file_url can't shadow the real upload.
         const pdRowRes = await supabaseDbRequest('user_documents',
-          'select=*&user_id=eq.' + encodeURIComponent(pdUserId) + '&document_key=eq.' + encodeURIComponent(task.related_document_key) + '&limit=1');
-        const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
+          'select=*&user_id=eq.' + encodeURIComponent(pdUserId) + '&document_key=eq.' + encodeURIComponent(task.related_document_key) + '&order=updated_at.desc');
+        const pdRows = pdRowRes.ok && Array.isArray(pdRowRes.data) ? pdRowRes.data : [];
+        const pdRow = pdRows.find(function (r) { return r && (r.storage_path || r.file_url); }) || null;
         if (pdRow && (pdRow.storage_path || pdRow.file_url)) {
           const pdSigned = await supabaseStorageCreateSignedUrl(pdRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, pdRow.storage_path || pdRow.file_url, '');
           if (pdSigned && await streamSigned(pdSigned)) return;

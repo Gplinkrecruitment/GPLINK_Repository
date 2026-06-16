@@ -4188,7 +4188,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var task=_pools.find(function(t){return t&&t.id===taskId;})||{};
     _reviewDocTaskId=taskId;
     document.getElementById('reviewDocTitle').textContent=task.title||'Review flagged document';
-    document.getElementById('reviewDocReason').textContent=task.description||'';
+    // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
+    document.getElementById('reviewDocReason').textContent=task.description||task.ai_match_reasoning||'';
     document.getElementById('reviewDocNote').value='';
     var err=document.getElementById('reviewDocError'); err.style.display='none'; err.textContent='';
     var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
