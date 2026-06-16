@@ -20801,7 +20801,9 @@ async function handleApi(req, res, pathname) {
         && cmExisting.data.some(function (t) { return String(t.title || '').indexOf(cmLatest.id) > -1; });
       if (cmAlready) { sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task: 'already_open' }); return; }
 
-      var cmCeoId = await resolveCeoUserId();
+      // CEO-only: status 'escalated' surfaces it on the CEO escalations board (which lists ALL
+      // escalated tasks regardless of case/assignee), and escalated_to 'CEO' is the role marker
+      // convention (#26). case_id is null — this is a company-level alert, not a GP case.
       var cmTaskData = {
         task_type: 'model_update_available',
         title: 'New Claude model available: ' + cmLatest.id + ' — review and switch',
@@ -20813,17 +20815,15 @@ async function handleApi(req, res, pathname) {
           + 'Document scanning already runs without temperature, so ANTHROPIC_SCAN_MODEL can move freely.',
         priority: 'normal',
         status: 'escalated',
+        escalated_to: 'CEO',
         escalated_reason: 'Newer Claude model available: ' + cmLatest.id,
         escalated_at: new Date().toISOString(),
+        escalated_by: 'system',
         _actor: 'system'
       };
-      // CEO-only: escalate to the CEO user so it surfaces on the CEO board, not any RSO's queue.
-      if (cmCeoId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cmCeoId)) {
-        cmTaskData.escalated_to = cmCeoId;
-      }
       var cmTask = await _createRegTask(null, cmTaskData);
-      console.log('[Cron] Model update CEO task created for', cmLatest.id, '— CEO:', cmCeoId || '(unresolved)');
-      sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task_id: cmTask ? cmTask.id : null, escalated_to: cmCeoId || null });
+      console.log('[Cron] Model update CEO task created for', cmLatest.id);
+      sendJson(res, 200, { ok: true, current: cmCurrent, latest_opus: cmLatest.id, newer: true, task_id: cmTask ? cmTask.id : null });
     } catch (cmErr) {
       console.error('[Cron] check-model-updates failed:', cmErr && cmErr.message);
       sendJson(res, 200, { ok: false, error: cmErr && cmErr.message });
