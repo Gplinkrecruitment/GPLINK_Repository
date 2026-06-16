@@ -1453,10 +1453,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
     <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="archived-accounts">Archived Accounts</button>
   </div>
   <div id="techIntegrationsPanel"></div>
   <div id="techSystemBugsPanel" style="display:none"></div>
   <div id="techUserBugsPanel" style="display:none"></div>
+  <div id="techArchivedAccountsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
@@ -1468,6 +1470,47 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="btn" onclick="document.getElementById('escalateCeoModal').style.display='none';">Cancel</button>
       <button class="btn red" id="escalateConfirmBtn">Escalate</button>
+    </div>
+  </div>
+</div>
+<div id="reviewDocModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+      <div>
+        <div id="reviewDocTitle" style="font-weight:700;font-size:15px;color:#111827;">Review flagged document</div>
+        <div id="reviewDocReason" style="font-size:12px;color:#b45309;margin-top:3px;"></div>
+      </div>
+      <button onclick="closeReviewDocModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="flex:1;overflow:auto;background:#f3f4f6;min-height:280px;display:flex;align-items:center;justify-content:center;">
+      <div id="reviewDocLoading" style="color:#6b7280;font-size:13px;padding:40px;">Loading document…</div>
+      <img id="reviewDocImg" alt="Document" style="display:none;max-width:100%;max-height:60vh;object-fit:contain;" />
+      <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:60vh;border:none;background:#fff;"></iframe>
+      <div id="reviewDocMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
+    </div>
+    <div style="padding:14px 18px;border-top:1px solid #e5e7eb;">
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject)</span></label>
+      <textarea id="reviewDocNote" rows="2" placeholder="Reason for rejection / note to the GP…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <div id="reviewDocError" style="color:#dc2626;font-size:12px;margin-top:6px;display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
+        <button onclick="closeReviewDocModal()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;color:#374151;">Cancel</button>
+        <button id="reviewDocRejectBtn" onclick="submitReviewDoc('reject')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Reject — request re-upload</button>
+        <button id="reviewDocApproveBtn" onclick="submitReviewDoc('approve')" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Approve</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="docViewerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div id="docViewerTitle" style="font-weight:700;font-size:15px;color:#111827;">Document</div>
+      <button onclick="closeDocViewer()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="flex:1;overflow:auto;background:#f3f4f6;min-height:280px;display:flex;align-items:center;justify-content:center;">
+      <div id="docViewerLoading" style="color:#6b7280;font-size:13px;padding:40px;">Loading document…</div>
+      <img id="docViewerImg" alt="Document" style="display:none;max-width:100%;max-height:74vh;object-fit:contain;" />
+      <iframe id="docViewerFrame" title="Document" style="display:none;width:100%;height:74vh;border:none;background:#fff;"></iframe>
+      <div id="docViewerMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
     </div>
   </div>
 </div>
@@ -1496,7 +1539,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     {key:"pbs",label:"PBS & Medicare",num:6},
     {key:"commencement",label:"Commencement",num:7}
   ];
-  const STAGE_ORDER=["placement","myintealth","amc","ahpra","visa","pbs","commencement"];
+  const STAGE_ORDER=["onboarding","placement","myintealth","amc","ahpra","visa","pbs","commencement"];
   const ELS_PATHWAY_DOCS = {
     combined: { title: "Combined Education Pathway", docs: ["Official transcripts showing qualification taught & assessed in English", "Details of secondary education provider and enrolment dates (entered in AHPRA form)", "Letter from education provider confirming English instruction (if not shown on transcript)"] },
     school: { title: "School Education Pathway", docs: ["Details of primary & secondary education providers and enrolment dates (entered in AHPRA form)", "Official transcripts showing qualification taught & assessed in English", "Letter from education provider confirming English instruction (if not shown on transcript)", "Home schooling evidence from Department of Education (if applicable)"] },
@@ -2540,6 +2583,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return result;
   }
 
+  // Qualification documents the GP uploads themselves. A "Review uploaded: X"
+  // task (task_type 'review') for one of these is a document the admin must
+  // verify — it should open the document and offer approve/reject (emailing the
+  // GP), exactly like a flagged_doc, NOT be chased as a practice document or
+  // blindly "Mark Complete". Keep in sync with server.js QUALIFICATION_DOC_KEYS.
+  var QUAL_REVIEW_DOC_KEYS=new Set([
+    'primary_medical_degree','specialist_qualification',
+    'onboarding_primary_med_degree','onboarding_specialist_qualification',
+    'mrcgp_certified','cct_certified','micgp_certified','cscst_certified','frnzcgp_certified',
+    'icgp_confirmation_letter','rnzcgp_confirmation_letter',
+    'certificate_good_standing','certificate_of_good_standing',
+    'confirmation_training','confirmation_of_training',
+    'mrcgp','cct','micgp','cscst','frnzcgp'
+  ]);
+  // A "Review uploaded: X" (task_type 'review') OR a doc-pipeline "Review uploaded
+  // X for Dr Y" (task_type 'doc_review') task for a qualification document the GP
+  // uploaded themselves: open it and approve/reject (the GP is emailed), exactly
+  // like a flagged_doc — NOT chase it as a practice document ("Email Practice").
+  function isQualDocReviewTask(t){
+    return !!(t&&(t.task_type==='review'||t.task_type==='doc_review')&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
+  }
+
   function getGuidedAction(t){
     const dk=t.related_document_key;
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
@@ -2550,7 +2615,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // was flagged, but it is NOT a practice document to chase — intercept it
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
-      return{prompt:'Open the flagged document to review it, then mark complete from the ⋯ menu',label:'Review Document',action:'previewDoc',taskId:t.id};
+      return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
+    }
+
+    // A generic "Review uploaded: X" task for a qualification document the GP
+    // uploaded: open it and approve/reject (the GP is emailed). Intercept before
+    // the practice-doc branch (a related_document_key would otherwise route it to
+    // "Email Practice") and before the plain 'review' branch ("Mark Complete").
+    if(isQualDocReviewTask(t)){
+      return{prompt:'Review the uploaded document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
     if(t.task_type==='practice_pack_child'||dk){
@@ -2616,7 +2689,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=stageLabel?stageLabel.label:group.stage==="other"?"Other":"Unknown";
+      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
@@ -2900,7 +2973,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="doc-section-grid">';
     if(!candidate.length)h+='<div class="empty">No documents in this category.</div>';
     candidate.forEach(function(doc){
-      h+=renderDocPlaceholderCard(doc,doc.status);
+      h+=renderDocPlaceholderCard(doc,doc.status,caseId);
     });
     h+='</div></div>';
 
@@ -2957,11 +3030,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return map[status]||status||'Pending';
   }
 
-  function renderDocPlaceholderCard(doc,status){
+  function renderDocPlaceholderCard(doc,status,caseId){
     var hasFile=!!doc.file_name||!!doc.file_url;
-    var cls='doc-placeholder-card'+(hasFile?' has-file':'');
+    // A document is viewable if the GP has actually uploaded something for it.
+    var viewable=caseId&&(!!doc.file_url||['approved','uploaded','under_review','rejected','accepted','received','needs_correction'].indexOf(status)>=0);
+    var previewUrl=viewable?('/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key)):'';
+    var viewAttrs=viewable
+      ?(' data-doc-view-url="'+escAttr(previewUrl)+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="cursor:pointer"')
+      :'';
+    var cls='doc-placeholder-card'+(hasFile?' has-file':'')+(viewable?' is-clickable':'');
     var statusCls='s-'+(status||'pending');
-    var thumbHtml='<div class="doc-placeholder-thumb">\uD83D\uDCC4</div>';
+    // Real document thumbnail (image scans render directly; PDFs/others fall back to the
+    // icon via onerror) \u2014 matches the "Prepared by GP LINK" cards.
+    var thumbHtml=viewable
+      ?('<img src="'+escAttr(previewUrl)+'" class="doc-placeholder-thumb" alt="" style="object-fit:cover" onerror="gpDocThumbError(this)">')
+      :'<div class="doc-placeholder-thumb">\uD83D\uDCC4</div>';
     var metaHtml='';
     if(doc.file_name){
       metaHtml='<div class="doc-placeholder-meta">'+esc(doc.file_name)+'</div>';
@@ -2977,7 +3060,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
     }
     var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>');
-    return '<div class="'+cls+'">'
+    return '<div class="'+cls+'"'+viewAttrs+'>'
       +thumbHtml
       +'<div class="doc-placeholder-info">'
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
@@ -4055,6 +4138,108 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function previewTaskDoc(taskId) {
     window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
+  }
+
+  // Thumbnail <img> failed to render (e.g. a PDF) — swap it for the document icon.
+  function gpDocThumbError(img){
+    if(!img||!img.parentNode)return;
+    var d=document.createElement('div');
+    d.className='doc-placeholder-thumb';
+    d.textContent='📄';
+    img.parentNode.replaceChild(d,img);
+  }
+
+  // ── Generic document viewer modal (click a Documents-tab placeholder to view) ──
+  var _docViewerObjUrl = null;
+  async function openDocViewer(fetchUrl,title){
+    document.getElementById('docViewerTitle').textContent=title||'Document';
+    var img=document.getElementById('docViewerImg'),frame=document.getElementById('docViewerFrame');
+    var loading=document.getElementById('docViewerLoading'),missing=document.getElementById('docViewerMissing');
+    img.style.display='none';frame.style.display='none';missing.style.display='none';loading.style.display='block';
+    document.getElementById('docViewerModal').style.display='flex';
+    if(_docViewerObjUrl){URL.revokeObjectURL(_docViewerObjUrl);_docViewerObjUrl=null;}
+    try{
+      var resp=await fetch(fetchUrl,{credentials:'same-origin'});
+      if(!resp.ok){
+        var dj=await resp.json().catch(function(){return{};});
+        loading.style.display='none';missing.style.display='block';
+        missing.textContent=dj.message||'No document is stored for this slot yet.';
+        return;
+      }
+      var blob=await resp.blob();
+      _docViewerObjUrl=URL.createObjectURL(blob);
+      loading.style.display='none';
+      if((blob.type||'').indexOf('image/')===0){img.src=_docViewerObjUrl;img.style.display='block';}
+      else{frame.src=_docViewerObjUrl;frame.style.display='block';}
+    }catch(e){loading.style.display='none';missing.style.display='block';missing.textContent='Could not load the document: '+e.message;}
+  }
+  function closeDocViewer(){
+    document.getElementById('docViewerModal').style.display='none';
+    document.getElementById('docViewerImg').src='';
+    document.getElementById('docViewerFrame').src='about:blank';
+    if(_docViewerObjUrl){URL.revokeObjectURL(_docViewerObjUrl);_docViewerObjUrl=null;}
+  }
+
+  // ── Flagged-document review modal (in-dashboard popup: view + approve/reject) ──
+  var _reviewDocObjUrl = null;
+  var _reviewDocTaskId = null;
+  async function openReviewDocModal(taskId){
+    var _pools=[].concat(S.tasks||[],S.opsTasksAll||[],S.opsTasks||[]);
+    var task=_pools.find(function(t){return t&&t.id===taskId;})||{};
+    _reviewDocTaskId=taskId;
+    document.getElementById('reviewDocTitle').textContent=task.title||'Review flagged document';
+    document.getElementById('reviewDocReason').textContent=task.description||'';
+    document.getElementById('reviewDocNote').value='';
+    var err=document.getElementById('reviewDocError'); err.style.display='none'; err.textContent='';
+    var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
+    var loading=document.getElementById('reviewDocLoading'), missing=document.getElementById('reviewDocMissing');
+    img.style.display='none'; frame.style.display='none'; missing.style.display='none'; loading.style.display='block';
+    document.getElementById('reviewDocApproveBtn').disabled=false;
+    document.getElementById('reviewDocRejectBtn').disabled=false;
+    document.getElementById('reviewDocModal').style.display='flex';
+    if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
+    try{
+      var resp=await fetch('/api/admin/va/task/preview-document?task_id='+encodeURIComponent(taskId),{credentials:'same-origin'});
+      if(!resp.ok){
+        var dj=await resp.json().catch(function(){return{};});
+        loading.style.display='none'; missing.style.display='block';
+        missing.textContent=dj.message||'No document is stored for this task.';
+        return;
+      }
+      var blob=await resp.blob();
+      _reviewDocObjUrl=URL.createObjectURL(blob);
+      loading.style.display='none';
+      if((blob.type||'').indexOf('image/')===0){ img.src=_reviewDocObjUrl; img.style.display='block'; }
+      else { frame.src=_reviewDocObjUrl; frame.style.display='block'; }
+    }catch(e){
+      loading.style.display='none'; missing.style.display='block';
+      missing.textContent='Could not load the document: '+e.message;
+    }
+  }
+  function closeReviewDocModal(){
+    document.getElementById('reviewDocModal').style.display='none';
+    document.getElementById('reviewDocImg').src='';
+    document.getElementById('reviewDocFrame').src='about:blank';
+    if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
+    _reviewDocTaskId=null;
+  }
+  async function submitReviewDoc(decision){
+    if(!_reviewDocTaskId)return;
+    var note=document.getElementById('reviewDocNote').value.trim();
+    var err=document.getElementById('reviewDocError');
+    if(decision==='reject'&&!note){err.textContent='A reason is required to reject — the GP will see it.';err.style.display='block';return;}
+    err.style.display='none';
+    var approveBtn=document.getElementById('reviewDocApproveBtn'),rejectBtn=document.getElementById('reviewDocRejectBtn');
+    approveBtn.disabled=true;rejectBtn.disabled=true;
+    try{
+      var res=await fetch('/api/admin/va/task/review-flagged-doc',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:_reviewDocTaskId,decision:decision,note:note})});
+      var d=await res.json().catch(function(){return{};});
+      if(!d.ok){err.textContent=d.message||'Action failed.';err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;return;}
+      closeReviewDocModal();
+      if(typeof showOpsToast==='function')showOpsToast(d.message||'Done','green');
+      if(typeof loadOpsQueue==='function')loadOpsQueue();
+      if(typeof loadAll==='function')loadAll(true);
+    }catch(e){err.textContent='Network error: '+e.message;err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;}
   }
 
   async function approveDocument(taskId) {
@@ -5418,9 +5603,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
     h+='<div class="ops-action-row" style="margin-top:12px">';
-    if(task.task_type==='flagged_doc')h+='<button class="ops-btn-secondary" onclick="previewTaskDoc(\''+escAttr(task.id)+'\')">View Document</button>';
+    // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
+    // document both open the approve/reject review modal instead of a plain
+    // "Mark Complete" — the admin must actually look at the document.
+    var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task);
+    if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
-    if(task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
     return h;
@@ -5891,6 +6080,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(action==="completeTask"){completeTask(taskId);}
         else if(action==="resolveEmail"){resolveEmailTask(btn,taskId);}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
+        else if(action==="reviewFlaggedDoc"){openReviewDocModal(taskId);}
         else if(action==="generatePD"){generatePositionDescription(taskId);}
         else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
         else if(action==="openWhatsApp"){
@@ -5990,6 +6180,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
       if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
+      const dvc=e.target.closest("[data-doc-view-url]");
+      if(dvc){
+        openDocViewer(dvc.getAttribute("data-doc-view-url")||"",dvc.getAttribute("data-doc-view-label")||"Document");
+        return;
+      }
       const dpc=e.target.closest("[data-drive-preview]");
       if(dpc){
         const name=dpc.getAttribute("data-drive-name")||"Document";
@@ -8366,9 +8561,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
       document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
       document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
+      document.getElementById("techArchivedAccountsPanel").style.display=(tv==="archived-accounts"?"block":"none");
       if(tv==="integrations")loadIntegrations();
       else if(tv==="system-bugs")loadSystemBugs();
       else if(tv==="user-bugs")loadUserBugs();
+      else if(tv==="archived-accounts")archivedAccountsLoad();
+      return;
+    }
+    // Archived account reinstate
+    var reinstateBtn=e.target.closest("[data-archived-reinstate]");
+    if(reinstateBtn){
+      archivedAccountsReinstate(reinstateBtn.getAttribute("data-archived-reinstate"),reinstateBtn);
       return;
     }
     // Bug row expand
@@ -8437,7 +8640,73 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function loadTechnicalPanel(){
     if(techState.view==="integrations")loadIntegrations();
     else if(techState.view==="system-bugs")loadSystemBugs();
+    else if(techState.view==="archived-accounts")archivedAccountsLoad();
     else loadUserBugs();
+  }
+
+  // ── Archived Accounts (soft-deleted) ──────────────────────
+  async function archivedAccountsLoad(){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading archived accounts...</div>';
+    try{
+      var r=await fetch("/api/admin/accounts/archived",{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      var d=await r.json();
+      if(!d.ok||!Array.isArray(d.accounts)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load archived accounts: '+esc(d.message||'Unknown error')+'</div>';return;}
+      archivedAccountsRender(d.accounts);
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  function archivedAccountsRender(accounts){
+    var el=document.getElementById("techArchivedAccountsPanel");
+    if(!el)return;
+    if(!accounts.length){
+      el.innerHTML='<div style="padding:24px;color:#6b7280;font-size:0.85rem;">No archived accounts.</div>';
+      return;
+    }
+    var html='<div class="tech-cards">';
+    for(var i=0;i<accounts.length;i++){
+      var a=accounts[i];
+      var name=a.name||a.email||'Unknown';
+      html+='<div class="tech-card" data-archived-row="'+escAttr(a.userId)+'">';
+      html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(name)+'</span>';
+      if(a.hasActivePlacement)html+='<span class="tech-status degraded">Active placement</span>';
+      html+='</div>';
+      html+='<div class="tech-detail"><b>Email:</b> '+esc(a.email||'—')+'</div>';
+      html+='<div class="tech-detail"><b>Archived:</b> '+esc(fmtD(a.archivedAt))+'</div>';
+      html+='<div class="tech-detail"><b>Purges:</b> '+esc(fmtD(a.purgeAfter))+'</div>';
+      html+='<button class="tech-reconnect" data-archived-reinstate="'+escAttr(a.userId)+'">Reinstate</button>';
+      html+='</div>';
+    }
+    html+='</div>';
+    el.innerHTML=html;
+  }
+
+  async function archivedAccountsReinstate(userId,btn){
+    if(!userId)return;
+    if(btn){btn.textContent="Reinstating...";btn.disabled=true;}
+    try{
+      var r=await fetch("/api/admin/accounts/reinstate",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:userId})});
+      var d=await r.json();
+      if(d.ok){
+        toast("Account reinstated","green");
+        var row=document.querySelector('[data-archived-row="'+(window.CSS&&CSS.escape?CSS.escape(userId):userId)+'"]');
+        if(row&&row.parentNode){
+          row.parentNode.removeChild(row);
+          var panel=document.getElementById("techArchivedAccountsPanel");
+          if(panel&&!panel.querySelector("[data-archived-row]")){archivedAccountsRender([]);}
+        }else{
+          archivedAccountsLoad();
+        }
+      }else{
+        toast("Reinstate failed: "+(d.message||""),"red");
+        if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+      }
+    }catch(err){
+      toast("Network error","red");
+      if(btn){btn.textContent="Reinstate";btn.disabled=false;}
+    }
   }
 
   async function loadIntegrations(){
@@ -8606,6 +8875,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // Expose functions used by inline onclick handlers (IIFE escape)
   window.setupGmailWatch = setupGmailWatch;
   window.previewTaskDoc = previewTaskDoc;
+  window.openReviewDocModal = openReviewDocModal;
+  window.closeReviewDocModal = closeReviewDocModal;
+  window.submitReviewDoc = submitReviewDoc;
+  window.openDocViewer = openDocViewer;
+  window.closeDocViewer = closeDocViewer;
+  window.gpDocThumbError = gpDocThumbError;
   window.approveDocument = approveDocument;
   window.requestRevision = requestRevision;
   window.dismissAttachment = dismissAttachment;

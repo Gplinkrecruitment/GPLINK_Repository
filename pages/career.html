@@ -49,11 +49,12 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
   <script src="../js/bypass-config.js?v=20260610a"></script>
-  <script src="../js/auth-guard.js?v=20260607a" defer></script>
+  <script src="../js/auth-guard.js?v=20260614a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
-  <script src="../js/qualification-camera.js?v=20260527a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260612a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260614a" defer></script>
+  <script src="../js/document-prep.js?v=20260614a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260614b" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -5721,6 +5722,88 @@
       opacity: 0.7;
     }
 
+    /* ── My Practice (secured) — legibility + contact-tile polish (2026-06-16) ──
+       These cards are forced white in BOTH themes (dark mode whitens the card
+       backgrounds further down) but the token text colours resolve light in dark
+       mode, leaving faint grey text on white. Pin the in-card text to dark,
+       readable values so it's legible regardless of the active theme. */
+    body.career-mode-secured .placement-stat-value,
+    body.career-mode-secured .placement-income-value,
+    body.career-mode-secured .placement-practice-contact-name {
+      color: #0f172a;
+    }
+    body.career-mode-secured .placement-stat-label,
+    body.career-mode-secured .placement-income-label,
+    body.career-mode-secured .placement-income-unit,
+    body.career-mode-secured .placement-practice-contact-kicker,
+    body.career-mode-secured .placement-practice-contact-role {
+      color: #475569;
+    }
+    body.career-mode-secured .placement-practice-contact-meta {
+      color: #64748b;
+      opacity: 1;
+    }
+    body.career-mode-secured .placement-stat-label {
+      font-weight: 600;
+    }
+    body.career-mode-secured .placement-income-label,
+    body.career-mode-secured .placement-practice-contact-kicker {
+      font-weight: 800;
+    }
+
+    /* Polished Call / Email / WhatsApp action tiles — channel-accented icons in
+       soft circles, dark labels, lift-on-hover. Replaces the flat dark squares. */
+    body.career-mode-secured .placement-practice-contact-actions {
+      gap: 10px;
+    }
+    body.career-mode-secured .placement-practice-contact-btn {
+      min-height: 0;
+      padding: 15px 8px 13px;
+      border-radius: 16px;
+      border: 1px solid #e3e9f4;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 700;
+      gap: 9px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+    body.career-mode-secured .placement-practice-contact-btn svg {
+      width: 40px;
+      height: 40px;
+      padding: 10px;
+      border-radius: 50%;
+      box-sizing: border-box;
+      stroke-width: 2;
+      background: rgba(37, 99, 235, 0.10);
+      color: #2563eb;
+      stroke: currentColor;
+      fill: none;
+    }
+    /* Per-channel accent (tiles render in order: Call · Email · WhatsApp). */
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(1) svg {
+      background: rgba(37, 99, 235, 0.10); color: #2563eb;
+    }
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(2) svg {
+      background: rgba(217, 119, 6, 0.12); color: #d97706;
+    }
+    body.career-mode-secured .placement-practice-contact-btn-whatsapp svg,
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(3) svg {
+      background: rgba(22, 163, 74, 0.13); color: #16a34a;
+    }
+    body.career-mode-secured .placement-practice-contact-btn-whatsapp {
+      color: #0f172a;
+      border-color: #e3e9f4;
+    }
+    body.career-mode-secured .placement-practice-contact-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
+    }
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(1):hover { border-color: rgba(37, 99, 235, 0.45); }
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(2):hover { border-color: rgba(217, 119, 6, 0.45); }
+    body.career-mode-secured .placement-practice-contact-btn-whatsapp:hover,
+    body.career-mode-secured .placement-practice-contact-btn:nth-child(3):hover { border-color: rgba(22, 163, 74, 0.45); }
+
     body.career-mode-secured .placement-story-card {
       padding: 0;
       gap: 0;
@@ -6884,7 +6967,7 @@
         {
           key: "visa",
           title: "Visa Application",
-          summary: "Start your 482→186 visa pathway once registration timing is confirmed.",
+          summary: "Begin your 482→186 visa pathway — you can start this at any time.",
           status: "pending",
           started: false,
           href: "visa"
@@ -9680,14 +9763,21 @@
         const status = normalizeChecklistStatus(item && item.status);
         const title = String(item && item.title || `Step ${index + 1}`).trim();
         const started = item && item.started === true;
-        const unlocked = bypassAll || !blockedBy;
+        // Visa Application is an independent step the GP can begin at any time —
+        // the 482→186 pathway runs in parallel with registration (the nav journey
+        // already treats it as unlocked). It is never locked, and it must not gate
+        // the steps that follow it.
+        const isAlwaysAvailable = String(item && item.key || "") === "visa" || /visa/i.test(title);
+        const unlocked = bypassAll || !blockedBy || isAlwaysAvailable;
         const actionLabel = status === "complete"
           ? "Completed"
           : (!unlocked ? "Locked" : (started || status === "current" ? "Continue" : "Get Started"));
         const helperText = unlocked
           ? String(item && item.summary || "").trim()
           : `Please complete ${blockedBy} to unlock ${title}.`;
-        const nextBlockedBy = blockedBy || (status === "complete" ? null : title);
+        const nextBlockedBy = isAlwaysAvailable
+          ? blockedBy
+          : (blockedBy || (status === "complete" ? null : title));
         const derived = {
           key: String(item && item.key || `step_${index + 1}`),
           title,

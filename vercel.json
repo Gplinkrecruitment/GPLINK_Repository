@@ -10,7 +10,8 @@
     { "path": "/api/cron/weekly-sweep", "schedule": "0 22 * * *" },
     { "path": "/api/cron/weekly-backup", "schedule": "0 3 * * 0" },
     { "path": "/api/cron/call-summary-retry", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/call-reminders", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/call-reminders", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/purge-accounts", "schedule": "0 4 * * *" }
   ],
   "builds": [
     {

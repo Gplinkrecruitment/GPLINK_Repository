@@ -808,14 +808,237 @@
   }
 
   /* ── Event handling ── */
+  /* ──────────────────────────────────────────────────────────────────────
+   *  Guided scan router (Option B) — what the nav "Scan" button opens.
+   *  Reads the GP's outstanding CERTIFIED documents from the shared gpDocPrep
+   *  brain (certified-copies-first), routes each through the proven
+   *  gpOpenCertScan flow, and persists via gpDocPrep so My Documents reflects
+   *  it. Works from any page, before the AHPRA step. Falls back to the legacy
+   *  generic modal if gpDocPrep isn't present.
+   * ────────────────────────────────────────────────────────────────────── */
+  var ROUTER_ID = "gpScanRouterOverlay";
+  var routerDropdownOpen = false;
+  var routerShowAll = false;
+  var pendingRouterReturn = false;
+  var DOC_ICON = '<svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/></svg>';
+
+  function injectRouterStyles() {
+    if (document.getElementById("gpScanRouterStyle")) return;
+    var s = document.createElement("style");
+    s.id = "gpScanRouterStyle";
+    s.textContent =
+      "#" + ROUTER_ID + "{position:fixed;inset:0;z-index:9998;display:flex;align-items:flex-end;justify-content:center;background:rgba(15,23,42,.45);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s ease,visibility 0s linear .34s;}" +
+      "#" + ROUTER_ID + ".open{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .3s ease,visibility 0s;}" +
+      ".gsr-sheet{width:100%;max-width:500px;max-height:90vh;overflow-y:auto;background:#fff;border-radius:20px 20px 0 0;padding:0 16px calc(env(safe-area-inset-bottom,0) + 18px);font-family:'DM Sans',system-ui,sans-serif;transform:translateY(100%);transition:transform .34s cubic-bezier(.32,.72,0,1);will-change:transform;}" +
+      "#" + ROUTER_ID + ".open .gsr-sheet{transform:translateY(0);}" +
+      ".gsr-grip{width:40px;height:4px;border-radius:4px;background:#d1d5db;margin:10px auto 2px;}" +
+      ".gsr-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 4px;}" +
+      ".gsr-hdr h3{margin:0;font-size:17px;font-weight:800;color:#0f172a;}" +
+      ".gsr-x{border:0;background:0;font-size:24px;color:#94a3b8;cursor:pointer;line-height:1;padding:4px 8px;}" +
+      ".gsr-prog{padding:2px 4px 12px;}" +
+      ".gsr-prog-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;}" +
+      ".gsr-prog-top .l{font-size:12px;font-weight:700;color:#64748b;}" +
+      ".gsr-prog-top .c{font-size:12px;font-weight:800;color:#2563eb;}" +
+      ".gsr-bar{height:7px;border-radius:99px;background:#e2e8f0;overflow:hidden;}" +
+      ".gsr-bar>span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#3b82f6,#2563eb);}" +
+      ".gsr-ahead{margin-top:10px;font-size:11.5px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;font-weight:600;line-height:1.4;}" +
+      ".gsr-next{border:1.5px solid #bfdbfe;border-radius:16px;padding:15px;background:linear-gradient(180deg,#f5f9ff,#fff);margin:6px 0 12px;}" +
+      ".gsr-next .lbl{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:#2563eb;font-weight:800;margin-bottom:6px;}" +
+      ".gsr-next .ttl{font-size:16px;font-weight:800;color:#0f172a;margin-bottom:8px;line-height:1.3;}" +
+      ".gsr-chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:#fef3c7;color:#92400e;}" +
+      ".gsr-scan-btn{display:block;width:100%;margin-top:13px;padding:14px;border:0;border-radius:13px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;font-size:14px;font-weight:800;cursor:pointer;}" +
+      ".gsr-dd{border:1px solid #e2e8f0;border-radius:13px;overflow:hidden;background:#fff;}" +
+      ".gsr-dd-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;padding:14px;border:0;background:#fff;cursor:pointer;font-size:13.5px;font-weight:700;color:#0f172a;}" +
+      ".gsr-dd-toggle .n{font-size:11px;font-weight:800;color:#2563eb;background:#eff6ff;border-radius:999px;padding:1px 8px;margin-left:8px;}" +
+      ".gsr-dd-toggle .chev{color:#94a3b8;font-size:11px;display:inline-block;transition:transform .25s ease;}" +
+      ".gsr-dd.open .gsr-dd-toggle .chev{transform:rotate(180deg);}" +
+      ".gsr-dd-body{max-height:0;overflow:hidden;transition:max-height .3s ease;}" +
+      ".gsr-dd.open .gsr-dd-body{border-top:1px solid #e2e8f0;}" +
+      ".gsr-dd-inner{padding:6px;}" +
+      ".gsr-row{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:10px;cursor:pointer;width:100%;border:0;background:0;text-align:left;}" +
+      ".gsr-row+.gsr-row{border-top:1px solid #f1f5f9;}" +
+      ".gsr-row .ic{width:26px;height:26px;border-radius:7px;background:#eff6ff;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}" +
+      ".gsr-row .ic svg{width:15px;height:15px;stroke:#3b82f6;fill:none;stroke-width:1.7;}" +
+      ".gsr-row .nm{flex:1;min-width:0;}" +
+      ".gsr-row .nm .t{font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
+      ".gsr-row .nm .s{font-size:10.5px;font-weight:700;color:#92400e;margin-top:2px;}" +
+      ".gsr-row .go{color:#cbd5e1;font-size:16px;}" +
+      ".gsr-done{text-align:center;padding:26px 14px 8px;}" +
+      ".gsr-done .ring{width:70px;height:70px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:#16a34a;font-size:34px;font-weight:900;}" +
+      ".gsr-done h4{margin:0 0 8px;font-size:18px;font-weight:850;color:#0f172a;}" +
+      ".gsr-done p{margin:0 auto 16px;font-size:13px;color:#64748b;line-height:1.5;max-width:260px;}" +
+      ".gsr-ghost{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer;}" +
+      ".gsr-chooser{padding:8px 4px 6px;}" +
+      ".gsr-chooser p{font-size:13px;color:#64748b;margin:0 0 14px;line-height:1.5;}" +
+      ".gsr-cbtn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:14px;margin-bottom:9px;border:1px solid #e2e8f0;border-radius:13px;background:#fafbfc;font-size:14px;font-weight:700;color:#0f172a;cursor:pointer;}" +
+      ".gsr-cbtn .go{color:#cbd5e1;font-size:16px;}";
+    document.head.appendChild(s);
+  }
+
+  function ensureRouter() {
+    var el = document.getElementById(ROUTER_ID);
+    if (el) return el;
+    el = document.createElement("div");
+    el.id = ROUTER_ID;
+    el.innerHTML =
+      '<div class="gsr-sheet">' +
+        '<div class="gsr-grip"></div>' +
+        '<div class="gsr-hdr"><h3>Scan a document</h3><button class="gsr-x" type="button" data-router-action="close">&times;</button></div>' +
+        '<div id="gpScanRouterBody"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function routerDocRow(doc) {
+    var cert = doc.help && doc.help.certNote;
+    return '<button class="gsr-row" type="button" data-router-doc="' + esc(doc.key) + '">' +
+      '<span class="ic">' + DOC_ICON + '</span>' +
+      '<span class="nm"><span class="t">' + esc(doc.title) + '</span>' + (cert ? '<span class="s">⚠ Certified copy needed</span>' : '') + '</span>' +
+      '<span class="go">›</span>' +
+    '</button>';
+  }
+
+  function renderRouter() {
+    var body = document.getElementById("gpScanRouterBody");
+    var dp = window.gpDocPrep;
+    if (!body || !dp) return;
+
+    if (!dp.hasCountry()) {
+      body.innerHTML =
+        '<div class="gsr-chooser">' +
+          '<p>Where did you train? We’ll show the documents you need to prepare.</p>' +
+          '<button class="gsr-cbtn" type="button" data-router-country="United Kingdom">United Kingdom <span class="go">›</span></button>' +
+          '<button class="gsr-cbtn" type="button" data-router-country="Ireland">Ireland <span class="go">›</span></button>' +
+          '<button class="gsr-cbtn" type="button" data-router-country="New Zealand">New Zealand <span class="go">›</span></button>' +
+        '</div>';
+      return;
+    }
+
+    var country = dp.getCountry();
+    var prog = dp.getProgress(country);
+    var list = routerShowAll ? dp.getScannableDocs(country) : dp.getOutstandingScannable(country);
+
+    if (!routerShowAll && list.length === 0) {
+      body.innerHTML =
+        '<div class="gsr-done">' +
+          '<div class="ring">✓</div>' +
+          '<h4>You’re all caught up</h4>' +
+          '<p>Every document we need has been scanned and saved. We’ll let you know if anything needs a re-scan.</p>' +
+          '<button class="gsr-ghost" type="button" data-router-action="rescan">Re-scan a document</button>' +
+        '</div>';
+      return;
+    }
+
+    var pct = prog.total ? Math.round((prog.prepared / prog.total) * 100) : 0;
+    var html = '<div class="gsr-prog">' +
+      '<div class="gsr-prog-top"><span class="l">Documents prepared</span><span class="c">' + prog.prepared + ' of ' + prog.total + '</span></div>' +
+      '<div class="gsr-bar"><span style="width:' + pct + '%"></span></div>' +
+      (routerShowAll ? '' : '<div class="gsr-ahead">💡 Get ahead now — certified copies can take a week or two to arrange. No need to wait for the AHPRA step.</div>') +
+    '</div>';
+
+    var suggested = list[0];
+    var rest = list.slice(1);
+    var certNext = suggested.help && suggested.help.certNote;
+    html += '<div class="gsr-next">' +
+      '<div class="lbl">' + (routerShowAll ? 'Choose a document' : 'Suggested next') + '</div>' +
+      '<div class="ttl">' + esc(suggested.title) + '</div>' +
+      (certNext ? '<span class="gsr-chip">⚠ Certified copy needed</span>' : '') +
+      '<button class="gsr-scan-btn" type="button" data-router-doc="' + esc(suggested.key) + '">Scan this now</button>' +
+    '</div>';
+
+    if (rest.length) {
+      html += '<div class="gsr-dd">' +
+        '<button class="gsr-dd-toggle" type="button" data-router-action="toggle">' +
+          '<span>Pick another document<span class="n">' + rest.length + ' left</span></span>' +
+          '<span class="chev">▼</span>' +
+        '</button>' +
+        '<div class="gsr-dd-body"><div class="gsr-dd-inner">' + rest.map(routerDocRow).join('') + '</div></div>' +
+      '</div>';
+    }
+    body.innerHTML = html;
+  }
+
+  function openRouter() {
+    if (!window.gpDocPrep) { openModal(); return; }  // safety fallback to legacy modal
+    injectRouterStyles();
+    var el = ensureRouter();
+    routerDropdownOpen = false;
+    routerShowAll = false;
+    renderRouter();
+    void el.offsetWidth;            // flush styles so the slide-up transition plays on first open
+    el.classList.add("open");
+  }
+
+  function closeRouter() {
+    var el = document.getElementById(ROUTER_ID);
+    if (el) el.classList.remove("open");
+  }
+
+  function routeDoc(docKey) {
+    var dp = window.gpDocPrep;
+    if (!dp || !window.gpOpenCertScan) return;
+    var country = dp.getCountry();
+    var doc = dp.getScannableDocs(country).filter(function (d) { return d.key === docKey; })[0];
+    if (!doc) return;
+    pendingRouterReturn = true;
+    closeRouter();
+    window.gpOpenCertScan(doc.key, doc.title, function (result) {
+      if (result && result.certified) {
+        var storedFile = {
+          fileName: result.fileName,
+          mimeType: typeof result.mimeType === "string" ? result.mimeType : "image/jpeg",
+          fileSize: Number(result.fileSize || 0),
+          fileDataUrl: typeof result.fileDataUrl === "string" ? result.fileDataUrl : ""
+        };
+        dp.markPreparedCertified(country, doc.key, storedFile, result.verification).catch(function () {});
+      }
+      // On failure the scan modal already shows its "Scan Failed / Try Again" UI.
+    });
+  }
+
+  function returnToRouterIfPending() {
+    if (!pendingRouterReturn) return false;
+    pendingRouterReturn = false;
+    setTimeout(openRouter, 60);
+    return true;
+  }
+
+  window.gpOpenScanRouter = openRouter;
+
   document.addEventListener("click", function (e) {
     var target = e.target;
     if (!(target instanceof Element)) return;
 
+    // 0) Guided scan router interactions
+    if (target.id === ROUTER_ID) { closeRouter(); return; }
+    var rDoc = target.closest("[data-router-doc]");
+    if (rDoc) { e.preventDefault(); routeDoc(rDoc.getAttribute("data-router-doc")); return; }
+    var rCountry = target.closest("[data-router-country]");
+    if (rCountry) { e.preventDefault(); if (window.gpDocPrep) window.gpDocPrep.setCountry(rCountry.getAttribute("data-router-country")); renderRouter(); return; }
+    var rAction = target.closest("[data-router-action]");
+    if (rAction) {
+      e.preventDefault();
+      var ra = rAction.getAttribute("data-router-action");
+      if (ra === "close") { closeRouter(); return; }
+      if (ra === "toggle") {
+        routerDropdownOpen = !routerDropdownOpen;
+        var dd = rAction.closest(".gsr-dd");
+        if (dd) {
+          dd.classList.toggle("open", routerDropdownOpen);
+          var ddBody = dd.querySelector(".gsr-dd-body");
+          if (ddBody) ddBody.style.maxHeight = routerDropdownOpen ? (ddBody.scrollHeight + "px") : "0px";
+        }
+        return;
+      }
+      if (ra === "rescan") { routerShowAll = true; routerDropdownOpen = false; renderRouter(); return; }
+      return;
+    }
+
     // 1) Scan trigger buttons (in nav bars)
     if (target.closest("[data-qual-scan-trigger]")) {
       e.preventDefault();
-      openModal();
+      openRouter();
       return;
     }
 
@@ -823,13 +1046,15 @@
     var action = target.closest("[data-scan-action]");
     if (action) {
       var name = action.getAttribute("data-scan-action");
-      if (name === "close") { closeModal(); return; }
+      if (name === "close") { closeModal(); returnToRouterIfPending(); return; }
       if (name === "camera") {
         // Open camera via QualCamera module
         if (window.QualCamera) {
           closeModal();
-          var camLabel = certContext ? certContext.title : "Scan Document";
-          window.QualCamera.open(camLabel, function (blob, err) {
+          var camOpts = certContext
+            ? { docLabel: certContext.title, docKey: certContext.key, requireCert: true }
+            : { docLabel: "Scan Document", requireCert: false };
+          window.QualCamera.open(camOpts, function (blob, err) {
             if (err) {
               openModal();
               showScanError(err);
@@ -855,7 +1080,7 @@
       }
       if (name === "remove") { clearFile(); return; }
       if (name === "submit") { submitScan(); return; }
-      if (name === "certdone") { closeModal(); certContext = null; return; }
+      if (name === "certdone") { closeModal(); certContext = null; returnToRouterIfPending(); return; }
       if (name === "viewdocs") {
         closeModal();
         if (window.gpShellNavigate) window.gpShellNavigate("/pages/my-documents");

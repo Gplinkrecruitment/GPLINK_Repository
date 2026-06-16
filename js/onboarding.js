@@ -660,12 +660,10 @@
       if (data.ok && data.verification) {
         const v = data.verification;
         const nameConfirmed = v.nameMatch === "exact" || v.nameMatch === "fuzzy";
-        let shouldPersistDocument = false;
         if (v.verified && nameConfirmed) {
           state.qualDocs[docKey].status = "verified";
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
-          shouldPersistDocument = true;
         } else if (v.nameMatch === "mismatch") {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
@@ -681,13 +679,6 @@
 
         // Cross-document name matching: check if both docs have names that match each other
         crossDocNameCheck();
-
-        if (shouldPersistDocument) {
-          const savedDoc = await saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl);
-          if (savedDoc) {
-            state.qualDocs[docKey].storedAt = savedDoc.updatedAt || new Date().toISOString();
-          }
-        }
       } else if (data.queued) {
         state.qualDocs[docKey].status = "manual_review";
         state.qualDocs[docKey].scanResult = { issues: humanizeScanIssues([data.message || "Queued for review"], { documentTitle: doc.label, mode: "qualification" }) };
@@ -695,6 +686,19 @@
         state.qualDocs[docKey].status = "failed";
         state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
         state.qualDocs[docKey].scanResult = { issues: humanizeScanIssues([data.message || "Verification failed"], { documentTitle: doc.label, mode: "qualification" }) };
+      }
+
+      // Persist the actual file regardless of the verification outcome. A name
+      // mismatch / failed scan still needs a human (RSO) to open and review the
+      // real document — previously only verified docs were saved, which is why a
+      // flagged qualification showed "No document is stored for this task".
+      try {
+        const savedDoc = await saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl);
+        if (savedDoc) {
+          state.qualDocs[docKey].storedAt = savedDoc.updatedAt || new Date().toISOString();
+        }
+      } catch (persistErr) {
+        console.error("[QualVerify] Persist failed:", persistErr);
       }
 
       // If max retries reached and still failed, flag for review (skip for unlimited accounts)

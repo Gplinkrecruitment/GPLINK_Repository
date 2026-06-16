@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Your Document Progress - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
-  <script src="../js/auth-guard.js?v=20260607a" defer></script>
+  <script src="../js/auth-guard.js?v=20260614a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
-  <script src="../js/qualification-camera.js?v=20260527a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260612a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260614a" defer></script>
+  <script src="../js/document-prep.js?v=20260614a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260614b" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -605,6 +606,15 @@
       transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease), border-color var(--gp-dur) var(--gp-ease);
     }
 
+    .doc-card-reupload-highlight {
+      animation: docReuploadPulse 1.4s ease-in-out 2;
+      border-color: var(--gp-amber-border, #f59e0b) !important;
+    }
+    @keyframes docReuploadPulse {
+      0%, 100% { box-shadow: var(--gp-shadow-sm); }
+      50% { box-shadow: 0 0 0 4px var(--gp-amber-soft, rgba(245, 158, 11, 0.28)); }
+    }
+
     .doc-card:hover {
       border-color: var(--gp-blue-border);
       box-shadow: var(--gp-shadow-md);
@@ -847,11 +857,11 @@
 
     .help-popover {
       position: fixed;
-      top: 50%;
+      top: calc(50% - var(--gp-shell-bottom-clearance, 0px) / 2);
       left: 50%;
       transform: translate(-50%, -50%) scale(0.95);
       width: min(440px, calc(100vw - 32px));
-      max-height: calc(100vh - 40px);
+      max-height: calc(100vh - 40px - var(--gp-shell-bottom-clearance, 0px));
       overflow-y: auto;
       border-radius: var(--gp-r-xl);
       border: 1px solid var(--gp-border);
@@ -1310,9 +1320,10 @@
                 'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0">GMC Online account</a>',
                 'In the left hand menu choose "My registration"',
                 'Then open "My CCPS requests"',
-                "Request the certificate to be sent directly to Ahpra"
+                "Request the certificate to be sent directly to Ahpra",
+                'Ask the GMC to email it directly to Ahpra at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>'
               ],
-              reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
+              reminder: "Reminder: the GMC must send this directly to Ahpra (COGS@ahpra.gov.au), not to you."
             }
           },
           {
@@ -1325,9 +1336,10 @@
                 '<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training&body=Dear%20GMC%20Portfolio%20Team%2C%0A%0AI%20am%20writing%20to%20request%20confirmation%20of%20my%20specialist%20%2F%20GP%20training%20posts.%20I%20require%20this%20documentation%20for%20my%20application%20to%20the%20Australian%20Health%20Practitioner%20Regulation%20Agency%20(Ahpra).%0A%0APlease%20advise%20on%20the%20next%20steps%20and%20any%20forms%20I%20need%20to%20complete.%0A%0AKind%20regards">Email portfolio@gmc-uk.org</a>',
                 "State that you require confirmation of your specialist / GP training posts",
                 "GMC will review the request and send you an application form to complete",
-                "Complete the form and return it as instructed"
+                "Complete the form and return it as instructed",
+                'Ask the GMC to send the confirmation of training directly to AHPRA by email to <a href="mailto:registration18@ahpra.gov.au">registration18@ahpra.gov.au</a>'
               ],
-              reminder: "Reminder: request that the confirmation is sent by the GMC directly to Ahpra."
+              reminder: "Reminder: the confirmation of training must be sent by the GMC directly to Ahpra (registration18@ahpra.gov.au), not to you."
             }
           },
           {
@@ -1376,7 +1388,16 @@
             title: "CV (Signed and dated)",
             help: {
               title: "CV",
-              steps: ["Upload your signed and dated CV"]
+              steps: [
+                "Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.",
+                "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>",
+                "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).",
+                "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>",
+                "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.",
+                "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.",
+                "Upload your signed and dated CV"
+              ],
+              reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement."
             }
           }
         ]
@@ -1391,10 +1412,12 @@
             help: {
               title: "Certificate of Good Standing / Registration Status",
               steps: [
-                "Request a current certificate of good standing / registration status from your Irish regulator",
-                "Ensure it is sent in the required format for Ahpra"
+                'Log in to the <a href="https://portal.medicalcouncil.ie/html/login.html?ui_locales=en/1000" target="_blank" rel="noopener noreferrer">Medical Council of Ireland Doctors Portal</a>.',
+                "Request a Certificate of Good Standing / Current Professional Status.",
+                "Select the recipient as Australian Health Practitioner Regulation Agency / Medical Board of Australia.",
+                'Ask MCI to send it directly to AHPRA at <a href="mailto:COGS@ahpra.gov.au">COGS@ahpra.gov.au</a>.'
               ],
-              reminder: "Reminder: this must be sent directly where required."
+              reminder: "Reminder: MCI must send this directly to Ahpra (COGS@ahpra.gov.au), not to you."
             }
           },
           {
@@ -1404,7 +1427,8 @@
             help: {
               title: "Criminal History Check",
               steps: [
-                "Complete your criminal history check through the approved provider"
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>',
+                'Look out for an email from Fit2Work that will include your reference page. The reference page will include a reference number starting with <strong>FIT</strong> followed by 7 digits (e.g. <strong>FIT1234567</strong>). Enter this reference number below before marking as requested.'
               ]
             }
           }
@@ -1449,9 +1473,12 @@
             help: {
               title: "ICGP Confirmation Letter",
               steps: [
-                "Contact ICGP Membership Services",
-                "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway",
-                "If needed, request verification of training through ICGP"
+                'Email the Irish College of General Practitioners — ICGP at <a href="mailto:info@icgp.ie">info@icgp.ie</a>.',
+                "Request an ICGP confirmation letter for the AHPRA expedited specialist pathway.",
+                "Ask ICGP to confirm:<ul><li>you hold MICGP</li><li>you were awarded CSCST</li><li>the date your CSCST was awarded</li><li>your training was completed under an ICGP curriculum from 2009 onwards</li><li>your training was completed through the 4-year GP training programme, Recognition of Prior Learning, or an approved GP training scheme in Ireland</li></ul>",
+                "Include:<ul><li>your full name</li><li>your date of birth</li><li>your ICGP number, if known</li><li>your Medical Council of Ireland registration number</li><li>the date your MICGP / CSCST was awarded, if known</li><li>your AHPRA reference number, if available</li></ul>",
+                "Ask ICGP to provide the letter as a PDF by email.",
+                "Once you receive the PDF, have it certified as a true copy of the original before uploading."
               ],
               certNote: true,
               reminder: "This is the key supporting letter for Irish GPs."
@@ -1462,7 +1489,16 @@
             title: "CV (Signed and dated)",
             help: {
               title: "CV",
-              steps: ["Upload your signed and dated CV"]
+              steps: [
+                "Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.",
+                "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>",
+                "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).",
+                "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>",
+                "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.",
+                "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.",
+                "Upload your signed and dated CV"
+              ],
+              reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement."
             }
           }
         ]
@@ -1477,8 +1513,10 @@
             help: {
               title: "Certificate of Good Standing / Registration Status",
               steps: [
-                "Request your current certificate of good standing / registration status from the relevant New Zealand authority",
-                "Ensure it is provided in a format acceptable for Ahpra"
+                "Log in to <a href=\"https://mymcnz.org.nz/Account/LogOn?ReturnUrl=%2f\" target=\"_blank\" rel=\"noopener noreferrer\">myMCNZ</a>",
+                "Request a Certificate of Professional Status (COPS)",
+                "Select / send it to Australian Health Practitioner Regulation Agency / Medical Board of Australia",
+                "Ask MCNZ to email it directly to AHPRA at <a href=\"mailto:COGS@ahpra.gov.au\">COGS@ahpra.gov.au</a>"
               ]
             }
           },
@@ -1489,7 +1527,8 @@
             help: {
               title: "Criminal History Check",
               steps: [
-                "Complete your criminal history check through the approved provider"
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>',
+                'Look out for an email from Fit2Work that will include your reference page. The reference page will include a reference number starting with <strong>FIT</strong> followed by 7 digits (e.g. <strong>FIT1234567</strong>). Enter this reference number below before marking as requested.'
               ]
             }
           }
@@ -1522,8 +1561,10 @@
             help: {
               title: "RNZCGP Confirmation Letter",
               steps: [
-                "Contact RNZCGP",
-                "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
+                "Email the RNZCGP Fellowship Team at <a href=\"mailto:fellowship@rnzcgp.org.nz\">fellowship@rnzcgp.org.nz</a>",
+                "Ask RNZCGP to issue a letter confirming:<ul><li>you hold Fellowship of the Royal New Zealand College of General Practitioners — FRNZCGP</li><li>the date your FRNZCGP was awarded</li><li>that your FRNZCGP was awarded from 2012 onwards</li><li>that you completed the General Practice Education Programme — GPEP</li><li>that your GPEP was completed under the RNZCGP curriculum</li></ul>",
+                "Ask that they return the letter as a PDF",
+                "Once you receive the PDF, have it certified as a true copy of the original before uploading."
               ],
               certNote: true
             }
@@ -1533,7 +1574,16 @@
             title: "CV (Signed and dated)",
             help: {
               title: "CV",
-              steps: ["Upload your signed and dated CV"]
+              steps: [
+                "Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.",
+                "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>",
+                "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).",
+                "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>",
+                "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.",
+                "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.",
+                "Upload your signed and dated CV"
+              ],
+              reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement."
             }
           }
         ]
@@ -1883,7 +1933,9 @@
           fileName: payload.fileName,
           mimeType: payload.mimeType,
           fileSize: payload.fileSize,
-          fileDataUrl: payload.fileDataUrl
+          fileDataUrl: payload.fileDataUrl,
+          forceReview: !!payload.forceReview,
+          reviewReason: payload.reviewReason || ""
         })
       });
       const data = await response.json().catch(function() { return {}; });
@@ -2076,6 +2128,7 @@
         var helpLink = item.help ? '<button class="show-me-how" type="button" data-help-idx="i' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
         var card = document.createElement("div");
         card.className = "doc-card";
+        card.setAttribute("data-doc-card", item.key);
         var refNumHtml = '';
         if (item.key === 'criminal_history') {
           var savedRef = itemState.referenceNumber || '';
@@ -2137,6 +2190,7 @@
         }
         var card = document.createElement("div");
         card.className = "doc-card";
+        card.setAttribute("data-doc-card", doc.key);
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + rejectionHtml + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
@@ -2189,13 +2243,42 @@
       renderProgress(country, state);
     }
 
+    // When an admin rejects a document, the GP gets an email whose "Re-upload"
+    // button links here with ?reupload=<doc_key>. Open the right tab, scroll the
+    // matching document card into view and pulse it so the GP lands exactly on the
+    // document they need to re-upload — not just the documents page. Runs after a
+    // render; retries on the next render if the card isn't built yet (idempotent).
+    var _reuploadDeepLinkDone = false;
+    function handleReuploadDeepLink() {
+      if (_reuploadDeepLinkDone) return;
+      var key;
+      try { key = new URLSearchParams(window.location.search).get("reupload"); } catch (e) { return; }
+      if (!key || !/^[a-z0-9_]+$/i.test(key)) return;
+      var card = document.querySelector('[data-doc-card="' + key + '"]');
+      if (!card) return; // cards not rendered yet — a later render will retry
+      _reuploadDeepLinkDone = true;
+      var panel = card.closest('[id^="panel-"]');
+      var tab = panel ? panel.id.replace("panel-", "") : "";
+      var switching = tab && tab !== activeDocTab && typeof switchDocTab === "function";
+      if (switching) { try { switchDocTab(tab); } catch (e) {} }
+      setTimeout(function() {
+        try { card.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        catch (e) { try { card.scrollIntoView(); } catch (e2) {} }
+        card.classList.add("doc-card-reupload-highlight");
+        setTimeout(function() { card.classList.remove("doc-card-reupload-highlight"); }, 4200);
+      }, switching ? 380 : 80);
+    }
+
     function bootDocumentModule() {
       const country = getCountry();
       let state = loadDocsState(country);
       renderAll(country, state);
+      try { handleReuploadDeepLink(); } catch (e) {}
+      try { flushPendingDocUploads(); } catch (e) {}
       fetchPreparedDocumentFiles(country).then(function(files) {
         mergePreparedDocumentFiles(state, files);
         renderAll(country, state);
+        try { handleReuploadDeepLink(); } catch (e) {}
       }).catch(function() {});
       // Fetch authoritative GP LINK doc status from server (overrides stale localStorage)
       fetch("/api/gplink-docs-status", { credentials: "same-origin" })
@@ -2321,8 +2404,12 @@
         if (counts[key]) delete counts[key];
       }
 
-      function handleCertFailure(key, state, country, title, msg) {
+      function handleCertFailure(key, state, country, title, msg, storedFile) {
         var fails = incCertFailCount(key);
+        if (fails >= CERT_SUPPORT_THRESHOLD && storedFile && storedFile.fileDataUrl) {
+          submitDocForManualReview(key, state, country, storedFile, title, stripHtmlToText(msg));
+          return;
+        }
         var showSupport = fails >= CERT_SUPPORT_THRESHOLD;
         var extra = showSupport
           ? '<br><span style="color:var(--gp-muted);font-size:12px;">If you still need help after 3 failed attempts, contact support.</span>'
@@ -2333,6 +2420,115 @@
         renderAll(country, state);
         showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
       }
+
+      function stripHtmlToText(html) {
+        if (!html) return '';
+        var tmp = document.createElement('div');
+        tmp.innerHTML = String(html);
+        return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      }
+
+      // Pending manual-review files are cached OUTSIDE the synced docs state.
+      // gp_documents_prep is mirrored to Supabase (js/state-sync.js), so we must NOT
+      // park multi-MB base64 there. Instead keep it in a per-doc localStorage key
+      // (local only, never synced) plus an in-memory fallback for quota failures.
+      var PENDING_DOC_PREFIX = "gp_pending_doc_";
+
+      function storePendingDocFile(key, storedFile) {
+        window.__gpPendingDocFiles = window.__gpPendingDocFiles || {};
+        window.__gpPendingDocFiles[key] = storedFile;
+        try {
+          localStorage.setItem(PENDING_DOC_PREFIX + key, JSON.stringify({
+            fileName: storedFile.fileName,
+            mimeType: storedFile.mimeType,
+            fileSize: storedFile.fileSize,
+            fileDataUrl: storedFile.fileDataUrl,
+            reviewReason: storedFile.reviewReason || ""
+          }));
+        } catch (e) { /* quota — in-memory fallback still covers this session */ }
+      }
+
+      function readPendingDocFile(key) {
+        var mem = window.__gpPendingDocFiles && window.__gpPendingDocFiles[key];
+        if (mem && mem.fileDataUrl) return mem;
+        try {
+          var raw = localStorage.getItem(PENDING_DOC_PREFIX + key);
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          return (parsed && parsed.fileDataUrl) ? parsed : null;
+        } catch (e) { return null; }
+      }
+
+      function clearPendingDocFile(key) {
+        if (window.__gpPendingDocFiles) delete window.__gpPendingDocFiles[key];
+        try { localStorage.removeItem(PENDING_DOC_PREFIX + key); } catch (e) {}
+      }
+
+      function submitDocForManualReview(key, state, country, storedFile, docTitle, reason) {
+        // Keep the file (cached separately), mark Under review, flag it as
+        // still-needs-sending, then upload. No base64 goes into the synced docs state.
+        state.docs[key] = applyStoredFile({
+          uploaded: true,
+          fileName: storedFile.fileName,
+          status: "under_review",
+          manualReview: true,
+          manualReviewReason: reason || "",
+          pendingServerUpload: true,
+          manualReviewSubmittedAt: new Date().toISOString()
+        }, storedFile);
+        storePendingDocFile(key, storedFile);
+        resetCertFailCount(key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + docTitle + "</strong> for manual review. Our team will check it within 24 hours.");
+        sendDocForManualReview(country, key, storedFile, reason);
+      }
+
+      function sendDocForManualReview(country, key, storedFile, reason) {
+        var payload = {
+          fileName: storedFile.fileName,
+          mimeType: storedFile.mimeType,
+          fileSize: storedFile.fileSize,
+          fileDataUrl: storedFile.fileDataUrl,
+          forceReview: true,
+          reviewReason: reason || ""
+        };
+        return savePreparedDocumentFile(country, key, payload).then(function() {
+          clearPendingDocFile(key);
+          if (state.docs[key]) {
+            state.docs[key].pendingServerUpload = false;
+            persistDocsState(state, true);
+          }
+        }).catch(function() {
+          // Stays pendingServerUpload:true with the cached file — retry layer will resend.
+        });
+      }
+
+      function flushPendingDocUploads() {
+        if (!state || !state.docs) return;
+        var pendingCountry = state.country || country;
+        Object.keys(state.docs).forEach(function(key) {
+          var d = state.docs[key];
+          if (!d || !d.pendingServerUpload) return;
+          var cached = readPendingDocFile(key);
+          if (!cached || !cached.fileDataUrl) return;
+          sendDocForManualReview(pendingCountry, key, {
+            fileName: cached.fileName || d.fileName,
+            mimeType: cached.mimeType || d.mimeType || "application/octet-stream",
+            fileSize: cached.fileSize || d.fileSize || 0,
+            fileDataUrl: cached.fileDataUrl
+          }, d.manualReviewReason || cached.reviewReason || "");
+        });
+      }
+      if (!window.__gpDocsOnlineFlushBound) {
+        window.__gpDocsOnlineFlushBound = true;
+        window.addEventListener("online", function() {
+          if (typeof window.__gpFlushPendingDocUploads === "function") {
+            window.__gpFlushPendingDocUploads();
+          }
+        });
+      }
+      window.__gpFlushPendingDocUploads = flushPendingDocUploads;
 
       function buildClassificationFailureMessage(docTitle, data) {
         var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
@@ -2452,7 +2648,7 @@
                   certifyReason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
                 }
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, certifyReason);
+                handleCertFailure(key, state, country, docTitle, certifyReason, storedFile);
               } else {
                 var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
                 if (data.classification && data.classification.identifiedAs) {
@@ -2462,11 +2658,11 @@
                   reason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
                 }
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, reason);
+                handleCertFailure(key, state, country, docTitle, reason, storedFile);
               }
             }).catch(function() {
               state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.", storedFile);
             });
             return;
           }
@@ -2477,7 +2673,7 @@
 
           if (typeof window.gpVerifyCertifiedDocument !== "function") {
             state.docs[key] = { uploaded: false, fileName: file.name };
-            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.");
+            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.", storedFile);
             return;
           }
 
@@ -2516,11 +2712,11 @@
               } else {
                 var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }));
+                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }), storedFile);
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.");
+              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.", storedFile);
             }
           }).catch(function(err) {
             state.docs[key] = { uploaded: false, fileName: file.name };
@@ -2529,7 +2725,8 @@
               state,
               country,
               docTitle,
-              (err && err.message) ? err.message : "Could not connect to verification service. Please try again."
+              (err && err.message) ? err.message : "Could not connect to verification service. Please try again.",
+              storedFile
             );
           });
         }).catch(function() {
@@ -2638,7 +2835,7 @@
                   ? result.verification.issues.join("<br>")
                   : "The document does not appear to be properly certified.";
                 state.docs[scanKey] = { uploaded: false, fileName: result.fileName || "" };
-                handleCertFailure(scanKey, state, country, scanDoc.title, issues);
+                handleCertFailure(scanKey, state, country, scanDoc.title, issues, storedFile);
               }
             });
           }

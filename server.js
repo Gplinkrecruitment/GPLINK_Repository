@@ -7817,7 +7817,160 @@ async function _createRegTask(caseId, data) {
   return task;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Account deletion / reinstatement (soft-delete → reinstate → purge)
+// ─────────────────────────────────────────────────────────────
+const ACCOUNT_ARCHIVE_GRACE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+// Short-lived signed token that authorizes reinstating a specific archived account.
+function createReinstateToken(email, supabaseUserId) {
+  const expiresAt = now() + 15 * 60 * 1000; // 15 minutes
+  const payload = base64UrlEncode(JSON.stringify({
+    reinstate: true,
+    email: String(email || '').trim().toLowerCase(),
+    supabaseUserId: String(supabaseUserId || '').trim(),
+    expiresAt
+  }));
+  return `${payload}.${hmacSign(payload)}`;
+}
+
+function parseReinstateToken(token) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = hmacSign(payload);
+  if (signature.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || parsed.reinstate !== true) return null;
+    if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= now()) return null;
+    return { email: String(parsed.email || ''), supabaseUserId: String(parsed.supabaseUserId || '') };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Look up archive status by user_id (preferred) or email. Returns the profile row or null.
+async function getAccountArchiveStatus(opts) {
+  if (!isSupabaseDbConfigured()) return null;
+  const sel = 'select=user_id,email,first_name,last_name,account_status,archived_at,purge_after';
+  let q;
+  if (opts && opts.userId) q = sel + '&user_id=eq.' + encodeURIComponent(opts.userId) + '&limit=1';
+  else if (opts && opts.email) q = sel + '&email=eq.' + encodeURIComponent(String(opts.email).trim().toLowerCase()) + '&limit=1';
+  else return null;
+  const r = await supabaseDbRequest('user_profiles', q);
+  return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+}
+
+async function resolveCeoUserId() {
+  if (!CEO_EMAIL || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(CEO_EMAIL) + '&limit=1');
+  return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0].user_id : null;
+}
+
+// A doctor "has an active placement" when a gp_applications row is marked hired.
+async function userHasActivePlacement(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return false;
+  const r = await supabaseDbRequest('gp_applications', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+  return r.ok && Array.isArray(r.data) && r.data.length > 0;
+}
+
+async function archiveUserAccount(userId, reason) {
+  const purgeAfter = new Date(now() + ACCOUNT_ARCHIVE_GRACE_MS).toISOString();
+  await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH',
+    body: {
+      account_status: 'archived',
+      archived_at: new Date().toISOString(),
+      purge_after: purgeAfter,
+      archived_reason: reason || 'user_requested',
+      updated_at: new Date().toISOString()
+    }
+  });
+  return purgeAfter;
+}
+
+async function reinstateUserAccount(userId) {
+  await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH',
+    body: {
+      account_status: 'active',
+      archived_at: null,
+      purge_after: null,
+      archived_reason: null,
+      updated_at: new Date().toISOString()
+    }
+  });
+  // Resolve any open "account deleted with active placement" CEO task.
+  try {
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (gpCase) {
+      const taskRes = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+        '&task_type=eq.account_deleted_active_placement&status=in.(open,in_progress,waiting,escalated,deferred,blocked)');
+      if (taskRes.ok && Array.isArray(taskRes.data)) {
+        for (const t of taskRes.data) { await _completeRegTask(t.id, gpCase.id, 'system'); }
+      }
+    }
+  } catch (e) { console.error('[reinstate] task resolve failed:', e && e.message); }
+}
+
+// When an active-placement doctor deletes, raise an urgent CEO task to find out why.
+async function createAccountDeletionCeoTask(userId, email) {
+  try {
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=id,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (!gpCase) return null;
+    const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const prof = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : {};
+    const name = [prof.first_name || '', prof.last_name || ''].join(' ').trim() || email;
+    const practice = gpCase.practice_name ? (' at ' + gpCase.practice_name) : '';
+    const ceoId = await resolveCeoUserId();
+    const data = {
+      task_type: 'account_deleted_active_placement',
+      title: 'Account deleted with active placement — find out why',
+      description: name + ' (' + email + ') deleted their GP Link account while holding an active placement' + practice +
+        '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).',
+      priority: 'urgent',
+      status: 'escalated',
+      escalated_reason: 'GP deleted account while holding an active placement',
+      escalated_at: new Date().toISOString(),
+      related_stage: 'career',
+      _actor: 'system'
+    };
+    if (ceoId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ceoId)) {
+      data.escalated_to = ceoId;
+    }
+    return await _createRegTask(gpCase.id, data);
+  } catch (e) {
+    console.error('[delete] CEO task creation failed:', e && e.message);
+    return null;
+  }
+}
+
+// Hard-delete the Supabase auth user (cascades user_profiles + user_state via FK on delete cascade).
+async function supabaseAuthAdminDeleteUser(userId) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) return false;
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    }
+  });
+  return resp.ok;
+}
+
 function inferStageFromDocKey(docKey) {
+  // Qualification documents the GP uploads/scans during onboarding belong to the
+  // dedicated "onboarding" review stage — not AHPRA (practice pack) or career.
+  if (isQualificationDocKey(docKey)) return 'onboarding';
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
     'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra'
@@ -8890,6 +9043,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const nextDocs = nxt.docs.docs || {};
     for (const key of Object.keys(nextDocs)) {
       if (INSTITUTION_DOCUMENT_KEYS.has(key)) continue;
+      // Qualification documents are captured + reviewed through the onboarding flow
+      // (flagged_doc / doc_review under the "onboarding" stage, with the GP's file
+      // attached and the AI reason recorded). Creating a second generic
+      // "Review uploaded: X" task here duplicated them under the AHPRA stage with no
+      // reason and no openable file — skip them.
+      if (isQualificationDocKey(key)) continue;
       const pv = prevDocs[key] || {};
       const nv = nextDocs[key] || {};
       if (nv.uploaded === true && !pv.uploaded) {
@@ -18903,7 +19062,12 @@ async function pushDocumentNotificationToUser(userId, notification) {
 
 var QUALIFICATION_DOC_KEYS = new Set([
   'primary_medical_degree', 'mrcgp_certified', 'cct_certified', 'mrcgp', 'cct',
-  'micgp', 'cscst', 'frnzcgp', 'certificate_good_standing', 'confirmation_training'
+  'micgp', 'cscst', 'frnzcgp', 'certificate_good_standing', 'confirmation_training',
+  // Onboarding storage-layer keys: the document pipeline (processDocumentUpload)
+  // receives onboarding qualification uploads under these keys, so they must take
+  // the qualification branch — otherwise a flagged onboarding cert would also get
+  // a generic doc_review task (a cross-type duplicate of the flagged_doc task).
+  'onboarding_primary_med_degree', 'onboarding_specialist_qualification'
 ]);
 
 function getDocumentLabelForKey(key) {
@@ -18911,20 +19075,72 @@ function getDocumentLabelForKey(key) {
   var labels = {
     primary_medical_degree: 'Primary Medical Degree',
     mrcgp: 'MRCGP Certificate',
+    mrcgp_certified: 'MRCGP Certificate',
     cct: 'Certificate of Completion of Training',
+    cct_certified: 'Certificate of Completion of Training',
     pmetb: 'PMETB Certificate',
     micgp: 'MICGP Certificate',
+    micgp_certified: 'MICGP Certificate',
     cscst: 'CSCST Certificate',
+    cscst_certified: 'CSCST Certificate',
     frnzcgp: 'FRNZCGP Fellowship Certificate',
+    frnzcgp_certified: 'FRNZCGP Fellowship Certificate',
+    icgp_confirmation_letter: 'ICGP Confirmation Letter',
+    rnzcgp_confirmation_letter: 'RNZCGP Confirmation Letter',
+    certificate_good_standing: 'Certificate of Good Standing',
     certificate_of_good_standing: 'Certificate of Good Standing',
     criminal_history_check: 'Criminal History Check',
     cv_signed_dated: 'CV (Signed and dated)',
     career_cover_letter: 'Cover Letter',
+    confirmation_training: 'Confirmation of Training',
     confirmation_of_training: 'Confirmation of Training',
+    specialist_qualification: 'Specialist Qualification',
     onboarding_specialist_qualification: 'Specialist Qualification',
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
   return labels[normalizedKey] || '';
+}
+
+// ── Onboarding qualification document key helpers ──────────────────────────
+// A single logical qualification document can arrive under several key spellings
+// depending on which capture flow produced it: the onboarding wizard
+// (primary_med_degree / mrcgp_cert / micgp_cert / frnzcgp_cert / cscst_cert), the
+// onboarding storage layer (onboarding_primary_med_degree /
+// onboarding_specialist_qualification), or a "My Documents" / scan upload
+// (primary_medical_degree / mrcgp_certified ...). canonicalQualKey collapses the
+// ONBOARDING-origin variants onto the two canonical keys that BOTH the admin
+// document-preview and review-flagged-doc endpoints understand
+// (primary_medical_degree / specialist_qualification) so each document yields a
+// single review task and its stored file is always resolvable. Non-onboarding
+// keys are returned unchanged so their own user_documents rows still resolve.
+function canonicalQualKey(key) {
+  var k = String(key || '').trim().toLowerCase();
+  var map = {
+    primary_med_degree: 'primary_medical_degree',
+    onboarding_primary_med_degree: 'primary_medical_degree',
+    mrcgp_cert: 'specialist_qualification',
+    micgp_cert: 'specialist_qualification',
+    frnzcgp_cert: 'specialist_qualification',
+    cscst_cert: 'specialist_qualification',
+    onboarding_specialist_qualification: 'specialist_qualification'
+  };
+  return map[k] || key;
+}
+
+// Onboarding-origin qualification key spellings (wizard + storage + canonical).
+var ONBOARDING_QUAL_KEYS = new Set([
+  'primary_med_degree', 'onboarding_primary_med_degree', 'primary_medical_degree',
+  'mrcgp_cert', 'micgp_cert', 'frnzcgp_cert', 'cscst_cert',
+  'onboarding_specialist_qualification', 'specialist_qualification'
+]);
+
+// Recognises any qualification document key across all capture-flow spellings.
+// Used to keep onboarding qualification reviews out of the generic AHPRA
+// "Review uploaded: X" automation, which would otherwise mis-file them under the
+// AHPRA stage with no reason and no openable file.
+function isQualificationDocKey(key) {
+  var k = String(key || '').trim();
+  return QUALIFICATION_DOC_KEYS.has(k) || ONBOARDING_QUAL_KEYS.has(k);
 }
 
 async function extractDocxTextWithMammoth(buffer) {
@@ -19040,9 +19256,10 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
+  var canonKey = canonicalQualKey(documentKey);
   var existingRes = await supabaseDbRequest('registration_tasks',
     'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(canonKey) +
     '&status=in.(open,in_progress,waiting)&limit=1');
   var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
 
@@ -19063,7 +19280,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     return existing;
   }
 
-  var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
   var gpName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || 'GP';
 
@@ -19074,7 +19291,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     status: 'open',
     source_trigger: 'doc_upload',
     related_stage: inferStageFromDocKey(documentKey),
-    related_document_key: documentKey,
+    related_document_key: canonKey,
     ai_match_confidence: confidence,
     ai_match_reasoning: aiResult.reason || '',
     _actor: 'system'
@@ -19087,9 +19304,10 @@ async function createFlaggedDocTask(userId, documentKey, label, reason) {
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
+  var canonKey = canonicalQualKey(documentKey);
   var existingRes = await supabaseDbRequest('registration_tasks',
     'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(canonKey) +
     '&status=in.(open,in_progress,waiting)&limit=1');
   var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
 
@@ -19111,8 +19329,8 @@ async function createFlaggedDocTask(userId, documentKey, label, reason) {
     description: reason,
     priority: 'normal',
     source_trigger: 'prepared_doc_scan',
-    related_stage: 'myintealth',
-    related_document_key: documentKey,
+    related_stage: 'onboarding',
+    related_document_key: canonKey,
     _actor: 'system'
   });
 }
@@ -19122,13 +19340,18 @@ async function autoCloseDocReviewTask(userId, documentKey) {
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return;
 
+  // Match the canonical key tasks were created with, and close BOTH the doc_review
+  // and any open flagged_doc for this document — e.g. a previously-flagged
+  // qualification that now passes verification on re-upload.
+  var canonKey = canonicalQualKey(documentKey);
   var taskRes = await supabaseDbRequest('registration_tasks',
     'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
-    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
-    '&status=in.(open,in_progress,waiting)&limit=1');
-  var task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
-  if (task) {
-    await _completeRegTask(task.id, gpCase.id, 'ai_auto');
+    '&task_type=in.(doc_review,flagged_doc)&related_document_key=eq.' + encodeURIComponent(canonKey) +
+    '&status=in.(open,in_progress,waiting)');
+  if (taskRes.ok && Array.isArray(taskRes.data)) {
+    for (var i = 0; i < taskRes.data.length; i++) {
+      await _completeRegTask(taskRes.data[i].id, gpCase.id, 'ai_auto');
+    }
   }
 }
 
@@ -19176,10 +19399,21 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
           await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
           return; // handled — skip the generic type-only pipeline
         }
-        // approve path: clear any stale flag, then fall through to the existing pipeline
+        // approve path: clear any stale flag.
         await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
           method: 'PATCH', body: { flag_reason: '', updated_at: new Date().toISOString() }
         });
+        // Onboarding qualifications are collected only to name-match the GP and to
+        // store the file for them to download later (at the MyIntealth step). A doc
+        // that PASSED AI verification needs NO manual RSO review task — only flagged
+        // ones do. Close any prior flag and stop before the generic pipeline would
+        // create a "Review uploaded …" doc_review task. (Non-onboarding prepared-doc
+        // uploads fall through to the existing doc_review pipeline so the RSO still
+        // reviews those.)
+        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification') {
+          await autoCloseDocReviewTask(userId, documentKey);
+          return;
+        }
       }
       // if vres not ok (AI error), fall through to the existing generic pipeline
     }
@@ -20328,7 +20562,7 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260510c'
+      build: '20260616-certillus'
     });
     return;
   }
@@ -21836,6 +22070,25 @@ async function handleApi(req, res, pathname) {
       }
 
       const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+
+      // Archived (soft-deleted) account → do not sign in; offer reinstatement instead.
+      if (isSupabaseDbConfigured()) {
+        const archStatus = await getAccountArchiveStatus({ userId: String(loginUser.id || ''), email });
+        if (archStatus && archStatus.account_status === 'archived') {
+          const dispName = [archStatus.first_name || '', archStatus.last_name || ''].join(' ').trim() || email;
+          sendJson(res, 200, {
+            ok: false,
+            archived: true,
+            reinstate: {
+              name: dispName,
+              purgeAfter: archStatus.purge_after,
+              token: createReinstateToken(email, String(loginUser.id || ''))
+            }
+          });
+          return;
+        }
+      }
+
       upsertLocalUserFromSupabaseUser(loginUser);
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
@@ -21894,6 +22147,114 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Account deletion (Apple 5.1.1(v)): soft-archive + optional CEO escalation ──
+  if (pathname === '/api/account/delete' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let dbody;
+    try { dbody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    if (String(dbody.confirm || '').trim().toUpperCase() !== 'DELETE') {
+      sendJson(res, 400, { ok: false, message: 'Please type DELETE to confirm.' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Account deletion is not available right now.' }); return; }
+    const prof = session.userProfile || {};
+    const email = String(prof.email || getSessionEmail(session) || '').trim().toLowerCase();
+    let userId = String(prof.supabaseUserId || '').trim();
+    if (!userId && email) {
+      const ps = await getAccountArchiveStatus({ email });
+      if (ps) userId = ps.user_id;
+    }
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
+    const hasPlacement = await userHasActivePlacement(userId);
+    const purgeAfter = await archiveUserAccount(userId, 'user_requested');
+    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    clearSession(res, req);
+    sendJson(res, 200, { ok: true, purgeAfter, message: 'Your account has been closed. You can reinstate it within 90 days by signing in again.' });
+    return;
+  }
+
+  // ── Reinstate an archived account from the sign-in reinstatement prompt ──
+  if (pathname === '/api/account/reinstate' && req.method === 'POST') {
+    let rbody;
+    try { rbody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const parsed = parseReinstateToken(String(rbody.token || ''));
+    if (!parsed) { sendJson(res, 401, { ok: false, message: 'This reinstatement link has expired. Please sign in again.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Not available right now.' }); return; }
+    const st = await getAccountArchiveStatus({ userId: parsed.supabaseUserId, email: parsed.email });
+    if (!st) { sendJson(res, 404, { ok: false, message: 'Account not found.' }); return; }
+    if (st.account_status === 'archived') { await reinstateUserAccount(st.user_id); }
+    const sessionProfile = getSessionProfileFromSupabaseUser({ id: st.user_id, email: st.email }, st.email);
+    setSession(res, sessionProfile);
+    sendJson(res, 200, { ok: true, redirectTo: '/pages/index.html', message: 'Welcome back — your account has been reinstated.' });
+    return;
+  }
+
+  // ── Admin/CEO: list archived accounts ──
+  if (pathname === '/api/admin/accounts/archived' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, accounts: [] }); return; }
+    const r = await supabaseDbRequest('user_profiles',
+      'select=user_id,email,first_name,last_name,archived_at,purge_after&account_status=eq.archived&order=archived_at.desc');
+    const rows = r.ok && Array.isArray(r.data) ? r.data : [];
+    const accounts = [];
+    for (const row of rows) {
+      accounts.push({
+        userId: row.user_id,
+        email: row.email,
+        name: [row.first_name || '', row.last_name || ''].join(' ').trim() || row.email,
+        archivedAt: row.archived_at,
+        purgeAfter: row.purge_after,
+        hasActivePlacement: await userHasActivePlacement(row.user_id)
+      });
+    }
+    sendJson(res, 200, { ok: true, accounts });
+    return;
+  }
+
+  // ── Admin/CEO: reinstate an archived account immediately ──
+  if (pathname === '/api/admin/accounts/reinstate' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let abody;
+    try { abody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const userId = String(abody.userId || '').trim();
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'userId is required.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Not available right now.' }); return; }
+    await reinstateUserAccount(userId);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Cron: purge archived accounts past their 90-day window.
+  //    Auto-erase is ON by default; set ACCOUNT_PURGE_DISABLED=true to make it a dry-run (log only). ──
+  if (req.method === 'GET' && pathname === '/api/cron/purge-accounts') {
+    const pgToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(pgToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', purged: 0 }); return; }
+    const enabled = String(process.env.ACCOUNT_PURGE_DISABLED || '').trim() !== 'true';
+    const nowIso = new Date().toISOString();
+    const due = await supabaseDbRequest('user_profiles',
+      'select=user_id,email&account_status=eq.archived&purge_after=lt.' + encodeURIComponent(nowIso));
+    const rows = due.ok && Array.isArray(due.data) ? due.data : [];
+    let purged = 0, retained = 0;
+    const candidates = [];
+    for (const row of rows) {
+      if (await userHasActivePlacement(row.user_id)) { retained++; continue; } // legal retention
+      candidates.push(row.email || row.user_id);
+      if (enabled) {
+        try {
+          const ok = await supabaseAuthAdminDeleteUser(row.user_id);
+          if (ok) purged++; else console.error('[purge-accounts] auth delete returned not-ok for', row.user_id);
+        } catch (e) { console.error('[purge-accounts] delete failed for', row.user_id, e && e.message); }
+      }
+    }
+    console.log('[purge-accounts] due=' + rows.length + ' purged=' + purged + ' retained=' + retained + ' dryRun=' + (!enabled) + ' candidates=' + JSON.stringify(candidates));
+    sendJson(res, 200, { ok: true, due: rows.length, purged, retained, dryRun: !enabled });
+    return;
+  }
+
   if (pathname === '/api/auth/supabase-session-login' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'supabase-session-login'))) return;
     let body;
@@ -21948,6 +22309,24 @@ async function handleApi(req, res, pathname) {
       return;
     }
     ensureSupabaseUserProfile(userData).catch(() => {});
+
+    // Archived (soft-deleted) account → do not sign in; offer reinstatement instead.
+    if (isSupabaseDbConfigured()) {
+      const archStatus = await getAccountArchiveStatus({ userId: String(userData.id || ''), email });
+      if (archStatus && archStatus.account_status === 'archived') {
+        const dispName = [archStatus.first_name || '', archStatus.last_name || ''].join(' ').trim() || email;
+        sendJson(res, 200, {
+          ok: false,
+          archived: true,
+          reinstate: {
+            name: dispName,
+            purgeAfter: archStatus.purge_after,
+            token: createReinstateToken(email, String(userData.id || ''))
+          }
+        });
+        return;
+      }
+    }
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
     setSession(res, sessionProfile);
@@ -26100,15 +26479,11 @@ async function handleApi(req, res, pathname) {
                   const flagReason = (docInfo.scanResult && Array.isArray(docInfo.scanResult.issues) && docInfo.scanResult.issues.length > 0)
                     ? docInfo.scanResult.issues.join('; ')
                     : (docInfo.status === 'support_requested' ? 'GP requested manual review support' : 'Max retries exceeded or verification failed');
-                  await _createRegTask(regCase.id, {
-                    task_type: 'flagged_doc',
-                    title: 'Review flagged qualification: ' + docLabel,
-                    description: 'AI flagged this document for manual review. Reason: ' + flagReason,
-                    priority: 'high',
-                    source_trigger: 'qualification_scan',
-                    related_stage: 'myintealth',
-                    _actor: 'system'
-                  });
+                  // Route through createFlaggedDocTask so the task lands under the
+                  // "onboarding" stage, carries a canonical related_document_key (so the
+                  // RSO can open the stored file) and de-duplicates against any task the
+                  // background document pipeline already created for the same document.
+                  await createFlaggedDocTask(userId, docKey, docLabel, 'AI flagged this document for manual review. Reason: ' + flagReason);
                 }
               }
             }
@@ -26928,10 +27303,14 @@ Return ONLY valid JSON with no markdown formatting:
         const cases = Array.isArray(parsedCases) ? parsedCases : [];
         cases.push(ticket);
 
+        // Creating a qualification-help ticket must NOT restrict the account.
+        // Restricted mode ('under_review') is reserved for genuinely flagged
+        // qualifications (set by the onboarding flow when AI verification fails).
+        // A GP asking for help should keep full access while the team assists —
+        // otherwise merely requesting support locks them out of the whole app.
         const nextState = {
           ...existingState,
           gpLinkSupportCases: JSON.stringify(cases),
-          account_status: 'under_review',
           updatedAt: now
         };
         await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
@@ -26943,7 +27322,7 @@ Return ONLY valid JSON with no markdown formatting:
       const cases = Array.isArray(parsedCases) ? parsedCases : [];
       cases.push(ticket);
       userState.gpLinkSupportCases = JSON.stringify(cases);
-      userState.account_status = 'under_review';
+      // Do NOT restrict the account just for requesting qualification help (see note above).
       userState.updatedAt = now;
       dbState.userState[email] = userState;
       saveDbState(dbState);
@@ -28528,7 +28907,43 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Set status to processing
+    var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
+    var forceReview = body && body.forceReview === true;
+    var reviewReason = (body && typeof body.reviewReason === 'string')
+      ? body.reviewReason.trim().slice(0, 500)
+      : '';
+
+    if (forceReview) {
+      // Manual-review path: doctor exhausted AI scan attempts. Route straight to the
+      // RSO doc_review queue WITHOUT AI re-classification (which could auto-reject again).
+      await supabaseDbRequest('user_documents',
+        'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
+        { method: 'PATCH', body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() } });
+
+      try {
+        await createDocReviewTask(userId, payload.key, docLabel, null, {
+          reason: reviewReason || 'Submitted for manual review after 3 failed AI scan attempts',
+          identifiedAs: ''
+        });
+      } catch (taskErr) {
+        console.error('[PreparedDocuments] manual-review task creation error:', taskErr.message);
+      }
+
+      try {
+        await pushDocumentNotificationToUser(userId, {
+          type: 'info',
+          title: docLabel + ' under review',
+          detail: 'We\'re reviewing your document manually. This usually takes less than 24 hours.'
+        });
+      } catch (notifyErr) {
+        console.error('[PreparedDocuments] manual-review notify error:', notifyErr.message);
+      }
+
+      sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
+      return;
+    }
+
+    // Default path: mark processing and run the AI document pipeline.
     await supabaseDbRequest('user_documents',
       'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
       { method: 'PATCH', body: { status: 'processing', updated_at: new Date().toISOString() } });
@@ -28536,7 +28951,6 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, { ok: true, document: { ...saved, status: 'processing' } });
 
     // Background: run document pipeline
-    var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
     processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType).catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
@@ -33713,9 +34127,23 @@ Return ONLY valid JSON with no markdown formatting:
       const pdCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
       const pdUserId = pdCaseRes.ok && Array.isArray(pdCaseRes.data) && pdCaseRes.data[0] ? pdCaseRes.data[0].user_id : null;
       if (pdUserId) {
-        const redirectToSigned = (signedUrl) => {
-          res.writeHead(302, { Location: signedUrl, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
-          res.end();
+        // Stream the bytes through our own origin (inline) rather than 302-redirecting to
+        // the Supabase signed URL — this lets the admin dashboard embed the document in an
+        // in-page modal (<img>/<iframe>) without cross-origin / X-Frame-Options issues.
+        const streamSigned = async (signedUrl) => {
+          const fr = await fetch(signedUrl).catch(() => null);
+          if (!fr || !fr.ok) return false;
+          const ct = fr.headers.get('content-type') || 'application/octet-stream';
+          const ab = await fr.arrayBuffer().catch(() => null);
+          if (!ab) return false;
+          res.writeHead(200, {
+            'Content-Type': ct,
+            'Content-Disposition': 'inline; filename="' + (task.attachment_filename || 'document') + '"',
+            'Cache-Control': 'private, no-store',
+            ...SECURITY_HEADERS
+          });
+          res.end(Buffer.from(ab));
+          return true;
         };
 
         // 1. A user_documents / prepared-doc row matching the key (the GP's own upload).
@@ -33724,7 +34152,7 @@ Return ONLY valid JSON with no markdown formatting:
         const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
         if (pdRow && (pdRow.storage_path || pdRow.file_url)) {
           const pdSigned = await supabaseStorageCreateSignedUrl(pdRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, pdRow.storage_path || pdRow.file_url, '');
-          if (pdSigned) { redirectToSigned(pdSigned); return; }
+          if (pdSigned && await streamSigned(pdSigned)) return;
         }
 
         // 2. The original onboarding upload (stored under a separate key namespace).
@@ -33739,13 +34167,221 @@ Return ONLY valid JSON with no markdown formatting:
           for (const ctry of ['uk', 'ie', 'nz']) {
             const obPath = buildOnboardingDocumentStoragePath(pdUserId, ctry, onboardKey);
             const obSigned = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, obPath, '');
-            if (obSigned) { redirectToSigned(obSigned); return; }
+            if (obSigned && await streamSigned(obSigned)) return;
           }
         }
       }
     }
 
     sendJson(res, 404, { ok: false, message: 'No document is stored for this task. The GP may not have uploaded the file, or it was only scanned and not saved.' });
+    return;
+  }
+
+  // ── Review a flagged qualification document: approve / reject + email the GP ──
+  // Both decisions complete the task. Reject requires a reason (sent to the GP).
+  if (pathname === '/api/admin/va/task/review-flagged-doc' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let rfBody; try { rfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    const rfTaskId = rfBody && rfBody.task_id ? String(rfBody.task_id).trim() : '';
+    const rfDecision = rfBody && rfBody.decision ? String(rfBody.decision).trim().toLowerCase() : '';
+    const rfNote = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 1000) : '';
+    if (!rfTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (rfDecision !== 'approve' && rfDecision !== 'reject') { sendJson(res, 400, { ok: false, message: 'decision must be approve or reject.' }); return; }
+    if (rfDecision === 'reject' && !rfNote) { sendJson(res, 400, { ok: false, message: 'A reason is required when rejecting — the GP will see it.' }); return; }
+
+    const rfTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rfTaskId) + '&limit=1');
+    const rfTask = rfTaskRes.ok && Array.isArray(rfTaskRes.data) && rfTaskRes.data[0] ? rfTaskRes.data[0] : null;
+    if (!rfTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+    const rfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rfTask.case_id || '') + '&limit=1');
+    const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
+    const rfDocLabel = getDocumentLabelForKey(rfTask.related_document_key) || 'document';
+
+    // Reflect the decision on the GP's document placeholder (the "Prepared by Candidate"
+    // grid in the admin Documents tab). That grid reads user_documents by
+    // (user_id, document_key, country_code) with the country UPPERCASED. The GP often has
+    // no row for a flagged qualification because the file was uploaded via onboarding (a
+    // separate key namespace) — so UPSERT a row (a PATCH would no-op). Without this the
+    // slot stays "Pending" forever even after approval.
+    if (rfUserId && rfTask.related_document_key) {
+      // Resolve the country the documents view queries by (registration country; defaults to uk).
+      let rfRawCountry = 'uk';
+      const rfProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+      const rfStRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+      const rfProfRow = rfProfRes.ok && Array.isArray(rfProfRes.data) ? rfProfRes.data[0] : null;
+      const rfStRow = rfStRes.ok && Array.isArray(rfStRes.data) ? rfStRes.data[0] : null;
+      rfRawCountry = (rfProfRow && rfProfRow.registration_country) || (rfStRow && rfStRow.state && rfStRow.state.gp_selected_country) || 'uk';
+      if (typeof rfRawCountry === 'string') { try { const _pc = JSON.parse(rfRawCountry); if (typeof _pc === 'string') rfRawCountry = _pc; } catch (e) {} }
+      const rfCountry = normalizeDocumentCountry(rfRawCountry) || 'uk';
+
+      // Locate the GP's stored file (original onboarding upload) to attach to the record.
+      const ONBOARDING_KEY_FOR_QUAL = {
+        primary_medical_degree: 'onboarding_primary_med_degree',
+        specialist_qualification: 'onboarding_specialist_qualification'
+      };
+      let rfFileUrl = '';
+      const rfObKey = ONBOARDING_KEY_FOR_QUAL[rfTask.related_document_key];
+      if (rfObKey) {
+        for (const ctry of ['uk', 'ie', 'nz']) {
+          const obPath = buildOnboardingDocumentStoragePath(rfUserId, ctry, rfObKey);
+          const obTest = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, obPath, '');
+          if (obTest) { rfFileUrl = obPath; break; }
+        }
+      }
+
+      await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [{
+          user_id: rfUserId,
+          country_code: rfCountry.toUpperCase(),
+          document_key: rfTask.related_document_key,
+          status: rfDecision === 'approve' ? 'approved' : 'rejected',
+          flag_reason: '',
+          rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+          file_name: rfDocLabel,
+          file_url: rfFileUrl,
+          storage_path: rfFileUrl,
+          storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+          updated_at: new Date().toISOString()
+        }]
+      });
+    }
+
+    // Complete the task (both approve and reject close it).
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rfTaskId),
+      { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, updated_at: new Date().toISOString() } });
+
+    // Lift the GP's "under review" restriction once every flagged qualification is
+    // resolved. A flagged qualification puts the account into account_status
+    // 'under_review' (restricted mode — the GP only gets MyIntealth + Account and
+    // sees the "Account Under Review" gate everywhere else). The modal promises
+    // "verify your qualifications and resume full access", but nothing delivered
+    // that — approving the doc never restored access. On APPROVE, if no other
+    // flagged_doc tasks remain open for this case, set the account back to active.
+    if (rfDecision === 'approve' && rfUserId) {
+      try {
+        const remainingFlags = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(rfTask.case_id) +
+          '&task_type=eq.flagged_doc&status=in.(open,in_progress,waiting)&limit=1');
+        const noFlagsLeft = remainingFlags.ok && Array.isArray(remainingFlags.data) && remainingFlags.data.length === 0;
+        if (noFlagsLeft) {
+          const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
+          const curState = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state && typeof stRes.data[0].state === 'object') ? stRes.data[0].state : null;
+          if (curState && curState.account_status === 'under_review') {
+            curState.account_status = 'active';
+            await upsertSupabaseUserState(rfUserId, curState, new Date().toISOString());
+            sendAccountActivatedEmail(rfUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
+            await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change', 'Account restriction lifted — all flagged qualifications verified', 'account_status set to active', adminCtx.email);
+          }
+        }
+      } catch (restoreErr) {
+        console.error('[ReviewFlaggedDoc] account restore error:', restoreErr.message);
+      }
+    }
+
+    // Email the GP.
+    if (rfUserId) {
+      if (rfDecision === 'approve') {
+        await sendGpNotificationEmail(rfUserId,
+          'Document Verified — GP Link',
+          'Your ' + rfDocLabel + ' has been verified, {{name}}',
+          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
+          'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
+      } else {
+        // Deep-link straight to the document's re-upload card in My Documents
+        // (?reupload=<key> opens the right tab, scrolls to and highlights the card).
+        var rfReuploadUrl = APP_BASE_URL + '/pages/my-documents.html'
+          + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
+        await sendGpNotificationEmail(rfUserId,
+          'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
+          'Please re-upload your ' + rfDocLabel + ', {{name}}',
+          'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
+          'Re-upload Document', rfReuploadUrl, '');
+      }
+    }
+
+    // Timeline + outbound message record so the conversation thread reflects it.
+    await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change',
+      rfDecision === 'approve' ? 'Flagged document approved' : 'Flagged document rejected — re-upload requested',
+      (rfNote ? 'Note: ' + rfNote + ' — ' : '') + 'GP emailed.', adminCtx.email);
+    await supabaseDbRequest('task_messages', '', {
+      method: 'POST',
+      body: [{
+        task_id: rfTaskId,
+        case_id: rfTask.case_id,
+        direction: 'outbound',
+        channel: 'email',
+        sender: adminCtx.email,
+        subject: rfDecision === 'approve' ? (rfDocLabel + ' verified') : ('Re-upload requested: ' + rfDocLabel),
+        body_text: rfDecision === 'approve' ? ('Approved.' + (rfNote ? ' Note: ' + rfNote : '')) : ('Rejected. Reason: ' + rfNote),
+        created_at: new Date().toISOString()
+      }]
+    });
+
+    sendJson(res, 200, { ok: true, message: rfDecision === 'approve' ? 'Document approved — GP notified.' : 'Re-upload requested — GP notified.' });
+    return;
+  }
+
+  // ── Preview a GP's prepared/qualification document by case + key (admin) ──
+  // Powers click-to-view on the Documents-tab placeholder cards. Streams the file
+  // inline (same-origin) so it embeds in an in-dashboard popup.
+  if (pathname === '/api/admin/gp-document-preview' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const gdpAdmin = requireAdminSession(req, res);
+    if (!gdpAdmin) return;
+    const gdpCaseId = url.searchParams.get('case_id') || '';
+    const gdpKey = sanitizeUserString(url.searchParams.get('key') || '', 120);
+    if (!gdpCaseId || !gdpKey) { sendJson(res, 400, { ok: false, message: 'case_id and key required.' }); return; }
+
+    const gdpCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(gdpCaseId) + '&limit=1');
+    const gdpUserId = gdpCaseRes.ok && Array.isArray(gdpCaseRes.data) && gdpCaseRes.data[0] ? gdpCaseRes.data[0].user_id : null;
+    if (!gdpUserId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    const gdpStream = async (signedUrl) => {
+      const fr = await fetch(signedUrl).catch(() => null);
+      if (!fr || !fr.ok) return false;
+      const ct = fr.headers.get('content-type') || 'application/octet-stream';
+      const ab = await fr.arrayBuffer().catch(() => null);
+      if (!ab) return false;
+      res.writeHead(200, {
+        'Content-Type': ct,
+        'Content-Disposition': 'inline; filename="' + gdpKey + '"',
+        'Cache-Control': 'private, no-store',
+        ...SECURITY_HEADERS
+      });
+      res.end(Buffer.from(ab));
+      return true;
+    };
+
+    // 1. A user_documents row with a stored file.
+    const gdpRowRes = await supabaseDbRequest('user_documents',
+      'select=*&user_id=eq.' + encodeURIComponent(gdpUserId) + '&document_key=eq.' + encodeURIComponent(gdpKey) + '&limit=1');
+    const gdpRow = gdpRowRes.ok && Array.isArray(gdpRowRes.data) && gdpRowRes.data[0] ? gdpRowRes.data[0] : null;
+    if (gdpRow && (gdpRow.storage_path || gdpRow.file_url)) {
+      const s = await supabaseStorageCreateSignedUrl(gdpRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, gdpRow.storage_path || gdpRow.file_url, '');
+      if (s && await gdpStream(s)) return;
+    }
+
+    // 2. Original onboarding upload (separate key namespace).
+    const GDP_ONBOARDING = {
+      primary_medical_degree: 'onboarding_primary_med_degree',
+      specialist_qualification: 'onboarding_specialist_qualification',
+      onboarding_primary_med_degree: 'onboarding_primary_med_degree',
+      onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+    };
+    const gdpObKey = GDP_ONBOARDING[gdpKey];
+    if (gdpObKey) {
+      for (const ctry of ['uk', 'ie', 'nz']) {
+        const p = buildOnboardingDocumentStoragePath(gdpUserId, ctry, gdpObKey);
+        const s = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, p, '');
+        if (s && await gdpStream(s)) return;
+      }
+    }
+
+    sendJson(res, 404, { ok: false, message: 'No document is stored for this slot yet.' });
     return;
   }
 
@@ -38344,6 +38980,9 @@ module.exports.createServer = createServer;
 module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.__testUtils = {
   applyQualificationNameMatchPolicy,
+  canonicalQualKey,
+  isQualificationDocKey,
+  inferStageFromDocKey,
   buildDomainAgencyBrandSearchQueries,
   buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,
