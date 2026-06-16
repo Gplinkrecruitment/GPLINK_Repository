@@ -1047,6 +1047,100 @@
       .placements-grid { grid-template-columns: 1fr 1fr; }
     }
 
+    /* ═══ GP-DETAIL PARITY (ported from admin.html GP-detail, dark theme) ═══ */
+    /* Token-alias trick: re-declare admin's CSS custom-property NAMES to the CEO dark
+       palette so admin's ported rules resolve dark automatically. (--panel/--text/--blue/
+       --green/--amber/--red/--purple/--radius already exist dark in this page.) */
+    .gp-parity { --line: var(--panel-border); --muted: var(--text-muted); --bg2: var(--bg-elevated); --bg3: rgba(255,255,255,0.06); --shadow: var(--shadow-lg); }
+
+    /* ── Profile Bar (admin 855–865) ── */
+    .gp-parity .profile-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);margin-bottom:8px}
+    .gp-parity .profile-bar .pb-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple));display:grid;place-items:center;color:#fff;font-size:13px;font-weight:800;flex-shrink:0}
+    .gp-parity .profile-bar .pb-info{flex:1;min-width:0}
+    .gp-parity .profile-bar .pb-name{font-size:14px;font-weight:800;letter-spacing:-.01em}
+    .gp-parity .profile-bar .pb-meta{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .gp-parity .pb-practice-link{color:var(--blue);text-decoration:none;font-weight:600;cursor:pointer}
+    .gp-parity .pb-practice-link:hover{text-decoration:underline}
+    .gp-parity .profile-bar .pb-pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .gp-parity .profile-bar .pb-pill{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:800}
+    .gp-parity .pb-expand-toggle{background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:4px}
+    .gp-parity .pb-expand-panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:8px;display:none}
+    .gp-parity .pb-expand-panel.open{display:block}
+
+    /* ── Stage Groups (admin 922–934) ── */
+    .gp-parity .stage-group{margin-bottom:16px}
+    .gp-parity .stage-group-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+    .gp-parity .sg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .gp-parity .sg-dot.active{background:var(--blue)}
+    .gp-parity .sg-dot.locked{background:var(--bg3)}
+    .gp-parity .sg-label{font-size:13px;font-weight:700}
+    .gp-parity .sg-label.active{color:var(--text)}
+    .gp-parity .sg-label.locked{color:var(--muted)}
+    .gp-parity .sg-count{font-size:11px;color:var(--muted);font-weight:500}
+    .gp-parity .sg-lock-badge{font-size:10px;color:var(--muted);background:var(--bg2);padding:2px 8px;border-radius:4px;margin-left:auto}
+    .gp-parity .stage-group.locked .stage-task{opacity:.35;pointer-events:none}
+    .gp-parity .stage-group.locked .stage-task.unlocked-email{opacity:1;pointer-events:auto}
+
+    /* ── Stage Task / Guided Task Card (admin 936–961) ── */
+    .gp-parity .stage-task{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:12px;margin-bottom:6px;transition:border-color .15s}
+    .gp-parity .stage-task:hover{border-color:var(--panel-border-hover)}
+    .gp-parity .stage-task.active-next{border-left:3px solid var(--blue)}
+    .gp-parity .stage-task .st-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+    .gp-parity .stage-task .st-body{flex:1;min-width:0}
+    .gp-parity .stage-task .st-title{font-size:13px;font-weight:700}
+    .gp-parity .stage-task .st-title .urgent-badge{background:var(--red-dim);color:var(--red);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px}
+    .gp-parity .stage-task .st-title .overdue-badge{background:var(--amber-dim);color:var(--amber);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px}
+    .gp-parity .stage-task .st-guide{font-size:11px;color:var(--blue);margin-top:4px;background:var(--blue-dim);display:inline-block;padding:2px 8px;border-radius:4px;font-weight:600}
+    .gp-parity .stage-task .st-doc-info{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px}
+    .gp-parity .stage-task .st-doc-chip{background:var(--bg2);border-radius:4px;padding:2px 8px;color:var(--muted);font-weight:500}
+    .gp-parity .stage-task .st-actions{display:flex;gap:4px;flex-shrink:0;margin-left:8px}
+    .gp-parity .stage-task .st-primary-btn{padding:5px 14px;border-radius:8px;font-size:11px;font-weight:700;background:var(--blue);color:#fff;border:none;cursor:pointer;font-family:inherit}
+    .gp-parity .stage-task .st-primary-btn:hover{background:var(--blue-dim)}
+    .gp-parity .stage-task .st-more-btn{padding:5px 8px;border-radius:8px;font-size:12px;font-weight:700;background:var(--bg3);color:var(--muted);border:none;cursor:pointer;font-family:inherit;position:relative}
+    .gp-parity .stage-task .st-more-btn:hover{background:var(--panel-border-hover)}
+    .gp-parity .stage-task .st-waiting{font-size:11px;color:var(--amber);margin-top:4px;font-weight:600}
+    .gp-parity .stage-task.st-waiting-state{border-left:3px solid var(--amber);background:var(--amber-dim)}
+    .gp-parity .stage-task .st-waiting-pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;background:var(--amber-dim);color:var(--amber);margin-top:4px}
+    .gp-parity .stage-task .st-waiting-days{font-size:10px;color:var(--muted);margin-left:6px;font-weight:500}
+    .gp-parity .stage-task .st-nudge-reminder{display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:6px;font-size:11px;color:var(--red);font-weight:600}
+    .gp-parity .stage-task .st-nudge-reminder .st-nudge-btn{padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;background:var(--purple);color:#fff;border:none;cursor:pointer;font-family:inherit;margin-left:auto;white-space:nowrap}
+    .gp-parity .stage-task .st-nudge-reminder .st-nudge-btn:hover{background:var(--purple-dim)}
+
+    /* ── Email Triage Panel (admin 964–974) ── */
+    .gp-parity .et-panel{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:8px}
+    .gp-parity .et-section{margin-bottom:12px}
+    .gp-parity .et-section-title{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px}
+    .gp-parity .et-email-from{font-size:12px;color:var(--text);font-weight:600}
+    .gp-parity .et-email-body{font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap;max-height:200px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:6px}
+    .gp-parity .et-ctx-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px}
+    .gp-parity .et-ctx-item{padding:6px 8px;background:var(--panel);border-radius:4px}
+    .gp-parity .et-ctx-label{font-size:10px;color:var(--muted);text-transform:uppercase}
+    .gp-parity .et-reply-area{width:100%;min-height:120px;padding:10px;font-family:inherit;font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);resize:vertical}
+    .gp-parity .et-btn-row{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+    .gp-parity .et-note{font-size:10px;color:var(--muted);margin-left:8px}
+
+    /* ── Dropdown Menu (admin 977–981) ── */
+    .gp-parity .st-dropdown{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:4px 0;display:none}
+    .gp-parity .st-dropdown.open{display:block}
+    .gp-parity .st-dropdown-item{display:block;width:100%;text-align:left;padding:7px 12px;border:none;background:none;font-size:12px;font-weight:500;color:var(--text);cursor:pointer;font-family:inherit}
+    .gp-parity .st-dropdown-item:hover{background:var(--bg2)}
+    .gp-parity .st-dropdown-sep{border-top:1px solid var(--line);margin:3px 0}
+
+    /* ── GP Sub-Tabs (admin 984–989) ── */
+    .gp-parity .gp-subtabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin-bottom:12px}
+    .gp-parity .gp-subtab{padding:8px 16px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+    .gp-parity .gp-subtab.active{color:var(--blue);border-bottom-color:var(--blue)}
+    .gp-parity .gp-subtab:hover{color:var(--text)}
+    .gp-parity .gp-subtab .subtab-count{background:var(--bg3);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px}
+    .gp-parity .gp-subtab.active .subtab-count{background:var(--blue);color:#fff}
+
+    /* ── Task Detail accordion (admin 327–328) ── */
+    .gp-parity .gp-task-detail{border-top:1px solid var(--line);background:var(--bg-elevated);border-radius:0 0 10px 10px}
+    .gp-parity .gp-task-detail-inner{padding:2px 0 0}
+
+    /* ── Case stage pill (admin 90) ── */
+    .gp-parity .case-stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+
     /* ═══ SCROLLBAR ═══ */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
