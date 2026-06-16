@@ -1385,11 +1385,16 @@ async function checkZohoContractReupload(zoho, app) {
 }
 
 // ── Gmail integration (Phase 1b) ──
-const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
-  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
 const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
-const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim();
+const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim().toLowerCase();
+// Admin/archive inboxes that must NEVER be watched or turned into Ops Queue tasks.
+// hello@ receives vendor + admin mail (Vercel, Anthropic, Zapier, Zoom…) and silent case-copies;
+// watching it floods the queue with "Unmatched" triage tasks. Excluded regardless of env config.
+const NEVER_PROCESS_EMAILS = new Set([MASTER_ARCHIVE_EMAIL, 'hello@mygplink.com.au'].filter(Boolean));
+const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+  .filter(e => !NEVER_PROCESS_EMAILS.has(e));
 
 function isGmailConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
@@ -2110,21 +2115,24 @@ async function getPlacedGPsForTriage() {
 }
 
 async function processGmailNotification(emailAddress, notifiedHistoryId) {
+  // Normalize — Pub/Sub may deliver mixed-case; watch state + processed records are stored lowercase.
+  emailAddress = String(emailAddress || '').trim().toLowerCase();
+  // hello@ (master archive) inbox monitoring is DISABLED. We still archive VA
+  // correspondence INTO hello@ (silent label copies, written during VA processing
+  // below), but hello@'s own inbound mail is never processed into tasks. This guard
+  // runs FIRST and is env-independent (NEVER_PROCESS_EMAILS), so even if hello@ is
+  // mistakenly listed in MONITORED_VA_EMAILS or registered as a VA account, it is
+  // never triaged. The renew-gmail-watch cron also no longer renews hello@'s watch,
+  // so notifications stop once the current watch expires.
+  if (NEVER_PROCESS_EMAILS.has(emailAddress)) {
+    console.log('[Gmail] hello@/archive inbox monitoring disabled; ignoring notification for', emailAddress);
+    return;
+  }
   var isRegisteredVA = MONITORED_VA_EMAILS.includes(emailAddress);
   if (!isRegisteredVA) {
     var vaAccountRes = await supabaseDbRequest('va_gmail_accounts',
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
-  }
-  // hello@ (master archive) inbox monitoring is DISABLED for now. We still archive VA
-  // correspondence INTO hello@ (silent label copies, written during VA processing
-  // below), but hello@'s own inbound mail is never processed into tasks. Ignoring it
-  // here is the safety net; the renew-gmail-watch cron also no longer renews hello@'s
-  // watch, so notifications stop once the current watch expires.
-  var isArchiveInbox = (emailAddress === MASTER_ARCHIVE_EMAIL);
-  if (isArchiveInbox) {
-    console.log('[Gmail] hello@ inbox monitoring disabled; ignoring notification for', emailAddress);
-    return;
   }
   if (!isRegisteredVA) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
@@ -2257,16 +2265,6 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         id: currentMsgId,
         format: 'full'
       });
-
-      // hello@: only process genuine inbound mail (INBOX). Silent archive copies
-      // are inserted label-only (no INBOX), so skip them to avoid duplicate tasks.
-      if (isArchiveInbox) {
-        var _msgLabels = (fullMsg.data && Array.isArray(fullMsg.data.labelIds)) ? fullMsg.data.labelIds : [];
-        if (_msgLabels.indexOf('INBOX') === -1) {
-          console.log('[Gmail] hello@ — skipping non-INBOX message (archive copy):', currentMsgId);
-          continue;
-        }
-      }
 
       // Extract email metadata
       var emailMeta = extractEmailMeta(fullMsg.data);
@@ -3221,6 +3219,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 }
 
 async function setupGmailWatch(userEmail) {
+  // Hard backstop: never register a watch on admin/archive inboxes (hello@). Watching
+  // floods the Ops Queue with vendor/admin mail; archiving copies INTO hello@ needs no watch.
+  if (NEVER_PROCESS_EMAILS.has(String(userEmail || '').trim().toLowerCase())) {
+    console.log('[Gmail] Refusing to watch never-process inbox:', userEmail);
+    return { ok: false, skipped: true, reason: 'inbox monitoring disabled', error: 'monitoring disabled for ' + userEmail };
+  }
   if (!GOOGLE_PUBSUB_TOPIC) {
     console.error('[Gmail] GOOGLE_PUBSUB_TOPIC not configured');
     return { ok: false, error: 'GOOGLE_PUBSUB_TOPIC env var is not set' };
@@ -20848,8 +20852,8 @@ async function handleApi(req, res, pathname) {
       var dynVaRes = await supabaseDbRequest('va_gmail_accounts', 'select=email_address&watch_active=eq.true');
       var dynVas = dynVaRes.ok && Array.isArray(dynVaRes.data) ? dynVaRes.data : [];
       for (var dvi = 0; dvi < dynVas.length; dvi++) {
-        var dvAddr = dynVas[dvi].email_address;
-        if (MONITORED_VA_EMAILS.includes(dvAddr)) continue;
+        var dvAddr = String(dynVas[dvi].email_address || '').trim().toLowerCase();
+        if (MONITORED_VA_EMAILS.includes(dvAddr) || NEVER_PROCESS_EMAILS.has(dvAddr)) continue;
         var dvResult = await setupGmailWatch(dvAddr);
         cronResults.push({ email: dvAddr, success: !!(dvResult && dvResult.ok), expiry: dvResult && dvResult.ok ? dvResult.expiry : null, error: dvResult && !dvResult.ok ? dvResult.error : null });
       }
