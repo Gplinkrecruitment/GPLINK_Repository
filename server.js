@@ -192,7 +192,7 @@ const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
-const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-20250514').trim() || 'claude-opus-4-20250514';
+const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -763,7 +763,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+          body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: 200, temperature: 0, messages: [{ role: 'user', content: prompt }] })
         });
         clearTimeout(timeout);
         var aiData = await aiRes.json();
@@ -838,7 +838,7 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
         var opusRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: ctrl2.signal,
           headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-opus-4-20250514', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
+          body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: deepPrompt }] })
         });
         clearTimeout(to2);
         var opusData = await opusRes.json();
@@ -1053,7 +1053,7 @@ async function scanContractSignatures(buffer, mimeType, filename) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-6',
         max_tokens: 500,
         temperature: 0,
         messages: [{ role: 'user', content: contentBlocks }]
@@ -1116,7 +1116,7 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-6',
         max_tokens: 500,
         messages: [{ role: 'user', content: contentBlocks }]
       })
@@ -1787,7 +1787,7 @@ async function extractAhpraActionItems(emailMeta) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-6',
         max_tokens: 1000,
         temperature: 0,
         system: 'Extract action items from AHPRA officer emails. Return JSON only.',
@@ -1892,7 +1892,7 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-6',
         max_tokens: 300,
         temperature: 0,
         messages: [{ role: 'user', content: prompt }]
@@ -5540,7 +5540,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-6',
         max_tokens: 4,
         messages: [{
           role: 'user',
@@ -31495,7 +31495,7 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-opus-4-20250514',
+            model: 'claude-opus-4-6',
             max_tokens: 1000,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]
