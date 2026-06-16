@@ -837,6 +837,22 @@
       color: var(--text-muted);
       font-weight: 500;
     }
+    /* Honest error / recovery state — replaces an otherwise-eternal spinner. */
+    .page-error {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 60vh;
+      gap: 12px;
+      text-align: center;
+      padding: 0 24px;
+    }
+    .page-error .pe-icon { font-size: 30px; line-height: 1; }
+    .page-error .pe-title { font-size: 15px; font-weight: 700; color: var(--text); }
+    .page-error .pe-msg { font-size: 13px; color: var(--text-muted); max-width: 460px; line-height: 1.55; }
+    .page-error .pe-actions { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+    .page-error .pe-actions .btn { padding: 8px 16px; font-size: 12px; }
 
     /* ═══ RSO OVERSIGHT ═══ */
     .rso-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
@@ -1386,6 +1402,68 @@
         return false;
       });
     }
+
+    /* ── Load failure / recovery (no eternal spinner) + service-worker self-heal ── */
+    function gpClearCachesAndReload() {
+      // Force-evict a stale service worker + caches, then reload once. Self-healing
+      // for the "stuck on an old cached page after a deploy" case.
+      var done = function() {
+        try { sessionStorage.setItem('gp_ceo_forced_fresh', '1'); } catch (e) {}
+        window.location.reload();
+      };
+      try {
+        var jobs = [];
+        if (window.caches && caches.keys) {
+          jobs.push(caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).catch(function() {}));
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          jobs.push(navigator.serviceWorker.getRegistrations().then(function(regs) {
+            return Promise.all(regs.map(function(r) { return r.unregister(); }));
+          }).catch(function() {}));
+        }
+        Promise.all(jobs).then(done, done);
+        setTimeout(done, 1500); // hard fallback so the button always recovers
+      } catch (e) { done(); }
+    }
+
+    function renderLoadError(message) {
+      var c = document.getElementById('mainContent');
+      if (!c) return;
+      c.innerHTML =
+        '<div class="page-error">' +
+          '<div class="pe-icon">&#x26A0;&#xFE0F;</div>' +
+          '<div class="pe-title">Dashboard didn’t load</div>' +
+          '<div class="pe-msg">' + esc(message || 'Something went wrong while loading the dashboard.') +
+            ' This can happen right after an update when your browser is holding an old copy of the page.</div>' +
+          '<div class="pe-actions">' +
+            '<button class="btn btn-blue" onclick="ceoRetryLoad()">Try again</button>' +
+            '<button class="btn" onclick="gpClearCachesAndReload()">Force refresh (clear cache)</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function ceoRetryLoad() {
+      var c = document.getElementById('mainContent');
+      if (c) c.innerHTML =
+        '<div class="page-loading"><div class="spinner"></div>' +
+        '<div class="loading-text">Loading dashboard…</div></div>';
+      refreshDashboard();
+      refreshTrends();
+    }
+
+    // Proactively pull a newer service worker (no reload) so the next navigation
+    // serves the fresh page. Harmless if there is no SW or no update available.
+    (function gpRefreshServiceWorker() {
+      try {
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+          navigator.serviceWorker.getRegistration().then(function(reg) {
+            if (reg && reg.update) { try { reg.update(); } catch (e) {} }
+          }).catch(function() {});
+        }
+      } catch (e) {}
+    })();
 
     /* ── Toast ── */
     function showToast(msg, type) {
@@ -2141,11 +2219,18 @@
       return apiFetch('/api/ceo/dashboard' + periodParam).then(function(d) {
         if (d.ok) {
           renderDashboard(d);
+        } else if (!dashboardData) {
+          // Initial load failed — show an honest error instead of an eternal spinner.
+          renderLoadError('The dashboard couldn’t be loaded' + (d.message ? ' (' + d.message + ')' : '') + '.');
         } else {
           showToast('Dashboard refresh failed: ' + (d.message || ''), 'error');
         }
       }).catch(function(err) {
-        showToast('Network error: ' + err.message, 'error');
+        if (!dashboardData) {
+          renderLoadError('We couldn’t reach the server (' + (err && err.message ? err.message : 'network error') + ').');
+        } else {
+          showToast('Network error: ' + (err && err.message ? err.message : 'unknown'), 'error');
+        }
       });
     }
 
@@ -4983,17 +5068,36 @@
 
     /* ═══ INIT ═══ */
     (function init() {
+      // Watchdog: if the dashboard still hasn't rendered after 12s, replace the
+      // spinner with an honest error + recovery actions (never hang forever).
+      var loadWatchdog = setTimeout(function() {
+        if (!dashboardData && document.getElementById('pageLoading')) {
+          renderLoadError('The dashboard is taking longer than expected to load.');
+        }
+      }, 12000);
+      function startLoops() {
+        clearTimeout(loadWatchdog);
+        startRefreshLoop();
+        refreshLabelTimerId = setInterval(updateRefreshLabel, 1000);
+      }
       checkAuth().then(function(ok) {
-        if (!ok) return;
-        // Load dashboard + trends in parallel
+        if (!ok) {
+          // Not authorised. Non-embedded already redirects to sign-in inside
+          // checkAuth; embedded can't redirect, so surface why instead of spinning.
+          clearTimeout(loadWatchdog);
+          if (isEmbedded) renderLoadError('Your admin session has expired. Please sign in again.');
+          return;
+        }
+        // Load dashboard + trends in parallel. loadRsoRoster is guarded so a roster
+        // hiccup can never block the loop from starting.
         Promise.all([
           refreshDashboard(),
           refreshTrends(),
-          loadRsoRoster()
-        ]).then(function() {
-          startRefreshLoop();
-          refreshLabelTimerId = setInterval(updateRefreshLabel, 1000);
-        });
+          Promise.resolve(loadRsoRoster()).catch(function() {})
+        ]).then(startLoops, startLoops);
+      }).catch(function() {
+        clearTimeout(loadWatchdog);
+        if (isEmbedded) renderLoadError('Couldn’t verify your session.');
       });
     })();
   </script>
