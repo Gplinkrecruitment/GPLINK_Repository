@@ -2899,6 +2899,43 @@
       return '<button type="button" class="st-schedule-call-btn" onclick="event.stopPropagation();scheduleCallFromTask(\'' + esc(t.id) + '\',\'' + esc(t.case_id) + '\',\'' + esc(stage) + '\')" title="Send this GP a Zoom booking link with a message that a call would best guide them through the ' + esc(label) + ' stage">📞 Schedule call?</button>';
     }
 
+    // Minimal URL guards for the ••• dropdown's WhatsApp link (ports admin safeUrl/isDtUrl,
+    // 1520–1532): only allow http(s)/whatsapp protocols, and only treat doubletick.io links
+    // as WhatsApp conversation URLs. esc() the result for safe HTML-attribute interpolation.
+    function ceoSafeUrl(u) {
+      if (!u || typeof u !== 'string') return '#';
+      var raw = u.trim();
+      if (!raw || /[ -]/.test(raw)) return '#';
+      var m = /^([a-z][a-z0-9+.-]*):/i.exec(raw);
+      var proto = m ? m[1].toLowerCase() : '';
+      if (['https', 'http', 'whatsapp'].indexOf(proto) === -1) return '#';
+      return esc(raw);
+    }
+    function ceoIsDtUrl(u) {
+      if (!u || typeof u !== 'string') return false;
+      try { var h = new URL(u).hostname; return h === 'doubletick.io' || h.endsWith('.doubletick.io'); }
+      catch (e) { return false; }
+    }
+
+    // Schedule-call control (port of admin scheduleCallFromTask): send the GP a Calendly/Zoom
+    // booking link for this task's stage via the unchanged POST /api/admin/calls/schedule
+    // {case_id,stage}, then mark the task waiting_on_gp via PUT /api/admin/task. Refresh the
+    // open GP file on success. No live send happens during build — only on a runtime click.
+    function scheduleCallFromTask(taskId, caseId, stage) {
+      if (!caseId || !stage) { showToast('Cannot schedule: missing case or stage', 'error'); return; }
+      apiFetch('/api/admin/calls/schedule', {
+        method: 'POST',
+        body: { case_id: caseId, stage: stage }
+      }).then(function(d) {
+        if (!d || !d.ok) { showToast('Failed: ' + ((d && d.message) || 'Schedule failed'), 'error'); return; }
+        showToast('Calendly invite sent', 'success');
+        return apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+          method: 'PUT',
+          body: { status: 'waiting_on_gp' }
+        }).then(function() { refreshGpDetailTasks(); });
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+    }
+
     // Render the cached tasks[] for the open GP file as an RSO-parity layout (admin.html
     // renderGpTasksPane 2678–2847, dark theme): registration-stage groups with active/locked
     // dot + current/upcoming badge, then per task a .stage-task row with urgent/overdue
@@ -3013,8 +3050,30 @@
           html += scheduleCallButtonHtml(t, gpEmail);
           html += '<div style="position:relative;display:inline-block">';
           html += '<button class="st-more-btn" data-more-menu="' + esc(t.id) + '">•••</button>';
-          // Dropdown contents + control wiring are added in Task 3d.4.
-          html += '<div class="st-dropdown" id="dropdown-' + esc(t.id) + '"></div>';
+          // ••• dropdown (port of admin renderGpTasksPane 2692–2713). Toggle + outside-close
+          // and the per-item wiring are handled by the GP-detail delegated click handler.
+          html += '<div class="st-dropdown" id="dropdown-' + esc(t.id) + '">';
+          if (t.status === 'escalated') {
+            html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO — awaiting decision</div>';
+          } else {
+            html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
+            html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
+            html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
+            html += '<div class="st-dropdown-sep"></div>';
+            if (gpEmail) {
+              html += '<a class="st-dropdown-item" href="mailto:' + esc(gpEmail) + '" target="_blank">✉ Email GP</a>';
+            }
+            // WhatsApp only when a valid DoubleTick conversation link is present on the task
+            // (gpDetailCache carries no GP-level link, so it is omitted otherwise — porting rule 2).
+            var dtUrl = t.doubletick_conversation_url || '';
+            if (ceoIsDtUrl(dtUrl)) {
+              html += '<a class="st-dropdown-item" href="' + ceoSafeUrl(dtUrl) + '" target="_blank">💬 WhatsApp</a>';
+            }
+            html += '<button class="st-dropdown-item" data-case-nudge="' + esc(cs.user_id || '') + '" data-nudge-name="' + esc(cs.gp_name || '') + '">💌 Send Nudge</button>';
+            html += '<div class="st-dropdown-sep"></div>';
+            html += '<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="' + esc(t.id) + '">🚨 Escalate to CEO</button>';
+          }
+          html += '</div>';
           html += '</div>';
           html += '</div>'; // .st-actions
           html += '</div>'; // .st-top
@@ -3173,7 +3232,7 @@
         body: { status: status }
       }).then(function(d) {
         if (d && d.ok) {
-          var labels = { completed: 'completed', in_progress: 'started', waiting: 'set to waiting' };
+          var labels = { completed: 'completed', in_progress: 'started', waiting: 'set to waiting', waiting_on_external: 'set to waiting on external', waiting_on_gp: 'set to waiting on GP', waiting_on_practice: 'set to waiting on practice' };
           showToast('Task ' + (labels[status] || 'updated'), 'success');
           refreshGpDetailTasks();
         } else {
@@ -3725,8 +3784,110 @@
       });
     }
 
-    // Sub-tab click delegation for the GP file (+ Tasks show-all toggle + Documents actions).
+    // Sub-tab click delegation for the GP file (+ Tasks show-all toggle + Documents actions
+    // + the per-task ••• menu and its controls — port of admin renderGpTasksPane wiring).
     document.addEventListener('click', function(e) {
+      // ── Per-task ••• dropdown (admin parity) ────────────────────────────────
+      // Close any open dropdown when the click is outside both a dropdown and a ••• button.
+      if (!e.target.closest('.st-dropdown') && !e.target.closest('[data-more-menu]')) {
+        var openDds = document.querySelectorAll('.st-dropdown.open');
+        for (var oi = 0; oi < openDds.length; oi++) openDds[oi].classList.remove('open');
+      }
+      // ••• toggle: open this task's dropdown, closing any other open one.
+      var moreBtn = e.target.closest('[data-more-menu]');
+      if (moreBtn) {
+        e.stopPropagation();
+        var ddId = 'dropdown-' + moreBtn.getAttribute('data-more-menu');
+        var dd = document.getElementById(ddId);
+        if (dd) {
+          var others = document.querySelectorAll('.st-dropdown.open');
+          for (var di = 0; di < others.length; di++) { if (others[di] !== dd) others[di].classList.remove('open'); }
+          dd.classList.toggle('open');
+        }
+        return;
+      }
+      // Dropdown / guided-action items. Each closes the menu first, then dispatches.
+      function closeAllDropdowns() {
+        var dds = document.querySelectorAll('.st-dropdown.open');
+        for (var k = 0; k < dds.length; k++) dds[k].classList.remove('open');
+      }
+      function findCeoTask(id) {
+        var list = (gpDetailCache && gpDetailCache.tasks) || [];
+        for (var k = 0; k < list.length; k++) { if (list[k] && list[k].id === id) return list[k]; }
+        return null;
+      }
+      // ✓ Mark Complete — email_triage routes to the resolve flow (Task 3d.5) when available,
+      // mirroring admin's data-complete-task handler; otherwise mark the task completed.
+      var completeBtn = e.target.closest('[data-complete-task]');
+      if (completeBtn) {
+        var ctId = completeBtn.getAttribute('data-complete-task');
+        var ctTask = findCeoTask(ctId);
+        closeAllDropdowns();
+        if (ctTask && ctTask.task_type === 'email_triage' && typeof ceoResolveEmailTask === 'function') {
+          ceoResolveEmailTask(e, ctId);
+        } else {
+          ceoGpTaskAction(e, ctId, 'completed');
+        }
+        return;
+      }
+      // ▶ Start / In Progress
+      var startBtn = e.target.closest('[data-start-task]');
+      if (startBtn) { closeAllDropdowns(); ceoGpTaskAction(e, startBtn.getAttribute('data-start-task'), 'in_progress'); return; }
+      // ⏳ Waiting on External (data-waiting carries the exact status)
+      var waitBtn = e.target.closest('[data-set-waiting]');
+      if (waitBtn) { closeAllDropdowns(); ceoGpTaskAction(e, waitBtn.getAttribute('data-set-waiting'), waitBtn.getAttribute('data-waiting') || 'waiting_on_external'); return; }
+      // 💌 Send Nudge — reuse the existing CEO nudge modal (user id + GP name).
+      var nudgeItem = e.target.closest('[data-case-nudge]');
+      if (nudgeItem) { closeAllDropdowns(); openNudgeModal(nudgeItem.getAttribute('data-case-nudge') || '', nudgeItem.getAttribute('data-nudge-name') || ''); return; }
+      // 🚨 Escalate to CEO — reuse the existing CEO escalate handler.
+      var escBtn = e.target.closest('[data-escalate-ceo]');
+      if (escBtn) { closeAllDropdowns(); ceoGpTaskEscalate(e, escBtn.getAttribute('data-escalate-ceo')); return; }
+      // Primary guided-action button (port of admin's data-guided-action dispatch). Maps the
+      // getGuidedAction action to the reusable CEO handler; doc-review/SPPA/practice actions
+      // whose dedicated views land in Tasks 3d.5/3d.6 are dispatched via typeof guards and
+      // otherwise direct the reviewer to the Documents tab rather than fabricating behaviour.
+      var guidedBtn = e.target.closest('[data-guided-action]');
+      if (guidedBtn) {
+        var gAction = guidedBtn.getAttribute('data-guided-action');
+        var gTaskId = guidedBtn.getAttribute('data-task-id');
+        var gTask = findCeoTask(gTaskId);
+        if (gAction === 'completeTask') { ceoGpTaskAction(e, gTaskId, 'completed'); return; }
+        if (gAction === 'resolveEmail') {
+          if (typeof ceoResolveEmailTask === 'function') ceoResolveEmailTask(e, gTaskId);
+          else ceoGpTaskAction(e, gTaskId, 'completed');
+          return;
+        }
+        if (gAction === 'openWhatsApp') {
+          var waUrl = gTask ? (gTask.doubletick_conversation_url || gTask.whatsapp_link || '') : '';
+          if (ceoIsDtUrl(waUrl)) window.open(waUrl, '_blank', 'noopener');
+          else showToast('No WhatsApp conversation link for this GP', 'error');
+          return;
+        }
+        if (gAction === 'reviewFlaggedDoc' || gAction === 'previewDoc' || gAction === 'editPD') {
+          if (typeof ceoOpenTaskDetail === 'function') ceoOpenTaskDetail(gTaskId);
+          else showToast('Open the Documents tab to review this document', 'info');
+          return;
+        }
+        if (gAction === 'sendSppa') {
+          if (typeof ceoSendSppa === 'function') ceoSendSppa(gTaskId);
+          else showToast('Open the Documents tab to send the SPPA-00', 'info');
+          return;
+        }
+        if (gAction === 'checkSppaStatus') {
+          if (typeof ceoCheckSppaStatus === 'function') ceoCheckSppaStatus(gTaskId);
+          else showToast('Open the Documents tab to check Zoho Sign status', 'info');
+          return;
+        }
+        if (gAction === 'emailPractice') {
+          if (typeof ceoEmailPractice === 'function') ceoEmailPractice(gTaskId, guidedBtn.getAttribute('data-doc-key') || '');
+          else showToast('Open the Documents tab to email the practice', 'info');
+          return;
+        }
+        // Unknown action: fall back to marking the task complete.
+        ceoGpTaskAction(e, gTaskId, 'completed');
+        return;
+      }
+      // ── End ••• dropdown wiring ──────────────────────────────────────────────
       var toggleBtn = e.target.closest('#gpTasksToggle');
       if (toggleBtn) { gpTasksShowAll = !gpTasksShowAll; renderGpTasksTab(); return; }
       var docActionBtn = e.target.closest('[data-ceo-doc-action]');
