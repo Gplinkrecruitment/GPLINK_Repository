@@ -299,7 +299,8 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
         name: r.name || '',
         email: r.email || '',
         phone: r.phone || '',
-        active: (r.active === undefined || r.active === null) ? true : !!r.active
+        active: (r.active === undefined || r.active === null) ? true : !!r.active,
+        calendly_event_url: r.calendly_event_url || ''
       };
     })
     .filter(function (r) {
@@ -315,7 +316,7 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
 // in which case we transparently use the seed array.
 async function loadRsoTeam(opts) {
   try {
-    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active&order=name.asc', { method: 'GET' });
+    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
     var rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
     return mergeRsoRoster(rows, RSO_TEAM, opts);
   } catch (e) {
@@ -499,10 +500,13 @@ function generateCorrelationToken() {
   return require('crypto').randomBytes(16).toString('hex');
 }
 
-function buildCalendlyBookingUrl(correlationToken) {
-  if (!CALENDLY_EVENT_URL) return '';
-  const sep = CALENDLY_EVENT_URL.includes('?') ? '&' : '?';
-  return CALENDLY_EVENT_URL + sep + 'utm_source=gplink&utm_medium=registration_call&utm_content=call_' + correlationToken;
+// baseUrl: optional per-RSO Calendly event link so the assigned RSO hosts the meeting.
+// Falls back to the global CALENDLY_EVENT_URL when blank (e.g. before RSO links are set).
+function buildCalendlyBookingUrl(correlationToken, baseUrl) {
+  const base = String(baseUrl || '').trim() || CALENDLY_EVENT_URL;
+  if (!base) return '';
+  const sep = base.includes('?') ? '&' : '?';
+  return base + sep + 'utm_source=gplink&utm_medium=registration_call&utm_content=call_' + correlationToken;
 }
 
 function buildScheduledCallInsertPayload(input = {}) {
@@ -513,6 +517,7 @@ function buildScheduledCallInsertPayload(input = {}) {
     stage: input.stage,
     status: 'invited',
     admin_notes: input.adminNotes || null,
+    meeting_reason: input.meetingReason || null,
     correlation_token: input.correlationToken,
     calendly_booking_url: input.bookingUrl,
     calendly_event_type_uri: input.calendlyEventTypeUri || null,
@@ -13062,13 +13067,18 @@ async function handleCalendlyWebhook(req, res) {
     return;
   }
 
-  // Filter by event type URI if configured
+  // Filter by event type URI if configured — but always let through bookings that carry our
+  // correlation token (utm_content=call_<token>). Each RSO's Managed Event copy has a different
+  // event-type URI, and bookings are matched back to a call by token, so token-carrying bookings
+  // must be processed regardless of which RSO's event type was used.
   if (CALENDLY_EVENT_TYPE_URI) {
     const eventTypeUri = payload.payload && (
       (payload.payload.event_type && payload.payload.event_type.uri) ||
       payload.payload.event_type
     );
-    if (eventTypeUri && eventTypeUri !== CALENDLY_EVENT_TYPE_URI) {
+    const utmContent = String((payload.payload && payload.payload.tracking && payload.payload.tracking.utm_content) || '');
+    const carriesOurToken = /^call_[0-9a-f]{32}$/i.test(utmContent);
+    if (eventTypeUri && eventTypeUri !== CALENDLY_EVENT_TYPE_URI && !carriesOurToken) {
       console.log('[calendly-webhook] Ignoring event type:', eventTypeUri);
       sendJson(res, 200, { ok: true, ignored: true });
       return;
@@ -20035,13 +20045,23 @@ function isEmailConfigured() {
   return !!(process.env.RESEND_API_KEY);
 }
 
-async function sendEmail({ to, subject, html, text }) {
+// from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
+// replyTo: optional address (or array) replies should go to. Both default to the GP Link sender.
+async function sendEmail({ to, subject, html, text, from, replyTo }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
-  const fromName = process.env.RESEND_FROM_NAME || 'GP Link';
+  const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
+  const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
+    const emailPayload = {
+      from: fromName + ' <' + fromEmail + '>',
+      to: Array.isArray(to) ? to : [to],
+      subject: subject,
+      html: html || '',
+      text: text || ''
+    };
+    if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -20049,13 +20069,7 @@ async function sendEmail({ to, subject, html, text }) {
         'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        from: fromName + ' <' + fromEmail + '>',
-        to: Array.isArray(to) ? to : [to],
-        subject: subject,
-        html: html || '',
-        text: text || ''
-      })
+      body: JSON.stringify(emailPayload)
     });
     const resBody = await res.text().catch(() => '');
     if (!res.ok) {
@@ -20071,11 +20085,19 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
-function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl) {
+function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, reason) {
+  const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const reasonBlock = (reason && String(reason).trim())
+    ? '<div style="background:#f1f5f9;border-left:4px solid #2D8CFF;padding:12px 16px;margin:16px 0;border-radius:6px">'
+      + '<div style="font-size:12px;font-weight:700;color:#2D8CFF;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Why we\'d like to meet</div>'
+      + '<div style="color:#334155;font-size:14px;line-height:1.6">' + escHtml(String(reason).trim()).replace(/\n/g, '<br>') + '</div>'
+      + '</div>'
+    : '';
   return '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">'
     + '<h2 style="color:#0f172a;font-size:20px">Zoom Assistance Call</h2>'
     + '<p style="color:#334155;font-size:14px;line-height:1.6">Hi ' + gpFirstName + ',</p>'
     + '<p style="color:#334155;font-size:14px;line-height:1.6">Your GP Link team thinks a short Zoom call would be the best way to guide you through your <strong>' + stageDisplay + '</strong> stage.</p>'
+    + reasonBlock
     + '<p style="color:#334155;font-size:14px;line-height:1.6">Please pick a time that works for you:</p>'
     + '<div style="text-align:center;margin:24px 0">'
     + '<a href="' + bookingUrl + '" style="display:inline-block;padding:12px 28px;background:#2D8CFF;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px">Book Your Time Slot</a>'
@@ -25752,6 +25774,7 @@ async function handleApi(req, res, pathname) {
     let userId = String(body && body.user_id || '').trim();
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
+    const meetingReason = String(body && body.meeting_reason || '').trim().slice(0, 1000);
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
     const scheduleRsoRoster = await loadRsoTeam({ includeInactive: true });
     const assignedRso = assignedRsoEmail ? scheduleRsoRoster.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
@@ -25793,9 +25816,10 @@ async function handleApi(req, res, pathname) {
     const gpEmail = String(profile.email || '').trim();
     const gpPhone = String(profile.phone_number || profile.phone || '').trim();
 
-    // Generate correlation token and booking URL
+    // Generate correlation token and booking URL (routed to the assigned RSO's Calendly link
+    // when set, so the RSO hosts the meeting; falls back to the global event otherwise).
     const correlationToken = generateCorrelationToken();
-    const bookingUrl = buildCalendlyBookingUrl(correlationToken);
+    const bookingUrl = buildCalendlyBookingUrl(correlationToken, assignedRso && assignedRso.calendly_event_url);
     const nowIso = new Date().toISOString();
     const notifyWhatsapp = body && body.notify_whatsapp !== false;
     const notifyEmail = body && body.notify_email !== false;
@@ -25808,6 +25832,7 @@ async function handleApi(req, res, pathname) {
         userId,
         stage,
         adminNotes,
+        meetingReason,
         correlationToken,
         bookingUrl,
         calendlyEventTypeUri: CALENDLY_EVENT_TYPE_URI,
@@ -25883,13 +25908,24 @@ async function handleApi(req, res, pathname) {
       waResult = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, stage, bookingUrl);
     }
     if (notifyEmail && gpEmail) {
-      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
-      emailResult = await sendEmail({
+      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, meetingReason);
+      // Send the invite "from" the assigned RSO. We can only set the From address when the RSO
+      // uses a @mygplink.com.au address (verified Resend domain); otherwise we keep the GP Link
+      // From and set Reply-To so replies still reach the RSO (e.g. an RSO on a Gmail address).
+      const rsoEmailOpts = {};
+      if (assignedRso && assignedRso.email) {
+        const rsoAddr = String(assignedRso.email).trim();
+        if (/@mygplink\.com\.au$/i.test(rsoAddr)) {
+          rsoEmailOpts.from = { email: rsoAddr, name: (assignedRso.name || 'GP Link') + ' (GP Link)' };
+        }
+        rsoEmailOpts.replyTo = rsoAddr;
+      }
+      emailResult = await sendEmail(Object.assign({
         to: gpEmail,
         subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage — GP Link",
         html: emailHtml,
-        text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
-      });
+        text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage.' + (meetingReason ? ' Reason: ' + meetingReason + '.' : '') + ' Please book a time: ' + bookingUrl
+      }, rsoEmailOpts));
     }
 
     // Update scheduled_calls with notification results
@@ -26010,10 +26046,10 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    // Cancel (from invited or booked)
+    // Cancel (from invited, booked, or no_show — admins can close out a missed call)
     if (requestedAction === 'cancel' || requestedAction === 'cancelled') {
-      if (!['invited', 'booked'].includes(call.status)) {
-        sendJson(res, 409, { ok: false, message: 'Can only cancel calls with status invited or booked.' });
+      if (!['invited', 'booked', 'no_show'].includes(call.status)) {
+        sendJson(res, 409, { ok: false, message: 'Can only cancel calls with status invited, booked, or no-show.' });
         return;
       }
       patch.status = 'cancelled';

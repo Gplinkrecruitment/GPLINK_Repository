@@ -91,6 +91,7 @@ describe('scheduled-calls helpers', () => {
         stage: 'ahpra',
         status: 'invited',
         admin_notes: 'Needs help with portal',
+        meeting_reason: null,
         correlation_token: 'abc123',
         calendly_booking_url: 'https://calendly.example/gp?utm_content=call_abc123',
         calendly_event_type_uri: 'https://api.calendly.com/event_types/event-1',
@@ -103,6 +104,21 @@ describe('scheduled-calls helpers', () => {
       expect(payload).not.toHaveProperty('booking_url');
       expect(payload).not.toHaveProperty('scheduled_by');
       expect(payload).not.toHaveProperty('task_id');
+    });
+
+    it('stores the GP-visible meeting reason when provided, separate from internal admin notes', () => {
+      const { buildScheduledCallInsertPayload } = require('../server-test-helpers.js');
+      const payload = buildScheduledCallInsertPayload({
+        caseId: 'case-2',
+        userId: 'user-2',
+        stage: 'amc',
+        adminNotes: 'internal: chase missing passport scan',
+        meetingReason: 'We want to walk you through your AMC documents.',
+        correlationToken: 'def456',
+        bookingUrl: 'https://calendly.example/hazel?utm_content=call_def456'
+      });
+      expect(payload.meeting_reason).toBe('We want to walk you through your AMC documents.');
+      expect(payload.admin_notes).toBe('internal: chase missing passport scan');
     });
 
     it('builds notification patch with JSONB channel state and message id columns', () => {

@@ -31,6 +31,7 @@ function buildScheduledCallInsertPayload(input = {}) {
     stage: input.stage,
     status: 'invited',
     admin_notes: input.adminNotes || null,
+    meeting_reason: input.meetingReason || null,
     correlation_token: input.correlationToken,
     calendly_booking_url: input.bookingUrl,
     calendly_event_type_uri: input.calendlyEventTypeUri || null,

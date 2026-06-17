@@ -9085,6 +9085,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       + '<div style="font-size:11px;color:var(--muted)">' + esc(caseData.email || '') + (caseData.phone ? ' \u00b7 ' + esc(caseData.phone) : '') + '</div></div>';
     stageSelect.value = caseData.stage || 'myintealth';
     notesField.value = '';
+    var reasonField = document.getElementById('zoomMeetingReason');
+    if (reasonField) reasonField.value = '';
     rsoSelect.innerHTML = '<option value="">Unassigned</option>';
     // Fetch RSO list for dropdown
     fetch('/api/admin/rsos', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
@@ -9125,6 +9127,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           case_id: _zoomScheduleCase.case_id,
           user_id: _zoomScheduleCase.user_id,
           stage: document.getElementById('zoomStageSelect').value,
+          meeting_reason: document.getElementById('zoomMeetingReason').value.trim(),
           admin_notes: document.getElementById('zoomAdminNotes').value.trim(),
           assigned_rso_email: document.getElementById('zoomAssignedRso').value,
           notify_whatsapp: document.getElementById('zoomNotifyWhatsapp').checked,
@@ -9427,7 +9430,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Call History Sub-Tab (Task 15) ────────────────────────────
   function renderGpCallHistoryPane(c) {
     var caseId = c.id;
-    var html = '<div id="call-history-pane-' + esc(caseId) + '"><div style="color:var(--muted);font-size:13px;padding:8px 0">Loading call history...</div></div>';
+    var firstName = String(c.first_name || '').replace(/'/g, "\\'");
+    var lastName = String(c.last_name || '').replace(/'/g, "\\'");
+    var html = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">'
+      + '<button class="btn sm" style="font-size:11px;background:#2D8CFF;color:#fff;border-color:#2D8CFF" '
+      + 'onclick="openZoomScheduleModal({'
+      + 'case_id:\'' + esc(caseId) + '\','
+      + 'user_id:\'' + esc(c.user_id || '') + '\','
+      + 'stage:\'' + esc(c.stage || '') + '\','
+      + 'first_name:\'' + esc(firstName) + '\','
+      + 'last_name:\'' + esc(lastName) + '\','
+      + 'email:\'' + esc(c.email || '') + '\','
+      + 'phone:\'' + esc(c.phone || '') + '\'})">+ Send meeting invite</button>'
+      + '</div>';
+    html += '<div id="call-history-pane-' + esc(caseId) + '"><div style="color:var(--muted);font-size:13px;padding:8px 0">Loading call history...</div></div>';
     setTimeout(function() { loadCallHistoryPane(caseId); }, 0);
     return html;
   }
@@ -9458,8 +9474,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if (call.assigned_rso_name) {
           html += '<div class="call-history-notes" style="font-size:11px;color:var(--muted);padding:2px 0"><strong>RSO:</strong> ' + esc(call.assigned_rso_name) + '</div>';
         }
+        if (call.meeting_reason) {
+          html += '<div class="call-history-notes" style="border-left:3px solid #2D8CFF;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2D8CFF">Reason (GP sees this):</strong> ' + esc(call.meeting_reason) + '</div>';
+        }
         if (call.admin_notes) {
-          html += '<div class="call-history-notes">' + esc(call.admin_notes) + '</div>';
+          html += '<div class="call-history-notes"><strong style="font-size:11px;color:var(--muted)">Internal note:</strong> ' + esc(call.admin_notes) + '</div>';
         }
         if (call.invitee_notes) {
           html += '<div class="call-history-notes" style="border-left:3px solid #2563eb;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2563eb">GP\'s Booking Notes:</strong> ' + esc(call.invitee_notes) + '</div>';
@@ -9556,6 +9575,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <option value="amc">AMC</option>
           <option value="ahpra">AHPRA</option>
         </select>
+      </div>
+      <div class="zoom-form-group">
+        <label class="zoom-form-label">Reason for the meeting <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#2563eb">(the GP will see this)</span></label>
+        <textarea class="zoom-form-textarea" id="zoomMeetingReason" placeholder="e.g. We'd like to walk you through your AMC documents and answer any questions before you submit."></textarea>
       </div>
       <div class="zoom-form-group">
         <label class="zoom-form-label">Internal Notes <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#b45309">(admin only &mdash; GP won't see this)</span></label>
