@@ -7873,13 +7873,18 @@ async function supabaseAuthAdminDeleteUser(userId) {
 }
 
 function inferStageFromDocKey(docKey) {
-  // Qualification documents the GP uploads/scans during onboarding belong to the
-  // dedicated "onboarding" review stage — not AHPRA (practice pack) or career.
-  if (isQualificationDocKey(docKey)) return 'onboarding';
+  // The review stage for a qualification certificate depends on WHERE it was
+  // uploaded (the onboarding wizard vs the later "prepare my documents" page),
+  // which the upload entry point passes explicitly as `reviewStage` into
+  // createDocReviewTask / createFlaggedDocTask. This key-only inference is just the
+  // fallback when no explicit stage is supplied: a qualification cert that reaches
+  // here defaults to the AHPRA review stage (NOT onboarding — only genuine
+  // onboarding uploads carry the "onboarding" stage, set explicitly).
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
     'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra'
   };
+  if (isQualificationDocKey(docKey)) return 'ahpra';
   return docToStage[docKey] || 'career';
 }
 
@@ -19164,7 +19169,7 @@ async function uploadDocumentToDrive(userId, docRow, fileBuffer, mimeType) {
   }
 }
 
-async function createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult) {
+async function createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult, reviewStage) {
   var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
@@ -19203,7 +19208,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     priority: 'normal',
     status: 'open',
     source_trigger: 'doc_upload',
-    related_stage: inferStageFromDocKey(documentKey),
+    related_stage: reviewStage || inferStageFromDocKey(documentKey),
     related_document_key: canonKey,
     ai_match_confidence: confidence,
     ai_match_reasoning: aiResult.reason || '',
@@ -19212,7 +19217,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
 }
 
 // Create (or reopen) a normal-priority manual-review task for a flagged qualification doc.
-async function createFlaggedDocTask(userId, documentKey, label, reason) {
+async function createFlaggedDocTask(userId, documentKey, label, reason, reviewStage) {
   var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
@@ -19242,7 +19247,11 @@ async function createFlaggedDocTask(userId, documentKey, label, reason) {
     description: reason,
     priority: 'normal',
     source_trigger: 'prepared_doc_scan',
-    related_stage: 'onboarding',
+    // Flagged qualifications default to the onboarding review stage (the onboarding
+    // completion flow relies on this), but the document pipeline passes an explicit
+    // reviewStage so a cert uploaded on the "prepare my documents" page is filed
+    // under its own stage (AHPRA) rather than onboarding.
+    related_stage: reviewStage || 'onboarding',
     related_document_key: canonKey,
     _actor: 'system'
   });
@@ -19268,7 +19277,7 @@ async function autoCloseDocReviewTask(userId, documentKey) {
   }
 }
 
-async function processDocumentUpload(userId, documentKey, expectedLabel, countryCode, mimeType) {
+async function processDocumentUpload(userId, documentKey, expectedLabel, countryCode, mimeType, reviewStage) {
   if (!isSupabaseDbConfigured() || !userId || !documentKey) return;
 
   try {
@@ -19308,7 +19317,7 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
             method: 'PATCH',
             body: { status: 'under_review', flag_reason: outcome.reasonKind, rejection_reason: reason, updated_at: new Date().toISOString() }
           });
-          await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason);
+          await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason, reviewStage);
           await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
           return; // handled — skip the generic type-only pipeline
         }
@@ -19364,7 +19373,7 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         method: 'PATCH',
         body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() }
       });
-      await createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult);
+      await createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult, reviewStage);
       await pushDocumentNotificationToUser(userId, {
         type: 'info',
         title: (expectedLabel || documentKey) + ' under review',
@@ -28905,7 +28914,7 @@ Return ONLY valid JSON with no markdown formatting:
         await createDocReviewTask(userId, payload.key, docLabel, null, {
           reason: reviewReason || 'Submitted for manual review after 3 failed AI scan attempts',
           identifiedAs: ''
-        });
+        }, isQualificationDocKey(payload.key) ? 'ahpra' : undefined);
       } catch (taskErr) {
         console.error('[PreparedDocuments] manual-review task creation error:', taskErr.message);
       }
@@ -28931,8 +28940,12 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, { ok: true, document: { ...saved, status: 'processing' } });
 
-    // Background: run document pipeline
-    processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType).catch(function (err) {
+    // Background: run document pipeline. This is the "prepare my documents" page —
+    // NOT onboarding — so a qualification cert that needs review is filed under the
+    // AHPRA stage, not the onboarding stage. Non-qualification prepared docs keep
+    // their own inferred stage.
+    var preparedReviewStage = isQualificationDocKey(payload.key) ? 'ahpra' : undefined;
+    processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType, preparedReviewStage).catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
     return;
@@ -28995,9 +29008,10 @@ Return ONLY valid JSON with no markdown formatting:
       }
     });
 
-    // Background: run document pipeline
+    // Background: run document pipeline. These are genuine onboarding-wizard
+    // uploads, so any review/flag task is filed under the "onboarding" stage.
     var onboardDocLabel = getDocumentLabelForKey(payload.key) || payload.key;
-    processDocumentUpload(userId, payload.key, onboardDocLabel, payload.country, payload.mimeType).catch(function (err) {
+    processDocumentUpload(userId, payload.key, onboardDocLabel, payload.country, payload.mimeType, 'onboarding').catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
     return;

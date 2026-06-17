@@ -67,12 +67,20 @@ describe('isQualificationDocKey', () => {
 });
 
 describe('inferStageFromDocKey', () => {
-  it('routes every onboarding qualification document to the onboarding stage', () => {
+  // The onboarding-vs-prepared decision is made by the UPLOAD ENTRY POINT, which
+  // passes an explicit reviewStage into createDocReviewTask / createFlaggedDocTask:
+  // genuine onboarding-wizard uploads pass 'onboarding', the "prepare my documents"
+  // page passes 'ahpra'. inferStageFromDocKey is only the key-only FALLBACK used
+  // when no explicit stage is supplied — a qualification cert defaults to the AHPRA
+  // review stage there, NEVER onboarding (only the onboarding upload path can stamp
+  // a task "onboarding"). This is what stops a cert uploaded on the prepare-docs page
+  // from being mislabelled "Onboarding".
+  it('falls back qualification documents to the ahpra stage (onboarding is set explicitly by the upload origin)', () => {
     for (const k of [
       'primary_med_degree', 'onboarding_primary_med_degree', 'primary_medical_degree',
       'onboarding_specialist_qualification', 'specialist_qualification', 'mrcgp_certified', 'cct'
     ]) {
-      expect(inferStageFromDocKey(k)).toBe('onboarding');
+      expect(inferStageFromDocKey(k)).toBe('ahpra');
     }
   });
 
