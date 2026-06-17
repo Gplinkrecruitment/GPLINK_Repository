@@ -3200,9 +3200,10 @@
             html += '<button class="st-primary-btn" data-guided-action="' + esc(guided.action) + '" data-task-id="' + esc(t.id) + '"' + (guided.dk ? ' data-doc-key="' + esc(guided.dk) + '"' : '') + '>' + esc(guided.label) + '</button>';
           } else if (guided.action) {
             // Admin's deep doc/SPPA composer for this action isn't ported to the CEO page yet
-            // (live-email composers / PDF editor — Phase 3e gap). Show an honest read-only note
-            // rather than a button that does nothing.
-            html += '<span style="font-size:10px;color:var(--text-dim);font-style:italic;align-self:center;white-space:nowrap">Handled from RSO tools</span>';
+            // (live-email composers / PDF editor — Phase 3e gap). Instead of a dead grey label,
+            // send the user to the Documents tab, where the document is viewable and the
+            // Approve / Request-revision / Upload actions ARE wired.
+            html += '<button class="st-more-btn" onclick="event.stopPropagation();renderGpDetailTab(\'documents\')" title="Open the Documents tab to action this" style="white-space:nowrap">In Documents &rarr;</button>';
           }
           // "Schedule call?" for GP-originated assistance tasks (whatsapp_help / email_triage).
           html += scheduleCallButtonHtml(t, gpEmail);
@@ -4387,6 +4388,7 @@
         html += '<div class="ceo-gp-call">';
         html += '<div class="ceo-gp-call-head">';
         html += callStatusPill(c.status);
+        if (c.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[c.stage] || c.stage) + '</span>';
         html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
         if (c.zoom_join_url) {
           html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
@@ -4394,6 +4396,9 @@
         html += '</div>';
         if (c.assigned_rso_name) {
           html += '<div class="ceo-gp-call-rso">RSO: ' + esc(c.assigned_rso_name) + '</div>';
+        }
+        if (c.invitee_notes) {
+          html += '<div class="ceo-gp-call-notes"><span style="color:var(--text-muted);font-weight:600">GP&rsquo;s booking notes:</span> ' + esc(c.invitee_notes) + '</div>';
         }
         if (c.admin_notes) {
           html += '<div class="ceo-gp-call-notes">' + esc(c.admin_notes) + '</div>';
@@ -4739,7 +4744,7 @@
         for (var i = 0; i < tasks.length; i++) {
           var t = tasks[i];
           var gp = t.gp_name || 'Unknown GP';
-          if (!groups[gp]) { groups[gp] = { name: gp, gp_user_id: t.gp_user_id || null, items: [] }; order.push(gp); }
+          if (!groups[gp]) { groups[gp] = { name: gp, gp_user_id: t.gp_user_id || null, case_id: t.case_id || null, items: [] }; order.push(gp); }
           groups[gp].items.push(t);
         }
 
@@ -4751,7 +4756,7 @@
           html += '<span class="ceo-ops-group-caret">&#x25BC;</span>';
           html += '<span class="ceo-ops-group-name">' + esc(grp.name) + '</span>';
           html += '<span class="ceo-ops-group-count">' + grp.items.length + ' task' + (grp.items.length === 1 ? '' : 's') + '</span>';
-          if (grp.gp_user_id) html += '<button class="btn" onclick="ceoOpsOpenGp(event, \'' + esc(grp.gp_user_id) + '\')">Open GP</button>';
+          if (grp.case_id) html += '<button class="btn" onclick="ceoOpsOpenGp(event, \'' + esc(grp.case_id) + '\', \'' + esc(rsoId) + '\')">Open GP</button>';
           html += '</div>';
           html += '<div class="ceo-ops-group-body">';
           for (var ti = 0; ti < grp.items.length; ti++) {
@@ -4769,6 +4774,11 @@
             html += '<div class="ceo-ops-actions">';
             if ((task.task_type || '').indexOf('email') >= 0 && task.gmail_thread_id) {
               html += '<button class="btn btn-blue" onclick="ceoOpsViewEmail(event, \'' + esc(task.gmail_thread_id) + '\')">View email</button>';
+            }
+            // Doc-review tasks get a real "Review Document" action (preview + approve/reject),
+            // not just a blind "Mark done" — matches the admin ops queue.
+            if (task.task_type === 'flagged_doc' || isQualDocReviewTask(task)) {
+              html += '<button class="btn btn-blue" onclick="event.stopPropagation();ceoReviewFlaggedDoc(\'' + esc(task.id) + '\')">Review Document</button>';
             }
             html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
             html += '</div>';
@@ -4823,9 +4833,11 @@
         if (!calls.length) { board.innerHTML = head + '<div class="ceo-calls-empty">No scheduled calls for this RSO.</div>'; return; }
 
         // Group: Upcoming (booked/invited with a future scheduled_at), Awaiting booking
-        // (invited with no scheduled time), Completed (status completed).
+        // (invited with no scheduled time), Completed (status completed), and a catch-all
+        // "Past & other" for everything else (cancelled, no-show, past-booked, etc.) so
+        // EVERY counted call is shown — the header count must never disagree with the body.
         var now = Date.now();
-        var groups = { upcoming: [], awaiting: [], completed: [] };
+        var groups = { upcoming: [], awaiting: [], completed: [], other: [] };
         for (var i = 0; i < calls.length; i++) {
           var call = calls[i];
           var st = (call.status || '').toLowerCase();
@@ -4837,13 +4849,16 @@
             groups.awaiting.push(call);
           } else if (st === 'completed') {
             groups.completed.push(call);
+          } else {
+            groups.other.push(call);
           }
         }
 
         var sections = [
           { key: 'upcoming', title: 'Upcoming', items: groups.upcoming },
           { key: 'awaiting', title: 'Awaiting booking', items: groups.awaiting },
-          { key: 'completed', title: 'Completed', items: groups.completed }
+          { key: 'completed', title: 'Completed', items: groups.completed },
+          { key: 'other', title: 'Past &amp; other', items: groups.other }
         ];
 
         var html = head;
@@ -5064,10 +5079,13 @@
       });
     }
 
-    // Open GP detail — placeholder until Phase 3 wires the full GP drill-in.
-    function ceoOpsOpenGp(ev, gpUserId) {
+    // Open this GP's full file (defaults to the Tasks sub-tab, where every task has its
+    // full guided actions + Review Document flow + detail panels).
+    function ceoOpsOpenGp(ev, caseId, rsoId) {
       if (ev) ev.stopPropagation();
-      showToast('GP detail view arrives in a later phase.', 'info');
+      if (!caseId) { showToast('No case linked to this GP.', 'error'); return; }
+      gpDetailTab = 'tasks';
+      openGpDetail(caseId, rsoId);
     }
 
     /* ═══ INIT ═══ */
