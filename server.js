@@ -20465,7 +20465,7 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260617-ceo-parity1'
+      build: '20260617-ceo-docs'
     });
     return;
   }

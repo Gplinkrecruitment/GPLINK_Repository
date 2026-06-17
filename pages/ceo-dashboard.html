@@ -1022,6 +1022,33 @@
     /* Documents sub-tab */
     .ceo-gp-drive-link { font-size: 11px; color: var(--accent, #4a9eff); text-decoration: none; }
     .ceo-gp-drive-link:hover { text-decoration: underline; }
+    /* Documents sub-tab — admin-parity categorized view (checklist + thumbnail card grids) */
+    .ceo-doc-section { margin-top: 18px; }
+    .ceo-doc-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .ceo-doc-section-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .ceo-doc-section-count { font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--bg-elevated); border: 1px solid var(--panel-border); border-radius: 10px; padding: 1px 8px; margin-left: auto; }
+    .ceo-doc-checklist { display: flex; flex-direction: column; gap: 6px; }
+    .ceo-doc-check-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; }
+    .ceo-doc-check { width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%; border: 1.5px solid var(--panel-border-hover); color: transparent; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; }
+    .ceo-doc-check.checked { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+    .ceo-doc-check-label { flex: 1; font-size: 12.5px; color: var(--text); display: flex; align-items: center; }
+    .ceo-doc-refno { margin-left: 8px; font-size: 10px; font-weight: 600; color: var(--text-muted); background: var(--bg-elevated); border: 1px solid var(--panel-border); padding: 1px 6px; border-radius: 4px; }
+    .ceo-doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .ceo-doc-card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+    .ceo-doc-card.is-clickable { cursor: pointer; transition: border-color .15s, transform .15s; }
+    .ceo-doc-card.is-clickable:hover { border-color: var(--blue); transform: translateY(-1px); }
+    .ceo-doc-thumb { width: 100%; height: 96px; object-fit: cover; background: var(--bg-elevated); display: flex; align-items: center; justify-content: center; font-size: 30px; border-bottom: 1px solid var(--panel-border); }
+    .ceo-doc-thumb-icon { color: var(--text-dim); }
+    .ceo-doc-card-info { padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+    .ceo-doc-card-label { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ceo-doc-card-meta { font-size: 10px; color: var(--text-muted); }
+    .ceo-doc-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .ceo-doc-card-actions .btn { padding: 4px 10px; font-size: 10px; }
+    .ceo-doc-status { align-self: flex-start; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 5px; }
+    .ceo-doc-status.s-pending, .ceo-doc-status.s-not_requested, .ceo-doc-status.s-requested { background: var(--bg-elevated); color: var(--text-muted); }
+    .ceo-doc-status.s-approved, .ceo-doc-status.s-accepted, .ceo-doc-status.s-completed, .ceo-doc-status.s-ready_for_gp, .ceo-doc-status.s-received { background: var(--green-dim); color: var(--green); }
+    .ceo-doc-status.s-uploaded, .ceo-doc-status.s-under_review, .ceo-doc-status.s-awaiting_practice, .ceo-doc-status.s-awaiting_gp { background: var(--amber-dim); color: var(--amber); }
+    .ceo-doc-status.s-rejected, .ceo-doc-status.s-action_required, .ceo-doc-status.s-needs_correction { background: var(--red-dim); color: var(--red); }
     .ceo-gp-doc-section { margin-top: 14px; }
     .ceo-gp-doc-section:first-of-type { margin-top: 8px; }
     .ceo-gp-doc-section-head { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
@@ -4151,53 +4178,186 @@
       return { upload: canUpload, approve: hasAttachment, requestRevision: autoReceived };
     }
 
-    // Render the four document categories for the open GP file (read-only). Each doc
-    // shows its label, a status pill, the file name, and a View link when a URL is
-    // present (opens in a new tab). Upload/approve are deferred to Phase 3b.
-    function renderGpDocumentsPane(sections, driveFolder) {
+    // Attribute-safe escape (CEO esc() doesn't escape quotes; attribute values need it).
+    function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+    // Document status label + small helpers (port of admin.html docStatusLabel/driveFileIcon/
+    // formatFileSize/gpDocThumbError) so the CEO Documents tab matches the RSO/admin view.
+    function docStatusLabel(status) {
+      var map = { pending: 'Pending', requested: 'Requested', uploaded: 'Uploaded', under_review: 'Under Review', approved: 'Approved', accepted: 'Accepted', rejected: 'Rejected', action_required: 'Action Required', not_requested: 'Not Requested', awaiting_practice: 'Awaiting Practice', awaiting_gp: 'Awaiting GP', received: 'Received', needs_correction: 'Needs Correction', ready_for_gp: 'Ready', completed: 'Completed' };
+      return map[status] || status || 'Pending';
+    }
+    function driveFileIcon(mime) {
+      if (!mime) return '📄';
+      if (mime.indexOf('pdf') > -1) return '📄';
+      if (mime.indexOf('image') > -1) return '🖼️';
+      if (mime.indexOf('spreadsheet') > -1 || mime.indexOf('excel') > -1 || mime.indexOf('csv') > -1) return '📊';
+      if (mime.indexOf('document') > -1 || mime.indexOf('word') > -1) return '📃';
+      return '📄';
+    }
+    function formatFileSize(bytes) {
+      if (!bytes || bytes <= 0) return '';
+      if (bytes < 1024) return bytes + 'B';
+      if (bytes < 1048576) return Math.round(bytes / 1024) + 'KB';
+      return (bytes / 1048576).toFixed(1) + 'MB';
+    }
+    // Thumbnail load failed (e.g. PDF has no inline image) → swap to a file icon.
+    function gpDocThumbError(img) {
+      if (!img || !img.parentNode) return;
+      var d = document.createElement('div');
+      d.className = 'ceo-doc-thumb ceo-doc-thumb-icon';
+      d.textContent = '📄';
+      img.parentNode.replaceChild(d, img);
+    }
+
+    // In-app document viewer (blob → modal), reusing the CEO modal. Used by clickable
+    // candidate-document cards (data-doc-view-url).
+    var _ceoDocViewerObjUrl = null;
+    function ceoOpenDocViewer(fetchUrl, title) {
+      if (!fetchUrl) return;
+      var html = '<div class="modal-title">' + esc(title || 'Document') + '</div>';
+      html += '<div id="ceoDocViewerBox" style="min-height:140px;max-height:62vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>';
+      openModal(html);
+      if (_ceoDocViewerObjUrl) { URL.revokeObjectURL(_ceoDocViewerObjUrl); _ceoDocViewerObjUrl = null; }
+      fetch(fetchUrl, { credentials: 'same-origin' }).then(function(resp) {
+        var box = document.getElementById('ceoDocViewerBox');
+        if (!box) return;
+        if (!resp.ok) { return resp.json().catch(function() { return {}; }).then(function(dj) { box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:24px">' + esc(dj.message || 'No document is stored for this slot yet.') + '</div>'; }); }
+        return resp.blob().then(function(blob) {
+          _ceoDocViewerObjUrl = URL.createObjectURL(blob);
+          if ((blob.type || '').indexOf('image/') === 0) box.innerHTML = '<img alt="Document" src="' + _ceoDocViewerObjUrl + '" style="max-width:100%;max-height:58vh;object-fit:contain">';
+          else box.innerHTML = '<iframe title="Document" src="' + _ceoDocViewerObjUrl + '" style="width:100%;height:58vh;border:none;background:#fff"></iframe>';
+        });
+      }).catch(function(e) { var box = document.getElementById('ceoDocViewerBox'); if (box) box.innerHTML = '<div style="color:var(--red);font-size:13px;padding:24px">Could not load the document: ' + esc(e.message) + '</div>'; });
+    }
+    // Drive file preview (Drive embed in the CEO modal). Used by Drive-backed cards
+    // (data-drive-preview) — GP LINK pack docs + Other Files.
+    function ceoOpenDrivePreview(fileId, name, mime, link) {
+      if (!fileId) return;
+      var previewUrl = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview';
+      var safeLink = link ? ceoSafeUrl(link) : '';
+      var body;
+      if ((mime || '').indexOf('image') > -1 && safeLink && safeLink !== '#') body = '<img src="' + escAttr(safeLink) + '" alt="' + escAttr(name) + '" style="max-width:100%;max-height:62vh;object-fit:contain">';
+      else body = '<iframe src="' + escAttr(previewUrl) + '" style="width:100%;height:62vh;border:none;background:#fff" allow="autoplay"></iframe>';
+      var html = '<div class="modal-title" style="display:flex;align-items:center;gap:10px">' + esc(name || 'Document');
+      if (safeLink && safeLink !== '#') html += '<a href="' + escAttr(safeLink) + '" target="_blank" rel="noopener" style="margin-left:auto;font-size:12px;color:var(--blue)">Open in Drive</a>';
+      html += '</div><div style="margin-top:8px">' + body + '</div>';
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>';
+      openModal(html);
+    }
+
+    // A "Prepared by Candidate" document card: thumbnail + status/flag badge, clickable to
+    // open the uploaded file in-app (port of admin renderDocPlaceholderCard).
+    function renderCeoCandidateDocCard(doc, caseId) {
+      var status = doc.status;
+      var viewable = caseId && (!!doc.file_url || ['approved', 'uploaded', 'under_review', 'rejected', 'accepted', 'received', 'needs_correction'].indexOf(status) >= 0);
+      var previewUrl = viewable ? ('/api/admin/gp-document-preview?case_id=' + encodeURIComponent(caseId) + '&key=' + encodeURIComponent(doc.key)) : '';
+      var viewAttrs = viewable ? (' data-doc-view-url="' + escAttr(previewUrl) + '" data-doc-view-label="' + escAttr(doc.label || 'Document') + '"') : '';
+      var thumb = viewable ? ('<img src="' + escAttr(previewUrl) + '" class="ceo-doc-thumb" alt="" onerror="gpDocThumbError(this)">') : '<div class="ceo-doc-thumb ceo-doc-thumb-icon">📄</div>';
+      var meta = '';
+      if (doc.file_name) meta += '<div class="ceo-doc-card-meta">' + esc(doc.file_name) + '</div>';
+      if (doc.updated_at) meta += '<div class="ceo-doc-card-meta">' + esc(relativeTime(doc.updated_at)) + '</div>';
+      var badge;
+      if (doc.flag_reason === 'name_mismatch') badge = '<span class="ceo-doc-status s-rejected">Name mismatch</span>';
+      else if (doc.flag_reason === 'failed_verification') badge = '<span class="ceo-doc-status s-under_review">Needs review</span>';
+      else badge = '<span class="ceo-doc-status s-' + (status || 'pending') + '">' + docStatusLabel(status) + '</span>';
+      return '<div class="ceo-doc-card' + (viewable ? ' is-clickable' : '') + '"' + viewAttrs + '>' + thumb +
+        '<div class="ceo-doc-card-info"><div class="ceo-doc-card-label" title="' + escAttr(doc.label || '') + '">' + esc(doc.label || '(untitled)') + '</div>' + badge + meta + '</div></div>';
+    }
+
+    // A "Prepared by GP LINK" document card: Drive thumbnail + status, clickable to preview,
+    // PLUS the CEO upload/approve/request-revision actions (gated on a matching task).
+    function renderCeoGpLinkDocCard(doc) {
+      var df = doc.drive_file;
+      var status = doc.ops_status || 'not_requested';
+      var thumb;
+      if (df && df.thumbnailLink) thumb = '<img src="' + escAttr(df.thumbnailLink) + '" class="ceo-doc-thumb" alt="" onerror="gpDocThumbError(this)">';
+      else if (df) thumb = '<div class="ceo-doc-thumb ceo-doc-thumb-icon">' + driveFileIcon(df.mimeType) + '</div>';
+      else thumb = '<div class="ceo-doc-thumb ceo-doc-thumb-icon">📄</div>';
+      var meta = '';
+      if (df) { var size = df.size ? formatFileSize(Number(df.size)) : ''; meta = '<div class="ceo-doc-card-meta">' + esc(size) + (size ? ' • ' : '') + esc(df.modifiedTime ? relativeTime(df.modifiedTime) : '') + '</div>'; }
+      var driveAttrs = df ? (' data-drive-preview="' + escAttr(df.id) + '" data-drive-name="' + escAttr(df.name) + '" data-drive-mime="' + escAttr(df.mimeType || '') + '" data-drive-link="' + escAttr(df.webViewLink || '') + '"') : '';
+      var task = docTaskForKey((gpDetailCache && gpDetailCache.tasks) || [], doc.key);
+      var actionsHtml = '';
+      if (task) {
+        var acts = docActionsFor(task);
+        var tid = escAttr(task.id);
+        if (acts.upload) actionsHtml += '<label class="btn ceo-doc-upload-btn">Upload<input type="file" data-ceo-doc-upload="' + tid + '" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic" style="display:none"></label>';
+        if (acts.approve) actionsHtml += '<button class="btn btn-green" data-ceo-doc-action="approve" data-task="' + tid + '">Approve</button>';
+        if (acts.requestRevision) actionsHtml += '<button class="btn" data-ceo-doc-action="revise" data-task="' + tid + '">Revision</button>';
+      }
+      var actionsBlock = actionsHtml ? '<div class="ceo-doc-card-actions">' + actionsHtml + '</div>' : '';
+      return '<div class="ceo-doc-card' + (df ? ' is-clickable' : '') + '"' + driveAttrs + '>' + thumb +
+        '<div class="ceo-doc-card-info"><div class="ceo-doc-card-label" title="' + escAttr(doc.label || '') + '">' + esc(doc.label || '') + '</div><span class="ceo-doc-status s-' + status + '">' + docStatusLabel(status) + '</span>' + meta + actionsBlock + '</div></div>';
+    }
+
+    // Render the four document categories for the open GP file, matching the admin/RSO view:
+    // AHPRA as a done/total checklist (with reference numbers), Candidate + GP LINK as
+    // thumbnail card grids (click to open in-app), Other Files as a Drive thumbnail grid.
+    // Renders from the RAW /api/admin/gp-documents response (the four category arrays).
+    function renderGpDocumentsPane(gpDocs, driveFolder) {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
-      var total = sections.reduce(function(n, s) { return n + s.docs.length; }, 0);
+      gpDocs = gpDocs || {};
       var docCaseId = gpDetailCache && gpDetailCache.caseId;
+      var ahpra = gpDocs.directToAhpra || [];
+      var candidate = gpDocs.preparedByCandidate || [];
+      var gplink = gpDocs.preparedByGpLink || [];
+      var other = gpDocs.otherFiles || [];
+      var total = ahpra.length + candidate.length + gplink.length + other.length;
+
       var html = '<div class="ceo-ops-section-head">Documents <span class="count">' + total + '</span>';
-      // General "upload to this GP's Drive folder" — works for any case, independent of
-      // practice-pack tasks (reuses POST /api/admin/drive/upload). Per-document upload/
-      // approve/revision buttons (gated on a matching task) are rendered on the rows below.
-      if (docCaseId) html += '<label class="btn ceo-doc-upload-btn" style="margin-left:auto">Upload file…<input type="file" data-ceo-drive-upload="' + esc(docCaseId) + '" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv" style="display:none"></label>';
-      if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + esc(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:' + (docCaseId ? '12px' : 'auto') + '">Open Drive folder</a>';
+      if (docCaseId) html += '<label class="btn ceo-doc-upload-btn" style="margin-left:auto">Upload file…<input type="file" data-ceo-drive-upload="' + escAttr(docCaseId) + '" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv" style="display:none"></label>';
+      if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + escAttr(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:' + (docCaseId ? '12px' : 'auto') + '">Open Drive folder</a>';
       html += '</div>';
-      for (var si = 0; si < sections.length; si++) {
-        var sec = sections[si];
-        html += '<div class="ceo-gp-doc-section">';
-        html += '<div class="ceo-gp-doc-section-head">' + esc(sec.label) + ' <span class="ceo-gp-doc-count">' + sec.docs.length + '</span></div>';
-        if (!sec.docs.length) {
-          html += '<div class="ceo-gp-doc-empty">No documents.</div>';
-        } else {
-          for (var di = 0; di < sec.docs.length; di++) {
-            var doc = sec.docs[di];
-            html += '<div class="ceo-gp-doc-row">';
-            html += '<div class="ceo-gp-doc-main">';
-            html += '<div class="ceo-gp-doc-label">' + esc(doc.label || '(untitled)') + '</div>';
-            if (doc.fileName) html += '<div class="ceo-gp-doc-file">' + esc(doc.fileName) + '</div>';
-            html += '</div>';
-            if (doc.status) html += statusPill(doc.status);
-            if (doc.url) html += '<a class="btn btn-blue ceo-gp-doc-view" href="' + esc(doc.url) + '" target="_blank" rel="noopener">View</a>';
-            else html += '<span class="ceo-gp-doc-noview">No file</span>';
-            var task = docTaskForKey((gpDetailCache && gpDetailCache.tasks) || [], doc.key);
-            if (task) {
-              var acts = docActionsFor(task);
-              var tid = esc(task.id);
-              var actionsHtml = '';
-              if (acts.upload) actionsHtml += '<label class="btn ceo-doc-upload-btn">Upload<input type="file" data-ceo-doc-upload="' + tid + '" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic" style="display:none"></label>';
-              if (acts.approve) actionsHtml += '<button class="btn btn-green" data-ceo-doc-action="approve" data-task="' + tid + '">Approve &amp; Send to GP</button>';
-              if (acts.requestRevision) actionsHtml += '<button class="btn" data-ceo-doc-action="revise" data-task="' + tid + '">Request Revision</button>';
-              if (actionsHtml) html += '<div class="ceo-gp-doc-actions">' + actionsHtml + '</div>';
-            }
-            html += '</div>';
-          }
-        }
+
+      // Section 1 — Direct to AHPRA (checklist).
+      var ahpraDone = ahpra.filter(function(d) { return d.status !== 'pending'; }).length;
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Direct to AHPRA</span><span class="ceo-doc-section-count">' + ahpraDone + ' / ' + ahpra.length + '</span></div>';
+      if (!ahpra.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
+      else {
+        html += '<div class="ceo-doc-checklist">';
+        ahpra.forEach(function(doc) {
+          var done = doc.status !== 'pending';
+          html += '<div class="ceo-doc-check-item"><div class="ceo-doc-check' + (done ? ' checked' : '') + '">✓</div>';
+          html += '<span class="ceo-doc-check-label">' + esc(doc.label || doc.document_key || '');
+          if (doc.key === 'criminal_history' && doc.referenceNumber) html += '<span class="ceo-doc-refno">' + esc(doc.referenceNumber) + '</span>';
+          html += '</span><span class="ceo-doc-status s-' + (doc.status || 'pending') + '">' + docStatusLabel(doc.status) + '</span></div>';
+        });
         html += '</div>';
       }
+      html += '</div>';
+
+      // Section 2 — Prepared by Candidate (card grid, click to open).
+      var candDone = candidate.filter(function(d) { return d.status !== 'pending'; }).length;
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Prepared by Candidate</span><span class="ceo-doc-section-count">' + candDone + ' / ' + candidate.length + '</span></div>';
+      if (!candidate.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
+      else { html += '<div class="ceo-doc-grid">'; candidate.forEach(function(doc) { html += renderCeoCandidateDocCard(doc, docCaseId); }); html += '</div>'; }
+      html += '</div>';
+
+      // Section 3 — Prepared by GP LINK (card grid + CEO actions).
+      var gplinkDone = gplink.filter(function(d) { return d.ops_status === 'completed' || d.ops_status === 'ready_for_gp'; }).length;
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Prepared by GP LINK</span><span class="ceo-doc-section-count">' + gplinkDone + ' / ' + gplink.length + '</span></div>';
+      if (!gplink.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
+      else { html += '<div class="ceo-doc-grid">'; gplink.forEach(function(doc) { html += renderCeoGpLinkDocCard(doc); }); html += '</div>'; }
+      html += '</div>';
+
+      // Section 4 — Other Files (Drive thumbnail grid).
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Other Files</span><span class="ceo-doc-section-count">' + other.length + '</span></div>';
+      if (!other.length) html += '<div class="ceo-gp-doc-empty">No files in this category.</div>';
+      else {
+        html += '<div class="ceo-doc-grid">';
+        other.forEach(function(f) {
+          var icon = driveFileIcon(f.mimeType);
+          var thumb = f.thumbnailLink ? '<img src="' + escAttr(f.thumbnailLink) + '" class="ceo-doc-thumb" alt="" onerror="gpDocThumbError(this)">' : '<div class="ceo-doc-thumb ceo-doc-thumb-icon">' + icon + '</div>';
+          var size = f.size ? formatFileSize(Number(f.size)) : '';
+          html += '<div class="ceo-doc-card is-clickable" data-drive-preview="' + escAttr(f.id) + '" data-drive-name="' + escAttr(f.name) + '" data-drive-mime="' + escAttr(f.mimeType || '') + '" data-drive-link="' + escAttr(f.webViewLink || '') + '">' + thumb +
+            '<div class="ceo-doc-card-info"><div class="ceo-doc-card-label" title="' + escAttr(f.name) + '">' + esc(f.name) + '</div><div class="ceo-doc-card-meta">' + esc(size) + (size ? ' • ' : '') + esc(f.modifiedTime ? relativeTime(f.modifiedTime) : '') + '</div></div></div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+
       pane.innerHTML = html;
     }
 
@@ -4208,7 +4368,7 @@
       if (!pane) return;
       var caseId = gpDetailCache && gpDetailCache.caseId;
       if (gpDocumentsCache && gpDocumentsCache.caseId === caseId) {
-        renderGpDocumentsPane(gpDocumentsCache.sections, gpDocumentsCache.driveFolder);
+        renderGpDocumentsPane(gpDocumentsCache.raw, gpDocumentsCache.driveFolder);
         return;
       }
       pane.innerHTML = '<div class="ceo-gp-detail-placeholder"><div class="spinner" style="width:18px;height:18px;border-width:2px;margin:16px auto"></div></div>';
@@ -4226,11 +4386,11 @@
           return;
         }
         // /api/admin/gp-documents returns the four category arrays FLAT at the top level
-        // ({ ok, country, directToAhpra, preparedByCandidate, preparedByGpLink, otherFiles }),
-        // not nested under a `documents` key — pass the whole response to the normalizer.
-        var sections = gpDocumentSections(d);
-        gpDocumentsCache = { caseId: caseId, sections: sections, driveFolder: d.driveFolder || null };
-        if (gpDetailTab === 'documents') renderGpDocumentsPane(sections, gpDocumentsCache.driveFolder);
+        // ({ ok, country, directToAhpra, preparedByCandidate, preparedByGpLink, otherFiles }).
+        // Cache + render the RAW response so the per-category cards keep their full fields
+        // (drive_file/thumbnailLink/file_url/referenceNumber/flag_reason/ops_status).
+        gpDocumentsCache = { caseId: caseId, raw: d, driveFolder: d.driveFolder || null };
+        if (gpDetailTab === 'documents') renderGpDocumentsPane(d, gpDocumentsCache.driveFolder);
       }).catch(function(e) {
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         var pane = document.getElementById('gpDetailPane');
@@ -4702,6 +4862,15 @@
         if (action === 'approve') ceoDocApprove(taskId);
         else if (action === 'revise') ceoDocRequestRevision(taskId);
         return;
+      }
+      // Document preview: clicking a candidate-doc card opens the file in-app; clicking a
+      // Drive-backed card (GP LINK / Other Files) opens a Drive preview. Skip when the click
+      // is on an upload label / file input (the doc-action buttons return above).
+      if (!e.target.closest('.ceo-doc-upload-btn') && !e.target.closest('input[type="file"]')) {
+        var docViewEl = e.target.closest('[data-doc-view-url]');
+        if (docViewEl) { ceoOpenDocViewer(docViewEl.getAttribute('data-doc-view-url') || '', docViewEl.getAttribute('data-doc-view-label') || 'Document'); return; }
+        var drivePrevEl = e.target.closest('[data-drive-preview]');
+        if (drivePrevEl) { ceoOpenDrivePreview(drivePrevEl.getAttribute('data-drive-preview') || '', drivePrevEl.getAttribute('data-drive-name') || 'Document', drivePrevEl.getAttribute('data-drive-mime') || '', drivePrevEl.getAttribute('data-drive-link') || ''); return; }
       }
       // Support board resolve/reopen — delegated so it survives board re-renders.
       var supportBtn = e.target.closest('[data-ceo-support-action]');
