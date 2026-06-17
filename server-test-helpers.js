@@ -43,6 +43,60 @@ function buildScheduledCallInsertPayload(input = {}) {
   };
 }
 
+// Pure builder/validator for rso_team writes (create or update). No DB access so it
+// can be unit-tested. Keep IDENTICAL to the copy in server.js.
+// In 'update' mode only the supplied fields are included (partial PATCH); in 'create'
+// mode required fields are enforced and sensible defaults are applied.
+function buildRsoWritePayload(input = {}, opts = {}) {
+  const mode = opts.mode === 'update' ? 'update' : 'create';
+  const create = mode === 'create';
+  const errors = [];
+  const out = {};
+  function has(k) { return Object.prototype.hasOwnProperty.call(input, k); }
+
+  // NAME
+  if (create || has('name')) {
+    const name = String(input.name == null ? '' : input.name).trim();
+    if (create && !name) errors.push('Name is required.');
+    if (name || create) out.name = name;
+  }
+
+  // EMAIL
+  if (create || has('email')) {
+    const email = String(input.email == null ? '' : input.email).trim().toLowerCase();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (create && !email) errors.push('Email is required.');
+    else if (email && !emailOk) errors.push('Email is not a valid email address.');
+    if (email || create) out.email = email;
+  }
+
+  // PHONE
+  if (has('phone')) out.phone = String(input.phone == null ? '' : input.phone).trim();
+  else if (create) out.phone = '';
+
+  // ACTIVE
+  if (has('active')) out.active = !!input.active;
+  else if (create) out.active = true;
+
+  // CALENDLY
+  if (create || has('calendlyEventUrl') || has('calendly_event_url')) {
+    const raw = input.calendlyEventUrl != null ? input.calendlyEventUrl : input.calendly_event_url;
+    const url = String(raw == null ? '' : raw).trim();
+    if (url && !/^https:\/\/calendly\.com\//i.test(url)) errors.push('Calendly link must start with https://calendly.com/');
+    out.calendly_event_url = url || null;
+  }
+
+  // USER_ID (create only)
+  if (create) {
+    const userId = String(input.userId || input.user_id || '').trim();
+    if (!userId) errors.push('user_id is required.');
+    out.user_id = userId;
+  }
+
+  out.updated_at = input.nowIso || new Date().toISOString();
+  return { valid: errors.length === 0, errors, payload: out };
+}
+
 function getScheduledCallRegistrationTaskId(callRecord) {
   if (!callRecord || typeof callRecord !== 'object') return null;
   return callRecord.registration_task_id || callRecord.task_id || null;
@@ -136,6 +190,7 @@ module.exports = {
   computeCallFailureOutcome,
   generateCorrelationToken,
   buildScheduledCallInsertPayload,
+  buildRsoWritePayload,
   buildScheduledCallNotificationPatch,
   getScheduledCallRegistrationTaskId,
   normalizeScheduledCallForApi,

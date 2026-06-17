@@ -531,6 +531,60 @@ function buildScheduledCallInsertPayload(input = {}) {
   };
 }
 
+// Pure builder/validator for rso_team writes (create or update). No DB access so it
+// can be unit-tested. Keep IDENTICAL to the copy in server-test-helpers.js.
+// In 'update' mode only the supplied fields are included (partial PATCH); in 'create'
+// mode required fields are enforced and sensible defaults are applied.
+function buildRsoWritePayload(input = {}, opts = {}) {
+  const mode = opts.mode === 'update' ? 'update' : 'create';
+  const create = mode === 'create';
+  const errors = [];
+  const out = {};
+  function has(k) { return Object.prototype.hasOwnProperty.call(input, k); }
+
+  // NAME
+  if (create || has('name')) {
+    const name = String(input.name == null ? '' : input.name).trim();
+    if (create && !name) errors.push('Name is required.');
+    if (name || create) out.name = name;
+  }
+
+  // EMAIL
+  if (create || has('email')) {
+    const email = String(input.email == null ? '' : input.email).trim().toLowerCase();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (create && !email) errors.push('Email is required.');
+    else if (email && !emailOk) errors.push('Email is not a valid email address.');
+    if (email || create) out.email = email;
+  }
+
+  // PHONE
+  if (has('phone')) out.phone = String(input.phone == null ? '' : input.phone).trim();
+  else if (create) out.phone = '';
+
+  // ACTIVE
+  if (has('active')) out.active = !!input.active;
+  else if (create) out.active = true;
+
+  // CALENDLY
+  if (create || has('calendlyEventUrl') || has('calendly_event_url')) {
+    const raw = input.calendlyEventUrl != null ? input.calendlyEventUrl : input.calendly_event_url;
+    const url = String(raw == null ? '' : raw).trim();
+    if (url && !/^https:\/\/calendly\.com\//i.test(url)) errors.push('Calendly link must start with https://calendly.com/');
+    out.calendly_event_url = url || null;
+  }
+
+  // USER_ID (create only)
+  if (create) {
+    const userId = String(input.userId || input.user_id || '').trim();
+    if (!userId) errors.push('user_id is required.');
+    out.user_id = userId;
+  }
+
+  out.updated_at = input.nowIso || new Date().toISOString();
+  return { valid: errors.length === 0, errors, payload: out };
+}
+
 function getScheduledCallRegistrationTaskId(callRecord) {
   if (!callRecord || typeof callRecord !== 'object') return null;
   return callRecord.registration_task_id || callRecord.task_id || null;
@@ -25757,8 +25811,152 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/admin/rsos') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
-    const rsos = await loadRsoTeam();
+    const rsoQp = new URL(req.url, 'http://localhost').searchParams;
+    const includeInactiveParam = String(rsoQp.get('include_inactive') || '').trim().toLowerCase();
+    const includeInactive = includeInactiveParam === '1' || includeInactiveParam === 'true';
+    const rsos = includeInactive ? await loadRsoTeam({ includeInactive: true }) : await loadRsoTeam();
     sendJson(res, 200, { ok: true, rsos: rsos });
+    return;
+  }
+
+  // POST /api/admin/rsos — create a new RSO team member.
+  // Resolves user_id from the supplied value, an existing user account (by email), or a
+  // generated UUID; rejects duplicates by email or user_id; validates via buildRsoWritePayload.
+  if (req.method === 'POST' && pathname === '/api/admin/rsos') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    body = body && typeof body === 'object' ? body : {};
+    const RSO_USER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const rsoEmail = String(body.email == null ? '' : body.email).trim().toLowerCase();
+
+    // Resolve user_id: (a) supplied non-empty value, (b) existing user account by email,
+    // (c) generated UUID. Track whether an existing account was linked vs generated.
+    let resolvedUserId = String(body.user_id || '').trim();
+    let linkedAccount = false;
+    let generatedUserId = false;
+    if (resolvedUserId) {
+      // (a) supplied user_id — must be a valid UUID (it is the rso_team primary key, and
+      // it is interpolated into PostgREST filters below).
+      if (!RSO_USER_ID_RE.test(resolvedUserId)) {
+        sendJson(res, 400, { ok: false, message: 'user_id must be a valid UUID.' });
+        return;
+      }
+      linkedAccount = true;
+    } else {
+      if (rsoEmail) {
+        const acctLookup = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(rsoEmail) + '&limit=1', { method: 'GET' });
+        if (acctLookup.ok && Array.isArray(acctLookup.data) && acctLookup.data[0] && acctLookup.data[0].user_id) {
+          resolvedUserId = String(acctLookup.data[0].user_id).trim();
+          linkedAccount = true;
+        }
+      }
+      if (!resolvedUserId) {
+        // (c) no existing account — generate a standalone id for the RSO row.
+        resolvedUserId = crypto.randomUUID();
+        generatedUserId = true;
+      }
+    }
+
+    // Validate + build BEFORE the duplicate lookup so a malformed email is rejected with a
+    // clear 400 and never reaches the query string.
+    const built = buildRsoWritePayload({ ...body, userId: resolvedUserId }, { mode: 'create' });
+    if (!built.valid) {
+      sendJson(res, 400, { ok: false, message: built.errors.join(' '), errors: built.errors });
+      return;
+    }
+
+    // Reject duplicates by email (exact, on the already-lowercased value) or user_id.
+    // PostgREST or=() members use dot syntax (column.operator.value); both values are safe
+    // to interpolate (user_id is a validated UUID, email passed the validator above).
+    const dupQuery = 'select=user_id,email&or=(email.eq.' + encodeURIComponent(built.payload.email) +
+      ',user_id.eq.' + encodeURIComponent(resolvedUserId) + ')&limit=1';
+    const dupCheck = await supabaseDbRequest('rso_team', dupQuery, { method: 'GET' });
+    if (dupCheck.ok && Array.isArray(dupCheck.data) && dupCheck.data.length > 0) {
+      sendJson(res, 409, { ok: false, message: 'An RSO with this email already exists.' });
+      return;
+    }
+
+    const ins = await supabaseDbRequest('rso_team', '', {
+      method: 'POST',
+      body: [built.payload],
+      headers: { Prefer: 'return=representation' }
+    });
+    if (!ins.ok) {
+      sendJson(res, ins.status && ins.status >= 400 ? ins.status : 502, { ok: false, message: 'Failed to create RSO.' });
+      return;
+    }
+    const insertedRow = Array.isArray(ins.data) ? ins.data[0] : ins.data;
+    const normalized = insertedRow ? (mergeRsoRoster([insertedRow], RSO_TEAM, { includeInactive: true })[0] || insertedRow) : built.payload;
+    sendJson(res, 201, { ok: true, rso: normalized, linkedAccount: linkedAccount, generatedUserId: generatedUserId });
+    return;
+  }
+
+  // PATCH /api/admin/rsos/:userId — update an existing RSO team member (partial).
+  if (req.method === 'PATCH' && pathname.match(/^\/api\/admin\/rsos\/[^/]+$/)) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    const rsoUserId = decodeURIComponent(pathname.split('/').pop());
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rsoUserId)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid RSO id.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    body = body && typeof body === 'object' ? body : {};
+    const built = buildRsoWritePayload(body, { mode: 'update' });
+    const updatableKeys = Object.keys(built.payload).filter(k => k !== 'updated_at');
+    if (updatableKeys.length === 0) {
+      sendJson(res, 400, { ok: false, message: 'No fields to update.' });
+      return;
+    }
+    if (!built.valid) {
+      sendJson(res, 400, { ok: false, message: built.errors.join(' '), errors: built.errors });
+      return;
+    }
+
+    // If the email is changing, guard against colliding with another RSO's email.
+    if (Object.prototype.hasOwnProperty.call(built.payload, 'email') && built.payload.email) {
+      const emailDup = await supabaseDbRequest('rso_team',
+        'select=user_id&email=eq.' + encodeURIComponent(built.payload.email) + '&user_id=neq.' + encodeURIComponent(rsoUserId) + '&limit=1',
+        { method: 'GET' });
+      if (emailDup.ok && Array.isArray(emailDup.data) && emailDup.data.length > 0) {
+        sendJson(res, 409, { ok: false, message: 'An RSO with this email already exists.' });
+        return;
+      }
+    }
+
+    const upd = await supabaseDbRequest('rso_team', 'user_id=eq.' + encodeURIComponent(rsoUserId), {
+      method: 'PATCH',
+      body: built.payload,
+      headers: { Prefer: 'return=representation' }
+    });
+    if (!upd.ok) {
+      sendJson(res, upd.status && upd.status >= 400 ? upd.status : 502, { ok: false, message: 'Failed to update RSO.' });
+      return;
+    }
+    const updatedRow = Array.isArray(upd.data) ? upd.data[0] : upd.data;
+    if (!updatedRow) {
+      sendJson(res, 404, { ok: false, message: 'RSO not found.' });
+      return;
+    }
+    const normalizedUpdated = mergeRsoRoster([updatedRow], RSO_TEAM, { includeInactive: true })[0] || updatedRow;
+    sendJson(res, 200, { ok: true, rso: normalizedUpdated });
     return;
   }
 
@@ -38992,7 +39190,9 @@ if (process.env.VERCEL) {
 
 module.exports.createServer = createServer;
 module.exports.mergeRsoRoster = mergeRsoRoster;
+module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  buildRsoWritePayload,
   applyQualificationNameMatchPolicy,
   canonicalQualKey,
   isQualificationDocKey,

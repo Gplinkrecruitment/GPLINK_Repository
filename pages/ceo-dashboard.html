@@ -1255,7 +1255,7 @@
   </style>
 </head>
 <body>
-<script src="/js/error-reporter.js?v=20260615a"></script>
+<script src="/js/error-reporter.js?v=20260618a"></script>
   <div class="page-wrap">
     <!-- HEADER -->
     <header class="header">
@@ -2309,6 +2309,14 @@
 
     /* ── Event Delegation ── */
     document.addEventListener('click', function(e) {
+      // RSO management actions (Add / Edit) — handled BEFORE the card-click so the
+      // button doesn't also open the RSO detail view.
+      var rsoActionEl = e.target.closest('[data-rso-action]');
+      if (rsoActionEl) {
+        var rsoAction = rsoActionEl.getAttribute('data-rso-action');
+        if (rsoAction === 'add') { openAddRsoModal(); return; }
+        if (rsoAction === 'edit') { openEditRsoModal(rsoActionEl.getAttribute('data-rso-id')); return; }
+      }
       // RSO oversight card -> RSO detail
       var rsoCard = e.target.closest('.rso-card[data-rso-id]');
       if (rsoCard) { openRsoDetail(rsoCard.getAttribute('data-rso-id')); return; }
@@ -2423,33 +2431,213 @@
     } catch (e) {}
 
     /* ═══ RSO OVERSIGHT (standalone tab) ═══ */
+    // Full RSO records (source of truth incl. user_id + calendly_event_url + phone) from
+    // GET /api/admin/rsos?include_inactive=1. Used to prefill the Edit modal without refetch.
+    var rsoAdminRosterCache = [];
+    var rsoAdminLoadFailed = false;
     function loadRsoOversight() {
       var c = document.getElementById('rsoContent');
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading RSOs...</div></div>';
-      apiFetch('/api/ceo/rsos').then(function(d) {
-        if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed to load RSOs: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
-        rsoRosterCache = Array.isArray(d.rsos) ? d.rsos : [];
-        renderRsoOversight(d.rsos || []);
+      // Fetch the stats roster (/api/ceo/rsos) and the full management roster
+      // (/api/admin/rsos) in parallel. Either can fail independently — we degrade
+      // gracefully rather than failing the whole screen.
+      var ceoP = apiFetch('/api/ceo/rsos').then(function(d) { return d; }).catch(function() { return null; });
+      var adminP = apiFetch('/api/admin/rsos?include_inactive=1').then(function(d) { return d; }).catch(function() { return null; });
+      Promise.all([ceoP, adminP]).then(function(res) {
+        var ceoD = res[0], adminD = res[1];
+        if ((!ceoD || !ceoD.ok) && (!adminD || !adminD.ok)) {
+          c.innerHTML = '<div class="drilldown-empty">Failed to load RSOs: ' + esc((ceoD && ceoD.message) || (adminD && adminD.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var ceoRsos = (ceoD && ceoD.ok && Array.isArray(ceoD.rsos)) ? ceoD.rsos : [];
+        rsoRosterCache = ceoRsos;
+        rsoAdminLoadFailed = !(adminD && adminD.ok && Array.isArray(adminD.rsos));
+        rsoAdminRosterCache = rsoAdminLoadFailed ? [] : adminD.rsos;
+
+        // Merge: admin roster (source of truth, has user_id + calendly) is the base.
+        // Attach stats from the ceo roster matched by email (case-insensitive). Any
+        // ceo-roster RSO with no admin match is still appended so nothing disappears.
+        var statsByEmail = {};
+        for (var i = 0; i < ceoRsos.length; i++) {
+          var e = (ceoRsos[i].email || '').toLowerCase();
+          if (e) statsByEmail[e] = ceoRsos[i];
+        }
+        var merged = [];
+        var seenEmails = {};
+        if (!rsoAdminLoadFailed) {
+          for (var j = 0; j < rsoAdminRosterCache.length; j++) {
+            var a = rsoAdminRosterCache[j];
+            var ae = (a.email || '').toLowerCase();
+            var s = ae ? statsByEmail[ae] : null;
+            if (ae) seenEmails[ae] = true;
+            merged.push({
+              user_id: a.user_id,
+              // rso_id is what the existing card-click (openRsoDetail) expects — prefer the
+              // ceo roster's id (matched by email), fall back to the admin user_id.
+              rso_id: (s && s.rso_id) || a.user_id || '',
+              rso_name: a.name || (s && s.rso_name) || '',
+              email: a.email || (s && s.email) || '',
+              phone: a.phone || '',
+              calendly_event_url: a.calendly_event_url || '',
+              active: a.active,
+              hasAdminRecord: true,
+              case_count: s ? s.case_count : 0,
+              open_tasks: s ? s.open_tasks : 0,
+              overdue_tasks: s ? s.overdue_tasks : 0
+            });
+          }
+        }
+        // Append ceo-only RSOs (no admin match) — kept visible, Edit disabled.
+        for (var k = 0; k < ceoRsos.length; k++) {
+          var cr = ceoRsos[k];
+          var ce = (cr.email || '').toLowerCase();
+          if (ce && seenEmails[ce]) continue;
+          merged.push({
+            user_id: cr.rso_id || '',
+            rso_id: cr.rso_id || '',
+            rso_name: cr.rso_name || '',
+            email: cr.email || '',
+            phone: '',
+            calendly_event_url: '',
+            active: cr.active,
+            hasAdminRecord: false,
+            case_count: cr.case_count || 0,
+            open_tasks: cr.open_tasks || 0,
+            overdue_tasks: cr.overdue_tasks || 0
+          });
+        }
+        renderRsoOversight(merged);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
 
     function renderRsoOversight(rsos) {
       var c = document.getElementById('rsoContent');
-      if (!rsos.length) { c.innerHTML = '<div class="drilldown-empty">No RSOs found.</div>'; return; }
-      var html = '<h2 style="font-size:16px;font-weight:700;margin-bottom:14px">RSO Oversight</h2><div class="rso-grid">';
+      // Header with the + Add RSO action (shown even when the list is empty).
+      var head = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+        + '<h2 style="font-size:16px;font-weight:700">RSO Oversight</h2>'
+        + '<button class="btn btn-blue" data-rso-action="add">+ Add RSO</button>'
+        + '</div>';
+      if (rsoAdminLoadFailed) {
+        head += '<div class="modal-note" style="font-size:11px;color:var(--amber);margin:-6px 0 12px">Couldn&rsquo;t load the full RSO records, so editing is unavailable right now. Showing oversight stats only.</div>';
+      }
+      if (!rsos.length) { c.innerHTML = head + '<div class="drilldown-empty">No RSOs found.</div>'; return; }
+      var html = head + '<div class="rso-grid">';
       for (var i = 0; i < rsos.length; i++) {
         var r = rsos[i];
         html += '<div class="rso-card' + (r.active === false ? ' inactive' : '') + '" data-rso-id="' + esc(r.rso_id) + '">';
         html += '<div class="rso-card-name">' + esc(r.rso_name) + (r.active === false ? ' <span style="font-size:10px;color:var(--text-dim)">(inactive)</span>' : '') + '</div>';
         if (r.email) html += '<div class="rso-card-email">' + esc(r.email) + '</div>';
+        // Calendly status line — muted when set, amber when missing.
+        if (r.calendly_event_url) {
+          html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Calendly link set</div>';
+        } else {
+          html += '<div style="font-size:11px;color:var(--amber);margin-top:4px">No Calendly link yet</div>';
+        }
         html += '<div class="rso-card-stats">';
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value">' + (r.case_count || 0) + '</span><span class="rso-card-stat-label">GPs</span></div>';
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value">' + (r.open_tasks || 0) + '</span><span class="rso-card-stat-label">Open</span></div>';
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value" style="color:' + ((r.overdue_tasks || 0) > 0 ? 'var(--red)' : 'var(--text)') + '">' + (r.overdue_tasks || 0) + '</span><span class="rso-card-stat-label">Overdue</span></div>';
-        html += '</div></div>';
+        html += '</div>';
+        // Edit button — only when we hold the full admin record (has user_id) to prefill from.
+        if (r.hasAdminRecord && r.user_id) {
+          html += '<div style="margin-top:12px"><button class="btn" data-rso-action="edit" data-rso-id="' + esc(r.user_id) + '">Edit</button></div>';
+        }
+        html += '</div>';
       }
       html += '</div>';
       c.innerHTML = html;
+    }
+
+    /* ── RSO management modals (Add / Edit) ── */
+    function rsoModalFields(rec) {
+      // escAttr() (not esc()) because these land inside double-quoted value="..." attributes —
+      // esc() does not escape the double-quote, which would allow attribute breakout / stored
+      // XSS from a malicious RSO name or calendly value.
+      var nameV = rec ? escAttr(rec.rso_name || '') : '';
+      var emailV = rec ? escAttr(rec.email || '') : '';
+      var phoneV = rec ? escAttr(rec.phone || '') : '';
+      var calV = rec ? escAttr(rec.calendly_event_url || '') : '';
+      var activeChecked = (!rec || rec.active !== false) ? ' checked' : '';
+      var h = '';
+      h += '<div class="modal-field"><label class="modal-label">Name</label><input class="modal-input" id="mRsoName" value="' + nameV + '"></div>';
+      h += '<div class="modal-field"><label class="modal-label">Email</label><input class="modal-input" id="mRsoEmail" type="email" value="' + emailV + '"></div>';
+      h += '<div class="modal-field"><label class="modal-label">Phone (optional)</label><input class="modal-input" id="mRsoPhone" value="' + phoneV + '"></div>';
+      h += '<div class="modal-field"><label class="modal-label">Calendly link</label><input class="modal-input" id="mRsoCalendly" placeholder="https://calendly.com/..." value="' + calV + '">';
+      h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">Leave blank to use the default GP Link Calendly link.</div></div>';
+      h += '<div class="modal-field"><label class="modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="mRsoActive"' + activeChecked + '> Active</label></div>';
+      return h;
+    }
+
+    function openAddRsoModal() {
+      var html = '<div class="modal-title">Add RSO</div>';
+      html += rsoModalFields(null);
+      html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">The RSO is matched to their GP Link account by email, so use the email they sign in with.</div>';
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mRsoSubmit" onclick="submitRsoSave()">Add RSO</button></div>';
+      openModal(html);
+    }
+
+    function openEditRsoModal(userId) {
+      var rec = null;
+      for (var i = 0; i < rsoAdminRosterCache.length; i++) {
+        if (rsoAdminRosterCache[i].user_id === userId) { rec = rsoAdminRosterCache[i]; break; }
+      }
+      if (!rec) { showToast('RSO record not found — try refreshing', 'error'); return; }
+      // The admin cache stores raw /api/admin/rsos records (name, not rso_name) — normalise
+      // for the shared field builder.
+      var view = {
+        rso_name: rec.name || '',
+        email: rec.email || '',
+        phone: rec.phone || '',
+        calendly_event_url: rec.calendly_event_url || '',
+        active: rec.active
+      };
+      var html = '<div class="modal-title">Edit RSO</div>';
+      html += rsoModalFields(view);
+      html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mRsoSubmit" onclick="submitRsoSave(\'' + esc(userId) + '\')">Save Changes</button></div>';
+      openModal(html);
+    }
+
+    function submitRsoSave(userId) {
+      var nameEl = document.getElementById('mRsoName');
+      var emailEl = document.getElementById('mRsoEmail');
+      var phoneEl = document.getElementById('mRsoPhone');
+      var calEl = document.getElementById('mRsoCalendly');
+      var activeEl = document.getElementById('mRsoActive');
+      var name = nameEl ? nameEl.value.trim() : '';
+      var email = emailEl ? emailEl.value.trim() : '';
+      var phone = phoneEl ? phoneEl.value.trim() : '';
+      var calendly = calEl ? calEl.value.trim() : '';
+      // Client-side validation. Name + email required when adding.
+      if (!userId && (!name || !email)) { showToast('Name and email are required', 'error'); return; }
+      if (calendly && calendly.indexOf('https://calendly.com/') !== 0) {
+        showToast('Calendly link must start with https://calendly.com/', 'error');
+        return;
+      }
+      var btn = document.getElementById('mRsoSubmit');
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      var body = { name: name, email: email, phone: phone, calendly_event_url: calendly, active: activeEl ? activeEl.checked : true };
+      var req = userId
+        ? apiFetch('/api/admin/rsos/' + encodeURIComponent(userId), { method: 'PATCH', body: body })
+        : apiFetch('/api/admin/rsos', { method: 'POST', body: body });
+      req.then(function(d) {
+        if (d && d.ok) {
+          if (!userId && d.generatedUserId) {
+            // No GP Link account matched this email, so a standalone id was created. Make
+            // the silent path visible — case assignment / Gmail routing need a real account.
+            showToast('RSO added, but no GP Link account matched this email yet — case assignment and email routing won’t work until they sign in with this email.', 'info');
+          } else {
+            showToast(userId ? 'RSO updated' : 'RSO added', 'success');
+          }
+          closeModal();
+          loadRsoOversight();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'Save failed'), 'error');
+          if (btn) { btn.disabled = false; btn.textContent = userId ? 'Save Changes' : 'Add RSO'; }
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = userId ? 'Save Changes' : 'Add RSO'; }
+      });
     }
 
     /* ═══ MEDICAL CENTRES (company-wide standalone tab, read-only) ═══ */
@@ -3839,19 +4027,54 @@
         html += '<option value="' + CEO_ZOOM_STAGES[i] + '"' + (CEO_ZOOM_STAGES[i] === defStage ? ' selected' : '') + '>' + esc(STAGE_LABELS[CEO_ZOOM_STAGES[i]] || CEO_ZOOM_STAGES[i]) + '</option>';
       }
       html += '</select></div>';
-      html += '<div class="modal-field"><label class="modal-label">Notes (optional)</label><textarea class="modal-textarea" id="mZoomNotes" placeholder="Internal notes for this call..."></textarea></div>';
+      html += '<div class="modal-field"><label class="modal-label">Reason for the meeting (the GP will see this)</label><textarea class="modal-textarea" id="mZoomReason" placeholder="e.g. We&rsquo;d like to walk you through your AHPRA documents."></textarea></div>';
+      html += '<div class="modal-field"><label class="modal-label">Assigned RSO</label><select class="modal-select" id="mZoomRso"><option value="">Default (GP Link)</option></select></div>';
+      html += '<div class="modal-field"><label class="modal-label">Internal notes (the GP will NOT see this)</label><textarea class="modal-textarea" id="mZoomNotes" placeholder="Internal notes for this call..."></textarea></div>';
       html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">Sends the GP a Calendly invite for the selected stage.</div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mZoomSubmit" onclick="submitCeoZoom(\'' + esc(caseId) + '\', \'' + esc(userId) + '\')">Send Invite</button></div>';
       openModal(html);
+      // Populate the Assigned RSO dropdown from the /api/ceo/rsos roster (active only),
+      // and best-effort pre-select the GP's current RSO. Never block on this.
+      loadRsoRoster().then(function(rsos) {
+        var sel = document.getElementById('mZoomRso');
+        if (!sel || !Array.isArray(rsos)) return;
+        // Work out the current GP's assigned RSO so we can pre-select. The case can carry
+        // assigned_va (UUID) / assigned_rso (id) / assigned_rso_email / assigned_rso_name.
+        var cs = (gpDetailCache && gpDetailCache.case) || {};
+        var curId = cs.assigned_rso || cs.assigned_va || (gpDetailCache && gpDetailCache.rsoId) || '';
+        var curEmail = (cs.assigned_rso_email || '').toLowerCase();
+        var curName = (cs.assigned_rso_name || '').toLowerCase();
+        var preEmail = '';
+        var opts = '<option value="">Default (GP Link)</option>';
+        for (var i = 0; i < rsos.length; i++) {
+          var r = rsos[i];
+          if (r.active === false) continue;
+          if (!r.email) continue;
+          opts += '<option value="' + esc(r.email) + '">' + esc(r.rso_name) + ' (' + esc(r.email) + ')</option>';
+          // Match by rso_id / user_id, then email, then name (best-effort).
+          var rEmail = (r.email || '').toLowerCase();
+          if (!preEmail) {
+            if (curId && (r.rso_id === curId || r.user_id === curId)) preEmail = r.email;
+            else if (curEmail && rEmail === curEmail) preEmail = r.email;
+            else if (curName && (r.rso_name || '').toLowerCase() === curName) preEmail = r.email;
+          }
+        }
+        sel.innerHTML = opts;
+        if (preEmail) sel.value = preEmail;
+      }).catch(function() {});
     }
 
     function submitCeoZoom(caseId, userId) {
       var stageEl = document.getElementById('mZoomStage');
       var notesEl = document.getElementById('mZoomNotes');
+      var reasonEl = document.getElementById('mZoomReason');
+      var rsoEl = document.getElementById('mZoomRso');
       var btn = document.getElementById('mZoomSubmit');
       var body = { case_id: caseId, stage: stageEl ? stageEl.value : '' };
       if (userId) body.user_id = userId;
       if (notesEl && notesEl.value.trim()) body.admin_notes = notesEl.value.trim();
+      if (reasonEl && reasonEl.value.trim()) body.meeting_reason = reasonEl.value.trim();
+      if (rsoEl && rsoEl.value) body.assigned_rso_email = rsoEl.value;
       if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
       apiFetch('/api/admin/calls/schedule', { method: 'POST', body: body }).then(function(d) {
         if (d && d.ok) {
@@ -4582,8 +4805,13 @@
         if (c.invitee_notes) {
           html += '<div class="ceo-gp-call-notes"><span style="color:var(--text-muted);font-weight:600">GP&rsquo;s booking notes:</span> ' + esc(c.invitee_notes) + '</div>';
         }
+        // GP-VISIBLE reason for the meeting — distinct tinted box, shown before the
+        // internal admin notes so the two are never confused.
+        if (c.meeting_reason) {
+          html += '<div class="ceo-gp-call-notes" style="margin-top:8px;padding:8px 10px;background:rgba(56,139,253,0.10);border:1px solid rgba(56,139,253,0.30);border-radius:var(--radius-sm,6px)"><span style="color:var(--blue,#388bfd);font-weight:600">Reason for meeting:</span> ' + esc(c.meeting_reason) + '</div>';
+        }
         if (c.admin_notes) {
-          html += '<div class="ceo-gp-call-notes">' + esc(c.admin_notes) + '</div>';
+          html += '<div class="ceo-gp-call-notes"><span class="pill pill-muted" style="font-size:9px;margin-right:6px;vertical-align:middle">INTERNAL</span>' + esc(c.admin_notes) + '</div>';
         }
         if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
           html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';
@@ -4603,6 +4831,8 @@
           }
         } else if (cs === 'no_show' || cs === 'cancelled') {
           actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
+          // Server now permits cancelling a no_show row (already-cancelled rows skip it).
+          if (cs === 'no_show') actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
         }
         if (actions) html += '<div class="ceo-gp-call-actions">' + actions + '</div>';
         html += '</div>';
