@@ -2209,6 +2209,22 @@
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }
 
+    // Inline note composer on the GP-file Notes sub-tab. Files a case-level note via the
+    // same endpoint as the header Add Note, then refreshes so it appears in the list.
+    function ceoAddGpNote() {
+      var ta = document.getElementById('ceoNoteAddText');
+      var text = ta ? ta.value.trim() : '';
+      if (!text) { showToast('Note text required', 'error'); return; }
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!caseId) { showToast('No GP file open', 'error'); return; }
+      var btn = document.getElementById('ceoNoteAddBtn');
+      if (btn) btn.disabled = true;
+      apiFetch('/api/admin/case/note?id=' + encodeURIComponent(caseId), { method: 'POST', body: { text: text } }).then(function(d) {
+        if (d && d.ok) { showToast('Note added', 'success'); gpDetailTab = 'notes'; refreshGpDetailIfOpen(); }
+        else { showToast('Failed: ' + ((d && d.message) || ''), 'error'); if (btn) btn.disabled = false; }
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); if (btn) btn.disabled = false; });
+    }
+
     /* ── Escalation Actions ── */
     function resolveEscalation(taskId) {
       if (!confirm('Resolve this escalation?')) return;
@@ -4012,6 +4028,12 @@
       if (!pane) return;
       var notes = gpNotesFromTimeline((gpDetailCache && gpDetailCache.timeline) || []);
       var html = '<div class="ceo-ops-section-head">Notes <span class="count">' + notes.length + '</span></div>';
+      // Inline "add a note" composer (files a case-level note via the same path as the
+      // header Add Note button) — admin parity, so the CEO can jot a note in context.
+      html += '<div style="display:flex;gap:8px;margin:10px 0 16px;align-items:flex-start">';
+      html += '<textarea id="ceoNoteAddText" rows="2" placeholder="Add a note about this GP…" style="flex:1;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>';
+      html += '<button class="btn btn-blue" id="ceoNoteAddBtn" onclick="ceoAddGpNote()">Add note</button>';
+      html += '</div>';
       if (!notes.length) {
         html += '<div class="ceo-gp-detail-empty">No notes for this GP yet.</div>';
         pane.innerHTML = html;
