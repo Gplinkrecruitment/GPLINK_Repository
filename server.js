@@ -20487,7 +20487,7 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260617-ceo-taskcards'
+      build: '20260617-ceo-notes'
     });
     return;
   }
@@ -37481,7 +37481,10 @@ Return ONLY valid JSON with no markdown formatting:
         case_id: t.case_id || null,
         gmail_thread_id: t.gmail_thread_id || null,
         gmail_message_id: t.gmail_message_id || null,
-        email_sender: t.email_sender || null
+        email_sender: t.email_sender || null,
+        related_document_key: t.related_document_key || null,
+        attachment_url: t.attachment_url || null,
+        attachment_filename: t.attachment_filename || null
       };
     });
 
