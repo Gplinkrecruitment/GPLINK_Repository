@@ -106,4 +106,17 @@ describe('CEO standalone page UI', () => {
     expect(admin).not.toMatch(/data-view="ceo-home"/);
     expect(admin).not.toMatch(/id="ceoHomePanel"/);
   });
+
+  it('GP-detail sub-tab pane carries .gp-parity so task cards get their scoped styles', () => {
+    // Every GP task-card style (.stage-task, .st-dropdown, etc.) is scoped under
+    // .gp-parity AND relies on the scoped CSS vars (--line/--muted/--bg2) defined
+    // only on .gp-parity. renderGpTasksTab() fills #gpDetailPane, so the pane element
+    // itself must carry gp-parity — otherwise the cards render unstyled and the •••
+    // dropdown items show permanently (the "task cards extremely badly put in" bug).
+    expect(ceo).toMatch(/class="ceo-gp-detail-pane gp-parity" id="gpDetailPane"/);
+    // The scoped vars must exist (the styles are useless without them).
+    expect(ceo).toMatch(/\.gp-parity\s*\{[^}]*--line:/);
+    // The dropdown must default to hidden and only open with .open.
+    expect(ceo).toMatch(/\.gp-parity \.st-dropdown\.open\{display:block\}/);
+  });
 });

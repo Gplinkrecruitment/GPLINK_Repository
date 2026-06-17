@@ -2824,7 +2824,11 @@
           html += '<button class="ceo-gp-detail-tab' + (tabs[ti].key === gpDetailTab ? ' active' : '') + '" data-gp-tab="' + tabs[ti].key + '">' + esc(tabs[ti].label) + '</button>';
         }
         html += '</div>';
-        html += '<div class="ceo-gp-detail-pane" id="gpDetailPane"></div>';
+        // The sub-tab pane MUST carry .gp-parity: every task-card style (.stage-task,
+        // .st-dropdown, etc.) is scoped under .gp-parity and relies on the scoped CSS
+        // vars (--line/--muted/--bg2) defined there. Without it the cards render
+        // unstyled and the ••• dropdown items show permanently (cramped/broken layout).
+        html += '<div class="ceo-gp-detail-pane gp-parity" id="gpDetailPane"></div>';
         html += '</div>';
 
         c.innerHTML = html;
