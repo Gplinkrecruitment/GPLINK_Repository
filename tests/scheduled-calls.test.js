@@ -297,4 +297,26 @@ describe('scheduled-calls helpers', () => {
       expect(result.encryptedToken).toMatch(/^[a-f0-9]{64}$/);
     });
   });
+
+  describe('buildRsoEmailFromOpts (send invite as the assigned RSO)', () => {
+    it('sets From + Reply-To for an @mygplink.com.au RSO', () => {
+      const { buildRsoEmailFromOpts } = require('../server-test-helpers.js');
+      const opts = buildRsoEmailFromOpts({ name: 'Hazel', email: 'hazel@mygplink.com.au' });
+      expect(opts.from).toEqual({ email: 'hazel@mygplink.com.au', name: 'Hazel (GP Link)' });
+      expect(opts.replyTo).toBe('hazel@mygplink.com.au');
+    });
+
+    it('sets only Reply-To for a non-mygplink RSO (e.g. a Gmail address)', () => {
+      const { buildRsoEmailFromOpts } = require('../server-test-helpers.js');
+      const opts = buildRsoEmailFromOpts({ name: 'Khaleed', email: 'khaleed@gmail.com' });
+      expect(opts.from).toBeUndefined();
+      expect(opts.replyTo).toBe('khaleed@gmail.com');
+    });
+
+    it('returns empty opts when there is no RSO / no email', () => {
+      const { buildRsoEmailFromOpts } = require('../server-test-helpers.js');
+      expect(buildRsoEmailFromOpts(null)).toEqual({});
+      expect(buildRsoEmailFromOpts({ name: 'X' })).toEqual({});
+    });
+  });
 });

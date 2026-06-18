@@ -56,6 +56,18 @@ function pickScheduledCallRso(roster, opts) {
   return rso || null;
 }
 
+// From/Reply-To options so an invite email is sent on behalf of the assigned RSO.
+// Keep IDENTICAL to the copy in server.js.
+function buildRsoEmailFromOpts(rso) {
+  const opts = {};
+  const addr = rso && rso.email ? String(rso.email).trim() : '';
+  if (addr) {
+    if (/@mygplink\.com\.au$/i.test(addr)) opts.from = { email: addr, name: (rso.name || 'GP Link') + ' (GP Link)' };
+    opts.replyTo = addr;
+  }
+  return opts;
+}
+
 // Pure builder/validator for rso_team writes (create or update). No DB access so it
 // can be unit-tested. Keep IDENTICAL to the copy in server.js.
 // In 'update' mode only the supplied fields are included (partial PATCH); in 'create'
@@ -202,8 +214,9 @@ module.exports = {
   mapCallStatusToTaskStatus,
   computeCallFailureOutcome,
   generateCorrelationToken,
-  buildScheduledCallInsertPayload,
   pickScheduledCallRso,
+  buildRsoEmailFromOpts,
+  buildScheduledCallInsertPayload,
   buildRsoWritePayload,
   buildScheduledCallNotificationPatch,
   getScheduledCallRegistrationTaskId,

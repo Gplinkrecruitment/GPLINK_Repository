@@ -522,6 +522,19 @@ function pickScheduledCallRso(roster, opts) {
   return rso || null;
 }
 
+// From/Reply-To options so an invite email is sent on behalf of the assigned RSO. We can only set
+// the From address for an @mygplink.com.au RSO (verified Resend domain); otherwise keep the GP Link
+// From and set Reply-To so replies still reach the RSO. Pure; keep IDENTICAL to server-test-helpers.js.
+function buildRsoEmailFromOpts(rso) {
+  const opts = {};
+  const addr = rso && rso.email ? String(rso.email).trim() : '';
+  if (addr) {
+    if (/@mygplink\.com\.au$/i.test(addr)) opts.from = { email: addr, name: (rso.name || 'GP Link') + ' (GP Link)' };
+    opts.replyTo = addr;
+  }
+  return opts;
+}
+
 function buildScheduledCallInsertPayload(input = {}) {
   const nowIso = input.nowIso || new Date().toISOString();
   return {
@@ -26136,23 +26149,13 @@ async function handleApi(req, res, pathname) {
     }
     if (notifyEmail && gpEmail) {
       const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, meetingReason);
-      // Send the invite "from" the assigned RSO. We can only set the From address when the RSO
-      // uses a @mygplink.com.au address (verified Resend domain); otherwise we keep the GP Link
-      // From and set Reply-To so replies still reach the RSO (e.g. an RSO on a Gmail address).
-      const rsoEmailOpts = {};
-      if (assignedRso && assignedRso.email) {
-        const rsoAddr = String(assignedRso.email).trim();
-        if (/@mygplink\.com\.au$/i.test(rsoAddr)) {
-          rsoEmailOpts.from = { email: rsoAddr, name: (assignedRso.name || 'GP Link') + ' (GP Link)' };
-        }
-        rsoEmailOpts.replyTo = rsoAddr;
-      }
+      // Send the invite "from" the assigned RSO (From when @mygplink, else Reply-To).
       emailResult = await sendEmail(Object.assign({
         to: gpEmail,
         subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage — GP Link",
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage.' + (meetingReason ? ' Reason: ' + meetingReason + '.' : '') + ' Please book a time: ' + bookingUrl
-      }, rsoEmailOpts));
+      }, buildRsoEmailFromOpts(assignedRso)));
     }
 
     // Update scheduled_calls with notification results
@@ -26290,10 +26293,16 @@ async function handleApi(req, res, pathname) {
         return;
       }
       const newToken = generateCorrelationToken();
-      const newBookingUrl = buildCalendlyBookingUrl(newToken);
+      // Re-resolve the GP's CURRENTLY assigned RSO so a reassignment is picked up on reschedule,
+      // and route the fresh booking link to that RSO's own Calendly event (falls back to global).
+      const rescheduleRoster = await loadRsoTeam({ includeInactive: true });
+      const rescheduleRso = pickScheduledCallRso(rescheduleRoster, { caseAssigneeUserId: await resolveCaseRsoAssignee(call.case_id) });
+      const newBookingUrl = buildCalendlyBookingUrl(newToken, rescheduleRso && rescheduleRso.calendly_event_url);
       patch.status = 'invited';
       patch.correlation_token = newToken;
       patch.calendly_booking_url = newBookingUrl;
+      patch.assigned_rso_email = rescheduleRso ? rescheduleRso.email : (call.assigned_rso_email || null);
+      patch.assigned_rso_name = rescheduleRso ? rescheduleRso.name : (call.assigned_rso_name || null);
       patch.scheduled_at = null;
       patch.booked_at = null;
       patch.timezone = null;
@@ -26319,7 +26328,7 @@ async function handleApi(req, res, pathname) {
       const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
       const notifications = {};
       if (gpPhone) notifications.whatsapp = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, newBookingUrl);
-      if (gpEmail) notifications.email = await sendEmail({ to: gpEmail, subject: 'Rescheduled: Book Your Zoom Assistance Call \u2014 GP Link', html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, newBookingUrl) });
+      if (gpEmail) notifications.email = await sendEmail(Object.assign({ to: gpEmail, subject: 'Rescheduled: Book Your Zoom Assistance Call \u2014 GP Link', html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, newBookingUrl, call.meeting_reason) }, buildRsoEmailFromOpts(rescheduleRso)));
       patch.notification_channels = notifications;
     }
 
@@ -26377,7 +26386,11 @@ async function handleApi(req, res, pathname) {
     const gpEmail = String(profile.email || '').trim();
     const gpPhone = String(profile.phone_number || profile.phone || '').trim();
     const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
-    const bookingUrl = call.calendly_booking_url || call.booking_url || '';
+    // Re-resolve the GP's CURRENTLY assigned RSO so a reassignment is reflected on resend, rebuilding
+    // the booking link from the existing correlation token + that RSO's own Calendly event.
+    const resendRoster = await loadRsoTeam({ includeInactive: true });
+    const resendRso = pickScheduledCallRso(resendRoster, { caseAssigneeUserId: await resolveCaseRsoAssignee(call.case_id) });
+    const bookingUrl = (call.correlation_token ? buildCalendlyBookingUrl(call.correlation_token, resendRso && resendRso.calendly_event_url) : '') || call.calendly_booking_url || call.booking_url || '';
 
     let waResult = { ok: false };
     let emailResult = { ok: false };
@@ -26385,22 +26398,26 @@ async function handleApi(req, res, pathname) {
       waResult = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, bookingUrl);
     }
     if (gpEmail) {
-      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl);
-      emailResult = await sendEmail({
+      const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, call.meeting_reason);
+      emailResult = await sendEmail(Object.assign({
         to: gpEmail,
         subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage (Reminder)',
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', a reminder that your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
-      });
+      }, buildRsoEmailFromOpts(resendRso)));
     }
 
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
       method: 'PATCH',
       headers: { Prefer: 'return=minimal' },
-      body: buildScheduledCallNotificationPatch(waResult, emailResult, {
+      body: Object.assign(buildScheduledCallNotificationPatch(waResult, emailResult, {
         whatsappRequested: !!gpPhone,
         emailRequested: !!gpEmail,
         resendCount: Number(call.resend_count || 0) + 1
+      }), {
+        calendly_booking_url: bookingUrl,
+        assigned_rso_email: resendRso ? resendRso.email : (call.assigned_rso_email || null),
+        assigned_rso_name: resendRso ? resendRso.name : (call.assigned_rso_name || null)
       })
     });
 
