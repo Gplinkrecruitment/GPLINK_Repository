@@ -1887,6 +1887,11 @@
       color: var(--gp-red-ink);
       border: 1px solid var(--gp-red-border);
     }
+    .intro-doc-status.rejected {
+      background: var(--gp-red-soft);
+      color: var(--gp-red-ink);
+      border: 1px solid var(--gp-red-border);
+    }
     .intro-doc-status.preparing {
       background: var(--gp-amber-soft);
       color: var(--gp-amber-ink);
@@ -2554,6 +2559,51 @@
       if (regSheet) regSheet.style.display = "";
     }
 
+    function escIntro(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    // Pull the authoritative server document state into the localStorage the intro
+    // reads (gp_documents_prep). Without this, a doc uploaded elsewhere (e.g. the My
+    // Documents page → server user_documents) is shown as "Missing" here, because the
+    // intro only ever saw this device's local cache. A doc the server has is marked
+    // uploaded (+ its real status, so a rejected doc shows "Rejected", not "Missing").
+    async function syncIntroPreparedDocsFromServer(country) {
+      var cc = (country || "").toLowerCase();
+      if (cc === "gb") cc = "uk";
+      try {
+        var resp = await fetch("/api/prepared-documents?country=" + encodeURIComponent(cc), { credentials: "same-origin" });
+        if (!resp.ok) return false;
+        var data = await resp.json().catch(function() { return {}; });
+        if (!data || !data.ok || !data.docs || typeof data.docs !== "object") return false;
+        var state = readJsonStorage(DOC_KEY, { docs: {}, country: cc }) || { docs: {}, country: cc };
+        if (!state.docs || typeof state.docs !== "object") state.docs = {};
+        var changed = false;
+        Object.keys(data.docs).forEach(function(key) {
+          var info = data.docs[key] || {};
+          var hasFile = !!(info.downloadUrl || info.fileName || info.storagePath);
+          if (!hasFile) return;
+          var cur = state.docs[key] || {};
+          state.docs[key] = {
+            ...cur,
+            uploaded: true,
+            status: info.status || cur.status || "under_review",
+            fileName: info.fileName || cur.fileName || "",
+            rejection_reason: typeof info.rejection_reason === "string" ? info.rejection_reason : (cur.rejection_reason || ""),
+            downloadUrl: info.downloadUrl || cur.downloadUrl || ""
+          };
+          changed = true;
+        });
+        if (changed) {
+          state.updatedAt = new Date().toISOString();
+          try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
+        }
+        return changed;
+      } catch (e) {
+        return false;
+      }
+    }
+
     function getIncompleteDocsForIntro(country) {
       var countryKey = (country || "").toLowerCase();
       if (countryKey === "gb") countryKey = "uk";
@@ -2577,11 +2627,15 @@
         }
       });
 
-      // Prepared docs: complete if uploaded
+      // Prepared docs: a rejected doc must be re-uploaded (show "Rejected", not
+      // "Missing"); any other uploaded doc (under review / accepted) counts as done.
+      // Presence is synced from the server first (syncIntroPreparedDocsFromServer) so a
+      // doc uploaded elsewhere (e.g. My Documents) is never falsely shown as missing.
       (cfg.prepared || []).forEach(function(doc) {
         var d = docs[doc.key] || {};
-        var isDone = d.uploaded;
-        if (!isDone) {
+        if (d.status === "rejected") {
+          incomplete.push({ key: doc.key, title: doc.title, help: doc.help, group: "prepared", status: "rejected", rejection_reason: d.rejection_reason || "" });
+        } else if (!d.uploaded) {
           incomplete.push({ key: doc.key, title: doc.title, help: doc.help, group: "prepared", status: "missing" });
         }
       });
@@ -2629,8 +2683,8 @@
           html += '<div class="intro-doc-group-label">' + groupLabels[currentGroup] + '</div>';
         }
 
-        var statusClass = doc.status === "preparing" ? "preparing" : "missing";
-        var statusLabel = doc.status === "preparing" ? "Preparing" : "Missing";
+        var statusClass = doc.status === "preparing" ? "preparing" : (doc.status === "rejected" ? "rejected" : "missing");
+        var statusLabel = doc.status === "preparing" ? "Preparing" : (doc.status === "rejected" ? "Rejected" : "Missing");
 
         html += '<div class="intro-doc-card" id="introDocCard_' + doc.key + '" data-doc-key="' + doc.key + '" data-doc-group="' + doc.group + '">';
         html += '  <div class="intro-doc-card-top">';
@@ -2653,10 +2707,13 @@
           }
           html += '  </div>';
         } else {
+          if (doc.status === "rejected") {
+            html += '  <p class="intro-doc-desc" style="color:var(--gp-red-ink);">Rejected — please upload a corrected copy.' + (doc.rejection_reason ? ' ' + escIntro(doc.rejection_reason) : '') + '</p>';
+          }
           html += '  <div class="intro-doc-actions">';
           html += '    <label class="intro-upload-btn" style="cursor:pointer;">';
           html += '      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
-          html += '      Upload Document';
+          html += '      ' + (doc.status === "rejected" ? "Re-upload Document" : "Upload Document");
           html += '      <input type="file" accept="image/*,.pdf" data-intro-upload="' + doc.key + '" style="display:none;" />';
           html += '    </label>';
           if (doc.help) {
@@ -5075,6 +5132,18 @@
 
       renderIntroCta(introIncompleteDocs);
       renderIntroDocsList(introIncompleteDocs);
+
+      // Reconcile with the authoritative server document state, then re-render so a
+      // doc uploaded elsewhere (e.g. on My Documents) is no longer shown as "Missing",
+      // and a rejected doc shows "Rejected" with a Re-upload action instead.
+      if (introParam !== "ready") {
+        syncIntroPreparedDocsFromServer(country).then(function(changed) {
+          if (!changed) return;
+          introIncompleteDocs = getIncompleteDocsForIntro(country);
+          renderIntroCta(introIncompleteDocs);
+          renderIntroDocsList(introIncompleteDocs);
+        });
+      }
 
       introEl.style.display = "";
 
