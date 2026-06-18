@@ -734,6 +734,47 @@
       color: var(--gp-green-ink);
     }
 
+    /* Rejected document: the original file shown crossed-out but still downloadable. */
+    .doc-rejected-file {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      padding: 8px 12px;
+      border-radius: var(--gp-r-sm);
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px dashed var(--gp-red-border);
+      background: var(--gp-red-soft);
+      color: var(--gp-red-ink);
+      text-decoration: none;
+      transition: background-color var(--gp-dur-fast) var(--gp-ease);
+    }
+    .doc-rejected-file:hover { background: var(--gp-red-border); }
+    .doc-rejected-file svg {
+      width: 14px; height: 14px; flex: none;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .doc-rejected-file .file-name {
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+      opacity: 0.8;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Rejected document: "Upload required" + the reviewer's reason. */
+    .doc-reject-note {
+      color: var(--gp-red-ink);
+      font-size: 13px;
+      line-height: 1.45;
+      font-weight: 500;
+      margin: 8px 0 0;
+    }
+    .doc-reject-note strong { font-weight: 700; }
+
     .cert-scan-btn svg {
       stroke-linecap: round;
       stroke-linejoin: round;
@@ -1895,6 +1936,12 @@
       next.downloadUrl = typeof payload.downloadUrl === "string" ? payload.downloadUrl : next.downloadUrl;
       next.storagePath = typeof payload.storagePath === "string" ? payload.storagePath : next.storagePath;
       next.storageBucket = typeof payload.storageBucket === "string" ? payload.storageBucket : next.storageBucket;
+      // The server is authoritative for the review status and the reviewer's rejection
+      // reason. Without carrying these, an RSO approval/rejection never reaches the GP —
+      // the card stays stuck on the locally-cached "under review".
+      if (typeof payload.status === "string" && payload.status) next.status = payload.status;
+      if (typeof payload.rejection_reason === "string") next.rejection_reason = payload.rejection_reason;
+      if (next.fileName || next.downloadUrl || next.storagePath) next.uploaded = true;
       return next;
     }
 
@@ -2175,6 +2222,16 @@
         var uploadHtml;
         if (itemState.status === "scanning") {
           uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> ' + (needsCert ? 'Verifying certification...' : 'Checking document...') + '</div>';
+        } else if (itemState.status === "rejected") {
+          // Rejected by review: offer a Re-upload button, and keep the rejected file
+          // available (crossed out) so the GP can still download it if they want.
+          var reuploadBtn = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Re-upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+          var rejectedFileHtml = "";
+          if (itemState.fileName) {
+            var rejAttrs = itemState.downloadUrl ? 'href="' + itemState.downloadUrl + '" download="' + escapeHtml(itemState.fileName) + '"' : 'href="#" onclick="return false;" aria-disabled="true"';
+            rejectedFileHtml = '<a class="doc-rejected-file" ' + rejAttrs + ' title="Rejected file — click to download"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9.5" y1="13" x2="14.5" y2="18"></line><line x1="14.5" y1="13" x2="9.5" y2="18"></line></svg><span class="file-name">' + escapeHtml(itemState.fileName) + '</span></a>';
+          }
+          uploadHtml = reuploadBtn + rejectedFileHtml;
         } else if (itemState.uploaded) {
           uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
         } else if (needsCert) {
@@ -2185,8 +2242,9 @@
           uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
         }
         var rejectionHtml = "";
-        if (itemState.status === "rejected" && itemState.rejection_reason) {
-          rejectionHtml = '<p style="color:var(--gp-amber-ink);font-size:13px;margin:6px 0 0;font-weight:500;">' + escapeHtml(itemState.rejection_reason) + '</p>';
+        if (itemState.status === "rejected") {
+          var rejectReason = itemState.rejection_reason ? escapeHtml(itemState.rejection_reason) : "This document was rejected. Please upload a corrected copy.";
+          rejectionHtml = '<p class="doc-reject-note"><strong>Upload required.</strong> ' + rejectReason + '</p>';
         }
         var card = document.createElement("div");
         card.className = "doc-card";

@@ -4152,6 +4152,9 @@ function mapPreparedDocumentRow(row, signedUrl = '') {
       : (typeof row.file_url === 'string' ? row.file_url : ''),
     downloadUrl: signedUrl,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
+    // Authoritative review status (so the GP's "You Prepare" view reflects an RSO
+    // approval/rejection instead of staying on the locally-cached "under review").
+    status: toStatusLabel(row.status, !!(row.storage_path || row.file_url)),
     rejection_reason: row.rejection_reason || '',
     ai_classification_confidence: row.ai_classification_confidence != null ? row.ai_classification_confidence : null,
     ai_classification_result: row.ai_classification_result || '',
@@ -39507,6 +39510,8 @@ module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   buildRsoWritePayload,
+  mapPreparedDocumentRow,
+  toStatusLabel,
   applyQualificationNameMatchPolicy,
   canonicalQualKey,
   isQualificationDocKey,
