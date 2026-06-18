@@ -3367,7 +3367,9 @@
         var isCurrentOrPast = group.stage === 'other' || stageIdx <= currentIdx || currentIdx === -1;
         var isFuture = !isCurrentOrPast && stageIdx > currentIdx && currentIdx !== -1;
 
-        html += '<div class="stage-group' + (isFuture ? ' locked' : '') + '">';
+        // Match the RSO/admin view (admin.html:2698): mute the label + show an "Upcoming"
+        // badge for future stages, but do NOT freeze the card — the tasks stay clickable.
+        html += '<div class="stage-group">';
         html += '<div class="stage-group-header">';
         html += '<div class="sg-dot ' + (isFuture ? 'locked' : 'active') + '"></div>';
         html += '<div class="sg-label ' + (isFuture ? 'locked' : 'active') + '">' + esc(label) + '</div>';
@@ -5328,7 +5330,13 @@
           board.innerHTML = '<div class="ceo-calls-section-head">Scheduled Calls</div><div class="ceo-calls-empty">Failed to load calls: ' + esc((d && d.message) || 'Unknown error') + '</div>';
           return;
         }
-        var calls = d.calls || [];
+        // Hide abandoned booking drafts (cancelled, never scheduled, never booked) — the same
+        // cleanup applied to the per-GP Calls tab (3e7e72c). They have no name/date/email and
+        // only surface here as junk "Unknown GP / Past & other" rows. Filter BEFORE the header
+        // count so the count keeps matching the rows shown.
+        var calls = (d.calls || []).filter(function(call) {
+          return !((call.status || '').toLowerCase() === 'cancelled' && !call.scheduled_at && !call.booked_at);
+        });
         var head = '<div class="ceo-calls-section-head">Scheduled Calls <span class="count">' + calls.length + '</span></div>';
         if (!calls.length) { board.innerHTML = head + '<div class="ceo-calls-empty">No scheduled calls for this RSO.</div>'; return; }
 
@@ -5388,7 +5396,10 @@
             html += '<span class="ceo-calls-time">' + esc(timeLabel) + '</span>';
             html += callStatusPill(c2.status);
             html += '<div class="ceo-calls-actions">';
-            if (c2.zoom_join_url) {
+            // Only offer "Join" for calls that are still joinable (upcoming/booked or
+            // awaiting booking) — a completed/cancelled/no-show call keeps its link but
+            // can't be joined.
+            if (c2.zoom_join_url && ['booked', 'invited'].indexOf((c2.status || '').toLowerCase()) !== -1) {
               html += '<a class="ceo-calls-join" href="' + esc(c2.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
             }
             html += '</div>';
