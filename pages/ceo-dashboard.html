@@ -3383,6 +3383,13 @@
         html += '</div>';
 
         group.tasks.forEach(function(t) {
+          // Unified call task: render the rich call card (parity with admin.html's
+          // renderZoomTaskCard) instead of a generic "Complete" row. Emit a placeholder now;
+          // fillCeoZoomTaskCards() hydrates it with the call details + actions after render.
+          if (t.task_type === 'zoom_call') {
+            html += '<div data-ceo-zoom-task="' + esc(t.id) + '" data-task-row="' + esc(t.id) + '" style="margin-bottom:6px"><div style="font-size:11px;color:var(--text-muted);padding:6px 0">Loading call&hellip;</div></div>';
+            return;
+          }
           var guided = getGuidedAction(t);
           var isWaiting = t.status === 'waiting_on_practice' || t.status === 'waiting_on_gp' || t.status === 'waiting_on_external';
           var waitingDays = isWaiting && t.updated_at ? Math.floor((Date.now() - new Date(t.updated_at).getTime()) / 86400000) : 0;
@@ -3500,6 +3507,39 @@
 
       html += '<div style="margin-top:12px"><button class="btn" onclick="openCreateTaskModal(\'' + esc((gpDetailCache && gpDetailCache.caseId) || '') + '\', \'' + esc(cs.gp_name || '') + '\')">+ Add Task</button></div>';
       pane.innerHTML = html;
+      fillCeoZoomTaskCards();
+    }
+
+    // Hydrate zoom_call task placeholders on the Tasks pane with the rich call card
+    // (renderGpCallCard) — parity with admin.html's fillZoomTaskCards (9276). Fetches the
+    // case's calls and fills each placeholder with the most-recent call for that task.
+    function fillCeoZoomTaskCards() {
+      if (!document.querySelector('[data-ceo-zoom-task]')) return;
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!caseId) return;
+      apiFetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId)).then(function(d) {
+        var calls = (d && d.ok && Array.isArray(d.calls)) ? d.calls : [];
+        var byTask = {};
+        calls.forEach(function(call) {
+          var tid = call.registration_task_id;
+          if (!tid) return;
+          var prev = byTask[tid];
+          if (!prev || String(call.created_at || '') > String(prev.created_at || '')) byTask[tid] = call;
+        });
+        document.querySelectorAll('[data-ceo-zoom-task]').forEach(function(ph) {
+          var call = byTask[ph.getAttribute('data-ceo-zoom-task')];
+          if (call) {
+            var stageDisp = STAGE_LABELS[call.stage] || call.stage || '';
+            ph.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:2px 0 6px">Zoom Assistance Call' + (stageDisp ? ' &mdash; ' + esc(stageDisp) : '') + '</div>' + renderGpCallCard(call);
+          } else {
+            ph.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:6px 0">No scheduled call found yet.</div>';
+          }
+        });
+      }).catch(function() {
+        document.querySelectorAll('[data-ceo-zoom-task]').forEach(function(ph) {
+          ph.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:6px 0">Could not load call.</div>';
+        });
+      });
     }
 
     // Email-triage expanded panel markup (port of admin renderGpTasksPane 2797–2831, dark).
@@ -4799,7 +4839,7 @@
       html += callStatusPill(c.status);
       if (c.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[c.stage] || c.stage) + '</span>';
       html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
-      if (c.zoom_join_url) {
+      if (c.zoom_join_url && ['booked', 'invited'].indexOf((c.status || '').toLowerCase()) !== -1) {
         html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
       }
       html += '</div>';
@@ -4970,7 +5010,9 @@
       apiFetch(opts.path, opts.fetchOpts).then(function(d) {
         if (d && d.ok) {
           showToast(opts.successMsg, 'success');
-          refreshGpDetailCalls();
+          // Refresh whichever pane is showing — the call card lives on both the Calls tab
+          // and (as a zoom_call task) the Tasks tab.
+          if (gpDetailTab === 'tasks') { refreshGpDetailTasks(); } else { refreshGpDetailCalls(); }
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
           if (btn) btn.disabled = false;
@@ -5340,10 +5382,10 @@
         var head = '<div class="ceo-calls-section-head">Scheduled Calls <span class="count">' + calls.length + '</span></div>';
         if (!calls.length) { board.innerHTML = head + '<div class="ceo-calls-empty">No scheduled calls for this RSO.</div>'; return; }
 
-        // Group: Upcoming (booked/invited with a future scheduled_at), Awaiting booking
-        // (invited with no scheduled time), Completed (status completed), and a catch-all
-        // "Past & other" for everything else (cancelled, no-show, past-booked, etc.) so
-        // EVERY counted call is shown — the header count must never disagree with the body.
+        // Group calls by state. This board is an "ops / what-needs-doing" view, so it renders
+        // only the actionable groups (Upcoming + Awaiting booking) and the header count matches
+        // exactly those shown. Completed/cancelled/no-show are computed but NOT rendered here —
+        // they're history and live on the per-GP file's Calls tab.
         var now = Date.now();
         var groups = { upcoming: [], awaiting: [], completed: [], other: [] };
         for (var i = 0; i < calls.length; i++) {
@@ -5364,10 +5406,11 @@
 
         var sections = [
           { key: 'upcoming', title: 'Upcoming', items: groups.upcoming },
-          { key: 'awaiting', title: 'Awaiting booking', items: groups.awaiting },
-          { key: 'completed', title: 'Completed', items: groups.completed },
-          { key: 'other', title: 'Past &amp; other', items: groups.other }
+          { key: 'awaiting', title: 'Awaiting booking', items: groups.awaiting }
         ];
+        // Header count reflects only the actionable calls actually shown.
+        var shownCount = groups.upcoming.length + groups.awaiting.length;
+        head = '<div class="ceo-calls-section-head">Scheduled Calls <span class="count">' + shownCount + '</span></div>';
 
         var html = head;
         var rendered = 0;
@@ -5407,7 +5450,7 @@
           }
           html += '</div></div>';
         }
-        if (!rendered) { board.innerHTML = head + '<div class="ceo-calls-empty">No upcoming, awaiting, or completed calls for this RSO.</div>'; return; }
+        if (!rendered) { board.innerHTML = head + '<div class="ceo-calls-empty">No upcoming or awaiting calls for this RSO.</div>'; return; }
         board.innerHTML = html;
       }).catch(function(e) {
         var board = document.getElementById('ceoCallsBoard');
