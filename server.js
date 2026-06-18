@@ -6309,11 +6309,28 @@ const PAGE_STAGE_MAP = {
   '/pages/commencement.html': 'commencement'
 };
 
+// Pure stage-gate decision (testable). Visa, AHPRA and Career are ALWAYS accessible:
+// visa = the always-on 482→186 info page (docs/deferred-visa-application.md); AHPRA
+// renders its own prerequisite gateway; Career is placement context. Every other stage
+// honours gp_registration_return_overrides — a stage absent from the overrides (or no
+// overrides at all) follows natural progression and is allowed.
+function stageGateDecision(stage, overrides, isBypass) {
+  if (!stage) return true;
+  if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
+  if (isBypass) return true;
+  if (!overrides || typeof overrides !== 'object') return true;
+  if (!(stage in overrides)) return true;
+  return overrides[stage] === true;
+}
+
 async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
   if (!stage) return true; // Not a gated page
-  if (stage === 'career') return true; // My Practice is placement context, not a registration lock.
-  if (stage === 'ahpra') return true; // AHPRA renders its own prerequisite gateway; do not redirect the shell iframe.
+  // Always-accessible stages — short-circuit before any DB read. visa MUST be here:
+  // stage-advance writes overrides.visa=false for every GP before the visa stage
+  // (visa is STAGE_ORDER index 5), yet the journey's Visa card is always unlocked, so
+  // without this the card dead-ends on /pages/index via the shell-iframe redirect.
+  if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
 
   if (isBypassLockEmail(email)) return true;
 
@@ -6330,10 +6347,7 @@ async function isStageAccessAllowed(email, pathname) {
   var overrides = userState.gp_registration_return_overrides;
   if (typeof overrides === 'string') try { overrides = JSON.parse(overrides); } catch(e) { overrides = null; }
 
-  if (!overrides || typeof overrides !== 'object') return true; // No overrides set — natural flow
-
-  if (!(stage in overrides)) return true; // Stage not in overrides — allow natural progression
-  return overrides[stage] === true;
+  return stageGateDecision(stage, overrides, false);
 }
 
 function isAppShellSupportedPath(pathname) {
@@ -39512,6 +39526,7 @@ module.exports.__testUtils = {
   buildRsoWritePayload,
   mapPreparedDocumentRow,
   toStatusLabel,
+  stageGateDecision,
   applyQualificationNameMatchPolicy,
   canonicalQualKey,
   isQualificationDocKey,
