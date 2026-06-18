@@ -16194,6 +16194,54 @@ function formatContractPercentValue(value) {
   return `${normalized}%`;
 }
 
+// The billing "Split" we display must always be the GP/doctor's share, never the
+// practice's. In GP placements the doctor always takes the majority share and the
+// practice keeps the minority (its service/management fee), so the GP's number is
+// always the higher one. When a bare minority percentage leaks through extraction
+// (e.g. the contract states the practice's 35% cut), flip it to the GP's share.
+function ensureGpShareSplitDisplay(value) {
+  const normalized = normalizeContractSplitDisplay(value);
+  if (!normalized) return '';
+  // Slash format "X/Y" — show the higher side (the GP's share), regardless of order.
+  const slashMatch = normalized.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+  if (slashMatch) {
+    const higher = Math.max(Number(slashMatch[1]), Number(slashMatch[2]));
+    return formatContractPercentValue(higher) || normalized;
+  }
+  // Single percentage — a sub-50 value is the practice's cut, so show the complement.
+  const percentMatch = normalized.match(/^(\d{1,2}(?:\.\d+)?)\s*%$/);
+  if (percentMatch) {
+    const pct = Number(percentMatch[1]);
+    if (Number.isFinite(pct) && pct > 0 && pct < 50) {
+      return formatContractPercentValue(100 - pct) || normalized;
+    }
+  }
+  return normalized;
+}
+
+// Correct the GP "Split" inside an already-built placement payload. The whole
+// payload is cached in runtime KV, so payloads built before the GP-share rule
+// existed still carry the practice's minority cut in quickStats / compensation.
+// Applying this when a cached payload is read means stale entries (e.g. Dr Sana's
+// 35%) self-heal to the GP share on the next page load — no re-enrichment needed.
+function applyGpShareToPlacementPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const fixSplit = (entry, label) => {
+    if (!entry || entry.label !== label) return;
+    const value = String(entry.value || '');
+    if (!value || value === 'Pending') return;
+    const corrected = ensureGpShareSplitDisplay(value);
+    if (corrected) entry.value = corrected;
+  };
+  if (Array.isArray(payload.quickStats)) {
+    payload.quickStats.forEach((stat) => fixSplit(stat, 'Split'));
+  }
+  if (payload.compensation && Array.isArray(payload.compensation.facts)) {
+    payload.compensation.facts.forEach((fact) => fixSplit(fact, 'Billing split'));
+  }
+  return payload;
+}
+
 function formatContractCurrencyAmount(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return '';
@@ -16320,7 +16368,7 @@ function finalizeCareerContractTerms(rawTerms, extractedText) {
     normalizeContractCurrencyDisplay
   ) || derivedRelocationPackage || mergedRelocation;
   return {
-    splitDisplay: derivedDoctorShare || normalizeContractSplitDisplay(terms.splitDisplay),
+    splitDisplay: ensureGpShareSplitDisplay(derivedDoctorShare || normalizeContractSplitDisplay(terms.splitDisplay)),
     relocationPackageDisplay: finalRelocation,
     contractLengthDisplay: normalizeContractLengthDisplay(terms.contractLengthDisplay),
     notes: String(terms.notes || '').trim()
@@ -18935,7 +18983,7 @@ async function buildCareerPlacementPayload({
   if (placementCacheKey && !skipContractCache) {
     const cached = await getRuntimeKv(placementCacheKey).catch(() => null);
     if (cached && cached.value && typeof cached.value === 'object' && cached.value.practiceName) {
-      return cached.value;
+      return applyGpShareToPlacementPayload(cached.value);
     }
   }
 
@@ -18951,7 +18999,9 @@ async function buildCareerPlacementPayload({
     || normalizeCareerBillingLabel(getZohoField(applicationRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(roleRow && roleRow.billing_model)
     || 'Billing pending';
-  const splitDisplay = (contractTerms && contractTerms.splitDisplay) || fallbackTerms.splitDisplay || 'Pending';
+  // Always surface the GP's share (the higher number), even for values cached before
+  // this rule existed or extracted by the heuristic without flipping the practice's cut.
+  const splitDisplay = ensureGpShareSplitDisplay((contractTerms && contractTerms.splitDisplay) || fallbackTerms.splitDisplay) || 'Pending';
   const relocationDisplay = (contractTerms && contractTerms.relocationPackageDisplay) || fallbackTerms.relocationPackageDisplay || 'Pending';
   const contractLengthDisplay = (contractTerms && contractTerms.contractLengthDisplay) || fallbackTerms.contractLengthDisplay || 'Pending';
   const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
