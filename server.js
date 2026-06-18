@@ -6256,6 +6256,32 @@ function shouldProtectPath(pathname) {
   );
 }
 
+// Build a /pages/signin redirect that preserves where the user was trying to go,
+// so deep links (e.g. a document re-upload link from an email) survive the
+// unauthenticated sign-in bounce. pages/signin.html reads ?next= and returns the
+// user there after login. Only safe internal /pages/ destinations are preserved
+// (mirrors the client-side validation in signin.html); the default dashboard and
+// the sign-in page itself are never used as the next target.
+function buildSigninRedirect(url) {
+  try {
+    var rawPath = url && url.pathname ? url.pathname : '';
+    var rawSearch = url && url.search ? url.search : '';
+    var parsed = new URL(rawPath + rawSearch, 'http://internal');
+    // Drop app-shell embed params so next points at a clean top-level page;
+    // the app shell re-wraps it after login.
+    parsed.searchParams.delete('gp_shell');
+    parsed.searchParams.delete('gp_shell_static');
+    var dest = parsed.pathname + parsed.search;
+    if (/^\/pages\//.test(dest) &&
+        !/^\/\//.test(dest) &&
+        dest.indexOf('/pages/index') !== 0 &&
+        dest.indexOf('/pages/signin') !== 0) {
+      return '/pages/signin?next=' + encodeURIComponent(dest);
+    }
+  } catch (e) {}
+  return '/pages/signin';
+}
+
 function mapRegistrationPath(pathname) {
   const parts = String(pathname || '').split('/').filter(Boolean);
   if (parts.length < 3 || parts[0] !== 'registration') return null;
@@ -39336,7 +39362,7 @@ async function handleRequest(req, res) {
     pathname === '/favicon.ico';
 
   if (shouldProtectPath(pathname) && !session && !adminSession) {
-    res.writeHead(302, { Location: '/pages/signin' });
+    res.writeHead(302, { Location: buildSigninRedirect(url) });
     res.end();
     return;
   }
@@ -39425,7 +39451,7 @@ async function handleRequest(req, res) {
       serveStatic(req, res, pathname);
       return;
     }
-    res.writeHead(302, { Location: '/pages/signin' });
+    res.writeHead(302, { Location: buildSigninRedirect(url) });
     res.end();
     return;
   }
