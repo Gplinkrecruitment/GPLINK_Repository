@@ -161,6 +161,54 @@ describe('scheduled-calls helpers', () => {
     });
   });
 
+  describe('pickScheduledCallRso (assigned-RSO auto-host + CEO override)', () => {
+    const roster = [
+      { user_id: 'rso-hazel', name: 'Hazel', email: 'hazel@mygplink.com.au' },
+      { user_id: 'rso-omar', name: 'Omar', email: 'omar@mygplink.com.au' },
+      { user_id: 'rso-priya', name: 'Priya', email: 'priya@mygplink.com.au' }
+    ];
+
+    it('honors an explicit RSO email when the requester is a CEO/super-admin', () => {
+      const { pickScheduledCallRso } = require('../server-test-helpers.js');
+      const rso = pickScheduledCallRso(roster, {
+        explicitEmail: 'Omar@MyGPLink.com.au',
+        isCeo: true,
+        caseAssigneeUserId: 'rso-hazel'
+      });
+      expect(rso && rso.user_id).toBe('rso-omar');
+    });
+
+    it('ignores an explicit RSO email for a non-CEO and uses the case assignee', () => {
+      const { pickScheduledCallRso } = require('../server-test-helpers.js');
+      const rso = pickScheduledCallRso(roster, {
+        explicitEmail: 'omar@mygplink.com.au',
+        isCeo: false,
+        caseAssigneeUserId: 'rso-hazel'
+      });
+      expect(rso && rso.user_id).toBe('rso-hazel');
+    });
+
+    it('falls back to the case assignee when no explicit email is supplied', () => {
+      const { pickScheduledCallRso } = require('../server-test-helpers.js');
+      const rso = pickScheduledCallRso(roster, {
+        explicitEmail: '',
+        isCeo: true,
+        caseAssigneeUserId: 'rso-priya'
+      });
+      expect(rso && rso.user_id).toBe('rso-priya');
+    });
+
+    it('returns null when nothing matches', () => {
+      const { pickScheduledCallRso } = require('../server-test-helpers.js');
+      const rso = pickScheduledCallRso(roster, {
+        explicitEmail: 'nobody@mygplink.com.au',
+        isCeo: true,
+        caseAssigneeUserId: 'rso-unknown'
+      });
+      expect(rso).toBe(null);
+    });
+  });
+
   describe('verifyCalendlySignature', () => {
     const secret = 'test-calendly-webhook-secret';
 

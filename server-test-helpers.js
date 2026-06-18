@@ -43,6 +43,19 @@ function buildScheduledCallInsertPayload(input = {}) {
   };
 }
 
+// Pick which RSO hosts a scheduled call. Pure (no DB) so it can be unit-tested.
+// Keep IDENTICAL to the copy in server.js.
+// opts: { explicitEmail, isCeo, caseAssigneeUserId }
+//   - An explicit RSO email is ONLY honored for a CEO/super-admin requester.
+//   - Otherwise (or when no honored email matches) fall back to the GP's assigned RSO.
+function pickScheduledCallRso(roster, opts) {
+  const list = Array.isArray(roster) ? roster : [];
+  const email = opts && opts.isCeo ? String(opts.explicitEmail || '').trim().toLowerCase() : '';
+  let rso = email ? list.find(r => String(r.email || '').toLowerCase() === email) : null;
+  if (!rso && opts && opts.caseAssigneeUserId) rso = list.find(r => r.user_id === opts.caseAssigneeUserId) || null;
+  return rso || null;
+}
+
 // Pure builder/validator for rso_team writes (create or update). No DB access so it
 // can be unit-tested. Keep IDENTICAL to the copy in server.js.
 // In 'update' mode only the supplied fields are included (partial PATCH); in 'create'
@@ -190,6 +203,7 @@ module.exports = {
   computeCallFailureOutcome,
   generateCorrelationToken,
   buildScheduledCallInsertPayload,
+  pickScheduledCallRso,
   buildRsoWritePayload,
   buildScheduledCallNotificationPatch,
   getScheduledCallRegistrationTaskId,

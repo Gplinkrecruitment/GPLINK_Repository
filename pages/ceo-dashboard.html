@@ -1074,6 +1074,12 @@
     .ceo-gp-call-summary { margin-top: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--panel-border); border-radius: var(--radius-sm, 6px); white-space: pre-wrap; word-break: break-word; }
     .ceo-gp-call-summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
     .ceo-gp-call-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    /* Nested sub-tab bar inside the Calls pane — lighter than the main GP-detail tabs. */
+    .ceo-call-subtabs { display: flex; gap: 4px; margin: 4px 0 14px; }
+    .ceo-call-subtab { padding: 5px 12px; font-size: 12px; font-weight: 600; font-family: var(--sans); color: var(--text-muted); background: transparent; border: 1px solid var(--panel-border); border-radius: 999px; cursor: pointer; transition: all 0.15s; }
+    .ceo-call-subtab:hover { color: var(--text); border-color: var(--panel-border-hover); }
+    .ceo-call-subtab.active { color: #fff; background: var(--blue); border-color: var(--blue); }
+    .ceo-call-subtab .count { margin-left: 5px; font-size: 11px; opacity: 0.85; }
 
     /* ═══ RESPONSIVE ═══ */
     @media (max-width: 1100px) {
@@ -2932,6 +2938,9 @@
     var gpTimelineCache = null; // Timeline sub-tab: { caseId, events:[] } fetched once per GP file.
     var gpDocumentsCache = null; // Documents sub-tab: { caseId, sections:[], driveFolder } fetched once per GP file.
     var gpCallsCache = null; // Calls sub-tab: { caseId, calls:[] } fetched once per GP file.
+    // Nested sub-tab inside the Calls pane: 'upcoming' (invited/booked), 'past'
+    // (completed/no_show/cancelled), or 'summary' (completed calls with a meeting_summary).
+    var gpCallsSubTab = 'upcoming';
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
     function openGpDetail(caseId, rsoId) {
@@ -2941,6 +2950,7 @@
       gpTasksShowAll = false;
       gpTimelineCache = null;
       gpDocumentsCache = null;
+      gpCallsSubTab = 'upcoming';
       apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
@@ -4772,70 +4782,124 @@
       }).catch(function(e) { if (err) { err.textContent = 'Network error: ' + e.message; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; });
     }
 
-    // Render this GP file's call history newest-first. Each row shows a status pill,
+    // Render this GP file's call history newest-first. Each card shows a status pill,
     // scheduled time, assigned RSO, admin notes, a meeting summary for completed calls,
     // a Join link when a zoom_join_url is present, plus per-call actions (resend/cancel/
     // reschedule/no-show) gated by status to match admin.html. The endpoint returns calls
     // already ordered created_at.desc (newest-first).
+    // Render a single call card using the existing per-call markup. Reused by both the
+    // Upcoming and Past sub-tabs so the field displays + status-gated actions stay identical.
+    function renderGpCallCard(c) {
+      var html = '';
+      var timeLabel = c.scheduled_at ? fmtCallTime(c.scheduled_at) : 'Not yet booked';
+      html += '<div class="ceo-gp-call">';
+      html += '<div class="ceo-gp-call-head">';
+      html += callStatusPill(c.status);
+      if (c.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[c.stage] || c.stage) + '</span>';
+      html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
+      if (c.zoom_join_url) {
+        html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
+      }
+      html += '</div>';
+      if (c.assigned_rso_name) {
+        html += '<div class="ceo-gp-call-rso">RSO: ' + esc(c.assigned_rso_name) + '</div>';
+      }
+      if (c.invitee_notes) {
+        html += '<div class="ceo-gp-call-notes"><span style="color:var(--text-muted);font-weight:600">GP&rsquo;s booking notes:</span> ' + esc(c.invitee_notes) + '</div>';
+      }
+      // GP-VISIBLE reason for the meeting — distinct tinted box, shown before the
+      // internal admin notes so the two are never confused.
+      if (c.meeting_reason) {
+        html += '<div class="ceo-gp-call-notes" style="margin-top:8px;padding:8px 10px;background:rgba(56,139,253,0.10);border:1px solid rgba(56,139,253,0.30);border-radius:var(--radius-sm,6px)"><span style="color:var(--blue,#388bfd);font-weight:600">Reason for meeting:</span> ' + esc(c.meeting_reason) + '</div>';
+      }
+      if (c.admin_notes) {
+        html += '<div class="ceo-gp-call-notes"><span class="pill pill-muted" style="font-size:9px;margin-right:6px;vertical-align:middle">INTERNAL</span>' + esc(c.admin_notes) + '</div>';
+      }
+      if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
+        html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';
+      }
+      // Per-call actions, gated by status to match admin.html (the backend rejects a
+      // cancel unless status is invited/booked; no_show + cancelled are "needs
+      // rebooking" states). Resend only for invited; No Show only for booked.
+      var cs = (c.status || '').toLowerCase();
+      var cid = esc(c.id);
+      var actions = '';
+      if (cs === 'invited' || cs === 'booked') {
+        if (cs === 'invited') actions += '<button class="btn btn-blue" onclick="ceoGpCallResend(event, \'' + cid + '\')">Resend invite</button>';
+        actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
+        if (cs === 'booked') {
+          actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
+          actions += '<button class="btn btn-amber" onclick="ceoGpCallNoShow(event, \'' + cid + '\')">No Show</button>';
+        }
+      } else if (cs === 'no_show' || cs === 'cancelled') {
+        actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
+        // Server now permits cancelling a no_show row (already-cancelled rows skip it).
+        if (cs === 'no_show') actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
+      }
+      if (actions) html += '<div class="ceo-gp-call-actions">' + actions + '</div>';
+      html += '</div>';
+      return html;
+    }
+
+    // Classify cached calls into the three sub-tab groups (shared classification):
+    //   Upcoming = invited | booked
+    //   Past     = completed | no_show | cancelled
+    //   Summary  = completed AND has a non-empty meeting_summary
+    function classifyGpCalls(calls) {
+      var groups = { upcoming: [], past: [], summary: [] };
+      var list = calls || [];
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        var st = (c.status || '').toLowerCase();
+        if (st === 'invited' || st === 'booked') groups.upcoming.push(c);
+        else if (st === 'completed' || st === 'no_show' || st === 'cancelled') groups.past.push(c);
+        if (st === 'completed' && c.meeting_summary && String(c.meeting_summary).trim()) groups.summary.push(c);
+      }
+      return groups;
+    }
+
     function renderGpCallsPane(calls) {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
-      var list = calls || [];
-      var html = '<div class="ceo-ops-section-head">Calls <span class="count">' + list.length + '</span></div>';
-      if (!list.length) {
-        html += '<div class="ceo-gp-detail-empty">No calls for this GP yet.</div>';
-        pane.innerHTML = html;
-        return;
+      var groups = classifyGpCalls(calls);
+      if (gpCallsSubTab !== 'upcoming' && gpCallsSubTab !== 'past' && gpCallsSubTab !== 'summary') gpCallsSubTab = 'upcoming';
+      var active = groups[gpCallsSubTab] || [];
+
+      var html = '<div class="ceo-ops-section-head">Calls</div>';
+      // Nested sub-tab bar (CEO override RSO picker is unaffected and lives elsewhere).
+      var subtabs = [
+        { key: 'upcoming', label: 'Upcoming', count: groups.upcoming.length },
+        { key: 'past', label: 'Past', count: groups.past.length },
+        { key: 'summary', label: 'Summary', count: groups.summary.length }
+      ];
+      html += '<div class="ceo-call-subtabs">';
+      for (var t = 0; t < subtabs.length; t++) {
+        html += '<button class="ceo-call-subtab' + (subtabs[t].key === gpCallsSubTab ? ' active' : '') + '" data-call-subtab="' + subtabs[t].key + '">' + esc(subtabs[t].label) + '<span class="count">' + subtabs[t].count + '</span></button>';
       }
-      for (var i = 0; i < list.length; i++) {
-        var c = list[i];
-        var timeLabel = c.scheduled_at ? fmtCallTime(c.scheduled_at) : 'Not yet booked';
-        html += '<div class="ceo-gp-call">';
-        html += '<div class="ceo-gp-call-head">';
-        html += callStatusPill(c.status);
-        if (c.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[c.stage] || c.stage) + '</span>';
-        html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
-        if (c.zoom_join_url) {
-          html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
-        }
-        html += '</div>';
-        if (c.assigned_rso_name) {
-          html += '<div class="ceo-gp-call-rso">RSO: ' + esc(c.assigned_rso_name) + '</div>';
-        }
-        if (c.invitee_notes) {
-          html += '<div class="ceo-gp-call-notes"><span style="color:var(--text-muted);font-weight:600">GP&rsquo;s booking notes:</span> ' + esc(c.invitee_notes) + '</div>';
-        }
-        // GP-VISIBLE reason for the meeting — distinct tinted box, shown before the
-        // internal admin notes so the two are never confused.
-        if (c.meeting_reason) {
-          html += '<div class="ceo-gp-call-notes" style="margin-top:8px;padding:8px 10px;background:rgba(56,139,253,0.10);border:1px solid rgba(56,139,253,0.30);border-radius:var(--radius-sm,6px)"><span style="color:var(--blue,#388bfd);font-weight:600">Reason for meeting:</span> ' + esc(c.meeting_reason) + '</div>';
-        }
-        if (c.admin_notes) {
-          html += '<div class="ceo-gp-call-notes"><span class="pill pill-muted" style="font-size:9px;margin-right:6px;vertical-align:middle">INTERNAL</span>' + esc(c.admin_notes) + '</div>';
-        }
-        if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
-          html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';
-        }
-        // Per-call actions, gated by status to match admin.html (the backend rejects a
-        // cancel unless status is invited/booked; no_show + cancelled are "needs
-        // rebooking" states). Resend only for invited; No Show only for booked.
-        var cs = (c.status || '').toLowerCase();
-        var cid = esc(c.id);
-        var actions = '';
-        if (cs === 'invited' || cs === 'booked') {
-          if (cs === 'invited') actions += '<button class="btn btn-blue" onclick="ceoGpCallResend(event, \'' + cid + '\')">Resend invite</button>';
-          actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
-          if (cs === 'booked') {
-            actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
-            actions += '<button class="btn btn-amber" onclick="ceoGpCallNoShow(event, \'' + cid + '\')">No Show</button>';
+      html += '</div>';
+
+      if (gpCallsSubTab === 'summary') {
+        if (!active.length) {
+          html += '<div class="ceo-gp-detail-empty">No meeting summaries yet.</div>';
+        } else {
+          for (var s = 0; s < active.length; s++) {
+            var sc = active[s];
+            var sTime = sc.scheduled_at ? fmtCallTime(sc.scheduled_at) : 'Not yet booked';
+            html += '<div class="ceo-gp-call">';
+            html += '<div class="ceo-gp-call-head">';
+            if (sc.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[sc.stage] || sc.stage) + '</span>';
+            html += '<span class="ceo-gp-call-time">' + esc(sTime) + '</span>';
+            html += '</div>';
+            html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(sc.meeting_summary) + '</div>';
+            html += '</div>';
           }
-        } else if (cs === 'no_show' || cs === 'cancelled') {
-          actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
-          // Server now permits cancelling a no_show row (already-cancelled rows skip it).
-          if (cs === 'no_show') actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
         }
-        if (actions) html += '<div class="ceo-gp-call-actions">' + actions + '</div>';
-        html += '</div>';
+      } else if (!active.length) {
+        html += '<div class="ceo-gp-detail-empty">' + (gpCallsSubTab === 'past' ? 'No past calls for this GP yet.' : 'No upcoming calls for this GP.') + '</div>';
+      } else {
+        for (var i = 0; i < active.length; i++) {
+          html += renderGpCallCard(active[i]);
+        }
       }
       pane.innerHTML = html;
     }
@@ -5133,7 +5197,14 @@
         return;
       }
       var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
-      if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); }
+      if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); return; }
+      // Nested Calls sub-tab switch — re-render from the cache, no re-fetch, stay on Calls.
+      var callSubBtn = e.target.closest('[data-call-subtab]');
+      if (callSubBtn) {
+        gpCallsSubTab = callSubBtn.getAttribute('data-call-subtab');
+        if (gpCallsCache) renderGpCallsPane(gpCallsCache.calls);
+        return;
+      }
     });
 
     // Documents upload delegation: the hidden file input lives inside a label button that

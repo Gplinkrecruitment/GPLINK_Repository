@@ -6170,6 +6170,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
 
+      // Call-history Upcoming/Past/Summary sub-tabs: switch tab + re-render from
+      // cache (no re-fetch), and do NOT fall through to the gp-tab handler so the
+      // calls pane stays open.
+      const callSubtab=e.target.closest("[data-call-subtab]");
+      if(callSubtab){
+        var csCaseId=callSubtab.getAttribute("data-call-subtab-case");
+        var csTab=callSubtab.getAttribute("data-call-subtab");
+        if(csCaseId&&csTab&&typeof renderCallHistoryContent==='function'){
+          _callHistSubtab[csCaseId]=csTab;
+          renderCallHistoryContent(csCaseId);
+        }
+        return;
+      }
       const gpTab=e.target.closest("[data-gp-tab]");
       if(gpTab){S.gpsProfileTab=gpTab.getAttribute("data-gp-tab");renderDetail();return;}
       const gpBack=e.target.closest("[data-gp-back]");
@@ -9078,7 +9091,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpBlock = document.getElementById('zoomGpBlock');
     var stageSelect = document.getElementById('zoomStageSelect');
     var notesField = document.getElementById('zoomAdminNotes');
-    var rsoSelect = document.getElementById('zoomAssignedRso');
     var initials = ((caseData.first_name || '')[0] || '') + ((caseData.last_name || '')[0] || '');
     gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + initials.toUpperCase() + '</div>'
       + '<div><div style="font-size:13px;font-weight:700">' + esc(caseData.first_name || '') + ' ' + esc(caseData.last_name || '') + '</div>'
@@ -9087,18 +9099,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     notesField.value = '';
     var reasonField = document.getElementById('zoomMeetingReason');
     if (reasonField) reasonField.value = '';
-    rsoSelect.innerHTML = '<option value="">Unassigned</option>';
-    // Fetch RSO list for dropdown
-    fetch('/api/admin/rsos', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.ok && d.rsos) {
-        d.rsos.forEach(function(rso) {
-          var opt = document.createElement('option');
-          opt.value = rso.email;
-          opt.textContent = rso.name;
-          rsoSelect.appendChild(opt);
-        });
-      }
-    }).catch(function() { /* ignore — dropdown stays with Unassigned only */ });
     document.getElementById('zoomNotifyWhatsapp').checked = true;
     document.getElementById('zoomNotifyEmail').checked = true;
     document.getElementById('zoomScheduleBtn').disabled = false;
@@ -9129,7 +9129,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           stage: document.getElementById('zoomStageSelect').value,
           meeting_reason: document.getElementById('zoomMeetingReason').value.trim(),
           admin_notes: document.getElementById('zoomAdminNotes').value.trim(),
-          assigned_rso_email: document.getElementById('zoomAssignedRso').value,
           notify_whatsapp: document.getElementById('zoomNotifyWhatsapp').checked,
           notify_email: document.getElementById('zoomNotifyEmail').checked
         })
@@ -9448,81 +9447,136 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return html;
   }
 
+  // Per-case cache of fetched calls + the active sub-tab so clicking a sub-tab
+  // can re-render from memory without re-fetching.
+  var _callHistCache = _callHistCache || {};
+  var _callHistSubtab = _callHistSubtab || {};
+
   async function loadCallHistoryPane(caseId) {
     var container = document.getElementById('call-history-pane-' + caseId);
     if (!container) return;
     try {
       var r = await fetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' });
       var d = await r.json();
-      if (!d.ok || !d.calls || !d.calls.length) {
-        container.innerHTML = '<div class="empty">No calls found for this GP.</div>';
-        return;
-      }
-      var calls = d.calls;
-      var html = '';
+      var calls = (d.ok && d.calls) ? d.calls : [];
+      _callHistCache[caseId] = calls;
+      if (!_callHistSubtab[caseId]) _callHistSubtab[caseId] = 'upcoming';
+      renderCallHistoryContent(caseId);
+    } catch (e) {
+      container.innerHTML = '<div class="empty">Error loading calls: ' + esc(e.message) + '</div>';
+    }
+  }
 
-      // Show all calls, most recent first (already sorted by API)
-      calls.forEach(function(call) {
-        var statusLabel = { invited: 'Invite Sent', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
-        var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : 'Not yet booked';
-        html += '<div class="call-history-card">';
-        html += '<div class="call-history-header">';
-        html += '<div class="call-history-date">' + esc(timeStr) + '</div>';
-        html += '<span class="call-history-stage">' + esc(call.stage || '') + '</span>';
-        html += '<span class="calls-status-badge ' + esc(call.status || '') + '" style="margin-left:auto">' + esc(statusLabel) + '</span>';
-        html += '</div>';
-        if (call.assigned_rso_name) {
-          html += '<div class="call-history-notes" style="font-size:11px;color:var(--muted);padding:2px 0"><strong>RSO:</strong> ' + esc(call.assigned_rso_name) + '</div>';
-        }
-        if (call.meeting_reason) {
-          html += '<div class="call-history-notes" style="border-left:3px solid #2D8CFF;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2D8CFF">Reason (GP sees this):</strong> ' + esc(call.meeting_reason) + '</div>';
-        }
-        if (call.admin_notes) {
-          html += '<div class="call-history-notes"><strong style="font-size:11px;color:var(--muted)">Internal note:</strong> ' + esc(call.admin_notes) + '</div>';
-        }
-        if (call.invitee_notes) {
-          html += '<div class="call-history-notes" style="border-left:3px solid #2563eb;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2563eb">GP\'s Booking Notes:</strong> ' + esc(call.invitee_notes) + '</div>';
-        }
-        // Action buttons for active calls
-        if (call.status !== 'completed') {
-          html += '<div class="zoom-task-actions">';
-          if (call.zoom_join_url && call.status === 'booked') {
-            html += '<a class="btn sm" href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Join Zoom</a>';
-          }
-          if (call.status === 'invited') {
-            html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
-          }
-          if (call.status !== 'cancelled') {
-            html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
-          }
-          if (call.status === 'booked') {
-            html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
-            html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
-          }
-          if (call.status === 'no_show' || call.status === 'cancelled') {
-            html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
-          }
+  // Render a single call card (used by the Upcoming/Past sub-tabs).
+  function renderCallHistoryCard(call) {
+    var statusLabel = { invited: 'Invite Sent', booked: 'Booked', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }[call.status] || call.status;
+    var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : 'Not yet booked';
+    var html = '<div class="call-history-card">';
+    html += '<div class="call-history-header">';
+    html += '<div class="call-history-date">' + esc(timeStr) + '</div>';
+    html += '<span class="call-history-stage">' + esc(call.stage || '') + '</span>';
+    html += '<span class="calls-status-badge ' + esc(call.status || '') + '" style="margin-left:auto">' + esc(statusLabel) + '</span>';
+    html += '</div>';
+    if (call.assigned_rso_name) {
+      html += '<div class="call-history-notes" style="font-size:11px;color:var(--muted);padding:2px 0"><strong>RSO:</strong> ' + esc(call.assigned_rso_name) + '</div>';
+    }
+    if (call.meeting_reason) {
+      html += '<div class="call-history-notes" style="border-left:3px solid #2D8CFF;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2D8CFF">Reason (GP sees this):</strong> ' + esc(call.meeting_reason) + '</div>';
+    }
+    if (call.admin_notes) {
+      html += '<div class="call-history-notes"><strong style="font-size:11px;color:var(--muted)">Internal note:</strong> ' + esc(call.admin_notes) + '</div>';
+    }
+    if (call.invitee_notes) {
+      html += '<div class="call-history-notes" style="border-left:3px solid #2563eb;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2563eb">GP\'s Booking Notes:</strong> ' + esc(call.invitee_notes) + '</div>';
+    }
+    // Action buttons for active calls
+    if (call.status !== 'completed') {
+      html += '<div class="zoom-task-actions">';
+      if (call.zoom_join_url && call.status === 'booked') {
+        html += '<a class="btn sm" href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Join Zoom</a>';
+      }
+      if (call.status === 'invited') {
+        html += '<button class="btn sm" onclick="resendZoomInvite(\'' + esc(call.id) + '\')" style="font-size:10px">Resend Invite</button>';
+      }
+      if (call.status !== 'cancelled') {
+        html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
+      }
+      if (call.status === 'booked') {
+        html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
+        html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
+      }
+      if (call.status === 'no_show' || call.status === 'cancelled') {
+        html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
+      }
+      html += '</div>';
+    }
+    // Meeting summary for completed calls
+    if (call.status === 'completed' && call.meeting_summary) {
+      html += '<div class="call-history-summary">';
+      html += '<div class="call-history-summary-title">Meeting Summary</div>';
+      html += '<div class="call-history-summary-body">' + esc(call.meeting_summary) + '</div>';
+      html += '</div>';
+    }
+    if (call.status === 'completed' && !call.meeting_summary) {
+      html += '<div class="zoom-task-actions">';
+      html += '<button class="btn sm" onclick="retryZoomSummary(\'' + esc(call.id) + '\')" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Fetch Summary</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // Render the Upcoming/Past/Summary sub-tabs + the active group from cache.
+  function renderCallHistoryContent(caseId) {
+    var container = document.getElementById('call-history-pane-' + caseId);
+    if (!container) return;
+    var calls = _callHistCache[caseId] || [];
+    var activeTab = _callHistSubtab[caseId] || 'upcoming';
+
+    var upcoming = calls.filter(function(call) { return call.status === 'invited' || call.status === 'booked'; });
+    var past = calls.filter(function(call) { return call.status === 'completed' || call.status === 'no_show' || call.status === 'cancelled'; });
+    var summaries = calls.filter(function(call) { return call.status === 'completed' && call.meeting_summary && String(call.meeting_summary).trim(); });
+
+    var safeId = esc(caseId);
+    var html = '<div class="gp-subtabs">';
+    html += '<div class="gp-subtab ' + (activeTab === 'upcoming' ? 'active' : '') + '" data-call-subtab="upcoming" data-call-subtab-case="' + safeId + '">Upcoming<span class="subtab-count">' + upcoming.length + '</span></div>';
+    html += '<div class="gp-subtab ' + (activeTab === 'past' ? 'active' : '') + '" data-call-subtab="past" data-call-subtab-case="' + safeId + '">Past<span class="subtab-count">' + past.length + '</span></div>';
+    html += '<div class="gp-subtab ' + (activeTab === 'summary' ? 'active' : '') + '" data-call-subtab="summary" data-call-subtab-case="' + safeId + '">Summary<span class="subtab-count">' + summaries.length + '</span></div>';
+    html += '</div>';
+
+    if (activeTab === 'upcoming') {
+      if (!upcoming.length) {
+        html += '<div class="empty">No upcoming calls.</div>';
+      } else {
+        upcoming.forEach(function(call) { html += renderCallHistoryCard(call); });
+      }
+    } else if (activeTab === 'past') {
+      if (!past.length) {
+        html += '<div class="empty">No past calls.</div>';
+      } else {
+        past.forEach(function(call) { html += renderCallHistoryCard(call); });
+      }
+    } else { // summary
+      if (!summaries.length) {
+        html += '<div class="empty">No meeting summaries yet.</div>';
+      } else {
+        summaries.forEach(function(call) {
+          var timeStr = call.scheduled_at ? fmtDT(call.scheduled_at) : 'Not yet booked';
+          html += '<div class="call-history-card">';
+          html += '<div class="call-history-header">';
+          html += '<div class="call-history-date">' + esc(timeStr) + '</div>';
+          html += '<span class="call-history-stage">' + esc(call.stage || '') + '</span>';
           html += '</div>';
-        }
-        // Meeting summary for completed calls
-        if (call.status === 'completed' && call.meeting_summary) {
           html += '<div class="call-history-summary">';
           html += '<div class="call-history-summary-title">Meeting Summary</div>';
           html += '<div class="call-history-summary-body">' + esc(call.meeting_summary) + '</div>';
           html += '</div>';
-        }
-        if (call.status === 'completed' && !call.meeting_summary) {
-          html += '<div class="zoom-task-actions">';
-          html += '<button class="btn sm" onclick="retryZoomSummary(\'' + esc(call.id) + '\')" style="font-size:10px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Fetch Summary</button>';
           html += '</div>';
-        }
-        html += '</div>';
-      });
-
-      container.innerHTML = html;
-    } catch (e) {
-      container.innerHTML = '<div class="empty">Error loading calls: ' + esc(e.message) + '</div>';
+        });
+      }
     }
+
+    container.innerHTML = html;
   }
 
   // Click handler for scheduled calls panel rows -> navigate to GP case
@@ -9562,12 +9616,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="zoom-modal-body">
       <div class="zoom-gp-block" id="zoomGpBlock"></div>
-      <div class="zoom-form-group">
-        <label class="zoom-form-label">Assigned RSO</label>
-        <select class="zoom-form-select" id="zoomAssignedRso">
-          <option value="">Unassigned</option>
-        </select>
-      </div>
       <div class="zoom-form-group">
         <label class="zoom-form-label">Registration Stage</label>
         <select class="zoom-form-select" id="zoomStageSelect">

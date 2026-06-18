@@ -509,6 +509,19 @@ function buildCalendlyBookingUrl(correlationToken, baseUrl) {
   return base + sep + 'utm_source=gplink&utm_medium=registration_call&utm_content=call_' + correlationToken;
 }
 
+// Pick which RSO hosts a scheduled call. Pure (no DB) so it can be unit-tested.
+// Keep IDENTICAL to the copy in server-test-helpers.js.
+// opts: { explicitEmail, isCeo, caseAssigneeUserId }
+//   - An explicit RSO email is ONLY honored for a CEO/super-admin requester.
+//   - Otherwise (or when no honored email matches) fall back to the GP's assigned RSO.
+function pickScheduledCallRso(roster, opts) {
+  const list = Array.isArray(roster) ? roster : [];
+  const email = opts && opts.isCeo ? String(opts.explicitEmail || '').trim().toLowerCase() : '';
+  let rso = email ? list.find(r => String(r.email || '').toLowerCase() === email) : null;
+  if (!rso && opts && opts.caseAssigneeUserId) rso = list.find(r => r.user_id === opts.caseAssigneeUserId) || null;
+  return rso || null;
+}
+
 function buildScheduledCallInsertPayload(input = {}) {
   const nowIso = input.nowIso || new Date().toISOString();
   return {
@@ -25984,7 +25997,14 @@ async function handleApi(req, res, pathname) {
     const meetingReason = String(body && body.meeting_reason || '').trim().slice(0, 1000);
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
     const scheduleRsoRoster = await loadRsoTeam({ includeInactive: true });
-    const assignedRso = assignedRsoEmail ? scheduleRsoRoster.find(r => r.email.toLowerCase() === assignedRsoEmail) : null;
+    // The GP's case is auto-hosted by its assigned RSO. A manual RSO override
+    // (assigned_rso_email) is honored only when the requester is a CEO/super-admin.
+    const caseRsoUserId = await resolveCaseRsoAssignee(caseId);
+    const assignedRso = pickScheduledCallRso(scheduleRsoRoster, {
+      explicitEmail: assignedRsoEmail,
+      isCeo: isSuperAdminRole(admin.role),
+      caseAssigneeUserId: caseRsoUserId
+    });
     const VALID_STAGES = ['myintealth', 'amc', 'ahpra'];
     if (!caseId || !stage) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, stage.' });
