@@ -4843,18 +4843,26 @@
 
     // Classify cached calls into the three sub-tab groups (shared classification):
     //   Upcoming = invited | booked
-    //   Past     = completed | no_show | cancelled
+    //   Past     = completed | no_show | cancelled (excluding abandoned drafts)
     //   Summary  = completed AND has a non-empty meeting_summary
+    // An abandoned booking draft = a cancelled call that was never scheduled and
+    // never booked (no date, never confirmed) — skipped so it never clutters Past.
     function classifyGpCalls(calls) {
       var groups = { upcoming: [], past: [], summary: [] };
       var list = calls || [];
       for (var i = 0; i < list.length; i++) {
         var c = list[i];
         var st = (c.status || '').toLowerCase();
+        if (st === 'cancelled' && !c.scheduled_at && !c.booked_at) continue;
         if (st === 'invited' || st === 'booked') groups.upcoming.push(c);
         else if (st === 'completed' || st === 'no_show' || st === 'cancelled') groups.past.push(c);
         if (st === 'completed' && c.meeting_summary && String(c.meeting_summary).trim()) groups.summary.push(c);
       }
+      // Order by meeting time: upcoming soonest-first, past/summary most-recent-first.
+      var callTime = function(c) { return new Date(c.scheduled_at || c.booked_at || c.created_at || 0).getTime() || 0; };
+      groups.upcoming.sort(function(a, b) { return callTime(a) - callTime(b); });
+      groups.past.sort(function(a, b) { return callTime(b) - callTime(a); });
+      groups.summary.sort(function(a, b) { return callTime(b) - callTime(a); });
       return groups;
     }
 

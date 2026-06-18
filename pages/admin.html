@@ -9533,9 +9533,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var calls = _callHistCache[caseId] || [];
     var activeTab = _callHistSubtab[caseId] || 'upcoming';
 
-    var upcoming = calls.filter(function(call) { return call.status === 'invited' || call.status === 'booked'; });
-    var past = calls.filter(function(call) { return call.status === 'completed' || call.status === 'no_show' || call.status === 'cancelled'; });
-    var summaries = calls.filter(function(call) { return call.status === 'completed' && call.meeting_summary && String(call.meeting_summary).trim(); });
+    // An abandoned booking draft = a cancelled call that was never scheduled and
+    // never booked (no date, never confirmed). Hide these from Past so the history
+    // only shows calls that actually happened or were genuinely scheduled.
+    var isAbandonedDraft = function(call) { return call.status === 'cancelled' && !call.scheduled_at && !call.booked_at; };
+    // Order by meeting time: most recent first for past/summary, soonest first for upcoming.
+    var callTime = function(call) { return new Date(call.scheduled_at || call.booked_at || call.created_at || 0).getTime() || 0; };
+
+    var upcoming = calls.filter(function(call) { return call.status === 'invited' || call.status === 'booked'; }).sort(function(a, b) { return callTime(a) - callTime(b); });
+    var past = calls.filter(function(call) { return (call.status === 'completed' || call.status === 'no_show' || call.status === 'cancelled') && !isAbandonedDraft(call); }).sort(function(a, b) { return callTime(b) - callTime(a); });
+    var summaries = calls.filter(function(call) { return call.status === 'completed' && call.meeting_summary && String(call.meeting_summary).trim(); }).sort(function(a, b) { return callTime(b) - callTime(a); });
 
     var safeId = esc(caseId);
     var html = '<div class="gp-subtabs">';
