@@ -68,6 +68,32 @@ function buildRsoEmailFromOpts(rso) {
   return opts;
 }
 
+// Attendance verdict from Zoom past-meeting participants. Keep IDENTICAL to the copy in server.js.
+function classifyCallAttendance(participants, rso) {
+  const list = Array.isArray(participants) ? participants : [];
+  const rsoEmail = String((rso && rso.email) || '').trim().toLowerCase();
+  const rsoName = String((rso && rso.name) || '').trim().toLowerCase();
+  const nonHost = list.filter(function (p) {
+    const email = String((p && (p.email || p.user_email)) || '').trim().toLowerCase();
+    const name = String((p && (p.name || p.user_name)) || '').trim().toLowerCase();
+    if (rsoEmail && email === rsoEmail) return false;
+    if (!email && rsoName && name === rsoName) return false;
+    return true;
+  });
+  return nonHost.length > 0 ? 'attended' : 'no_show';
+}
+
+// No-show candidacy for a booked call. Keep IDENTICAL to the copy in server.js.
+function isNoShowCandidate(call, nowMs, graceMinutes) {
+  if (!call || call.status !== 'booked') return false;
+  if (!call.scheduled_at || call.completed_at || call.no_show_at) return false;
+  const start = Date.parse(call.scheduled_at);
+  if (!Number.isFinite(start)) return false;
+  const dur = Number(call.duration_minutes || 30);
+  const grace = Number(graceMinutes == null ? 15 : graceMinutes);
+  return (start + (dur + grace) * 60000) < Number(nowMs);
+}
+
 // Pure builder/validator for rso_team writes (create or update). No DB access so it
 // can be unit-tested. Keep IDENTICAL to the copy in server.js.
 // In 'update' mode only the supplied fields are included (partial PATCH); in 'create'
@@ -216,6 +242,8 @@ module.exports = {
   generateCorrelationToken,
   pickScheduledCallRso,
   buildRsoEmailFromOpts,
+  classifyCallAttendance,
+  isNoShowCandidate,
   buildScheduledCallInsertPayload,
   buildRsoWritePayload,
   buildScheduledCallNotificationPatch,

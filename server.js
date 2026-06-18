@@ -535,6 +535,35 @@ function buildRsoEmailFromOpts(rso) {
   return opts;
 }
 
+// Decide whether the GP attended a Zoom call from the past-meeting participant list. The host
+// (the assigned RSO) is excluded by matching email (or name when the host joined without an email);
+// any other participant means the GP showed up. Pure; keep IDENTICAL to server-test-helpers.js.
+function classifyCallAttendance(participants, rso) {
+  const list = Array.isArray(participants) ? participants : [];
+  const rsoEmail = String((rso && rso.email) || '').trim().toLowerCase();
+  const rsoName = String((rso && rso.name) || '').trim().toLowerCase();
+  const nonHost = list.filter(function (p) {
+    const email = String((p && (p.email || p.user_email)) || '').trim().toLowerCase();
+    const name = String((p && (p.name || p.user_name)) || '').trim().toLowerCase();
+    if (rsoEmail && email === rsoEmail) return false;        // the RSO / host
+    if (!email && rsoName && name === rsoName) return false;  // host joined without a linked email
+    return true;
+  });
+  return nonHost.length > 0 ? 'attended' : 'no_show';
+}
+
+// A booked call is a no-show CANDIDATE once its end time (+grace) has passed and it has neither been
+// completed nor already flagged. Pure; keep IDENTICAL to server-test-helpers.js.
+function isNoShowCandidate(call, nowMs, graceMinutes) {
+  if (!call || call.status !== 'booked') return false;
+  if (!call.scheduled_at || call.completed_at || call.no_show_at) return false;
+  const start = Date.parse(call.scheduled_at);
+  if (!Number.isFinite(start)) return false;
+  const dur = Number(call.duration_minutes || 30);
+  const grace = Number(graceMinutes == null ? 15 : graceMinutes);
+  return (start + (dur + grace) * 60000) < Number(nowMs);
+}
+
 function buildScheduledCallInsertPayload(input = {}) {
   const nowIso = input.nowIso || new Date().toISOString();
   return {
@@ -13312,6 +13341,165 @@ async function handleCalendlyInviteeCreated(payload) {
   }
 }
 
+// Generic WhatsApp text via DoubleTick (best-effort; mirrors the existing /message/text usage).
+async function sendWhatsappText(toPhone, body) {
+  if (!process.env.DOUBLETICK_API_KEY || !toPhone || !body) return { ok: false, error: 'not configured' };
+  try {
+    const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: toPhone, body: body }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, messageId: data.messageId || data.id || null };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// Fetch the Zoom past-meeting participant list for attendance detection. Returns an array (possibly
+// empty) when attendance CAN be determined, or null when it cannot (API error / Zoom not configured),
+// so callers can safely retry on a later run rather than mis-flag a no-show.
+async function fetchZoomPastMeetingParticipants(meetingId) {
+  if (!meetingId || !isZoomConfigured()) return null;
+  try {
+    const token = await getZoomAccessToken();
+    if (!token) return null;
+    const resp = await fetch('https://api.zoom.us/v2/past_meetings/' + encodeURIComponent(meetingId) + '/participants?page_size=300', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (resp.status === 404) return [];   // no past-meeting record => nobody (relevant) joined
+    if (!resp.ok) return null;            // transient/permission error => do not conclude
+    const data = await resp.json().catch(() => null);
+    return data && Array.isArray(data.participants) ? data.participants : [];
+  } catch (e) { return null; }
+}
+
+// Find the roster row (with phone + calendly_event_url) for a call's CURRENTLY-assigned RSO.
+async function resolveCallRso(call, roster) {
+  const list = Array.isArray(roster) ? roster : await loadRsoTeam({ includeInactive: true });
+  let rso = null;
+  const userId = await resolveCaseRsoAssignee(call.case_id);
+  if (userId) rso = list.find(function (r) { return r.user_id === userId; }) || null;
+  if (!rso && call.assigned_rso_email) {
+    const em = String(call.assigned_rso_email).toLowerCase();
+    rso = list.find(function (r) { return String(r.email || '').toLowerCase() === em; }) || null;
+  }
+  return rso;
+}
+
+// Alert the assigned RSO that a GP cancelled / missed a call, and raise a follow-up "chase" task
+// (deduped: one open task per case+stage+kind). Best-effort — never throws into the caller.
+async function notifyRsoOfCallOutcome(opts) {
+  try {
+    const call = opts.call, rso = opts.rso, kind = opts.kind, reinvited = !!opts.reinvited, gpName = opts.gpName || 'The GP';
+    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+    const missWord = kind === 'no_show' ? 'did not show up to' : 'cancelled';
+    const outcomeLine = reinvited
+      ? 'A fresh booking link has been sent to them automatically so they can pick a new time.'
+      : 'This was their 2nd missed/cancelled attempt, so the call has been closed — please follow up with them directly.';
+    if (rso && rso.email) {
+      const html = '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">'
+        + '<h2 style="color:#0f172a;font-size:18px">Call ' + (kind === 'no_show' ? 'no-show' : 'cancelled') + '</h2>'
+        + '<p style="color:#334155;font-size:14px;line-height:1.6"><strong>' + gpName + '</strong> ' + missWord + ' their <strong>' + stageDisplay + '</strong> Zoom call.</p>'
+        + '<p style="color:#334155;font-size:14px;line-height:1.6">' + outcomeLine + '</p></div>';
+      await sendEmail({ to: rso.email, subject: gpName + ' ' + missWord + ' their ' + stageDisplay + ' call', html: html, text: gpName + ' ' + missWord + ' their ' + stageDisplay + ' call. ' + outcomeLine });
+      if (rso.phone) await sendWhatsappText(rso.phone, gpName + ' ' + missWord + ' their ' + stageDisplay + ' call. ' + outcomeLine);
+    }
+    const existing = await supabaseDbRequest('registration_tasks',
+      'case_id=eq.' + encodeURIComponent(call.case_id) + '&task_type=eq.chase&related_stage=eq.' + encodeURIComponent(call.stage || '') +
+      '&source_trigger=eq.call_' + kind + '&status=not.in.(completed,complete,cancelled)&select=id&limit=1', { method: 'GET' });
+    const hasOpen = existing.ok && Array.isArray(existing.data) && existing.data.length > 0;
+    if (!hasOpen) {
+      await _createRegTask(call.case_id, {
+        task_type: 'chase',
+        title: 'Follow up — ' + gpName + ' ' + missWord + ' their ' + stageDisplay + ' call',
+        description: outcomeLine,
+        status: 'open',
+        priority: 'normal',
+        source_trigger: 'call_' + kind,
+        related_stage: call.stage,
+        _actor: 'system'
+      });
+    }
+  } catch (e) { console.error('[notifyRsoOfCallOutcome] error:', e && e.message); }
+}
+
+// Central handler for a GP-driven call failure (cancel OR no-show) from the Calendly webhook, the
+// admin No-Show button, or the auto-detect cron. Applies the 2-strike rule: 1st strike => auto
+// re-invite the GP with a fresh RSO-routed link; 2nd strike => close. Always alerts the RSO.
+// Returns the normalized updated scheduled_call.
+async function handleScheduledCallFailure(call, kind, opts) {
+  opts = opts || {};
+  const now = new Date().toISOString();
+  const roster = await loadRsoTeam({ includeInactive: true });
+  const rso = await resolveCallRso(call, roster);
+  const outcome = computeCallFailureOutcome(call.failed_attempt_count);
+  const autoClose = outcome.autoClose;
+  const patch = { failed_attempt_count: outcome.newCount, updated_at: now };
+  let adminNotes = (opts.adminNote !== undefined && opts.adminNote !== null) ? String(opts.adminNote).trim() : String(call.admin_notes || '').trim();
+
+  if (autoClose) {
+    patch.status = (kind === 'no_show') ? 'no_show' : 'cancelled';
+    if (kind === 'no_show') patch.no_show_at = now; else patch.cancelled_at = now;
+    adminNotes = (adminNotes ? adminNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
+    patch.admin_notes = adminNotes || null;
+  } else {
+    // First strike => re-invite with a fresh RSO-routed booking link.
+    const newToken = generateCorrelationToken();
+    patch.status = 'invited';
+    patch.correlation_token = newToken;
+    patch.calendly_booking_url = buildCalendlyBookingUrl(newToken, rso && rso.calendly_event_url);
+    patch.assigned_rso_email = rso ? rso.email : (call.assigned_rso_email || null);
+    patch.assigned_rso_name = rso ? rso.name : (call.assigned_rso_name || null);
+    patch.scheduled_at = null; patch.booked_at = null; patch.timezone = null;
+    patch.calendly_event_uri = null;
+    patch.calendly_old_invitee_uri = call.calendly_invitee_uri || null;
+    patch.calendly_invitee_uri = null;
+    patch.zoom_meeting_id = null; patch.zoom_meeting_uuid = null; patch.zoom_join_url = null; patch.zoom_passcode = null;
+    patch.completed_at = null; patch.no_show_at = null; patch.cancelled_at = null;
+    patch.invite_sent_at = now;
+    patch.resend_count = (Number(call.resend_count) || 0) + 1;
+    if (adminNotes) patch.admin_notes = adminNotes;
+  }
+
+  const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), {
+    method: 'PATCH', body: patch, headers: { Prefer: 'return=representation' }
+  });
+
+  const taskId = getScheduledCallRegistrationTaskId(call);
+  if (taskId) {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: autoClose
+        ? { status: 'cancelled', description: 'Auto-cancelled after 2 missed/cancelled call attempts.', updated_at: now }
+        : { status: mapCallStatusToTaskStatus('invited'), description: 'A fresh booking link has been sent — awaiting the GP to pick a new time.', updated_at: now }
+    });
+  }
+
+  // Load the GP once for re-invite + RSO alert naming.
+  const profRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email,phone_number,phone', { method: 'GET' });
+  const gp = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+  const gpFirstName = String(gp.first_name || '').trim() || 'Doctor';
+  const gpFullName = ((String(gp.first_name || '').trim() + ' ' + String(gp.last_name || '').trim()).trim()) || 'The GP';
+  const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+
+  if (!autoClose) {
+    const gpEmail = String(gp.email || '').trim();
+    const gpPhone = String(gp.phone_number || gp.phone || '').trim();
+    if (gpPhone) await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, patch.calendly_booking_url);
+    if (gpEmail) await sendEmail(Object.assign({
+      to: gpEmail,
+      subject: 'Please re-book your ' + stageDisplay + ' Zoom call — GP Link',
+      html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, patch.calendly_booking_url, call.meeting_reason)
+    }, buildRsoEmailFromOpts(rso)));
+  }
+
+  await notifyRsoOfCallOutcome({ call: call, rso: rso, kind: kind, reinvited: !autoClose, gpName: gpFullName });
+
+  const updated = upd.ok && Array.isArray(upd.data) && upd.data[0] ? upd.data[0] : Object.assign({}, call, patch);
+  return normalizeScheduledCallForApi(updated);
+}
+
 async function handleCalendlyInviteeCanceled(payload) {
   const invitee = payload.payload || {};
   const inviteeUri = String(invitee.uri || '');
@@ -13370,43 +13558,10 @@ async function handleCalendlyInviteeCanceled(payload) {
       });
     }
   } else {
-    // Fully cancelled by the GP — count toward the 2-strike auto-close (one
-    // rebooking grace; the 2nd GP-driven failure closes the task).
-    const cancelOutcome = computeCallFailureOutcome(callRecord.failed_attempt_count);
-    const failedCount = cancelOutcome.newCount;
-    const autoCloseTask = cancelOutcome.autoClose;
-    const callPatch = {
-      status: 'cancelled',
-      cancelled_at: now,
-      failed_attempt_count: failedCount,
-      updated_at: now
-    };
-    if (autoCloseTask) {
-      const baseNotes = String(callRecord.admin_notes || '').trim();
-      callPatch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
-    }
-    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
-    });
-    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id, '| failedCount:', failedCount, '| autoClose:', autoCloseTask);
-
-    const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
-    if (registrationTaskId) {
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(registrationTaskId), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: autoCloseTask
-          ? {
-              status: 'cancelled',
-              description: 'Auto-cancelled after 2 missed/cancelled call attempts.',
-              updated_at: now
-            }
-          : {
-              status: mapCallStatusToTaskStatus('cancelled'),
-              description: 'Your scheduled call was cancelled — please book a new time to continue.',
-              updated_at: now
-            }
-      });
-    }
+    // Fully cancelled by the GP. Central handler applies the 2-strike rule (1st strike: auto
+    // re-invite with a fresh RSO-routed link; 2nd: close), alerts the RSO, and raises a follow-up task.
+    await handleScheduledCallFailure(callRecord, 'cancelled');
+    console.log('[calendly invitee.canceled] Cancelled scheduled_call', callRecord.id);
   }
 }
 
@@ -21505,6 +21660,52 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: auto-detect no-shows. For booked calls whose time has passed, check Zoom attendance and
+  // mark attended->completed or absent->no_show (which triggers the 2-strike re-invite + RSO alert).
+  if ((req.method === 'POST' || req.method === 'GET') && pathname === '/api/cron/detect-no-shows') {
+    const nsAuth = (req.headers['authorization'] || '').replace('Bearer ', '').trim();
+    if (!isValidCronSecret(nsAuth)) { sendJson(res, 401, { ok: false, message: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+    try {
+      const nowMs = Date.now();
+      // Settle window: only judge a call ~1h after it ends, so Zoom's attendance record is ready
+      // (avoids a transient "no record yet" being mis-read as a no-show). GRACE_MIN below matches.
+      const GRACE_MIN = 60;
+      const cutoffIso = new Date(nowMs - (30 + GRACE_MIN) * 60 * 1000).toISOString(); // 30m call + 60m settle
+      const sinceIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();        // ignore anything older than 7d
+      const r = await supabaseDbRequest('scheduled_calls',
+        'select=*&status=eq.booked&no_show_at=is.null&completed_at=is.null&scheduled_at=lt.' + encodeURIComponent(cutoffIso) + '&scheduled_at=gt.' + encodeURIComponent(sinceIso) + '&order=scheduled_at.asc&limit=50',
+        { method: 'GET' });
+      const calls = (r.ok && Array.isArray(r.data)) ? r.data : [];
+      const roster = await loadRsoTeam({ includeInactive: true });
+      let noShows = 0, attended = 0, skipped = 0;
+      for (const call of calls) {
+        if (!isNoShowCandidate(call, nowMs, GRACE_MIN)) { skipped++; continue; }
+        const participants = await fetchZoomPastMeetingParticipants(call.zoom_meeting_id);
+        if (participants === null) { skipped++; continue; } // couldn't determine attendance — retry next run
+        // Resolve the host (assigned RSO) robustly so it's excluded from the attendee check even if
+        // assigned_rso_email is missing on the booked row.
+        const rso = await resolveCallRso(call, roster);
+        if (classifyCallAttendance(participants, rso) === 'attended') {
+          // The meeting happened (the meeting.ended webhook was likely missed) — complete it + queue summary.
+          const nowIso = new Date().toISOString();
+          await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'completed', completed_at: nowIso, summary_status: (call.summary_status === 'not_requested' || !call.summary_status) ? 'pending' : call.summary_status, updated_at: nowIso } });
+          const tId = getScheduledCallRegistrationTaskId(call);
+          if (tId) await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(tId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: mapCallStatusToTaskStatus('completed'), updated_at: nowIso } });
+          attended++;
+        } else {
+          await handleScheduledCallFailure(call, 'no_show');
+          noShows++;
+        }
+      }
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, skipped: skipped });
+    } catch (e) {
+      console.error('[detect-no-shows] error:', e && e.message);
+      sendJson(res, 500, { ok: false, message: 'Error: ' + (e && e.message || e) });
+    }
+    return;
+  }
+
   // Cron: send RSO call reminders 10 min before booked calls (before same-origin — external cron or Vercel)
   if (req.method === 'POST' && pathname === '/api/cron/call-reminders') {
     const crAuthHeader = req.headers['authorization'] || '';
@@ -26319,16 +26520,11 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 409, { ok: false, message: 'Can only mark no-show when status is booked.' });
         return;
       }
-      patch.status = 'no_show';
-      patch.no_show_at = new Date().toISOString();
-      // GP-driven failure: count toward the 2-strike auto-close (one rebooking grace).
-      const noShowOutcome = computeCallFailureOutcome(call.failed_attempt_count);
-      patch.failed_attempt_count = noShowOutcome.newCount;
-      if (noShowOutcome.autoClose) {
-        autoCloseTask = true;
-        const baseNotes = String(patch.admin_notes !== undefined ? patch.admin_notes : (call.admin_notes || '')).trim();
-        patch.admin_notes = (baseNotes ? baseNotes + '\n' : '') + '[System] Auto-cancelled after 2 missed/cancelled call attempts.';
-      }
+      // Central handler: 2-strike rule (1st strike auto re-invites the GP with a fresh RSO-routed
+      // link; 2nd closes), alerts the assigned RSO, and raises a follow-up task. Returns the call.
+      const resultCall = await handleScheduledCallFailure(call, 'no_show', { adminNote: body && body.admin_notes });
+      sendJson(res, 200, { ok: true, call: resultCall });
+      return;
     }
 
     // Cancel (from invited, booked, or no_show — admins can close out a missed call)

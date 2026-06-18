@@ -298,6 +298,57 @@ describe('scheduled-calls helpers', () => {
     });
   });
 
+  describe('classifyCallAttendance (Zoom no-show detection)', () => {
+    const rso = { email: 'hazel@mygplink.com.au', name: 'Hazel' };
+    it('attended when a non-host participant is present', () => {
+      const { classifyCallAttendance } = require('../server-test-helpers.js');
+      const parts = [
+        { email: 'hazel@mygplink.com.au', name: 'Hazel', duration: 1800 },
+        { email: 'smithmiller1234@gmail.com', name: 'Smith Miller', duration: 1500 }
+      ];
+      expect(classifyCallAttendance(parts, rso)).toBe('attended');
+    });
+    it('no_show when only the host (RSO) joined', () => {
+      const { classifyCallAttendance } = require('../server-test-helpers.js');
+      expect(classifyCallAttendance([{ email: 'hazel@mygplink.com.au', name: 'Hazel', duration: 600 }], rso)).toBe('no_show');
+    });
+    it('no_show when nobody joined', () => {
+      const { classifyCallAttendance } = require('../server-test-helpers.js');
+      expect(classifyCallAttendance([], rso)).toBe('no_show');
+    });
+    it('treats a guest GP (no email, name not the host) as attended', () => {
+      const { classifyCallAttendance } = require('../server-test-helpers.js');
+      const parts = [{ name: 'Hazel', email: 'hazel@mygplink.com.au' }, { name: 'Smith Miller', email: '' }];
+      expect(classifyCallAttendance(parts, rso)).toBe('attended');
+    });
+    it('excludes the host when they joined without a linked email (name match)', () => {
+      const { classifyCallAttendance } = require('../server-test-helpers.js');
+      expect(classifyCallAttendance([{ name: 'Hazel', email: '' }], rso)).toBe('no_show');
+    });
+  });
+
+  describe('isNoShowCandidate (booked call past its end + grace)', () => {
+    const base = { status: 'booked', duration_minutes: 30 };
+    const now = Date.parse('2026-06-19T12:00:00.000Z');
+    it('is a candidate once end + grace has passed', () => {
+      const { isNoShowCandidate } = require('../server-test-helpers.js');
+      // started 11:00, 30m call ends 11:30, +15 grace = 11:45 < 12:00 now
+      expect(isNoShowCandidate({ ...base, scheduled_at: '2026-06-19T11:00:00.000Z' }, now, 15)).toBe(true);
+    });
+    it('is NOT a candidate before end + grace', () => {
+      const { isNoShowCandidate } = require('../server-test-helpers.js');
+      // started 11:50, ends 12:20 — still in progress
+      expect(isNoShowCandidate({ ...base, scheduled_at: '2026-06-19T11:50:00.000Z' }, now, 15)).toBe(false);
+    });
+    it('ignores calls that are not booked, or already completed / flagged', () => {
+      const { isNoShowCandidate } = require('../server-test-helpers.js');
+      const old = '2026-06-19T10:00:00.000Z';
+      expect(isNoShowCandidate({ status: 'invited', scheduled_at: old, duration_minutes: 30 }, now, 15)).toBe(false);
+      expect(isNoShowCandidate({ ...base, scheduled_at: old, completed_at: old }, now, 15)).toBe(false);
+      expect(isNoShowCandidate({ ...base, scheduled_at: old, no_show_at: old }, now, 15)).toBe(false);
+    });
+  });
+
   describe('buildRsoEmailFromOpts (send invite as the assigned RSO)', () => {
     it('sets From + Reply-To for an @mygplink.com.au RSO', () => {
       const { buildRsoEmailFromOpts } = require('../server-test-helpers.js');
