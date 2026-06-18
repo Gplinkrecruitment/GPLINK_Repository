@@ -25832,6 +25832,61 @@ async function handleApi(req, res, pathname) {
 
   // ── Admin Zoom call scheduling ──────────────────────────────────
 
+  // POST /api/admin/calendly/ensure-webhook — make sure an ORGANIZATION-scoped Calendly webhook
+  // exists so bookings on EVERY RSO's managed event (not just the GP Link account) notify the app.
+  // Without this, a GP who books with a non-default RSO never flips the call to "booked". CEO-only.
+  if (req.method === 'POST' && pathname === '/api/admin/calendly/ensure-webhook') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!isSuperAdminRole(admin.role)) { sendJson(res, 403, { ok: false, message: 'Super admin (CEO) access required.' }); return; }
+    if (!CALENDLY_API_TOKEN) { sendJson(res, 503, { ok: false, message: 'CALENDLY_API_TOKEN is not configured on the server.' }); return; }
+    if (!CALENDLY_WEBHOOK_SECRET) { sendJson(res, 503, { ok: false, message: 'CALENDLY_WEBHOOK_SECRET is not configured on the server.' }); return; }
+    const calHeaders = { Authorization: 'Bearer ' + CALENDLY_API_TOKEN, 'Content-Type': 'application/json' };
+    const summarize = s => ({ uri: s && s.uri, callback_url: s && s.callback_url, scope: s && s.scope, state: s && s.state, events: s && s.events });
+    try {
+      // 1) Resolve the Calendly organization URI from the API token's user.
+      const meRes = await fetch('https://api.calendly.com/users/me', { headers: calHeaders });
+      const meData = await meRes.json().catch(() => ({}));
+      const orgUri = meData && meData.resource && meData.resource.current_organization;
+      if (!meRes.ok || !orgUri) {
+        sendJson(res, 502, { ok: false, message: 'Could not resolve the Calendly organization (check the API token).', detail: JSON.stringify(meData).slice(0, 300) });
+        return;
+      }
+      const callbackUrl = APP_BASE_URL + '/api/webhooks/calendly';
+      // 2) List existing organization-scoped subscriptions.
+      const listRes = await fetch('https://api.calendly.com/webhook_subscriptions?organization=' + encodeURIComponent(orgUri) + '&scope=organization&count=100', { headers: calHeaders });
+      const listData = await listRes.json().catch(() => ({}));
+      const existing = Array.isArray(listData.collection) ? listData.collection : [];
+      const match = existing.find(s => s && s.callback_url === callbackUrl && s.state === 'active');
+      // 3) Create the org-scoped subscription if one is not already active for our callback URL.
+      let created = null;
+      if (!match) {
+        const createRes = await fetch('https://api.calendly.com/webhook_subscriptions', {
+          method: 'POST',
+          headers: calHeaders,
+          body: JSON.stringify({ url: callbackUrl, events: ['invitee.created', 'invitee.canceled'], organization: orgUri, scope: 'organization', signing_key: CALENDLY_WEBHOOK_SECRET })
+        });
+        const createData = await createRes.json().catch(() => ({}));
+        if (!createRes.ok) {
+          sendJson(res, 502, { ok: false, message: 'Failed to create the organization webhook.', detail: JSON.stringify(createData).slice(0, 400) });
+          return;
+        }
+        created = createData && createData.resource ? summarize(createData.resource) : null;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        organization: orgUri,
+        callback_url: callbackUrl,
+        already_configured: !!match,
+        created: created,
+        existing_org_webhooks: existing.map(summarize)
+      });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, message: 'Error contacting Calendly: ' + (e && e.message || e) });
+    }
+    return;
+  }
+
   // GET /api/admin/rsos — list RSO team members for assignment dropdown
   // Reads the editable rso_team table; the in-memory RSO_TEAM array is a seed/fallback.
   if (req.method === 'GET' && pathname === '/api/admin/rsos') {

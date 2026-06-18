@@ -9351,6 +9351,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.scheduleCallFromTask = scheduleCallFromTask;
 
   // ── Scheduled Calls Top-Level Panel (Task 14) ────────────────
+  // One-click: ensure Calendly notifies the app when a GP books with ANY RSO (organisation-wide
+  // webhook), not just the main GP Link account. Idempotent — safe to click again after adding RSOs.
+  async function fixCalendlyWebhook(btn) {
+    var orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking Calendly…'; }
+    try {
+      var r = await fetch('/api/admin/calendly/ensure-webhook', { method: 'POST', credentials: 'same-origin' });
+      var d = await r.json();
+      if (d && d.ok && d.already_configured) {
+        alert('Already set up ✓\n\nThe organisation-wide booking notification is active, so bookings with any RSO will register automatically.');
+      } else if (d && d.ok && d.created) {
+        alert('Fixed ✓\n\nCreated the organisation-wide booking notification. From now on, when a GP books with ANY RSO the call will update automatically.\n\nNote: bookings made BEFORE this fix won’t back-fill — ask that GP to re-book.');
+      } else if (d && d.ok) {
+        alert('Done ✓ Calendly reports the booking notification is in place.');
+      } else {
+        alert('Could not set it up:\n' + ((d && (d.message || d.detail)) || ('HTTP ' + r.status)));
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig || '⚙ Fix booking notifications'; }
+    }
+  }
+  window.fixCalendlyWebhook = fixCalendlyWebhook;
+
   async function renderScheduledCallsPanel() {
     var panel = document.getElementById('scheduledCallsPanel');
     if (!panel) return;
@@ -9381,7 +9406,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       });
 
-      var html = '<div class="calls-panel"><h2>Scheduled Calls</h2>';
+      var html = '<div class="calls-panel">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px">'
+        + '<h2 style="margin:0">Scheduled Calls</h2>'
+        + '<button class="btn sm" onclick="fixCalendlyWebhook(this)" title="Make sure Calendly notifies the app when a GP books with ANY RSO (not just GP Link). Run once after setting up RSOs." style="font-size:11px">⚙ Fix booking notifications</button>'
+        + '</div>';
       var sections = [
         { key: 'today', title: 'Today', items: groups.today },
         { key: 'thisWeek', title: 'This Week', items: groups.thisWeek },
