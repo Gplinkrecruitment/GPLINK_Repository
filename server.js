@@ -29506,7 +29506,7 @@ Return ONLY valid JSON with no markdown formatting:
     var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
     var forceReview = body && body.forceReview === true;
     var reviewReason = (body && typeof body.reviewReason === 'string')
-      ? body.reviewReason.trim().slice(0, 500)
+      ? body.reviewReason.trim().slice(0, 1000)
       : '';
 
     if (forceReview) {

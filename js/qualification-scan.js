@@ -210,13 +210,15 @@
       return "We could not read this document clearly. Retake the photo in good light and make sure all text is sharp and fully visible.";
     }
     // Certification problems belong ONLY to the certification check. Gate on
-    // mode === "certification" so a qualification/wrong-document issue that merely
-    // mentions "certified" or "true copy" can never be rewritten into a (fabricated)
-    // "not certified" verdict. The regex stays certification-specific (no bare
-    // "certificate"/"certifier") so it does not collide with friendly wrong-document
-    // messages — which contain labels like "MRCGP Certificate" — when those are
-    // re-humanized in certification mode.
-    if (mode === "certification" && /identified this as .*could not verify the certification|not been certified|not certified|properly certified|certification statement|certification markings|without any certification|no certification markings|certified as a true copy|true copy of the original/.test(lower)) {
+    // mode === "certification" so a qualification/wrong-document issue can never be
+    // rewritten into a (fabricated) "not certified" verdict. In certification mode
+    // EVERY issue is about certification, so match the AI's actual vocabulary
+    // ("certifier", "certification", "true copy", "seal", "notar...") and collapse the
+    // raw multi-issue list ("No certifier's signature... No date of certification...")
+    // into the ONE clean guidance message instead of leaking it as run-together raw
+    // text. These tokens deliberately avoid bare "certificate", so they never collide
+    // with name/wrong-document messages (which say "MRCGP Certificate", not "certifier").
+    if (mode === "certification" && /identified this as .*could not verify the certification|not been certified|not certified|properly certified|certification|certifier|certified copy|certified as a true copy|true copy of the original|official seal|stamp or seal|notari[sz]|solicitor or (public )?notary/.test(lower)) {
       return certificationGuidance(targetLabel);
     }
     if (/does not appear to be the correct document|wrong document|correct document type/.test(lower)) {
