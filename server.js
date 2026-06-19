@@ -7830,6 +7830,8 @@ async function isAdminOrVAUser(userId) {
 
 async function _ensureRegCase(userId) {
   if (!isSupabaseDbConfigured()) return null;
+  // Admin/VA accounts are staff, not GPs — never create or surface a GP registration case for them.
+  if (await isAdminOrVAUser(userId)) return null;
   const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   if (q.ok && Array.isArray(q.data) && q.data.length > 0) return q.data[0];
   const ins = await supabaseDbRequest('registration_cases', '', {
