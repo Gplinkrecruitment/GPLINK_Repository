@@ -4977,6 +4977,39 @@ function buildQualContentBlock(fileBuffer, mimeType) {
  * @param {string[]} opts.verifiedNames - Names from previously verified documents
  * @returns {Promise<{ok:true,verification:object}|{ok:false,status:number,message:string}>}
  */
+
+/**
+ * Robustly pull a JSON object out of an AI text response. Tolerates markdown code
+ * fences and leading/trailing prose by scanning for the first BALANCED { ... } object
+ * instead of a greedy first-to-last-brace match. Returns the parsed object, or null
+ * if no complete object is present (e.g. the response was truncated at max_tokens —
+ * we deliberately do NOT "repair" a truncated object, because a half-read
+ * verification result must fail loudly rather than be trusted).
+ */
+function extractAiJsonObject(text) {
+  if (!text || typeof text !== 'string') return null;
+  let s = text.trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence && fence[1]) s = fence[1].trim();
+  const start = s.indexOf('{');
+  if (start === -1) {
+    try { return JSON.parse(s); } catch (e) { return null; }
+  }
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) return null; // unbalanced -> truncated/invalid; fail loudly
+  try { return JSON.parse(s.slice(start, end + 1)); } catch (e) { return null; }
+}
+
 async function verifyQualificationDocument({ contentBlock, documentType, expectedCountry, profileName, verifiedNames }) {
   const dateRules = {
     GB: 'August 2007 or later',
@@ -5043,7 +5076,7 @@ Verify this document.`;
       },
       body: JSON.stringify({
         model: ANTHROPIC_SCAN_MODEL,
-        max_tokens: 500,
+        max_tokens: 1024,
         system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{
           role: 'user',
@@ -5078,12 +5111,9 @@ Verify this document.`;
       return { ok: false, status: 502, message: 'AI returned empty response.' };
     }
 
-    let verification;
-    try {
-      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-      verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
-    } catch (parseErr) {
-      console.error('[AI Verify] JSON parse failed:', textContent);
+    const verification = extractAiJsonObject(textContent);
+    if (!verification) {
+      console.error('[AI Verify] JSON parse failed (stop_reason=' + (anthropicData.stop_reason || '?') + '):', textContent);
       return { ok: false, status: 502, message: 'AI returned invalid response format.' };
     }
 
@@ -27343,7 +27373,7 @@ Check this document for certification markings.`;
         },
         body: JSON.stringify({
           model: ANTHROPIC_SCAN_MODEL,
-          max_tokens: 300,
+          max_tokens: 1024,
           system: [{ type: 'text', text: certSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
@@ -27381,12 +27411,9 @@ Check this document for certification markings.`;
         return;
       }
 
-      let certVerification;
-      try {
-        const jsonMatch = certText.match(/\{[\s\S]*\}/);
-        certVerification = JSON.parse(jsonMatch ? jsonMatch[0] : certText);
-      } catch (parseErr) {
-        console.error('[AI CertCheck] JSON parse failed:', certText);
+      const certVerification = extractAiJsonObject(certText);
+      if (!certVerification) {
+        console.error('[AI CertCheck] JSON parse failed (stop_reason=' + (certData.stop_reason || '?') + '):', certText);
         sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
         return;
       }
@@ -27498,7 +27525,7 @@ Classify this document.`;
         },
         body: JSON.stringify({
           model: ANTHROPIC_SCAN_MODEL,
-          max_tokens: 150,
+          max_tokens: 512,
           system: [{ type: 'text', text: classifySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
@@ -27533,12 +27560,9 @@ Classify this document.`;
         return;
       }
 
-      let classifyResult;
-      try {
-        const jm = classifyText.match(/\{[\s\S]*\}/);
-        classifyResult = JSON.parse(jm ? jm[0] : classifyText);
-      } catch (parseErr) {
-        console.error('[AI Classify] JSON parse failed:', classifyText);
+      const classifyResult = extractAiJsonObject(classifyText);
+      if (!classifyResult) {
+        console.error('[AI Classify] JSON parse failed (stop_reason=' + (classifyData.stop_reason || '?') + '):', classifyText);
         sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
         return;
       }
@@ -27740,7 +27764,7 @@ Return ONLY valid JSON with no markdown formatting:
         },
         body: JSON.stringify({
           model: ANTHROPIC_SCAN_MODEL,
-          max_tokens: 200,
+          max_tokens: 512,
           system: [{ type: 'text', text: idSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
@@ -27775,12 +27799,9 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
 
-      let verification;
-      try {
-        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-        verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
-      } catch (parseErr) {
-        console.error('[ID Verify] JSON parse failed:', textContent);
+      const verification = extractAiJsonObject(textContent);
+      if (!verification) {
+        console.error('[ID Verify] JSON parse failed (stop_reason=' + (anthropicData.stop_reason || '?') + '):', textContent);
         sendJson(res, 502, { ok: false, message: 'AI returned invalid response.' });
         return;
       }

@@ -157,8 +157,8 @@
     if (/document verification is not ready yet|still loading/.test(lower)) {
       return "The scan tool is still loading. Please refresh the page and try again.";
     }
-    if (/could not connect|failed to connect|network error|ai service returned an error/.test(lower)) {
-      return "We could not reach the scan service just now. Please try again in a moment.";
+    if (/could not connect|failed to connect|network error|ai service returned an error|ai service returned|returned invalid response|invalid response format|returned empty response|ai returned an empty|verification service not configured|could not verify this document. please try again/.test(lower)) {
+      return "We could not finish checking this document automatically just now. This is a temporary problem on our side, not a problem with your document. Please try again in a moment — if it keeps happening, please contact support and we'll review it for you.";
     }
     if (/please upload a pdf or image file/.test(lower)) {
       return "Please upload a PDF or image file for the scan.";

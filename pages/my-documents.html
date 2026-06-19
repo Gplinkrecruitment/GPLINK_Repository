@@ -10,7 +10,7 @@
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260619a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260619b" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2479,6 +2479,16 @@
         showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { docKey: key, documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
       }
 
+      // A technical/server-side failure (the AI check could not complete) is NOT the
+      // user's fault, so it must NOT burn one of their attempts or push them toward
+      // "support recommended". Show a clear, reassuring message and leave the counter alone.
+      function showScanTechnicalError(key, state, country, title, rawMsg) {
+        deletePreparedDocumentFile(country, key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(false, "Couldn't Complete Scan", getFriendlyScanMessageHtml(rawMsg || "Could not verify this document. Please try again.", { docKey: key, documentTitle: title, mode: "certification" }));
+      }
+
       function stripHtmlToText(html) {
         if (!html) return '';
         var tmp = document.createElement('div');
@@ -2729,7 +2739,7 @@
 
           if (typeof window.gpVerifyCertifiedDocument !== "function") {
             state.docs[key] = { uploaded: false, fileName: file.name };
-            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.", storedFile);
+            showScanTechnicalError(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.");
             return;
           }
 
@@ -2772,18 +2782,11 @@
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.", storedFile);
+              showScanTechnicalError(key, state, country, docTitle, data && data.message);
             }
           }).catch(function(err) {
             state.docs[key] = { uploaded: false, fileName: file.name };
-            handleCertFailure(
-              key,
-              state,
-              country,
-              docTitle,
-              (err && err.message) ? err.message : "Could not connect to verification service. Please try again.",
-              storedFile
-            );
+            showScanTechnicalError(key, state, country, docTitle, err && err.message);
           });
         }).catch(function() {
           showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
