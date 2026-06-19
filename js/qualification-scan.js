@@ -64,6 +64,84 @@
     });
   }
 
+  function isImageFile(file) {
+    if (!file) return false;
+    var type = String(file.type || "").toLowerCase();
+    if (/^image\//.test(type)) return true;
+    return /\.(jpe?g|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(file.name || "");
+  }
+
+  // Downscale a (potentially huge phone-camera) image in the browser before upload.
+  // The platform rejects request bodies over ~4.5 MB, and base64 inflates bytes by
+  // ~33%, so a 4 MB photo overflows the limit and the upload fails before it even
+  // reaches the server. The vision model only needs ~1568px on the long edge, so
+  // shrinking to that loses no detail the AI uses while keeping the request small.
+  function downscaleImageToBase64(file, maxDim, quality) {
+    maxDim = maxDim || 1600;
+    quality = quality || 0.82;
+    return new Promise(function (resolve, reject) {
+      var url;
+      try { url = URL.createObjectURL(file); } catch (e) { reject(e); return; }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) { URL.revokeObjectURL(url); reject(new Error("no dimensions")); return; }
+          var scale = Math.min(1, maxDim / Math.max(w, h));
+          var canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          var q = quality;
+          var dataUrl = canvas.toDataURL("image/jpeg", q);
+          // If still too big for the body limit, recompress harder once.
+          if (dataUrl.length > 3600000) dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+          URL.revokeObjectURL(url);
+          var b64 = dataUrl.split(",")[1] || "";
+          if (!b64) { reject(new Error("encode failed")); return; }
+          resolve({ base64: b64, mimeType: "image/jpeg" });
+        } catch (e) { try { URL.revokeObjectURL(url); } catch (e2) {} reject(e); }
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} reject(new Error("image decode failed")); };
+      img.src = url;
+    });
+  }
+
+  // Returns { base64, mimeType } ready to send. Images are downscaled; PDFs and any
+  // file we cannot decode fall back to raw bytes (with a clear "too large" message
+  // downstream if the platform then rejects them).
+  function prepareScanUpload(file) {
+    var fallbackType = (file && file.type) || "application/octet-stream";
+    if (isImageFile(file)) {
+      return downscaleImageToBase64(file).catch(function () {
+        return fileToBase64(file).then(function (b64) { return { base64: b64, mimeType: fallbackType }; });
+      });
+    }
+    return fileToBase64(file).then(function (b64) { return { base64: b64, mimeType: fallbackType }; });
+  }
+
+  // Read a fetch response as JSON without throwing on a non-JSON body. Platform
+  // errors (e.g. a 413 "Request Entity Too Large" plain-text page) would otherwise
+  // make res.json() throw "Unexpected token ... is not valid JSON", which surfaced
+  // to GPs verbatim. Map those to a clear, structured result instead.
+  function readJsonResponse(res) {
+    return res.text().then(function (text) {
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        var tooLarge = res.status === 413 || /request entity too large|payload too large|too large/i.test(text || "");
+        return {
+          ok: false,
+          status: res.status,
+          message: tooLarge
+            ? "This file is too large to scan. Please upload a smaller photo, or the PDF version, and try again."
+            : "We could not finish checking this document automatically just now. Please try again in a moment."
+        };
+      }
+    });
+  }
+
   function base64ToDataUrl(base64, mimeType) {
     if (typeof base64 !== "string" || !base64) return "";
     return "data:" + (mimeType || "application/octet-stream") + ";base64," + base64;
@@ -117,6 +195,11 @@
     if (!clean) {
       return "We could not complete the scan. Please try again with a clear image of the full document.";
     }
+    // Checked early (before the blurry/name branches) so the message stays stable if it
+    // is re-humanized. Wording avoids "clearer photo" to not collide with the blurry branch.
+    if (/too large|request entity too large|payload too large|image too large|file too large/.test(lower)) {
+      return "This file is too large to scan. Please upload a smaller photo, or the PDF version, and try again.";
+    }
     if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
       return "The name on this document does not match the name on your account. Upload a document showing the same full name, or update your account details first.";
     }
@@ -157,7 +240,7 @@
     if (/document verification is not ready yet|still loading/.test(lower)) {
       return "The scan tool is still loading. Please refresh the page and try again.";
     }
-    if (/could not connect|failed to connect|network error|ai service returned an error|ai service returned|returned invalid response|invalid response format|returned empty response|ai returned an empty|verification service not configured|could not verify this document. please try again/.test(lower)) {
+    if (/could not connect|failed to connect|network error|ai service returned an error|ai service returned|returned invalid response|invalid response format|returned empty response|ai returned an empty|verification service not configured|could not verify this document. please try again|unexpected token|is not valid json|json\.parse/.test(lower)) {
       return "We could not finish checking this document automatically just now. This is a temporary problem on our side, not a problem with your document. Please try again in a moment — if it keeps happening, please contact support and we'll review it for you.";
     }
     if (/please upload a pdf or image file/.test(lower)) {
@@ -224,40 +307,36 @@
 
   function verifyQualificationDocument(file, options) {
     var opts = options || {};
-    return fileToBase64(file).then(function (base64) {
+    return prepareScanUpload(file).then(function (prep) {
       return fetch("/api/ai/verify-qualification", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageBase64: base64,
-          mimeType: file.type || "application/octet-stream",
+          imageBase64: prep.base64,
+          mimeType: prep.mimeType,
           documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
           expectedCountry: opts.expectedCountry || getSelectedCountryCode(),
           profileName: opts.profileName || getProfileName()
         })
       });
-    }).then(function (res) {
-      return res.json();
-    });
+    }).then(readJsonResponse);
   }
 
   function verifyCertificationDocument(file, options) {
     var opts = options || {};
-    return fileToBase64(file).then(function (base64) {
+    return prepareScanUpload(file).then(function (prep) {
       return fetch("/api/ai/verify-certification", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageBase64: base64,
-          mimeType: file.type || "application/octet-stream",
+          imageBase64: prep.base64,
+          mimeType: prep.mimeType,
           documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType)
         })
       });
-    }).then(function (res) {
-      return res.json();
-    });
+    }).then(readJsonResponse);
   }
 
   function verifyCertifiedDocument(file, options) {
@@ -458,7 +537,29 @@
     certContext = null;
     openModal();
   };
+  // Downscale an image to a data URL for STORAGE (RSO/AHPRA review copy). Kept at a
+  // higher resolution than the AI-upload copy so fine print stays legible, but still
+  // small enough to PUT through the serverless body-size limit. Falls back to the raw
+  // data URL for non-images or if canvas decoding fails (e.g. some HEIC files).
+  function downscaleImageToDataUrl(file, maxDim, quality) {
+    if (!isImageFile(file)) return fileToDataUrlRaw(file);
+    return downscaleImageToBase64(file, maxDim || 2400, quality || 0.88)
+      .then(function (out) { return base64ToDataUrl(out.base64, out.mimeType); })
+      .catch(function () { return fileToDataUrlRaw(file); });
+  }
+  function fileToDataUrlRaw(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(typeof reader.result === "string" ? reader.result : ""); };
+      reader.onerror = function () { reject(new Error("file_read_failed")); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   window.gpFileToBase64 = fileToBase64;
+  window.gpPrepareScanUpload = prepareScanUpload;
+  window.gpReadJsonResponse = readJsonResponse;
+  window.gpDownscaleImageDataUrl = downscaleImageToDataUrl;
 
   /** Open scan modal in certification mode for a specific document */
   window.gpOpenCertScan = function(docKey, docTitle, onComplete) {
@@ -623,22 +724,20 @@
 
     if (isImage) {
       // Use the Claude AI verification endpoint (standard qualification scan)
-      fileToBase64(file).then(function (base64) {
+      prepareScanUpload(file).then(function (prep) {
         return fetch("/api/ai/verify-qualification", {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: file.type || "application/octet-stream",
+            imageBase64: prep.base64,
+            mimeType: prep.mimeType,
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
             profileName: getProfileName()
           })
         });
-      }).then(function (res) {
-        return res.json();
-      }).then(function (data) {
+      }).then(readJsonResponse).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
           var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification", allowEmpty: true });
@@ -722,22 +821,20 @@
       });
     } else {
       // For PDFs/non-images, use the same AI verification endpoint (supports PDFs)
-      fileToBase64(file).then(function (base64) {
+      prepareScanUpload(file).then(function (prep) {
         return fetch("/api/ai/verify-qualification", {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: file.type || "application/pdf",
+            imageBase64: prep.base64,
+            mimeType: prep.mimeType,
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
             profileName: getProfileName()
           })
         });
-      }).then(function (res) {
-        return res.json();
-      }).then(function (data) {
+      }).then(readJsonResponse).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
           var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification", allowEmpty: true });

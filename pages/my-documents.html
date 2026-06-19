@@ -10,7 +10,7 @@
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260619b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260620a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1895,6 +1895,17 @@
     }
 
     function readFileAsDataUrl(file) {
+      // Downscale large images before storing so the PUT to /api/prepared-documents
+      // stays under the serverless body-size limit (a 4 MB phone photo would otherwise
+      // fail to save even after passing the scan). Non-images fall back to raw bytes.
+      var isImg = file && (/^image\//i.test(file.type || "") || /\.(jpe?g|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(file.name || ""));
+      if (isImg && typeof window.gpDownscaleImageDataUrl === "function") {
+        return window.gpDownscaleImageDataUrl(file).catch(function() { return rawReadFileAsDataUrl(file); });
+      }
+      return rawReadFileAsDataUrl(file);
+    }
+
+    function rawReadFileAsDataUrl(file) {
       return new Promise(function(resolve, reject) {
         var reader = new FileReader();
         reader.onload = function() {
@@ -2662,20 +2673,20 @@
           state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
           persistDocsState(state, true);
           renderAll(country, state);
-          window.gpFileToBase64(file).then(function(base64) {
+          (window.gpPrepareScanUpload ? window.gpPrepareScanUpload(file) : window.gpFileToBase64(file).then(function(b64){ return { base64: b64, mimeType: file.type || "application/octet-stream" }; })).then(function(prep) {
             return fetch("/api/ai/classify-document", {
               method: "POST",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                fileBase64: base64,
-                mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"),
+                fileBase64: prep.base64,
+                mimeType: prep.mimeType,
                 expectedKey: key,
                 expectedLabel: docTitle
               })
             });
           }).then(function(res) {
-            return res.json();
+            return window.gpReadJsonResponse ? window.gpReadJsonResponse(res) : res.json();
           }).then(function(data) {
             if (data.ok && data.classification && data.classification.matches) {
               savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
