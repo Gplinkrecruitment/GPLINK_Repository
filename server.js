@@ -30711,17 +30711,21 @@ Return ONLY valid JSON with no markdown formatting:
 
     // ── RSO reassignment: set the Gmail mailbox owner (assigned_va) in lock-step
     //    with assigned_rso, and refuse if the target RSO has no mailbox (#44, §C.1).
+    // reassigningToArchive: true when the new owner is GP Link Admin (hello@), which has no
+    // watched mailbox by design — the label block hands off without provisioning one.
+    var reassigningToArchive = false;
     if (Object.prototype.hasOwnProperty.call(patch, 'assigned_rso') && patch.assigned_rso) {
       var rsoRosterRows = await loadRsoTeam({ includeInactive: true });
       var rsoMailRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address,display_name');
       var rsoMailRows = (rsoMailRes.ok && Array.isArray(rsoMailRes.data)) ? rsoMailRes.data : [];
-      var resolved = ceoMetrics.resolveRsoReassignmentTarget(rsoRosterRows, rsoMailRows, patch.assigned_rso);
+      var resolved = ceoMetrics.resolveRsoReassignmentTarget(rsoRosterRows, rsoMailRows, patch.assigned_rso, MASTER_ARCHIVE_EMAIL);
       if (!resolved.ok) {
         sendJson(res, 400, { ok: false, message: resolved.error });
         return;
       }
       // Lock-step: the mailbox that owns the Gmail labels follows the RSO.
       patch.assigned_va = resolved.rso.user_id;
+      reassigningToArchive = !!resolved.isArchive;
     }
 
     // ── Reverse lock-step (#4): an admin-page reassignment changes assigned_va
@@ -30754,7 +30758,26 @@ Return ONLY valid JSON with no markdown formatting:
     var emailTransferred = null;
     var emailTransferError = null;
     if (patch.assigned_va) {
-      try {
+      if (reassigningToArchive) {
+        // GP Link Admin (master archive / hello@) now owns the case. hello@ is never
+        // Gmail-watched and already mirrors every case email (silent copies on the hello@
+        // sub-label), so there is no VA mailbox to provision — just hand off cleanly by
+        // archiving the previous RSO's working label.
+        try {
+          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
+            var oldVaArcRes = await supabaseDbRequest('va_gmail_accounts',
+              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
+            var oldVaArc = oldVaArcRes.ok && oldVaArcRes.data && oldVaArcRes.data[0] ? oldVaArcRes.data[0] : null;
+            if (oldVaArc) await archiveLabelForVA(oldVaArc.email_address, caseId);
+          }
+          // Ownership moved to GP Link Admin; the master archive already holds the history.
+          emailTransferred = true;
+        } catch (arcErr) {
+          console.error('[Gmail Labels] Handoff to GP Link Admin failed:', arcErr.message);
+          emailTransferred = false;
+          emailTransferError = String(arcErr && arcErr.message || arcErr).slice(0, 300);
+        }
+      } else try {
           var labelCaseRes = await supabaseDbRequest('registration_cases',
             'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
           var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
@@ -30920,7 +30943,10 @@ Return ONLY valid JSON with no markdown formatting:
           var vaRes = await supabaseDbRequest('va_gmail_accounts',
             'select=email_address,display_name&user_id=eq.' + encodeURIComponent(rnCase.assigned_va) + '&limit=1');
           var va = vaRes.ok && vaRes.data && vaRes.data[0] ? vaRes.data[0] : null;
-          if (!va) return;
+          // No watched mailbox for this owner (e.g. GP Link Admin / hello@): nothing to
+          // rename. Use the 'skip' sentinel so the catch logs it — a bare `return` here
+          // would exit the whole handler without a response and hang the request.
+          if (!va) throw new Error('skip');
 
           var newVaLabel = buildCandidateLabelName(gpN, patch.practice_name);
           var newHelloLabel = buildHelloLabelName(va.display_name, gpN, patch.practice_name);

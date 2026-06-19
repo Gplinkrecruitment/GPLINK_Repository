@@ -53,4 +53,30 @@ describe('resolveRsoReassignmentTarget', () => {
     expect(r.ok).toBe(false);
     expect(r.error).toBe('Target RSO is inactive.');
   });
+  it('allows the master-archive account (GP Link Admin / hello@) without a mailbox (isArchive)', () => {
+    var rosterWithAdmin = ROSTER.concat([
+      { user_id: 'hq', name: 'GP Link Admin', email: 'hello@mygplink.com.au', active: true }
+    ]);
+    var r = resolveRsoReassignmentTarget(rosterWithAdmin, MAILBOXES, 'hq', 'hello@mygplink.com.au');
+    expect(r.ok).toBe(true);
+    expect(r.isArchive).toBe(true);
+    expect(r.mailbox).toBeNull();
+    expect(r.rso.user_id).toBe('hq');
+  });
+  it('is case-insensitive when matching the master-archive email', () => {
+    var rosterWithAdmin = ROSTER.concat([
+      { user_id: 'hq', name: 'GP Link Admin', email: 'Hello@MyGPLink.com.au', active: true }
+    ]);
+    var r = resolveRsoReassignmentTarget(rosterWithAdmin, MAILBOXES, 'hq', 'hello@mygplink.com.au');
+    expect(r.ok).toBe(true);
+    expect(r.isArchive).toBe(true);
+  });
+  it('without a masterArchiveEmail arg, the admin account still needs a mailbox (backward compat)', () => {
+    var rosterWithAdmin = ROSTER.concat([
+      { user_id: 'hq', name: 'GP Link Admin', email: 'hello@mygplink.com.au', active: true }
+    ]);
+    var r = resolveRsoReassignmentTarget(rosterWithAdmin, MAILBOXES, 'hq');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/no Gmail mailbox/i);
+  });
 });
