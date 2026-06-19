@@ -4779,11 +4779,14 @@
     var _ceoReviewDocObjUrl = null;
     function ceoReviewFlaggedDoc(taskId) {
       var t = findCeoTask(taskId) || {};
+      // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
+      var ceoReason = t.description || t.ai_match_reasoning || '';
       var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
-      if (t.description) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(t.description) + '</div>';
+      if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
       html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
       html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP</label>';
-      html += '<textarea id="ceoReviewDocNote" rows="2" style="width:100%;margin-top:4px;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>';
+      // Pre-fill the note with the full AI explanation so it can be sent to the GP as-is (or edited).
+      html += '<textarea id="ceoReviewDocNote" rows="2" style="width:100%;margin-top:4px;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box">' + esc(ceoReason) + '</textarea></div>';
       html += '<div id="ceoReviewDocError" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>';
       html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject — request re-upload</button>';

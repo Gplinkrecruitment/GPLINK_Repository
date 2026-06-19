@@ -4189,8 +4189,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     _reviewDocTaskId=taskId;
     document.getElementById('reviewDocTitle').textContent=task.title||'Review flagged document';
     // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
-    document.getElementById('reviewDocReason').textContent=task.description||task.ai_match_reasoning||'';
-    document.getElementById('reviewDocNote').value='';
+    var _reviewReasonText=task.description||task.ai_match_reasoning||'';
+    document.getElementById('reviewDocReason').textContent=_reviewReasonText;
+    // Pre-fill the note with the full AI explanation so the admin can send it to the GP
+    // as-is (or edit it) — no manual copy-paste that risks cropping the text.
+    document.getElementById('reviewDocNote').value=_reviewReasonText;
     var err=document.getElementById('reviewDocError'); err.style.display='none'; err.textContent='';
     var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
     var loading=document.getElementById('reviewDocLoading'), missing=document.getElementById('reviewDocMissing');
