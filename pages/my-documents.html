@@ -2588,13 +2588,43 @@
       }
       window.__gpFlushPendingDocUploads = flushPendingDocUploads;
 
+      // Clean document noun for messages: drop the requirement wording ("Certified
+      // copy of", "(Signed and dated)") so we name the document the user uploaded,
+      // not the requirement they were given. "Certified copy of MRCGP" -> "MRCGP";
+      // "CV (Signed and dated)" -> "CV".
+      function cleanDocumentNoun(docTitle) {
+        var name = String(docTitle || "")
+          .replace(/^certified\s+(?:true\s+)?copy\s+of\s+(?:your\s+)?/i, "")
+          .replace(/\s*\((?:signed and dated|mbbs[^)]*|mbchb[^)]*)\)\s*/i, " ")
+          .replace(/\s+issued by.*$/i, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        return name || "this document";
+      }
+
       function buildClassificationFailureMessage(docTitle, data) {
-        var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
-        if (data && data.classification && data.classification.identifiedAs) {
-          reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+        var cls = (data && data.classification) || {};
+        var identified = cls.identifiedAs || "";
+        var blob = (identified + " " + (cls.reason || "")).toLowerCase();
+
+        // Special case: the file IS the right kind of document but is missing the
+        // signature/date it must carry (e.g. an unsigned or undated CV). This is NOT
+        // a "wrong document" — say so plainly, the same way the certification flow
+        // separates "what it is" from "what is wrong with it".
+        var needsSignDate = /signed and dated/i.test(docTitle);
+        var mentionsSignDate = /unsigned|not signed|isn'?t signed|missing[^.]*sign|no (?:visible |clear )?signature|undated|not dated|isn'?t dated|missing[^.]*date|no (?:visible |clear )?date|signed and dated/.test(blob);
+        var cleanName = cleanDocumentNoun(docTitle);
+        var looksLikeRightType = identified && cleanName && identified.toLowerCase().indexOf(cleanName.toLowerCase()) !== -1;
+        if (needsSignDate && (mentionsSignDate || looksLikeRightType)) {
+          return "We can see this is your " + cleanName + ", but it has not been signed and dated. Please sign it and add the date, then upload it again.";
         }
-        if (data && data.classification && data.classification.reason) {
-          reason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
+
+        var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
+        if (cls.identifiedAs) {
+          reason = "This appears to be <strong>" + cls.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+        }
+        if (cls.reason) {
+          reason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + cls.reason + '</span>';
         }
         return reason;
       }
