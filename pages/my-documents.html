@@ -10,7 +10,7 @@
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260614b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260619a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2476,7 +2476,7 @@
         deletePreparedDocumentFile(country, key);
         persistDocsState(state, true);
         renderAll(country, state);
-        showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
+        showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { docKey: key, documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
       }
 
       function stripHtmlToText(html) {
@@ -2688,43 +2688,11 @@
             fileSize: Number(file.size || 0),
             fileDataUrl: fileDataUrl
           };
-          if (!isImage) {
-            state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
-            persistDocsState(state, true);
-            renderAll(country, state);
-            window.gpFileToBase64(file).then(function(base64) {
-              return fetch("/api/ai/classify-document", {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"), expectedKey: key, expectedLabel: docTitle })
-              });
-            }).then(function(res) { return res.json(); }).then(function(data) {
-              if (data.ok && data.classification && data.classification.matches) {
-                var certifyReason = "We can see this is <strong>" + docTitle + "</strong>, but we cannot confirm the certification from this file. Upload a clear image showing the certifier's statement, signature, printed name, occupation and date.";
-                if (data.classification && data.classification.reason) {
-                  certifyReason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
-                }
-                state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, certifyReason, storedFile);
-              } else {
-                var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
-                if (data.classification && data.classification.identifiedAs) {
-                  reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
-                }
-                if (data.classification && data.classification.reason) {
-                  reason += '<br><span style="color:var(--gp-muted);font-size:12px;">' + data.classification.reason + '</span>';
-                }
-                state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, reason, storedFile);
-              }
-            }).catch(function() {
-              state.docs[key] = { uploaded: false, fileName: file.name };
-              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.", storedFile);
-            });
-            return;
-          }
-
+          // Both PDFs and images run the SAME full certification check
+          // (gpVerifyCertifiedDocument → qualification + name + certification). PDFs are
+          // not punted to "upload an image": the verify-qualification and verify-certification
+          // endpoints both accept PDFs, so we can honestly tell the user whether the document
+          // has actually been certified instead of always asking for another file.
           state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
           persistDocsState(state, true);
           renderAll(country, state);
@@ -2770,7 +2738,7 @@
               } else {
                 var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }), storedFile);
+                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { docKey: key, documentTitle: docTitle, mode: "certification" }), storedFile);
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };

@@ -83,14 +83,34 @@
   }
 
   function getFriendlyTargetLabel(options) {
+    // Prefer the clean document noun ("MRCGP Certificate", "Primary Medical Degree")
+    // over the requirement label ("Certified copy of MRCGP"), so rejection messages
+    // describe the document the user uploaded — not the requirement they were given.
+    var docKey = options && options.docKey;
+    if (docKey && DOC_LABELS[docKey]) return DOC_LABELS[docKey];
     var title = options && options.documentTitle ? stripHtml(options.documentTitle) : "";
     title = title.replace(/^certified copy of\s+/i, "").trim();
     return title || "the requested document";
   }
 
+  // Single source of truth for "right document, but not certified" rejections.
+  // Separates what the document IS (identity, which the AI confirmed) from what is
+  // wrong with it (it has not been certified as a true copy). Used for every
+  // certification-required document so the reasoning reads the same everywhere.
+  // NOTE: the wording below MUST keep containing a phrase that the certification
+  // regex in humanizeScanIssue matches (e.g. "has not been certified"), because this
+  // message can be passed back through humanizeScanIssue a second time — it must map
+  // to itself rather than fall through to the generic fallback.
+  function certificationGuidance(targetLabel) {
+    return "We can see this is your " + targetLabel + ", but it has not been certified as a true copy of the original. "
+      + "To accept it, a solicitor or public notary must certify the copy — adding a statement that it is a true copy of the original, "
+      + "plus their signature, printed name, occupation and the date. Then upload the certified copy.";
+  }
+
   function humanizeScanIssue(issue, options) {
     var clean = stripHtml(issue);
     var lower = clean.toLowerCase();
+    var mode = options && options.mode;
     var targetLabel = getFriendlyTargetLabel(options);
     var wrongDocMatch = clean.match(/appears to be\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
 
@@ -106,11 +126,15 @@
     if (/too blurry|blurry to read|illegible|not readable|clearer photo|clearer document/.test(lower)) {
       return "We could not read this document clearly. Retake the photo in good light and make sure all text is sharp and fully visible.";
     }
-    if (/identified this as .*could not verify the certification/.test(lower)) {
-      return "We can see this is the correct document, but we cannot confirm the certification from this file. Upload a clear photo of the certified copy showing the certifier's statement, signature, printed name, occupation and date.";
-    }
-    if (/does not appear to be properly certified|without any certification markings|certification markings|certification statement|certifier/.test(lower)) {
-      return "We could not confirm that this is a certified copy. Please upload a clear image showing the certifier's statement, signature, printed name and date.";
+    // Certification problems belong ONLY to the certification check. Gate on
+    // mode === "certification" so a qualification/wrong-document issue that merely
+    // mentions "certified" or "true copy" can never be rewritten into a (fabricated)
+    // "not certified" verdict. The regex stays certification-specific (no bare
+    // "certificate"/"certifier") so it does not collide with friendly wrong-document
+    // messages — which contain labels like "MRCGP Certificate" — when those are
+    // re-humanized in certification mode.
+    if (mode === "certification" && /identified this as .*could not verify the certification|not been certified|not certified|properly certified|certification statement|certification markings|without any certification|no certification markings|certified as a true copy|true copy of the original/.test(lower)) {
+      return certificationGuidance(targetLabel);
     }
     if (/does not appear to be the correct document|wrong document|correct document type/.test(lower)) {
       return "This looks like a different document from the one needed here. Please upload " + targetLabel + ".";
@@ -281,6 +305,7 @@
             ? certVerification.issues
             : ["The document does not appear to be properly certified."];
           certVerification.issues = humanizeScanIssues(certIssues, {
+            docKey: opts.docKey,
             documentTitle: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
             mode: "certification"
           });
@@ -506,6 +531,7 @@
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
               var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
+                docKey: ctx.key,
                 documentTitle: ctx.title,
                 mode: "certification"
               });
@@ -562,6 +588,7 @@
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
               var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
+                docKey: ctx2.key,
                 documentTitle: ctx2.title,
                 mode: "certification"
               });
