@@ -21436,8 +21436,12 @@ async function handleApi(req, res, pathname) {
         '&created_at=lte.' + encodeURIComponent(wsTwoWeeksAgo));
       var wsCases = wsCasesRes.ok && Array.isArray(wsCasesRes.data) ? wsCasesRes.data : [];
 
+      // Exclude admin/VA accounts — they are staff, not GPs, so never chase them.
+      var wsAdminIds = await getAdminUserIdSet();
+
       var wsCreated = 0, wsSkipped = 0;
       for (var wsC of wsCases) {
+        if (wsC.user_id && wsAdminIds.has(wsC.user_id)) { wsSkipped++; continue; }
         var wsLastActivity = wsC.last_gp_activity_at || wsC.created_at;
         if (!wsLastActivity || wsLastActivity > wsTwoWeeksAgo) { wsSkipped++; continue; }
         var wsExisting = await supabaseDbRequest('registration_tasks',
@@ -33113,8 +33117,12 @@ Return ONLY valid JSON with no markdown formatting:
       '&created_at=lte.' + encodeURIComponent(twoWeeksAgo));
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
 
+    // Exclude admin/VA accounts — they are staff, not GPs, so never chase them.
+    const adminUserIds = await getAdminUserIdSet();
+
     let created = 0, skipped = 0;
     for (const c of cases) {
+      if (c.user_id && adminUserIds.has(c.user_id)) { skipped++; continue; }
       const lastActivity = c.last_gp_activity_at || c.created_at;
       if (!lastActivity || lastActivity > twoWeeksAgo) { skipped++; continue; }
       // Skip if a weekly check-in task was already created in the last 7 days
