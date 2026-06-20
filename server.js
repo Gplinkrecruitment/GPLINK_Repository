@@ -1953,10 +1953,15 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
   }
 
   var reference = extraction.reference || ahpraS80.detectReference((emailMeta.subject || '') + ' ' + (emailMeta.bodyText || '')) || '';
-  var bundleId = 's80_' + (reference || currentMsgId || String(new Date().getTime()));
+  // bundle_id must be unique PER officer message — an AHPRA reference is stable per
+  // application, so keying on it would merge follow-up notices into one bundle and
+  // break the per-notice reply trigger. Reference is kept on metadata for display.
+  var bundleId = 's80_' + (currentMsgId || reference || String(new Date().getTime()));
 
-  // Shared deadline → due date for every item in the notice.
-  var deadline = (typeof extraction.deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(extraction.deadline)) ? extraction.deadline : null;
+  // Shared deadline → due date for every item in the notice. Require a real calendar
+  // date (the model can emit shape-valid-but-impossible dates that the DATE column
+  // would reject, dropping the whole bundle). Fall back to a 14-day target if missing.
+  var deadline = (typeof extraction.deadline === 'string' && ahpraS80.isRealDate(extraction.deadline)) ? extraction.deadline : null;
   var dueDate;
   if (deadline) { dueDate = deadline; }
   else { var d = new Date(); d.setDate(d.getDate() + 14); dueDate = d.toISOString().slice(0, 10); }
@@ -2013,7 +2018,9 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       related_stage: 'ahpra',
       source_gmail_message_id: currentMsgId || null,
       gmail_thread_id: emailMeta.threadId || '',
-      ahpra_deadline: deadline,
+      // Store the effective action-by date (parsed deadline, or the 14-day fallback)
+      // so both the GP card and the admin tray — which read ahpra_deadline — show it.
+      ahpra_deadline: dueDate,
       metadata: meta,
       _actor: 'system'
     });
@@ -29328,47 +29335,59 @@ Return ONLY valid JSON with no markdown formatting:
       });
       const allDone = requestItems.length > 0 && requestItems.every(function (t) { return t.metadata && t.metadata.gp_marked_complete_at; });
       if (allDone) {
-        const uploadItems = bundleTasks.filter(function (t) {
-          const m = t.metadata || {};
-          return m.owner === 'gp' && m.mode === 'upload' && m.upload && m.upload.status === 'approved';
+        // Re-check immediately before inserting to narrow the double-fire race
+        // (two near-simultaneous mark-complete calls both passing the earlier guard).
+        const recheck = await supabaseDbRequest('registration_tasks', 'select=metadata&case_id=eq.' + encodeURIComponent(mcTask.case_id) + '&task_type=eq.ahpra_action_item&limit=200');
+        const replyNow = (recheck.ok && Array.isArray(recheck.data) ? recheck.data : []).some(function (t) {
+          const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+          return m.bundle_id === mcMeta.bundle_id && m.mode === 'reply';
         });
-        const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
-        const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
-        const gpFullName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim();
-        const draft = ahpraS80.buildCombinedReplyDraft({
-          gpFullName: gpFullName,
-          reference: mcMeta.reference || '',
-          threadSubject: mcMeta.thread_subject || '',
-          requestedItems: requestItems.map(function (t) { return { title: t.title, institution: (t.metadata && t.metadata.institution) || '' }; }),
-          uploadItems: uploadItems.map(function (t) { return { title: t.title }; })
-        });
-        await _createRegTask(mcTask.case_id, {
-          task_type: 'ahpra_action_item',
-          title: 'Reply to AHPRA to confirm receipt',
-          description: 'All of the GP\'s institution-request items are done. Review the draft and send it on the original AHPRA thread.',
-          priority: 'high',
-          status: 'open',
-          due_date: mcTask.ahpra_deadline || null,
-          related_stage: 'ahpra',
-          ahpra_deadline: mcTask.ahpra_deadline || null,
-          gmail_thread_id: mcTask.gmail_thread_id || '',
-          source_trigger: 's80_combined_reply',
-          metadata: {
-            s80: true,
-            bundle_id: mcMeta.bundle_id,
-            reference: mcMeta.reference || null,
-            review_status: 'active',
-            owner: 'team',
-            mode: 'reply',
-            kind: 'reply',
-            detail: draft.body,
-            draft: draft,
-            thread_subject: mcMeta.thread_subject || '',
-            original_email: mcMeta.original_email || null
-          },
-          _actor: 'system'
-        });
-        replyCreated = true;
+        if (!replyNow) {
+          const uploadItems = bundleTasks.filter(function (t) {
+            const m = t.metadata || {};
+            return m.owner === 'gp' && m.mode === 'upload' && m.upload && m.upload.status === 'approved';
+          });
+          const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
+          const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+          const gpFullName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim();
+          const draft = ahpraS80.buildCombinedReplyDraft({
+            gpFullName: gpFullName,
+            reference: mcMeta.reference || '',
+            threadSubject: mcMeta.thread_subject || '',
+            requestedItems: requestItems.map(function (t) { return { title: t.title, institution: (t.metadata && t.metadata.institution) || '' }; }),
+            uploadItems: uploadItems.map(function (t) { return { title: t.title }; })
+          });
+          const replyTask = await _createRegTask(mcTask.case_id, {
+            task_type: 'ahpra_action_item',
+            title: 'Reply to AHPRA to confirm receipt',
+            description: 'All of the GP\'s institution-request items are done. Review the draft and send it on the original AHPRA thread.',
+            priority: 'high',
+            status: 'open',
+            due_date: mcTask.ahpra_deadline || null,
+            related_stage: 'ahpra',
+            ahpra_deadline: mcTask.ahpra_deadline || null,
+            gmail_thread_id: mcTask.gmail_thread_id || '',
+            source_trigger: 's80_combined_reply',
+            metadata: {
+              s80: true,
+              bundle_id: mcMeta.bundle_id,
+              reference: mcMeta.reference || null,
+              review_status: 'active',
+              owner: 'team',
+              mode: 'reply',
+              kind: 'reply',
+              detail: draft.body,
+              draft: draft,
+              thread_subject: mcMeta.thread_subject || '',
+              original_email: mcMeta.original_email || null
+            },
+            _actor: 'system'
+          });
+          // Only claim success if the insert actually produced a row — otherwise the
+          // GP would be told "we'll reply" when no team task exists.
+          if (replyTask && replyTask.id) replyCreated = true;
+          else console.error('[AHPRA] Combined-reply task insert failed for bundle ' + mcMeta.bundle_id + ' (case ' + mcTask.case_id + ')');
+        }
       }
     }
     sendJson(res, 200, { ok: true, reply_created: replyCreated });
@@ -32156,8 +32175,14 @@ Return ONLY valid JSON with no markdown formatting:
     const msgId = 'manual-' + new Date().getTime() + '-' + Math.random().toString(36).slice(2, 8);
     const extraction = await extractAhpraActionItems(emailMeta);
     const result = await _createAhpraS80Bundle(gpCase, emailMeta, msgId, extraction, { sourceTrigger: 'manual_ingest', force: true });
-    await _logCaseEvent(gpCase.id, null, 'note', 'AHPRA letter logged manually', 'Created ' + (result.created || 0) + ' item(s) in the review tray.', adminCtx.email);
-    sendJson(res, 200, { ok: true, case_id: gpCase.id, created: result.created || 0, bundle_id: result.bundleId || null, deadline: result.deadline || null, failed: !!extraction.failed });
+    // The fail-loud path always creates at least one tray entry; 0 means a real DB
+    // insert failure, so surface it rather than reporting a false success.
+    if (!result || !result.created) {
+      sendJson(res, 502, { ok: false, message: 'Could not create review items — the database rejected the insert. Please try again.' });
+      return;
+    }
+    await _logCaseEvent(gpCase.id, null, 'note', 'AHPRA letter logged manually', 'Created ' + result.created + ' item(s) in the review tray.', adminCtx.email);
+    sendJson(res, 200, { ok: true, case_id: gpCase.id, created: result.created, bundle_id: result.bundleId || null, deadline: result.deadline || null, failed: !!extraction.failed });
     return;
   }
 

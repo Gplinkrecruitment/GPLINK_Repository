@@ -127,6 +127,23 @@ describe('ahpra-s80 parsing + normalisation', () => {
   });
 });
 
+describe('ahpra-s80 calendar-date validation', () => {
+  it('accepts real dates and rejects shape-valid-but-impossible ones', () => {
+    expect(s80.isRealDate('2025-08-29')).toBe(true);
+    expect(s80.isRealDate('2024-02-29')).toBe(true); // leap year
+    expect(s80.isRealDate('2025-02-30')).toBe(false);
+    expect(s80.isRealDate('2025-13-01')).toBe(false);
+    expect(s80.isRealDate('2025-00-15')).toBe(false);
+    expect(s80.isRealDate('not-a-date')).toBe(false);
+  });
+
+  it('normalizeExtraction nulls an impossible deadline (would otherwise crash the DATE insert)', () => {
+    const norm = s80.normalizeExtraction({ deadline: '2025-02-30', items: [{ title: 'X', owner: 'gp', mode: 'upload' }] });
+    expect(norm.deadline).toBeNull();
+    expect(norm.items.length).toBe(1);
+  });
+});
+
 describe('ahpra-s80 reference detection', () => {
   it('finds the reference number in the raw text', () => {
     expect(s80.detectReference('Reference: 1460970 blah')).toBe('1460970');
