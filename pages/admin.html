@@ -1488,6 +1488,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:60vh;border:none;background:#fff;"></iframe>
       <div id="reviewDocMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
     </div>
+    <div id="reviewDocAiInsight" style="display:none;padding:12px 18px;border-top:1px solid #e5e7eb;background:#f9fafb;font-size:12.5px;color:#374151;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <span style="font-weight:700;color:#111827;">🔍 AI document scan</span>
+        <button id="reviewDocRescanBtn" onclick="runReviewDocAiScan(true)" style="background:none;border:1px solid #d1d5db;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;color:#374151;">Re-scan</button>
+      </div>
+      <div id="reviewDocAiBody"></div>
+    </div>
     <div style="padding:14px 18px;border-top:1px solid #e5e7eb;">
       <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject)</span></label>
       <textarea id="reviewDocNote" rows="2" placeholder="Reason for rejection / note to the GP…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
@@ -1539,7 +1546,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     {key:"pbs",label:"PBS & Medicare",num:6},
     {key:"commencement",label:"Commencement",num:7}
   ];
-  const STAGE_ORDER=["onboarding","placement","myintealth","amc","ahpra","visa","pbs","commencement"];
+  const STAGE_ORDER=["onboarding","career","placement","myintealth","amc","ahpra","visa","pbs","commencement"];
   const ELS_PATHWAY_DOCS = {
     combined: { title: "Combined Education Pathway", docs: ["Official transcripts showing qualification taught & assessed in English", "Details of secondary education provider and enrolment dates (entered in AHPRA form)", "Letter from education provider confirming English instruction (if not shown on transcript)"] },
     school: { title: "School Education Pathway", docs: ["Details of primary & secondary education providers and enrolment dates (entered in AHPRA form)", "Official transcripts showing qualification taught & assessed in English", "Letter from education provider confirming English instruction (if not shown on transcript)", "Home schooling evidence from Department of Education (if applicable)"] },
@@ -2595,7 +2602,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     'icgp_confirmation_letter','rnzcgp_confirmation_letter',
     'certificate_good_standing','certificate_of_good_standing',
     'confirmation_training','confirmation_of_training',
-    'mrcgp','cct','micgp','cscst','frnzcgp'
+    'mrcgp','cct','micgp','cscst','frnzcgp',
+    // Candidate-prepared docs the GP uploads themselves (My Documents / CV / career):
+    // these are reviewed by the RSO (open + approve/reject), NOT chased from a practice.
+    'cv_signed_dated','career_cover_letter','criminal_history','criminal_history_check'
   ]);
   // A "Review uploaded: X" (task_type 'review') OR a doc-pipeline "Review uploaded
   // X for Dr Y" (task_type 'doc_review') task for a qualification document the GP
@@ -2850,7 +2860,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="other"?"Other":"Unknown";
+      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
@@ -4363,6 +4373,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('reviewDocRejectBtn').disabled=false;
     document.getElementById('reviewDocModal').style.display='flex';
     if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
+    // Kick off an AI scan of the document so the RSO gets insight (type, name match,
+    // date, issues) alongside the preview. Runs independently of the image fetch.
+    runReviewDocAiScan(false);
     try{
       var resp=await fetch('/api/admin/va/task/preview-document?task_id='+encodeURIComponent(taskId),{credentials:'same-origin'});
       if(!resp.ok){
@@ -4381,10 +4394,53 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       missing.textContent='Could not load the document: '+e.message;
     }
   }
+  async function runReviewDocAiScan(force){
+    if(!_reviewDocTaskId)return;
+    var panel=document.getElementById('reviewDocAiInsight');
+    var body=document.getElementById('reviewDocAiBody');
+    var btn=document.getElementById('reviewDocRescanBtn');
+    panel.style.display='block';
+    body.innerHTML='<span style="color:#6b7280;">Scanning the document with AI…</span>';
+    if(btn)btn.disabled=true;
+    var scanTaskId=_reviewDocTaskId;
+    try{
+      var r=await fetch('/api/admin/va/doc-review/ai-scan',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:scanTaskId,force:!!force})});
+      var j=await r.json().catch(function(){return{};});
+      if(scanTaskId!==_reviewDocTaskId)return; // modal changed while scanning
+      if(!r.ok||!j.ok||!j.scan){ body.innerHTML='<span style="color:#b45309;">AI scan unavailable: '+esc((j&&j.message)||'could not scan this document')+'</span>'; }
+      else { body.innerHTML=renderAiScan(j.scan,j.scanned_at,j.cached); }
+    }catch(e){ if(scanTaskId===_reviewDocTaskId)body.innerHTML='<span style="color:#b45309;">AI scan failed: '+esc(e.message)+'</span>'; }
+    if(btn)btn.disabled=false;
+  }
+  function renderAiScan(s,scannedAt,cached){
+    var ok=!!s.verified;
+    var nameMatch=s.nameMatch;
+    var rows=[];
+    var headColor=ok?'#15803d':'#b45309';
+    var headIcon=ok?'✓':'⚠';
+    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving';
+    rows.push('<div style="font-weight:700;color:'+headColor+';margin-bottom:6px;">'+headIcon+' '+headText+'</div>');
+    var line=function(lbl,val,color){return '<div style="margin:2px 0;"><span style="color:#6b7280;">'+lbl+':</span> <span style="color:'+(color||'#111827')+';font-weight:600;">'+esc(val)+'</span></div>';};
+    if(s.documentType)rows.push(line('Identified as',s.documentType));
+    if(s.nameFound){
+      var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+' — matches the account',c:'#15803d'}:(nameMatch==='mismatch')?{t:s.nameFound+' — does NOT match the account name',c:'#dc2626'}:{t:s.nameFound,c:'#111827'};
+      rows.push(line('Name on document',nm.t,nm.c));
+    }else{ rows.push(line('Name on document','not detected','#b45309')); }
+    if(s.dateFound)rows.push(line('Date on document',s.dateFound));
+    if(s.issuingBody)rows.push(line('Issuing body',s.issuingBody));
+    if(s.legible===false)rows.push(line('Legibility','hard to read','#dc2626'));
+    if(Array.isArray(s.issues)&&s.issues.length){
+      rows.push('<div style="margin-top:6px;color:#b45309;font-weight:700;">Issues to check:</div>');
+      rows.push('<ul style="margin:4px 0 0 16px;padding:0;color:#b45309;">'+s.issues.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>');
+    }
+    if(scannedAt){ rows.push('<div style="margin-top:6px;font-size:11px;color:#9ca3af;">'+(cached?'Cached scan':'Scanned just now')+' • '+esc(new Date(scannedAt).toLocaleString())+'</div>'); }
+    return rows.join('');
+  }
   function closeReviewDocModal(){
     document.getElementById('reviewDocModal').style.display='none';
     document.getElementById('reviewDocImg').src='';
     document.getElementById('reviewDocFrame').src='about:blank';
+    var _aiPanel=document.getElementById('reviewDocAiInsight'); if(_aiPanel)_aiPanel.style.display='none';
     if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
     _reviewDocTaskId=null;
   }
@@ -9113,6 +9169,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.openReviewDocModal = openReviewDocModal;
   window.closeReviewDocModal = closeReviewDocModal;
   window.submitReviewDoc = submitReviewDoc;
+  window.runReviewDocAiScan = runReviewDocAiScan;
   window.openDocViewer = openDocViewer;
   window.closeDocViewer = closeDocViewer;
   window.gpDocThumbError = gpDocThumbError;

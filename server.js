@@ -35436,6 +35436,124 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── On-demand AI scan of an uploaded document, for the RSO reviewer ──
+  // Gives the RSO insight before they approve/reject: what the document is, the name
+  // on it (and whether it matches the GP's account), the date, the issuing body,
+  // legibility, and any issues. Runs SYNCHRONOUSLY in this admin request — reliable,
+  // unlike the best-effort upload-time pipeline (which is fire-and-forget and can
+  // silently fail on serverless). Uses the storage content-type rather than the
+  // document's stored mime_type (which is often blank on image uploads). Result is
+  // cached on the task's metadata so re-opening is instant; pass force:true to re-scan.
+  if (pathname === '/api/admin/va/doc-review/ai-scan' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let scanBody;
+    try { scanBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const scanTaskId = scanBody && scanBody.task_id;
+    const scanForce = !!(scanBody && scanBody.force);
+    if (!scanTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'AI scanning is not configured.' }); return; }
+
+    const stRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(scanTaskId) + '&limit=1');
+    if (!stRes.ok || !stRes.data || !stRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const scanTask = stRes.data[0];
+    const scanDocKey = scanTask.related_document_key;
+    if (!scanDocKey || !scanTask.case_id) { sendJson(res, 400, { ok: false, message: 'This task has no document to scan.' }); return; }
+
+    // Return a cached scan unless a re-scan was explicitly requested.
+    const scanMeta = (scanTask.metadata && typeof scanTask.metadata === 'object') ? scanTask.metadata : {};
+    if (!scanForce && scanMeta.ai_scan && scanMeta.ai_scan.scan) {
+      sendJson(res, 200, { ok: true, scan: scanMeta.ai_scan.scan, scanned_at: scanMeta.ai_scan.scanned_at || null, cached: true });
+      return;
+    }
+
+    // Resolve the GP + the stored file, mirroring the preview-document resolution.
+    const scCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(scanTask.case_id) + '&limit=1');
+    const scUserId = scCaseRes.ok && Array.isArray(scCaseRes.data) && scCaseRes.data[0] ? scCaseRes.data[0].user_id : null;
+    if (!scUserId) { sendJson(res, 404, { ok: false, message: 'Case/user not found.' }); return; }
+
+    const scDocRowRes = await supabaseDbRequest('user_documents',
+      'select=*&user_id=eq.' + encodeURIComponent(scUserId) + '&document_key=eq.' + encodeURIComponent(scanDocKey) + '&order=updated_at.desc');
+    const scDocRows = scDocRowRes.ok && Array.isArray(scDocRowRes.data) ? scDocRowRes.data : [];
+    let scDocRow = scDocRows.find(function (r) { return r && (r.storage_path || r.file_url); }) || null;
+    let scStoragePath = scDocRow ? (scDocRow.storage_path || scDocRow.file_url) : '';
+    let scStorageBucket = scDocRow ? (scDocRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET) : SUPABASE_DOCUMENT_BUCKET;
+
+    // Onboarding-origin qualifications store the file under a separate key namespace.
+    if (!scStoragePath) {
+      const ONBOARDING_KEY_FOR_SCAN = {
+        primary_medical_degree: 'onboarding_primary_med_degree',
+        specialist_qualification: 'onboarding_specialist_qualification',
+        onboarding_primary_med_degree: 'onboarding_primary_med_degree',
+        onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+      };
+      const scObKey = ONBOARDING_KEY_FOR_SCAN[scanDocKey];
+      if (scObKey) {
+        for (const ctry of ['uk', 'ie', 'nz']) {
+          const obPath = buildOnboardingDocumentStoragePath(scUserId, ctry, scObKey);
+          const probe = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, obPath);
+          if (probe && probe.buffer) { scStoragePath = obPath; scStorageBucket = SUPABASE_DOCUMENT_BUCKET; break; }
+        }
+      }
+    }
+    if (!scStoragePath) { sendJson(res, 404, { ok: false, message: 'No stored document was found to scan.' }); return; }
+
+    const scDl = await supabaseStorageDownloadObject(scStorageBucket, scStoragePath);
+    if (!scDl || !scDl.buffer) { sendJson(res, 502, { ok: false, message: 'Could not download the document file to scan.' }); return; }
+
+    const scProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(scUserId) + '&limit=1');
+    const scProf = scProfRes.ok && Array.isArray(scProfRes.data) && scProfRes.data[0] ? scProfRes.data[0] : {};
+    const scProfileName = [scProf.first_name || '', scProf.last_name || ''].join(' ').trim();
+    const scDocTypeLabel = getDocumentLabelForKey(scanDocKey) || scanTask.title || scanDocKey;
+    const scCountryMap = { uk: 'GB', gb: 'GB', ie: 'IE', nz: 'NZ' };
+    const scCcRaw = String((scDocRow && scDocRow.country_code) || '').toLowerCase();
+    const scExpectedCountry = scCountryMap[scCcRaw] || (scCcRaw ? scCcRaw.toUpperCase() : 'any');
+
+    const scContentBlock = buildQualContentBlock(scDl.buffer, scDl.mimeType || (scDocRow && scDocRow.mime_type) || '');
+    const scVres = await verifyQualificationDocument({
+      contentBlock: scContentBlock,
+      documentType: scDocTypeLabel,
+      expectedCountry: scExpectedCountry,
+      profileName: scProfileName,
+      verifiedNames: []
+    }).catch(function (e) { return { ok: false, message: e && e.message }; });
+
+    if (!scVres || !scVres.ok || !scVres.verification) {
+      sendJson(res, 502, { ok: false, message: (scVres && scVres.message) || 'The AI could not read this document.' });
+      return;
+    }
+    const scV = scVres.verification;
+    const scScan = {
+      verified: !!scV.verified,
+      documentType: scV.documentType || '',
+      nameFound: scV.nameFound || '',
+      nameMatch: scV.nameMatch || 'unknown',
+      nameMatchedAgainst: scV.nameMatchedAgainst || null,
+      dateFound: scV.dateFound || '',
+      issuingBody: scV.issuingBody || '',
+      legible: scV.legible !== false,
+      issues: Array.isArray(scV.issues) ? scV.issues : [],
+      expectedLabel: scDocTypeLabel,
+      profileName: scProfileName
+    };
+    const scScannedAt = new Date().toISOString();
+
+    // Cache on the task (best-effort) so re-opening is instant.
+    try {
+      const scNewMeta = Object.assign({}, scanMeta, { ai_scan: { scan: scScan, scanned_at: scScannedAt } });
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(scanTaskId), { method: 'PATCH', body: { metadata: scNewMeta } });
+    } catch (e) { /* non-fatal */ }
+    try {
+      if (scDocRow && scDocRow.id) {
+        await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(scDocRow.id), { method: 'PATCH', body: { ai_classification_result: scScan.documentType, updated_at: scScannedAt } });
+      }
+    } catch (e) { /* non-fatal */ }
+
+    sendJson(res, 200, { ok: true, scan: scScan, scanned_at: scScannedAt, cached: false });
+    return;
+  }
+
   // ── Review a flagged qualification document: approve / reject + email the GP ──
   // Both decisions complete the task. Reject requires a reason (sent to the GP).
   if (pathname === '/api/admin/va/task/review-flagged-doc' && req.method === 'POST') {
