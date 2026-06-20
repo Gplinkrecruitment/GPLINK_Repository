@@ -2675,16 +2675,143 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return{prompt:'Complete this task',label:'Complete',action:'completeTask',taskId:t.id};
   }
 
+  // ── AHPRA s80 (Notice to provide further information) helpers ──
+  function openAhpraLetterModal(gpEmail){
+    var existing=document.getElementById('ahpraLetterOverlay'); if(existing)existing.remove();
+    var ov=document.createElement('div'); ov.id='ahpraLetterOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:22px;">'
+      +'<div style="font-weight:800;font-size:16px;color:var(--ink);">Log an AHPRA letter</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.</div>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:14px;">GP email<input id="ahpraLetterEmail" type="email" value="'+esc(gpEmail||'')+'" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Subject<input id="ahpraLetterSubject" type="text" value="Notice to provide further information under section 80(1)(b)" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Letter text<textarea id="ahpraLetterBody" rows="12" placeholder="Paste the full AHPRA letter here…" style="width:100%;margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea></label>'
+      +'<div id="ahpraLetterMsg" style="font-size:12px;color:#b91c1c;margin-top:8px;"></div>'
+      +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;"><button type="button" id="ahpraLetterCancel" style="background:none;border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;">Cancel</button><button type="button" id="ahpraLetterSubmit" style="background:#2563eb;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;cursor:pointer;">Read letter &amp; create items</button></div>'
+      +'</div>';
+    document.body.appendChild(ov);
+    function close(){ ov.remove(); }
+    ov.addEventListener('click',function(ev){ if(ev.target===ov)close(); });
+    document.getElementById('ahpraLetterCancel').addEventListener('click',close);
+    document.getElementById('ahpraLetterSubmit').addEventListener('click',async function(){
+      var email=document.getElementById('ahpraLetterEmail').value.trim();
+      var subject=document.getElementById('ahpraLetterSubject').value.trim();
+      var bodyTxt=document.getElementById('ahpraLetterBody').value;
+      var msg=document.getElementById('ahpraLetterMsg');
+      if(!email||!bodyTxt.trim()){ msg.style.color='#b91c1c'; msg.textContent='Please enter the GP email and paste the letter.'; return; }
+      var btn=document.getElementById('ahpraLetterSubmit'); btn.disabled=true; btn.textContent='Reading…'; msg.style.color='var(--muted)'; msg.textContent='Reading the letter and creating items…';
+      try{
+        var r=await fetch('/api/admin/ahpra/ingest-manual',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({gp_email:email,subject:subject,body:bodyTxt})});
+        var d=await r.json().catch(()=>({}));
+        if(!d.ok){ msg.style.color='#b91c1c'; msg.textContent=d.message||'Could not log the letter.'; btn.disabled=false; btn.textContent='Read letter & create items'; return; }
+        close(); await loadAll(true);
+        alert('Created '+(d.created||0)+' item(s) in the review tray'+(d.failed?' (automatic reading found nothing — added the raw letter for manual splitting)':'')+'.');
+      }catch(err){ msg.style.color='#b91c1c'; msg.textContent='Network error. Please try again.'; btn.disabled=false; btn.textContent='Read letter & create items'; }
+    });
+  }
+  window.openAhpraLetterModal=openAhpraLetterModal;
+  function s80Meta(t){ var m=t&&t.metadata; if(typeof m==='string'){try{m=JSON.parse(m);}catch(e){m={};}} return (m&&typeof m==='object')?m:{}; }
+  function isS80Task(t){ return !!(t&&t.task_type==='ahpra_action_item'&&s80Meta(t).s80); }
+  function s80OwnerChip(owner){ return owner==='gp'
+    ?'<span style="font-size:10px;font-weight:700;background:#eff6ff;color:#2563eb;border-radius:5px;padding:2px 7px;">GP</span>'
+    :'<span style="font-size:10px;font-weight:700;background:#f1f5f9;color:#475569;border-radius:5px;padding:2px 7px;">TEAM</span>'; }
+  function renderS80SubItems(m){
+    if(!Array.isArray(m.sub_items)||!m.sub_items.length) return '';
+    return '<ul style="margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5;">'+
+      m.sub_items.map(s=>'<li>'+esc((s&&s.label)||'')+'</li>').join('')+'</ul>';
+  }
+  function renderS80Tray(c, pending){
+    if(!pending.length) return '';
+    var bundles={};
+    pending.forEach(t=>{ var b=s80Meta(t).bundle_id||'_'; (bundles[b]=bundles[b]||[]).push(t); });
+    var html='';
+    Object.keys(bundles).forEach(function(bid){
+      var items=bundles[bid];
+      var m0=s80Meta(items[0]);
+      var ref=m0.reference?(' · Ref '+esc(m0.reference)):'';
+      var deadline=items[0].ahpra_deadline?(' · Due '+esc(fmtD(items[0].ahpra_deadline))):'';
+      html+='<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:12px;padding:14px;margin-bottom:14px;">';
+      html+='<div style="font-weight:800;color:#92400e;font-size:14px;">🔎 Needs review — AHPRA requested more information'+ref+deadline+'</div>';
+      html+='<div style="font-size:12px;color:#92400e;margin-top:2px;">Check each item, set who does it and how, then release. Nothing reaches the GP until you click Release.</div>';
+      if(m0.original_email&&m0.original_email.body){
+        html+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:#92400e;font-weight:600;">View original AHPRA letter</summary><pre style="white-space:pre-wrap;font-size:12px;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:240px;overflow:auto;">'+esc(m0.original_email.body)+'</pre></details>';
+      }
+      items.forEach(function(t){
+        var m=s80Meta(t);
+        html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-top:10px;">';
+        html+='<div style="font-weight:700;color:var(--ink);">'+esc(t.title)+'</div>';
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+=renderS80SubItems(m);
+        html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">';
+        html+='<label style="font-size:11px;color:var(--muted);">Who <select data-s80-owner="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="gp"'+(m.owner==='gp'?' selected':'')+'>GP does it</option><option value="team"'+(m.owner==='team'?' selected':'')+'>Team handles</option></select></label>';
+        html+='<label style="font-size:11px;color:var(--muted);">How <select data-s80-mode="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="upload"'+(m.mode==='upload'?' selected':'')+'>GP uploads</option><option value="request_institution"'+(m.mode==='request_institution'?' selected':'')+'>GP requests from institution</option><option value="team"'+(m.mode==='team'?' selected':'')+'>Team handles</option></select></label>';
+        html+='<button type="button" data-s80-remove="'+esc(t.id)+'" style="margin-left:auto;background:none;border:none;color:#b91c1c;font-size:12px;cursor:pointer;text-decoration:underline;">Remove</button>';
+        html+='</div></div>';
+      });
+      html+='<div style="margin-top:12px;text-align:right;"><button type="button" data-s80-release="'+esc(bid)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Release to GP &amp; team →</button></div>';
+      html+='</div>';
+    });
+    return html;
+  }
+  function renderS80Active(c, active){
+    if(!active.length) return '';
+    var html='<div style="margin-bottom:14px;"><div style="font-weight:800;color:var(--ink);font-size:13px;margin-bottom:8px;">AHPRA — requested information (in progress)</div>';
+    active.forEach(function(t){
+      var m=s80Meta(t);
+      html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-bottom:10px;">';
+      html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:700;color:var(--ink);">'+esc(t.title)+'</span>'+s80OwnerChip(m.owner)+'</div>';
+      if(m.mode==='reply'){
+        var draft=m.draft||{};
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;">All the GP’s institution-request items are done. Send this on the original AHPRA thread, then mark it sent.</div>';
+        html+='<div style="font-size:12px;color:var(--ink);margin-top:6px;"><strong>Subject:</strong> '+esc(draft.subject||'')+'</div>';
+        html+='<pre id="s80draft-'+esc(t.id)+'" style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:280px;overflow:auto;">'+esc(draft.body||m.detail||'')+'</pre>';
+        html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-copy="'+esc(t.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Copy draft</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Mark sent</button></div>';
+      } else if(m.kind==='qualification_check'){
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:6px;">Book a guidance call to walk the GP through MyIntealth / the AMC and pin down the exact issue.</div>';
+        html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-book-call="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">📞 Book guidance call</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark done</button></div>';
+      } else if(m.mode==='upload'){
+        var up=m.upload||null;
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        if(up&&up.status==='under_review'){
+          html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Approve</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+        } else if(up&&up.status==='rejected'){
+          html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
+        } else {
+          html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to upload.</div>';
+        }
+      } else if(m.mode==='request_institution'){
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        if(m.gp_marked_complete_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">✓ GP marked as requested'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
+        else { html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to request'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
+      } else {
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        if(m.kind==='needs_split'&&m.original_email&&m.original_email.body){
+          html+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">View original letter</summary><pre style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:240px;overflow:auto;">'+esc(m.original_email.body)+'</pre></details>';
+        }
+        html+='<div style="margin-top:8px;"><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark done</button></div>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+    return html;
+  }
+
   function renderGpTasksPane(c){
-    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled");
-    if(!tasks.length)return '<div class="empty">No open tasks.</div><button class="btn sm" data-add-task>+ Add Task</button>';
+    const allTasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled");
+    const s80Pending=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status==="pending_review");
+    const s80Active=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status!=="pending_review");
+    const s80Html=renderS80Tray(c,s80Pending)+renderS80Active(c,s80Active);
+    const tasks=allTasks.filter(t=>!isS80Task(t));
+    if(!tasks.length)return (s80Html||'<div class="empty">No open tasks.</div>')+'<button class="btn sm" data-add-task>+ Add Task</button>';
 
     const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
       ?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
     const currentStage=c.stage||"";
     const stageGroups=groupTasksByStage(tasks);
 
-    let html='';
+    let html=s80Html;
     let isFirstActiveTask=true;
 
     stageGroups.forEach(group=>{
@@ -2841,7 +2968,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='</div>';
     });
 
-    html+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
+    html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(u.gp_email||c.gp_email||'')+'">📨 Log AHPRA letter</button></div>';
     setTimeout(function(){fillZoomTaskCards(c.id);},0);
     return html;
   }
@@ -5941,7 +6068,63 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderMedicalCentresPanel();
       }
     });
+    document.getElementById("detailContent").addEventListener("change",async e=>{
+      /* AHPRA s80: change who-does-it / how in the review tray */
+      var s80Own=e.target.closest("[data-s80-owner]");
+      var s80Mod=e.target.closest("[data-s80-mode]");
+      if(!s80Own&&!s80Mod)return;
+      var sid=(s80Own||s80Mod).getAttribute(s80Own?"data-s80-owner":"data-s80-mode");
+      var merge={};
+      if(s80Own){ merge.owner=s80Own.value;
+        if(s80Own.value==='team'){ merge.mode='team'; }
+        else { var me=document.querySelector('[data-s80-mode="'+sid+'"]'); if(me&&me.value==='team')merge.mode='request_institution'; }
+      }
+      if(s80Mod){ merge.mode=s80Mod.value;
+        if(s80Mod.value==='team'){ merge.owner='team'; }
+        else { var oe=document.querySelector('[data-s80-owner="'+sid+'"]'); if(oe&&oe.value==='team')merge.owner='gp'; }
+      }
+      try{ await fetch('/api/admin/task?id='+encodeURIComponent(sid),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({metadata_merge:merge})}); }catch(err){}
+      await loadAll(true);
+    });
     document.getElementById("detailContent").addEventListener("click",async e=>{
+      /* AHPRA s80 actions */
+      var s80Rel=e.target.closest("[data-s80-release]");
+      if(s80Rel){ e.preventDefault();
+        var bid=s80Rel.getAttribute("data-s80-release"), cid=s80Rel.getAttribute("data-s80-case");
+        s80Rel.disabled=true; s80Rel.textContent='Releasing…';
+        try{ var r=await fetch('/api/admin/ahpra/release',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({bundle_id:bid,case_id:cid})}); var d=await r.json().catch(()=>({})); if(!d.ok){alert(d.message||'Release failed.');s80Rel.disabled=false;s80Rel.textContent='Release to GP & team →';return;} }catch(err){alert('Release failed.');return;}
+        await loadAll(true); return;
+      }
+      var s80Rem=e.target.closest("[data-s80-remove]");
+      if(s80Rem){ e.preventDefault();
+        if(!confirm('Remove this item from the notice?'))return;
+        var rid=s80Rem.getAttribute("data-s80-remove");
+        try{ await fetch('/api/admin/task?id='+encodeURIComponent(rid),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'cancelled'})}); }catch(err){}
+        await loadAll(true); return;
+      }
+      var s80Book=e.target.closest("[data-s80-book-call]");
+      if(s80Book){ e.preventDefault();
+        scheduleCallFromTask(s80Book.getAttribute("data-s80-book-call"), s80Book.getAttribute("data-s80-case"), 'ahpra'); return;
+      }
+      var s80Rev=e.target.closest("[data-s80-review]");
+      if(s80Rev){ e.preventDefault();
+        var vid=s80Rev.getAttribute("data-s80-review"), dec=s80Rev.getAttribute("data-s80-decision"), reason='';
+        if(dec==='reject'){ reason=prompt('Reason for rejecting (the GP will see this):')||''; if(!reason.trim())return; }
+        try{ var r=await fetch('/api/admin/ahpra/item/review',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:vid,decision:dec,reason:reason})}); var d=await r.json().catch(()=>({})); if(!d.ok){alert(d.message||'Failed.');return;} }catch(err){alert('Failed.');return;}
+        await loadAll(true); return;
+      }
+      var s80Copy=e.target.closest("[data-s80-copy]");
+      if(s80Copy){ e.preventDefault();
+        var pre=document.getElementById('s80draft-'+s80Copy.getAttribute("data-s80-copy"));
+        if(pre){ try{ await navigator.clipboard.writeText(pre.textContent); var ot=s80Copy.textContent; s80Copy.textContent='Copied ✓'; setTimeout(()=>{s80Copy.textContent=ot;},1500); }catch(err){ alert('Copy failed — select the text manually.'); } }
+        return;
+      }
+      var s80Comp=e.target.closest("[data-s80-complete]");
+      if(s80Comp){ e.preventDefault();
+        var compId=s80Comp.getAttribute("data-s80-complete");
+        try{ await fetch('/api/admin/task?id='+encodeURIComponent(compId),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'completed'})}); }catch(err){}
+        await loadAll(true); return;
+      }
       /* Close dropdowns on outside click */
       if(!e.target.closest(".st-dropdown")&&!e.target.closest("[data-more-menu]")){
         document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
@@ -6401,6 +6584,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
 
       const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
+      const logAhpra=e.target.closest("[data-log-ahpra-letter]");if(logAhpra){openAhpraLetterModal(logAhpra.getAttribute("data-gp-email")||"");return;}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const impBtn=e.target.closest("[data-impersonate-gp]");if(impBtn){const uid=impBtn.getAttribute("data-impersonate-gp");if(uid)window.open('/api/admin/impersonate?user_id='+encodeURIComponent(uid),'_blank');return;}
       const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}
