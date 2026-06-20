@@ -19653,6 +19653,21 @@ async function createFlaggedDocTask(userId, documentKey, label, reason, reviewSt
   if (!gpCase) return null;
 
   var canonKey = canonicalQualKey(documentKey);
+
+  // A flag supersedes any generic "Review uploaded …" doc_review task for the same
+  // document — close it so the RSO sees a single, reasoned flag task, not both (the
+  // doc_review may have been pre-created synchronously at upload time by
+  // ensureDocReviewOnUpload).
+  var supersedeRes = await supabaseDbRequest('registration_tasks',
+    'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(canonKey) +
+    '&status=in.(open,in_progress,waiting)');
+  if (supersedeRes.ok && Array.isArray(supersedeRes.data)) {
+    for (var sup = 0; sup < supersedeRes.data.length; sup++) {
+      await _completeRegTask(supersedeRes.data[sup].id, gpCase.id, 'ai_auto');
+    }
+  }
+
   var existingRes = await supabaseDbRequest('registration_tasks',
     'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
     '&task_type=eq.flagged_doc&related_document_key=eq.' + encodeURIComponent(canonKey) +
@@ -19704,6 +19719,57 @@ async function autoCloseDocReviewTask(userId, documentKey) {
     for (var i = 0; i < taskRes.data.length; i++) {
       await _completeRegTask(taskRes.data[i].id, gpCase.id, 'ai_auto');
     }
+  }
+}
+
+// Reliably ensure an RSO review task exists for a document the GP just uploaded.
+// This runs SYNCHRONOUSLY (awaited inside the upload request) instead of relying on
+// the best-effort, fire-and-forget AI pipeline (processDocumentUpload) — which is
+// not guaranteed to run to completion on serverless and can silently bail (failed
+// storage download, AI/classification error), leaving an uploaded document with no
+// review task and no RSO visibility. With this, the RSO always sees uploaded docs;
+// the AI pipeline, when it succeeds, still auto-approves (closing this task via
+// autoCloseDocReviewTask) or reopens it idempotently.
+// Idempotent: skips if the document is already resolved (approved/rejected) or if an
+// open doc_review/flagged_doc task already covers it.
+async function ensureDocReviewOnUpload(userId, documentKey, expectedLabel, reviewStage) {
+  if (!isSupabaseDbConfigured() || !userId || !documentKey) return;
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (!gpCase) return;
+
+    // Latest stored row for this document. country_code is intentionally NOT filtered
+    // here so casing variants (e.g. "AU" vs "au") still resolve.
+    var docRes = await supabaseDbRequest('user_documents',
+      'select=id,status&user_id=eq.' + encodeURIComponent(userId) +
+      '&document_key=eq.' + encodeURIComponent(documentKey) +
+      '&order=updated_at.desc&limit=1');
+    var doc = docRes.ok && Array.isArray(docRes.data) && docRes.data[0] ? docRes.data[0] : null;
+    if (!doc) return;
+    if (doc.status === 'approved' || doc.status === 'rejected') return; // already resolved
+
+    // Don't create a duplicate when an open review/flag task already covers this doc.
+    var canonKey = canonicalQualKey(documentKey);
+    var openRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+      '&task_type=in.(doc_review,flagged_doc)&related_document_key=eq.' + encodeURIComponent(canonKey) +
+      '&status=in.(open,in_progress,waiting)&limit=1');
+    var hasOpen = openRes.ok && Array.isArray(openRes.data) && openRes.data.length > 0;
+
+    if (!hasOpen) {
+      await createDocReviewTask(userId, documentKey, expectedLabel, null, {
+        reason: 'Uploaded document awaiting RSO verification.', identifiedAs: ''
+      }, reviewStage);
+    }
+
+    if (doc.status !== 'under_review') {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+        method: 'PATCH', body: { status: 'under_review', updated_at: new Date().toISOString() }
+      });
+    }
+  } catch (err) {
+    console.error('[DocReview] ensureDocReviewOnUpload error:', err.message);
   }
 }
 
@@ -19816,6 +19882,10 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         method: 'PATCH',
         body: { status: 'rejected', rejection_reason: reason, updated_at: new Date().toISOString() }
       });
+      // The document is bounced back to the GP — close any open review task (it may
+      // have been pre-created synchronously at upload time by ensureDocReviewOnUpload)
+      // so the RSO queue doesn't show a "review" task for a now-rejected document.
+      await autoCloseDocReviewTask(userId, documentKey);
       await pushDocumentNotificationToUser(userId, {
         type: 'action',
         title: (expectedLabel || documentKey) + ' needs attention',
@@ -23994,9 +24064,13 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Reliably create the RSO review task now (awaited); the AI pipeline below is
+    // best-effort and may not complete on serverless.
+    await ensureDocReviewOnUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', undefined);
+
     sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
 
-    // Background: run document pipeline
+    // Background: best-effort AI auto-check (may auto-approve and close the task).
     processDocumentUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', 'AU', 'application/pdf').catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
@@ -29279,10 +29353,16 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
 
+      var careerDocMeta = ACCOUNT_CAREER_DOCUMENT_TYPES[payload.type];
+      // Reliably create the RSO review task now (awaited); the AI pipeline below is
+      // best-effort and may not complete on serverless.
+      if (careerDocMeta) {
+        await ensureDocReviewOnUpload(userId, careerDocMeta.key, careerDocMeta.label, undefined);
+      }
+
       sendJson(res, 200, { ok: true, document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
 
-      // Background: run document pipeline
-      var careerDocMeta = ACCOUNT_CAREER_DOCUMENT_TYPES[payload.type];
+      // Background: best-effort AI auto-check (may auto-approve and close the task).
       if (careerDocMeta) {
         processDocumentUpload(userId, careerDocMeta.key, careerDocMeta.label, 'AU', payload.mimeType).catch(function (err) {
           console.error('[DocumentPipeline] background error:', err.message);
@@ -29888,18 +29968,19 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Default path: mark processing and run the AI document pipeline.
-    await supabaseDbRequest('user_documents',
-      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
-      { method: 'PATCH', body: { status: 'processing', updated_at: new Date().toISOString() } });
-
-    sendJson(res, 200, { ok: true, document: { ...saved, status: 'processing' } });
-
-    // Background: run document pipeline. This is the "prepare my documents" page —
-    // NOT onboarding — so a qualification cert that needs review is filed under the
-    // AHPRA stage, not the onboarding stage. Non-qualification prepared docs keep
-    // their own inferred stage.
+    // Default path. This is the "prepare my documents" page — NOT onboarding — so a
+    // qualification cert that needs review is filed under the AHPRA stage, not the
+    // onboarding stage. Non-qualification prepared docs keep their own inferred stage.
+    // Create the RSO review task NOW (awaited) so the document is never left invisible
+    // if the best-effort AI pipeline below fails to complete (it runs fire-and-forget
+    // and is unreliable on serverless). The pipeline, when it succeeds, auto-approves
+    // (closing this task) or reopens it idempotently.
     var preparedReviewStage = isQualificationDocKey(payload.key) ? 'ahpra' : undefined;
+    await ensureDocReviewOnUpload(userId, payload.key, docLabel, preparedReviewStage);
+
+    sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
+
+    // Background: best-effort AI auto-check (may auto-approve and close the task).
     processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType, preparedReviewStage).catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
