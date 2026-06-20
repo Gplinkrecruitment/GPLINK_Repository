@@ -30990,7 +30990,27 @@ Return ONLY valid JSON with no markdown formatting:
       });
 
       // 3. Build the prompt
-      const practiceName = regCase.practice_name || '';
+      // Placement/practice: registration_cases.practice_name is NOT populated by the
+      // career placement flow, so fall back to the GP's secured placement in
+      // gp_career_state (the SAME source the dashboard header uses). Otherwise the
+      // summary wrongly reports "no practice assigned" for GPs placed via the career
+      // flow even though the header shows their practice.
+      let practiceName = regCase.practice_name || '';
+      if (!practiceName) {
+        try {
+          const usRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+          const usState = usRes.ok && Array.isArray(usRes.data) && usRes.data[0] ? usRes.data[0].state : null;
+          const career = _parseStateVal(usState && usState.gp_career_state);
+          const apps = career && Array.isArray(career.applications) ? career.applications : [];
+          const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
+          if (secured && secured.placement) {
+            practiceName = secured.placement.practiceName || practiceName;
+            if (!practiceEmail && secured.placement.practiceContact && secured.placement.practiceContact.email) {
+              practiceEmail = secured.placement.practiceContact.email;
+            }
+          }
+        } catch (e) { /* non-fatal — leave practiceName empty */ }
+      }
       const handover = regCase.ai_handover_summary || null;
 
       let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + gpCountry + '\n';
