@@ -1870,31 +1870,23 @@ function extractAhpraOfficerInfo(emailMeta) {
   };
 }
 
+// Extract the requested items from an AHPRA s80(1)(b) notice.
+// Returns { deadline, reference, items:[...], failed:bool }. `failed:true` means we
+// could not get a usable split (no key/budget/parse) — the caller MUST then create
+// a "needs manual split" holding-tray entry from the raw email rather than dropping it.
 async function extractAhpraActionItems(emailMeta) {
-  if (!process.env.ANTHROPIC_API_KEY) return { deadline: null, items: [] };
+  var fallbackRef = ahpraS80.detectReference((emailMeta && (emailMeta.subject || '') + ' ' + (emailMeta && emailMeta.bodyText || '')));
+  if (!process.env.ANTHROPIC_API_KEY) return { deadline: null, reference: fallbackRef, items: [], failed: true };
   var budgetOk = await checkAnthropicBudget();
   if (!budgetOk) {
     console.log('[AHPRA] Skipping action item extraction — daily budget exceeded');
-    return { deadline: null, items: [] };
+    return { deadline: null, reference: fallbackRef, items: [], failed: true };
   }
-  var prompt = [
-    'You are analyzing an email from an AHPRA (Australian Health Practitioner Regulation Agency) officer to a GP registration support team.',
-    'Extract each individual document or information request from this email.',
-    'Also extract any deadline mentioned (e.g. "no later than 29 August 2025").',
-    'For each action item, determine who needs to act:',
-    '- "gp" if the GP needs to provide a personal document (e.g. certified copies of their qualifications)',
-    '- "practice" if the practice/employer needs to provide something (e.g. letter from practice owner)',
-    '- "hazel" if the support team needs to create/revise a document (e.g. revise supervision plan)',
-    'Return strict JSON only. Format: {"deadline": "YYYY-MM-DD" or null, "items": [{"title": "short action title", "description": "what is needed", "owner": "gp|practice|hazel"}]}',
-    '',
-    'Email subject: ' + String(emailMeta.subject || '').slice(0, 500),
-    'Email from: ' + String(emailMeta.sender || '').slice(0, 200),
-    'Email body: ' + String(emailMeta.bodyText || '').slice(0, 8000)
-  ].join('\n');
+  var prompt = ahpraS80.buildExtractionPrompt(emailMeta);
 
   try {
     var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 30000);
+    var timeout = setTimeout(function() { controller.abort(); }, 45000);
     var res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       signal: controller.signal,
@@ -1905,9 +1897,9 @@ async function extractAhpraActionItems(emailMeta) {
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 1000,
+        max_tokens: 4000,
         temperature: 0,
-        system: 'Extract action items from AHPRA officer emails. Return JSON only.',
+        system: ahpraS80.EXTRACTION_SYSTEM,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -1923,13 +1915,133 @@ async function extractAhpraActionItems(emailMeta) {
       );
     }
     var text = data.content && data.content[0] ? data.content[0].text : '';
-    var jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { deadline: null, items: [] };
-    return JSON.parse(jsonMatch[0]);
+    var parsed = ahpraS80.parseExtractionText(text);
+    if (!parsed) {
+      console.error('[AHPRA] Extraction returned no parseable JSON');
+      return { deadline: null, reference: fallbackRef, items: [], failed: true };
+    }
+    var norm = ahpraS80.normalizeExtraction(parsed);
+    if (!norm.reference) norm.reference = fallbackRef;
+    norm.failed = norm.items.length === 0;
+    return norm;
   } catch (err) {
     console.error('[AHPRA] Action item extraction failed:', err.message);
-    return { deadline: null, items: [] };
+    return { deadline: null, reference: fallbackRef, items: [], failed: true };
   }
+}
+
+// Create the holding-tray bundle of tasks for one AHPRA s80 notice. Tasks start in
+// review_status 'pending_review' (status 'waiting') so the team checks them before
+// anything reaches the GP. Shared by the live Gmail pipeline and the manual-ingest
+// endpoint. Returns { created, bundleId, deadline, skipped }.
+async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction, opts) {
+  opts = opts || {};
+  if (!gpCase || !gpCase.id) return { created: 0, skipped: true, reason: 'no_case' };
+  extraction = extraction || { items: [], failed: true };
+
+  // Dedup: if we already made an s80 bundle for this exact officer message, skip.
+  if (currentMsgId && !opts.force) {
+    try {
+      var dup = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+        '&task_type=eq.ahpra_action_item&source_gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+      if (dup.ok && Array.isArray(dup.data) && dup.data.length > 0) {
+        console.log('[AHPRA] s80 bundle already exists for message', currentMsgId, '— skipping');
+        return { created: 0, skipped: true, reason: 'duplicate' };
+      }
+    } catch (e) { /* non-fatal — fall through and create */ }
+  }
+
+  var reference = extraction.reference || ahpraS80.detectReference((emailMeta.subject || '') + ' ' + (emailMeta.bodyText || '')) || '';
+  var bundleId = 's80_' + (reference || currentMsgId || String(new Date().getTime()));
+
+  // Shared deadline → due date for every item in the notice.
+  var deadline = (typeof extraction.deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(extraction.deadline)) ? extraction.deadline : null;
+  var dueDate;
+  if (deadline) { dueDate = deadline; }
+  else { var d = new Date(); d.setDate(d.getDate() + 14); dueDate = d.toISOString().slice(0, 10); }
+
+  var originalEmail = {
+    subject: String(emailMeta.subject || '').slice(0, 800),
+    sender: String(emailMeta.sender || '').slice(0, 200),
+    body: String(emailMeta.bodyText || '').slice(0, 12000)
+  };
+
+  var items = Array.isArray(extraction.items) ? extraction.items : [];
+
+  // Fail loud: if reading produced nothing, still create one tray entry from the
+  // raw letter so the notice is never silently dropped.
+  if (items.length === 0) {
+    items = [{
+      title: 'AHPRA requested more information — needs manual split',
+      detail: originalEmail.body || '(empty email body)',
+      sub_items: [],
+      owner: 'team',
+      mode: 'team',
+      institution: '',
+      kind: 'needs_split'
+    }];
+  }
+
+  var created = 0;
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var meta = {
+      s80: true,
+      bundle_id: bundleId,
+      reference: reference || null,
+      review_status: 'pending_review',
+      owner: item.owner,
+      mode: item.mode,
+      kind: item.kind || '',
+      detail: item.detail || item.title,
+      sub_items: Array.isArray(item.sub_items) ? item.sub_items : [],
+      institution: item.institution || '',
+      gp_marked_complete_at: null,
+      thread_subject: originalEmail.subject,
+      original_email: originalEmail,
+      ingest_source: opts.sourceTrigger || 'ahpra_officer_email'
+    };
+    var actionTask = await _createRegTask(gpCase.id, {
+      task_type: 'ahpra_action_item',
+      title: String(item.title || 'AHPRA requested item').slice(0, 200),
+      description: ahpraS80.shortDescription(item),
+      priority: 'high',
+      status: 'waiting',
+      due_date: dueDate,
+      source_trigger: opts.sourceTrigger || 'ahpra_officer_email',
+      related_stage: 'ahpra',
+      source_gmail_message_id: currentMsgId || null,
+      gmail_thread_id: emailMeta.threadId || '',
+      ahpra_deadline: deadline,
+      metadata: meta,
+      _actor: 'system'
+    });
+    if (actionTask && actionTask.id) {
+      created++;
+      // Link the original officer email to the task so reply-threading works.
+      try {
+        await supabaseDbRequest('task_messages', '', {
+          method: 'POST',
+          body: [{
+            task_id: actionTask.id,
+            direction: 'inbound',
+            channel: 'email',
+            sender: emailMeta.sender || '',
+            subject: emailMeta.subject || '',
+            body_text: (emailMeta.bodyText || '').substring(0, 4000),
+            gmail_message_id: currentMsgId || '',
+            gmail_thread_id: emailMeta.threadId || '',
+            is_document_delivery: false,
+            created_at: new Date().toISOString()
+          }]
+        });
+      } catch (e) { /* non-critical */ }
+    }
+  }
+
+  console.log('[AHPRA] Created s80 holding-tray bundle ' + bundleId + ' with ' + created + ' item(s) for case ' + gpCase.id);
+  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false };
 }
 
 // ── Response matching: link incoming messages to open tasks ──
@@ -2091,6 +2203,7 @@ function preFilterEmail(emailMeta) {
 
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
+var ahpraS80 = require('./lib/ahpra-s80.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -3067,68 +3180,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // AHPRA action item extraction: if AHPRA email matched to a GP case, extract individual action items
+        // AHPRA action item extraction: if an AHPRA email matched to a GP case, build a
+        // holding-tray bundle the team reviews (and releases) before anything reaches the GP.
         var ahpraActionItemsCreated = false;
         if (isAhpra && gpCase) {
           try {
             var ahpraExtraction = await extractAhpraActionItems(emailMeta);
-            var extractedItems = (ahpraExtraction && Array.isArray(ahpraExtraction.items)) ? ahpraExtraction.items : [];
-            if (extractedItems.length > 0) {
-              // Calculate due date: min(10 days from now, extracted deadline)
-              var tenDaysOut = new Date();
-              tenDaysOut.setDate(tenDaysOut.getDate() + 10);
-              var ahpraDueDate = tenDaysOut.toISOString().slice(0, 10);
-              var extractedDeadline = ahpraExtraction.deadline || null;
-              if (extractedDeadline && /^\d{4}-\d{2}-\d{2}$/.test(extractedDeadline)) {
-                var deadlineDate = new Date(extractedDeadline + 'T00:00:00Z');
-                if (!isNaN(deadlineDate.getTime()) && deadlineDate < tenDaysOut) {
-                  ahpraDueDate = extractedDeadline;
-                }
-              }
-
-              for (var ai = 0; ai < extractedItems.length; ai++) {
-                var item = extractedItems[ai];
-                var itemTitle = String(item.title || 'AHPRA action item').slice(0, 200);
-                var itemDesc = String(item.description || '').slice(0, 2000);
-                var itemOwner = (item.owner === 'gp' || item.owner === 'practice' || item.owner === 'hazel') ? item.owner : 'hazel';
-
-                // Create ahpra_action_item task
-                var actionTask = await _createRegTask(gpCase.id, {
-                  task_type: 'ahpra_action_item',
-                  title: itemTitle,
-                  description: '[Owner: ' + itemOwner + '] ' + itemDesc,
-                  priority: 'high',
-                  due_date: ahpraDueDate,
-                  source_trigger: 'ahpra_officer_email',
-                  related_stage: 'ahpra',
-                  source_gmail_message_id: currentMsgId,
-                  gmail_thread_id: emailMeta.threadId || '',
-                  ahpra_deadline: extractedDeadline,
-                  _actor: 'system'
-                });
-
-                // Create task_messages record for the original officer email linked to this task
-                if (actionTask && actionTask.id) {
-                  await supabaseDbRequest('task_messages', '', {
-                    method: 'POST',
-                    body: [{
-                      task_id: actionTask.id,
-                      direction: 'inbound',
-                      channel: 'email',
-                      sender: emailMeta.sender || '',
-                      subject: emailMeta.subject || '',
-                      body_text: (emailMeta.bodyText || '').substring(0, 4000),
-                      gmail_message_id: currentMsgId,
-                      gmail_thread_id: emailMeta.threadId || '',
-                      is_document_delivery: false,
-                      created_at: new Date().toISOString()
-                    }]
-                  });
-                }
-              }
-
+            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email' });
+            // Created items, OR a duplicate we already processed → this email is handled;
+            // don't fall through to response-matching / general triage and double-process it.
+            if (s80Result && (s80Result.created > 0 || s80Result.skipped)) {
               ahpraActionItemsCreated = true;
-              console.log('[AHPRA] Created ' + extractedItems.length + ' action item tasks for case ' + gpCase.id);
             }
           } catch (ahpraExtErr) {
             console.error('[AHPRA] Action item extraction error, falling through to email_triage:', ahpraExtErr.message);
@@ -29173,6 +29235,195 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AHPRA s80: GP sees their released items ──
+  if (pathname === '/api/ahpra/more-info' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const s80Email = getSessionEmail(session);
+    const s80UserId = getSessionSupabaseUserId(session) || (s80Email ? await getSupabaseUserIdByEmail(s80Email) : null);
+    if (!s80UserId) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
+    const s80CaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
+    const s80CaseId = (s80CaseRes.ok && Array.isArray(s80CaseRes.data) && s80CaseRes.data[0]) ? s80CaseRes.data[0].id : null;
+    if (!s80CaseId) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
+    const s80Rows = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(s80CaseId) + '&task_type=eq.ahpra_action_item&order=created_at.asc&limit=200');
+    const s80Tasks = (s80Rows.ok && Array.isArray(s80Rows.data)) ? s80Rows.data : [];
+    let s80Deadline = null, s80Reference = null;
+    const s80Items = [];
+    s80Tasks.forEach(function (t) {
+      const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      if (!m.s80 || m.review_status !== 'active' || m.owner !== 'gp') return;
+      if (t.status === 'cancelled') return;
+      if (t.ahpra_deadline && !s80Deadline) s80Deadline = t.ahpra_deadline;
+      if (m.reference && !s80Reference) s80Reference = m.reference;
+      const up = (m.upload && typeof m.upload === 'object') ? m.upload : null;
+      let status = 'todo';
+      if (m.mode === 'request_institution') {
+        status = m.gp_marked_complete_at ? 'requested' : 'todo';
+      } else if (m.mode === 'upload') {
+        if (up && up.status === 'approved') status = 'approved';
+        else if (up && up.status === 'rejected') status = 'rejected';
+        else if (up && up.status === 'under_review') status = 'under_review';
+        else status = 'todo';
+      }
+      if (t.status === 'completed' && status === 'todo') status = (m.mode === 'request_institution') ? 'requested' : 'approved';
+      s80Items.push({
+        id: t.id,
+        title: t.title || '',
+        detail: m.detail || t.title || '',
+        mode: m.mode,
+        institution: m.institution || '',
+        sub_items: Array.isArray(m.sub_items) ? m.sub_items : [],
+        status: status,
+        file_name: up ? (up.file_name || '') : '',
+        reject_reason: up ? (up.reject_reason || '') : '',
+        gp_marked_complete_at: m.gp_marked_complete_at || null,
+        due_date: t.ahpra_deadline || t.due_date || null
+      });
+    });
+    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items });
+    return;
+  }
+
+  // ── AHPRA s80: GP marks a "request from institution" item complete ──
+  if (pathname === '/api/ahpra/more-info/mark-complete' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const s80Email = getSessionEmail(session);
+    const s80UserId = getSessionSupabaseUserId(session) || (s80Email ? await getSupabaseUserIdByEmail(s80Email) : null);
+    if (!s80UserId) { sendJson(res, 401, { ok: false }); return; }
+    let mcBody; try { mcBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const mcTaskId = mcBody && typeof mcBody.task_id === 'string' ? mcBody.task_id.trim() : '';
+    const mcDone = !(mcBody && mcBody.done === false);
+    if (!mcTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    const mcRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(mcTaskId) + '&limit=1');
+    const mcTask = (mcRes.ok && Array.isArray(mcRes.data) && mcRes.data[0]) ? mcRes.data[0] : null;
+    if (!mcTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    const mcMeta = (mcTask.metadata && typeof mcTask.metadata === 'object') ? mcTask.metadata : {};
+    // Ownership check: the task's case must belong to this GP.
+    const mcCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(mcTask.case_id) + '&limit=1');
+    const mcCaseUser = (mcCaseRes.ok && Array.isArray(mcCaseRes.data) && mcCaseRes.data[0]) ? mcCaseRes.data[0].user_id : null;
+    if (mcCaseUser !== s80UserId) { sendJson(res, 403, { ok: false }); return; }
+    if (!mcMeta.s80 || mcMeta.owner !== 'gp' || mcMeta.mode !== 'request_institution' || mcMeta.review_status !== 'active') {
+      sendJson(res, 400, { ok: false, message: 'This item cannot be marked complete.' }); return;
+    }
+    // Load the whole bundle to (a) guard un-marking once the reply exists, (b) see if all are done.
+    const bundleRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(mcTask.case_id) + '&task_type=eq.ahpra_action_item&limit=200');
+    const bundleTasks = (bundleRes.ok && Array.isArray(bundleRes.data) ? bundleRes.data : []).filter(function (t) {
+      const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      return m.s80 && m.bundle_id === mcMeta.bundle_id;
+    });
+    const replyExists = bundleTasks.some(function (t) { const m = t.metadata || {}; return m.mode === 'reply'; });
+    if (!mcDone && replyExists) { sendJson(res, 409, { ok: false, message: 'The reply to AHPRA is already in progress and can no longer be changed.' }); return; }
+    mcMeta.gp_marked_complete_at = mcDone ? new Date().toISOString() : null;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(mcTaskId), {
+      method: 'PATCH', body: { status: mcDone ? 'completed' : 'waiting_on_gp', metadata: mcMeta, completed_by: mcDone ? 'gp' : null, completed_at: mcDone ? new Date().toISOString() : null, updated_at: new Date().toISOString() }
+    });
+    // Reflect this change locally for the all-complete check.
+    bundleTasks.forEach(function (t) { if (t.id === mcTaskId) t.metadata = mcMeta; });
+    let replyCreated = false;
+    if (mcDone && !replyExists) {
+      const requestItems = bundleTasks.filter(function (t) {
+        const m = t.metadata || {};
+        return m.owner === 'gp' && m.mode === 'request_institution' && m.review_status === 'active' && t.status !== 'cancelled';
+      });
+      const allDone = requestItems.length > 0 && requestItems.every(function (t) { return t.metadata && t.metadata.gp_marked_complete_at; });
+      if (allDone) {
+        const uploadItems = bundleTasks.filter(function (t) {
+          const m = t.metadata || {};
+          return m.owner === 'gp' && m.mode === 'upload' && m.upload && m.upload.status === 'approved';
+        });
+        const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
+        const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+        const gpFullName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim();
+        const draft = ahpraS80.buildCombinedReplyDraft({
+          gpFullName: gpFullName,
+          reference: mcMeta.reference || '',
+          threadSubject: mcMeta.thread_subject || '',
+          requestedItems: requestItems.map(function (t) { return { title: t.title, institution: (t.metadata && t.metadata.institution) || '' }; }),
+          uploadItems: uploadItems.map(function (t) { return { title: t.title }; })
+        });
+        await _createRegTask(mcTask.case_id, {
+          task_type: 'ahpra_action_item',
+          title: 'Reply to AHPRA to confirm receipt',
+          description: 'All of the GP\'s institution-request items are done. Review the draft and send it on the original AHPRA thread.',
+          priority: 'high',
+          status: 'open',
+          due_date: mcTask.ahpra_deadline || null,
+          related_stage: 'ahpra',
+          ahpra_deadline: mcTask.ahpra_deadline || null,
+          gmail_thread_id: mcTask.gmail_thread_id || '',
+          source_trigger: 's80_combined_reply',
+          metadata: {
+            s80: true,
+            bundle_id: mcMeta.bundle_id,
+            reference: mcMeta.reference || null,
+            review_status: 'active',
+            owner: 'team',
+            mode: 'reply',
+            kind: 'reply',
+            detail: draft.body,
+            draft: draft,
+            thread_subject: mcMeta.thread_subject || '',
+            original_email: mcMeta.original_email || null
+          },
+          _actor: 'system'
+        });
+        replyCreated = true;
+      }
+    }
+    sendJson(res, 200, { ok: true, reply_created: replyCreated });
+    return;
+  }
+
+  // ── AHPRA s80: GP uploads a file for an "upload" item ──
+  if (pathname === '/api/ahpra/more-info/upload' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const s80Email = getSessionEmail(session);
+    const s80UserId = getSessionSupabaseUserId(session) || (s80Email ? await getSupabaseUserIdByEmail(s80Email) : null);
+    if (!s80UserId) { sendJson(res, 401, { ok: false }); return; }
+    let upBody; try { upBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const upTaskId = upBody && typeof upBody.task_id === 'string' ? upBody.task_id.trim() : '';
+    const upFileName = upBody && typeof upBody.fileName === 'string' ? upBody.fileName : '';
+    const upMime = upBody && typeof upBody.mimeType === 'string' ? upBody.mimeType : '';
+    const upDataUrl = upBody && typeof upBody.fileDataUrl === 'string' ? upBody.fileDataUrl : '';
+    if (!upTaskId || !upDataUrl) { sendJson(res, 400, { ok: false, message: 'task_id and file required.' }); return; }
+    const upRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(upTaskId) + '&limit=1');
+    const upTask = (upRes.ok && Array.isArray(upRes.data) && upRes.data[0]) ? upRes.data[0] : null;
+    if (!upTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    const upMeta = (upTask.metadata && typeof upTask.metadata === 'object') ? upTask.metadata : {};
+    const upCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(upTask.case_id) + '&limit=1');
+    const upCaseUser = (upCaseRes.ok && Array.isArray(upCaseRes.data) && upCaseRes.data[0]) ? upCaseRes.data[0].user_id : null;
+    if (upCaseUser !== s80UserId) { sendJson(res, 403, { ok: false }); return; }
+    if (!upMeta.s80 || upMeta.owner !== 'gp' || upMeta.mode !== 'upload' || upMeta.review_status !== 'active') {
+      sendJson(res, 400, { ok: false, message: 'This item does not accept uploads.' }); return;
+    }
+    const upBuffer = Buffer.from(String(upDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+    const upCheck = validateFileUpload(upBuffer, upMime, upFileName);
+    if (!upCheck.valid) { sendJson(res, 400, { ok: false, message: upCheck.errors[0] || 'File validation failed.' }); return; }
+    const upCountry = normalizeDocumentCountry(upBody.country) || 'uk';
+    const upDocKey = ('ahpra_s80_' + upTaskId).replace(/[^a-z0-9_-]/gi, '');
+    const upPath = buildPreparedDocumentStoragePath(s80UserId, upCountry, upDocKey);
+    const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, upPath, upDataUrl, upMime);
+    if (!uploaded) { sendJson(res, 502, { ok: false, message: 'Could not store the file.' }); return; }
+    upMeta.upload = {
+      file_name: upCheck.sanitisedFileName || upFileName || 'upload',
+      storage_path: upPath,
+      storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+      mime_type: upMime,
+      file_size: upBuffer.length,
+      status: 'under_review',
+      reject_reason: '',
+      uploaded_at: new Date().toISOString(),
+      country: upCountry
+    };
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(upTaskId), {
+      method: 'PATCH', body: { status: 'waiting', metadata: upMeta, updated_at: new Date().toISOString() }
+    });
+    sendJson(res, 200, { ok: true, status: 'under_review', file_name: upMeta.upload.file_name });
+    return;
+  }
+
   if (pathname === '/api/prepared-documents' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
@@ -31768,6 +32019,145 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
     sendJson(res, 200, { ok: true, task: updated });
+    return;
+  }
+
+  // ── AHPRA s80: release a holding-tray bundle to the GP + team ──
+  if (pathname === '/api/admin/ahpra/release' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const bundleId = body && typeof body.bundle_id === 'string' ? body.bundle_id.trim() : '';
+    const caseId = body && typeof body.case_id === 'string' ? body.case_id.trim() : '';
+    if (!bundleId || !caseId) { sendJson(res, 400, { ok: false, message: 'bundle_id and case_id required.' }); return; }
+    const tRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.ahpra_action_item&limit=200');
+    if (!tRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load bundle.' }); return; }
+    const bundleTasks = (Array.isArray(tRes.data) ? tRes.data : []).filter(function (t) {
+      var m = t && typeof t.metadata === 'object' ? t.metadata : {};
+      return m && m.s80 && m.bundle_id === bundleId && m.review_status === 'pending_review';
+    });
+    if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
+    let releasedGp = 0, releasedTeam = 0;
+    for (const t of bundleTasks) {
+      var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      meta.review_status = 'active';
+      meta.released_at = new Date().toISOString();
+      var newStatus = meta.owner === 'gp' ? 'waiting_on_gp' : 'open';
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+        method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
+      });
+      if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
+    }
+    // Notify the GP only if they now have items to action.
+    if (releasedGp > 0) {
+      try {
+        const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
+        if (uid) {
+          await pushDocumentNotificationToUser(uid, {
+            type: 'action_required',
+            title: 'AHPRA has requested more information',
+            detail: 'Please open your AHPRA page to see what is needed and the deadline.'
+          });
+        }
+      } catch (e) { /* non-critical */ }
+    }
+    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', adminCtx.email);
+    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam });
+    return;
+  }
+
+  // ── AHPRA s80: team approves/rejects a GP-uploaded item ──
+  if (pathname === '/api/admin/ahpra/item/review' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const taskId = body && typeof body.task_id === 'string' ? body.task_id.trim() : '';
+    const decision = body && body.decision === 'reject' ? 'reject' : 'approve';
+    const reason = body && typeof body.reason === 'string' ? body.reason.trim().slice(0, 1000) : '';
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (decision === 'reject' && !reason) { sendJson(res, 400, { ok: false, message: 'A reason is required to reject.' }); return; }
+    const tRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+    if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+    if (!meta.s80 || meta.mode !== 'upload') { sendJson(res, 400, { ok: false, message: 'Not an AHPRA upload item.' }); return; }
+    meta.upload = meta.upload || {};
+    var patch = { updated_at: new Date().toISOString() };
+    if (decision === 'approve') {
+      meta.upload.status = 'approved';
+      meta.upload.reviewed_by = adminCtx.email;
+      meta.upload.reviewed_at = new Date().toISOString();
+      patch.status = 'completed';
+      patch.completed_at = new Date().toISOString();
+      patch.completed_by = adminCtx.email;
+    } else {
+      meta.upload.status = 'rejected';
+      meta.upload.reject_reason = reason;
+      meta.upload.reviewed_by = adminCtx.email;
+      meta.upload.reviewed_at = new Date().toISOString();
+      patch.status = 'waiting_on_gp';
+    }
+    patch.metadata = meta;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: patch });
+    // Notify the GP of the outcome.
+    try {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
+      if (uid) {
+        await pushDocumentNotificationToUser(uid, decision === 'approve'
+          ? { type: 'success', title: 'Document accepted', detail: (task.title || 'Your document') + ' has been accepted.' }
+          : { type: 'action_required', title: 'Document needs attention', detail: (task.title || 'Your document') + ': ' + reason });
+      }
+    } catch (e) { /* non-critical */ }
+    await _logCaseEvent(task.case_id, taskId, decision === 'approve' ? 'completed' : 'status_change',
+      decision === 'approve' ? 'AHPRA upload approved' : 'AHPRA upload rejected', decision === 'reject' ? reason : (task.title || ''), adminCtx.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── AHPRA s80: signed URL for the team to view a GP-uploaded item ──
+  if (pathname === '/api/admin/ahpra/item/file' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('task_id');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing task_id.' }); return; }
+    const tRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+    const up = task && task.metadata && task.metadata.upload ? task.metadata.upload : null;
+    if (!up || !up.storage_path) { sendJson(res, 404, { ok: false, message: 'No uploaded file.' }); return; }
+    const signed = await supabaseStorageCreateSignedUrl(up.storage_bucket || SUPABASE_DOCUMENT_BUCKET, up.storage_path, up.file_name || '');
+    if (!signed) { sendJson(res, 502, { ok: false, message: 'Could not create link.' }); return; }
+    res.writeHead(302, { Location: signed });
+    res.end();
+    return;
+  }
+
+  // ── AHPRA s80: manually log a forwarded/pasted AHPRA letter for a GP ──
+  if (pathname === '/api/admin/ahpra/ingest-manual' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const gpEmail = body && typeof body.gp_email === 'string' ? body.gp_email.trim().toLowerCase() : '';
+    const letterBody = body && typeof body.body === 'string' ? body.body : '';
+    const subject = body && typeof body.subject === 'string' ? body.subject.trim().slice(0, 800) : 'Notice to provide further information under section 80(1)(b)';
+    const sender = body && typeof body.sender === 'string' && body.sender.trim() ? body.sender.trim().slice(0, 200) : 'officer@ahpra.gov.au';
+    const threadId = body && typeof body.thread_id === 'string' ? body.thread_id.trim().slice(0, 200) : '';
+    if (!gpEmail || !letterBody.trim()) { sendJson(res, 400, { ok: false, message: 'gp_email and body required.' }); return; }
+    const userId = await getSupabaseUserIdByEmail(gpEmail);
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'No user found for that email.' }); return; }
+    const gpCase = await _ensureRegCase(userId);
+    if (!gpCase || !gpCase.id) { sendJson(res, 400, { ok: false, message: 'That account has no GP registration case (staff accounts cannot be used).' }); return; }
+    const emailMeta = { subject: subject, sender: sender, bodyText: letterBody, threadId: threadId };
+    const msgId = 'manual-' + new Date().getTime() + '-' + Math.random().toString(36).slice(2, 8);
+    const extraction = await extractAhpraActionItems(emailMeta);
+    const result = await _createAhpraS80Bundle(gpCase, emailMeta, msgId, extraction, { sourceTrigger: 'manual_ingest', force: true });
+    await _logCaseEvent(gpCase.id, null, 'note', 'AHPRA letter logged manually', 'Created ' + (result.created || 0) + ' item(s) in the review tray.', adminCtx.email);
+    sendJson(res, 200, { ok: true, case_id: gpCase.id, created: result.created || 0, bundle_id: result.bundleId || null, deadline: result.deadline || null, failed: !!extraction.failed });
     return;
   }
 
