@@ -2804,7 +2804,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const s80Active=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status!=="pending_review");
     const s80Html=renderS80Tray(c,s80Pending)+renderS80Active(c,s80Active);
     const tasks=allTasks.filter(t=>!isS80Task(t));
-    if(!tasks.length)return (s80Html||'<div class="empty">No open tasks.</div>')+'<button class="btn sm" data-add-task>+ Add Task</button>';
+    if(!tasks.length){
+      const _u0=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
+      const _email0=_u0.gp_email||c.gp_email||'';
+      return (s80Html||'<div class="empty">No open tasks.</div>')+'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(_email0)+'">📨 Log AHPRA letter</button></div>';
+    }
 
     const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
       ?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
