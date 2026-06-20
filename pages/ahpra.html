@@ -4339,6 +4339,16 @@
         ? '<ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-muted);font-size:13px;line-height:1.5;">' +
             item.sub_items.map(function (s) { return '<li>' + s80Esc(s.label) + '</li>'; }).join('') + '</ul>'
         : '';
+      // The app's real "Show me how" steps for documents we already guide
+      // (Certificate of Good Standing, Confirmation of training, …).
+      var steps = (item.how_to_steps && item.how_to_steps.length)
+        ? '<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface,#f8fafc);border:1px solid var(--border);">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--ink);">How to get this</div>' +
+            '<ol style="margin:6px 0 0;padding-left:18px;color:var(--ink-muted);font-size:13px;line-height:1.6;">' +
+            item.how_to_steps.map(function (s) { return '<li>' + s80Esc(String(s || '')) + '</li>'; }).join('') + '</ol>' +
+            (item.guide_reminder ? '<div style="font-size:12px;color:var(--gp-amber-ink,#b45309);margin-top:6px;">⚠️ ' + s80Esc(item.guide_reminder) + '</div>' : '') +
+          '</div>'
+        : '';
       var action = '';
       if (item.mode === 'request_institution') {
         if (item.status === 'requested') {
@@ -4347,8 +4357,11 @@
             '<button type="button" data-mi-unmark="' + s80Esc(item.id) + '" style="background:none;border:none;color:var(--ink-muted);text-decoration:underline;cursor:pointer;font-size:12px;padding:0;">Undo</button></div>';
         } else {
           var inst = item.institution ? s80Esc(item.institution) : 'the issuing institution';
-          action = '<div style="color:var(--ink-muted);font-size:13px;line-height:1.5;">Request this directly from ' + inst + ', then mark it done here.</div>' +
-            '<button type="button" class="btn-primary" data-mi-mark="' + s80Esc(item.id) + '" style="margin-top:8px;">Mark as requested</button>';
+          // The friendly instruction (and the steps below) already explain what to do,
+          // so only show this generic prompt for older items that have neither.
+          var hint = (item.gp_instructions || (item.how_to_steps && item.how_to_steps.length)) ? '' :
+            '<div style="color:var(--ink-muted);font-size:13px;line-height:1.5;">Request this directly from ' + inst + ', then mark it done here.</div>';
+          action = hint + '<button type="button" class="btn-primary" data-mi-mark="' + s80Esc(item.id) + '" style="margin-top:8px;">Mark as requested</button>';
         }
       } else if (item.mode === 'upload') {
         if (item.status === 'approved') {
@@ -4361,10 +4374,13 @@
           action = ahpraUploadBtn(item, 'Upload document');
         }
       }
+      // Show the friendly, GP-facing instruction (falls back to detail for older items).
+      var instr = item.gp_instructions || item.detail || '';
       return '<div style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--surface-raised);">' +
         '<div style="font-weight:600;color:var(--ink);">' + s80Esc(item.title) + '</div>' +
-        '<div style="margin-top:4px;color:var(--ink-muted);font-size:13px;line-height:1.5;white-space:pre-wrap;">' + s80Esc(item.detail) + '</div>' +
+        '<div style="margin-top:4px;color:var(--ink-muted);font-size:13px;line-height:1.5;white-space:pre-wrap;">' + s80Esc(instr) + '</div>' +
         subs +
+        steps +
         '<div style="margin-top:12px;">' + action + '</div>' +
         '</div>';
     }

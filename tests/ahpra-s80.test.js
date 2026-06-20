@@ -186,3 +186,132 @@ describe('ahpra-s80 shortDescription', () => {
     expect(desc).toContain('3 required attachments');
   });
 });
+
+describe('ahpra-s80 GP-facing rewrite (not the officer point of view)', () => {
+  it('prompt asks for gp_instructions and tells the model how to handle "to my email"', () => {
+    const prompt = s80.buildExtractionPrompt(
+      { subject: 'Notice', sender: 'jane@ahpra.gov.au', bodyText: NOTICE_BODY },
+      { officer: { name: 'Jane Officer', email: 'jane.officer@ahpra.gov.au' } }
+    );
+    expect(prompt).toContain('gp_instructions');
+    expect(prompt).toContain('directly to your assigned AHPRA officer');
+    // The real officer address is surfaced so the model uses it instead of "my email".
+    expect(prompt).toContain('jane.officer@ahpra.gov.au');
+  });
+
+  it('treats the generic placeholder officer@ahpra.gov.au as unknown', () => {
+    const prompt = s80.buildExtractionPrompt(
+      { bodyText: NOTICE_BODY },
+      { officer: { name: '', email: 'officer@ahpra.gov.au' } }
+    );
+    expect(prompt).not.toContain('<officer@ahpra.gov.au>');
+  });
+
+  it('carries the model gp_instructions through normalisation', () => {
+    const item = s80.normalizeItem({
+      title: 'English language reference letters',
+      detail: 'Your OET is more than two years old...',
+      gp_instructions: 'You need to gather employer reference letters confirming your continuous employment.',
+      owner: 'gp', mode: 'upload'
+    });
+    expect(item.gp_instructions).toContain('You need to gather employer reference letters');
+    // The verbatim officer detail is preserved separately (fidelity).
+    expect(item.detail).toContain('two years old');
+  });
+
+  it('synthesises a GP instruction when the model omits one', () => {
+    const upload = s80.normalizeItem({ title: 'Employer reference letters', owner: 'gp', mode: 'upload' });
+    expect(upload.gp_instructions.toLowerCase()).toContain('upload');
+    const req = s80.normalizeItem({ title: 'Some certificate', owner: 'gp', mode: 'request_institution', institution: 'GMC' });
+    expect(req.gp_instructions).toContain('GMC');
+    expect(req.gp_instructions.toLowerCase()).toContain('directly to ahpra');
+  });
+});
+
+describe('ahpra-s80 officer-email substitution (no "send it to my email address")', () => {
+  it('replaces "to my email address" with the named assigned officer', () => {
+    const out = s80.applyOfficerEmail(
+      'Please request this and have the GMC send it direct from the GMC to my email address.',
+      { name: 'Jane Officer', email: 'jane.officer@ahpra.gov.au' }
+    );
+    expect(out).not.toMatch(/my email address/i);
+    expect(out).toContain('jane.officer@ahpra.gov.au');
+    expect(out).toContain('Jane Officer');
+  });
+
+  it('falls back to a generic phrase when the officer email is unknown', () => {
+    const out = s80.applyOfficerEmail('Send it directly to me.', {});
+    expect(out).not.toMatch(/\bto me\b/i);
+    expect(out).toContain('your assigned AHPRA officer');
+  });
+
+  it('does not leave a dangling "at <address>" when an email follows "to me"', () => {
+    const out = s80.applyOfficerEmail('Send these to me at john@example.com.', { name: 'Jane Officer', email: 'jane@ahpra.gov.au' });
+    expect(out).not.toContain('john@example.com');
+    expect(out).toContain('jane@ahpra.gov.au');
+    // Exactly one email address remains (the officer's) — no doubled "at … at …".
+    expect((out.match(/@/g) || []).length).toBe(1);
+  });
+
+  it('does not present an email username as the officer\'s name', () => {
+    const out = s80.applyOfficerEmail('Please send it to my email address.', { name: 'jane.officer', email: 'jane.officer@ahpra.gov.au' });
+    expect(out).toContain('your assigned AHPRA officer at jane.officer@ahpra.gov.au');
+    expect(out).not.toMatch(/officer, jane\.officer,/);
+  });
+
+  it('scrubs the officer wording from synthesised GP instructions too', () => {
+    const item = s80.normalizeItem(
+      { title: 'Statutory declaration', detail: 'send it to my email address', owner: 'gp', mode: 'upload', gp_instructions: 'Please email it to my email address.' },
+      { officer: { name: 'Jane', email: 'jane@ahpra.gov.au' } }
+    );
+    expect(item.gp_instructions).not.toMatch(/my email address/i);
+    expect(item.gp_instructions).toContain('jane@ahpra.gov.au');
+  });
+});
+
+describe('ahpra-s80 reuse of the app\'s "Show me how" steps', () => {
+  it('attaches the Certificate of Good Standing steps + AHPRA mailbox (UK)', () => {
+    const item = s80.normalizeItem(
+      { title: 'Certificate of Good Standing from GMC', owner: 'gp', mode: 'request_institution', institution: 'GMC', kind: 'good_standing' },
+      { country: 'uk' }
+    );
+    expect(item.how_to_steps.length).toBeGreaterThan(0);
+    expect(item.doc_guide_key).toBe('certificate_good_standing');
+    expect(item.how_to_steps.join(' ')).toContain('COGS@ahpra.gov.au');
+  });
+
+  it('attaches the Confirmation of GP training steps + AHPRA mailbox (UK)', () => {
+    const item = s80.normalizeItem(
+      { title: 'Confirmation of GP training with the RCGP from the GMC', owner: 'gp', mode: 'request_institution', institution: 'GMC' },
+      { country: 'uk' }
+    );
+    expect(item.doc_guide_key).toBe('confirmation_training');
+    expect(item.how_to_steps.join(' ')).toContain('registration18@ahpra.gov.au');
+  });
+
+  it('does NOT attach GP steps to team-owned items (SPPA-00 / PSV)', () => {
+    const sppa = s80.normalizeItem({ title: 'Supervised practice plan (SPPA-00)', owner: 'gp', mode: 'upload' }, { country: 'uk' });
+    expect(sppa.owner).toBe('team');
+    expect(sppa.how_to_steps.length).toBe(0);
+  });
+
+  it('leaves how_to_steps empty for documents we do not already guide', () => {
+    const item = s80.normalizeItem({ title: 'English language reference letters', owner: 'gp', mode: 'upload' }, { country: 'uk' });
+    expect(item.how_to_steps.length).toBe(0);
+    expect(item.doc_guide_key).toBe('');
+  });
+
+  it('picks the country-specific training guide (NZ → RNZCGP)', () => {
+    const item = s80.normalizeItem(
+      { title: 'Confirmation of training (RNZCGP)', owner: 'gp', mode: 'upload' },
+      { country: 'nz' }
+    );
+    expect(item.doc_guide_key).toBe('rnzcgp_confirmation_letter');
+  });
+
+  it('does NOT attach training steps to an unrelated item that merely mentions CCT', () => {
+    const item = s80.normalizeItem({ title: 'Upload your CCT certificate', owner: 'gp', mode: 'upload' }, { country: 'uk' });
+    expect(item.doc_guide_key).toBe('');
+    expect(item.how_to_steps.length).toBe(0);
+  });
+});

@@ -245,3 +245,36 @@ Ship behind the normal deploy (push to `main` → Vercel builds prod). The featu
 only activates on inbound AHPRA s80 emails and the new GP/admin UI; existing tasks
 are untouched because new columns are nullable/defaulted. Adversarial code review
 runs before deploy.
+
+## Follow-up (2026-06-21): smart GP-facing rewrite
+
+After the first release, the GP saw each item as the officer's **verbatim** letter
+text ("While we have received a COGS…", "sent direct from the GMC to my email
+address"). The AI was splitting the letter, not rewriting it. Three changes fixed
+this without losing any detail:
+
+1. **Separate GP-facing instruction.** Extraction now also returns
+   `gp_instructions` — a short, second-person, plain-English instruction written
+   *to the doctor*. The officer's verbatim text stays in `detail` (team-only, for
+   accuracy checking). The GP page shows `gp_instructions` (falling back to
+   `detail` for pre-existing items); the admin tray shows both, labelled
+   "Officer's exact words" and "What the GP will see", so the team checks the
+   doctor-facing copy before Release.
+2. **Officer-email substitution.** The officer's "send it to my email address" /
+   "to me" wording is replaced with the **assigned AHPRA officer's real email**.
+   The officer is captured from the inbound sender automatically, and from new
+   name/email fields on the "Log AHPRA letter" modal for pasted letters. A pure
+   helper (`applyOfficerEmail`) is the backstop so the wording never leaks even if
+   the model copies it.
+3. **Reuse the app's "Show me how" steps.** For documents the app already guides
+   (Certificate of Good Standing, Confirmation of training), the GP item now shows
+   the **exact acquisition steps from My Documents** plus the correct AHPRA mailbox
+   (COGS@ahpra.gov.au, registration18@ahpra.gov.au), sourced from a new
+   `lib/ahpra-doc-guides.js` module (mirrors `pages/my-documents.html`). For these
+   known docs the instruction says just "send directly to AHPRA" and the steps
+   carry the authoritative address — so there's never a competing mailbox. For
+   ad-hoc items with no app guide, the officer's email is used instead.
+
+New `metadata` keys: `gp_instructions`, `how_to_steps`, `doc_guide_key`,
+`guide_reminder`, `officer`. Still no migration. Pure logic is unit-tested
+(33 tests in `tests/ahpra-s80.test.js`).

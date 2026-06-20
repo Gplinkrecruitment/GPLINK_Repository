@@ -1871,11 +1871,30 @@ function extractAhpraOfficerInfo(emailMeta) {
   };
 }
 
+// Resolve a GP's registration country to a guide bucket ('uk'|'ie'|'nz') so the
+// AHPRA s80 cards can show the right "how to get this" steps. Defaults to 'uk'.
+async function _resolveGpCountry(userId) {
+  if (!userId) return 'uk';
+  try {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var raw = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0].registration_country : '';
+    if (!raw) {
+      var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : null;
+      raw = st && st.gp_selected_country;
+    }
+    return ahpraS80.docGuides.guideCountry(normalizeDocumentCountry(raw || 'uk') || raw || 'uk');
+  } catch (e) {
+    return 'uk';
+  }
+}
+
 // Extract the requested items from an AHPRA s80(1)(b) notice.
 // Returns { deadline, reference, items:[...], failed:bool }. `failed:true` means we
 // could not get a usable split (no key/budget/parse) — the caller MUST then create
 // a "needs manual split" holding-tray entry from the raw email rather than dropping it.
-async function extractAhpraActionItems(emailMeta) {
+async function extractAhpraActionItems(emailMeta, ctx) {
+  ctx = ctx || {};
   var fallbackRef = ahpraS80.detectReference((emailMeta && (emailMeta.subject || '') + ' ' + (emailMeta && emailMeta.bodyText || '')));
   if (!process.env.ANTHROPIC_API_KEY) return { deadline: null, reference: fallbackRef, items: [], failed: true };
   var budgetOk = await checkAnthropicBudget();
@@ -1883,7 +1902,7 @@ async function extractAhpraActionItems(emailMeta) {
     console.log('[AHPRA] Skipping action item extraction — daily budget exceeded');
     return { deadline: null, reference: fallbackRef, items: [], failed: true };
   }
-  var prompt = ahpraS80.buildExtractionPrompt(emailMeta);
+  var prompt = ahpraS80.buildExtractionPrompt(emailMeta, { officer: ctx.officer || null });
 
   try {
     var controller = new AbortController();
@@ -1921,7 +1940,7 @@ async function extractAhpraActionItems(emailMeta) {
       console.error('[AHPRA] Extraction returned no parseable JSON');
       return { deadline: null, reference: fallbackRef, items: [], failed: true };
     }
-    var norm = ahpraS80.normalizeExtraction(parsed);
+    var norm = ahpraS80.normalizeExtraction(parsed, { officer: ctx.officer || null, country: ctx.country || 'uk' });
     if (!norm.reference) norm.reference = fallbackRef;
     norm.failed = norm.items.length === 0;
     return norm;
@@ -2001,11 +2020,19 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       mode: item.mode,
       kind: item.kind || '',
       detail: item.detail || item.title,
+      // GP-facing instruction (plain English, second person) + the app's real
+      // "how to get this" steps for documents we already guide. The verbatim
+      // officer text stays in `detail` for the team to check against.
+      gp_instructions: item.gp_instructions || '',
+      how_to_steps: Array.isArray(item.how_to_steps) ? item.how_to_steps : [],
+      doc_guide_key: item.doc_guide_key || '',
+      guide_reminder: item.guide_reminder || '',
       sub_items: Array.isArray(item.sub_items) ? item.sub_items : [],
       institution: item.institution || '',
       gp_marked_complete_at: null,
       thread_subject: originalEmail.subject,
       original_email: originalEmail,
+      officer: (opts.officer && (opts.officer.email || opts.officer.name)) ? { name: opts.officer.name || '', email: opts.officer.email || '' } : null,
       ingest_source: opts.sourceTrigger || 'ahpra_officer_email'
     };
     var actionTask = await _createRegTask(gpCase.id, {
@@ -3193,8 +3220,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         var ahpraActionItemsCreated = false;
         if (isAhpra && gpCase) {
           try {
-            var ahpraExtraction = await extractAhpraActionItems(emailMeta);
-            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email' });
+            // The inbound sender IS the assigned officer (only trust a real ahpra.gov.au address).
+            var s80OfficerRaw = extractAhpraOfficerInfo(emailMeta);
+            var s80Officer = (s80OfficerRaw.email && s80OfficerRaw.email.endsWith('@ahpra.gov.au') && s80OfficerRaw.email !== 'officer@ahpra.gov.au')
+              ? { name: s80OfficerRaw.name || '', email: s80OfficerRaw.email } : null;
+            var s80Country = await _resolveGpCountry(gpCase.user_id);
+            var ahpraExtraction = await extractAhpraActionItems(emailMeta, { officer: s80Officer, country: s80Country });
+            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country });
             // Created items, OR a duplicate we already processed → this email is handled;
             // don't fall through to response-matching / general triage and double-process it.
             if (s80Result && (s80Result.created > 0 || s80Result.skipped)) {
@@ -29435,7 +29467,13 @@ Return ONLY valid JSON with no markdown formatting:
       s80Items.push({
         id: t.id,
         title: t.title || '',
-        detail: m.detail || t.title || '',
+        // Prefer the GP-facing instruction; fall back to the verbatim detail only
+        // if an older item predates the rewrite.
+        detail: m.gp_instructions || m.detail || t.title || '',
+        gp_instructions: m.gp_instructions || '',
+        how_to_steps: Array.isArray(m.how_to_steps) ? m.how_to_steps : [],
+        guide_reminder: m.guide_reminder || '',
+        doc_guide_key: m.doc_guide_key || '',
         mode: m.mode,
         institution: m.institution || '',
         sub_items: Array.isArray(m.sub_items) ? m.sub_items : [],
@@ -29513,6 +29551,7 @@ Return ONLY valid JSON with no markdown formatting:
             gpFullName: gpFullName,
             reference: mcMeta.reference || '',
             threadSubject: mcMeta.thread_subject || '',
+            officerName: (mcMeta.officer && mcMeta.officer.name) || '',
             requestedItems: requestItems.map(function (t) { return { title: t.title, institution: (t.metadata && t.metadata.institution) || '' }; }),
             uploadItems: uploadItems.map(function (t) { return { title: t.title }; })
           });
@@ -32324,17 +32363,26 @@ Return ONLY valid JSON with no markdown formatting:
     const gpEmail = body && typeof body.gp_email === 'string' ? body.gp_email.trim().toLowerCase() : '';
     const letterBody = body && typeof body.body === 'string' ? body.body : '';
     const subject = body && typeof body.subject === 'string' ? body.subject.trim().slice(0, 800) : 'Notice to provide further information under section 80(1)(b)';
-    const sender = body && typeof body.sender === 'string' && body.sender.trim() ? body.sender.trim().slice(0, 200) : 'officer@ahpra.gov.au';
     const threadId = body && typeof body.thread_id === 'string' ? body.thread_id.trim().slice(0, 200) : '';
+    // Assigned AHPRA officer (so GP-facing copy can say "send to your officer at <email>"
+    // instead of the officer's loose "send it to my email address").
+    const officerEmailRaw = body && typeof body.officer_email === 'string' ? body.officer_email.trim().toLowerCase().slice(0, 200) : '';
+    const officerName = body && typeof body.officer_name === 'string' ? body.officer_name.trim().slice(0, 120) : '';
+    const officerEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(officerEmailRaw) ? officerEmailRaw : '';
+    const s80Officer = officerEmail ? { name: officerName, email: officerEmail } : null;
+    const sender = officerEmail
+      ? (officerName ? (officerName + ' <' + officerEmail + '>') : officerEmail)
+      : (body && typeof body.sender === 'string' && body.sender.trim() ? body.sender.trim().slice(0, 200) : 'officer@ahpra.gov.au');
     if (!gpEmail || !letterBody.trim()) { sendJson(res, 400, { ok: false, message: 'gp_email and body required.' }); return; }
     const userId = await getSupabaseUserIdByEmail(gpEmail);
     if (!userId) { sendJson(res, 404, { ok: false, message: 'No user found for that email.' }); return; }
     const gpCase = await _ensureRegCase(userId);
     if (!gpCase || !gpCase.id) { sendJson(res, 400, { ok: false, message: 'That account has no GP registration case (staff accounts cannot be used).' }); return; }
+    const s80Country = await _resolveGpCountry(userId);
     const emailMeta = { subject: subject, sender: sender, bodyText: letterBody, threadId: threadId };
     const msgId = 'manual-' + new Date().getTime() + '-' + Math.random().toString(36).slice(2, 8);
-    const extraction = await extractAhpraActionItems(emailMeta);
-    const result = await _createAhpraS80Bundle(gpCase, emailMeta, msgId, extraction, { sourceTrigger: 'manual_ingest', force: true });
+    const extraction = await extractAhpraActionItems(emailMeta, { officer: s80Officer, country: s80Country });
+    const result = await _createAhpraS80Bundle(gpCase, emailMeta, msgId, extraction, { sourceTrigger: 'manual_ingest', force: true, officer: s80Officer, country: s80Country });
     // The fail-loud path always creates at least one tray entry; 0 means a real DB
     // insert failure, so surface it rather than reporting a false success.
     if (!result || !result.created) {

@@ -2685,6 +2685,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.</div>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:14px;">GP email<input id="ahpraLetterEmail" type="email" value="'+esc(gpEmail||'')+'" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Subject<input id="ahpraLetterSubject" type="text" value="Notice to provide further information under section 80(1)(b)" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<div style="display:flex;gap:10px;margin-top:10px;">'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Assigned AHPRA officer (name)<input id="ahpraLetterOfficerName" type="text" placeholder="e.g. Jane Smith" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Officer email<input id="ahpraLetterOfficerEmail" type="email" placeholder="officer@ahpra.gov.au" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px;">Optional — used so the doctor sees a real address instead of the officer’s “send it to my email”.</div>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Letter text<textarea id="ahpraLetterBody" rows="12" placeholder="Paste the full AHPRA letter here…" style="width:100%;margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea></label>'
       +'<div id="ahpraLetterMsg" style="font-size:12px;color:#b91c1c;margin-top:8px;"></div>'
       +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;"><button type="button" id="ahpraLetterCancel" style="background:none;border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;">Cancel</button><button type="button" id="ahpraLetterSubmit" style="background:#2563eb;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;cursor:pointer;">Read letter &amp; create items</button></div>'
@@ -2696,12 +2701,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('ahpraLetterSubmit').addEventListener('click',async function(){
       var email=document.getElementById('ahpraLetterEmail').value.trim();
       var subject=document.getElementById('ahpraLetterSubject').value.trim();
+      var officerName=document.getElementById('ahpraLetterOfficerName').value.trim();
+      var officerEmail=document.getElementById('ahpraLetterOfficerEmail').value.trim();
       var bodyTxt=document.getElementById('ahpraLetterBody').value;
       var msg=document.getElementById('ahpraLetterMsg');
       if(!email||!bodyTxt.trim()){ msg.style.color='#b91c1c'; msg.textContent='Please enter the GP email and paste the letter.'; return; }
       var btn=document.getElementById('ahpraLetterSubmit'); btn.disabled=true; btn.textContent='Reading…'; msg.style.color='var(--muted)'; msg.textContent='Reading the letter and creating items…';
       try{
-        var r=await fetch('/api/admin/ahpra/ingest-manual',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({gp_email:email,subject:subject,body:bodyTxt})});
+        var r=await fetch('/api/admin/ahpra/ingest-manual',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({gp_email:email,subject:subject,body:bodyTxt,officer_name:officerName,officer_email:officerEmail})});
         var d=await r.json().catch(()=>({}));
         if(!d.ok){ msg.style.color='#b91c1c'; msg.textContent=d.message||'Could not log the letter.'; btn.disabled=false; btn.textContent='Read letter & create items'; return; }
         close(); await loadAll(true);
@@ -2719,6 +2726,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!Array.isArray(m.sub_items)||!m.sub_items.length) return '';
     return '<ul style="margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5;">'+
       m.sub_items.map(s=>'<li>'+esc((s&&s.label)||'')+'</li>').join('')+'</ul>';
+  }
+  // The app's reused "how to get this" steps (Certificate of Good Standing, etc.).
+  function renderS80HowTo(m){
+    if(!Array.isArray(m.how_to_steps)||!m.how_to_steps.length) return '';
+    return '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-weight:600;">How the GP gets this:</div>'+
+      '<ol style="margin:4px 0 0;padding-left:18px;color:#334155;font-size:12px;line-height:1.5;">'+
+      m.how_to_steps.map(s=>'<li>'+esc(String(s||''))+'</li>').join('')+'</ol>'+
+      (m.guide_reminder?'<div style="font-size:11px;color:#92400e;margin-top:4px;">⚠️ '+esc(m.guide_reminder)+'</div>':'');
+  }
+  // The exact text the doctor will see — so the team can sanity-check it before Release.
+  function renderS80GpPreview(m){
+    if(m.owner!=='gp') return '';
+    var gi=m.gp_instructions||'';
+    if(!gi && !(Array.isArray(m.how_to_steps)&&m.how_to_steps.length)) return '';
+    var h='<div style="margin-top:8px;border-left:3px solid #bfdbfe;background:#f8fbff;border-radius:0 8px 8px 0;padding:8px 10px;">';
+    h+='<div style="font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.4px;">What the GP will see</div>';
+    if(gi) h+='<div style="font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(gi)+'</div>';
+    h+=renderS80HowTo(m);
+    h+='</div>';
+    return h;
   }
   function renderS80Tray(c, pending){
     if(!pending.length) return '';
@@ -2740,8 +2767,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var m=s80Meta(t);
         html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-top:10px;">';
         html+='<div style="font-weight:700;color:var(--ink);">'+esc(t.title)+'</div>';
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+='<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:6px;">Officer’s exact words</div>';
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:2px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
         html+=renderS80SubItems(m);
+        html+=renderS80GpPreview(m);
         html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">';
         html+='<label style="font-size:11px;color:var(--muted);">Who <select data-s80-owner="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="gp"'+(m.owner==='gp'?' selected':'')+'>GP does it</option><option value="team"'+(m.owner==='team'?' selected':'')+'>Team handles</option></select></label>';
         html+='<label style="font-size:11px;color:var(--muted);">How <select data-s80-mode="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="upload"'+(m.mode==='upload'?' selected':'')+'>GP uploads</option><option value="request_institution"'+(m.mode==='request_institution'?' selected':'')+'>GP requests from institution</option><option value="team"'+(m.mode==='team'?' selected':'')+'>Team handles</option></select></label>';
@@ -2783,6 +2812,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       } else if(m.mode==='request_institution'){
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+=renderS80HowTo(m);
         if(m.gp_marked_complete_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">✓ GP marked as requested'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
         else { html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to request'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
       } else {
