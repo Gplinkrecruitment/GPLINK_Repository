@@ -2930,6 +2930,7 @@
     // Cache of the most recently opened GP file: { caseId, rsoId, case, tasks, timeline }.
     // Sub-tabs reuse this without refetching. Later tasks may extend it (timeline/docs/calls caches).
     var gpDetailCache = null;
+    var ceoZoomOriginTaskId = null; // when the Schedule-call modal was opened from a task, links the booked call back to it.
     var gpDetailTab = 'tasks';
     var gpTasksShowAll = false; // Tasks sub-tab: hide completed/cancelled by default.
     // Per-task email-triage panel state (port of admin S.openEmailPanels): keyed by task id,
@@ -3302,23 +3303,16 @@
       catch (e) { return false; }
     }
 
-    // Schedule-call control (port of admin scheduleCallFromTask): send the GP a Calendly/Zoom
-    // booking link for this task's stage via the unchanged POST /api/admin/calls/schedule
-    // {case_id,stage}, then mark the task waiting_on_gp via PUT /api/admin/task. Refresh the
-    // open GP file on success. No live send happens during build — only on a runtime click.
+    // Schedule-call control (port of admin scheduleCallFromTask): instead of POSTing the
+    // schedule directly, open the existing CEO Schedule-call modal pre-seeded for this task —
+    // it auto-suggests a GP-visible meeting reason from the GP's message, leaves internal
+    // notes empty, and links the booked call back to the originating task via origin_task_id.
+    // The modal's submit (submitCeoZoom) flips the task to waiting_on_gp on success.
     function scheduleCallFromTask(taskId, caseId, stage) {
       if (!caseId || !stage) { showToast('Cannot schedule: missing case or stage', 'error'); return; }
-      apiFetch('/api/admin/calls/schedule', {
-        method: 'POST',
-        body: { case_id: caseId, stage: stage }
-      }).then(function(d) {
-        if (!d || !d.ok) { showToast('Failed: ' + ((d && d.message) || 'Schedule failed'), 'error'); return; }
-        showToast('Calendly invite sent', 'success');
-        return apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
-          method: 'PUT',
-          body: { status: 'waiting_on_gp' }
-        }).then(function() { refreshGpDetailTasks(); });
-      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+      var cs = (gpDetailCache && gpDetailCache.case) || {};
+      var userId = cs.user_id || (gpDetailCache && gpDetailCache.userId) || '';
+      openCeoZoomModal(caseId, userId, stage, { originTaskId: taskId, autoSuggestReason: true });
     }
 
     // Render the cached tasks[] for the open GP file as an RSO-parity layout (admin.html
@@ -4071,7 +4065,8 @@
     // optional admin_notes. Sends a Calendly invite to the GP (no live send during build — this
     // only fires on an explicit click at runtime). Refreshes the open GP file on success.
     var CEO_ZOOM_STAGES = ['myintealth', 'amc', 'ahpra'];
-    function openCeoZoomModal(caseId, userId, currentStage) {
+    function openCeoZoomModal(caseId, userId, currentStage, opts) {
+      opts = opts || {}; ceoZoomOriginTaskId = opts.originTaskId || null;
       var defStage = CEO_ZOOM_STAGES.indexOf(currentStage) !== -1 ? currentStage : 'myintealth';
       var html = '<div class="modal-title">Schedule Call</div>';
       html += '<div class="modal-field"><label class="modal-label">Stage</label><select class="modal-select" id="mZoomStage">';
@@ -4114,6 +4109,23 @@
         sel.innerHTML = opts;
         if (preEmail) sel.value = preEmail;
       }).catch(function() {});
+      if (opts.originTaskId && opts.autoSuggestReason) { ceoAutofillZoomReason(opts.originTaskId); }
+    }
+
+    // Ask the backend to draft a GP-visible meeting reason from the originating task's GP
+    // message, and drop it into the Reason field. Best-effort: shows a generating placeholder
+    // while it runs and always re-enables the field afterwards (never blocks the modal).
+    function ceoAutofillZoomReason(taskId){
+      var reasonEl = document.getElementById('mZoomReason');
+      if (!reasonEl) return;
+      var origPh = reasonEl.getAttribute('placeholder') || '';
+      reasonEl.setAttribute('placeholder', '✨ Generating a suggested reason…');
+      reasonEl.disabled = true;
+      apiFetch('/api/admin/calls/suggest-reason', { method:'POST', body: { task_id: taskId } }).then(function(d){
+        if (d && d.ok && d.suggestedReason) reasonEl.value = d.suggestedReason;
+      }).catch(function(){}).then(function(){
+        reasonEl.disabled = false; reasonEl.setAttribute('placeholder', origPh);
+      });
     }
 
     function submitCeoZoom(caseId, userId) {
@@ -4127,11 +4139,18 @@
       if (notesEl && notesEl.value.trim()) body.admin_notes = notesEl.value.trim();
       if (reasonEl && reasonEl.value.trim()) body.meeting_reason = reasonEl.value.trim();
       if (rsoEl && rsoEl.value) body.assigned_rso_email = rsoEl.value;
+      if (ceoZoomOriginTaskId) body.origin_task_id = ceoZoomOriginTaskId;
+      var _origin = ceoZoomOriginTaskId;
       if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
       apiFetch('/api/admin/calls/schedule', { method: 'POST', body: body }).then(function(d) {
         if (d && d.ok) {
           showToast('Calendly invite sent', 'success');
           closeModal();
+          // When opened from a task, flip the originating task to waiting_on_gp so the
+          // GP-action loop reflects that the ball is now in the GP's court.
+          if (_origin) {
+            apiFetch('/api/admin/task?id=' + encodeURIComponent(_origin), { method: 'PUT', body: { status: 'waiting_on_gp' } }).then(function(){ refreshGpDetailTasks(); });
+          }
           refreshGpDetailTasks();
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Schedule failed'), 'error');
@@ -4859,6 +4878,10 @@
       }
       if (c.admin_notes) {
         html += '<div class="ceo-gp-call-notes"><span class="pill pill-muted" style="font-size:9px;margin-right:6px;vertical-align:middle">INTERNAL</span>' + esc(c.admin_notes) + '</div>';
+      }
+      if (c.origin_task_id) {
+        var _ot = (gpDetailCache && Array.isArray(gpDetailCache.tasks)) ? gpDetailCache.tasks.find(function(t){ return t.id === c.origin_task_id; }) : null;
+        html += '<div class="ceo-gp-call-notes" style="color:var(--text-muted)">📎 Scheduled from: ' + esc(_ot && _ot.title ? _ot.title : 'GP request') + '</div>';
       }
       if ((c.status || '').toLowerCase() === 'completed' && c.meeting_summary) {
         html += '<div class="ceo-gp-call-summary"><div class="ceo-gp-call-summary-label">Meeting summary</div>' + esc(c.meeting_summary) + '</div>';

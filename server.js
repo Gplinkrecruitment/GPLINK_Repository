@@ -573,6 +573,7 @@ function buildScheduledCallInsertPayload(input = {}) {
     status: 'invited',
     admin_notes: input.adminNotes || null,
     meeting_reason: input.meetingReason || null,
+    origin_task_id: input.originTaskId || null,
     correlation_token: input.correlationToken,
     calendly_booking_url: input.bookingUrl,
     calendly_event_type_uri: input.calendlyEventTypeUri || null,
@@ -26462,6 +26463,7 @@ async function handleApi(req, res, pathname) {
     const stage = String(body && body.stage || '').trim();
     const adminNotes = String(body && body.admin_notes || '').trim().slice(0, 2000);
     const meetingReason = String(body && body.meeting_reason || '').trim().slice(0, 1000);
+    const originTaskId = String(body && body.origin_task_id || '').trim() || null;
     const assignedRsoEmail = String(body && body.assigned_rso_email || '').trim().toLowerCase();
     const scheduleRsoRoster = await loadRsoTeam({ includeInactive: true });
     // The GP's case is auto-hosted by its assigned RSO. A manual RSO override
@@ -26527,6 +26529,7 @@ async function handleApi(req, res, pathname) {
         stage,
         adminNotes,
         meetingReason,
+        originTaskId,
         correlationToken,
         bookingUrl,
         calendlyEventTypeUri: CALENDLY_EVENT_TYPE_URI,
@@ -26631,6 +26634,82 @@ async function handleApi(req, res, pathname) {
       task_id: taskId,
       notifications: { whatsapp: waResult.ok, email: emailResult.ok }
     });
+    return;
+  }
+
+  // POST /api/admin/calls/suggest-reason — AI-suggested "meeting reason" from the
+  // originating email_triage/whatsapp_help task's GP message.
+  if (pathname === '/api/admin/calls/suggest-reason' && req.method === 'POST') {
+    var srAdminCtx = requireAdminSession(req, res);
+    if (!srAdminCtx) return;
+    var srBody;
+    try { srBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    var srTaskId = String((srBody && (srBody.task_id || srBody.taskId)) || '').trim();
+    if (!srTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    try {
+      // Load task
+      var srTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(srTaskId) + '&limit=1');
+      var srTask = srTaskRes.ok && Array.isArray(srTaskRes.data) && srTaskRes.data[0] ? srTaskRes.data[0] : null;
+      if (!srTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      // Derive the GP's message text
+      var srMessage = '';
+      if (srTask.task_type === 'whatsapp_help') srMessage = String(srTask.description || '');
+      else if (srTask.task_type === 'email_triage') srMessage = String(srTask.email_body_snippet || srTask.description || '');
+      else srMessage = String(srTask.description || srTask.title || '');
+      srMessage = srMessage.slice(0, 2000);
+
+      // Light context: stage + GP first name (best-effort)
+      var srStage = String(srTask.related_stage || '').toLowerCase();
+      var srGpFirstName = 'the GP';
+      try {
+        var srCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,stage&id=eq.' + encodeURIComponent(srTask.case_id) + '&limit=1');
+        var srRegCase = srCaseRes.ok && Array.isArray(srCaseRes.data) && srCaseRes.data[0] ? srCaseRes.data[0] : {};
+        if (!srStage) srStage = String(srRegCase.stage || '').toLowerCase();
+        if (srRegCase.user_id) {
+          var srProfRes = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(srRegCase.user_id) + '&limit=1');
+          var srProf = srProfRes.ok && Array.isArray(srProfRes.data) && srProfRes.data[0] ? srProfRes.data[0] : {};
+          if (srProf.first_name) srGpFirstName = String(srProf.first_name);
+        }
+      } catch (srCtxErr) { /* best-effort */ }
+
+      var srStageDisplay = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[srStage] || srStage || 'registration';
+      var srApiKey = process.env.ANTHROPIC_API_KEY;
+      if (!srApiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
+      var srSystemPrompt = 'You write the "reason for the meeting" line for a Zoom assistance call that an international GP (registering to practise in Australia via GP Link) will see. Given what the GP asked for, write ONE warm, specific sentence (max ~30 words) describing what the call will help them with. No greeting, no sign-off, no quotation marks, no "Dear". Return ONLY the sentence.';
+      var srUserContent = 'Stage: ' + srStageDisplay + '\nGP first name: ' + srGpFirstName + '\nThe GP\'s message:\n"""\n' + srMessage + '\n"""\n\nWrite the meeting reason sentence.';
+
+      var srController = new AbortController();
+      var srTimeout = setTimeout(function () { srController.abort(); }, 20000);
+      try {
+        var srResp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: srController.signal,
+          headers: { 'x-api-key': srApiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: ANTHROPIC_MODEL,
+            max_tokens: 150,
+            system: [{ type: 'text', text: srSystemPrompt }],
+            messages: [{ role: 'user', content: srUserContent }]
+          })
+        });
+        clearTimeout(srTimeout);
+        if (!srResp.ok) { sendJson(res, 502, { ok: false, message: 'AI request failed.' }); return; }
+        var srData = await srResp.json();
+        var srSuggestedReason = (srData.content && srData.content[0] && srData.content[0].text) || '';
+        srSuggestedReason = String(srSuggestedReason).trim().replace(/^["“”']+|["“”']+$/g, '').trim();
+        if (srData.usage) {
+          recordAnthropicSpend(srData.usage.input_tokens || 0, srData.usage.output_tokens || 0, srData.usage.cache_read_input_tokens || 0, srData.usage.cache_creation_input_tokens || 0);
+        }
+        sendJson(res, 200, { ok: true, suggestedReason: srSuggestedReason });
+      } catch (srAiErr) {
+        clearTimeout(srTimeout);
+        sendJson(res, 502, { ok: false, message: 'AI timeout or error: ' + (srAiErr && srAiErr.message || srAiErr) });
+      }
+    } catch (srErr) {
+      console.error('[calls suggest-reason] Error:', srErr.message);
+      sendJson(res, 500, { ok: false, message: 'Internal error.' });
+    }
     return;
   }
 

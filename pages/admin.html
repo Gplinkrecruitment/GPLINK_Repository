@@ -9272,8 +9272,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Zoom Call Scheduling ──────────────────────────────────────
   var _zoomScheduleCase = null;
 
-  function openZoomScheduleModal(caseData) {
+  function openZoomScheduleModal(caseData, opts) {
+    opts = opts || {};
     _zoomScheduleCase = caseData;
+    if (_zoomScheduleCase) _zoomScheduleCase.origin_task_id = opts.originTaskId || null;
     var overlay = document.getElementById('zoomScheduleOverlay');
     var gpBlock = document.getElementById('zoomGpBlock');
     var stageSelect = document.getElementById('zoomStageSelect');
@@ -9286,6 +9288,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     notesField.value = '';
     var reasonField = document.getElementById('zoomMeetingReason');
     if (reasonField) reasonField.value = '';
+    if (opts.originTaskId && opts.autoSuggestReason) { autofillZoomReason(opts.originTaskId); }
     document.getElementById('zoomNotifyWhatsapp').checked = true;
     document.getElementById('zoomNotifyEmail').checked = true;
     document.getElementById('zoomScheduleBtn').disabled = false;
@@ -9293,6 +9296,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     overlay.classList.add('open');
   }
   window.openZoomScheduleModal = openZoomScheduleModal;
+
+  async function autofillZoomReason(taskId){
+    var reasonField = document.getElementById('zoomMeetingReason');
+    if (!reasonField) return;
+    var origPh = reasonField.getAttribute('placeholder') || '';
+    reasonField.value = '';
+    reasonField.setAttribute('placeholder', '✨ Generating a suggested reason…');
+    reasonField.disabled = true;
+    try {
+      var r = await fetch('/api/admin/calls/suggest-reason', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ task_id: taskId }) });
+      var d = await r.json();
+      if (d && d.ok && d.suggestedReason) reasonField.value = d.suggestedReason;
+    } catch (e) { /* leave blank on failure — admin can type their own */ }
+    finally { reasonField.disabled = false; reasonField.setAttribute('placeholder', origPh); }
+  }
+  window.autofillZoomReason = autofillZoomReason;
 
   function closeZoomScheduleModal() {
     document.getElementById('zoomScheduleOverlay').classList.remove('open');
@@ -9316,13 +9335,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           stage: document.getElementById('zoomStageSelect').value,
           meeting_reason: document.getElementById('zoomMeetingReason').value.trim(),
           admin_notes: document.getElementById('zoomAdminNotes').value.trim(),
+          origin_task_id: (_zoomScheduleCase && _zoomScheduleCase.origin_task_id) || null,
           notify_whatsapp: document.getElementById('zoomNotifyWhatsapp').checked,
           notify_email: document.getElementById('zoomNotifyEmail').checked
         })
       });
       var data = await resp.json();
       if (data.ok) {
+        var _originId = _zoomScheduleCase && _zoomScheduleCase.origin_task_id;
         closeZoomScheduleModal();
+        // If this call was scheduled in response to a GP request task, flip that
+        // originating task to "waiting on GP" (awaiting their booking).
+        if (_originId) { try { await fetch('/api/admin/task?id=' + encodeURIComponent(_originId), { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ status:'waiting_on_gp' }) }); } catch(e){} }
         showOpsToast('Calendly invite sent to GP');
         if (typeof renderDetail === 'function') renderDetail();
       } else {
@@ -9360,6 +9384,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     if (call.zoom_join_url && (call.status === 'booked' || call.status === 'invited')) {
       html += '<div class="zoom-task-detail"><strong>Zoom:</strong> <a href="' + esc(call.zoom_join_url) + '" target="_blank" rel="noopener" style="color:var(--blue)">Join meeting</a></div>';
+    }
+    if (call.origin_task_id) {
+      var _ot = (typeof S !== 'undefined' && S.tasks) ? S.tasks.find(function(t){ return t.id === call.origin_task_id; }) : null;
+      html += '<div class="zoom-task-detail"><strong>Scheduled from:</strong> 📎 ' + esc(_ot && _ot.title ? _ot.title : 'GP request') + '</div>';
     }
     html += '</div>';
     if (call.admin_notes) {
@@ -9523,17 +9551,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return '<button type="button" onclick="event.stopPropagation();scheduleCallFromTask(\''+esc(t.id)+'\',\''+esc(t.case_id)+'\',\''+esc(stage)+'\')" title="Send this GP a Zoom booking link with a message that a call would best guide them through the '+esc(label)+' stage" style="padding:7px 13px;border-radius:8px;border:1px solid #bfdbfe;background:#eff6ff;color:#2563eb;font-weight:700;font-size:13px;cursor:pointer;margin-right:8px">📞 Schedule call?</button>';
   }
   async function scheduleCallFromTask(taskId, caseId, stage){
-    var label=({myintealth:'MyIntealth',amc:'AMC',ahpra:'AHPRA'})[stage]||stage;
-    if(!confirm('Send this GP a Zoom booking link for the '+label+' stage? They will get a message suggesting a call would best guide them through it.')) return;
-    try{
-      var r=await fetch('/api/admin/calls/schedule',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({case_id:caseId,stage:stage})});
-      var d=await r.json();
-      if(!d.ok){alert('Failed to schedule call: '+(d.message||'Unknown error'));return;}
-      // Flip the original assistance task to "waiting on GP" (awaiting their booking).
-      try{ await fetch('/api/admin/task?id='+encodeURIComponent(taskId),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'waiting_on_gp'})}); }catch(e){}
-      showOpsToast('Booking link sent to GP');
-      refreshAfterCallAction();
-    }catch(e){ alert('Error: '+e.message); }
+    // Resolve the case + GP details from loaded state (display-only; the endpoint
+    // re-resolves the user from the case). Fall back gracefully if not loaded.
+    var cobj = (S.cases || []).find(function(x){ return x.id === caseId; }) || {};
+    var u = ((S.va && S.va.dashboard && Array.isArray(S.va.dashboard.users)) ? S.va.dashboard.users.find(function(x){ return x.case_id === caseId || (cobj.user_id && x.user_id === cobj.user_id); }) : null) || {};
+    var gpName = u.gp_name || cobj.gp_name || '';
+    var caseData = {
+      case_id: caseId,
+      user_id: cobj.user_id || u.user_id || '',
+      stage: stage,
+      first_name: u.gp_first_name || (gpName.split(' ')[0] || ''),
+      last_name: (gpName.split(' ').slice(1).join(' ') || ''),
+      email: u.gp_email || cobj.gp_email || '',
+      phone: u.gp_phone || cobj.gp_phone || ''
+    };
+    openZoomScheduleModal(caseData, { originTaskId: taskId, autoSuggestReason: true });
   }
   window.scheduleCallFromTask = scheduleCallFromTask;
 
