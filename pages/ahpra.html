@@ -13,14 +13,14 @@
       try { if (!bypassEmail) { var lp = localStorage.getItem("gp_session_profile_cache"); if (lp) bypassEmail = String((JSON.parse(lp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) { var sp = sessionStorage.getItem("gp_session_profile_cache"); if (sp) bypassEmail = String((JSON.parse(sp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) bypassEmail = String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase(); } catch (e) {}
-      var tempBypassActive = bypassEmail === "smithmiller1234@gmail.com" && Date.now() < Date.parse("2026-06-10T14:05:40.018Z");
+      var tempBypassActive = bypassEmail === "smithmiller1234@gmail.com" && Date.now() < Date.parse("2026-09-30T23:59:59.000Z");
       if(!tempBypassActive && localStorage.getItem("gp_ahpra_progress__intro_seen")!=="1"){
       var s=document.createElement("style");s.id="ahpra-intro-hide";
       s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
       document.head.appendChild(s);
     }}catch(e){}})();
   </script>
-  <script src="/js/bypass-config.js?v=20260610a"></script>
+  <script src="/js/bypass-config.js?v=20260620a"></script>
   <script src="/js/auth-guard.js?v=20260614a" defer></script>
   <script src="/js/state-sync.js?v=20260607a" defer></script>
   <script src="/js/updates-sync.js?v=20260612a" defer></script>
@@ -4305,6 +4305,134 @@
     }
 
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
+    // ── AHPRA "requested more information" (section 80) inbox ──────────────
+    function s80Esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+    function s80FormatDate(d) {
+      try {
+        var dt = new Date(String(d) + 'T00:00:00');
+        if (isNaN(dt.getTime())) return d;
+        return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      } catch (e) { return d; }
+    }
+    async function loadAhpraMoreInfo() {
+      var data;
+      try {
+        var r = await fetch('/api/ahpra/more-info', { credentials: 'same-origin' });
+        data = await r.json();
+      } catch (e) { return; }
+      if (!data || !data.ok || !Array.isArray(data.items) || data.items.length === 0) return; // keep the polished hero
+      var grid = document.getElementById('stepInfoGrid');
+      if (!grid) return;
+      grid.innerHTML = renderAhpraMoreInfoCard(data);
+      wireAhpraMoreInfo();
+    }
+    function ahpraUploadBtn(item, label) {
+      return '<label class="btn-primary" style="margin-top:8px;cursor:pointer;display:inline-flex;">' + s80Esc(label) +
+        '<input type="file" accept="image/*,.pdf,application/pdf" data-mi-upload="' + s80Esc(item.id) + '" style="display:none;"></label>';
+    }
+    function ahpraMoreInfoItemHtml(item) {
+      var subs = (item.sub_items && item.sub_items.length)
+        ? '<ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-muted);font-size:13px;line-height:1.5;">' +
+            item.sub_items.map(function (s) { return '<li>' + s80Esc(s.label) + '</li>'; }).join('') + '</ul>'
+        : '';
+      var action = '';
+      if (item.mode === 'request_institution') {
+        if (item.status === 'requested') {
+          action = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">' +
+            '<span>✓ Marked as requested — we will confirm receipt with AHPRA.</span>' +
+            '<button type="button" data-mi-unmark="' + s80Esc(item.id) + '" style="background:none;border:none;color:var(--ink-muted);text-decoration:underline;cursor:pointer;font-size:12px;padding:0;">Undo</button></div>';
+        } else {
+          var inst = item.institution ? s80Esc(item.institution) : 'the issuing institution';
+          action = '<div style="color:var(--ink-muted);font-size:13px;line-height:1.5;">Request this directly from ' + inst + ', then mark it done here.</div>' +
+            '<button type="button" class="btn-primary" data-mi-mark="' + s80Esc(item.id) + '" style="margin-top:8px;">Mark as requested</button>';
+        }
+      } else if (item.mode === 'upload') {
+        if (item.status === 'approved') {
+          action = '<div style="color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">✓ Accepted' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
+        } else if (item.status === 'under_review') {
+          action = '<div style="color:var(--gp-amber-ink,#b45309);font-size:13px;font-weight:600;">⏳ Uploaded — under review' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
+        } else if (item.status === 'rejected') {
+          action = '<div style="color:var(--gp-red,#dc2626);font-size:13px;font-weight:600;">Not accepted: ' + s80Esc(item.reject_reason || '') + '</div>' + ahpraUploadBtn(item, 'Re-upload document');
+        } else {
+          action = ahpraUploadBtn(item, 'Upload document');
+        }
+      }
+      return '<div style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--surface-raised);">' +
+        '<div style="font-weight:600;color:var(--ink);">' + s80Esc(item.title) + '</div>' +
+        '<div style="margin-top:4px;color:var(--ink-muted);font-size:13px;line-height:1.5;white-space:pre-wrap;">' + s80Esc(item.detail) + '</div>' +
+        subs +
+        '<div style="margin-top:12px;">' + action + '</div>' +
+        '</div>';
+    }
+    function renderAhpraMoreInfoCard(data) {
+      var ref = data.reference ? (' · Ref ' + s80Esc(data.reference)) : '';
+      var deadlineHtml = '';
+      if (data.deadline) {
+        deadlineHtml = '<div style="margin-top:14px;padding:10px 14px;border-radius:10px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);color:var(--gp-red,#dc2626);font-size:13px;font-weight:600;text-align:center;">Please action these by ' + s80Esc(s80FormatDate(data.deadline)) + '</div>';
+      }
+      var itemsHtml = data.items.map(ahpraMoreInfoItemHtml).join('');
+      return '<div style="max-width:600px;margin:0 auto;padding:24px 16px 56px;">' +
+        '<div style="text-align:center;margin-bottom:10px;"><span style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:10px;background:var(--surface-raised);border:1px solid var(--border);font-size:13px;font-weight:600;color:var(--ink-muted);">Application Submitted</span></div>' +
+        '<h2 style="font-family:var(--font-heading);font-size:clamp(1.4rem,5vw,1.9rem);font-weight:700;color:var(--ink);text-align:center;letter-spacing:-0.02em;line-height:1.15;margin:0 0 8px;">AHPRA has requested more information</h2>' +
+        '<p style="font-size:14px;color:var(--ink-muted);line-height:1.5;text-align:center;max-width:440px;margin:0 auto;">Please complete the items below so we can move your application forward' + ref + '.</p>' +
+        deadlineHtml +
+        '<div id="ahpraMoreInfoList" style="margin-top:18px;display:flex;flex-direction:column;gap:12px;">' + itemsHtml + '</div>' +
+        '<p style="margin-top:18px;font-size:12px;color:var(--ink-muted);line-height:1.5;text-align:center;">Your supervised practice plan and qualification check are handled by our team — we will be in touch about those.</p>' +
+        '</div>';
+    }
+    function wireAhpraMoreInfo() {
+      var grid = document.getElementById('stepInfoGrid');
+      if (!grid) return;
+      grid.querySelectorAll('[data-mi-mark]').forEach(function (b) {
+        b.addEventListener('click', function () { handleAhpraMark(b.getAttribute('data-mi-mark'), true); });
+      });
+      grid.querySelectorAll('[data-mi-unmark]').forEach(function (b) {
+        b.addEventListener('click', function () { handleAhpraMark(b.getAttribute('data-mi-unmark'), false); });
+      });
+      grid.querySelectorAll('[data-mi-upload]').forEach(function (inp) {
+        inp.addEventListener('change', function (e) {
+          var f = e.target.files && e.target.files[0];
+          if (f) handleAhpraUpload(inp.getAttribute('data-mi-upload'), f);
+        });
+      });
+    }
+    async function handleAhpraMark(taskId, done) {
+      try {
+        var r = await fetch('/api/ahpra/more-info/mark-complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ task_id: taskId, done: done })
+        });
+        var d = await r.json().catch(function () { return {}; });
+        if (!d.ok) { showToast(d.message || 'Could not update. Please try again.'); return; }
+        if (d.reply_created) showToast('All done — our team will reply to AHPRA to confirm.');
+        loadAhpraMoreInfo();
+      } catch (e) { showToast('Could not update. Please try again.'); }
+    }
+    async function handleAhpraUpload(taskId, file) {
+      if (!file) return;
+      if (file.size > 25 * 1024 * 1024) { showToast('File is too large. Maximum size is 25 MB.'); return; }
+      showToast('Uploading…');
+      var reader = new FileReader();
+      reader.onerror = reader.onabort = function () { showToast('Could not read the file. Please try again.'); };
+      reader.onload = async function () {
+        try {
+          var r = await fetch('/api/ahpra/more-info/upload', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ task_id: taskId, fileName: file.name, mimeType: file.type, fileDataUrl: reader.result, country: getPageCountry() })
+          });
+          var d = await r.json().catch(function () { return {}; });
+          if (!d.ok) { showToast(d.message || 'Upload failed. Please try again.'); return; }
+          showToast('Uploaded — our team will review it.');
+          loadAhpraMoreInfo();
+        } catch (e) { showToast('Upload failed. Please try again.'); }
+      };
+      reader.readAsDataURL(file);
+    }
+
     function renderStepContent(progress) {
       const key = currentTabKey;
       const meta = stageMeta[key];
@@ -4354,7 +4482,7 @@
         if (tutCard) tutCard.style.display = 'none';
 
         document.getElementById("stepInfoGrid").innerHTML = `
-          <div style="min-height:calc(100dvh - 220px);display:grid;place-items:center;padding:40px 20px 0;">
+          <div id="ahpraStatusHero" style="min-height:calc(100dvh - 220px);display:grid;place-items:center;padding:40px 20px 0;">
             <div style="text-align:center;max-width:400px;">
               <h2 style="font-family:var(--font-heading);font-size:clamp(1.8rem,7vw,2.8rem);font-weight:700;color:var(--ink);letter-spacing:-0.02em;line-height:1.1;margin-bottom:16px;text-wrap:balance;">${heroTitle}</h2>
               <p style="font-size:1.05rem;color:var(--ink-muted);line-height:1.4;max-width:320px;margin:0 auto;">${heroLead}</p>
@@ -4366,6 +4494,9 @@
             </div>
           </div>
         `;
+        // If AHPRA has requested more information, the loader swaps the centred hero
+        // for a compact banner + the list of items the GP needs to action.
+        if (!isGranted) { loadAhpraMoreInfo(); }
       } else {
         // Restore elements that the status step may have hidden
         var stepHeaderBar = document.getElementById('stepHeaderBar');
