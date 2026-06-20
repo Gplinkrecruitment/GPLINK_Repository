@@ -142,32 +142,35 @@ AHPRA s80 email arrives in monitored inbox
 [6] One shared deadline drives reminders/urgency for the whole bundle until done.
 ```
 
-## Data model
+## Data model (as built)
 
-We extend the existing tasks table rather than inventing a new one. New fields
-(added by migration, nullable / defaulted so existing rows are unaffected):
+No database migration is needed. Each item is a `registration_tasks` row with
+`task_type = 'ahpra_action_item'` (an already-allowed type) and **all new state
+held in the existing `metadata` jsonb column**, so existing tasks and the table
+schema are completely unaffected. The `metadata` shape:
 
-- `bundle_id` (text/uuid) — groups all items from one notice.
-- `review_status` (text, default `'active'`) — `'pending_review'` while in the
-  holding tray, `'active'` after Release. Existing tasks default to `'active'`.
-- `owner` (text) — `'gp'` or `'team'` (existing tasks unaffected; default keeps
-  current behaviour).
-- `mode` (text) — `'upload'`, `'request_institution'`, or `'team'`.
-- `detail` (long text) — the full verbatim requirement (fidelity rule).
-- `sub_items` (jsonb) — array of `{ label, done }` for multi-part items.
-- `gp_marked_complete_at` (timestamptz, nullable) — set when GP taps "Mark
-  complete" on a request-from-institution item.
-- `deadline` (date/timestamptz, nullable) — the shared notice deadline (same value
-  copied onto each item in the bundle for easy display/sorting).
-- `institution` (text, nullable) — e.g. `GMC`, for request items and the draft.
+- `s80: true` — marks this as a section-80 follow-up item.
+- `bundle_id` — groups all items from one notice. **Unique per officer message**
+  (keyed on the Gmail message id, not the AHPRA reference, so follow-up notices
+  for the same application don't collide). `reference` is kept for display only.
+- `review_status` — `'pending_review'` in the holding tray, `'active'` after Release.
+- `owner` — `'gp'` or `'team'`.
+- `mode` — `'upload'`, `'request_institution'`, `'team'`, or `'reply'`.
+- `detail` — the full verbatim requirement (fidelity rule).
+- `sub_items` — array of `{ label, done }` for multi-part items (e.g. SPPA-00).
+- `institution` — e.g. `GMC`, for request items and the draft.
+- `gp_marked_complete_at` — set when the GP marks a request item complete.
+- `upload` — `{ file_name, storage_path, status, reject_reason, … }` for upload items.
+- `draft` — `{ subject, body }` for the combined-reply task.
+- `original_email` — `{ subject, sender, body }`, the full letter (fidelity safety net).
 
-A bundle "header" is represented by the set of tasks sharing a `bundle_id` plus a
-stored `original_email_body` and `reference` (kept on the bundle — see
-implementation notes for whether that lives on a header row or a small
-`task_bundles` record; either is acceptable, decided at implementation from the
-verified schema).
+The shared deadline is written to the existing `ahpra_deadline` (and `due_date`)
+columns on every item; when extraction misses the date a 14-day target is used and
+stored there so both UIs (which read `ahpra_deadline`) still show it. The original
+officer email is also linked via a `task_messages` row per item for reply threading.
 
-Local JSON DB fallback mirrors the same fields so dev works without Supabase.
+Tasks are Supabase-only (consistent with the rest of the tasks system; there is no
+local-JSON task fallback).
 
 ## Components
 
@@ -195,6 +198,11 @@ Local JSON DB fallback mirrors the same fields so dev works without Supabase.
 8. **Shared deadline + nudge (server.js + ahpra.html)** — one deadline on the
    bundle; on Release, the GP gets an in-app notification (existing updates-sync)
    plus the existing nudge channel.
+9. **Manual ingest (server.js + admin.html)** — a "Log AHPRA letter" button +
+   modal lets the team paste a letter that arrived outside the monitored inbox
+   (or forward a GP-received notice). It runs the exact same extraction + bundle
+   path, so the team always gets the same reviewed tray. This is also the test
+   entry point for Smith Miller.
 
 ## Error handling
 
