@@ -5112,7 +5112,7 @@ function extractAiJsonObject(text) {
   try { return JSON.parse(s.slice(start, end + 1)); } catch (e) { return null; }
 }
 
-async function verifyQualificationDocument({ contentBlock, documentType, expectedCountry, profileName, verifiedNames }) {
+async function verifyQualificationDocument({ contentBlock, documentType, expectedCountry, profileName, verifiedNames, requireCertification }) {
   const dateRules = {
     GB: 'August 2007 or later',
     IE: '2009 or later',
@@ -5121,6 +5121,13 @@ async function verifyQualificationDocument({ contentBlock, documentType, expecte
   const dateRule = dateRules[expectedCountry] || 'any date';
 
   const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
+  // The certified-copy check is only applied to documents AHPRA requires as certified
+  // true copies (caller passes requireCertification). Kept conditional so the GP-facing
+  // qualification scan is byte-for-byte unchanged unless a caller opts in.
+  const certRule = requireCertification ? `
+
+5. CERTIFIED COPY CHECK: This document must be a CERTIFIED TRUE COPY. A certified copy carries a separate certification added by an authorised certifier (e.g. JP, solicitor, notary, pharmacist, police officer): a statement such as "I certify this is a true copy of the original", PLUS that certifier's name, their profession, their signature or official stamp, and the date certified. The issuing college's own seal, ribbons or signatures on the ORIGINAL certificate do NOT count as certification. Set "certified" true ONLY when a separate certification by an authorised person is clearly present; otherwise false.` : '';
+  const certJsonField = requireCertification ? ',"certified":true/false,"certificationNote":"who certified it and when, or why it does not look like a certified copy"' : '';
   const qualSystemPrompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
 
 VERIFICATION RULES:
@@ -5146,7 +5153,7 @@ VERIFICATION RULES:
 
 3. What full name appears on the document?
 
-4. Is the document legible?
+4. Is the document legible?${certRule}
 
 IMPORTANT:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
@@ -5158,7 +5165,7 @@ IMPORTANT:
 - Never include warnings about privacy, security, or data sharing in the issues.
 
 Return ONLY valid JSON with no markdown formatting:
-{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
+{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false${certJsonField},"issues":["list of issues if any"]}`;
 
   const qualUserPrompt = `Expected document type: ${documentType}
 ${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}\n`}${isPrimaryMedDegree ? 'The date does not matter for primary medical degrees.' : `The date on the document must be from ${dateRule}.`}
@@ -5236,6 +5243,17 @@ Verify this document.`;
           }
         } catch (e) { /* non-critical — AI flagging is the fallback */ }
       }
+    }
+
+    // Server-side certification enforcement — documents AHPRA requires as certified
+    // true copies must actually be certified. Don't trust the AI to flip "verified";
+    // enforce it from the explicit "certified" flag.
+    if (requireCertification && verification.certified !== true) {
+      verification.verified = false;
+      pushVerificationIssue(
+        verification,
+        'This does not look like a certified copy. AHPRA requires a certified true copy — the document must be certified by an authorised person (e.g. JP, solicitor, notary) showing their name, profession, signature or stamp, and the date.'
+      );
     }
 
     return { ok: true, verification };
@@ -19523,6 +19541,21 @@ function isQualificationDocKey(key) {
   return QUALIFICATION_DOC_KEYS.has(k) || ONBOARDING_QUAL_KEYS.has(k);
 }
 
+// Document keys AHPRA requires as CERTIFIED TRUE COPIES (certified by an authorised
+// person — JP, solicitor, notary, etc.): the primary medical degree and the specialist
+// qualification certificates. A CV is signed/dated (not certified); letters and
+// criminal-history checks have their own rules — they are intentionally excluded.
+var CERTIFICATION_REQUIRED_DOC_KEYS = new Set([
+  'primary_medical_degree', 'onboarding_primary_med_degree',
+  'specialist_qualification', 'onboarding_specialist_qualification',
+  'mrcgp', 'mrcgp_certified', 'cct', 'cct_certified',
+  'micgp', 'micgp_certified', 'cscst', 'cscst_certified', 'frnzcgp', 'frnzcgp_certified'
+]);
+function isCertificationRequiredDocKey(key) {
+  var k = String(key || '').trim();
+  return CERTIFICATION_REQUIRED_DOC_KEYS.has(k) || CERTIFICATION_REQUIRED_DOC_KEYS.has(canonicalQualKey(k));
+}
+
 async function extractDocxTextWithMammoth(buffer) {
   try {
     var mammoth = require('mammoth');
@@ -19833,7 +19866,8 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         documentType: docTypeLabel,
         expectedCountry: String(countryCode || '').toUpperCase(),
         profileName: profileName,
-        verifiedNames: []
+        verifiedNames: [],
+        requireCertification: isCertificationRequiredDocKey(documentKey)
       }).catch(function () { return { ok: false }; });
 
       if (vres && vres.ok && vres.verification) {
@@ -35511,12 +35545,14 @@ Return ONLY valid JSON with no markdown formatting:
     const scExpectedCountry = scCountryMap[scCcRaw] || (scCcRaw ? scCcRaw.toUpperCase() : 'any');
 
     const scContentBlock = buildQualContentBlock(scDl.buffer, scDl.mimeType || (scDocRow && scDocRow.mime_type) || '');
+    const scRequireCert = isCertificationRequiredDocKey(scanDocKey);
     const scVres = await verifyQualificationDocument({
       contentBlock: scContentBlock,
       documentType: scDocTypeLabel,
       expectedCountry: scExpectedCountry,
       profileName: scProfileName,
-      verifiedNames: []
+      verifiedNames: [],
+      requireCertification: scRequireCert
     }).catch(function (e) { return { ok: false, message: e && e.message }; });
 
     if (!scVres || !scVres.ok || !scVres.verification) {
@@ -35533,6 +35569,9 @@ Return ONLY valid JSON with no markdown formatting:
       dateFound: scV.dateFound || '',
       issuingBody: scV.issuingBody || '',
       legible: scV.legible !== false,
+      requiresCertification: scRequireCert,
+      certified: scRequireCert ? (scV.certified === true) : null,
+      certificationNote: scV.certificationNote || '',
       issues: Array.isArray(scV.issues) ? scV.issues : [],
       expectedLabel: scDocTypeLabel,
       profileName: scProfileName

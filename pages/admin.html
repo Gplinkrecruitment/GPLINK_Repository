@@ -4429,6 +4429,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(s.dateFound)rows.push(line('Date on document',s.dateFound));
     if(s.issuingBody)rows.push(line('Issuing body',s.issuingBody));
     if(s.legible===false)rows.push(line('Legibility','hard to read','#dc2626'));
+    if(s.requiresCertification){
+      if(s.certified===true){ rows.push(line('Certified copy','✓ Yes'+(s.certificationNote?' — '+s.certificationNote:''),'#15803d')); }
+      else { rows.push(line('Certified copy','✗ Not a certified copy — AHPRA needs a certified true copy','#dc2626')); }
+    }
     if(Array.isArray(s.issues)&&s.issues.length){
       rows.push('<div style="margin-top:6px;color:#b45309;font-weight:700;">Issues to check:</div>');
       rows.push('<ul style="margin:4px 0 0 16px;padding:0;color:#b45309;">'+s.issues.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>');
