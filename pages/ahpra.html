@@ -4318,6 +4318,23 @@
         return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
       } catch (e) { return d; }
     }
+    // Whole days from today (local) until the deadline; null if no/invalid date.
+    function s80DaysLeft(deadline) {
+      if (!deadline) return null;
+      var d = new Date(deadline + 'T00:00:00');
+      if (isNaN(d.getTime())) return null;
+      var now = new Date();
+      var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return Math.round((d - today) / 86400000);
+    }
+    // Count GP-actionable items that are finished (uploaded+accepted, or marked requested).
+    function s80ProgressCount(items) {
+      var done = 0, list = items || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].status === 'approved' || list[i].status === 'requested') done++;
+      }
+      return { done: done, total: list.length };
+    }
     async function loadAhpraMoreInfo() {
       var data;
       try {
@@ -4388,7 +4405,27 @@
       var ref = data.reference ? (' · Ref ' + s80Esc(data.reference)) : '';
       var deadlineHtml = '';
       if (data.deadline) {
-        deadlineHtml = '<div style="margin-top:14px;padding:10px 14px;border-radius:10px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);color:var(--gp-red,#dc2626);font-size:13px;font-weight:600;text-align:center;">Please action these by ' + s80Esc(s80FormatDate(data.deadline)) + '</div>';
+        var dl = s80DaysLeft(data.deadline);
+        var when = s80Esc(s80FormatDate(data.deadline));
+        var dlText = (dl === null) ? ('Please action these by ' + when)
+          : (dl < 0) ? ('Overdue — was due ' + when)
+          : (dl === 0) ? ('Due today — ' + when)
+          : (dl + ' day' + (dl === 1 ? '' : 's') + ' left — due ' + when);
+        var urgent = (dl !== null && dl <= 3);
+        var dBg = urgent ? 'rgba(220,38,38,0.08)' : 'rgba(245,158,11,0.10)';
+        var dBd = urgent ? 'rgba(220,38,38,0.2)' : 'rgba(245,158,11,0.25)';
+        var dFg = urgent ? 'var(--gp-red,#dc2626)' : 'var(--gp-amber-ink,#b45309)';
+        deadlineHtml = '<div style="margin-top:14px;padding:10px 14px;border-radius:10px;background:' + dBg + ';border:1px solid ' + dBd + ';color:' + dFg + ';font-size:13px;font-weight:600;text-align:center;">' + dlText + '</div>';
+      }
+      var prog = s80ProgressCount(data.items);
+      var progressHtml = '';
+      if (prog.total) {
+        var pctDone = Math.round(prog.done / prog.total * 100);
+        progressHtml = '<div style="max-width:440px;margin:14px auto 0;">'
+          + '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink-muted);margin-bottom:4px;">'
+          + '<span>' + prog.done + ' of ' + prog.total + ' done</span><span>' + pctDone + '%</span></div>'
+          + '<div style="height:8px;border-radius:6px;background:var(--border);overflow:hidden;">'
+          + '<div style="height:100%;width:' + pctDone + '%;background:var(--gp-green-ink,#15803d);transition:width .3s;"></div></div></div>';
       }
       var itemsHtml = data.items.map(ahpraMoreInfoItemHtml).join('');
       return '<div style="max-width:600px;margin:0 auto;padding:24px 16px 56px;">' +
@@ -4396,6 +4433,7 @@
         '<h2 style="font-family:var(--font-heading);font-size:clamp(1.4rem,5vw,1.9rem);font-weight:700;color:var(--ink);text-align:center;letter-spacing:-0.02em;line-height:1.15;margin:0 0 8px;">AHPRA has requested more information</h2>' +
         '<p style="font-size:14px;color:var(--ink-muted);line-height:1.5;text-align:center;max-width:440px;margin:0 auto;">Please complete the items below so we can move your application forward' + ref + '.</p>' +
         deadlineHtml +
+        progressHtml +
         '<div id="ahpraMoreInfoList" style="margin-top:18px;display:flex;flex-direction:column;gap:12px;">' + itemsHtml + '</div>' +
         '<p style="margin-top:18px;font-size:12px;color:var(--ink-muted);line-height:1.5;text-align:center;">Your supervised practice plan and qualification check are handled by our team — we will be in touch about those.</p>' +
         '</div>';
