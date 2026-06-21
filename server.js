@@ -5289,6 +5289,41 @@ Verify this document.`;
   }
 }
 
+// Lightweight AI check: does an uploaded file match the AHPRA s80 item that was requested?
+// Reuses the qualification-scan building blocks; uses the scan model (no temperature).
+async function verifyS80FileMatch(fileBuffer, mimeType, itemTitle, itemDetail) {
+  if (!ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return { ok: false, reason: 'AI unavailable' };
+  try {
+    var block = buildQualContentBlock(fileBuffer, mimeType);
+    var sys = 'You check whether an uploaded file is the document an AHPRA registration item asked for. '
+      + 'Return JSON only: {"matches": true|false, "confidence": 0.0-1.0, "reason": "one short sentence"}. '
+      + 'Judge the document TYPE against the request (e.g. a reference letter vs a CV); be lenient on formatting.';
+    var usr = 'Requested item: "' + String(itemTitle || '') + '"\nDetails: ' + String(itemDetail || '').slice(0, 1500)
+      + '\n\nDoes the attached file appear to be the correct document for this request?';
+    var ctl = new AbortController();
+    var t = setTimeout(function () { ctl.abort(); }, 30000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: ANTHROPIC_SCAN_MODEL, max_tokens: 256,
+        system: sys,
+        messages: [{ role: 'user', content: [block, { type: 'text', text: usr }] }]
+      })
+    });
+    clearTimeout(t);
+    var data = await res.json();
+    if (data && data.usage) recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    var txt = data && data.content && data.content[0] && data.content[0].text ? data.content[0].text : '';
+    var v = extractAiJsonObject(txt);
+    if (!v) return { ok: false, reason: 'AI returned no verdict' };
+    return { ok: true, matches: v.matches === true, confidence: Number(v.confidence) || 0, reason: String(v.reason || '').slice(0, 300) };
+  } catch (e) {
+    console.error('[S80 match] failed:', e.message);
+    return { ok: false, reason: 'AI error' };
+  }
+}
+
 /**
  * Check a document name against profile name AND previously verified document names.
  * Returns { match: 'exact'|'fuzzy'|'mismatch'|'unknown', matchedAgainst: string|null }
@@ -29799,6 +29834,10 @@ Return ONLY valid JSON with no markdown formatting:
       uploaded_at: new Date().toISOString(),
       country: upCountry
     };
+    try {
+      var upMatch = await verifyS80FileMatch(upBuffer, upMime, upTask.title, (upMeta.detail || upTask.title));
+      if (upMatch && upMatch.ok) upMeta.upload.ai_match = { matches: upMatch.matches, confidence: upMatch.confidence, reason: upMatch.reason };
+    } catch (e) { /* advisory only — never block the upload */ }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(upTaskId), {
       method: 'PATCH', body: { status: 'waiting', metadata: upMeta, updated_at: new Date().toISOString() }
     });
