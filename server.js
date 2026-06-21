@@ -130,6 +130,10 @@ const {
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoActions = require('./lib/ceo-actions');
+const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
+const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
+const GP_TEAM_DOMAIN = 'mygplink.com.au';
+let _lifecycleFolderCache = null;
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
 const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
@@ -447,6 +451,103 @@ async function deleteGoogleDriveFile(fileId) {
     console.error('[GoogleDrive] delete error:', err.message);
     return false;
   }
+}
+
+// Create a folder WITHOUT public 'anyone' access; share read with the owner so they can browse.
+async function createPrivateDriveFolder(folderName, parentFolderId) {
+  const drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  const folder = await drive.files.create({
+    requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder', parents: [parentFolderId] },
+    fields: 'id,name,webViewLink', supportsAllDrives: true,
+  });
+  try {
+    await drive.permissions.create({
+      fileId: folder.data.id, sendNotificationEmail: false, supportsAllDrives: true,
+      requestBody: { type: 'user', role: 'reader', emailAddress: GP_OWNER_EMAIL },
+    });
+  } catch (e) { console.error('[Drive] owner share (folder) failed:', e.message); }
+  return folder.data;
+}
+
+// Ensure Users/Candidates/Archived exist under the root; cache their ids.
+async function ensureLifecycleFolders() {
+  if (!isGoogleDriveConfigured()) return null;
+  if (_lifecycleFolderCache) return _lifecycleFolderCache;
+  const drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  const out = {};
+  for (const key of Object.keys(LIFECYCLE_FOLDER_NAMES)) {
+    const name = LIFECYCLE_FOLDER_NAMES[key];
+    const q = "name='" + name + "' and mimeType='application/vnd.google-apps.folder' and '"
+      + GOOGLE_DRIVE_ROOT_FOLDER_ID + "' in parents and trashed=false";
+    const res = await drive.files.list({ q, fields: 'files(id,name)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
+    if (res.data.files && res.data.files[0]) { out[key] = res.data.files[0].id; continue; }
+    const created = await createPrivateDriveFolder(name, GOOGLE_DRIVE_ROOT_FOLDER_ID);
+    out[key] = created ? created.id : null;
+  }
+  _lifecycleFolderCache = out;
+  return out;
+}
+
+// Move a folder/file under a new parent (removing all current parents).
+async function moveDriveFolder(folderId, toParentId) {
+  if (!folderId || !toParentId) return false;
+  const drive = await getGoogleDriveClient();
+  if (!drive) return false;
+  try {
+    const cur = await drive.files.get({ fileId: folderId, fields: 'parents', supportsAllDrives: true });
+    const prev = (cur.data.parents || []).join(',');
+    await drive.files.update({ fileId: folderId, addParents: toParentId, removeParents: prev,
+      fields: 'id,parents', supportsAllDrives: true });
+    return true;
+  } catch (e) { console.error('[Drive] move folder failed:', e.message); return false; }
+}
+
+// Apply per-document sharing. Removes any 'anyone' permission first.
+async function applyDriveDocPermissions(fileId, mode) {
+  const drive = await getGoogleDriveClient();
+  if (!drive || !fileId) return;
+  try {
+    const perms = await drive.permissions.list({ fileId, fields: 'permissions(id,type)', supportsAllDrives: true });
+    for (const p of (perms.data.permissions || [])) {
+      if (p.type === 'anyone') { try { await drive.permissions.delete({ fileId, permissionId: p.id, supportsAllDrives: true }); } catch (e) {} }
+    }
+  } catch (e) { console.error('[Drive] perm list failed:', e.message); }
+  try {
+    if (mode === 'id_private') {
+      await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
+        requestBody: { type: 'user', role: 'reader', emailAddress: GP_OWNER_EMAIL } });
+    } else {
+      try {
+        await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
+          requestBody: { type: 'domain', role: 'reader', domain: GP_TEAM_DOMAIN } });
+      } catch (domainErr) {
+        // Fallback: share with each known RSO @mygplink.com.au account.
+        const rso = await supabaseDbRequest('rso_team', 'select=email');
+        const emails = (rso.ok && Array.isArray(rso.data) ? rso.data : [])
+          .map(r => r && r.email).filter(e => e && /@mygplink\.com\.au$/i.test(e));
+        for (const em of emails) {
+          try { await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
+            requestBody: { type: 'user', role: 'reader', emailAddress: em } }); } catch (e) {}
+        }
+      }
+    }
+  } catch (e) { console.error('[Drive] apply perms failed:', e.message); }
+}
+
+// Upload a file privately (no 'anyone'); then apply the document permission mode.
+async function uploadPrivateToGoogleDrive(folderId, fileName, buffer, mimeType, mode) {
+  const drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  const { Readable } = require('stream');
+  const media = { mimeType: mimeType || 'application/octet-stream', body: Readable.from(buffer) };
+  const file = await drive.files.create({
+    requestBody: { name: fileName, parents: [folderId] }, media,
+    fields: 'id,name,webViewLink', supportsAllDrives: true,
+  });
+  await applyDriveDocPermissions(file.data.id, mode);
+  return file.data;
 }
 
 async function ensureGPDriveFolder(caseId, gpFirstName, gpLastName) {
