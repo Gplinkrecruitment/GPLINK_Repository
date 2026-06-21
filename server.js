@@ -32663,17 +32663,27 @@ Return ONLY valid JSON with no markdown formatting:
     if (!rsTo) { sendJson(res, 400, { ok: false, message: 'No AHPRA officer address on file — send manually.' }); return; }
     const rsThreadId = rsTask.gmail_thread_id || (rsM.original_email && rsM.original_email.threadId) || '';
     const rsAtt = [];
+    let rsExpected = 0, rsGatherOk = true;
     try {
       const rsBundle = await supabaseDbRequest('registration_tasks', 'select=metadata&case_id=eq.' + encodeURIComponent(rsTask.case_id) + '&task_type=eq.ahpra_action_item&limit=200');
+      if (!rsBundle.ok || !Array.isArray(rsBundle.data)) { rsGatherOk = false; }
       const rsRows = (rsBundle.ok && Array.isArray(rsBundle.data)) ? rsBundle.data : [];
       for (const row of rsRows) {
         const rm = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
         if (rm.s80 && rm.bundle_id === rsM.bundle_id && rm.owner === 'gp' && rm.mode === 'upload' && rm.upload && rm.upload.status === 'approved' && rm.upload.storage_path) {
-          const dl = await supabaseStorageDownloadObject(rm.upload.storage_bucket || SUPABASE_DOCUMENT_BUCKET, rm.upload.storage_path);
-          if (dl && dl.buffer) rsAtt.push({ filename: rm.upload.file_name || 'document', mimeType: rm.upload.mime_type || dl.mimeType || 'application/octet-stream', content: dl.buffer.toString('base64') });
+          rsExpected++;
+          try {
+            const dl = await supabaseStorageDownloadObject(rm.upload.storage_bucket || SUPABASE_DOCUMENT_BUCKET, rm.upload.storage_path);
+            if (dl && dl.buffer) rsAtt.push({ filename: rm.upload.file_name || 'document', mimeType: rm.upload.mime_type || dl.mimeType || 'application/octet-stream', content: dl.buffer.toString('base64') });
+          } catch (e) { console.error('[AHPRA] reply attachment download failed:', e.message); }
         }
       }
-    } catch (e) { console.error('[AHPRA] reply attachment gather failed:', e.message); }
+    } catch (e) { console.error('[AHPRA] reply attachment gather failed:', e.message); rsGatherOk = false; }
+    // Don't send a regulator reply with documents missing — block and let the admin send manually.
+    if (!rsGatherOk || rsAtt.length < rsExpected) {
+      sendJson(res, 502, { ok: false, message: 'Could not attach all approved documents — please copy the draft and send it in Gmail manually.' });
+      return;
+    }
     let rsInReplyTo = '';
     try {
       const tGmail = await getGmailClient(MONITORED_VA_EMAILS[0]);
