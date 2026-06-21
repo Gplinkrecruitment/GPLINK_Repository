@@ -557,7 +557,9 @@ async function ensureGPDriveFolder(caseId, gpFirstName, gpLastName) {
     return caseRes.data[0].google_drive_folder_id;
   }
   const folderName = 'Dr ' + [(gpFirstName || ''), (gpLastName || '')].join(' ').trim();
-  const folder = await createGoogleDriveFolder(folderName, GOOGLE_DRIVE_ROOT_FOLDER_ID);
+  const _lifecycle = await ensureLifecycleFolders();
+  const _parentId = (_lifecycle && _lifecycle.users) ? _lifecycle.users : GOOGLE_DRIVE_ROOT_FOLDER_ID;
+  const folder = await createPrivateDriveFolder(folderName, _parentId);
   if (folder && folder.id) {
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
       method: 'PATCH',
@@ -566,6 +568,81 @@ async function ensureGPDriveFolder(caseId, gpFirstName, gpLastName) {
     return folder.id;
   }
   return null;
+}
+
+async function reconcileGpDrive(caseId) {
+  try {
+    if (!isGoogleDriveConfigured() || !caseId) return;
+    const caseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const rc = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0] : null;
+    if (!rc) return;
+    const userId = rc.user_id;
+
+    // account + placement status
+    const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const state = (stRes.ok && stRes.data && stRes.data[0] && typeof stRes.data[0].state === 'object') ? stRes.data[0].state : {};
+    const accountStatus = String(state.account_status || '').toLowerCase();
+    let career = state.gp_career_state; if (typeof career === 'string') { try { career = JSON.parse(career); } catch (e) { career = {}; } }
+    career = career || {};
+    const placementSecured = career.career_secured === true || career.secured === true ||
+      (Array.isArray(career.applications) && career.applications.some(a => a && a.isPlacementSecured === true));
+    const targetStage = stageForCase({ accountStatus, placementSecured });
+
+    // profile (for folder name + ID)
+    const profRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,last_name,id_copy_name,id_copy_data_url&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+
+    // ensure personal folder exists (creates under Users if new)
+    let folderId = rc.google_drive_folder_id;
+    if (!folderId) { folderId = await ensureGPDriveFolder(caseId, prof.first_name || '', prof.last_name || ''); }
+    if (!folderId) return;
+
+    const drive = await getGoogleDriveClient();
+    if (!drive) return;
+
+    // move to correct lifecycle parent if the folder is not already under it (location derived from Drive — no DB column)
+    const lifecycle = await ensureLifecycleFolders();
+    if (lifecycle && lifecycle[targetStage]) {
+      try {
+        const meta = await drive.files.get({ fileId: folderId, fields: 'parents', supportsAllDrives: true });
+        const curParent = meta && meta.data && Array.isArray(meta.data.parents) ? meta.data.parents[0] : null;
+        if (curParent !== lifecycle[targetStage]) await moveDriveFolder(folderId, lifecycle[targetStage]);
+      } catch (e) { console.error('[reconcileGpDrive] parent check failed:', e.message); }
+    }
+
+    // mirror accepted user_documents lacking a Drive file (idempotent via existing google_drive_file_id)
+    const docsRes = await supabaseDbRequest('user_documents',
+      'select=id,document_key,file_name,status,storage_bucket,storage_path,file_url,mime_type,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId));
+    const docs = (docsRes.ok && Array.isArray(docsRes.data)) ? docsRes.data : [];
+    for (const d of docs) {
+      if (!isAcceptedStatus(d.status) || d.google_drive_file_id) continue;
+      const path = d.storage_path || d.file_url; if (!path) continue;
+      try {
+        const dl = await supabaseStorageDownloadObject(d.storage_bucket || SUPABASE_DOCUMENT_BUCKET, path);
+        if (!dl || !dl.buffer) continue;
+        const up = await uploadPrivateToGoogleDrive(folderId, d.file_name || (d.document_key + '.pdf'), dl.buffer, d.mime_type || dl.mimeType || 'application/pdf', 'team_domain');
+        if (up && up.id) await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(d.id), { method: 'PATCH', body: { google_drive_file_id: up.id } });
+      } catch (e) { console.error('[reconcileGpDrive] doc mirror failed:', d.document_key, e.message); }
+    }
+
+    // mirror ID (hello@-only), once — idempotent via folder listing (file named "ID — …")
+    if (prof.id_copy_data_url) {
+      try {
+        const list = await drive.files.list({ q: "'" + folderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+        const hasId = (list.data.files || []).some(f => /^ID — /.test(f.name || ''));
+        if (!hasId) {
+          const comma = prof.id_copy_data_url.indexOf(',');
+          const head = prof.id_copy_data_url.substring(0, comma);
+          const mime = (head.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+          const buf = Buffer.from(prof.id_copy_data_url.substring(comma + 1), 'base64');
+          const ext = (mime.split('/')[1] || 'bin').replace('jpeg', 'jpg');
+          await uploadPrivateToGoogleDrive(folderId, 'ID — ' + (prof.id_copy_name || ('identity.' + ext)), buf, mime, 'id_private');
+        }
+      } catch (e) { console.error('[reconcileGpDrive] ID mirror failed:', e.message); }
+    }
+  } catch (err) { console.error('[reconcileGpDrive] error:', err.message); }
 }
 
 function buildMailtoLink(to, subject, body) {
