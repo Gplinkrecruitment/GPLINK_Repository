@@ -196,6 +196,9 @@ const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6')
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// AHPRA s80 extraction runs on the newest model. Opus 4.7/4.8 reject `temperature`,
+// so the s80 extraction call below must NOT send it (see _extractAhpraActionItems).
+const ANTHROPIC_S80_MODEL = String(process.env.ANTHROPIC_S80_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -1916,9 +1919,8 @@ async function extractAhpraActionItems(emailMeta, ctx) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: ANTHROPIC_S80_MODEL,
         max_tokens: 4000,
-        temperature: 0,
         system: ahpraS80.EXTRACTION_SYSTEM,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -2019,6 +2021,8 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       owner: item.owner,
       mode: item.mode,
       kind: item.kind || '',
+      ai_confidence: (typeof item.confidence === 'number') ? item.confidence : 0,
+      ai_reason: item.reason || '',
       detail: item.detail || item.title,
       // GP-facing instruction (plain English, second person) + the app's real
       // "how to get this" steps for documents we already guide. The verbatim
