@@ -26,15 +26,15 @@ GP Candidate Documents/            (existing root = GOOGLE_DRIVE_ROOT_FOLDER_ID)
 - Each GP keeps **one personal folder** named `Dr <First> <Last>` (existing naming via
   `ensureGPDriveFolder`). It physically moves between the three lifecycle folders; it is never
   duplicated. `registration_cases.google_drive_folder_id` continues to hold its Drive ID.
-- A new column **`registration_cases.drive_folder_stage`** (`'users' | 'candidates' | 'archived'`)
-  records which lifecycle folder the personal folder currently sits in, so we can move it
-  correctly without querying Drive on every request.
+- The personal folder's current lifecycle location is **derived from its Drive parent** (no DB
+  column): `reconcileGpDrive` reads the folder's parent and moves it under the correct lifecycle
+  folder when it differs from the target stage.
 
 ## 3. Lifecycle triggers
 
 | Event | Hook (origin/main) | Action |
 |---|---|---|
-| **Signup / case created** | `_ensureRegCase` (already creates the folder per fix 9a3651c) | Create personal folder **inside `Users/`**; set `drive_folder_stage='users'`. |
+| **Signup / case created** | `_ensureRegCase` (already creates the folder per fix 9a3651c) | Create personal folder **inside `Users/`**. |
 | **Document accepted** | see §4 | Mirror the accepted file into the GP's personal folder. |
 | **Placed in a practice** | placement-secured transition in `processRegistrationTaskAutomation` (the `!prevSecured && nextSecured` block that already creates the folder + practice pack) | Move personal folder `Users → Candidates`; set stage `'candidates'`. |
 | **Account deleted (archived)** | `archiveUserAccount(userId, reason)` (sets `account_status='archived'`, `purge_after`) | Move personal folder → `Archived`; set stage `'archived'`. |
@@ -121,7 +121,7 @@ may be added to force it across all cases at once.
 - **No Google credentials locally.** All Drive operations (create lifecycle folders, move folders,
   upload, set permissions) run **only on the deployed server**. Implementation is code → syntax-check
   with a downloaded node (`node --check server.js`) → push to `origin/main` → Vercel deploy. Verify by
-  DB (`drive_folder_stage`, `google_drive_file_id`) and by you confirming in Drive. The full Drive
+  DB (accepted `user_documents` gain a `google_drive_file_id`) and by you confirming in Drive. The full Drive
   behaviour cannot be exercised locally.
 - **Privacy:** ID is mirrored to Drive (hello@-only). This is an intentional, explicit choice.
 - **Domain-sharing assumption:** `team_domain` sharing assumes `mygplink.com.au` is a Google Workspace
