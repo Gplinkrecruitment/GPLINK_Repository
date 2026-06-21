@@ -2838,6 +2838,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+=renderS80HowTo(m);
         if(m.gp_marked_complete_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">✓ GP marked as requested'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
         else { html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to request'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
+        if(m.received_confirmed_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;font-weight:600;">✓ Confirmed received by AHPRA ('+esc(fmtD(m.received_confirmed_at))+').</div>'; }
         if(m.proof&&m.proof.file_name){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">📎 GP attached confirmation: '+esc(m.proof.file_name)+' <a href="/api/admin/ahpra/item/proof-file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="color:#2563eb;">View</a></div>'; }
       } else {
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);

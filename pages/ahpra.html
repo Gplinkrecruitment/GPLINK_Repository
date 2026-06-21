@@ -4342,7 +4342,8 @@
         under_review: ['Under review', '#b45309', '#fef3c7'],
         approved: ['Done', '#15803d', '#dcfce7'],
         rejected: ['Action needed', '#b91c1c', '#fee2e2'],
-        requested: ['Requested', '#15803d', '#dcfce7']
+        requested: ['Requested', '#15803d', '#dcfce7'],
+        confirmed: ['Confirmed', '#15803d', '#bbf7d0']
       };
       var s = map[item && item.status] || map.todo;
       return '<span style="font-size:10px;font-weight:700;color:' + s[1] + ';background:' + s[2] + ';border-radius:5px;padding:2px 7px;white-space:nowrap;">' + s[0] + '</span>';
@@ -4400,7 +4401,9 @@
         : '';
       var action = '';
       if (item.mode === 'request_institution') {
-        if (item.status === 'requested') {
+        if (item.status === 'confirmed') {
+          action = '<div style="color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">✓ Confirmed received by AHPRA.</div>';
+        } else if (item.status === 'requested') {
           action = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">' +
             '<span>✓ Marked as requested — we will confirm receipt with AHPRA.</span>' +
             '<button type="button" data-mi-unmark="' + s80Esc(item.id) + '" style="background:none;border:none;color:var(--ink-muted);text-decoration:underline;cursor:pointer;font-size:12px;padding:0;">Undo</button></div>';
