@@ -32643,6 +32643,65 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AHPRA s80: send the combined reply to AHPRA from the app (one-click) ──
+  if (pathname === '/api/admin/ahpra/reply/send' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isGmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Email sending is not configured — copy the draft and send it in Gmail.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const rsTaskId = body && typeof body.task_id === 'string' ? body.task_id.trim() : '';
+    if (!rsTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    const rsRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rsTaskId) + '&limit=1');
+    const rsTask = (rsRes.ok && Array.isArray(rsRes.data) && rsRes.data[0]) ? rsRes.data[0] : null;
+    if (!rsTask) { sendJson(res, 404, { ok: false, message: 'Reply task not found.' }); return; }
+    const rsM = (rsTask.metadata && typeof rsTask.metadata === 'object') ? rsTask.metadata : {};
+    if (!rsM.s80 || rsM.mode !== 'reply') { sendJson(res, 400, { ok: false, message: 'Not an AHPRA reply task.' }); return; }
+    if (rsTask.status === 'completed') { sendJson(res, 409, { ok: false, message: 'This reply was already sent.' }); return; }
+    const rsDraft = (rsM.draft && typeof rsM.draft === 'object') ? rsM.draft : {};
+    const rsTo = (rsM.original_email && rsM.original_email.sender) || (rsM.officer && rsM.officer.email) || '';
+    if (!rsTo) { sendJson(res, 400, { ok: false, message: 'No AHPRA officer address on file — send manually.' }); return; }
+    const rsThreadId = rsTask.gmail_thread_id || (rsM.original_email && rsM.original_email.threadId) || '';
+    const rsAtt = [];
+    try {
+      const rsBundle = await supabaseDbRequest('registration_tasks', 'select=metadata&case_id=eq.' + encodeURIComponent(rsTask.case_id) + '&task_type=eq.ahpra_action_item&limit=200');
+      const rsRows = (rsBundle.ok && Array.isArray(rsBundle.data)) ? rsBundle.data : [];
+      for (const row of rsRows) {
+        const rm = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
+        if (rm.s80 && rm.bundle_id === rsM.bundle_id && rm.owner === 'gp' && rm.mode === 'upload' && rm.upload && rm.upload.status === 'approved' && rm.upload.storage_path) {
+          const dl = await supabaseStorageDownloadObject(rm.upload.storage_bucket || SUPABASE_DOCUMENT_BUCKET, rm.upload.storage_path);
+          if (dl && dl.buffer) rsAtt.push({ filename: rm.upload.file_name || 'document', mimeType: rm.upload.mime_type || dl.mimeType || 'application/octet-stream', content: dl.buffer.toString('base64') });
+        }
+      }
+    } catch (e) { console.error('[AHPRA] reply attachment gather failed:', e.message); }
+    let rsInReplyTo = '';
+    try {
+      const tGmail = await getGmailClient(MONITORED_VA_EMAILS[0]);
+      if (tGmail && rsThreadId) {
+        const tThread = await tGmail.users.threads.get({ userId: MONITORED_VA_EMAILS[0], id: rsThreadId, format: 'metadata', metadataHeaders: ['Message-ID'] });
+        const tMsgs = (tThread.data && Array.isArray(tThread.data.messages)) ? tThread.data.messages : [];
+        const tLast = tMsgs[tMsgs.length - 1];
+        const tMid = tLast && tLast.payload && Array.isArray(tLast.payload.headers) ? tLast.payload.headers.find(function (h) { return String(h.name).toLowerCase() === 'message-id'; }) : null;
+        if (tMid) rsInReplyTo = tMid.value;
+      }
+    } catch (e) { /* threading is best-effort */ }
+    const rsSubject = rsDraft.subject || ('Re: ' + (rsM.thread_subject || 'AHPRA notice'));
+    const sent = await sendGmailEmail({
+      from: MONITORED_VA_EMAILS[0], to: rsTo, subject: rsSubject,
+      bodyText: rsDraft.body || rsM.detail || '', attachments: rsAtt,
+      threadId: rsThreadId || undefined, inReplyTo: rsInReplyTo || undefined, caseId: rsTask.case_id
+    });
+    if (!sent || !sent.ok) { sendJson(res, 502, { ok: false, message: (sent && sent.error) || 'Could not send the email — copy the draft and send it in Gmail.' }); return; }
+    rsM.sent_at = new Date().toISOString();
+    rsM.sent_gmail_message_id = sent.gmailMessageId || '';
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rsTaskId), {
+      method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, metadata: rsM, updated_at: new Date().toISOString() }
+    });
+    await _logCaseEvent(rsTask.case_id, rsTaskId, 'completed', 'AHPRA reply sent from app', 'Sent to ' + rsTo + ' with ' + rsAtt.length + ' attachment(s).', adminCtx.email);
+    sendJson(res, 200, { ok: true, attachments: rsAtt.length });
+    return;
+  }
+
   // ── AHPRA s80: manually log a forwarded/pasted AHPRA letter for a GP ──
   if (pathname === '/api/admin/ahpra/ingest-manual' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
