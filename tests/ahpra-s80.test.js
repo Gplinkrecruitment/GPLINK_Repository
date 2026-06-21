@@ -315,3 +315,40 @@ describe('ahpra-s80 reuse of the app\'s "Show me how" steps', () => {
     expect(item.how_to_steps.length).toBe(0);
   });
 });
+
+describe('s80 AI confidence + reason', () => {
+  it('captures confidence and reason on a normalised item', () => {
+    const item = s80.normalizeItem({
+      title: 'Certificate of Good Standing from GMC',
+      detail: 'Send a Certificate of Good Standing from the GMC directly to AHPRA.',
+      owner: 'gp', mode: 'request_institution', kind: 'good_standing',
+      confidence: 0.97, reason: 'Good standing certificate → GP requests it from the GMC.'
+    }, { country: 'uk' });
+    expect(item.confidence).toBe(0.97);
+    expect(item.reason).toBe('Good standing certificate → GP requests it from the GMC.');
+  });
+
+  it('clamps out-of-range confidence into [0, 1]', () => {
+    expect(s80.normalizeItem({ title: 'X', confidence: 1.8 }, {}).confidence).toBe(1);
+    expect(s80.normalizeItem({ title: 'X', confidence: -0.5 }, {}).confidence).toBe(0);
+  });
+
+  it('defaults confidence to 0 and reason to "" when the model omits them', () => {
+    const item = s80.normalizeItem({ title: 'X' }, {});
+    expect(item.confidence).toBe(0);
+    expect(item.reason).toBe('');
+  });
+
+  it('ignores a non-numeric confidence (defaults to 0)', () => {
+    expect(s80.normalizeItem({ title: 'X', confidence: 'high' }, {}).confidence).toBe(0);
+  });
+
+  it('asks the model for confidence and reason in the extraction prompt', () => {
+    const p = s80.buildExtractionPrompt(
+      { subject: 's80 notice', sender: 'officer@ahpra.gov.au', bodyText: 'We need documents.' },
+      {}
+    );
+    expect(p).toContain('confidence');
+    expect(p).toContain('reason');
+  });
+});
