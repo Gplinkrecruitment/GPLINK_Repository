@@ -4359,6 +4359,14 @@
         + '<button type="button" data-mi-copy-cc="' + ccSafe + '" class="btn-secondary" style="font-size:12px;padding:4px 10px;">Copy</button>'
         + '</div></div>';
     }
+    // Optional "attach the institution's confirmation" control for request items.
+    function s80ProofControl(item) {
+      if (item.proof_file_name) {
+        return '<div style="margin-top:8px;font-size:12px;color:var(--gp-green-ink,#15803d);">📎 Confirmation attached: ' + s80Esc(item.proof_file_name) + '</div>';
+      }
+      return '<label style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-muted);cursor:pointer;text-decoration:underline;">Attach the institution’s confirmation (optional)'
+        + '<input type="file" accept="image/*,.pdf,application/pdf" data-mi-proof="' + s80Esc(item.id) + '" style="display:none;"></label>';
+    }
     async function loadAhpraMoreInfo() {
       var data;
       try {
@@ -4404,6 +4412,7 @@
             '<div style="color:var(--ink-muted);font-size:13px;line-height:1.5;">Request this directly from ' + inst + ', then mark it done here.</div>';
           action = hint + '<button type="button" class="btn-primary" data-mi-mark="' + s80Esc(item.id) + '" style="margin-top:8px;">Mark as requested</button>';
         }
+        action += s80ProofControl(item);
       } else if (item.mode === 'upload') {
         if (item.status === 'approved') {
           action = '<div style="color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">✓ Accepted' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
@@ -4491,6 +4500,12 @@
           if (f) handleAhpraUpload(inp.getAttribute('data-mi-upload'), f);
         });
       });
+      grid.querySelectorAll('[data-mi-proof]').forEach(function (inp) {
+        inp.addEventListener('change', function (e) {
+          var f = e.target.files && e.target.files[0];
+          if (f) handleAhpraProof(inp.getAttribute('data-mi-proof'), f);
+        });
+      });
       grid.querySelectorAll('[data-mi-copy-cc]').forEach(function (b) {
         b.addEventListener('click', function () {
           var addr = b.getAttribute('data-mi-copy-cc') || '';
@@ -4526,6 +4541,27 @@
           var d = await r.json().catch(function () { return {}; });
           if (!d.ok) { showToast(d.message || 'Upload failed. Please try again.'); return; }
           showToast('Uploaded — our team will review it.');
+          loadAhpraMoreInfo();
+        } catch (e) { showToast('Upload failed. Please try again.'); }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function handleAhpraProof(taskId, file) {
+      if (!file) return;
+      if (file.size > 25 * 1024 * 1024) { showToast('File is too large. Maximum size is 25 MB.'); return; }
+      showToast('Uploading…');
+      var reader = new FileReader();
+      reader.onerror = reader.onabort = function () { showToast('Could not read the file. Please try again.'); };
+      reader.onload = async function () {
+        try {
+          var r = await fetch('/api/ahpra/more-info/proof', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ task_id: taskId, fileName: file.name, mimeType: file.type, fileDataUrl: reader.result, country: getPageCountry() })
+          });
+          var d = await r.json().catch(function () { return {}; });
+          if (!d.ok) { showToast(d.message || 'Upload failed. Please try again.'); return; }
+          showToast('Confirmation attached — thank you.');
           loadAhpraMoreInfo();
         } catch (e) { showToast('Upload failed. Please try again.'); }
       };

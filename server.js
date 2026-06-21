@@ -29541,6 +29541,7 @@ Return ONLY valid JSON with no markdown formatting:
         file_name: up ? (up.file_name || '') : '',
         reject_reason: up ? (up.reject_reason || '') : '',
         gp_marked_complete_at: m.gp_marked_complete_at || null,
+        proof_file_name: (m.proof && m.proof.file_name) || '',
         due_date: t.ahpra_deadline || t.due_date || null
       });
     });
