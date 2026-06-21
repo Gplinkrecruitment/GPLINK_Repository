@@ -8289,6 +8289,10 @@ async function archiveUserAccount(userId, reason) {
       updated_at: new Date().toISOString()
     }
   });
+  try {
+    const _arcCase = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (_arcCase.ok && _arcCase.data && _arcCase.data[0]) await reconcileGpDrive(_arcCase.data[0].id);
+  } catch (e) { console.error('[archive] drive reconcile failed:', e.message); }
   return purgeAfter;
 }
 
@@ -8316,6 +8320,10 @@ async function reinstateUserAccount(userId) {
       }
     }
   } catch (e) { console.error('[reinstate] task resolve failed:', e && e.message); }
+  try {
+    const _reCase = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (_reCase.ok && _reCase.data && _reCase.data[0]) await reconcileGpDrive(_reCase.data[0].id);
+  } catch (e) { console.error('[reinstate] drive reconcile failed:', e.message); }
 }
 
 // When an active-placement doctor deletes, raise an urgent CEO task to find out why.
@@ -9345,6 +9353,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           return pr.ok && Array.isArray(pr.data) && pr.data[0] ? pr.data[0] : {};
         })();
         const driveFolderId = await ensureGPDriveFolder(caseId, _gpProfileForDrive.first_name || '', _gpProfileForDrive.last_name || '');
+        await reconcileGpDrive(caseId);
 
         // Auto-deliver Section G
         try {
@@ -32067,14 +32076,13 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
 
       // 7. Get Drive files
-      // Backfill: cases created before eager folder creation may have no folder yet — create it on first view.
-      if (!gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
+      // Reconcile this GP's Drive lifecycle (folder placement + accepted-doc mirroring) on view; self-heals existing cases.
+      if (isGoogleDriveConfigured()) {
+        try { await reconcileGpDrive(gdCaseId); } catch (_rcErr) { console.error('[gp-documents] reconcile failed (non-fatal):', _rcErr.message); }
         try {
-          var _ensProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
-          var _ensProf = (_ensProfRes.ok && Array.isArray(_ensProfRes.data) && _ensProfRes.data[0]) ? _ensProfRes.data[0] : {};
-          var _ensFolderId = await ensureGPDriveFolder(gdCaseId, _ensProf.first_name || '', _ensProf.last_name || '');
-          if (_ensFolderId) gdCase.google_drive_folder_id = _ensFolderId;
-        } catch (_ensErr) { console.error('[gp-documents] ensure folder failed (non-fatal):', _ensErr.message); }
+          var _rcRefresh = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
+          if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
+        } catch (_e) {}
       }
       var gdDriveFiles = [];
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
