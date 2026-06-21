@@ -32660,7 +32660,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (rsTask.status === 'completed') { sendJson(res, 409, { ok: false, message: 'This reply was already sent.' }); return; }
     const rsDraft = (rsM.draft && typeof rsM.draft === 'object') ? rsM.draft : {};
     const rsTo = (rsM.original_email && rsM.original_email.sender) || (rsM.officer && rsM.officer.email) || '';
-    if (!rsTo) { sendJson(res, 400, { ok: false, message: 'No AHPRA officer address on file — send manually.' }); return; }
+    if (!rsTo || /officer@ahpra\.gov\.au/i.test(rsTo)) { sendJson(res, 400, { ok: false, message: 'No real AHPRA officer email on file — please copy the draft and send it in Gmail manually.' }); return; }
     const rsThreadId = rsTask.gmail_thread_id || (rsM.original_email && rsM.original_email.threadId) || '';
     const rsAtt = [];
     let rsExpected = 0, rsGatherOk = true;
