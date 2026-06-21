@@ -20660,6 +20660,101 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
   }
 }
 
+/* ───────── Admin audit log ─────────
+ * Append-only record of privileged admin actions (table: public.admin_audit_log,
+ * migration 20260621130000). Call sites AWAIT logAdminAction inside their own
+ * try/catch is unnecessary — this helper never throws — but the insert IS awaited
+ * (NOT fire-and-forget) because a detached promise is killed when the serverless
+ * function freezes after res.end(), which would silently drop the highest-value
+ * rows (logins, impersonation). Awaiting adds a small, acceptable latency.
+ */
+const AUDIT_CRITICAL_ACTIONS = new Set([
+  'admin_purge_all_users',
+  'admin_reset_gp',
+  'admin_impersonate',
+  'admin_set_account_status_suspended'
+]);
+
+function clampAuditDetail(detail) {
+  try {
+    if (!detail || typeof detail !== 'object') return {};
+    const s = JSON.stringify(detail);
+    if (!s || s.length > 4000) return { truncated: true };
+    return detail;
+  } catch (_) {
+    return {};
+  }
+}
+
+// ctx = { email, role } of the acting admin (or null for pre-auth endpoints — then
+// pass fields.actorEmail). action = a stable verb like 'admin_login_success'.
+// fields = { targetType, targetId, detail, success, actorEmail }.
+async function logAdminAction(req, ctx, action, fields = {}) {
+  try {
+    if (!isSupabaseDbConfigured()) return; // prod-only; local JSON path is unaudited by design
+    let ip = null;
+    try { ip = String(getClientIp(req) || '').slice(0, 64) || null; } catch (_) { ip = null; }
+    const headers = (req && req.headers) || {};
+    const row = {
+      actor_email: ctx && ctx.email
+        ? String(ctx.email).slice(0, 320)
+        : (fields.actorEmail ? String(fields.actorEmail).slice(0, 320) : null),
+      actor_role: ctx && ctx.role ? String(ctx.role).slice(0, 64) : null,
+      action: String(action || 'unknown').slice(0, 96),
+      target_type: fields.targetType ? String(fields.targetType).slice(0, 64) : null,
+      target_id: fields.targetId != null ? String(fields.targetId).slice(0, 320) : null,
+      detail: clampAuditDetail(fields.detail),
+      ip,
+      host: String(headers.host || '').slice(0, 255) || null,
+      user_agent: String(headers['user-agent'] || '').slice(0, 512) || null,
+      success: fields.success !== false
+    };
+    const result = await supabaseDbRequest('admin_audit_log', '', {
+      method: 'POST',
+      body: [row],
+      headers: { Prefer: 'return=minimal' }
+    });
+    if (!result || !result.ok) {
+      console.error('[audit] insert failed', result && result.status, action);
+    }
+    if (result && result.ok && row.success && AUDIT_CRITICAL_ACTIONS.has(row.action)) {
+      await maybeAlertCriticalAction(row);
+    }
+  } catch (err) {
+    console.error('[audit] logAdminAction error:', err && err.message);
+  }
+}
+
+// Best-effort email alert to the owner on critical actions. Deduped per
+// action+actor+target over a 5-minute window so a burst (e.g. impersonating
+// several GPs) doesn't spam, while distinct targets still each alert.
+async function maybeAlertCriticalAction(row) {
+  try {
+    if (!isEmailConfigured()) return;
+    const to = String(process.env.AUDIT_ALERT_EMAIL || process.env.CEO_EMAIL || '').trim();
+    if (!to) return;
+    const dedupeKey = `auditalert:${row.action}:${row.actor_email || '?'}:${row.target_id || '*'}`;
+    const existing = await getRuntimeKv(dedupeKey);
+    if (existing && existing.value && Object.keys(existing.value).length) return;
+    await setRuntimeKv(dedupeKey, { at: Date.now() }, Date.now() + 5 * 60 * 1000);
+    const lines = [
+      `Action: ${row.action}`,
+      `By: ${row.actor_email || 'unknown'} (${row.actor_role || 'n/a'})`,
+      row.target_id ? `Target: ${(row.target_type || '').trim()} ${row.target_id}`.trim() : null,
+      `IP: ${row.ip || 'n/a'}   Host: ${row.host || 'n/a'}`,
+      `Detail: ${JSON.stringify(row.detail || {})}`,
+      `Time: ${new Date().toISOString()}`
+    ].filter(Boolean);
+    await sendEmail({
+      to,
+      subject: `[GP Link] Admin action: ${row.action}`,
+      text: lines.join('\n')
+    });
+  } catch (err) {
+    console.error('[audit] alert error:', err && err.message);
+  }
+}
+
 function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, reason) {
   const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const reasonBlock = (reason && String(reason).trim())
@@ -24463,6 +24558,7 @@ async function handleApi(req, res, pathname) {
     // Require super_admin role
     var purgeAdminEmail = getSessionEmail(purgeAdminCtx.session);
     if (!SUPER_ADMIN_EMAILS.has(purgeAdminEmail)) {
+      await logAdminAction(req, { email: purgeAdminCtx.email, role: purgeAdminCtx.role }, 'admin_purge_all_users', { success: false, detail: { reason: 'not_super_admin' } });
       sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
       return;
     }
@@ -24501,6 +24597,10 @@ async function handleApi(req, res, pathname) {
     await supabaseDbRequest('incoming_email_todos', 'id=not.is.null', { method: 'DELETE', headers: { Prefer: 'return=minimal' } }).catch(function () {});
 
     invalidateAdminDashboardCache();
+
+    await logAdminAction(req, { email: purgeAdminCtx.email, role: purgeAdminCtx.role }, 'admin_purge_all_users', {
+      detail: { deleted: deletedCount, skippedAdmins: skippedAdmins.length, errors: errors.length }
+    });
 
     sendJson(res, 200, {
       ok: true,
@@ -24966,7 +25066,11 @@ async function handleApi(req, res, pathname) {
     var resetAdminCtx = requireAdminSession(req, res);
     if (!resetAdminCtx) return;
     var resetAdminEmail = getSessionEmail(resetAdminCtx.session);
-    if (!SUPER_ADMIN_EMAILS.has(resetAdminEmail)) { sendJson(res, 403, { ok: false, message: 'Super admin access required.' }); return; }
+    if (!SUPER_ADMIN_EMAILS.has(resetAdminEmail)) {
+      await logAdminAction(req, { email: resetAdminCtx.email, role: resetAdminCtx.role }, 'admin_reset_gp', { success: false, detail: { reason: 'not_super_admin' } });
+      sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
+      return;
+    }
 
     var resetBody; try { resetBody = (typeof req.body === 'object' && req.body) ? req.body : await readJsonBody(req); } catch (e) { resetBody = {}; }
     var resetEmail = String(resetBody.email || '').trim().toLowerCase();
@@ -25095,6 +25199,9 @@ async function handleApi(req, res, pathname) {
       invalidateAdminDashboardCache();
 
       console.log('[ResetGP] Reset', resetEmail, 'to AHPRA stage. Cancelled:', resetCancelled, 'Created:', resetCreated);
+      await logAdminAction(req, { email: resetAdminCtx.email, role: resetAdminCtx.role }, 'admin_reset_gp', {
+        targetType: 'user', targetId: resetUserId, detail: { email: resetEmail, caseId: resetCaseId, cancelledTasks: resetCancelled, fromStage: resetFromStage }
+      });
       sendJson(res, 200, { ok: true, cancelled: resetCancelled, created: resetCreated });
     } catch (resetErr) {
       console.error('[ResetGP] Error:', resetErr.message);
@@ -29002,6 +29109,10 @@ Return ONLY valid JSON with no markdown formatting:
       console.log('[admin-impersonate] %s (%s) impersonating GP %s <%s>',
         admin.email, admin.role, targetUserId, gpProfile.email);
 
+      await logAdminAction(req, { email: admin.email, role: admin.role }, 'admin_impersonate', {
+        targetType: 'user', targetId: targetUserId, detail: { gpEmail: gpProfile.email }
+      });
+
       // Redirect to the GP's dashboard
       res.writeHead(302, { Location: buildAbsoluteReturnUrl(req, '/pages/index') });
       res.end();
@@ -29126,6 +29237,7 @@ Return ONLY valid JSON with no markdown formatting:
         : loginResult.data && loginResult.data.message
           ? loginResult.data.message
           : 'Invalid email or password.';
+      await logAdminAction(req, null, 'admin_login_failure', { actorEmail: email, success: false, detail: { reason: 'bad_credentials', status: loginResult.status } });
       sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
       return;
     }
@@ -29134,10 +29246,12 @@ Return ONLY valid JSON with no markdown formatting:
     const adminRole = await resolveAdminRoleForSupabaseUser(loginUser, email);
     const hostScope = getAdminHostScope(req);
     if (!hasAdminPortalAccess(adminRole)) {
+      await logAdminAction(req, { email, role: adminRole }, 'admin_login_failure', { success: false, detail: { reason: 'no_portal_access' } });
       sendJson(res, 403, { ok: false, message: 'This account is not assigned to the admin portal.' });
       return;
     }
     if (!doesAdminRoleMatchHost(adminRole, hostScope)) {
+      await logAdminAction(req, { email, role: adminRole }, 'admin_login_failure', { success: false, detail: { reason: 'host_mismatch', hostScope } });
       sendJson(res, 403, {
         ok: false,
         message: hostScope === 'super_admin'
@@ -29149,6 +29263,7 @@ Return ONLY valid JSON with no markdown formatting:
     upsertLocalUserFromSupabaseUser(loginUser);
     await ensureSupabaseUserProfile(loginUser);
     setAdminSession(res, buildAdminSessionProfile(getSessionProfileFromSupabaseUser(loginUser, email), adminRole));
+    await logAdminAction(req, { email, role: adminRole }, 'admin_login_success', { detail: { hostScope } });
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
