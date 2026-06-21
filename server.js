@@ -32113,18 +32113,16 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
 
       // 7. Get Drive files
-      // Ensure the personal folder exists synchronously (fast) so this view can list it; run the heavier
-      // lifecycle reconcile (folder move + doc mirroring/permissions) in the background so it never blocks the view.
+      // Reconcile this GP's Drive lifecycle (create Users/Candidates/Archived if missing, place/move the
+      // personal folder, mirror accepted docs). AWAITED on purpose: this app runs on Vercel serverless,
+      // which freezes the function after the response is sent, so fire-and-forget background work would
+      // never run. Idempotent, so repeat views are cheap once docs are mirrored.
       if (isGoogleDriveConfigured()) {
+        try { await reconcileGpDrive(gdCaseId); } catch (_rcErr) { console.error('[gp-documents] reconcile failed (non-fatal):', _rcErr.message); }
         try {
-          if (!gdCase.google_drive_folder_id) {
-            var _ensProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
-            var _ensProf = (_ensProfRes.ok && Array.isArray(_ensProfRes.data) && _ensProfRes.data[0]) ? _ensProfRes.data[0] : {};
-            var _ensFolderId = await ensureGPDriveFolder(gdCaseId, _ensProf.first_name || '', _ensProf.last_name || '');
-            if (_ensFolderId) gdCase.google_drive_folder_id = _ensFolderId;
-          }
-        } catch (_ensErr) { console.error('[gp-documents] ensure folder failed (non-fatal):', _ensErr.message); }
-        Promise.resolve().then(function () { return reconcileGpDrive(gdCaseId); }).catch(function (_rcErr) { console.error('[gp-documents] async reconcile failed:', _rcErr.message); });
+          var _rcRefresh = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
+          if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
+        } catch (_e) {}
       }
       var gdDriveFiles = [];
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
