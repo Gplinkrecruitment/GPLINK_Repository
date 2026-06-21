@@ -2769,6 +2769,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       + (m.ai_reason ? '<span style="font-size:11px;color:var(--muted);">' + esc(m.ai_reason) + '</span>' : '')
       + '</div>';
   }
+  function renderS80UploadAiMatch(up){
+    if(!up || !up.ai_match) return '';
+    var am=up.ai_match, pct=(typeof am.confidence==='number')?Math.round(am.confidence*100):null;
+    var good=am.matches===true && (pct===null || pct>=70);
+    var col=good?'#15803d':'#b91c1c', bg=good?'#dcfce7':'#fee2e2';
+    var label=(am.matches===true?'AI: likely a match':'AI: possible mismatch')+(pct!==null?' ('+pct+'%)':'');
+    return '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      +'<span style="font-size:10px;font-weight:700;color:'+col+';background:'+bg+';border-radius:5px;padding:2px 7px;">'+esc(label)+'</span>'
+      +(am.reason?'<span style="font-size:11px;color:var(--muted);">'+esc(am.reason)+'</span>':'')+'</div>';
+  }
   function renderS80Tray(c, pending){
     if(!pending.length) return '';
     var bundles={};
@@ -2827,6 +2837,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
+          html+=renderS80UploadAiMatch(up);
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Approve</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
         } else if(up&&up.status==='rejected'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
