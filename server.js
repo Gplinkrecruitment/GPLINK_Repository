@@ -21683,6 +21683,10 @@ async function handleApi(req, res, pathname) {
           if (chLast < S80_CHASE_DAYS * 86400000) continue; // already chased recently
           var chInst = chM.institution || 'the issuing institution';
           try {
+            // Claim the chase first so a later failure can't cause a duplicate chase next run.
+            chM.last_chased_at = new Date().toISOString();
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(chTask.id),
+              { method: 'PATCH', body: { metadata: chM, updated_at: new Date().toISOString() } });
             var chCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(chTask.case_id) + '&limit=1');
             var chUserId = (chCaseRes.ok && Array.isArray(chCaseRes.data) && chCaseRes.data[0]) ? chCaseRes.data[0].user_id : null;
             if (chUserId) {
@@ -21694,9 +21698,6 @@ async function handleApi(req, res, pathname) {
               description: 'GP marked this requested ' + Math.floor(chSince / 86400000) + ' days ago but AHPRA receipt is not yet confirmed. Follow up with the GP / institution.',
               priority: 'high', source_trigger: 's80_chase', related_stage: 'ahpra', _actor: 'system'
             });
-            chM.last_chased_at = new Date().toISOString();
-            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(chTask.id),
-              { method: 'PATCH', body: { metadata: chM, updated_at: new Date().toISOString() } });
             await _logCaseEvent(chTask.case_id, chTask.id, 'note', 'Auto-chased unconfirmed AHPRA request',
               chInst + ' — ' + Math.floor(chSince / 86400000) + ' days since marked requested.', 'system:s80_chase');
             rfResults.push({ task_id: chTask.id, title: chTask.title, status: 's80_chased' });
