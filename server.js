@@ -519,11 +519,13 @@ async function applyDriveDocPermissions(fileId, mode) {
       await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
         requestBody: { type: 'user', role: 'reader', emailAddress: GP_OWNER_EMAIL } });
     } else {
+      // Domain sharing may be unavailable for a service account on My Drive — best-effort, then ALWAYS
+      // share with the named @mygplink.com.au team accounts so access holds regardless.
       try {
         await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
           requestBody: { type: 'domain', role: 'reader', domain: GP_TEAM_DOMAIN } });
-      } catch (domainErr) {
-        // Fallback: share with each known RSO @mygplink.com.au account.
+      } catch (domainErr) {}
+      try {
         const rso = await supabaseDbRequest('rso_team', 'select=email');
         const emails = (rso.ok && Array.isArray(rso.data) ? rso.data : [])
           .map(r => r && r.email).filter(e => e && /@mygplink\.com\.au$/i.test(e));
@@ -531,7 +533,7 @@ async function applyDriveDocPermissions(fileId, mode) {
           try { await drive.permissions.create({ fileId, sendNotificationEmail: false, supportsAllDrives: true,
             requestBody: { type: 'user', role: 'reader', emailAddress: em } }); } catch (e) {}
         }
-      }
+      } catch (e) { console.error('[Drive] team email share failed:', e.message); }
     }
   } catch (e) { console.error('[Drive] apply perms failed:', e.message); }
 }
@@ -612,14 +614,22 @@ async function reconcileGpDrive(caseId) {
       } catch (e) { console.error('[reconcileGpDrive] parent check failed:', e.message); }
     }
 
-    // mirror accepted user_documents lacking a Drive file (idempotent via existing google_drive_file_id)
+    // Mirror accepted registration documents into the personal folder with team-only sharing.
+    // Prepared GP-Link docs (gplink_pack) are GP-facing via existing links — leave their sharing untouched.
+    const PREPARED_DOC_KEYS = new Set(['sppa_00', 'section_g', 'position_description', 'offer_contract', 'supervisor_cv']);
     const docsRes = await supabaseDbRequest('user_documents',
       'select=id,document_key,file_name,status,storage_bucket,storage_path,file_url,mime_type,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId));
     const docs = (docsRes.ok && Array.isArray(docsRes.data)) ? docsRes.data : [];
     for (const d of docs) {
-      if (!isAcceptedStatus(d.status) || d.google_drive_file_id) continue;
-      const path = d.storage_path || d.file_url; if (!path) continue;
+      if (!isAcceptedStatus(d.status)) continue;
+      if (PREPARED_DOC_KEYS.has(d.document_key)) continue;
       try {
+        if (d.google_drive_file_id) {
+          // already in Drive (the normal approval path uploads as 'anyone') — re-secure to team-only
+          await applyDriveDocPermissions(d.google_drive_file_id, 'team_domain');
+          continue;
+        }
+        const path = d.storage_path || d.file_url; if (!path) continue;
         const dl = await supabaseStorageDownloadObject(d.storage_bucket || SUPABASE_DOCUMENT_BUCKET, path);
         if (!dl || !dl.buffer) continue;
         const up = await uploadPrivateToGoogleDrive(folderId, d.file_name || (d.document_key + '.pdf'), dl.buffer, d.mime_type || dl.mimeType || 'application/pdf', 'team_domain');
@@ -32076,13 +32086,18 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
 
       // 7. Get Drive files
-      // Reconcile this GP's Drive lifecycle (folder placement + accepted-doc mirroring) on view; self-heals existing cases.
+      // Ensure the personal folder exists synchronously (fast) so this view can list it; run the heavier
+      // lifecycle reconcile (folder move + doc mirroring/permissions) in the background so it never blocks the view.
       if (isGoogleDriveConfigured()) {
-        try { await reconcileGpDrive(gdCaseId); } catch (_rcErr) { console.error('[gp-documents] reconcile failed (non-fatal):', _rcErr.message); }
         try {
-          var _rcRefresh = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
-          if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
-        } catch (_e) {}
+          if (!gdCase.google_drive_folder_id) {
+            var _ensProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
+            var _ensProf = (_ensProfRes.ok && Array.isArray(_ensProfRes.data) && _ensProfRes.data[0]) ? _ensProfRes.data[0] : {};
+            var _ensFolderId = await ensureGPDriveFolder(gdCaseId, _ensProf.first_name || '', _ensProf.last_name || '');
+            if (_ensFolderId) gdCase.google_drive_folder_id = _ensFolderId;
+          }
+        } catch (_ensErr) { console.error('[gp-documents] ensure folder failed (non-fatal):', _ensErr.message); }
+        Promise.resolve().then(function () { return reconcileGpDrive(gdCaseId); }).catch(function (_rcErr) { console.error('[gp-documents] async reconcile failed:', _rcErr.message); });
       }
       var gdDriveFiles = [];
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
