@@ -582,17 +582,17 @@ async function reconcileGpDrive(caseId) {
     // account + placement status
     const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const state = (stRes.ok && stRes.data && stRes.data[0] && typeof stRes.data[0].state === 'object') ? stRes.data[0].state : {};
-    const accountStatus = String(state.account_status || '').toLowerCase();
     let career = state.gp_career_state; if (typeof career === 'string') { try { career = JSON.parse(career); } catch (e) { career = {}; } }
     career = career || {};
     const placementSecured = career.career_secured === true || career.secured === true ||
       (Array.isArray(career.applications) && career.applications.some(a => a && a.isPlacementSecured === true));
-    const targetStage = stageForCase({ accountStatus, placementSecured });
 
-    // profile (for folder name + ID)
+    // profile (for folder name + ID + authoritative account_status — archive writes it to user_profiles)
     const profRes = await supabaseDbRequest('user_profiles',
-      'select=first_name,last_name,id_copy_name,id_copy_data_url&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      'select=first_name,last_name,id_copy_name,id_copy_data_url,account_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+    const accountStatus = String(prof.account_status || state.account_status || '').toLowerCase();
+    const targetStage = stageForCase({ accountStatus, placementSecured });
 
     // ensure personal folder exists (creates under Users if new)
     let folderId = rc.google_drive_folder_id;
