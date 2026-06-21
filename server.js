@@ -29882,10 +29882,22 @@ Return ONLY valid JSON with no markdown formatting:
       var upMatch = await verifyS80FileMatch(upBuffer, upMime, upTask.title, (upMeta.detail || upTask.title));
       if (upMatch && upMatch.ok) upMeta.upload.ai_match = { matches: upMatch.matches, confidence: upMatch.confidence, reason: upMatch.reason };
     } catch (e) { /* advisory only — never block the upload */ }
+    var upAutoApproved = false;
+    if (S80_AUTOMATION_ENABLED && upMeta.upload.ai_match && upMeta.upload.ai_match.matches === true
+        && upMeta.upload.ai_match.confidence >= S80_AUTO_CONFIDENCE) {
+      upMeta.upload.status = 'approved';
+      upMeta.upload.reviewed_by = 'system:auto_approve';
+      upMeta.upload.reviewed_at = new Date().toISOString();
+      upAutoApproved = true;
+    }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(upTaskId), {
-      method: 'PATCH', body: { status: 'waiting', metadata: upMeta, updated_at: new Date().toISOString() }
+      method: 'PATCH', body: { status: upAutoApproved ? 'completed' : 'waiting', metadata: upMeta, updated_at: new Date().toISOString(), completed_at: upAutoApproved ? new Date().toISOString() : null, completed_by: upAutoApproved ? 'system:auto_approve' : null }
     });
-    sendJson(res, 200, { ok: true, status: 'under_review', file_name: upMeta.upload.file_name });
+    if (upAutoApproved) {
+      try { await _logCaseEvent(upTask.case_id, upTaskId, 'completed', 'AHPRA upload auto-approved', (upTask.title || 'Document') + ' matched the request at ' + Math.round(upMeta.upload.ai_match.confidence * 100) + '% — auto-approved.', 'system:auto_approve'); } catch (e) {}
+      try { await pushDocumentNotificationToUser(s80UserId, { type: 'success', title: 'Document accepted', detail: (upTask.title || 'Your document') + ' has been accepted.' }); } catch (e) {}
+    }
+    sendJson(res, 200, { ok: true, status: upMeta.upload.status, file_name: upMeta.upload.file_name });
     return;
   }
 
