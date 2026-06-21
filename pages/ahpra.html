@@ -474,6 +474,9 @@
       box-shadow: var(--gp-shadow-sm);
     }
     .btn-complete:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    /* Locked = greyed like disabled, but still clickable so a tap surfaces the reminder. */
+    .btn-complete.btn-locked { opacity: .5; box-shadow: none; transform: none !important; }
+    .btn-complete.btn-locked::after { display: none !important; }
     .btn-complete svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
@@ -2393,7 +2396,8 @@
       if (!gateBtns.length) return;
       var met = isElsRequirementMet();
       for (var i = 0; i < gateBtns.length; i++) {
-        gateBtns[i].disabled = !met;
+        // Locked (not disabled) when unmet so a tap still fires the reminder toast.
+        gateBtns[i].classList.toggle('btn-locked', !met);
         gateBtns[i].classList.toggle('cta-pulse', met);
       }
       var hint = document.getElementById('markCompleteHint');
@@ -3704,7 +3708,7 @@
       // Gate: the AHPRA application step needs the GP's English pathway (and, for the
       // Test Pathway, which test + whether it's done) before it can be completed.
       if (key === "account_establishment" && !isElsRequirementMet()) {
-        showToast("Please choose your English language pathway first");
+        showToast(elsGateHintText());
         var _elsSel = document.getElementById("elsPathwaySelect");
         if (_elsSel && _elsSel.scrollIntoView) _elsSel.scrollIntoView({ behavior: "smooth", block: "center" });
         refreshElsGate();
@@ -4667,13 +4671,17 @@
       const elsGateStage = (key === "account_establishment") && isCurrent && !isDone;
       const elsGateActive = elsGateStage && !isElsRequirementMet();
       const elsGateAttr = elsGateStage ? ' data-els-gate="1"' : '';
-      const markDisabled = !isCurrent || isDone || elsGateActive;
+      // The English-pathway gate LOCKS the button (greyed but still clickable) rather than
+      // disabling it, so a tap shows the reminder toast instead of silently doing nothing.
+      const markDisabled = !isCurrent || isDone;
+      const markPulse = !markDisabled && !elsGateActive;
+      const markLockedClass = elsGateActive ? " btn-locked" : "";
       const markLabel = isDone ? "Completed" : "Mark Complete";
       if (!isAwaitingOutcome) {
         navHtml += hasPrev
           ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span aria-hidden="true"></span>`;
-      navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      navHtml += `<div class="mark-complete-wrap"><button class="btn-complete${markPulse ? " cta-pulse" : ""}${markLockedClass}" id="actionMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       if (!isDone && isCurrent) {
         navHtml += `<span class="mark-complete-hint${elsGateActive ? " els-block" : ""}" id="markCompleteHint">${elsGateActive ? elsGateHintText() : "Once you've finished this step, click here to move on"}</span>`;
       }
@@ -4700,7 +4708,7 @@
           if (hasPrev) {
             hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
           }
-          hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+          hdrHtml += `<button class="btn-complete${markPulse ? " cta-pulse" : ""}${markLockedClass}" id="headerMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
         }
         headerActions.innerHTML = hdrHtml;
       }

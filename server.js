@@ -30680,6 +30680,33 @@ Return ONLY valid JSON with no markdown formatting:
         next[key] = value;
       }
     }
+    // English-pathway choices (els_pathway / els_test_type / els_test_status) live inside
+    // gp_ahpra_progress but are GP *preferences*, not stage progress. For GPs with an admin
+    // stage override, gp_ahpra_progress is a protected key, so a pathway pick can be skipped
+    // by the guard above or clobbered by a later full-state sync that omits it. Always carry
+    // the latest els_* onto the stored gp_ahpra_progress: honour an incoming value, else keep
+    // whatever was already stored — so a chosen pathway never silently disappears.
+    try {
+      var _inAhpra = incoming.gp_ahpra_progress;
+      if (typeof _inAhpra === 'string') { try { _inAhpra = JSON.parse(_inAhpra); } catch (e) { _inAhpra = null; } }
+      var _curAhpra = current.gp_ahpra_progress;
+      if (typeof _curAhpra === 'string') { try { _curAhpra = JSON.parse(_curAhpra); } catch (e) { _curAhpra = null; } }
+      var _nextAhpra = next.gp_ahpra_progress;
+      var _nextWasString = (typeof _nextAhpra === 'string');
+      if (_nextWasString) { try { _nextAhpra = JSON.parse(_nextAhpra); } catch (e) { _nextAhpra = null; } }
+      if (_nextAhpra && typeof _nextAhpra === 'object') {
+        ['els_pathway', 'els_test_type', 'els_test_status'].forEach(function (f) {
+          var v;
+          if (_inAhpra && typeof _inAhpra === 'object' && Object.prototype.hasOwnProperty.call(_inAhpra, f)) {
+            v = _inAhpra[f]; // client sent a value this sync → honour it
+          } else if (_curAhpra && typeof _curAhpra === 'object' && Object.prototype.hasOwnProperty.call(_curAhpra, f)) {
+            v = _curAhpra[f]; // not in this sync → preserve the previously stored choice
+          }
+          if (v !== undefined && v !== null && v !== '') _nextAhpra[f] = v;
+        });
+        next.gp_ahpra_progress = _nextWasString ? JSON.stringify(_nextAhpra) : _nextAhpra;
+      }
+    } catch (e) { /* non-fatal: never block a state save over els preservation */ }
     next.updatedAt = new Date().toISOString();
 
     const updatedAt = next.updatedAt;
