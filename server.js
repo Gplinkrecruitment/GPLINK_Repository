@@ -29705,6 +29705,53 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AHPRA s80: GP uploads proof that an institution-request was sent to AHPRA ──
+  if (pathname === '/api/ahpra/more-info/proof' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const pfEmail = getSessionEmail(session);
+    const pfUserId = getSessionSupabaseUserId(session) || (pfEmail ? await getSupabaseUserIdByEmail(pfEmail) : null);
+    if (!pfUserId) { sendJson(res, 401, { ok: false }); return; }
+    let pfBody; try { pfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const pfTaskId = pfBody && typeof pfBody.task_id === 'string' ? pfBody.task_id.trim() : '';
+    const pfFileName = pfBody && typeof pfBody.fileName === 'string' ? pfBody.fileName : '';
+    const pfMime = pfBody && typeof pfBody.mimeType === 'string' ? pfBody.mimeType : '';
+    const pfDataUrl = pfBody && typeof pfBody.fileDataUrl === 'string' ? pfBody.fileDataUrl : '';
+    if (!pfTaskId || !pfDataUrl) { sendJson(res, 400, { ok: false, message: 'task_id and file required.' }); return; }
+    const pfRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(pfTaskId) + '&limit=1');
+    const pfTask = (pfRes.ok && Array.isArray(pfRes.data) && pfRes.data[0]) ? pfRes.data[0] : null;
+    if (!pfTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    const pfMeta = (pfTask.metadata && typeof pfTask.metadata === 'object') ? pfTask.metadata : {};
+    const pfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(pfTask.case_id) + '&limit=1');
+    const pfCaseUser = (pfCaseRes.ok && Array.isArray(pfCaseRes.data) && pfCaseRes.data[0]) ? pfCaseRes.data[0].user_id : null;
+    if (pfCaseUser !== pfUserId) { sendJson(res, 403, { ok: false }); return; }
+    if (!pfMeta.s80 || pfMeta.owner !== 'gp' || pfMeta.mode !== 'request_institution' || pfMeta.review_status !== 'active') {
+      sendJson(res, 400, { ok: false, message: 'This item does not accept a confirmation upload.' }); return;
+    }
+    const pfBuffer = Buffer.from(String(pfDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+    const pfCheck = validateFileUpload(pfBuffer, pfMime, pfFileName);
+    if (!pfCheck.valid) { sendJson(res, 400, { ok: false, message: pfCheck.errors[0] || 'File validation failed.' }); return; }
+    const pfCountry = normalizeDocumentCountry(pfBody.country) || 'uk';
+    const pfDocKey = ('ahpra_s80proof_' + pfTaskId).replace(/[^a-z0-9_-]/gi, '');
+    const pfPath = buildPreparedDocumentStoragePath(pfUserId, pfCountry, pfDocKey);
+    const pfUploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, pfPath, pfDataUrl, pfMime);
+    if (!pfUploaded) { sendJson(res, 502, { ok: false, message: 'Could not store the file.' }); return; }
+    pfMeta.proof = {
+      file_name: pfCheck.sanitisedFileName || pfFileName || 'confirmation',
+      storage_path: pfPath,
+      storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+      mime_type: pfMime,
+      file_size: pfBuffer.length,
+      uploaded_at: new Date().toISOString(),
+      country: pfCountry
+    };
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(pfTaskId), {
+      method: 'PATCH', body: { metadata: pfMeta, updated_at: new Date().toISOString() }
+    });
+    sendJson(res, 200, { ok: true, file_name: pfMeta.proof.file_name });
+    return;
+  }
+
   if (pathname === '/api/prepared-documents' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
@@ -32432,6 +32479,24 @@ Return ONLY valid JSON with no markdown formatting:
     const up = task && task.metadata && task.metadata.upload ? task.metadata.upload : null;
     if (!up || !up.storage_path) { sendJson(res, 404, { ok: false, message: 'No uploaded file.' }); return; }
     const signed = await supabaseStorageCreateSignedUrl(up.storage_bucket || SUPABASE_DOCUMENT_BUCKET, up.storage_path, up.file_name || '');
+    if (!signed) { sendJson(res, 502, { ok: false, message: 'Could not create link.' }); return; }
+    res.writeHead(302, { Location: signed });
+    res.end();
+    return;
+  }
+
+  // ── AHPRA s80: signed URL for the team to view a GP-uploaded proof file ──
+  if (pathname === '/api/admin/ahpra/item/proof-file' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('task_id');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing task_id.' }); return; }
+    const tRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+    const pf = task && task.metadata && task.metadata.proof ? task.metadata.proof : null;
+    if (!pf || !pf.storage_path) { sendJson(res, 404, { ok: false, message: 'No proof file.' }); return; }
+    const signed = await supabaseStorageCreateSignedUrl(pf.storage_bucket || SUPABASE_DOCUMENT_BUCKET, pf.storage_path, pf.file_name || '');
     if (!signed) { sendJson(res, 502, { ok: false, message: 'Could not create link.' }); return; }
     res.writeHead(302, { Location: signed });
     res.end();
