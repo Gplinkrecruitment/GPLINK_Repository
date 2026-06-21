@@ -21608,6 +21608,64 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // ── AHPRA s80 thread-watch: confirm institution-request items from the CC'd thread ──
+      if (isGmailConfigured()) {
+        var twRes = await supabaseDbRequest('registration_tasks',
+          'select=*&task_type=eq.ahpra_action_item&limit=300', { method: 'GET' });
+        var twTasks = (twRes.ok && Array.isArray(twRes.data)) ? twRes.data : [];
+        for (var twTask of twTasks) {
+          var twM = (twTask.metadata && typeof twTask.metadata === 'object') ? twTask.metadata : {};
+          if (!twM.s80 || twM.mode !== 'request_institution' || twM.review_status !== 'active') continue;
+          if (!twM.gp_marked_complete_at || twM.received_confirmed_at) continue;
+          if (twTask.status === 'cancelled') continue;
+          var twThreadId = twTask.gmail_thread_id || (twM.original_email && twM.original_email.threadId) || '';
+          if (!twThreadId) continue;
+          try {
+            var twCc = await resolveS80CcAddress(twTask.case_id);
+            if (!twCc || twCc === MASTER_ARCHIVE_EMAIL) continue; // only a watched inbox can be read
+            var twGmail = await getGmailClient(twCc);
+            if (!twGmail) continue;
+            var twThread = await twGmail.users.threads.get({ userId: twCc, id: twThreadId, format: 'full' });
+            var twMsgs = (twThread.data && Array.isArray(twThread.data.messages)) ? twThread.data.messages : [];
+            if (!twMsgs.length) continue;
+            var twText = twMsgs.map(function (mm) { var em = extractEmailMeta(mm); return 'From: ' + em.sender + '\nSubject: ' + em.subject + '\n' + em.bodyText; }).join('\n---\n').slice(0, 12000);
+            var twAi = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+              body: JSON.stringify({
+                model: ANTHROPIC_S80_MODEL,
+                max_tokens: 300,
+                system: 'You read an email thread between a GP support team and AHPRA. Decide whether the specific requested document below has now been received by AHPRA (e.g. AHPRA confirms receipt, or the issuing institution confirms it was sent directly to AHPRA). Be conservative: only say received if the thread clearly shows it. Return JSON only: {"received": true|false, "confidence": 0.0-1.0, "evidence": "short quote/explanation"}.',
+                messages: [{ role: 'user', content: 'Requested item: "' + (twTask.title || '') + '"' + (twM.institution ? ' (from ' + twM.institution + ')' : '') + '\n\nThread:\n' + twText }]
+              }),
+              signal: AbortSignal.timeout(30000)
+            });
+            var twData = await twAi.json();
+            if (twData.usage) recordAnthropicSpend(twData.usage.input_tokens || 0, twData.usage.output_tokens || 0);
+            var twRaw = twData.content && twData.content[0] && twData.content[0].text ? twData.content[0].text : '';
+            var twMatch = twRaw.match(/\{[\s\S]*\}/);
+            var twVerdict; try { twVerdict = JSON.parse(twMatch ? twMatch[0] : twRaw); } catch (e) { twVerdict = { received: false, confidence: 0 }; }
+            if (twVerdict.received && twVerdict.confidence >= S80_AUTO_CONFIDENCE) {
+              twM.received_confirmed_at = new Date().toISOString();
+              twM.received_evidence = String(twVerdict.evidence || '').slice(0, 500);
+              await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(twTask.id),
+                { method: 'PATCH', body: { metadata: twM, updated_at: new Date().toISOString() } });
+              await _logCaseEvent(twTask.case_id, twTask.id, 'note', 'AHPRA confirmed receipt (auto-detected)',
+                'Thread-watch: ' + (twVerdict.evidence || 'institution document detected as received') + ' (' + Math.round(twVerdict.confidence * 100) + '% confidence)',
+                'system:s80_thread_watch');
+              try {
+                var twCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,assigned_va&id=eq.' + encodeURIComponent(twTask.case_id) + '&limit=1');
+                var twCaseRow = (twCaseRes.ok && Array.isArray(twCaseRes.data) && twCaseRes.data[0]) ? twCaseRes.data[0] : null;
+                if (twCaseRow && twCaseRow.assigned_va) {
+                  await pushDocumentNotificationToUser(twCaseRow.assigned_va, { type: 'info', title: 'AHPRA receipt auto-confirmed', detail: (twTask.title || 'An institution document') + ' looks received by AHPRA — please sanity-check.' });
+                }
+              } catch (e) { /* non-critical */ }
+              rfResults.push({ task_id: twTask.id, title: twTask.title, status: 's80_confirmed', confidence: twVerdict.confidence });
+            }
+          } catch (e) { console.error('[Cron] s80 thread-watch failed for task ' + twTask.id + ':', e.message); }
+        }
+      }
+
       sendJson(res, 200, { ok: true, processed: rfResults.length, results: rfResults });
     } catch (err) {
       console.error('[Cron] Reconcile follow-ups failed:', err);
