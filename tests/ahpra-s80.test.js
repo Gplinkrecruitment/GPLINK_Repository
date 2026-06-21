@@ -352,3 +352,23 @@ describe('s80 AI confidence + reason', () => {
     expect(p).toContain('reason');
   });
 });
+
+describe('s80 bundleAutoReleasable', () => {
+  const mk = (conf, kind) => ({ confidence: conf, kind: kind === undefined ? 'good_standing' : kind });
+  it('true when all items meet the threshold and have a known kind', () => {
+    expect(s80.bundleAutoReleasable([mk(0.95), mk(0.99, 'english')], 0.92)).toBe(true);
+  });
+  it('false when any item is below the threshold', () => {
+    expect(s80.bundleAutoReleasable([mk(0.95), mk(0.5)], 0.92)).toBe(false);
+  });
+  it('false when any item is needs_split or unknown kind', () => {
+    expect(s80.bundleAutoReleasable([mk(0.99, 'needs_split')], 0.92)).toBe(false);
+    expect(s80.bundleAutoReleasable([mk(0.99, '')], 0.92)).toBe(false);
+  });
+  it('false for an empty bundle', () => {
+    expect(s80.bundleAutoReleasable([], 0.92)).toBe(false);
+  });
+  it('treats a missing confidence as 0 (not auto-releasable)', () => {
+    expect(s80.bundleAutoReleasable([{ kind: 'good_standing' }], 0.92)).toBe(false);
+  });
+});

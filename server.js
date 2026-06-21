@@ -202,6 +202,10 @@ const ANTHROPIC_S80_MODEL = String(process.env.ANTHROPIC_S80_MODEL || 'claude-op
 // Shared AHPRA s80 automation thresholds (also used by the reconciliation cron + Phase 5).
 const S80_AUTO_CONFIDENCE = Number(process.env.S80_AUTO_CONFIDENCE || '0.92') || 0.92;
 const S80_CHASE_DAYS = Number(process.env.S80_CHASE_DAYS || '7') || 7;
+// Master switch for AHPRA s80 auto-actions (auto-release / auto-approve / auto-send).
+// Defaults OFF — the flow stays fully human-in-the-loop until this is explicitly enabled.
+const S80_AUTOMATION_ENABLED = String(process.env.S80_AUTOMATION_ENABLED || '').trim().toLowerCase() === 'true';
+const S80_REPLY_HOLD_MINUTES = Number(process.env.S80_REPLY_HOLD_MINUTES || '10') || 10;
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
