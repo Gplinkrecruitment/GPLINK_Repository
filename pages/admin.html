@@ -2757,6 +2757,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='</div>';
     return h;
   }
+  // AI's self-rated confidence + one-line reason for this item's Who/How.
+  function renderS80Confidence(m){
+    var pct = (typeof m.ai_confidence === 'number') ? Math.round(m.ai_confidence * 100) : null;
+    if(pct === null && !m.ai_reason) return '';
+    var col = pct === null ? '#64748b' : (pct >= 92 ? '#15803d' : pct >= 70 ? '#b45309' : '#b91c1c');
+    var bg  = pct === null ? '#f1f5f9' : (pct >= 92 ? '#dcfce7' : pct >= 70 ? '#fef3c7' : '#fee2e2');
+    var label = pct === null ? 'AI: unscored' : ('AI confidence ' + pct + '%');
+    return '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      + '<span style="font-size:10px;font-weight:700;color:' + col + ';background:' + bg + ';border-radius:5px;padding:2px 7px;">' + label + '</span>'
+      + (m.ai_reason ? '<span style="font-size:11px;color:var(--muted);">' + esc(m.ai_reason) + '</span>' : '')
+      + '</div>';
+  }
   function renderS80Tray(c, pending){
     if(!pending.length) return '';
     var bundles={};
@@ -2781,6 +2793,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--muted);margin-top:2px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
         html+=renderS80SubItems(m);
         html+=renderS80GpPreview(m);
+        html+=renderS80Confidence(m);
         html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">';
         html+='<label style="font-size:11px;color:var(--muted);">Who <select data-s80-owner="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="gp"'+(m.owner==='gp'?' selected':'')+'>GP does it</option><option value="team"'+(m.owner==='team'?' selected':'')+'>Team handles</option></select></label>';
         html+='<label style="font-size:11px;color:var(--muted);">How <select data-s80-mode="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="upload"'+(m.mode==='upload'?' selected':'')+'>GP uploads</option><option value="request_institution"'+(m.mode==='request_institution'?' selected':'')+'>GP requests from institution</option><option value="team"'+(m.mode==='team'?' selected':'')+'>Team handles</option></select></label>';
