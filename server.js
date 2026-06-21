@@ -29485,8 +29485,13 @@ Return ONLY valid JSON with no markdown formatting:
     const s80Tasks = (s80Rows.ok && Array.isArray(s80Rows.data)) ? s80Rows.data : [];
     let s80Deadline = null, s80Reference = null;
     const s80Items = [];
+    const s80TeamItems = [];
     s80Tasks.forEach(function (t) {
       const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      if (m.s80 && m.review_status === 'active' && m.owner === 'team'
+          && m.mode !== 'reply' && m.kind !== 'needs_split' && t.status !== 'cancelled') {
+        s80TeamItems.push({ id: t.id, title: t.title || '', kind: m.kind || '' });
+      }
       if (!m.s80 || m.review_status !== 'active' || m.owner !== 'gp') return;
       if (t.status === 'cancelled') return;
       if (t.ahpra_deadline && !s80Deadline) s80Deadline = t.ahpra_deadline;
@@ -29522,7 +29527,7 @@ Return ONLY valid JSON with no markdown formatting:
         due_date: t.ahpra_deadline || t.due_date || null
       });
     });
-    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items });
+    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items, team_items: s80TeamItems });
     return;
   }
 
