@@ -1976,6 +1976,38 @@ async function extractAhpraActionItems(emailMeta, ctx) {
   }
 }
 
+// Release a pending_review s80 bundle to the GP + team (pending_review -> active). Shared by
+// the manual release endpoint and the auto-release path. `actor` is recorded on the timeline.
+async function _releaseS80Bundle(caseId, bundleId, actor) {
+  const tRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.ahpra_action_item&limit=200');
+  if (!tRes.ok) return { ok: false, releasedGp: 0, releasedTeam: 0 };
+  const bundleTasks = (Array.isArray(tRes.data) ? tRes.data : []).filter(function (t) {
+    var m = t && typeof t.metadata === 'object' ? t.metadata : {};
+    return m && m.s80 && m.bundle_id === bundleId && m.review_status === 'pending_review';
+  });
+  if (bundleTasks.length === 0) return { ok: false, releasedGp: 0, releasedTeam: 0 };
+  let releasedGp = 0, releasedTeam = 0;
+  for (const t of bundleTasks) {
+    var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    meta.review_status = 'active';
+    meta.released_at = new Date().toISOString();
+    var newStatus = meta.owner === 'gp' ? 'waiting_on_gp' : 'open';
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+      method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
+    });
+    if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
+  }
+  if (releasedGp > 0) {
+    try {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
+      if (uid) await pushDocumentNotificationToUser(uid, { type: 'action_required', title: 'AHPRA has requested more information', detail: 'Please open your AHPRA page to see what is needed and the deadline.' });
+    } catch (e) { /* non-critical */ }
+  }
+  await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', actor || 'system');
+  return { ok: true, releasedGp: releasedGp, releasedTeam: releasedTeam };
+}
+
 // Create the holding-tray bundle of tasks for one AHPRA s80 notice. Tasks start in
 // review_status 'pending_review' (status 'waiting') so the team checks them before
 // anything reaches the GP. Shared by the live Gmail pipeline and the manual-ingest
@@ -2104,6 +2136,14 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
   }
 
   console.log('[AHPRA] Created s80 holding-tray bundle ' + bundleId + ' with ' + created + ' item(s) for case ' + gpCase.id);
+  if (S80_AUTOMATION_ENABLED && created > 0 && ahpraS80.bundleAutoReleasable(items, S80_AUTO_CONFIDENCE)) {
+    try {
+      await _releaseS80Bundle(gpCase.id, bundleId, 'system:auto_release');
+      await _logCaseEvent(gpCase.id, null, 'note', 'AHPRA notice auto-released', 'All items >= ' + Math.round(S80_AUTO_CONFIDENCE * 100) + '% confidence; released without manual review.', 'system:auto_release');
+      var arRso = await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va);
+      if (arRso) await pushDocumentNotificationToUser(arRso, { type: 'info', title: 'AHPRA notice auto-released', detail: 'A high-confidence AHPRA notice was released to the GP automatically — review if needed.' });
+    } catch (e) { console.error('[AHPRA] auto-release failed:', e.message); }
+  }
   return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false };
 }
 
@@ -32524,40 +32564,9 @@ Return ONLY valid JSON with no markdown formatting:
     const bundleId = body && typeof body.bundle_id === 'string' ? body.bundle_id.trim() : '';
     const caseId = body && typeof body.case_id === 'string' ? body.case_id.trim() : '';
     if (!bundleId || !caseId) { sendJson(res, 400, { ok: false, message: 'bundle_id and case_id required.' }); return; }
-    const tRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.ahpra_action_item&limit=200');
-    if (!tRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load bundle.' }); return; }
-    const bundleTasks = (Array.isArray(tRes.data) ? tRes.data : []).filter(function (t) {
-      var m = t && typeof t.metadata === 'object' ? t.metadata : {};
-      return m && m.s80 && m.bundle_id === bundleId && m.review_status === 'pending_review';
-    });
-    if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
-    let releasedGp = 0, releasedTeam = 0;
-    for (const t of bundleTasks) {
-      var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
-      meta.review_status = 'active';
-      meta.released_at = new Date().toISOString();
-      var newStatus = meta.owner === 'gp' ? 'waiting_on_gp' : 'open';
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
-        method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
-      });
-      if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
-    }
-    // Notify the GP only if they now have items to action.
-    if (releasedGp > 0) {
-      try {
-        const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-        const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
-        if (uid) {
-          await pushDocumentNotificationToUser(uid, {
-            type: 'action_required',
-            title: 'AHPRA has requested more information',
-            detail: 'Please open your AHPRA page to see what is needed and the deadline.'
-          });
-        }
-      } catch (e) { /* non-critical */ }
-    }
-    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', adminCtx.email);
-    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam });
+    const rel = await _releaseS80Bundle(caseId, bundleId, adminCtx.email);
+    if (!rel.ok) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
+    sendJson(res, 200, { ok: true, released_gp: rel.releasedGp, released_team: rel.releasedTeam });
     return;
   }
 
