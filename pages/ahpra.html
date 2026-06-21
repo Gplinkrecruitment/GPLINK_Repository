@@ -675,6 +675,16 @@
       display: inline-flex; align-items: center; gap: 4px;
       font-size: 11px; font-weight: 600; color: var(--success); margin-top: 8px;
     }
+    .els-test-wrap { margin-top: 12px; }
+    .els-status-seg { display: flex; gap: 8px; margin-top: 4px; }
+    .els-status-btn {
+      flex: 1; padding: 9px 10px; font-size: 12px; font-weight: 700;
+      color: var(--ink-soft); background: var(--surface-raised);
+      border: 1px solid var(--gp-border-strong); border-radius: var(--gp-r-md);
+      cursor: pointer; font-family: var(--font-body, 'DM Sans', sans-serif);
+    }
+    .els-status-btn.on { border-color: var(--gp-blue); background: var(--gp-blue-soft); color: var(--gp-blue-ink); }
+    .mark-complete-hint.els-block { color: var(--gp-warn, #b45309); font-weight: 600; }
     .els-saved-badge svg { width: 12px; height: 12px; }
 
     /* ---- ADDITIONAL DOCS MODAL ---- */
@@ -2335,14 +2345,79 @@
         ]
       }
     };
+    // English test options shown under the Test Pathway (value === display label).
+    var ELS_TEST_TYPES = ['IELTS Academic', 'OET', 'PTE Academic', 'TOEFL iBT', 'Cambridge (C1 Advanced / C2 Proficiency)'];
+    function _readAhpraState() {
+      try { var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); return (s && typeof s === 'object') ? s : {}; }
+      catch (e) { return {}; }
+    }
+    // Required-document list for the Test Pathway, adapted to the chosen test and
+    // whether the GP has already sat it (status 'done') or is still planning ('plan').
+    function buildElsTestDocs(testType, testStatus) {
+      if (testStatus === 'plan') {
+        return [
+          'Book and sit an approved English test' + (testType ? ' (' + testType + ')' : ' (IELTS / OET / PTE / TOEFL / Cambridge)'),
+          'Once you pass, upload your results showing your candidate number',
+          'Results must be within 2 years of application (or evidence of continuous work / study)'
+        ];
+      }
+      var d = ['Copy of your ' + (testType || 'test') + ' results with candidate number'];
+      if (/PTE/i.test(testType)) d.push('PTE Academic: authorise AHPRA to access your results through the PTE system');
+      d.push('If results > 2 years old + still working: CV in AHPRA format + employer letter confirming continuous employment');
+      d.push('If results > 2 years old + enrolled in study: transcript showing continuous enrolment in a Board-approved program');
+      return d;
+    }
+    // True once the GP has supplied enough English-pathway detail to complete the
+    // AHPRA application step: a pathway, plus (for Test Pathway) which test and
+    // whether it is done yet.
+    function isElsRequirementMet() {
+      var s = _readAhpraState();
+      if (!s.els_pathway) return false;
+      if (s.els_pathway === 'test') {
+        if (!s.els_test_type || !s.els_test_status) return false;
+      }
+      return true;
+    }
+    function elsGateHintText() {
+      var s = _readAhpraState();
+      if (!s.els_pathway) return "Select your English language pathway above to continue";
+      if (s.els_pathway === "test" && !s.els_test_type) return "Choose which English test you used";
+      if (s.els_pathway === "test" && !s.els_test_status) return "Tell us whether you've completed the test yet";
+      return "Once you've finished this step, click here to move on";
+    }
+    // Live-toggle the account_establishment "Mark Complete" button + hint as the GP fills
+    // in the English pathway, without a full re-render. Only touches buttons the renderer
+    // tagged data-els-gate (the current, not-yet-done application step).
+    function refreshElsGate() {
+      var gateBtns = document.querySelectorAll('.btn-complete[data-els-gate]');
+      if (!gateBtns.length) return;
+      var met = isElsRequirementMet();
+      for (var i = 0; i < gateBtns.length; i++) {
+        gateBtns[i].disabled = !met;
+        gateBtns[i].classList.toggle('cta-pulse', met);
+      }
+      var hint = document.getElementById('markCompleteHint');
+      if (hint) {
+        hint.textContent = met ? "Once you've finished this step, click here to move on" : elsGateHintText();
+        hint.classList.toggle('els-block', !met);
+      }
+    }
     function buildElsChecklistHtml(pathwayKey) {
       var pw = ELS_PATHWAY_DOCS[pathwayKey];
       if (!pw) return '';
       var docSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5H4a1.5 1.5 0 0 0-1.5 1.5v10A1.5 1.5 0 0 0 4 14.5h8A1.5 1.5 0 0 0 13.5 13V6L9 1.5z"/><path d="M9 1.5V6h4.5M10.5 9.5h-5M10.5 12h-5M6 7H5.5"/></svg>';
       var checkSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5 6 12 2.5 8.5"/></svg>';
-      var items = pw.docs.map(function (d) { return '<li>' + d + '</li>'; }).join('');
+      var title = pw.title;
+      var docs = pw.docs;
+      if (pathwayKey === 'test') {
+        var s = _readAhpraState();
+        var tt = s.els_test_type || '';
+        if (tt) title = pw.title + ' \u2014 ' + tt;
+        docs = buildElsTestDocs(tt, s.els_test_status || '');
+      }
+      var items = docs.map(function (d) { return '<li>' + d + '</li>'; }).join('');
       return '<div class="els-checklist">' +
-        '<div class="els-checklist-title">' + docSvg + ' Documents for ' + pw.title + '</div>' +
+        '<div class="els-checklist-title">' + docSvg + ' Documents for ' + title + '</div>' +
         '<ul>' + items + '</ul>' +
         '<div class="els-saved-badge">' + checkSvg + ' Pathway saved \u2014 visible to your GP Link team</div>' +
         '</div>';
@@ -3626,6 +3701,15 @@
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (stageStatus(progress, key) !== "current") return;
+      // Gate: the AHPRA application step needs the GP's English pathway (and, for the
+      // Test Pathway, which test + whether it's done) before it can be completed.
+      if (key === "account_establishment" && !isElsRequirementMet()) {
+        showToast("Please choose your English language pathway first");
+        var _elsSel = document.getElementById("elsPathwaySelect");
+        if (_elsSel && _elsSel.scrollIntoView) _elsSel.scrollIntoView({ behavior: "smooth", block: "center" });
+        refreshElsGate();
+        return;
+      }
       if (progress.stage !== key) progress.stage = key;
 
       progress.completed[key] = true;
@@ -4079,10 +4163,29 @@
 
       // Row 3: English language skills
       var savedElsPathway = '';
+      var savedElsTestType = '';
+      var savedElsTestStatus = '';
       try {
         var _elsState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         savedElsPathway = _elsState.els_pathway || '';
+        savedElsTestType = _elsState.els_test_type || '';
+        savedElsTestStatus = _elsState.els_test_status || '';
       } catch (e) {}
+      var elsTestOptionsHtml = ['<option value="">— Choose your test —</option>'].concat(
+        ELS_TEST_TYPES.map(function (tt) {
+          return '<option value="' + tt + '"' + (tt === savedElsTestType ? ' selected' : '') + '>' + tt + '</option>';
+        })
+      ).join('');
+      var elsTestWrapHtml =
+        '<div class="els-test-wrap" id="elsTestWrap"' + (savedElsPathway === 'test' ? '' : ' style="display:none"') + '>' +
+          '<div class="els-select-label">Which English test?</div>' +
+          '<select class="els-select" id="elsTestTypeSelect">' + elsTestOptionsHtml + '</select>' +
+          '<div class="els-select-label" style="margin-top:10px">Have you completed this test?</div>' +
+          '<div class="els-status-seg" id="elsStatusSeg">' +
+            '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes — I\'ve completed it</button>' +
+            '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet — booked / planning</button>' +
+          '</div>' +
+        '</div>';
       var elsOptions = [
         { key: '', label: '\u2014 Choose your ELS pathway \u2014' },
         { key: 'combined', label: 'Combined Education Pathway' },
@@ -4103,6 +4206,7 @@
             '<div class="els-select-label">Select your pathway</div>' +
             '<select class="els-select" id="elsPathwaySelect">' + elsOptionsHtml + '</select>' +
           '</div>' +
+          elsTestWrapHtml +
           '<div id="elsChecklistContainer">' + buildElsChecklistHtml(savedElsPathway) + '</div>' +
         '</div>' +
       '</div>';
@@ -4560,15 +4664,18 @@
       const tabIdx = TAB_STAGES.indexOf(key);
       const hasPrev = tabIdx > 0;
 
-      const markDisabled = !isCurrent || isDone;
+      const elsGateStage = (key === "account_establishment") && isCurrent && !isDone;
+      const elsGateActive = elsGateStage && !isElsRequirementMet();
+      const elsGateAttr = elsGateStage ? ' data-els-gate="1"' : '';
+      const markDisabled = !isCurrent || isDone || elsGateActive;
       const markLabel = isDone ? "Completed" : "Mark Complete";
       if (!isAwaitingOutcome) {
         navHtml += hasPrev
           ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span aria-hidden="true"></span>`;
-      navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       if (!isDone && isCurrent) {
-        navHtml += `<span class="mark-complete-hint">Once you've finished this step, click here to move on</span>`;
+        navHtml += `<span class="mark-complete-hint${elsGateActive ? " els-block" : ""}" id="markCompleteHint">${elsGateActive ? elsGateHintText() : "Once you've finished this step, click here to move on"}</span>`;
       }
       navHtml += `</div>`;
       }
@@ -4593,7 +4700,7 @@
           if (hasPrev) {
             hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
           }
-          hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+          hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button"${elsGateAttr} ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
         }
         headerActions.innerHTML = hdrHtml;
       }
@@ -4616,7 +4723,9 @@
       }
 
       const markBtn = document.getElementById("actionMarkBtn");
-      if (markBtn && !markBtn.disabled) {
+      if (markBtn) {
+        // Always wire the handler — the button may start disabled by the English-pathway
+        // gate and get enabled live by refreshElsGate(); markStageComplete guards anyway.
         markBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
 
@@ -4629,7 +4738,7 @@
 
       // Wire desktop header buttons
       const headerMarkBtn = document.getElementById("headerMarkBtn");
-      if (headerMarkBtn && !headerMarkBtn.disabled) {
+      if (headerMarkBtn) {
         headerMarkBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
       const headerPrevBtn = document.getElementById("headerPrevBtn");
@@ -4670,26 +4779,61 @@
       }
     }
 
-    // ELS pathway selection handler
+    // ELS pathway / test-type selection handler
     document.addEventListener("change", function (e) {
-      if (e.target && e.target.id === "elsPathwaySelect") {
+      if (!e.target) return;
+      if (e.target.id === "elsPathwaySelect") {
         var selectedKey = e.target.value;
-        var container = document.getElementById("elsChecklistContainer");
-        if (container) container.innerHTML = buildElsChecklistHtml(selectedKey);
+        var testWrap = document.getElementById("elsTestWrap");
+        if (testWrap) testWrap.style.display = (selectedKey === "test") ? "" : "none";
         // Save to state
         try {
           var ahpraState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-          if (selectedKey) {
-            ahpraState.els_pathway = selectedKey;
-          } else {
-            delete ahpraState.els_pathway;
-          }
+          if (selectedKey) { ahpraState.els_pathway = selectedKey; } else { delete ahpraState.els_pathway; }
+          // Leaving the Test Pathway clears the test details so a stale test can't satisfy the gate.
+          if (selectedKey !== "test") { delete ahpraState.els_test_type; delete ahpraState.els_test_status; }
           ahpraState.updatedAt = new Date().toISOString();
           localStorage.setItem(STORAGE_KEY, JSON.stringify(ahpraState));
           if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
           if (selectedKey) showToast("ELS pathway saved");
-        } catch (e) {}
+        } catch (e2) {}
+        var container = document.getElementById("elsChecklistContainer");
+        if (container) container.innerHTML = buildElsChecklistHtml(selectedKey);
+        refreshElsGate();
+      } else if (e.target.id === "elsTestTypeSelect") {
+        var testVal = e.target.value;
+        try {
+          var st = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+          if (testVal) { st.els_test_type = testVal; } else { delete st.els_test_type; }
+          st.updatedAt = new Date().toISOString();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
+          if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+        } catch (e3) {}
+        var c2 = document.getElementById("elsChecklistContainer");
+        if (c2) c2.innerHTML = buildElsChecklistHtml("test");
+        refreshElsGate();
       }
+    });
+    // ELS "have you completed the test?" status buttons
+    document.addEventListener("click", function (e) {
+      var btn = (e.target && e.target.closest) ? e.target.closest(".els-status-btn[data-els-status]") : null;
+      if (!btn) return;
+      var status = btn.getAttribute("data-els-status");
+      var seg = document.getElementById("elsStatusSeg");
+      if (seg) {
+        var bs = seg.querySelectorAll(".els-status-btn");
+        for (var i = 0; i < bs.length; i++) bs[i].classList.toggle("on", bs[i] === btn);
+      }
+      try {
+        var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        s.els_test_status = status;
+        s.updatedAt = new Date().toISOString();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+        if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+      } catch (e4) {}
+      var c3 = document.getElementById("elsChecklistContainer");
+      if (c3) c3.innerHTML = buildElsChecklistHtml("test");
+      refreshElsGate();
     });
 
     // Tutorial toggle handler

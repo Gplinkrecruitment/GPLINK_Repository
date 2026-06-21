@@ -33173,6 +33173,8 @@ Return ONLY valid JSON with no markdown formatting:
       if (typeof _ahpraP === 'string') try { _ahpraP = JSON.parse(_ahpraP); } catch (e) { _ahpraP = {}; }
       if (!_ahpraP || typeof _ahpraP !== 'object') _ahpraP = {};
       var elsPathway = _ahpraP.els_pathway || '';
+      var elsTestType = _ahpraP.els_test_type || '';
+      var elsTestStatus = _ahpraP.els_test_status || '';
       const countryRaw = (p.country_of_qualification || st.gp_selected_country || st.gp_onboarding && st.gp_onboarding.country || 'GB').toString().toUpperCase();
       // Map common name → code
       const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : 'GB');
@@ -33219,7 +33221,9 @@ Return ONLY valid JSON with no markdown formatting:
         practice_name: c.practice_name || (practiceContactMap[c.user_id] && practiceContactMap[c.user_id].practiceName) || '',
         practice_contact: practiceContactMap[c.user_id] || {},
         myintealth_id: visibleMyintealthId,
-        els_pathway: elsPathway
+        els_pathway: elsPathway,
+        els_test_type: elsTestType,
+        els_test_status: elsTestStatus
       });
     }
 
