@@ -40231,11 +40231,14 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === '/') {
-    // Host-aware root: admin hosts go to the admin dashboard (which itself routes to
-    // /pages/admin-signin when there's no admin session). Without this, the admin host
+    // Host-aware root: real admin hosts go to the admin dashboard (which itself routes
+    // to /pages/admin-signin when there's no admin session). Without this, the admin host
     // bare URL fell through to the GP app home (/pages/index), whose client-side
-    // onboarding check then bounced admins to /pages/onboarding. GP hosts keep the app home.
-    res.writeHead(302, { Location: isAllowedAdminHost(req) ? '/pages/admin' : '/pages/index' });
+    // onboarding check then bounced admins to /pages/onboarding. GP hosts — and the
+    // 'local' dev/test scope (loopback) — keep the GP app home as the default.
+    const rootHostScope = getAdminHostScope(req);
+    const rootIsAdminHost = rootHostScope === 'admin' || rootHostScope === 'super_admin';
+    res.writeHead(302, { Location: rootIsAdminHost ? '/pages/admin' : '/pages/index' });
     res.end();
     return;
   }
