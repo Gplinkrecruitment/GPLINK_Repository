@@ -21666,6 +21666,44 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // ── AHPRA s80 auto-chase: nudge + alert when a request stays unconfirmed too long ──
+      try {
+        var chRes = await supabaseDbRequest('registration_tasks',
+          'select=*&task_type=eq.ahpra_action_item&limit=300', { method: 'GET' });
+        var chTasks = (chRes.ok && Array.isArray(chRes.data)) ? chRes.data : [];
+        var chNow = Date.now();
+        for (var chTask of chTasks) {
+          var chM = (chTask.metadata && typeof chTask.metadata === 'object') ? chTask.metadata : {};
+          if (!chM.s80 || chM.mode !== 'request_institution' || chM.review_status !== 'active') continue;
+          if (!chM.gp_marked_complete_at || chM.received_confirmed_at) continue;
+          if (chTask.status === 'cancelled') continue;
+          var chSince = chNow - new Date(chM.gp_marked_complete_at).getTime();
+          if (!(chSince >= S80_CHASE_DAYS * 86400000)) continue;
+          var chLast = chM.last_chased_at ? (chNow - new Date(chM.last_chased_at).getTime()) : Infinity;
+          if (chLast < S80_CHASE_DAYS * 86400000) continue; // already chased recently
+          var chInst = chM.institution || 'the issuing institution';
+          try {
+            var chCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(chTask.case_id) + '&limit=1');
+            var chUserId = (chCaseRes.ok && Array.isArray(chCaseRes.data) && chCaseRes.data[0]) ? chCaseRes.data[0].user_id : null;
+            if (chUserId) {
+              await pushDocumentNotificationToUser(chUserId, { type: 'action_required', title: 'Still waiting on ' + chInst,
+                detail: 'We have not yet seen confirmation that "' + (chTask.title || 'your requested document') + '" reached AHPRA. Please follow up with ' + chInst + ' (and remember to CC us).' });
+            }
+            await _createRegTask(chTask.case_id, {
+              task_type: 'chase', title: 'AHPRA request unconfirmed: ' + (chTask.title || 'institution document'),
+              description: 'GP marked this requested ' + Math.floor(chSince / 86400000) + ' days ago but AHPRA receipt is not yet confirmed. Follow up with the GP / institution.',
+              priority: 'high', source_trigger: 's80_chase', related_stage: 'ahpra', _actor: 'system'
+            });
+            chM.last_chased_at = new Date().toISOString();
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(chTask.id),
+              { method: 'PATCH', body: { metadata: chM, updated_at: new Date().toISOString() } });
+            await _logCaseEvent(chTask.case_id, chTask.id, 'note', 'Auto-chased unconfirmed AHPRA request',
+              chInst + ' — ' + Math.floor(chSince / 86400000) + ' days since marked requested.', 'system:s80_chase');
+            rfResults.push({ task_id: chTask.id, title: chTask.title, status: 's80_chased' });
+          } catch (e) { console.error('[Cron] s80 chase failed for task ' + chTask.id + ':', e.message); }
+        }
+      } catch (e) { console.error('[Cron] s80 chase pass failed:', e.message); }
+
       sendJson(res, 200, { ok: true, processed: rfResults.length, results: rfResults });
     } catch (err) {
       console.error('[Cron] Reconcile follow-ups failed:', err);
