@@ -16,6 +16,7 @@
 - "Accepted" = `user_documents.status === 'approved'` (covers AI-accepted-on-upload and manual approval). Never mirror `rejected`/`uploaded`/in-review docs.
 - ID source = `user_profiles.id_copy_data_url` (data URL) + `id_copy_name`. ID permission = hello@mygplink.com.au only. All other docs = `mygplink.com.au` domain (fallback: explicit RSO emails).
 - Remove `{ type:'anyone' }` sharing for lifecycle documents/folders; never make ID `anyone`-readable.
+- **No new DB columns** (the Supabase `exec_sql` RPC does not exist; DDL is applied manually in the dashboard, which is not available here). All state is derived from Drive + existing columns: folder location from the personal folder's current Drive parent; per-doc mirror idempotency from the existing `user_documents.google_drive_file_id`; ID idempotency from a folder listing (ID file named with the `ID — ` prefix).
 - Owner email constant: `hello@mygplink.com.au`. Team domain: `mygplink.com.au`.
 - Commit after each task. Push to `origin/main` only in the final task (after full syntax check).
 
@@ -116,52 +117,9 @@ git commit -m "Add pure drive-lifecycle helpers (stage + accepted-status) with t
 
 ---
 
-### Task 2: DB migration — add lifecycle columns
+### Task 2: REMOVED — column-free design
 
-**Files:**
-- Modify (apply at runtime via exec_sql, not a file): `registration_cases` table.
-- Create: `supabase/migrations/20260622000000_drive_folder_lifecycle.sql` (record of the DDL).
-
-**Interfaces:**
-- Produces: columns `registration_cases.drive_folder_stage text` and `registration_cases.drive_id_file_id text`.
-
-- [ ] **Step 1: Write the migration SQL file**
-
-```sql
--- supabase/migrations/20260622000000_drive_folder_lifecycle.sql
-ALTER TABLE public.registration_cases
-  ADD COLUMN IF NOT EXISTS drive_folder_stage text,
-  ADD COLUMN IF NOT EXISTS drive_id_file_id text;
-```
-
-- [ ] **Step 2: Apply via exec_sql with the service key**
-
-Run (from worktree root, loads service key like prior tasks):
-```bash
-export SUPABASE_URL="$(grep -E '^SUPABASE_URL=' .env | head -1 | cut -d= -f2-)"
-export SUPABASE_SERVICE_ROLE_KEY="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env | head -1 | cut -d= -f2-)"
-curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/exec_sql" \
-  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"sql":"ALTER TABLE public.registration_cases ADD COLUMN IF NOT EXISTS drive_folder_stage text, ADD COLUMN IF NOT EXISTS drive_id_file_id text;"}'
-```
-Expected: success (empty/`null` result, no error).
-
-- [ ] **Step 3: Verify the columns exist**
-
-Run:
-```bash
-curl -s "$SUPABASE_URL/rest/v1/registration_cases?select=id,drive_folder_stage,drive_id_file_id&limit=1" \
-  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
-```
-Expected: a row with `drive_folder_stage` and `drive_id_file_id` keys (values null). No PGRST column error.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add supabase/migrations/20260622000000_drive_folder_lifecycle.sql
-git commit -m "Add drive_folder_stage + drive_id_file_id columns to registration_cases"
-```
+No DB migration. The `exec_sql` RPC does not exist and DDL cannot be applied from here. Folder location and idempotency are derived from Drive + the existing `user_documents.google_drive_file_id` column (see Global Constraints and Task 4). Skip this task entirely.
 
 ---
 
@@ -324,10 +282,7 @@ const lifecycle = await ensureLifecycleFolders();
 const parentId = (lifecycle && lifecycle.users) ? lifecycle.users : GOOGLE_DRIVE_ROOT_FOLDER_ID;
 const folder = await createPrivateDriveFolder(folderName, parentId);
 ```
-Also, after storing `google_drive_folder_id`, set the stage:
-```js
-await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: { google_drive_folder_id: folder.id, drive_folder_stage: 'users' } });
-```
+Keep the existing `google_drive_folder_id` PATCH unchanged (no new columns). Do NOT add `drive_folder_stage`.
 
 - [ ] **Step 2: Add `reconcileGpDrive`**
 
@@ -336,7 +291,7 @@ async function reconcileGpDrive(caseId) {
   try {
     if (!isGoogleDriveConfigured() || !caseId) return;
     const caseRes = await supabaseDbRequest('registration_cases',
-      'select=id,user_id,google_drive_folder_id,drive_folder_stage,drive_id_file_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      'select=id,user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     const rc = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0] : null;
     if (!rc) return;
     const userId = rc.user_id;
@@ -361,14 +316,20 @@ async function reconcileGpDrive(caseId) {
     if (!folderId) { folderId = await ensureGPDriveFolder(caseId, prof.first_name || '', prof.last_name || ''); }
     if (!folderId) return;
 
-    // move to correct lifecycle parent if needed
+    const drive = await getGoogleDriveClient();
+    if (!drive) return;
+
+    // move to correct lifecycle parent if the folder is not already under it (location derived from Drive — no DB column)
     const lifecycle = await ensureLifecycleFolders();
-    if (lifecycle && lifecycle[targetStage] && rc.drive_folder_stage !== targetStage) {
-      const moved = await moveDriveFolder(folderId, lifecycle[targetStage]);
-      if (moved) await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: { drive_folder_stage: targetStage } });
+    if (lifecycle && lifecycle[targetStage]) {
+      try {
+        const meta = await drive.files.get({ fileId: folderId, fields: 'parents', supportsAllDrives: true });
+        const curParent = meta && meta.data && Array.isArray(meta.data.parents) ? meta.data.parents[0] : null;
+        if (curParent !== lifecycle[targetStage]) await moveDriveFolder(folderId, lifecycle[targetStage]);
+      } catch (e) { console.error('[reconcileGpDrive] parent check failed:', e.message); }
     }
 
-    // mirror accepted user_documents lacking a Drive file
+    // mirror accepted user_documents lacking a Drive file (idempotent via existing google_drive_file_id)
     const docsRes = await supabaseDbRequest('user_documents',
       'select=id,document_key,file_name,status,storage_bucket,storage_path,file_url,mime_type,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId));
     const docs = (docsRes.ok && Array.isArray(docsRes.data)) ? docsRes.data : [];
@@ -383,16 +344,19 @@ async function reconcileGpDrive(caseId) {
       } catch (e) { console.error('[reconcileGpDrive] doc mirror failed:', d.document_key, e.message); }
     }
 
-    // mirror ID (hello@-only), once
-    if (prof.id_copy_data_url && !rc.drive_id_file_id) {
+    // mirror ID (hello@-only), once — idempotent via folder listing (file named "ID — …")
+    if (prof.id_copy_data_url) {
       try {
-        const comma = prof.id_copy_data_url.indexOf(',');
-        const meta = prof.id_copy_data_url.substring(0, comma);
-        const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
-        const buf = Buffer.from(prof.id_copy_data_url.substring(comma + 1), 'base64');
-        const ext = (mime.split('/')[1] || 'bin').replace('jpeg', 'jpg');
-        const up = await uploadPrivateToGoogleDrive(folderId, prof.id_copy_name || ('ID.' + ext), buf, mime, 'id_private');
-        if (up && up.id) await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: { drive_id_file_id: up.id } });
+        const list = await drive.files.list({ q: "'" + folderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+        const hasId = (list.data.files || []).some(f => /^ID — /.test(f.name || ''));
+        if (!hasId) {
+          const comma = prof.id_copy_data_url.indexOf(',');
+          const head = prof.id_copy_data_url.substring(0, comma);
+          const mime = (head.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+          const buf = Buffer.from(prof.id_copy_data_url.substring(comma + 1), 'base64');
+          const ext = (mime.split('/')[1] || 'bin').replace('jpeg', 'jpg');
+          await uploadPrivateToGoogleDrive(folderId, 'ID — ' + (prof.id_copy_name || ('identity.' + ext)), buf, mime, 'id_private');
+        }
       } catch (e) { console.error('[reconcileGpDrive] ID mirror failed:', e.message); }
     }
   } catch (err) { console.error('[reconcileGpDrive] error:', err.message); }
@@ -495,18 +459,18 @@ Expected: `FF-OK`, then push succeeds. (If `REBASE NEEDED`, rebase onto origin/m
 
 - [ ] **Step 4: Post-deploy verification (prod)**
 
-After Vercel builds (~1–2 min): open Smith Miller's and Sana Ahsan's Documents tabs in the admin (fires `reconcileGpDrive`). Then verify via DB:
+After Vercel builds (~1–2 min): open Smith Miller's and Sana Ahsan's Documents tabs in the admin (fires `reconcileGpDrive`). Then verify mirroring via DB (accepted docs now carry a Drive id):
 ```bash
-curl -s "$SUPABASE_URL/rest/v1/registration_cases?select=id,drive_folder_stage,drive_id_file_id&id=in.(10a3c2d8-aefc-43c7-af3c-7ae5c014ea97,bebb0985-3f2c-4430-b635-96d0ed3d3b17)" \
+curl -s "$SUPABASE_URL/rest/v1/user_documents?select=user_id,document_key,status,google_drive_file_id&status=eq.approved&user_id=in.(a505f0b8-fb62-490d-9d63-2c09f800366f,db02252c-36e8-4b56-86bf-c49ca97fc406)" \
   -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
 ```
-Expected: Smith `drive_folder_stage='candidates'`, Sana `drive_folder_stage='users'`. Confirm in Drive that the `Users`/`Candidates` folders exist and the personal folders moved. (Cannot be verified locally — Drive runs on prod.)
+Expected: approved docs have a non-null `google_drive_file_id`. Confirm in Drive (you) that `Users`/`Candidates`/`Archived` exist, Smith's folder is under `Candidates`, Sana's under `Users`, and ID is shared only with hello@. (Folder location + permissions cannot be verified locally — Drive runs on prod.)
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** §2 structure → Task 3 (`ensureLifecycleFolders`) + Task 4 (folder under Users). §3 triggers → Task 5 (placement/archive/reinstate) + Task 4 (signup via ensureGPDriveFolder). §4 mirroring + accepted defn → Task 1 (`isAcceptedStatus`) + Task 4 (mirror loop + ID). §5 permissions → Task 3 (`applyDriveDocPermissions`, private folders). §6 backfill → Task 5 (gp-documents reconcile) + Task 6 verification. §7 DB field → Task 2. Purge "keep folder" → no code needed (we simply never delete on purge; noted). Covered.
+- **Spec coverage:** §2 structure → Task 3 (`ensureLifecycleFolders`) + Task 4 (folder under Users). §3 triggers → Task 5 (placement/archive/reinstate) + Task 4 (signup via ensureGPDriveFolder). §4 mirroring + accepted defn → Task 1 (`isAcceptedStatus`) + Task 4 (mirror loop + ID). §5 permissions → Task 3 (`applyDriveDocPermissions`, private folders). §6 backfill → Task 5 (gp-documents reconcile) + Task 6 verification. §7 DB field → removed (column-free; folder location derived from Drive parent, idempotency from existing `google_drive_file_id` + folder listing). Purge "keep folder" → no code needed (we simply never delete on purge; noted). Covered.
 - **Placeholder scan:** none — all steps carry real code/commands.
 - **Type consistency:** `reconcileGpDrive(caseId)`, `ensureLifecycleFolders()`, `uploadPrivateToGoogleDrive(folderId, fileName, buffer, mimeType, mode)`, `applyDriveDocPermissions(fileId, mode)`, `moveDriveFolder(folderId, toParentId)` used consistently across tasks.
 - **Known adaptation points (verify in-task, not placeholders):** exact name/signature of `supabaseStorageDownloadObject` + `SUPABASE_DOCUMENT_BUCKET` (Task 4 Step 3); exact location of the `archiveUserAccount`/`reinstateUserAccount`/placement-transition insertion points (grep on origin/main during the task).

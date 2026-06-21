@@ -104,7 +104,7 @@ may be added to force it across all cases at once.
 
 ## 7. New / changed code (origin/main)
 
-- **DB:** add `registration_cases.drive_folder_stage text` (migration via `exec_sql`).
+- **DB:** none. (The `exec_sql` RPC does not exist and DDL is applied manually in the Supabase dashboard, unavailable here.) Folder location is derived from the personal folder's current Drive parent; per-doc idempotency uses the existing `user_documents.google_drive_file_id`; ID idempotency uses a folder listing (ID file named `ID — …`).
 - **New helpers:**
   - `ensureLifecycleFolders()` → ensures `Users/Candidates/Archived` exist under root, returns/caches their IDs.
   - `moveDriveFolder(folderId, toParentId, fromParentId?)` → `drive.files.update({ addParents, removeParents })`.
