@@ -4347,6 +4347,18 @@
       var s = map[item && item.status] || map.todo;
       return '<span style="font-size:10px;font-weight:700;color:' + s[1] + ';background:' + s[2] + ';border-radius:5px;padding:2px 7px;white-space:nowrap;">' + s[0] + '</span>';
     }
+    // Unmissable reminder: the GP must CC the team on any email to AHPRA / an institution.
+    function renderS80CcBanner(cc) {
+      if (!cc) return '';
+      var ccSafe = s80Esc(cc);
+      return '<div style="margin:14px auto 0;max-width:520px;border:1px solid var(--gp-amber-ink,#b45309);background:rgba(245,158,11,0.12);border-radius:12px;padding:12px 14px;">'
+        + '<div style="font-size:13px;font-weight:800;color:var(--gp-amber-ink,#b45309);">⚠️ Important — always CC us</div>'
+        + '<div style="font-size:13px;color:var(--ink);line-height:1.5;margin-top:4px;">When you email AHPRA — or ask an institution (e.g. GMC, OET) to send a document to AHPRA — you <strong>must add this address to CC</strong> so we can track it for you:</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+        + '<code style="font-size:13px;font-weight:700;background:var(--surface,#f8fafc);border:1px solid var(--border);border-radius:6px;padding:4px 8px;">' + ccSafe + '</code>'
+        + '<button type="button" data-mi-copy-cc="' + ccSafe + '" class="btn-secondary" style="font-size:12px;padding:4px 10px;">Copy</button>'
+        + '</div></div>';
+    }
     async function loadAhpraMoreInfo() {
       var data;
       try {
@@ -4457,6 +4469,7 @@
         '<div style="text-align:center;margin-bottom:10px;"><span style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:10px;background:var(--surface-raised);border:1px solid var(--border);font-size:13px;font-weight:600;color:var(--ink-muted);">Application Submitted</span></div>' +
         '<h2 style="font-family:var(--font-heading);font-size:clamp(1.4rem,5vw,1.9rem);font-weight:700;color:var(--ink);text-align:center;letter-spacing:-0.02em;line-height:1.15;margin:0 0 8px;">AHPRA has requested more information</h2>' +
         '<p style="font-size:14px;color:var(--ink-muted);line-height:1.5;text-align:center;max-width:440px;margin:0 auto;">Please complete the items below so we can move your application forward' + ref + '.</p>' +
+        renderS80CcBanner(data.cc_address) +
         deadlineHtml +
         progressHtml +
         '<div id="ahpraMoreInfoList" style="margin-top:18px;display:flex;flex-direction:column;gap:12px;">' + itemsHtml + '</div>' +
@@ -4476,6 +4489,13 @@
         inp.addEventListener('change', function (e) {
           var f = e.target.files && e.target.files[0];
           if (f) handleAhpraUpload(inp.getAttribute('data-mi-upload'), f);
+        });
+      });
+      grid.querySelectorAll('[data-mi-copy-cc]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var addr = b.getAttribute('data-mi-copy-cc') || '';
+          if (navigator.clipboard) { navigator.clipboard.writeText(addr).then(function(){ showToast('Address copied'); }, function(){ showToast('Copy failed — select it manually.'); }); }
+          else { showToast('Copy not supported — select it manually.'); }
         });
       });
     }
