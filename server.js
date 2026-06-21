@@ -7988,7 +7988,17 @@ async function _ensureRegCase(userId) {
     method: 'POST', headers: { Prefer: 'return=representation' },
     body: [{ user_id: userId, stage: 'myintealth', status: 'active' }]
   });
-  return ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
+  const newCase = ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
+  // Eagerly create the GP's Google Drive folder at registration so it always exists from day one.
+  if (newCase && newCase.id && isGoogleDriveConfigured()) {
+    try {
+      const _rcProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const _rcProf = (_rcProfRes.ok && Array.isArray(_rcProfRes.data) && _rcProfRes.data[0]) ? _rcProfRes.data[0] : {};
+      const _rcFolderId = await ensureGPDriveFolder(newCase.id, _rcProf.first_name || '', _rcProf.last_name || '');
+      if (_rcFolderId) newCase.google_drive_folder_id = _rcFolderId;
+    } catch (_rcErr) { console.error('[RegCase] Drive folder create failed (non-fatal):', _rcErr.message); }
+  }
+  return newCase;
 }
 
 // Auto-assign due_date based on task type when not explicitly set
@@ -31879,6 +31889,15 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
 
       // 7. Get Drive files
+      // Backfill: cases created before eager folder creation may have no folder yet — create it on first view.
+      if (!gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
+        try {
+          var _ensProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
+          var _ensProf = (_ensProfRes.ok && Array.isArray(_ensProfRes.data) && _ensProfRes.data[0]) ? _ensProfRes.data[0] : {};
+          var _ensFolderId = await ensureGPDriveFolder(gdCaseId, _ensProf.first_name || '', _ensProf.last_name || '');
+          if (_ensFolderId) gdCase.google_drive_folder_id = _ensFolderId;
+        } catch (_ensErr) { console.error('[gp-documents] ensure folder failed (non-fatal):', _ensErr.message); }
+      }
       var gdDriveFiles = [];
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
         try {
