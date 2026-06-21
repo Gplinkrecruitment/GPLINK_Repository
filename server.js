@@ -339,6 +339,23 @@ async function resolveCaseRsoAssignee(caseId, knownAssignedVa) {
   }
   return assignedVa || DEFAULT_RSO_USER_ID;
 }
+
+// The address a GP must CC on any email to AHPRA so we can see the thread: the
+// assigned RSO's monitored Gmail, falling back to the team archive.
+async function resolveS80CcAddress(caseId, assignedVa) {
+  try {
+    const rsoUserId = await resolveCaseRsoAssignee(caseId, assignedVa);
+    if (rsoUserId) {
+      const r = await supabaseDbRequest('va_gmail_accounts',
+        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1');
+      const addr = (r.ok && Array.isArray(r.data) && r.data[0] && r.data[0].email_address)
+        ? String(r.data[0].email_address).trim() : '';
+      if (addr) return addr;
+    }
+  } catch (e) { /* fall through to archive */ }
+  return MASTER_ARCHIVE_EMAIL;
+}
+
 let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
@@ -29527,7 +29544,11 @@ Return ONLY valid JSON with no markdown formatting:
         due_date: t.ahpra_deadline || t.due_date || null
       });
     });
-    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items, team_items: s80TeamItems });
+    let s80CcAddress = '';
+    if (s80Items.length) {
+      try { s80CcAddress = await resolveS80CcAddress(s80CaseId); } catch (e) { s80CcAddress = ''; }
+    }
+    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items, team_items: s80TeamItems, cc_address: s80CcAddress });
     return;
   }
 
