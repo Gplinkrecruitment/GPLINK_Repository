@@ -21492,8 +21492,6 @@ async function handleApi(req, res, pathname) {
         '?task_type=eq.followup&status=in.(open,in_progress,waiting)&due_date=lte.' + rfToday + '&select=*',
         { method: 'GET' });
       var rfTasks = rfTaskRes.ok && Array.isArray(rfTaskRes.data) ? rfTaskRes.data : [];
-      if (!rfTasks.length) { sendJson(res, 200, { ok: true, message: 'No follow-ups due', results: [] }); return; }
-
       var rfResults = [];
 
       for (var rfTask of rfTasks) {
@@ -21621,6 +21619,7 @@ async function handleApi(req, res, pathname) {
           var twThreadId = twTask.gmail_thread_id || (twM.original_email && twM.original_email.threadId) || '';
           if (!twThreadId) continue;
           try {
+            if (!(await checkAnthropicBudget())) break;
             var twCc = await resolveS80CcAddress(twTask.case_id);
             if (!twCc || twCc === MASTER_ARCHIVE_EMAIL) continue; // only a watched inbox can be read
             var twGmail = await getGmailClient(twCc);
