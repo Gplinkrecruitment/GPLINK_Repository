@@ -199,6 +199,9 @@ const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-
 // AHPRA s80 extraction runs on the newest model. Opus 4.7/4.8 reject `temperature`,
 // so the s80 extraction call below must NOT send it (see _extractAhpraActionItems).
 const ANTHROPIC_S80_MODEL = String(process.env.ANTHROPIC_S80_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// Shared AHPRA s80 automation thresholds (also used by the reconciliation cron + Phase 5).
+const S80_AUTO_CONFIDENCE = Number(process.env.S80_AUTO_CONFIDENCE || '0.92') || 0.92;
+const S80_CHASE_DAYS = Number(process.env.S80_CHASE_DAYS || '7') || 7;
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -347,7 +350,7 @@ async function resolveS80CcAddress(caseId, assignedVa) {
     const rsoUserId = await resolveCaseRsoAssignee(caseId, assignedVa);
     if (rsoUserId) {
       const r = await supabaseDbRequest('va_gmail_accounts',
-        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1');
+        'select=email_address&watch_active=eq.true&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1');
       const addr = (r.ok && Array.isArray(r.data) && r.data[0] && r.data[0].email_address)
         ? String(r.data[0].email_address).trim() : '';
       if (addr) return addr;
@@ -29516,7 +29519,7 @@ Return ONLY valid JSON with no markdown formatting:
       const up = (m.upload && typeof m.upload === 'object') ? m.upload : null;
       let status = 'todo';
       if (m.mode === 'request_institution') {
-        status = m.gp_marked_complete_at ? 'requested' : 'todo';
+        status = m.received_confirmed_at ? 'confirmed' : (m.gp_marked_complete_at ? 'requested' : 'todo');
       } else if (m.mode === 'upload') {
         if (up && up.status === 'approved') status = 'approved';
         else if (up && up.status === 'rejected') status = 'rejected';
@@ -29541,6 +29544,7 @@ Return ONLY valid JSON with no markdown formatting:
         file_name: up ? (up.file_name || '') : '',
         reject_reason: up ? (up.reject_reason || '') : '',
         gp_marked_complete_at: m.gp_marked_complete_at || null,
+        received_confirmed_at: m.received_confirmed_at || null,
         proof_file_name: (m.proof && m.proof.file_name) || '',
         due_date: t.ahpra_deadline || t.due_date || null
       });
