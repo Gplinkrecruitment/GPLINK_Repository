@@ -2827,7 +2827,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;">All the GP’s institution-request items are done. Send this on the original AHPRA thread, then mark it sent.</div>';
         html+='<div style="font-size:12px;color:var(--ink);margin-top:6px;"><strong>Subject:</strong> '+esc(draft.subject||'')+'</div>';
         html+='<pre id="s80draft-'+esc(t.id)+'" style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:280px;overflow:auto;">'+esc(draft.body||m.detail||'')+'</pre>';
-        html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-copy="'+esc(t.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Copy draft</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Mark sent</button></div>';
+        html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-ahpra-send="'+esc(t.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">📨 Send to AHPRA</button><button type="button" data-s80-copy="'+esc(t.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Copy draft</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Mark sent</button></div>';
       } else if(m.kind==='qualification_check'){
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
         html+='<div style="font-size:12px;color:var(--muted);margin-top:6px;">Book a guidance call to walk the GP through MyIntealth / the AMC and pin down the exact issue.</div>';
@@ -6243,6 +6243,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(s80Comp){ e.preventDefault();
         var compId=s80Comp.getAttribute("data-s80-complete");
         try{ await fetch('/api/admin/task?id='+encodeURIComponent(compId),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'completed'})}); }catch(err){}
+        await loadAll(true); return;
+      }
+      var s80Send=e.target.closest("[data-s80-ahpra-send]");
+      if(s80Send){ e.preventDefault();
+        if(!confirm('Send the combined reply to AHPRA now, with the approved files attached?'))return;
+        var sid=s80Send.getAttribute("data-s80-ahpra-send"); s80Send.disabled=true; var ot=s80Send.textContent; s80Send.textContent='Sending…';
+        try{ var r=await fetch('/api/admin/ahpra/reply/send',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:sid})}); var d=await r.json().catch(()=>({})); if(!d.ok){alert(d.message||'Send failed — copy the draft and send in Gmail.');s80Send.disabled=false;s80Send.textContent=ot;return;} }catch(err){alert('Send failed — copy the draft and send in Gmail.');s80Send.disabled=false;s80Send.textContent=ot;return;}
         await loadAll(true); return;
       }
       /* Close dropdowns on outside click */
