@@ -1702,6 +1702,20 @@ const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@myg
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
   .filter(e => !NEVER_PROCESS_EMAILS.has(e));
 
+// ⚠️⚠️ TEMPORARY TEST ONLY (added 2026-06-22) — re-watch the hello@ archive but ONLY
+// process mail from the allowlisted sender(s). Every other message (vendor mail, silent
+// case-copies, etc.) is dropped BEFORE any labeling/triage, so the archive is not flooded.
+// REVERT this block (and the three guarded spots that reference it) to fully restore the
+// permanent hello@ guard. See memory: hello-inbox-never-watched.
+const TEST_WATCH_INBOXES = new Set(
+  String(process.env.TEST_WATCH_INBOXES || 'hello@mygplink.com.au')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
+const TEST_WATCH_FROM_SENDERS = new Set(
+  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
+
 function isGmailConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
 }
@@ -2577,7 +2591,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   // mistakenly listed in MONITORED_VA_EMAILS or registered as a VA account, it is
   // never triaged. The renew-gmail-watch cron also no longer renews hello@'s watch,
   // so notifications stop once the current watch expires.
-  if (NEVER_PROCESS_EMAILS.has(emailAddress)) {
+  if (NEVER_PROCESS_EMAILS.has(emailAddress) && !TEST_WATCH_INBOXES.has(emailAddress)) {
     console.log('[Gmail] hello@/archive inbox monitoring disabled; ignoring notification for', emailAddress);
     return;
   }
@@ -2729,6 +2743,29 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         lowerHeaders[rawHeaders[hi].name.toLowerCase()] = rawHeaders[hi].value;
       }
       emailMeta.headers = lowerHeaders;
+
+      // ⚠️ TEMPORARY TEST — for a test-watched archive inbox (hello@), drop any message
+      // NOT from an allowlisted sender BEFORE any labeling/contact-detection/triage, so the
+      // archive's vendor/admin/case-copy mail is never processed. Only allowlisted senders pass.
+      if (TEST_WATCH_INBOXES.has(emailAddress) && NEVER_PROCESS_EMAILS.has(emailAddress)) {
+        var _twFrom = (String(emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+        if (!TEST_WATCH_FROM_SENDERS.has(_twFrom)) {
+          console.log('[Gmail][test-watch] Skipping', emailAddress, 'message from', _twFrom || '(unknown)', '— not in TEST_WATCH_FROM_SENDERS');
+          await supabaseDbRequest('processed_gmail_messages', '', {
+            method: 'POST',
+            body: [{
+              gmail_message_id: currentMsgId,
+              email_address: emailAddress,
+              sender: emailMeta.sender,
+              subject: emailMeta.subject,
+              result: 'filtered',
+              ai_summary: 'test-watch: sender not in allowlist',
+              processed_at: new Date().toISOString()
+            }]
+          }).catch(function () {});
+          continue;
+        }
+      }
 
       // ── Gmail Label Auto-Filing ──
       var allAddresses = extractAllAddresses(lowerHeaders);
@@ -3634,7 +3671,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 async function setupGmailWatch(userEmail) {
   // Hard backstop: never register a watch on admin/archive inboxes (hello@). Watching
   // floods the Ops Queue with vendor/admin mail; archiving copies INTO hello@ needs no watch.
-  if (NEVER_PROCESS_EMAILS.has(String(userEmail || '').trim().toLowerCase())) {
+  // TEMPORARY TEST exception: TEST_WATCH_INBOXES may be watched (processing is sender-gated).
+  var _swAddr = String(userEmail || '').trim().toLowerCase();
+  if (NEVER_PROCESS_EMAILS.has(_swAddr) && !TEST_WATCH_INBOXES.has(_swAddr)) {
     console.log('[Gmail] Refusing to watch never-process inbox:', userEmail);
     return { ok: false, skipped: true, reason: 'inbox monitoring disabled', error: 'monitoring disabled for ' + userEmail };
   }
@@ -21654,10 +21693,16 @@ async function handleApi(req, res, pathname) {
         var dvResult = await setupGmailWatch(dvAddr);
         cronResults.push({ email: dvAddr, success: !!(dvResult && dvResult.ok), expiry: dvResult && dvResult.ok ? dvResult.expiry : null, error: dvResult && !dvResult.ok ? dvResult.error : null });
       }
-      // Master archive (hello@) inbox monitoring is disabled for now — do NOT renew
-      // its Gmail watch. Archiving copies INTO hello@ does not require a watch, so this
-      // does not affect record-keeping.
-      cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: true, skipped: true, reason: 'inbox monitoring disabled' });
+      // Master archive (hello@) inbox monitoring is normally disabled — do NOT renew its
+      // Gmail watch. TEMPORARY TEST exception: if hello@ is in TEST_WATCH_INBOXES, register
+      // its watch so allowlisted test mail can be detected (processing is sender-gated in
+      // processGmailNotification). Revert the test toggle to restore the permanent guard.
+      if (TEST_WATCH_INBOXES.has(MASTER_ARCHIVE_EMAIL)) {
+        var helloWatchResult = await setupGmailWatch(MASTER_ARCHIVE_EMAIL);
+        cronResults.push({ email: MASTER_ARCHIVE_EMAIL, testWatch: true, success: !!(helloWatchResult && helloWatchResult.ok), expiry: helloWatchResult && helloWatchResult.ok ? helloWatchResult.expiry : null, error: helloWatchResult && !helloWatchResult.ok ? helloWatchResult.error : null });
+      } else {
+        cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: true, skipped: true, reason: 'inbox monitoring disabled' });
+      }
     }
     sendJson(res, 200, { ok: true, results: cronResults });
     return;
