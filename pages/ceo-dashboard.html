@@ -3837,7 +3837,10 @@
       h += ceoOpsRenderThread(msgs);
       h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px;color:var(--text)">CV Documents</div>';
       h += ceoOpsRenderDocs(docs);
-      h += ceoOpsRsoToolNote('Submit the alternate CV to the GP and review the SPPA-00 from the RSO’s admin tools.');
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" data-ceo-act="altcv_submit" data-task="' + esc(task.id) + '">Submit — Deliver to GP</button>';
+      if (meta.sppa_task_id) h += '<button class="ops-btn-secondary" data-ceo-act="open_pdf" data-pdf-task="' + escAttr(meta.sppa_task_id) + '">Review SPPA-00</button>';
+      h += '</div>';
       h += '</div>';
       return h;
     }
@@ -3890,7 +3893,8 @@
       if (hasGpResponse && hasDoc) {
         h += ceoOpsRenderThread(msgs);
         h += ceoOpsRenderDocs(currentDocs);
-        h += ceoOpsRsoToolNote('Reply to the AHPRA officer (with the document attached) from the RSO’s admin tools.');
+        h += ceoAhpraComposer(task, ahpraOfficerEmail, currentDocs);
+        h += '<div class="ops-action-row"><button class="ops-btn-danger" data-ceo-act="ahpra_escalate" data-task="' + esc(task.id) + '">Escalate to CEO</button></div>';
       } else if (task.status === 'waiting_on_gp') {
         h += '<div class="ops-expand-label">Waiting on GP</div>';
         h += ceoOpsRenderThread(msgs);
@@ -3904,7 +3908,14 @@
         if (task.description) h += '<div style="font-size:12px;color:var(--text);margin-top:4px">' + esc(task.description) + '</div>';
         h += '</div>';
         if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
-        h += ceoOpsRsoToolNote('Reply to AHPRA, request from the GP/practice, or escalate from the RSO’s admin tools.');
+        if (responseType === 'status_update') {
+          h += '<div class="ops-action-row"><button class="ops-btn-green" data-ceo-act="ahpra_ack" data-task="' + esc(task.id) + '">Acknowledge</button><button class="ops-btn-danger" data-ceo-act="ahpra_escalate" data-task="' + esc(task.id) + '">Escalate to CEO</button></div>';
+        } else if (responseType === 'escalation') {
+          h += '<div class="ops-action-row"><button class="ops-btn-danger" data-ceo-act="ahpra_escalate" data-task="' + esc(task.id) + '">Escalate to CEO</button></div>';
+        } else {
+          h += ceoAhpraComposer(task, ahpraOfficerEmail, currentDocs);
+          h += '<div class="ops-action-row"><button class="ops-btn-danger" data-ceo-act="ahpra_escalate" data-task="' + esc(task.id) + '">Escalate to CEO</button></div>';
+        }
       }
       h += '</div>';
       return h;
@@ -3955,7 +3966,28 @@
       }
       h += ceoOpsRenderThread(msgs);
       if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
-      h += ceoOpsRsoToolNote('Send/preview the SPPA-00, override Q7, or mark it returned from the RSO’s admin tools.');
+      var cs = (gpDetailCache && gpDetailCache.case) || {};
+      var gpEmail = cs.gp_email || '';
+      var gpNm = cs.gp_name || task.gp_name || '';
+      var practiceEmail = task.practice_contact_email || '';
+      var pcName = task.practice_contact_name || '';
+      h += '<div class="ops-action-row">';
+      if (sppaState === 'ready_to_send') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_send_candidate" data-task="' + esc(task.id) + '">Send to Candidate</button>';
+        h += '<button class="ops-btn-secondary" data-ceo-act="sppa_q7" data-task="' + esc(task.id) + '" data-conflict="' + (meta.is_conflict ? '1' : '0') + '">Override Q7</button>';
+      } else if (sppaState === 'sent_to_candidate') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_candidate" data-task="' + esc(task.id) + '">Upload GP Return</button>';
+      } else if (sppaState === 'gp_returned') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_send_practice" data-task="' + esc(task.id) + '">Send to Practice</button>';
+        h += '<button class="ops-btn-danger" data-ceo-act="sppa_correct_gp" data-task="' + esc(task.id) + '" data-email="' + escAttr(gpEmail) + '" data-gp="' + escAttr(gpNm) + '">Request GP Corrections</button>';
+      } else if (sppaState === 'sent_to_practice') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_practice" data-task="' + esc(task.id) + '">Upload Practice Return</button>';
+      } else if (sppaState === 'practice_returned') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_submit" data-task="' + esc(task.id) + '">Submit — Deliver to GP</button>';
+        h += '<button class="ops-btn-danger" data-ceo-act="sppa_correct_practice" data-task="' + esc(task.id) + '" data-email="' + escAttr(practiceEmail) + '" data-name="' + escAttr(pcName) + '" data-gp="' + escAttr(gpNm) + '">Request Corrections</button>';
+      }
+      h += '<button class="ops-btn-secondary" data-ceo-act="open_pdf" data-task="' + esc(task.id) + '">Preview PDF</button>';
+      h += '</div>';
       h += '</div>';
       return h;
     }
@@ -4030,6 +4062,8 @@
       var origText = btn.textContent;
       btn.disabled = true; btn.textContent = 'Sending…';
       var payload = { to: toVal, subject: subVal, bodyHtml: bodyHtml, taskId: tid, caseId: caseId, cc: ccVal };
+      var threadId = btn.getAttribute('data-ops-thread') || '';
+      if (threadId) payload.threadId = threadId;
       if (btn.hasAttribute('data-ops-auto-attach')) {
         var aUrl = btn.getAttribute('data-ops-attach-url') || '';
         var aName = btn.getAttribute('data-ops-attach-name') || 'attachment';
@@ -4042,6 +4076,91 @@
           : Promise.resolve();
         after.then(function() { showToast('Email sent', 'success'); refreshGpDetailTasks(); });
       }).catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); btn.disabled = false; btn.textContent = origText; });
+    }
+
+    // ── GP-file task actions ported from admin (alt-CV / AHPRA / SPPA). All hit the same
+    // /api/admin/va/task/* (or /api/admin/task) endpoints the RSO uses — a super-admin/CEO
+    // session passes their requireAdminSession guard (not RSO-assignment gated) — then refresh
+    // the GP file. Mirrors admin's altCvSubmit/ahpra*/sppa* handlers (admin.html 8350–8423).
+    function ceoTaskPost(url, okMsg) {
+      return apiFetch(url, { method: 'POST' }).then(function(d) {
+        if (d && d.ok) { showToast(okMsg, 'success'); refreshGpDetailTasks(); return true; }
+        showToast((d && (d.error || d.message)) || 'Action failed', 'error'); return false;
+      }).catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); return false; });
+    }
+    function ceoAltCvSubmit(taskId) {
+      if (!confirm('Submit alternate supervisor CV(s) and deliver to the GP?')) return;
+      ceoTaskPost('/api/admin/va/task/' + encodeURIComponent(taskId) + '/alt-cv-submit', 'Alternate CV(s) delivered to GP');
+    }
+    function ceoAhpraAcknowledge(taskId) {
+      if (!confirm('Acknowledge this AHPRA update?')) return;
+      ceoTaskPost('/api/admin/va/task/' + encodeURIComponent(taskId) + '/ahpra-acknowledge', 'AHPRA update acknowledged');
+    }
+    function ceoAhpraEscalate(taskId) {
+      var reason = prompt('Escalation reason:'); if (!reason) return;
+      apiFetch('/api/admin/task?id=' + encodeURIComponent(taskId), { method: 'PUT', body: { status: 'escalated', priority: 'urgent', escalated_reason: reason } })
+        .then(function(d) { if (d && d.ok) { showToast('Escalated to CEO', 'success'); refreshGpDetailTasks(); } else showToast((d && (d.error || d.message)) || 'Escalation failed', 'error'); })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
+    function ceoSppaSend(taskId, which) {
+      if (!confirm('Send SPPA-00 to the ' + (which === 'candidate' ? 'GP candidate' : 'practice contact') + ' via email?')) return;
+      ceoTaskPost('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-send-to-' + which, 'SPPA-00 sent to ' + which);
+    }
+    function ceoSppaSubmitFinal(taskId) {
+      if (!confirm('Submit final SPPA-00 and deliver to the GP?')) return;
+      ceoTaskPost('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', 'SPPA-00 submitted and delivered to GP');
+    }
+    function ceoSppaOverrideQ7(taskId, isConflict) {
+      var newVal = !isConflict;
+      var details = newVal ? (prompt('Enter conflict details text (or leave blank for default):') || '') : '';
+      if (!confirm('Override Q7 to ' + (newVal ? 'YES (conflict)' : 'NO (no conflict)') + '?')) return;
+      apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-override-q7', { method: 'POST', body: { is_conflict: newVal, details: details } })
+        .then(function(d) { if (d && d.ok) { showToast('Q7 overridden to ' + (newVal ? 'YES' : 'NO'), 'success'); refreshGpDetailTasks(); } else showToast((d && (d.error || d.message)) || 'Override failed', 'error'); })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
+    function ceoSppaMarkReturned(taskId, from) {
+      var input = document.createElement('input'); input.type = 'file'; input.accept = '.pdf,application/pdf';
+      input.onchange = function() {
+        var file = input.files && input.files[0]; if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+          apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-store-returned', { method: 'POST', body: { from: from, file_data_url: reader.result, file_name: file.name } })
+            .then(function(d) { if (d && d.ok) { showToast('Returned SPPA stored (' + from + ')', 'success'); refreshGpDetailTasks(); } else showToast((d && (d.error || d.message)) || 'Failed to store', 'error'); })
+            .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    }
+    function ceoSppaRequestCorrections(taskId, kind, email, name, gpName) {
+      var corrections = prompt(kind === 'gp' ? 'What corrections does the GP need to make? (included in the email)' : 'What corrections are needed? (sent to the practice)');
+      if (!corrections) return;
+      var url = '/api/admin/va/task/' + encodeURIComponent(taskId) + (kind === 'gp' ? '/sppa-request-gp-corrections' : '/sppa-request-corrections');
+      var body = kind === 'gp' ? { corrections: corrections, candidate_email: email, gp_name: gpName } : { corrections: corrections, practice_email: email, contact_name: name, gp_name: gpName };
+      apiFetch(url, { method: 'POST', body: body })
+        .then(function(d) { if (d && d.ok) { showToast('Corrections requested', 'success'); refreshGpDetailTasks(); } else showToast((d && (d.error || d.message)) || 'Failed to send', 'error'); })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
+    function ceoOpenTaskPdf(taskId) {
+      if (taskId) window.open('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf', '_blank', 'noopener');
+    }
+    // AHPRA reply-to-officer composer (reuses ceoSendComposerEmail via data-ops-send-email).
+    // Threads to the source Gmail message and auto-attaches the current document when present;
+    // marks the task completed on send (mirrors admin's AHPRA send 6974 → status=completed).
+    function ceoAhpraComposer(task, officerEmail, docs) {
+      var gpName = task.gp_name || 'the GP';
+      var threadId = task.source_gmail_message_id || '';
+      var cur = (docs && docs[0]) || {};
+      var attachUrl = cur.attachment_url || '';
+      var attachName = cur.filename || 'document';
+      var h = '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(officerEmail) + '" /></div>';
+      h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Re: ' + esc(task.title || 'AHPRA application') + ' — Dr ' + esc(gpName) + '" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Dear AHPRA Officer,<br><br>Please find the requested information below regarding Dr ' + esc(gpName) + '.<br><br>[Your reply]<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="completed"' + (threadId ? ' data-ops-thread="' + escAttr(threadId) + '"' : '') + (attachUrl ? ' data-ops-auto-attach="true" data-ops-attach-url="' + escAttr(attachUrl) + '" data-ops-attach-name="' + escAttr(attachName) + '"' : '') + '>Send to AHPRA</button></div>';
+      h += '</div>';
+      return h;
     }
 
     function loadGpTaskDetail(taskId) {
@@ -5249,6 +5368,28 @@
       // expand toggle so the click acts on the Send button, not the row.
       var ceoSendEmailBtn = e.target.closest('[data-ops-send-email]');
       if (ceoSendEmailBtn) { e.stopPropagation(); ceoSendComposerEmail(ceoSendEmailBtn); return; }
+
+      // GP-file task action buttons (alt-CV / AHPRA / SPPA), ported from admin. Handle BEFORE
+      // the expand toggle so the click acts on the button, not the row.
+      var ceoActBtn = e.target.closest('.gp-task-detail [data-ceo-act]');
+      if (ceoActBtn) {
+        e.stopPropagation();
+        var cAct = ceoActBtn.getAttribute('data-ceo-act');
+        var cTid = ceoActBtn.getAttribute('data-task') || '';
+        if (cAct === 'altcv_submit') ceoAltCvSubmit(cTid);
+        else if (cAct === 'ahpra_ack') ceoAhpraAcknowledge(cTid);
+        else if (cAct === 'ahpra_escalate') ceoAhpraEscalate(cTid);
+        else if (cAct === 'sppa_send_candidate') ceoSppaSend(cTid, 'candidate');
+        else if (cAct === 'sppa_send_practice') ceoSppaSend(cTid, 'practice');
+        else if (cAct === 'sppa_returned_candidate') ceoSppaMarkReturned(cTid, 'candidate');
+        else if (cAct === 'sppa_returned_practice') ceoSppaMarkReturned(cTid, 'practice');
+        else if (cAct === 'sppa_submit') ceoSppaSubmitFinal(cTid);
+        else if (cAct === 'sppa_q7') ceoSppaOverrideQ7(cTid, ceoActBtn.getAttribute('data-conflict') === '1');
+        else if (cAct === 'sppa_correct_gp') ceoSppaRequestCorrections(cTid, 'gp', ceoActBtn.getAttribute('data-email') || '', '', ceoActBtn.getAttribute('data-gp') || '');
+        else if (cAct === 'sppa_correct_practice') ceoSppaRequestCorrections(cTid, 'practice', ceoActBtn.getAttribute('data-email') || '', ceoActBtn.getAttribute('data-name') || '', ceoActBtn.getAttribute('data-gp') || '');
+        else if (cAct === 'open_pdf') ceoOpenTaskPdf(ceoActBtn.getAttribute('data-pdf-task') || cTid);
+        return;
+      }
 
       // ── Expand/collapse the task-detail accordion (Task 3d.6; port of admin 6237–6255) ──
       // Only for rows carrying data-gp-expand-task (document/AHPRA/SPPA/alt-CV tasks). Ignore
