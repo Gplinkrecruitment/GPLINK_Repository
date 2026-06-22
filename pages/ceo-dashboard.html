@@ -3143,14 +3143,16 @@
 
     // ── Admin-parity GP-task helpers (ported from pages/admin.html — READ-ONLY source) ──
     // Registration-stage ordering the RSO view groups tasks by (admin.html STAGE_ORDER
-    // 1542). Tasks read from /api/admin/case carry the same registration-style
+    // 1549). Includes 'career' (the DB stage for Secure Placement) so career tasks group
+    // under "Career" exactly like the RSO view, instead of falling into a trailing "Other"
+    // bucket. Tasks read from /api/admin/case carry the same registration-style
     // related_stage keys the RSO sees, so this maps 1:1.
-    var STAGE_ORDER = ['onboarding', 'placement', 'myintealth', 'amc', 'ahpra', 'visa', 'pbs', 'commencement'];
+    var STAGE_ORDER = ['onboarding', 'career', 'placement', 'myintealth', 'amc', 'ahpra', 'visa', 'pbs', 'commencement'];
 
     // Stage labels for the parity grouping (admin.html STEPS 1533–1541 + onboarding/other).
     // Independent of STAGE_LABELS (which keys on DB stages: 'career', '__none__').
     var PARITY_STAGE_LABELS = {
-      placement: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio',
+      career: 'Career', placement: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio',
       ahpra: 'AHPRA Registration', visa: 'Visa Application', pbs: 'PBS & Medicare',
       commencement: 'Commencement', onboarding: 'Onboarding', other: 'Other'
     };
@@ -3321,19 +3323,22 @@
     // badges, doc chip, guided prompt, escalated/waiting pills, nudge reminder, and the
     // .st-actions (guided-action button, schedule-call button, ••• more button). The ••• menu
     // contents + control wiring are added in Task 3d.4. Active tasks only by default; the
-    // existing Show-all toggle reveals completed/cancelled too.
-    // Statuses treated as "done" — hidden unless Show-all (mirror admin renderGpTasksPane
-    // filter 2679: complete/completed/cancelled).
-    var GP_PARITY_DONE_STATUSES = ['complete', 'completed', 'cancelled'];
+    // existing Show-all toggle reveals completed/cancelled/deferred too.
+    // Statuses hidden from the GP-file Tasks tab by default (the "Show all" toggle reveals
+    // them). Mirrors the RSO/admin view, which only loads active tasks (open / in_progress /
+    // waiting* / escalated): completed + cancelled are history, and 'deferred' practice-pack
+    // tasks (e.g. SPPA-00 + Section G, before the conflict scan activates them) are not yet
+    // live — the RSO never surfaces them (/api/admin/tasks omits 'deferred'), so neither do we.
+    var GP_PARITY_HIDDEN_STATUSES = ['complete', 'completed', 'cancelled', 'deferred'];
 
     function renderGpTasksTab() {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
       var cs = (gpDetailCache && gpDetailCache.case) || {};
       var all = (gpDetailCache && gpDetailCache.tasks) || [];
-      // Active tasks only by default (admin always hides done); Show-all reveals them too.
+      // Active tasks only by default (admin always hides done + deferred); Show-all reveals them.
       var tasks = all.filter(function(t) {
-        return t && (gpTasksShowAll || GP_PARITY_DONE_STATUSES.indexOf(t.status) === -1);
+        return t && (gpTasksShowAll || GP_PARITY_HIDDEN_STATUSES.indexOf(t.status) === -1);
       });
       var stageGroups = groupTasksByStage(tasks);
       var shownCount = tasks.length;
@@ -3348,9 +3353,9 @@
         return;
       }
 
-      // The case's DB stage uses 'career' where the registration STAGE_ORDER uses
-      // 'placement'; normalise so current/future-stage detection matches the RSO view.
-      var currentStage = cs.stage === 'career' ? 'placement' : (cs.stage || '');
+      // STAGE_ORDER now carries 'career' (the DB stage for Secure Placement), so the case's
+      // DB stage maps straight into it — current/future-stage detection matches the RSO view.
+      var currentStage = cs.stage || '';
       var currentIdx = STAGE_ORDER.indexOf(currentStage);
       var gpEmail = cs.gp_email || '';
       var isFirstActiveTask = true;
