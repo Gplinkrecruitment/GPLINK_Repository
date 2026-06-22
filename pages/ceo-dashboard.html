@@ -2921,6 +2921,10 @@
             });
           }
         }
+        if (d.lastScan) {
+          var ls = d.lastScan;
+          h += '<div class="ceo-tech-subkv" style="margin-top:10px">Last manual scan: path=<b>' + esc(ls.path || '?') + '</b>, messages found=<b>' + (ls.found != null ? ls.found : '?') + '</b>' + (ls.note ? ' (' + esc(ls.note) + ')' : '') + ' · stored historyId=' + esc(String(ls.storedHistoryId)) + ' · ' + esc(String(ls.at || '').slice(0, 19).replace('T', ' ')) + '</div>';
+        }
         h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
           + '<button id="gmailSetupBtn" style="background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Set up / Renew watches</button>'
           + '<button id="gmailPullBtn" style="background:var(--green-dim);color:var(--green);border:1px solid var(--green);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">Pull recent emails now</button>'

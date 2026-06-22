@@ -1715,6 +1715,8 @@ const TEST_WATCH_FROM_SENDERS = new Set(
   String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
+// TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
+var _lastGmailScanTrace = {};
 
 function isGmailConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
@@ -2648,6 +2650,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         console.log('[Gmail] Direct fetch: found', directList.data.messages.length, 'recent messages to process');
       } else {
         console.log('[Gmail] No messages in inbox for', emailAddress);
+        _lastGmailScanTrace[emailAddress] = { at: new Date().toISOString(), path: 'direct', storedHistoryId: storedHistoryId || null, found: 0, note: 'messages.list returned 0 INBOX messages' };
         return;
       }
     } catch (directErr) {
@@ -2709,6 +2712,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   }
 
   console.log('[Gmail] Found', messageIds.length, 'new messages for', emailAddress);
+  _lastGmailScanTrace[emailAddress] = { at: new Date().toISOString(), path: usedFallbackList ? 'direct' : 'history', storedHistoryId: storedHistoryId || null, found: messageIds.length };
 
   // Fetch open tasks once for all messages
   var openTasks = await getOpenPracticePackTasks();
@@ -36725,6 +36729,7 @@ Return ONLY valid JSON with no markdown formatting:
       watchStates: gwsStates,
       recentTestInbox: gwRecent,
       inboxProbe: gwInboxProbe,
+      lastScan: gwTestInbox ? (_lastGmailScanTrace[gwTestInbox] || null) : null,
       serverTime: new Date().toISOString()
     });
     return;
