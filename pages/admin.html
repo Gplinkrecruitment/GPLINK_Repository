@@ -5963,9 +5963,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var resp = await fetch('/api/admin/va/case/' + encodeURIComponent(caseId) + '/email-contacts', { credentials: 'include' });
       var data = await resp.json();
       selects.forEach(function(sel) {
+        // Exclude the recipient already in the "To" field — we're emailing the practice
+        // contact, so it should never also be offered as a CC.
+        var tid = sel.getAttribute('data-email-cc');
+        var toInput = document.querySelector('[data-email-to="' + tid + '"]') || document.querySelector('[data-gp-email-to="' + tid + '"]');
+        var toVal = toInput ? String(toInput.value || '').trim().toLowerCase() : '';
         sel.innerHTML = '';
-        if (data.ok && data.contacts && data.contacts.length > 0) {
-          data.contacts.forEach(function(c) {
+        var list = (data.ok && Array.isArray(data.contacts) ? data.contacts : []).filter(function(c) {
+          return String(c.email_address || '').trim().toLowerCase() !== toVal;
+        });
+        if (list.length > 0) {
+          list.forEach(function(c) {
             var opt = document.createElement('option');
             opt.value = c.email_address;
             opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address) + ' (seen ' + c.seen_count + 'x)';
@@ -5974,7 +5982,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         } else {
           var opt = document.createElement('option');
           opt.value = '';
-          opt.textContent = 'No contacts detected yet';
+          opt.textContent = 'No additional contacts detected';
           opt.disabled = true;
           sel.appendChild(opt);
         }
@@ -5991,6 +5999,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var task=(S.tasks||[]).find(function(t){return t.id===taskId;})||((S.va&&S.va.dashboard&&S.va.dashboard.todays_tasks)||[]).find(function(t){return t.id===taskId;});
     if(!task){container.innerHTML='<div style="padding:12px;color:var(--red)">Task not found</div>';return;}
     var pc=task.practice_contact||{};
+    // Fall back to the GP's case-level practice contact (the same source the GP profile
+    // shows) when this task's cached enrichment is missing it — prevents a stale/blank "To".
+    if(!(pc.contactEmail||pc.email)&&task.case_id){
+      var _gpRow=((S.va&&S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[]).find(function(u){return u.case_id===task.case_id;});
+      if(_gpRow&&_gpRow.practice_contact&&(_gpRow.practice_contact.contactEmail||_gpRow.practice_contact.email)) pc=_gpRow.practice_contact;
+    }
     // Extract metadata fields for AHPRA tasks (enrichment may not have hoisted them)
     var _md=task.metadata||{};
     if(typeof _md==='string')try{_md=JSON.parse(_md);}catch(e){_md={};}
@@ -6007,15 +6021,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       source_gmail_message_id:task.source_gmail_message_id||_md.source_gmail_message_id||''
     });
     var msgs=[],docs=[];
+    var _ccCaseId=adapted.case_id||S.selectedCaseId;
     try{
-      var [mRes,dRes]=await Promise.all([
+      var [mRes,dRes,ecRes]=await Promise.all([
         fetch('/api/admin/task/messages?taskId='+encodeURIComponent(taskId),{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};}),
-        fetch('/api/admin/task/documents?taskId='+encodeURIComponent(taskId),{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};})
+        fetch('/api/admin/task/documents?taskId='+encodeURIComponent(taskId),{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};}),
+        _ccCaseId?fetch('/api/admin/va/case/'+encodeURIComponent(_ccCaseId)+'/email-contacts',{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};}):Promise.resolve({})
       ]);
       if(mRes.ok&&Array.isArray(mRes.messages))msgs=mRes.messages;
       if(dRes.ok&&Array.isArray(dRes.documents))docs=dRes.documents;
       if(!S._opsDocCache)S._opsDocCache={};
       S._opsDocCache[taskId]=docs;
+      // Bulletproof the practice "To"/greeting: if cached enrichment had no contact,
+      // use the authoritative practice contact from the live email-contacts response.
+      if(!adapted.practice_contact_email&&ecRes&&ecRes.practiceContact&&ecRes.practiceContact.email){
+        adapted.practice_contact_email=ecRes.practiceContact.email;
+        if(!adapted.practice_contact_name)adapted.practice_contact_name=ecRes.practiceContact.name||'';
+      }
     }catch(e){}
     var tt2=adapted.task_type||'';
     if(adapted.related_document_key==='sppa_00'&&tt2==='practice_pack_child'){

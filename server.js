@@ -36601,6 +36601,7 @@ Return ONLY valid JSON with no markdown formatting:
     var contactsRes = await supabaseDbRequest('practice_detected_contacts',
       'select=*&case_id=eq.' + encodeURIComponent(contactsCaseId) + '&order=seen_count.desc');
     var contacts = contactsRes.ok && Array.isArray(contactsRes.data) ? contactsRes.data : [];
+    var practiceContact = null;
     // Never suggest the candidate's own email as a practice CC. This happens when the
     // practice uses a free domain (e.g. gmail.com): the GP's personal address matches the
     // practice domain in detectAndStoreContacts and gets recorded as a practice contact.
@@ -36611,9 +36612,14 @@ Return ONLY valid JSON with no markdown formatting:
         var ccProfRes = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
         var ccGpEmail = ccProfRes.ok && Array.isArray(ccProfRes.data) && ccProfRes.data[0] ? String(ccProfRes.data[0].email || '').trim().toLowerCase() : '';
         if (ccGpEmail) contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccGpEmail; });
+        // Authoritative practice contact (the "To") from the hired application — returned so
+        // the client can reliably fill the "To"/greeting even if its cached task data is stale.
+        var ccAppRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&status=eq.hired&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
+        var ccApp = ccAppRes.ok && Array.isArray(ccAppRes.data) && ccAppRes.data[0] ? ccAppRes.data[0] : null;
+        if (ccApp && ccApp.practice_contact_email) practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
       }
     } catch (e) { /* non-fatal: fall back to unfiltered contacts */ }
-    sendJson(res, 200, { ok: true, contacts: contacts });
+    sendJson(res, 200, { ok: true, contacts: contacts, practiceContact: practiceContact });
     return;
   }
 
