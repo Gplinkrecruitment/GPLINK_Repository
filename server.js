@@ -32494,15 +32494,19 @@ Return ONLY valid JSON with no markdown formatting:
           if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
         }
         hiredRes.data.forEach(function (app) {
-          if (practiceContactMap[app.user_id]) return;
+          var existing = practiceContactMap[app.user_id];
+          // Only skip if we already have a USABLE contact email. A career-state secured
+          // placement can set an entry with an empty email, which previously blocked this
+          // gp_applications fallback and left the practice "To" / greeting blank.
+          if (existing && existing.contactEmail) return;
           const role = roleMap[app.career_role_id] || {};
           practiceContactMap[app.user_id] = {
-            practiceName: role.practice_name || role.title || '',
-            contactName: app.practice_contact_name || '',
+            practiceName: (existing && existing.practiceName) || role.practice_name || role.title || '',
+            contactName: app.practice_contact_name || (existing && existing.contactName) || '',
             contactEmail: app.practice_contact_email || '',
-            contactPhone: '',
-            roleTitle: role.title || '',
-            location: [role.location_city, role.location_state].filter(Boolean).join(', ')
+            contactPhone: (existing && existing.contactPhone) || '',
+            roleTitle: (existing && existing.roleTitle) || role.title || '',
+            location: (existing && existing.location) || [role.location_city, role.location_state].filter(Boolean).join(', ')
           };
         });
       }
@@ -33342,15 +33346,18 @@ Return ONLY valid JSON with no markdown formatting:
           if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
         }
         hiredRes.data.forEach(function (app) {
-          if (practiceContactMap[app.user_id]) return; // career state already has data
+          var existing = practiceContactMap[app.user_id];
+          // Only skip if the career-state entry already has a usable contact email;
+          // otherwise fall back to the hired gp_applications contact (fixes blank "To").
+          if (existing && existing.contactEmail) return;
           const role = roleMap[app.career_role_id] || {};
           practiceContactMap[app.user_id] = {
-            practiceName: role.practice_name || role.title || '',
-            contactName: app.practice_contact_name || '',
+            practiceName: (existing && existing.practiceName) || role.practice_name || role.title || '',
+            contactName: app.practice_contact_name || (existing && existing.contactName) || '',
             contactEmail: app.practice_contact_email || '',
-            contactPhone: '',
-            roleTitle: role.title || '',
-            location: [role.location_city, role.location_state].filter(Boolean).join(', ')
+            contactPhone: (existing && existing.contactPhone) || '',
+            roleTitle: (existing && existing.roleTitle) || role.title || '',
+            location: (existing && existing.location) || [role.location_city, role.location_state].filter(Boolean).join(', ')
           };
         });
       }
@@ -36594,6 +36601,18 @@ Return ONLY valid JSON with no markdown formatting:
     var contactsRes = await supabaseDbRequest('practice_detected_contacts',
       'select=*&case_id=eq.' + encodeURIComponent(contactsCaseId) + '&order=seen_count.desc');
     var contacts = contactsRes.ok && Array.isArray(contactsRes.data) ? contactsRes.data : [];
+    // Never suggest the candidate's own email as a practice CC. This happens when the
+    // practice uses a free domain (e.g. gmail.com): the GP's personal address matches the
+    // practice domain in detectAndStoreContacts and gets recorded as a practice contact.
+    try {
+      var ccCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(contactsCaseId) + '&limit=1');
+      var ccUserId = ccCaseRes.ok && Array.isArray(ccCaseRes.data) && ccCaseRes.data[0] ? ccCaseRes.data[0].user_id : null;
+      if (ccUserId) {
+        var ccProfRes = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
+        var ccGpEmail = ccProfRes.ok && Array.isArray(ccProfRes.data) && ccProfRes.data[0] ? String(ccProfRes.data[0].email || '').trim().toLowerCase() : '';
+        if (ccGpEmail) contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccGpEmail; });
+      }
+    } catch (e) { /* non-fatal: fall back to unfiltered contacts */ }
     sendJson(res, 200, { ok: true, contacts: contacts });
     return;
   }
