@@ -36686,6 +36686,31 @@ Return ONLY valid JSON with no markdown formatting:
         'select=processed_at,sender,subject,result&email_address=eq.' + encodeURIComponent(gwTestInbox) + '&order=processed_at.desc&limit=6');
       gwRecent = gwRpRes.ok && Array.isArray(gwRpRes.data) ? gwRpRes.data : [];
     }
+    // Live probe: what does the service account ACTUALLY see in the test inbox? Reveals
+    // read-access / impersonation issues (watch can succeed while messages.list fails/empties).
+    var gwInboxProbe = null;
+    if (gwTestInbox && isGmailConfigured()) {
+      try {
+        var probeGmail = await getGmailClient(gwTestInbox);
+        if (!probeGmail) {
+          gwInboxProbe = { error: 'getGmailClient returned null — service account cannot access ' + gwTestInbox };
+        } else {
+          var probeList = await probeGmail.users.messages.list({ userId: gwTestInbox, labelIds: ['INBOX'], maxResults: 8 });
+          var probeMsgs = (probeList.data && probeList.data.messages) || [];
+          var probeItems = [];
+          for (var ppi = 0; ppi < Math.min(probeMsgs.length, 6); ppi++) {
+            try {
+              var probeFull = await probeGmail.users.messages.get({ userId: gwTestInbox, id: probeMsgs[ppi].id, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Date'] });
+              var ph = {}; ((probeFull.data.payload && probeFull.data.payload.headers) || []).forEach(function (x) { ph[x.name.toLowerCase()] = x.value; });
+              probeItems.push({ from: ph['from'] || '', subject: ph['subject'] || '', date: ph['date'] || '' });
+            } catch (pgErr2) { probeItems.push({ error: String((pgErr2 && pgErr2.message) || pgErr2) }); }
+          }
+          gwInboxProbe = { count: probeMsgs.length, resultSizeEstimate: probeList.data ? probeList.data.resultSizeEstimate : null, items: probeItems };
+        }
+      } catch (probeErr) {
+        gwInboxProbe = { error: String((probeErr && probeErr.message) || probeErr) };
+      }
+    }
     sendJson(res, 200, {
       ok: true,
       gmailConfigured: isGmailConfigured(),
@@ -36696,6 +36721,7 @@ Return ONLY valid JSON with no markdown formatting:
       testWatchSenders: Array.from(TEST_WATCH_FROM_SENDERS),
       watchStates: gwsStates,
       recentTestInbox: gwRecent,
+      inboxProbe: gwInboxProbe,
       serverTime: new Date().toISOString()
     });
     return;

@@ -2905,6 +2905,19 @@
               + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 64)) + '</div></div>';
           });
         }
+        if (d.inboxProbe) {
+          var ip = d.inboxProbe;
+          h += '<div class="ceo-tech-detail" style="margin-top:12px"><b>Service-account inbox view (live)</b></div>';
+          if (ip.error) {
+            h += '<div class="ceo-tech-err">⚠ ' + esc(ip.error) + '</div>';
+          } else {
+            h += '<div class="ceo-tech-subkv">Sees ' + (ip.count || 0) + ' INBOX message(s)' + (ip.resultSizeEstimate != null ? ' (est. ' + ip.resultSizeEstimate + ' total)' : '') + '</div>';
+            (ip.items || []).forEach(function(m){
+              if (m.error) { h += '<div class="ceo-tech-err">read error: ' + esc(m.error) + '</div>'; }
+              else { h += '<div class="ceo-tech-subrow">' + esc(String(m.from || '').slice(0, 44)) + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 56)) + ' · ' + esc(String(m.date || '').slice(0, 31)) + '</div></div>'; }
+            });
+          }
+        }
         h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
           + '<button id="gmailSetupBtn" style="background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Set up / Renew watches</button>'
           + '<button id="gmailPullBtn" style="background:var(--green-dim);color:var(--green);border:1px solid var(--green);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">Pull recent emails now</button>'
