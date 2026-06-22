@@ -25090,19 +25090,28 @@ async function handleApi(req, res, pathname) {
           console.log('[Gmail Admin] Cleared watch state + recent processed messages for', pgEmail);
         }
         await processGmailNotification(pgEmail, null);
+        await setupGmailWatch(pgEmail); // re-register so the watch stays active (status row restored, not left "Inactive")
         pgResults.push({ email: pgEmail, ok: true });
       } catch (pgErr) {
         pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
       }
     }
-    // TEMPORARY TEST: also direct-scan TEST_WATCH_INBOXES (e.g. hello@) so a manual pull
+    // TEMPORARY TEST: also DIRECT-scan TEST_WATCH_INBOXES (e.g. hello@) so a manual pull
     // picks up allowlisted mail even when live Pub/Sub notifications aren't firing. The
     // sender allowlist in processGmailNotification still drops everything except the
     // allowlisted sender, so the archive is never processed.
     for (var twPgInbox of TEST_WATCH_INBOXES) {
       if (MONITORED_VA_EMAILS.indexOf(twPgInbox) >= 0) continue;
       try {
+        if (isSupabaseDbConfigured()) {
+          // Delete the stored historyId to force a DIRECT inbox scan (last 15 messages) —
+          // this catches the allowlisted test email even if it arrived before the stored historyId.
+          await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(twPgInbox), { method: 'DELETE' });
+          var twCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          await supabaseDbRequest('processed_gmail_messages', 'email_address=eq.' + encodeURIComponent(twPgInbox) + '&processed_at=gt.' + encodeURIComponent(twCutoff), { method: 'DELETE' });
+        }
         await processGmailNotification(twPgInbox, null);
+        await setupGmailWatch(twPgInbox); // re-register so it stays active + status restored
         pgResults.push({ email: twPgInbox, testWatch: true, ok: true });
       } catch (twPgErr) {
         pgResults.push({ email: twPgInbox, testWatch: true, ok: false, error: twPgErr.message });
