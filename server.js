@@ -36702,7 +36702,10 @@ Return ONLY valid JSON with no markdown formatting:
             try {
               var probeFull = await probeGmail.users.messages.get({ userId: gwTestInbox, id: probeMsgs[ppi].id, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Date'] });
               var ph = {}; ((probeFull.data.payload && probeFull.data.payload.headers) || []).forEach(function (x) { ph[x.name.toLowerCase()] = x.value; });
-              probeItems.push({ from: ph['from'] || '', subject: ph['subject'] || '', date: ph['date'] || '' });
+              var probeSender = (String(ph['from'] || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+              var probeDedup = await supabaseDbRequest('processed_gmail_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(probeMsgs[ppi].id) + '&limit=1');
+              var probeAlready = probeDedup.ok && Array.isArray(probeDedup.data) && probeDedup.data.length > 0;
+              probeItems.push({ from: ph['from'] || '', subject: ph['subject'] || '', date: ph['date'] || '', senderEmail: probeSender, wouldPass: TEST_WATCH_FROM_SENDERS.has(probeSender), alreadyProcessed: probeAlready });
             } catch (pgErr2) { probeItems.push({ error: String((pgErr2 && pgErr2.message) || pgErr2) }); }
           }
           gwInboxProbe = { count: probeMsgs.length, resultSizeEstimate: probeList.data ? probeList.data.resultSizeEstimate : null, items: probeItems };

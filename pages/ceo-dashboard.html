@@ -2914,7 +2914,10 @@
             h += '<div class="ceo-tech-subkv">Sees ' + (ip.count || 0) + ' INBOX message(s)' + (ip.resultSizeEstimate != null ? ' (est. ' + ip.resultSizeEstimate + ' total)' : '') + '</div>';
             (ip.items || []).forEach(function(m){
               if (m.error) { h += '<div class="ceo-tech-err">read error: ' + esc(m.error) + '</div>'; }
-              else { h += '<div class="ceo-tech-subrow">' + esc(String(m.from || '').slice(0, 44)) + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 56)) + ' · ' + esc(String(m.date || '').slice(0, 31)) + '</div></div>'; }
+              else {
+                var flags = (m.wouldPass ? '<span class="ceo-tech-badge connected">allowlisted</span>' : '<span class="ceo-tech-badge">ignored</span>') + (m.alreadyProcessed ? ' <span class="ceo-tech-badge degraded">already processed</span>' : '');
+                h += '<div class="ceo-tech-subrow">' + esc(String(m.from || '').slice(0, 44)) + ' ' + flags + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 56)) + ' · ' + esc(String(m.date || '').slice(0, 31)) + '</div></div>';
+              }
             });
           }
         }
