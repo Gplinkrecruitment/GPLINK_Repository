@@ -25095,6 +25095,19 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
       }
     }
+    // TEMPORARY TEST: also direct-scan TEST_WATCH_INBOXES (e.g. hello@) so a manual pull
+    // picks up allowlisted mail even when live Pub/Sub notifications aren't firing. The
+    // sender allowlist in processGmailNotification still drops everything except the
+    // allowlisted sender, so the archive is never processed.
+    for (var twPgInbox of TEST_WATCH_INBOXES) {
+      if (MONITORED_VA_EMAILS.indexOf(twPgInbox) >= 0) continue;
+      try {
+        await processGmailNotification(twPgInbox, null);
+        pgResults.push({ email: twPgInbox, testWatch: true, ok: true });
+      } catch (twPgErr) {
+        pgResults.push({ email: twPgInbox, testWatch: true, ok: false, error: twPgErr.message });
+      }
+    }
     sendJson(res, 200, { ok: true, results: pgResults });
     return;
   }

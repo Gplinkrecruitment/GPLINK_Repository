@@ -2907,12 +2907,14 @@
         }
         h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
           + '<button id="gmailSetupBtn" style="background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Set up / Renew watches</button>'
+          + '<button id="gmailPullBtn" style="background:var(--green-dim);color:var(--green);border:1px solid var(--green);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">Pull recent emails now</button>'
           + '<button id="gmailWatchRefreshBtn" style="background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer">Refresh</button>'
           + '<span id="gmailSetupResult" style="font-size:12px;color:var(--text-muted)"></span></div>'
-          + '<div class="ceo-tech-subkv" style="margin-top:8px">“Set up / Renew” reconnects every watched inbox (including the test inbox) with Google so new mail is pushed to us. Otherwise renewal is automatic daily.</div>';
+          + '<div class="ceo-tech-subkv" style="margin-top:8px">“Set up / Renew” reconnects each watched inbox with Google. “Pull recent emails now” fetches the latest messages directly (use if live detection seems delayed) — only allowlisted senders are processed.</div>';
         card.innerHTML = h;
         var b1 = document.getElementById('gmailSetupBtn'); if (b1) b1.onclick = runGmailSetup;
         var b2 = document.getElementById('gmailWatchRefreshBtn'); if (b2) b2.onclick = loadGmailWatchCard;
+        var b3 = document.getElementById('gmailPullBtn'); if (b3) b3.onclick = runGmailPull;
       }).catch(function(e){ var cc = document.getElementById('gmailWatchCard'); if (cc) cc.innerHTML = '<div class="ceo-tech-detail">Error loading Gmail status: ' + esc(e.message) + '</div>'; });
     }
 
@@ -2932,6 +2934,23 @@
         if (rs) { rs.style.color = failed.length ? 'var(--amber)' : 'var(--green)'; rs.textContent = okCount + ' inbox(es) registered' + (failed.length ? '; ' + failed.length + ' failed (' + esc(failed.map(function(r){ return r.email; }).join(', ')) + ')' : '') + '.'; }
         setTimeout(loadGmailWatchCard, 1200);
       }).catch(function(e){ if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Error: ' + e.message; } if (btn) { btn.disabled = false; btn.textContent = 'Set up / Renew watches'; } });
+    }
+
+    function runGmailPull() {
+      var rs = document.getElementById('gmailSetupResult');
+      var btn = document.getElementById('gmailPullBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Pulling…'; }
+      if (rs) { rs.style.color = 'var(--text-muted)'; rs.textContent = 'Fetching recent emails…'; }
+      apiFetch('/api/admin/process-gmail', { method: 'POST' }).then(function(d){
+        if (!d || !d.ok) {
+          if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Pull failed: ' + ((d && d.message) || 'error'); }
+          if (btn) { btn.disabled = false; btn.textContent = 'Pull recent emails now'; }
+          return;
+        }
+        var fails = (d.results || []).filter(function(r){ return !r.ok; });
+        if (rs) { rs.style.color = fails.length ? 'var(--amber)' : 'var(--green)'; rs.textContent = 'Pull complete' + (fails.length ? ' (' + fails.length + ' inbox error(s))' : '') + ' — see Recent activity below.'; }
+        setTimeout(loadGmailWatchCard, 1400);
+      }).catch(function(e){ if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Error: ' + e.message; } if (btn) { btn.disabled = false; btn.textContent = 'Pull recent emails now'; } });
     }
 
     // Fetch the two health summaries independently; a failure of either shows a
