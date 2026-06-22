@@ -2651,6 +2651,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       } else {
         console.log('[Gmail] No messages in inbox for', emailAddress);
         _lastGmailScanTrace[emailAddress] = { at: new Date().toISOString(), path: 'direct', storedHistoryId: storedHistoryId || null, found: 0, note: 'messages.list returned 0 INBOX messages' };
+        try { await setRuntimeKv('gmail_scan_trace:' + emailAddress, _lastGmailScanTrace[emailAddress], Date.now() + 3600000); } catch (e) {}
         return;
       }
     } catch (directErr) {
@@ -2713,6 +2714,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 
   console.log('[Gmail] Found', messageIds.length, 'new messages for', emailAddress);
   _lastGmailScanTrace[emailAddress] = { at: new Date().toISOString(), path: usedFallbackList ? 'direct' : 'history', storedHistoryId: storedHistoryId || null, found: messageIds.length };
+  try { await setRuntimeKv('gmail_scan_trace:' + emailAddress, _lastGmailScanTrace[emailAddress], Date.now() + 3600000); } catch (e) {}
 
   // Fetch open tasks once for all messages
   var openTasks = await getOpenPracticePackTasks();
