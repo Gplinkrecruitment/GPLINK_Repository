@@ -24876,6 +24876,20 @@ async function handleApi(req, res, pathname) {
         error: setupWatchResult && !setupWatchResult.ok ? setupWatchResult.error : null
       });
     }
+    // TEMPORARY TEST: also (re)register watches for TEST_WATCH_INBOXES (e.g. hello@) so the
+    // scoped test watch can be activated immediately from this admin button. Revert with the
+    // rest of the TEST_WATCH block once testing is done.
+    for (var twSetupInbox of TEST_WATCH_INBOXES) {
+      if (MONITORED_VA_EMAILS.indexOf(twSetupInbox) >= 0) continue;
+      var twSetupResult = await setupGmailWatch(twSetupInbox);
+      gmailSetupResults.push({
+        email: twSetupInbox,
+        testWatch: true,
+        success: !!(twSetupResult && twSetupResult.ok),
+        expiry: twSetupResult && twSetupResult.ok ? twSetupResult.expiry : null,
+        error: twSetupResult && !twSetupResult.ok ? twSetupResult.error : null
+      });
+    }
     sendJson(res, 200, { ok: true, results: gmailSetupResults });
     return;
   }
