@@ -2832,6 +2832,7 @@
       var c = document.getElementById('techContent');
       if (!c) return;
       var html = '<div class="ceo-mc-head"><h2 style="font-size:16px;font-weight:700">Technical</h2></div>';
+      html += '<div class="ceo-tech-cards" style="margin-bottom:14px"><div class="ceo-tech-card" id="gmailWatchCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading Gmail watch status…</div></div></div>';
       if (!integrations.length) {
         html += '<div class="drilldown-empty">No integrations reported.</div>';
       } else {
@@ -2858,6 +2859,79 @@
         + '</div>';
       c.innerHTML = html;
       loadTechnicalHealth();
+      loadGmailWatchCard();
+    }
+
+    // ── Gmail Watch & Detection card (status + self-service setup) ──
+    function loadGmailWatchCard() {
+      var card = document.getElementById('gmailWatchCard');
+      if (!card) return;
+      apiFetch('/api/admin/gmail/watch-status').then(function(d) {
+        card = document.getElementById('gmailWatchCard');
+        if (!card) return;
+        if (!d || !d.ok) {
+          card.innerHTML = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📧 Gmail Watch &amp; Detection</span></div><div class="ceo-tech-detail">Status unavailable' + (d && d.message ? ': ' + esc(d.message) : '') + '</div>';
+          return;
+        }
+        var now = Date.now();
+        var test = Array.isArray(d.testWatchInboxes) ? d.testWatchInboxes : [];
+        var senders = Array.isArray(d.testWatchSenders) ? d.testWatchSenders : [];
+        var h = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📧 Gmail Watch &amp; Detection</span>'
+          + '<span class="ceo-tech-badge ' + (d.gmailConfigured ? 'connected' : 'disconnected') + '">' + (d.gmailConfigured ? 'Configured' : 'Not configured') + '</span></div>';
+        if (test.length) {
+          h += '<div style="background:var(--amber-dim);color:var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.5">'
+            + '⚠ <b>TEST MODE</b> — watching <b>' + esc(test.join(', ')) + '</b>, but only mail from <b>' + esc(senders.join(', ') || '(none)') + '</b> is processed. Everything else is ignored.</div>';
+        }
+        var inboxes = {};
+        (d.monitored || []).forEach(function(e){ inboxes[e] = { email: e, role: 'VA' }; });
+        test.forEach(function(e){ inboxes[e] = { email: e, role: 'TEST (scoped)' }; });
+        (d.watchStates || []).forEach(function(s){ if (!inboxes[s.email_address]) inboxes[s.email_address] = { email: s.email_address, role: '' }; inboxes[s.email_address].state = s; });
+        h += '<div class="ceo-tech-detail"><b>Watched inboxes</b></div>';
+        Object.keys(inboxes).forEach(function(em){
+          var info = inboxes[em], s = info.state || {};
+          var exp = s.watch_expiry ? Date.parse(s.watch_expiry) : NaN;
+          var upd = s.updated_at ? Date.parse(s.updated_at) : NaN;
+          var active = !isNaN(exp) ? (exp > now) : (!isNaN(upd) ? (now - upd < 7 * 864e5) : false);
+          h += '<div class="ceo-tech-subrow"><b>' + esc(em) + '</b>' + (info.role ? ' <span style="color:var(--text-dim)">· ' + esc(info.role) + '</span>' : '')
+            + ' <span class="ceo-tech-badge ' + (active ? 'connected' : 'disconnected') + '">' + (active ? 'Active' : 'Inactive') + '</span>'
+            + '<div class="ceo-tech-subkv">' + (!isNaN(exp) ? 'expires ' + new Date(exp).toLocaleString() : 'no expiry recorded') + ' · last update ' + (!isNaN(upd) ? new Date(upd).toLocaleString() : 'never') + '</div></div>';
+        });
+        if (test.length) {
+          h += '<div class="ceo-tech-detail" style="margin-top:12px"><b>Recent ' + esc(test[0]) + ' activity</b></div>';
+          var rec = d.recentTestInbox || [];
+          if (!rec.length) h += '<div class="ceo-tech-subrow" style="color:var(--text-dim)">— nothing processed yet —</div>';
+          rec.forEach(function(m){
+            h += '<div class="ceo-tech-subrow">' + esc(String(m.processed_at || '').slice(0, 19).replace('T', ' ')) + ' · from ' + esc(String(m.sender || '').slice(0, 42)) + ' · <b>' + esc(m.result || '') + '</b>'
+              + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 64)) + '</div></div>';
+          });
+        }
+        h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+          + '<button id="gmailSetupBtn" style="background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Set up / Renew watches</button>'
+          + '<button id="gmailWatchRefreshBtn" style="background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer">Refresh</button>'
+          + '<span id="gmailSetupResult" style="font-size:12px;color:var(--text-muted)"></span></div>'
+          + '<div class="ceo-tech-subkv" style="margin-top:8px">“Set up / Renew” reconnects every watched inbox (including the test inbox) with Google so new mail is pushed to us. Otherwise renewal is automatic daily.</div>';
+        card.innerHTML = h;
+        var b1 = document.getElementById('gmailSetupBtn'); if (b1) b1.onclick = runGmailSetup;
+        var b2 = document.getElementById('gmailWatchRefreshBtn'); if (b2) b2.onclick = loadGmailWatchCard;
+      }).catch(function(e){ var cc = document.getElementById('gmailWatchCard'); if (cc) cc.innerHTML = '<div class="ceo-tech-detail">Error loading Gmail status: ' + esc(e.message) + '</div>'; });
+    }
+
+    function runGmailSetup() {
+      var rs = document.getElementById('gmailSetupResult');
+      var btn = document.getElementById('gmailSetupBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Setting up…'; }
+      if (rs) { rs.style.color = 'var(--text-muted)'; rs.textContent = ''; }
+      apiFetch('/api/admin/gmail/setup-watch', { method: 'POST' }).then(function(d){
+        if (!d || !d.ok || !Array.isArray(d.results)) {
+          if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Failed: ' + ((d && d.message) || 'error'); }
+          if (btn) { btn.disabled = false; btn.textContent = 'Set up / Renew watches'; }
+          return;
+        }
+        var okCount = d.results.filter(function(r){ return r.success; }).length;
+        var failed = d.results.filter(function(r){ return !r.success; });
+        if (rs) { rs.style.color = failed.length ? 'var(--amber)' : 'var(--green)'; rs.textContent = okCount + ' inbox(es) registered' + (failed.length ? '; ' + failed.length + ' failed (' + esc(failed.map(function(r){ return r.email; }).join(', ')) + ')' : '') + '.'; }
+        setTimeout(loadGmailWatchCard, 1200);
+      }).catch(function(e){ if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Error: ' + e.message; } if (btn) { btn.disabled = false; btn.textContent = 'Set up / Renew watches'; } });
     }
 
     // Fetch the two health summaries independently; a failure of either shows a

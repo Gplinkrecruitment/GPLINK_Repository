@@ -36650,6 +36650,35 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Gmail watch status + config (CEO Technical card) ──
+  if (pathname === '/api/admin/gmail/watch-status' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const gwAdmin = requireAdminSession(req, res);
+    if (!gwAdmin) return;
+    var gwsRes = await supabaseDbRequest('gmail_watch_state', 'select=email_address,history_id,watch_expiry,updated_at&order=updated_at.desc');
+    var gwsStates = gwsRes.ok && Array.isArray(gwsRes.data) ? gwsRes.data : [];
+    var gwRecent = [];
+    var gwTestInbox = TEST_WATCH_INBOXES.size ? Array.from(TEST_WATCH_INBOXES)[0] : null;
+    if (gwTestInbox) {
+      var gwRpRes = await supabaseDbRequest('processed_gmail_messages',
+        'select=processed_at,sender,subject,result&email_address=eq.' + encodeURIComponent(gwTestInbox) + '&order=processed_at.desc&limit=6');
+      gwRecent = gwRpRes.ok && Array.isArray(gwRpRes.data) ? gwRpRes.data : [];
+    }
+    sendJson(res, 200, {
+      ok: true,
+      gmailConfigured: isGmailConfigured(),
+      masterArchive: MASTER_ARCHIVE_EMAIL,
+      monitored: Array.from(MONITORED_VA_EMAILS),
+      neverProcess: Array.from(NEVER_PROCESS_EMAILS),
+      testWatchInboxes: Array.from(TEST_WATCH_INBOXES),
+      testWatchSenders: Array.from(TEST_WATCH_FROM_SENDERS),
+      watchStates: gwsStates,
+      recentTestInbox: gwRecent,
+      serverTime: new Date().toISOString()
+    });
+    return;
+  }
+
   // ── Get detected contacts for a case (CC dropdown) ──
   if (req.method === 'GET' && pathname.startsWith('/api/admin/va/case/') && pathname.endsWith('/email-contacts')) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
