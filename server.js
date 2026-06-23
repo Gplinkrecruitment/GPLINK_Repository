@@ -33292,6 +33292,7 @@ Return ONLY valid JSON with no markdown formatting:
           : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
         + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows.'
         + ' CRITICAL — practice documents: you may ONLY ask the practice to provide, complete, sign, or send documents listed under practice_documents.outstanding_from_practice. NEVER ask the practice for anything listed under practice_documents.do_not_request — those are already received, handled automatically (e.g. Section G), under review, waiting on the GP, or have not yet been formally requested from the practice (still locked). If outstanding_from_practice is empty, do NOT request any documents at all — simply give a brief, accurate progress update. Never invent next steps, documents, or deadlines that the context does not support.'
+        + ' When you DO request one of these specific documents, state its signing requirement: a Supervisor CV must be dated and signed by the supervisor; a Position Description must be signed by the practice owner/employer; an Offer/Contract must be signed by both the candidate and the employer.'
         + ' Return ONLY the email reply text, no subject line or metadata.';
 
       var apiKey = process.env.ANTHROPIC_API_KEY;

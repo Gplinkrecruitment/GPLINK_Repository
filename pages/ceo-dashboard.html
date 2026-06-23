@@ -3851,6 +3851,12 @@
       var hasDoc = currentDocs.length > 0;
       var lastInbound = msgs.filter(function(m) { return m.direction === 'inbound'; }).pop();
       var h = '<div class="ops-expand-section">';
+      // Document-specific signing requirement (kept in sync with admin renderOpsPracticePackChild
+      // signReq + the server suggest-reply prompt): supervisor CV must be dated and signed by the
+      // supervisor; position description must be signed by the practice owner/employer.
+      var signReq = task.related_document_key === 'supervisor_cv' ? 'Please make sure the CV is dated and signed by the supervisor.'
+                  : task.related_document_key === 'position_description' ? 'Please make sure the position description is signed by the practice owner/employer.'
+                  : '';
 
       // State B: practice responded with a document — response banner + doc + controls.
       if (hasInbound && hasDoc) {
@@ -3890,7 +3896,7 @@
         h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(task.practice_contact_email || '') + '" /></div>';
         h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
         h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: ' + esc(nTitle) + ' for Dr ' + esc(nGp) + '" /></div>';
-        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Hi ' + esc(nContact) + ',<br><br>Just following up on our earlier email regarding the <strong>' + esc(nTitle) + '</strong> for Dr ' + esc(nGp) + '.<br><br>Could you please provide this at your earliest convenience? We need this document to proceed with their registration.<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
+        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Hi ' + esc(nContact) + ',<br><br>Just following up on our earlier email regarding the <strong>' + esc(nTitle) + '</strong> for Dr ' + esc(nGp) + '.<br><br>Could you please provide this at your earliest convenience? We need this document to proceed with their registration.' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
         h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send</button></div>';
         h += '</div></div>';
         h += '<div class="ops-action-row"><button class="ops-btn-secondary" onclick="var w=document.getElementById(\'ceoNudgeWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Nudge Practice</button></div>';
@@ -3922,7 +3928,7 @@
         bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>Offer / Contract</strong> with both the candidate and employer signatures.<br><br>Please find attached the contract already signed by the candidate. Could you please counter-sign and return the completed contract at your earliest convenience?<br><br>Kind regards,<br>Hazel — GP Link Registration Team';
       } else {
         subjA = docTitle + ' needed for Dr ' + gpName + ' - GP Link';
-        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>' + esc(docTitle) + '</strong>.<br><br>Could you please send this through at your earliest convenience?<br><br>Kind regards,<br>Hazel — GP Link Registration Team';
+        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>' + esc(docTitle) + '</strong>.<br><br>Could you please send this through at your earliest convenience?' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team';
       }
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(subjA) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + bodyA + '</div>';

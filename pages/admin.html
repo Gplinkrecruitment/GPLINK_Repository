@@ -91,6 +91,15 @@
     .stage-myintealth{background:#eff6ff;color:#1d4ed8}.stage-amc{background:#faf5ff;color:#7c3aed}.stage-career{background:#fefce8;color:#a16207}.stage-ahpra{background:#ecfdf5;color:#166534}.stage-visa{background:#fff1f2;color:#be123c}.stage-pbs{background:#f0fdfa;color:#0d9488}.stage-commencement{background:#fdf4ff;color:#a21caf}.stage-complete{background:#f0fdf4;color:#16a34a}.stage-practice-contact{background:#fff7ed;color:#c2410c}
     .case-card-tasks{display:flex;gap:6px;margin-top:6px}
     .task-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px}
+    .case-card-actions{margin-top:6px;display:flex;flex-direction:column;gap:3px}
+    .case-card-action{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);min-width:0}
+    .case-card-action .ca-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .case-card-action .ca-bullet{width:5px;height:5px;border-radius:50%;flex:none}
+    .ca-bullet.overdue,.ca-tag.overdue{background:#fef2f2;color:#b91c1c}.ca-bullet.overdue{background:#dc2626}
+    .ca-bullet.urgent,.ca-tag.urgent{background:#fff7ed;color:#c2410c}.ca-bullet.urgent{background:#ea580c}
+    .ca-bullet.duetoday,.ca-tag.duetoday{background:#eff6ff;color:#1d4ed8}.ca-bullet.duetoday{background:#2563eb}
+    .case-card-action .ca-tag{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;padding:1px 5px;border-radius:6px;white-space:nowrap;flex:none}
+    .case-card-more{font-size:10px;color:var(--muted);font-weight:600;padding-left:11px}
     .task-badge.urgent{background:#fef2f2;color:#dc2626}.task-badge.open{background:#eff6ff;color:#2563eb}.task-badge.overdue{background:#fffbeb;color:#b45309}
     .detail-panel{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
     .detail-scroll{flex:1;overflow-y:auto;padding:16px 20px 80px}
@@ -2461,6 +2470,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("filterBar").innerHTML=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
   }
 
+  // The specific tasks that make a case "Needs Action" \u2014 so the card can show WHAT needs
+  // doing, not just that something does. Mirrors the needs-action test in renderCaseList
+  // (urgent priority, overdue, or due today) against the loaded open-task list (S.tasks),
+  // most-pressing first (overdue \u2192 urgent \u2192 due today).
+  function caseActionItems(caseId){
+    if(!caseId)return [];
+    const now=new Date();
+    return (S.tasks||[])
+      .filter(t=>t.case_id===caseId&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled')
+      .map(t=>{
+        const due=t.due_date?new Date(t.due_date):null;
+        const overdue=!!due&&due<now&&!isSameDay(due,now);
+        const dueToday=!!due&&isSameDay(due,now);
+        const urgent=t.priority==='urgent';
+        return {title:t.title||'Task',overdue,urgent,dueToday,rank:overdue?0:(urgent?1:(dueToday?2:3))};
+      })
+      .filter(x=>x.overdue||x.urgent||x.dueToday)
+      .sort((a,b)=>a.rank-b.rank);
+  }
+
   function renderCaseCard(m,showUrgencyDetail){
     const rc=m.rc;const gp=m.gp;
     const id=rc?rc.id:(gp?gp.userId||gp.email:"");
@@ -2474,10 +2503,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const hasDueToday=(S.tasks||[]).some(t=>t.case_id===(rc?rc.id:"")&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
 
     let urgencyHtml='';
+    let actionsHtml='';
     if(showUrgencyDetail){
-      if(urgentT)urgencyHtml+='<span class="task-badge urgent">'+urgentT+' urgent</span>';
-      if(overdueT)urgencyHtml+='<span class="task-badge overdue">overdue</span>';
-      if(hasDueToday&&!urgentT&&!overdueT)urgencyHtml+='<span class="task-badge open">due today</span>';
+      // Prefer naming the actual task(s) that need action; fall back to the generic badges
+      // only when no matching task detail is loaded (e.g. server count without an open row).
+      const items=caseActionItems(rc?rc.id:"");
+      if(items.length){
+        const rows=items.slice(0,2).map(x=>{
+          const tag=x.overdue?{c:'overdue',l:'overdue'}:(x.urgent?{c:'urgent',l:'urgent'}:{c:'duetoday',l:'due today'});
+          return '<div class="case-card-action"><span class="ca-bullet '+tag.c+'"></span><span class="ca-title">'+esc(x.title)+'</span><span class="ca-tag '+tag.c+'">'+tag.l+'</span></div>';
+        }).join('');
+        const more=items.length>2?'<div class="case-card-more">+'+(items.length-2)+' more need action</div>':'';
+        actionsHtml='<div class="case-card-actions">'+rows+more+'</div>';
+      }else{
+        if(urgentT)urgencyHtml+='<span class="task-badge urgent">'+urgentT+' urgent</span>';
+        if(overdueT)urgencyHtml+='<span class="task-badge overdue">overdue</span>';
+        if(hasDueToday&&!urgentT&&!overdueT)urgencyHtml+='<span class="task-badge open">due today</span>';
+      }
     }
 
     return '<div class="case-card '+(sel?"selected":"")+'" data-case-id="'+esc(id)+'" data-user-id="'+esc(rc?rc.user_id:gp?gp.userId:"")+'" data-rc-id="'+esc(rc?rc.id:"")+'">'+
@@ -2489,6 +2531,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '</div>'+
       '</div>'+
       (urgencyHtml?'<div class="case-card-tasks">'+urgencyHtml+'</div>':'')+
+      actionsHtml+
     '</div>';
   }
 
@@ -5338,6 +5381,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var practiceName=task.practice_name||'the practice';
     var contactName=task.practice_contact_name||'';
     var docTitle=task.title||'Document';
+    // Document-specific signing requirement spelled out in the request email. A supervisor CV
+    // must be dated and signed by the supervisor; a position description must be signed by the
+    // practice owner/employer. Keep in sync with the CEO port (ceo-dashboard.html) + the server
+    // suggest-reply prompt (server.js /api/admin/email-triage/suggest-reply).
+    var signReq = task.related_document_key==='supervisor_cv' ? 'Please make sure the CV is dated and signed by the supervisor.'
+                : task.related_document_key==='position_description' ? 'Please make sure the position description is signed by the practice owner/employer.'
+                : '';
     var hasInbound=msgs.some(function(m){return m.direction==='inbound';});
     var currentDocs=docs.filter(function(d){return d.is_current!==false;});
     var hasDoc=currentDocs.length>0;
@@ -5412,7 +5462,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h2+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
         +'Hi '+esc(contactName||'')+',<br><br>'
         +'Just following up on our earlier email regarding the <strong>'+esc(docTitle)+'</strong> for Dr '+esc(gpName)+'.<br><br>'
-        +'Could you please provide this at your earliest convenience? We need this document to proceed with their registration.<br><br>'
+        +'Could you please provide this at your earliest convenience? We need this document to proceed with their registration.'+(signReq?' '+signReq:'')+'<br><br>'
         +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         +'</div>';
       h2+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'">Send</button></div>';
@@ -5448,7 +5498,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
         +'Hi '+esc(contactName||'')+',<br><br>'
         +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>'+esc(docTitle)+'</strong>.<br><br>'
-        +'Could you please send this through at your earliest convenience?<br><br>'
+        +'Could you please send this through at your earliest convenience?'+(signReq?' '+signReq:'')+'<br><br>'
         +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         +'</div>';
     }
