@@ -689,6 +689,23 @@
     .els-status-btn.on { border-color: var(--gp-blue); background: var(--gp-blue-soft); color: var(--gp-blue-ink); }
     .mark-complete-hint.els-block { color: var(--gp-warn, #b45309); font-weight: 600; }
     .els-saved-badge svg { width: 12px; height: 12px; }
+    /* "Good to know" rules under the test checklist (not upload items) */
+    .els-note { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--gp-blue-border); font-size: 11.5px; color: var(--gp-blue-ink); line-height: 1.5; }
+    .els-note-row { display: flex; gap: 6px; padding: 2px 0; }
+    .els-note-row svg { width: 13px; height: 13px; flex-shrink: 0; margin-top: 2px; }
+    /* Required ">2 years old" evidence block (amber = required action) */
+    .els-required { margin-top: 10px; padding: 10px 12px; background: var(--gp-amber-soft); border: 1px solid var(--gp-amber-border); border-radius: var(--gp-r-sm); }
+    .els-required-title { font-size: 11.5px; font-weight: 800; color: var(--gp-amber-ink); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .03em; }
+    .els-required-title svg { width: 13px; height: 13px; flex-shrink: 0; }
+    .els-required p { font-size: 11.5px; color: var(--gp-amber-ink); margin-bottom: 6px; line-height: 1.5; }
+    .els-or-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .els-or-card { background: #fff; border: 1px solid var(--gp-amber-border); border-radius: 8px; padding: 8px 10px; }
+    .els-or-card h5 { font-size: 11px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+    .els-or-card ul { list-style: none; padding: 0; margin: 0; }
+    .els-or-card li { font-size: 11px; color: var(--ink-soft); line-height: 1.45; padding: 2px 0 2px 14px; position: relative; }
+    /* Reset the checklist's checkbox-square bullet for these nested list items (dash only) */
+    .els-or-card li::before { content: '–'; position: absolute; left: 2px; top: 2px; color: var(--ink-muted); border: none; background: none; width: auto; height: auto; border-radius: 0; }
+    .els-or-sep { text-align: center; font-size: 10px; font-weight: 800; color: var(--gp-amber-ink); letter-spacing: .08em; }
 
     /* ---- ADDITIONAL DOCS MODAL ---- */
     .addl-doc-group-title {
@@ -2349,26 +2366,72 @@
       }
     };
     // English test options shown under the Test Pathway (value === display label).
-    var ELS_TEST_TYPES = ['IELTS Academic', 'OET', 'PTE Academic', 'TOEFL iBT', 'Cambridge (C1 Advanced / C2 Proficiency)'];
+    // PLAB and NZREX are profession-specific tests the Medical Board also accepts for doctors.
+    var ELS_TEST_TYPES = ['IELTS Academic', 'OET', 'PTE Academic', 'TOEFL iBT', 'Cambridge (C1 Advanced / C2 Proficiency)', 'PLAB (Professional and Linguistic Assessments Board)', 'NZREX (New Zealand Registration Examination)'];
     function _readAhpraState() {
       try { var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); return (s && typeof s === 'object') ? s : {}; }
       catch (e) { return {}; }
     }
-    // Required-document list for the Test Pathway, adapted to the chosen test and
-    // whether the GP has already sat it (status 'done') or is still planning ('plan').
-    function buildElsTestDocs(testType, testStatus) {
+    // PLAB / NZREX are the Medical Board's profession-specific tests: they only need a
+    // certified copy of the results (no candidate number, no 2-year-validity rule).
+    function isElsProfessionExam(testType) { return /PLAB|NZREX/i.test(testType || ''); }
+    // Short label for display, e.g. 'PLAB (Professional…)' -> 'PLAB', 'IELTS Academic' -> 'IELTS Academic'.
+    function elsShortName(testType) { return testType ? String(testType).split(' (')[0] : 'test'; }
+    // True when the "when did you sit it?" question applies: a COMPLETED standard test.
+    function elsNeedsRecency(s) {
+      s = s || _readAhpraState();
+      return s.els_pathway === 'test' && !!s.els_test_type && s.els_test_status === 'done' && !isElsProfessionExam(s.els_test_type);
+    }
+    // Required-document list for the Test Pathway, adapted to the chosen test, whether the GP
+    // has already sat it ('done') or is still planning ('plan'), and — for a completed standard
+    // test — whether it was sat within 2 years ('recent') or more than 2 years ago ('over2y').
+    function buildElsTestDocs(testType, testStatus, testRecency) {
+      var shortName = elsShortName(testType);
       if (testStatus === 'plan') {
+        if (isElsProfessionExam(testType)) {
+          return [
+            'Sit your ' + shortName + ' (accepted as proof of English for medical applicants)',
+            'Once you have your result, upload a certified copy of your test results'
+          ];
+        }
         return [
-          'Book and sit an approved English test' + (testType ? ' (' + testType + ')' : ' (IELTS / OET / PTE / TOEFL / Cambridge)'),
+          'Book and sit an approved English test' + (testType ? ' (' + shortName + ')' : ' (IELTS / OET / PTE / TOEFL / Cambridge)'),
           'Once you pass, upload your results showing your candidate number',
           'Results must be within 2 years of application (or evidence of continuous work / study)'
         ];
       }
-      var d = ['Copy of your ' + (testType || 'test') + ' results with candidate number'];
+      if (isElsProfessionExam(testType)) {
+        return ['Certified copy of your ' + shortName + ' test results'];
+      }
+      var d = ['Copy of your ' + shortName + ' results with candidate number'];
       if (/PTE/i.test(testType)) d.push('PTE Academic: authorise AHPRA to access your results through the PTE system');
-      d.push('If results > 2 years old + still working: CV in AHPRA format + employer letter confirming continuous employment');
-      d.push('If results > 2 years old + enrolled in study: transcript showing continuous enrolment in a Board-approved program');
       return d;
+    }
+    // The REQUIRED extra evidence when a standard test was sat more than 2 years ago — the GP
+    // must extend the test's validity with EITHER continuous work OR continuous study.
+    function buildElsOver2yEvidence() {
+      return {
+        work: [
+          'Your CV in AHPRA’s standard format',
+          'A letter from your employer(s) confirming continuous employment — or, if you can’t get one, a professional reference from a supervisor, colleague or other health practitioner',
+          'The dates you started (and, if relevant, stopped) working'
+        ],
+        study: [
+          'A transcript showing continuous enrolment in a Board-approved program',
+          'Study started within 12 months of sitting the test, and finished within 12 months of applying'
+        ]
+      };
+    }
+    // Informational rules shown as a muted "good to know" note (not upload items).
+    function buildElsTestNotes(testType) {
+      if (isElsProfessionExam(testType)) {
+        return ['PLAB and NZREX are accepted as proof of English for medical applicants only (Medical Board of Australia).'];
+      }
+      var notes = ['AHPRA accepts results from one test sitting, or two sittings within a 12-month period. Results can’t be combined across different test providers.'];
+      if (/IELTS/i.test(testType)) {
+        notes.push('IELTS One Skill Retake is accepted: you may re-sit one section within 60 days if your other sections meet the required score.');
+      }
+      return notes;
     }
     // True once the GP has supplied enough English-pathway detail to complete the
     // AHPRA application step: a pathway, plus (for Test Pathway) which test and
@@ -2378,6 +2441,9 @@
       if (!s.els_pathway) return false;
       if (s.els_pathway === 'test') {
         if (!s.els_test_type || !s.els_test_status) return false;
+        // A completed standard test sat >2 years ago needs continuous-work/study evidence,
+        // so the GP must first tell us when they sat it.
+        if (elsNeedsRecency(s) && !s.els_test_recency) return false;
       }
       return true;
     }
@@ -2386,6 +2452,7 @@
       if (!s.els_pathway) return "Select your English language pathway above to continue";
       if (s.els_pathway === "test" && !s.els_test_type) return "Choose which English test you used";
       if (s.els_pathway === "test" && !s.els_test_status) return "Tell us whether you've completed the test yet";
+      if (elsNeedsRecency(s) && !s.els_test_recency) return "Tell us when you sat the test (within 2 years, or more than 2 years ago)";
       return "Once you've finished this step, click here to move on";
     }
     // Live-toggle the account_establishment "Mark Complete" button + hint as the GP fills
@@ -2406,6 +2473,21 @@
         hint.classList.toggle('els-block', !met);
       }
     }
+    // Show/hide the "when did you sit it?" question and sync its buttons to saved state.
+    function refreshElsRecencyControls() {
+      var wrap = document.getElementById('elsRecencyWrap');
+      if (!wrap) return;
+      var s = _readAhpraState();
+      var show = elsNeedsRecency(s);
+      wrap.style.display = show ? '' : 'none';
+      var seg = document.getElementById('elsRecencySeg');
+      if (seg) {
+        var bs = seg.querySelectorAll('.els-status-btn');
+        for (var i = 0; i < bs.length; i++) {
+          bs[i].classList.toggle('on', show && bs[i].getAttribute('data-els-recency') === (s.els_test_recency || ''));
+        }
+      }
+    }
     function buildElsChecklistHtml(pathwayKey) {
       var pw = ELS_PATHWAY_DOCS[pathwayKey];
       if (!pw) return '';
@@ -2413,16 +2495,43 @@
       var checkSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5 6 12 2.5 8.5"/></svg>';
       var title = pw.title;
       var docs = pw.docs;
+      var requiredHtml = '';
+      var notesHtml = '';
       if (pathwayKey === 'test') {
         var s = _readAhpraState();
         var tt = s.els_test_type || '';
-        if (tt) title = pw.title + ' \u2014 ' + tt;
-        docs = buildElsTestDocs(tt, s.els_test_status || '');
+        var status = s.els_test_status || '';
+        var recency = s.els_test_recency || '';
+        if (tt) title = pw.title + ' \u2014 ' + elsShortName(tt);
+        docs = buildElsTestDocs(tt, status, recency);
+        // Required ">2 years old" evidence block \u2014 completed standard test sat over 2 years ago.
+        if (elsNeedsRecency(s) && recency === 'over2y') {
+          var warnSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 15 14H1L8 1.5z"/><path d="M8 6.5v3.2M8 11.6h.01"/></svg>';
+          var ev = buildElsOver2yEvidence();
+          var workLis = ev.work.map(function (d) { return '<li>' + d + '</li>'; }).join('');
+          var studyLis = ev.study.map(function (d) { return '<li>' + d + '</li>'; }).join('');
+          requiredHtml = '<div class="els-required">' +
+            '<div class="els-required-title">' + warnSvg + ' Required: your test is over 2 years old</div>' +
+            '<p>To extend its validity you must also provide proof you\u2019ve kept using English \u2014 choose <b>one</b>:</p>' +
+            '<div class="els-or-grid">' +
+              '<div class="els-or-card"><h5>Continuous work</h5><ul>' + workLis + '</ul></div>' +
+              '<div class="els-or-sep">\u2014 OR \u2014</div>' +
+              '<div class="els-or-card"><h5>Continuous study</h5><ul>' + studyLis + '</ul></div>' +
+            '</div></div>';
+        }
+        // Muted "good to know" rules (sittings rule / IELTS retake / medical-only).
+        if (tt) {
+          var infoSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.3v3.4M8 5.2h.01"/></svg>';
+          var notes = buildElsTestNotes(tt);
+          if (notes.length) {
+            notesHtml = '<div class="els-note">' + notes.map(function (n) { return '<div class="els-note-row">' + infoSvg + '<span>' + n + '</span></div>'; }).join('') + '</div>';
+          }
+        }
       }
       var items = docs.map(function (d) { return '<li>' + d + '</li>'; }).join('');
       return '<div class="els-checklist">' +
         '<div class="els-checklist-title">' + docSvg + ' Documents for ' + title + '</div>' +
-        '<ul>' + items + '</ul>' +
+        '<ul>' + items + '</ul>' + requiredHtml + notesHtml +
         '<div class="els-saved-badge">' + checkSvg + ' Pathway saved \u2014 visible to your GP Link team</div>' +
         '</div>';
     }
@@ -4169,17 +4278,21 @@
       var savedElsPathway = '';
       var savedElsTestType = '';
       var savedElsTestStatus = '';
+      var savedElsTestRecency = '';
       try {
         var _elsState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         savedElsPathway = _elsState.els_pathway || '';
         savedElsTestType = _elsState.els_test_type || '';
         savedElsTestStatus = _elsState.els_test_status || '';
+        savedElsTestRecency = _elsState.els_test_recency || '';
       } catch (e) {}
       var elsTestOptionsHtml = ['<option value="">— Choose your test —</option>'].concat(
         ELS_TEST_TYPES.map(function (tt) {
           return '<option value="' + tt + '"' + (tt === savedElsTestType ? ' selected' : '') + '>' + tt + '</option>';
         })
       ).join('');
+      // The recency question only applies to a completed standard test (not PLAB/NZREX).
+      var _showRecency = (savedElsPathway === 'test' && savedElsTestType && savedElsTestStatus === 'done' && !isElsProfessionExam(savedElsTestType));
       var elsTestWrapHtml =
         '<div class="els-test-wrap" id="elsTestWrap"' + (savedElsPathway === 'test' ? '' : ' style="display:none"') + '>' +
           '<div class="els-select-label">Which English test?</div>' +
@@ -4188,6 +4301,13 @@
           '<div class="els-status-seg" id="elsStatusSeg">' +
             '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes — I\'ve completed it</button>' +
             '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet — booked / planning</button>' +
+          '</div>' +
+          '<div id="elsRecencyWrap"' + (_showRecency ? '' : ' style="display:none"') + '>' +
+            '<div class="els-select-label" style="margin-top:10px">When did you sit this test?</div>' +
+            '<div class="els-status-seg" id="elsRecencySeg">' +
+              '<button type="button" class="els-status-btn' + (savedElsTestRecency === 'recent' ? ' on' : '') + '" data-els-recency="recent">Within the last 2 years</button>' +
+              '<button type="button" class="els-status-btn' + (savedElsTestRecency === 'over2y' ? ' on' : '') + '" data-els-recency="over2y">More than 2 years ago</button>' +
+            '</div>' +
           '</div>' +
         '</div>';
       var elsOptions = [
@@ -4799,7 +4919,7 @@
           var ahpraState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
           if (selectedKey) { ahpraState.els_pathway = selectedKey; } else { delete ahpraState.els_pathway; }
           // Leaving the Test Pathway clears the test details so a stale test can't satisfy the gate.
-          if (selectedKey !== "test") { delete ahpraState.els_test_type; delete ahpraState.els_test_status; }
+          if (selectedKey !== "test") { delete ahpraState.els_test_type; delete ahpraState.els_test_status; delete ahpraState.els_test_recency; }
           ahpraState.updatedAt = new Date().toISOString();
           localStorage.setItem(STORAGE_KEY, JSON.stringify(ahpraState));
           if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
@@ -4807,18 +4927,22 @@
         } catch (e2) {}
         var container = document.getElementById("elsChecklistContainer");
         if (container) container.innerHTML = buildElsChecklistHtml(selectedKey);
+        refreshElsRecencyControls();
         refreshElsGate();
       } else if (e.target.id === "elsTestTypeSelect") {
         var testVal = e.target.value;
         try {
           var st = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
           if (testVal) { st.els_test_type = testVal; } else { delete st.els_test_type; }
+          // Recency only applies to a standard test — clear it for PLAB/NZREX or no test.
+          if (!testVal || isElsProfessionExam(testVal)) { delete st.els_test_recency; }
           st.updatedAt = new Date().toISOString();
           localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
           if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
         } catch (e3) {}
         var c2 = document.getElementById("elsChecklistContainer");
         if (c2) c2.innerHTML = buildElsChecklistHtml("test");
+        refreshElsRecencyControls();
         refreshElsGate();
       }
     });
@@ -4835,12 +4959,35 @@
       try {
         var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         s.els_test_status = status;
+        if (status !== 'done') { delete s.els_test_recency; } // recency only relevant once completed
         s.updatedAt = new Date().toISOString();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
         if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
       } catch (e4) {}
       var c3 = document.getElementById("elsChecklistContainer");
       if (c3) c3.innerHTML = buildElsChecklistHtml("test");
+      refreshElsRecencyControls();
+      refreshElsGate();
+    });
+    // ELS "when did you sit the test?" recency buttons (completed standard test only)
+    document.addEventListener("click", function (e) {
+      var btn = (e.target && e.target.closest) ? e.target.closest(".els-status-btn[data-els-recency]") : null;
+      if (!btn) return;
+      var recency = btn.getAttribute("data-els-recency");
+      var seg = document.getElementById("elsRecencySeg");
+      if (seg) {
+        var bs = seg.querySelectorAll(".els-status-btn");
+        for (var i = 0; i < bs.length; i++) bs[i].classList.toggle("on", bs[i] === btn);
+      }
+      try {
+        var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        s.els_test_recency = recency;
+        s.updatedAt = new Date().toISOString();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+        if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+      } catch (e5) {}
+      var c4 = document.getElementById("elsChecklistContainer");
+      if (c4) c4.innerHTML = buildElsChecklistHtml("test");
       refreshElsGate();
     });
 

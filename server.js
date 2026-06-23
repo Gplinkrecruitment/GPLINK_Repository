@@ -30807,7 +30807,7 @@ Return ONLY valid JSON with no markdown formatting:
       var _nextWasString = (typeof _nextAhpra === 'string');
       if (_nextWasString) { try { _nextAhpra = JSON.parse(_nextAhpra); } catch (e) { _nextAhpra = null; } }
       if (_nextAhpra && typeof _nextAhpra === 'object') {
-        ['els_pathway', 'els_test_type', 'els_test_status'].forEach(function (f) {
+        ['els_pathway', 'els_test_type', 'els_test_status', 'els_test_recency'].forEach(function (f) {
           var v;
           if (_inAhpra && typeof _inAhpra === 'object' && Object.prototype.hasOwnProperty.call(_inAhpra, f)) {
             v = _inAhpra[f]; // client sent a value this sync → honour it
@@ -33554,6 +33554,7 @@ Return ONLY valid JSON with no markdown formatting:
       var elsPathway = _ahpraP.els_pathway || '';
       var elsTestType = _ahpraP.els_test_type || '';
       var elsTestStatus = _ahpraP.els_test_status || '';
+      var elsTestRecency = _ahpraP.els_test_recency || '';
       const countryRaw = (p.country_of_qualification || st.gp_selected_country || st.gp_onboarding && st.gp_onboarding.country || 'GB').toString().toUpperCase();
       // Map common name → code
       const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : 'GB');
@@ -33602,7 +33603,8 @@ Return ONLY valid JSON with no markdown formatting:
         myintealth_id: visibleMyintealthId,
         els_pathway: elsPathway,
         els_test_type: elsTestType,
-        els_test_status: elsTestStatus
+        els_test_status: elsTestStatus,
+        els_test_recency: elsTestRecency
       });
     }
 
