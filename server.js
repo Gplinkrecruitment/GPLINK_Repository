@@ -2603,7 +2603,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       'select=id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1');
     isRegisteredVA = vaAccountRes.ok && Array.isArray(vaAccountRes.data) && vaAccountRes.data.length > 0;
   }
-  if (!isRegisteredVA) {
+  // TEMPORARY TEST exception: a TEST_WATCH inbox (e.g. hello@) is intentionally NOT a
+  // registered VA (no va_gmail_accounts row, filtered out of MONITORED_VA_EMAILS), but it
+  // must still be processed while the scoped test watch is on. Without this bypass, every
+  // hello@ notification — push AND manual pull — returns here before the inbox scan, so
+  // nothing is ever detected. The per-message sender allowlist below still drops all mail
+  // except the allowlisted test sender, so the archive is never broadly processed.
+  if (!isRegisteredVA && !TEST_WATCH_INBOXES.has(emailAddress)) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
     return;
   }
