@@ -4299,13 +4299,25 @@
         draft_response: task.draft_response || md.draft_response || null,
         source_gmail_message_id: task.source_gmail_message_id || md.source_gmail_message_id || ''
       });
+      // Live-fetch the case's authoritative practice contact alongside messages/documents so a
+      // blank/stale "To" can be filled before render (RSO parity, 823ec3b). Without this the
+      // composer "To" stays empty when the cached task has no practice_contact — and an empty
+      // "To" then lets the practice person wrongly appear as a CC option instead.
+      var ccCaseId = adapted.case_id || (gpDetailCache && gpDetailCache.caseId) || '';
       Promise.all([
         apiFetch('/api/admin/task/messages?taskId=' + encodeURIComponent(taskId)).catch(function() { return {}; }),
-        apiFetch('/api/admin/task/documents?taskId=' + encodeURIComponent(taskId)).catch(function() { return {}; })
+        apiFetch('/api/admin/task/documents?taskId=' + encodeURIComponent(taskId)).catch(function() { return {}; }),
+        ccCaseId ? apiFetch('/api/admin/va/case/' + encodeURIComponent(ccCaseId) + '/email-contacts').catch(function() { return {}; }) : Promise.resolve({})
       ]).then(function(res) {
-        var mRes = res[0] || {}, dRes = res[1] || {};
+        var mRes = res[0] || {}, dRes = res[1] || {}, ecRes = res[2] || {};
         var msgs = (mRes.ok && Array.isArray(mRes.messages)) ? mRes.messages : [];
         var docs = (dRes.ok && Array.isArray(dRes.documents)) ? dRes.documents : [];
+        // Bulletproof the practice "To"/greeting: if cached enrichment had no contact, use the
+        // authoritative practice contact (hired gp_applications row) from the live response.
+        if (!adapted.practice_contact_email && ecRes && ecRes.practiceContact && ecRes.practiceContact.email) {
+          adapted.practice_contact_email = ecRes.practiceContact.email;
+          if (!adapted.practice_contact_name) adapted.practice_contact_name = ecRes.practiceContact.name || '';
+        }
         // Re-resolve the container in case the panel was re-rendered while fetching.
         var c2 = document.querySelector('[data-gp-task-detail="' + taskId + '"] .gp-task-detail-inner');
         if (!c2) return;
