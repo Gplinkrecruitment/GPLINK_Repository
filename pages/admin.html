@@ -946,6 +946,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .stage-task{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:12px;margin-bottom:6px;transition:border-color .15s}
 .stage-task:hover{border-color:#cbd5e1}
 .stage-task.active-next{border-left:3px solid var(--blue)}
+.stage-task.urgency-flag{border-color:var(--red);box-shadow:0 0 0 2px rgba(220,38,38,.18)}
 .stage-task .st-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .stage-task .st-body{flex:1;min-width:0}
 .stage-task .st-title{font-size:13px;font-weight:700}
@@ -2888,6 +2889,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderGpTasksPane(c){
+    // Reset each render; set to the first urgency-driving task (overdue/urgent/due today) below
+    // so opening the GP can auto-scroll the RSO straight to what created the urgency.
+    S._urgencyTargetId=null;
     const allTasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled");
     const s80Pending=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status==="pending_review");
     const s80Active=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status!=="pending_review");
@@ -2940,11 +2944,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const needsNudge=isWaiting&&waitingDays>=7;
           const isUrgent=t.priority==='urgent';
           const isOverdue=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());
+          const isDueToday=t.due_date&&isSameDay(new Date(t.due_date),new Date());
+          // A task that creates urgency (overdue / urgent priority / due today) gets a red
+          // outline; the first one becomes the auto-scroll target when the GP is opened.
+          const isUrgencyDriver=isUrgent||isOverdue||isDueToday;
+          if(isUrgencyDriver&&!S._urgencyTargetId)S._urgencyTargetId=t.id;
           const isNext=isFirstActiveTask;
           if(isNext)isFirstActiveTask=false;
 
           var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review';
-          html+='<div class="stage-task'+(isNext?' active-next':'')+(t.task_type==='email_triage'?' unlocked-email':'')+(isWaiting?' st-waiting-state':'')+'" data-task-row="'+esc(t.id)+'"'+(_hasDetailPanel?' data-gp-expand-task="'+esc(t.id)+'" style="cursor:pointer"':'')+'>';
+          html+='<div class="stage-task'+(isNext?' active-next':'')+(isUrgencyDriver?' urgency-flag':'')+(t.task_type==='email_triage'?' unlocked-email':'')+(isWaiting?' st-waiting-state':'')+'" data-task-row="'+esc(t.id)+'"'+(_hasDetailPanel?' data-gp-expand-task="'+esc(t.id)+'" style="cursor:pointer"':'')+'>';
           html+='<div class="st-top">';
           html+='<div class="st-body">';
           html+='<div class="st-title">'+esc(t.title);
@@ -3732,6 +3741,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         });
       }
       if(el.parentElement)el.parentElement.scrollTop=prevScroll;else el.scrollTop=prevScroll;
+      // Fresh GP open from a card: auto-scroll to the urgency-driving task (red outline) so the
+      // RSO lands on what needs action. Only on open — re-renders keep the user's scroll above.
+      if(S._scrollToUrgency){
+        S._scrollToUrgency=false;
+        var _utid=S._urgencyTargetId;
+        if(_utid&&(S.gpsProfileTab||'tasks')==='tasks'){
+          setTimeout(function(){
+            var _utEl=document.querySelector('.gp-detail-tab-pane [data-task-row="'+_utid+'"]');
+            if(_utEl&&_utEl.scrollIntoView)_utEl.scrollIntoView({behavior:'smooth',block:'center'});
+          },60);
+        }
+      }
       return;
     }
     // Non-GPs view — show default empty or existing content
@@ -6187,7 +6208,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const agentRun=e.target.closest("[data-agent-run-id]");
       if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderCaseList();renderDetail();loadAgentRun(S.agent.selectedRunId);return;}
       const card=e.target.closest("[data-case-id]");
-      if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+      if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};S._scrollToUrgency=true;renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
