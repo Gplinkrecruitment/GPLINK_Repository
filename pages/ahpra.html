@@ -2473,11 +2473,28 @@
         hint.classList.toggle('els-block', !met);
       }
     }
-    // Show/hide the "when did you sit it?" question and sync its buttons to saved state.
+    // Progressive disclosure for the Test Pathway sub-questions: each appears only once the
+    // previous is answered, and its buttons stay in sync with saved state.
+    //   • "Have you completed this test?" (#elsStatusWrap) — shown once a test is chosen.
+    //   • "When did you sit this test?"   (#elsRecencyWrap) — shown for a completed standard test.
     function refreshElsRecencyControls() {
+      var s = _readAhpraState();
+      // Status question
+      var statusWrap = document.getElementById('elsStatusWrap');
+      if (statusWrap) {
+        var showStatus = (s.els_pathway === 'test' && !!s.els_test_type);
+        statusWrap.style.display = showStatus ? '' : 'none';
+        var statusSeg = document.getElementById('elsStatusSeg');
+        if (statusSeg) {
+          var sb = statusSeg.querySelectorAll('.els-status-btn');
+          for (var j = 0; j < sb.length; j++) {
+            sb[j].classList.toggle('on', showStatus && sb[j].getAttribute('data-els-status') === (s.els_test_status || ''));
+          }
+        }
+      }
+      // Recency question
       var wrap = document.getElementById('elsRecencyWrap');
       if (!wrap) return;
-      var s = _readAhpraState();
       var show = elsNeedsRecency(s);
       wrap.style.display = show ? '' : 'none';
       var seg = document.getElementById('elsRecencySeg');
@@ -4291,16 +4308,20 @@
           return '<option value="' + tt + '"' + (tt === savedElsTestType ? ' selected' : '') + '>' + tt + '</option>';
         })
       ).join('');
-      // The recency question only applies to a completed standard test (not PLAB/NZREX).
+      // Progressive disclosure: each question appears only once the previous is answered.
+      // "Have you completed this test?" waits for a chosen test; "When did you sit it?" waits for completion.
+      var _showStatus = (savedElsPathway === 'test' && !!savedElsTestType);
       var _showRecency = (savedElsPathway === 'test' && savedElsTestType && savedElsTestStatus === 'done' && !isElsProfessionExam(savedElsTestType));
       var elsTestWrapHtml =
         '<div class="els-test-wrap" id="elsTestWrap"' + (savedElsPathway === 'test' ? '' : ' style="display:none"') + '>' +
           '<div class="els-select-label">Which English test?</div>' +
           '<select class="els-select" id="elsTestTypeSelect">' + elsTestOptionsHtml + '</select>' +
-          '<div class="els-select-label" style="margin-top:10px">Have you completed this test?</div>' +
-          '<div class="els-status-seg" id="elsStatusSeg">' +
-            '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes — I\'ve completed it</button>' +
-            '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet — booked / planning</button>' +
+          '<div id="elsStatusWrap"' + (_showStatus ? '' : ' style="display:none"') + '>' +
+            '<div class="els-select-label" style="margin-top:10px">Have you completed this test?</div>' +
+            '<div class="els-status-seg" id="elsStatusSeg">' +
+              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes — I\'ve completed it</button>' +
+              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet — booked / planning</button>' +
+            '</div>' +
           '</div>' +
           '<div id="elsRecencyWrap"' + (_showRecency ? '' : ' style="display:none"') + '>' +
             '<div class="els-select-label" style="margin-top:10px">When did you sit this test?</div>' +
@@ -4933,7 +4954,7 @@
         var testVal = e.target.value;
         try {
           var st = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-          if (testVal) { st.els_test_type = testVal; } else { delete st.els_test_type; }
+          if (testVal) { st.els_test_type = testVal; } else { delete st.els_test_type; delete st.els_test_status; }
           // Recency only applies to a standard test — clear it for PLAB/NZREX or no test.
           if (!testVal || isElsProfessionExam(testVal)) { delete st.els_test_recency; }
           st.updatedAt = new Date().toISOString();
