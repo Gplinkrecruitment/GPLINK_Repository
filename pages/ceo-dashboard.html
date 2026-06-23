@@ -1353,7 +1353,7 @@
     var currentPeriod = 'all';
 
     var STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
-    var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa' };
+    var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa', practice_contact: 'Medical Practice Contact' };
     var STAGE_COLORS = { career: 'amber', myintealth: 'blue', amc: 'purple', ahpra: 'green', pbs: 'blue', commencement: 'purple', complete: 'green', visa: 'red' };
 
     /* ── Utilities ── */
@@ -3279,7 +3279,7 @@
     var PARITY_STAGE_LABELS = {
       career: 'Career', placement: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio',
       ahpra: 'AHPRA Registration', visa: 'Visa Application', pbs: 'PBS & Medicare',
-      commencement: 'Commencement', onboarding: 'Onboarding', other: 'Other'
+      commencement: 'Commencement', onboarding: 'Onboarding', practice_contact: 'Medical Practice Contact', other: 'Other'
     };
 
     // Port of admin.html groupTasksByStage (2566–2584): bucket tasks by related_stage in
@@ -3287,9 +3287,12 @@
     function groupTasksByStage(tasks) {
       var groups = new Map();
       var other = [];
+      var practiceContact = [];
       (tasks || []).forEach(function(t) {
         var stage = (t && t.related_stage) || '';
-        if (stage && STAGE_ORDER.indexOf(stage) !== -1) {
+        if (stage === 'practice_contact') {
+          practiceContact.push(t);
+        } else if (stage && STAGE_ORDER.indexOf(stage) !== -1) {
           if (!groups.has(stage)) groups.set(stage, []);
           groups.get(stage).push(t);
         } else {
@@ -3297,6 +3300,9 @@
         }
       });
       var result = [];
+      // Practice correspondence is cross-cutting (not a registration stage) — surface it at
+      // the top of the GP's task list, mirroring admin.html groupTasksByStage.
+      if (practiceContact.length) result.push({ stage: 'practice_contact', tasks: practiceContact });
       STAGE_ORDER.forEach(function(s) {
         if (groups.has(s)) result.push({ stage: s, tasks: groups.get(s) });
       });

@@ -3605,6 +3605,25 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
+        // Categorize the email by who sent it. A message from the practice contact (or any
+        // third party that is not the GP) is grouped under a dedicated "Medical Practice
+        // Contact" category rather than the GP's current registration stage, so practice
+        // correspondence is never mistaken for a step the GP is personally working through.
+        // AHPRA mail keeps its own 'ahpra' stage; GP-sent mail stays on the GP's stage.
+        var emailRelatedStage;
+        if (isAhpra) {
+          emailRelatedStage = 'ahpra';
+        } else if (gpCase) {
+          var _gpEmailLookup = gpCase.user_id
+            ? await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(gpCase.user_id) + '&limit=1')
+            : { ok: false };
+          var _gpOwnEmail = ((_gpEmailLookup.ok && _gpEmailLookup.data && _gpEmailLookup.data[0] && _gpEmailLookup.data[0].email) || '').toLowerCase();
+          var _senderAddr = ((emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+          emailRelatedStage = (_gpOwnEmail && _senderAddr === _gpOwnEmail) ? (gpCase.stage || '') : 'practice_contact';
+        } else {
+          emailRelatedStage = '';
+        }
+
         // Route GP-matched email tasks to that GP's RSO (assigned_va, default Hazel).
         var taskAssignee = gpCase ? await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va) : null;
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
@@ -3613,7 +3632,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
           priority: triageResult.urgency === 'urgent' ? 'urgent' : gpCase ? 'normal' : 'low',
           source_trigger: 'gmail_triage',
-          related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
+          related_stage: emailRelatedStage,
           assignee: taskAssignee,
           gmail_message_id: currentMsgId,
           email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
@@ -33180,6 +33199,34 @@ Return ONLY valid JSON with no markdown formatting:
       var tasksRes2 = await supabaseDbRequest('registration_tasks', 'select=title,priority,related_stage,status&case_id=eq.' + encodeURIComponent(task.case_id) + '&status=neq.completed&status=neq.cancelled&limit=20');
       var openTasks = tasksRes2.ok && Array.isArray(tasksRes2.data) ? tasksRes2.data : [];
 
+      // 4b. Practice-document status. The reply generator must only ever ask the practice for
+      // documents that are genuinely outstanding FROM THE PRACTICE (ops_status
+      // 'awaiting_practice'). Everything else — already received, automatic (e.g. Section G),
+      // under review, still waiting on the GP, or not yet formally requested (locked) — must
+      // NOT be requested. This is what stops the AI listing SPPA-00 / Section G / Supervisor CV
+      // before they have actually been requested.
+      var docOpsRes = await supabaseDbRequest('practice_doc_ops', 'select=document_key,ops_status&case_id=eq.' + encodeURIComponent(task.case_id));
+      var _docLabelMap = {};
+      GP_LINK_DOCUMENT_META.forEach(function (d) { _docLabelMap[d.key] = d.label; });
+      var outstandingFromPractice = [];
+      var doNotRequest = [];
+      if (docOpsRes.ok && Array.isArray(docOpsRes.data)) {
+        docOpsRes.data.forEach(function (d) {
+          var lbl = _docLabelMap[d.document_key] || d.document_key;
+          if (d.ops_status === 'awaiting_practice') {
+            outstandingFromPractice.push(lbl);
+          } else {
+            var reason = d.ops_status === 'completed' ? 'already received'
+              : d.ops_status === 'under_review' ? 'received, under review'
+              : d.ops_status === 'awaiting_gp' ? 'waiting on the GP (not the practice)'
+              : d.ops_status === 'needs_correction' ? 'being corrected'
+              : d.ops_status === 'not_requested' ? 'not yet requested from the practice'
+              : (d.ops_status || 'not applicable');
+            doNotRequest.push(lbl + ' — ' + reason);
+          }
+        });
+      }
+
       // 5. Load qualification snapshot
       var countryCode = profile.registration_country || 'GB';
       var qualSnap = await getUserQualificationSnapshot(regCase.user_id, countryCode);
@@ -33231,7 +33278,11 @@ Return ONLY valid JSON with no markdown formatting:
         whatsapp_recent: dtMessages,
         email_thread: emailThread,
         current_email: { from: task.email_sender, sender_name: task.email_sender ? task.email_sender.split('@')[0].replace(/[._]/g, ' ') : '', subject: task.title, body: task.email_body_snippet || task.description },
-        practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' }
+        practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' },
+        practice_documents: {
+          outstanding_from_practice: outstandingFromPractice, // ONLY these may be requested from the practice
+          do_not_request: doNotRequest                        // already done / automatic / under review / waiting on GP / not yet requested
+        }
       }, null, 2);
 
       var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
@@ -33239,7 +33290,9 @@ Return ONLY valid JSON with no markdown formatting:
         + (senderIsGp
           ? 'The sender IS the GP candidate themselves. Address them directly and personally about their own registration progress.'
           : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
-        + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
+        + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows.'
+        + ' CRITICAL — practice documents: you may ONLY ask the practice to provide, complete, sign, or send documents listed under practice_documents.outstanding_from_practice. NEVER ask the practice for anything listed under practice_documents.do_not_request — those are already received, handled automatically (e.g. Section G), under review, waiting on the GP, or have not yet been formally requested from the practice (still locked). If outstanding_from_practice is empty, do NOT request any documents at all — simply give a brief, accurate progress update. Never invent next steps, documents, or deadlines that the context does not support.'
+        + ' Return ONLY the email reply text, no subject line or metadata.';
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }

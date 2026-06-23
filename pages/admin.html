@@ -88,7 +88,7 @@
     .case-card-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .case-card-sub{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
     .case-stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
-    .stage-myintealth{background:#eff6ff;color:#1d4ed8}.stage-amc{background:#faf5ff;color:#7c3aed}.stage-career{background:#fefce8;color:#a16207}.stage-ahpra{background:#ecfdf5;color:#166534}.stage-visa{background:#fff1f2;color:#be123c}.stage-pbs{background:#f0fdfa;color:#0d9488}.stage-commencement{background:#fdf4ff;color:#a21caf}.stage-complete{background:#f0fdf4;color:#16a34a}
+    .stage-myintealth{background:#eff6ff;color:#1d4ed8}.stage-amc{background:#faf5ff;color:#7c3aed}.stage-career{background:#fefce8;color:#a16207}.stage-ahpra{background:#ecfdf5;color:#166534}.stage-visa{background:#fff1f2;color:#be123c}.stage-pbs{background:#f0fdfa;color:#0d9488}.stage-commencement{background:#fdf4ff;color:#a21caf}.stage-complete{background:#f0fdf4;color:#16a34a}.stage-practice-contact{background:#fff7ed;color:#c2410c}
     .case-card-tasks{display:flex;gap:6px;margin-top:6px}
     .task-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px}
     .task-badge.urgent{background:#fef2f2;color:#dc2626}.task-badge.open{background:#eff6ff;color:#2563eb}.task-badge.overdue{background:#fffbeb;color:#b45309}
@@ -2573,9 +2573,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function groupTasksByStage(tasks){
     const groups=new Map();
     const other=[];
+    const practiceContact=[];
     tasks.forEach(t=>{
       const stage=t.related_stage||"";
-      if(stage&&STAGE_ORDER.includes(stage)){
+      if(stage==="practice_contact"){
+        practiceContact.push(t);
+      }else if(stage&&STAGE_ORDER.includes(stage)){
         if(!groups.has(stage))groups.set(stage,[]);
         groups.get(stage).push(t);
       }else{
@@ -2583,6 +2586,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     });
     const result=[];
+    // Practice correspondence is a cross-cutting category (not a registration stage) — surface
+    // it at the top of the GP's task list rather than under a stage or the trailing "Other".
+    if(practiceContact.length)result.push({stage:"practice_contact",tasks:practiceContact});
     STAGE_ORDER.forEach(s=>{
       if(groups.has(s))result.push({stage:s,tasks:groups.get(s)});
     });
@@ -2860,7 +2866,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="other"?"Other":"Unknown";
+      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="practice_contact"?"Medical Practice Contact":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
@@ -4793,6 +4799,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     function stageClass(stage){
       if(!stage)return '';
       var s=stage.toLowerCase().replace(/[\s_-]+/g,'');
+      if(s.indexOf('practicecontact')>-1)return 'stage-practice-contact';
       if(s.indexOf('secure')>-1||s.indexOf('placement')>-1)return 'stage-secure-placement';
       if(s.indexOf('myintealth')>-1||s.indexOf('intealth')>-1)return 'stage-myintealth';
       if(s.indexOf('amc')>-1)return 'stage-amc';
@@ -4808,6 +4815,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     function stageLabel(stage){
       if(!stage)return '';
       var s=stage.toLowerCase().replace(/[\s_-]+/g,'');
+      if(s.indexOf('practicecontact')>-1)return 'Medical Practice Contact';
       if(s.indexOf('secure')>-1||s.indexOf('placement')>-1)return 'Secure Placement';
       if(s.indexOf('myintealth')>-1||s.indexOf('intealth')>-1)return 'MyIntealth';
       if(s.indexOf('amc')>-1)return 'AMC';
