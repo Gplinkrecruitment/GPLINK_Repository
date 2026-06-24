@@ -182,7 +182,8 @@ set
   active = true;
 
 -- Helper view for readiness counters and missing docs.
-create or replace view public.ahpra_case_readiness as
+create or replace view public.ahpra_case_readiness
+with (security_invoker = on) as
 select
   c.id as case_id,
   c.user_id,

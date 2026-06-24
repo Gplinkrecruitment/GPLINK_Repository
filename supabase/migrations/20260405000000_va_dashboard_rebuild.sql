@@ -111,7 +111,8 @@ END $$;
 -- 4. Helper view: open tickets FIFO for VA queue
 -- ══════════════════════════════════════════════
 
-CREATE OR REPLACE VIEW va_open_tickets_fifo AS
+CREATE OR REPLACE VIEW va_open_tickets_fifo
+WITH (security_invoker = on) AS
 SELECT
   t.id,
   t.user_id,
