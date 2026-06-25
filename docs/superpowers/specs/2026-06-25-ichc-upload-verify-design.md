@@ -65,8 +65,7 @@ Flow:
 5. **Example reference block:** if `referenceNumber` is `FIT1234567` or `FIT7623801` →
    `{ ok:true, verified:false, isExample:true }`, **do not save**.
 6. **Verified path:** if `isIchcReferencePage` && `referenceNumber` matches `/^FIT\d{7}$/`:
-   - Save the file to `user_documents` (key `criminal_history`, status `accepted`), storing
-     the reference number (in the row's metadata / dedicated field) and `applicantName`.
+   - Save the file to `user_documents` (key `criminal_history`, status `accepted`).
    - Return `{ ok:true, verified:true, referenceNumber, applicantName, document }`.
 7. **Unverified path:**
    - If `finalAttempt === true`: save the file (status `under_review`) **and create an admin
@@ -75,6 +74,20 @@ Flow:
      (Re-check example fingerprint/ref here too — the example can never be saved.)
    - Else: return `{ ok:true, verified:false, issues }` and do **not** save (client manages
      the attempt counter).
+
+**Reference-number storage:** the canonical store for *display* stays the client
+`localStorage` keys (`gp_documents_prep.docs.criminal_history.referenceNumber` and
+`gp_amc_progress.criminalHistoryRef`) — unchanged, so the AHPRA page and admin profile keep
+working with no migration. Server-side, the extracted number is returned to the client and
+written into the saved `user_documents` row's existing free-text field (e.g. appended to/stored
+alongside `file_name`, or a `metadata`/`notes` column **iff one already exists** — confirm the
+`user_documents` schema during implementation; do **not** add a migration just for this).
+
+**Single-call attempt handling (no double upload):** the client knows the current fail count
+*before* it calls. When the prior fail count is already 2 (i.e. this upload is the GP's 3rd
+try), the client sends `finalAttempt:true` on that same call. So each attempt is exactly one
+request: attempts 1–2 either verify or return `verified:false` (nothing saved); the 3rd call
+either verifies or is saved as `under_review` + admin task. No re-POST.
 
 Notes:
 - The server treats `finalAttempt` as advisory; even if a client always sends it, the worst
