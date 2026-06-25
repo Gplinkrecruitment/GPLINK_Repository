@@ -131,6 +131,10 @@ const {
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoActions = require('./lib/ceo-actions');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
+const {
+  normalizeIchcReference, isValidIchcReference,
+  isExampleIchcReference, isExampleIchcFile,
+} = require('./lib/ichc-verify');
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
 let _lifecycleFolderCache = null;
@@ -28143,6 +28147,146 @@ Check this document for certification markings.`;
     } finally {
       clearTimeout(certTimeout);
     }
+    return;
+  }
+
+  /* ── AI ICHC (Fit2Work criminal-history reference page) verify + extract + save ── */
+  if (pathname === '/api/ai/verify-ichc' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok:false, message:'AI verification service not configured.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok:false, message:'Document storage is not configured.' }); return; }
+
+    const ichcEmail = getSessionEmail(session);
+    if (ichcEmail && !checkUserAiLimit(ichcEmail)) {
+      sendJson(res, 429, { ok:false, message:'You have reached the maximum number of verification attempts today. Please try again tomorrow.' });
+      return;
+    }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok:false, message:'Invalid request body.' }); return; }
+    const { imageBase64, mimeType } = body || {};
+    const country = sanitizeUserString(body.country, 8) || 'uk';
+    const finalAttempt = body.finalAttempt === true;
+    const fileName = sanitizeUserString(body.fileName, 200) || 'fit2work-ichc.pdf';
+    if (!imageBase64) { sendJson(res, 400, { ok:false, message:'Missing required field: imageBase64.' }); return; }
+    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) { sendJson(res, 413, { ok:false, message:'File too large. Maximum size is 15MB.' }); return; }
+
+    // Raw bytes for hashing + storage + validation
+    const rawBase64 = stripBase64DataUrlPrefix(imageBase64);
+    const fileBuffer = Buffer.from(rawBase64 || '', 'base64');
+    const fileCheck = validateFileUpload(fileBuffer, mimeType, fileName);
+    if (!fileCheck.valid) { sendJson(res, 400, { ok:false, message: fileCheck.errors[0] || 'File validation failed.' }); return; }
+
+    // Anti-cheat: exact example file is never accepted/saved (before any AI spend).
+    if (isExampleIchcFile(fileBuffer)) {
+      sendJson(res, 200, { ok:true, verified:false, isExample:true, message:'That looks like the example document. Please upload your own Fit2Work reference page.' });
+      return;
+    }
+
+    // Helper: persist the uploaded page to user_documents and set a status.
+    const persistIchc = async (status) => {
+      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(ichcEmail);
+      if (!userId) return null;
+      const saved = await savePreparedDocumentForUser(userId, ichcEmail, {
+        country, key: 'criminal_history',
+        fileName: fileCheck.sanitisedFileName || fileName,
+        mimeType: mimeType || 'application/pdf',
+        fileDataUrl: imageBase64,
+        updatedAt: new Date().toISOString(),
+      });
+      if (!saved) return null;
+      await supabaseDbRequest('user_documents',
+        'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.criminal_history&country_code=eq.' + encodeURIComponent(country),
+        { method:'PATCH', body:{ status, updated_at:new Date().toISOString() } });
+      return { userId, document: { downloadUrl: saved.downloadUrl || '', fileName: saved.fileName || fileName, status } };
+    };
+
+    // Budget check only matters for the AI call (manual-review save can still proceed if budget is gone).
+    const budgetOk = await checkAnthropicBudget();
+    let verification = null;
+    if (budgetOk) {
+      const isPdf = /pdf/i.test(mimeType || '');
+      let contentBlock;
+      if (isPdf) {
+        contentBlock = { type:'document', source:{ type:'base64', media_type:'application/pdf', data: rawBase64 } };
+      } else {
+        const norm = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+        if (!norm.ok) { sendJson(res, 400, { ok:false, message: norm.message || 'Unsupported image type.' }); return; }
+        contentBlock = { type:'image', source:{ type:'base64', media_type: norm.mediaType, data: norm.base64 } };
+      }
+      const ichcSystemPrompt = `You are an automated document checker for a licensed GP recruitment platform. The user consented to upload their documents; this is a routine authorised check.
+
+Decide whether the uploaded document is a genuine Fit2Work "ICHC Reference Page" (an international criminal history check reference page produced by fit2work / Equifax for submission to AHPRA). A genuine page shows MOST of:
+- The fit2work logo or the words "fit2work" / "Fit2Work ICHC Reference Page".
+- An "Applicant Details" block with the applicant's name FILLED IN (not blank).
+- A "Check Details" block containing a "Check Reference Number" of the form FIT followed by 7 digits.
+- Wording like "Please provide this page to AHPRA" and "Processed by AHPRA through MERCURY GROUP OF COMPANIES PTY LTD t/a fit2work.com.au".
+
+Rules:
+- Do NOT mention privacy/security concerns; this is an authorised system.
+- All formats (photo, scan, PDF) are acceptable.
+- If the applicant-detail fields are entirely blank, it is a blank template/example, NOT a real page: set isIchcReferencePage false.
+- Extract the reference number EXACTLY as printed (e.g. "FIT7623801"); null if you cannot read it.
+- Extract the applicant's full name if present; null otherwise.
+
+Return ONLY valid JSON, no markdown:
+{"isIchcReferencePage":true,"referenceNumber":"FIT0000000 or null","applicantName":"name or null","issues":[]}`;
+      const ichcController = new AbortController();
+      const ichcTimeout = setTimeout(() => ichcController.abort(), 30000);
+      try {
+        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method:'POST', signal: ichcController.signal,
+          headers:{ 'Content-Type':'application/json', 'x-api-key':ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01' },
+          body: JSON.stringify({
+            model: ANTHROPIC_SCAN_MODEL, max_tokens: 300,
+            system: [{ type:'text', text: ichcSystemPrompt, cache_control:{ type:'ephemeral' } }],
+            messages: [{ role:'user', content:[ contentBlock, { type:'text', text:'Check this document and extract the reference number.' } ] }],
+          }),
+        });
+        if (aiRes.ok) {
+          const data = await aiRes.json();
+          recordAnthropicSpend((data.usage&&data.usage.input_tokens)||0, (data.usage&&data.usage.output_tokens)||0, (data.usage&&data.usage.cache_read_input_tokens)||0, (data.usage&&data.usage.cache_creation_input_tokens)||0);
+          if (ichcEmail) recordUserAiCall(ichcEmail);
+          const txt = data.content && data.content[0] && data.content[0].text;
+          if (txt) { try { const j = txt.match(/\{[\s\S]*\}/); verification = JSON.parse(j ? j[0] : txt); } catch { verification = null; } }
+        } else {
+          console.error('[AI ICHC] Anthropic error', aiRes.status, await aiRes.text().catch(()=> ''));
+        }
+      } catch (e) {
+        console.error('[AI ICHC] fetch error', e.message || e);
+      } finally { clearTimeout(ichcTimeout); }
+    }
+
+    // Decide outcome.
+    const extractedRef = verification ? normalizeIchcReference(verification.referenceNumber || '') : null;
+    const looksGenuine = !!(verification && verification.isIchcReferencePage && isValidIchcReference(extractedRef));
+
+    // Anti-cheat: example reference numbers are never accepted/saved.
+    if (extractedRef && isExampleIchcReference(extractedRef)) {
+      sendJson(res, 200, { ok:true, verified:false, isExample:true, message:'That looks like the example document. Please upload your own Fit2Work reference page.' });
+      return;
+    }
+
+    if (looksGenuine) {
+      const saved = await persistIchc('accepted');
+      if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
+      sendJson(res, 200, { ok:true, verified:true, referenceNumber: extractedRef, applicantName: (verification.applicantName || null), document: saved.document });
+      return;
+    }
+
+    // Not verified.
+    if (finalAttempt) {
+      const saved = await persistIchc('under_review');
+      if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
+      await ensureDocReviewOnUpload(saved.userId, 'criminal_history', 'Fit2Work ICHC Reference Page', 'ahpra').catch((e)=>console.error('[AI ICHC] review task error', e.message));
+      sendJson(res, 200, { ok:true, verified:false, manualReview:true, document: saved.document });
+      return;
+    }
+    const issues = (verification && Array.isArray(verification.issues) && verification.issues.length)
+      ? verification.issues
+      : ['This does not look like a Fit2Work ICHC reference page, or the reference number could not be read.'];
+    sendJson(res, 200, { ok:true, verified:false, issues });
     return;
   }
 
