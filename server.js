@@ -117,6 +117,7 @@ const {
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
+const { checkSppaCompleteness } = require('./lib/sppa-completeness-check.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -2987,6 +2988,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   var _sppaBuf2 = Buffer.from((_sppaPdfDoc2.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc2.id, _sppaBuf2, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
+                // Practice returned the completed form — run the AI completeness check (non-blocking).
+                _runSppaCompletenessCheck(earlyGpCase.id, earlyTask.id).catch(function (e) { console.error('[Gmail] SPPA completeness check error:', e.message); });
               } else {
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
@@ -8498,6 +8501,119 @@ async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, me
   await supabaseDbRequest('task_timeline', '', {
     method: 'POST', body: [entry]
   });
+}
+
+/**
+ * AI pre-submit completeness check for a returned SPPA-00. Gathers the completed
+ * form + an inventory of supporting documents GP Link holds, asks the AI whether
+ * the form is filled out correctly and all required documents are present, then
+ * stores the verdict on the task (metadata.completeness_check). Returns the stored
+ * verdict object, or null if it could not run. Safe to call fire-and-forget.
+ */
+async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
+  try {
+    if (!isSupabaseDbConfigured()) return null;
+
+    // Resolve the SPPA-00 task (by id if given, else by case).
+    var taskRes;
+    if (sppaTaskId) {
+      taskRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,metadata&id=eq.' + encodeURIComponent(sppaTaskId) + '&limit=1');
+    } else {
+      taskRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,metadata&case_id=eq.' + encodeURIComponent(caseId) +
+        '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&limit=1');
+    }
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) return null;
+    var sppaTask = taskRes.data[0];
+    caseId = caseId || sppaTask.case_id;
+    var meta = sppaTask.metadata;
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    if (!meta || typeof meta !== 'object') meta = {};
+
+    // The completed SPPA-00 PDF (exclude alternate supervisor CVs).
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(sppaTask.id) +
+      '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+    var doc = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url) return null;
+    var commaIdx = doc.attachment_url.indexOf(',');
+    var pdfB64 = doc.attachment_url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (pdfB64.length % 4 !== 0) pdfB64 += '=';
+    var pdfBuffer = Buffer.from(pdfB64, 'base64');
+    var pdfMime = doc.mime_type || 'application/pdf';
+
+    // Supporting-document inventory.
+    var sibRes = await supabaseDbRequest('registration_tasks',
+      'select=id,related_document_key,status&case_id=eq.' + encodeURIComponent(caseId) +
+      '&related_document_key=in.(supervisor_cv,offer_contract)&task_type=eq.practice_pack_child');
+    var sibs = (sibRes.ok && Array.isArray(sibRes.data)) ? sibRes.data : [];
+    async function _siblingHasDoc(key) {
+      var t = sibs.find(function (s) { return s.related_document_key === key; });
+      if (!t) return false;
+      var dr = await supabaseDbRequest('task_documents',
+        'select=id&task_id=eq.' + encodeURIComponent(t.id) + '&is_current=eq.true&limit=1');
+      return !!(dr.ok && dr.data && dr.data[0]);
+    }
+    var supCvPresent = await _siblingHasDoc('supervisor_cv');
+    var offerPresent = await _siblingHasDoc('offer_contract');
+
+    var altCvRes = await supabaseDbRequest('task_documents',
+      'select=id,filename&task_id=eq.' + encodeURIComponent(sppaTask.id) + '&category=eq.alt_supervisor_cv&is_current=eq.true');
+    var altCvDocs = (altCvRes.ok && Array.isArray(altCvRes.data)) ? altCvRes.data : [];
+    var altNames = Array.isArray(meta.alt_supervisor_names) ? meta.alt_supervisor_names : [];
+
+    var inventory = [
+      'Primary supervisor CV (Q3): ' + (supCvPresent ? 'PRESENT on file' : 'NOT on file'),
+      'Proof of employment — signed offer letter / contract / position description (Q10): ' + (offerPresent ? 'PRESENT on file' : 'NOT on file'),
+      'Alternate supervisor CVs held by GP Link: ' + altCvDocs.length +
+        (altCvDocs.length ? ' (' + altCvDocs.map(function (d) { return d.filename || 'CV'; }).join('; ') + ')' : ''),
+      'Alternate supervisor name(s) auto-detected on the form: ' + (altNames.length ? altNames.join('; ') : 'none detected')
+    ].join('\n');
+
+    var verdict = await checkSppaCompleteness({
+      sppaPdfBuffer: pdfBuffer,
+      sppaPdfMime: pdfMime,
+      inventoryText: inventory,
+      altSupervisorNames: altNames
+    });
+
+    var stored = {
+      is_complete: verdict.is_complete,
+      confidence: verdict.confidence,
+      missing_fields: verdict.missing_fields,
+      missing_signatures: verdict.missing_signatures,
+      missing_documents: verdict.missing_documents,
+      issues: verdict.issues,
+      summary: verdict.summary,
+      alternate_supervisors_on_form: verdict.alternate_supervisors_on_form,
+      checked_at: new Date().toISOString(),
+      model: verdict._model || null,
+      error: verdict._error || null,
+      inventory: { supervisor_cv: supCvPresent, offer_contract: offerPresent, alt_cv_count: altCvDocs.length, alt_names: altNames }
+    };
+
+    // Re-read metadata immediately before writing so we don't clobber a concurrent
+    // state transition that happened while the (slow) AI call was in flight.
+    var freshRes = await supabaseDbRequest('registration_tasks',
+      'select=metadata&id=eq.' + encodeURIComponent(sppaTask.id) + '&limit=1');
+    var freshMeta = (freshRes.ok && freshRes.data && freshRes.data[0]) ? freshRes.data[0].metadata : meta;
+    if (typeof freshMeta === 'string') try { freshMeta = JSON.parse(freshMeta); } catch (e) { freshMeta = meta; }
+    if (!freshMeta || typeof freshMeta !== 'object') freshMeta = {};
+    freshMeta.completeness_check = stored;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(sppaTask.id),
+      { method: 'PATCH', body: { metadata: freshMeta, updated_at: new Date().toISOString() } });
+
+    await _logCaseEvent(caseId, sppaTask.id, 'system',
+      'AI completeness check: ' + (verdict.is_complete ? 'ready to submit' : 'needs attention'),
+      verdict.summary, 'system',
+      { is_complete: verdict.is_complete, confidence: verdict.confidence });
+
+    return stored;
+  } catch (err) {
+    console.error('[SPPA] Completeness check error:', err.message);
+    return null;
+  }
 }
 
 /**
@@ -35198,7 +35314,25 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
+    if (taskMeta.sppa_state === 'practice_returned') {
+      // Practice returned the completed form — run the AI completeness check (non-blocking).
+      _runSppaCompletenessCheck(task.case_id, task.id).catch(function (e) { console.error('[SPPA] completeness check error:', e.message); });
+    }
     sendJson(res, 200, { ok: true, state: taskMeta.sppa_state });
+    return;
+  }
+
+  // ── Run AI completeness check on demand (RSO button) ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-completeness-check')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    var _cc = await _runSppaCompletenessCheck(taskRes.data[0].case_id, taskRes.data[0].id);
+    if (!_cc) { sendJson(res, 502, { error: 'Completeness check could not run (no completed SPPA-00 found or AI unavailable)' }); return; }
+    sendJson(res, 200, { ok: true, completeness: _cc });
     return;
   }
 
@@ -35215,6 +35349,33 @@ Return ONLY valid JSON with no markdown formatting:
     var taskMeta = task.metadata;
     if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
     if (!taskMeta || taskMeta.sppa_state !== 'practice_returned') { sendJson(res, 400, { error: 'SPPA not in practice_returned state' }); return; }
+
+    // ── AI completeness gate ──
+    // Before delivering to AHPRA, confirm the form is filled out correctly and all
+    // supporting documents are present. Use the stored verdict if we already have
+    // one (auto-run when the practice returned the form); otherwise run it now.
+    // Fail-OPEN: only block on a clear "incomplete" verdict — never hard-block a
+    // legitimate submission because the AI was unavailable. The RSO can override an
+    // incomplete verdict by submitting with { override: true }.
+    var _submitBody = {};
+    try { _submitBody = await readJsonBody(req); } catch (e) { _submitBody = {}; }
+    var _override = !!(_submitBody && (_submitBody.override === true || _submitBody.override === 'true'));
+    if (_override) {
+      taskMeta.completeness_override = { by: admin.email, at: new Date().toISOString() };
+      await _logCaseEvent(task.case_id, taskId, 'system',
+        'RSO overrode AI completeness warning and submitted SPPA-00',
+        (taskMeta.completeness_check && taskMeta.completeness_check.summary) || null, admin.email);
+    } else {
+      var _completeness = taskMeta.completeness_check;
+      if (!_completeness || _completeness.error) {
+        _completeness = await _runSppaCompletenessCheck(task.case_id, task.id);
+        if (_completeness) taskMeta.completeness_check = _completeness;
+      }
+      if (_completeness && _completeness.error == null && _completeness.is_complete === false) {
+        sendJson(res, 200, { ok: false, needs_review: true, completeness: _completeness });
+        return;
+      }
+    }
 
     // Get SPPA PDF (exclude alt supervisor CVs)
     const docRes = await supabaseDbRequest('task_documents',
