@@ -1563,6 +1563,84 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     advanced: { title: "Advanced Education Pathway", docs: ["Official transcripts of professional qualification", "Official transcripts of advanced education (degree level AQF 7+)", "Letter from education provider confirming English instruction (if not shown on transcript)", "Dates of any breaks taken during study (entered in AHPRA form)", "Date of most recent study completion (must be within 2 years of application)"] },
     test: { title: "Test Pathway", docs: ["Copy of test results with candidate number (IELTS / OET / PTE / TOEFL / Cambridge)", "PTE Academic only: authorise AHPRA to access results through PTE system", "One test sitting, or two sittings within a 12-month period (results not combined across providers)", "IELTS One Skill Retake accepted (re-sit one section within 60 days)", "If test > 2 years old + still working: CV in AHPRA format + employer letter confirming continuous employment", "If test > 2 years old + enrolled in study: transcript showing continuous enrolment in Board-approved program", "PLAB or NZREX: certified copy of test results (medicine applicants only)"] }
   };
+  // ── Exact ELS required-documents for the admin, mirroring what the GP sees ──
+  // The GP (pages/ahpra.html → buildElsChecklistHtml) is shown documents tailored to BOTH the
+  // chosen test AND whether it was sat within / more than 2 years ago. The static
+  // ELS_PATHWAY_DOCS.test list above is the generic union of every conditional case (a "mix"),
+  // so the admin couldn't tell which docs actually apply to a given GP. These helpers reproduce
+  // the GP's per-test, per-timeline logic so buildElsAdminDocsCard() can show the admin the
+  // EXACT same list. Keep in sync with the matching functions in pages/ahpra.html.
+  function _elsIsProfessionExam(t){ return /PLAB|NZREX/i.test(t||''); }
+  function _elsShortName(t){ return t ? String(t).split(' (')[0] : 'test'; }
+  function _elsTestDocs(testType, testStatus, testRecency){
+    var shortName = _elsShortName(testType);
+    if(testStatus === 'plan'){
+      if(_elsIsProfessionExam(testType)){
+        return ['Sit the ' + shortName + ' (accepted as proof of English for medical applicants)',
+                'Then provide a certified copy of the test results'];
+      }
+      return ['Book and sit an approved English test' + (testType ? ' (' + shortName + ')' : ' (IELTS / OET / PTE / TOEFL / Cambridge)'),
+              'Once passed, results showing the candidate number',
+              'Results must be within 2 years of application (or evidence of continuous work / study)'];
+    }
+    if(_elsIsProfessionExam(testType)){ return ['Certified copy of the ' + shortName + ' test results']; }
+    var d = ['Copy of the ' + shortName + ' results with candidate number'];
+    if(/PTE/i.test(testType)) d.push('PTE Academic: authorise AHPRA to access the results through the PTE system');
+    return d;
+  }
+  function _elsOver2yEvidence(){
+    return {
+      work: ['CV in AHPRA’s standard format',
+             'A letter from the employer(s) confirming continuous employment — or, if unavailable, a professional reference from a supervisor, colleague or other health practitioner',
+             'The dates they started (and, if relevant, stopped) working'],
+      study: ['A transcript showing continuous enrolment in a Board-approved program',
+              'Study started within 12 months of sitting the test, and finished within 12 months of applying']
+    };
+  }
+  function _elsTestNotes(testType){
+    if(_elsIsProfessionExam(testType)){ return ['PLAB and NZREX are accepted as proof of English for medical applicants only (Medical Board of Australia).']; }
+    var notes = ['AHPRA accepts results from one test sitting, or two sittings within a 12-month period. Results can’t be combined across different test providers.'];
+    if(/IELTS/i.test(testType)) notes.push('IELTS One Skill Retake is accepted: re-sit one section within 60 days if the other sections meet the required score.');
+    return notes;
+  }
+  // Build the "Required Documents" card for a GP, tailored to their pathway/test/timeline.
+  function buildElsAdminDocsCard(u){
+    var pathway = u.els_pathway;
+    var pw = ELS_PATHWAY_DOCS[pathway];
+    if(!pw) return '';
+    var docs, requiredHtml = '', notesHtml = '';
+    if(pathway === 'test'){
+      var tt = u.els_test_type || '', status = u.els_test_status || '', recency = u.els_test_recency || '';
+      docs = _elsTestDocs(tt, status, recency);
+      // REQUIRED extra evidence only when a completed STANDARD test was sat more than 2 years ago.
+      if(tt && status === 'done' && !_elsIsProfessionExam(tt) && recency === 'over2y'){
+        var ev = _elsOver2yEvidence();
+        var workLis = ev.work.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('');
+        var studyLis = ev.study.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('');
+        requiredHtml = '<div style="margin-top:8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px">' +
+          '<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:4px">REQUIRED — test sat more than 2 years ago. Provide ONE of:</div>' +
+          '<div style="font-size:11px;font-weight:700;color:#0c1222;margin-top:2px">Continuous work</div>' +
+          '<ul class="els-admin-list">' + workLis + '</ul>' +
+          '<div style="font-size:10px;font-weight:800;color:#92400e;text-align:center;margin:3px 0">— OR —</div>' +
+          '<div style="font-size:11px;font-weight:700;color:#0c1222">Continuous study</div>' +
+          '<ul class="els-admin-list">' + studyLis + '</ul>' +
+          '</div>';
+      }
+      if(tt){
+        var notes = _elsTestNotes(tt);
+        if(notes.length){
+          notesHtml = '<div style="margin-top:6px">' + notes.map(function(n){ return '<div style="font-size:10px;color:#64748b;line-height:1.45;margin-top:2px">Note: ' + esc(n) + '</div>'; }).join('') + '</div>';
+        }
+      }
+    } else {
+      docs = pw.docs;
+    }
+    var items = docs.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('');
+    return '<div class="els-admin-card">' +
+      '<div class="els-admin-title">Required Documents</div>' +
+      '<ul class="els-admin-list">' + items + '</ul>' + requiredHtml + notesHtml +
+      '</div>';
+  }
   const SUBSTAGE_LABELS={create_account:"Create Account",account_establishment:"Establish & Upload Qualifications",upload_qualifications:"Upload Qualifications",create_portfolio:"Create Account",upload_credentials:"Establish Account"};
   function substageLabel(raw){return SUBSTAGE_LABELS[raw]||raw.replace(/_/g," ");}
   const PLAYBOOK={
@@ -3699,10 +3777,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <h3 style="margin-bottom:6px">English Language Skills</h3>
           <div style="font-size:12px;font-weight:600;color:#0c1222;margin-bottom:4px">${esc(ELS_PATHWAY_DOCS[u.els_pathway].title)}${(u.els_pathway==='test'&&u.els_test_type)?(' <span style="color:#2563eb">· '+esc(u.els_test_type)+'</span>'):''}${(u.els_pathway==='test'&&u.els_test_status)?('<span style="display:inline-block;font-size:10px;font-weight:800;padding:1px 7px;border-radius:999px;margin-left:6px;'+(u.els_test_status==='done'?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e')+'">'+(u.els_test_status==='done'?'COMPLETED':'PLANNED')+'</span>'):''}</div>
           ${(u.els_pathway==='test'&&u.els_test_status==='done'&&u.els_test_recency)?('<div style="font-size:11px;margin-bottom:6px;font-weight:'+(u.els_test_recency==='over2y'?'700':'500')+';color:'+(u.els_test_recency==='over2y'?'#92400e':'#64748b')+'">Test sat: '+(u.els_test_recency==='over2y'?'more than 2 years ago — continuous work/study evidence required':'within the last 2 years')+'</div>'):''}
-          <div class="els-admin-card">
-            <div class="els-admin-title">Required Documents</div>
-            <ul class="els-admin-list">${ELS_PATHWAY_DOCS[u.els_pathway].docs.map(d=>'<li>'+esc(d)+'</li>').join('')}</ul>
-          </div>
+          ${buildElsAdminDocsCard(u)}
         </div>` : ''}
         <div class="pb-expand-panel" id="pbExpandPanel">
           ${renderCaseManagementForm(c)}
