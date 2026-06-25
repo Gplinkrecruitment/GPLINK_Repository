@@ -3195,7 +3195,7 @@
         title: "International Criminal History",
         sub: "Matches the International Criminal History box on AHPRA",
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
-        empty: "We’ll guide you through this step separately — coming soon. There’s nothing to download here yet."
+        empty: "Upload your Fit2Work reference page on the Documents page to add it here."
       },
       {
         key: "work_practice",
@@ -3218,6 +3218,7 @@
     ];
     // Route a document key to one of the 4 AHPRA upload boxes above.
     function ahpraDocCategory(key) {
+      if (key === "criminal_history") return "ichc";
       if (key === "cv_signed_dated") return "work_practice";
       if (key === "sppa_00" || key === "section_g" || key === "supervisor_cv"
           || key === "offer_contract" || key === "position_description"
@@ -3570,6 +3571,34 @@
         };
       });
 
+      // Institution-uploaded docs (currently: ICHC reference page from My Documents)
+      const crimDoc = (docState.docs && docState.docs.criminal_history) || {};
+      const crimUploaded = crimDoc.uploaded === true;
+      const crimStatus = typeof crimDoc.status === "string" ? crimDoc.status : (crimUploaded ? "under_review" : "pending");
+      const crimRejected = crimStatus === "rejected";
+      const crimUnderReview = crimStatus === "under_review";
+      const crimReady = crimStatus === "accepted" || crimStatus === "approved" || !!crimDoc.url;
+      const crimRef = typeof crimDoc.referenceNumber === "string" && crimDoc.referenceNumber ? " (" + crimDoc.referenceNumber + ")" : "";
+      const crimReason = crimRejected
+        ? "Rejected — re-upload required" + (crimDoc.reviewNote ? " (" + crimDoc.reviewNote + ")" : "")
+        : crimUnderReview ? "Under review by GP Link (up to 24 hours)."
+        : crimUploaded ? "Uploaded on Documents page."
+        : "Upload your Fit2Work ICHC reference page on the Documents page.";
+      const rowsInstitution = [
+        {
+          group: "institution",
+          key: "criminal_history",
+          name: "Fit2Work ICHC Reference Page" + crimRef,
+          uploaded: crimUploaded,
+          ready: crimReady,
+          rejected: crimRejected,
+          status: crimRejected ? "Rejected" : crimReady ? "Ready" : crimUnderReview ? "Pending" : crimUploaded ? "Pending" : "Not ready",
+          reason: crimReason,
+          downloadUrl: typeof crimDoc.url === "string" ? crimDoc.url : "",
+          category: "ichc"
+        }
+      ];
+
       const rowsGpLink = GPLINK_REQUIRED_DOCS.map((doc) => {
         const item = (preparedState.docs && preparedState.docs[doc.key]) || {};
         const ready = !!(item.ready || item.url);
@@ -3615,7 +3644,7 @@
         });
 
       const rowsGpLinkAll = [...rowsGpLink, ...altCvRows];
-      const all = [...rowsGp, ...rowsGpLinkAll];
+      const all = [...rowsInstitution, ...rowsGp, ...rowsGpLinkAll];
       const missing = all.filter((item) => !item.ready || item.rejected);
       const downloadable = all.filter((item) => item.ready && item.downloadUrl);
       return { gp: rowsGp, gplink: rowsGpLinkAll, all, missing, downloadable, gpTotal: rowsGp.length, gplinkTotal: rowsGpLinkAll.length };
@@ -4085,6 +4114,23 @@
         ]
       }
     };
+
+    // ── ICHC sample link — appended to every criminal_history help.steps entry ──
+    // Defined once; loop runs at script-eval time after both INTRO_COUNTRY_DOCS and ADDITIONAL_DOCS are in scope.
+    var ICHC_EXAMPLE_STEP_HTML = 'See what the page looks like: <a href="/documents/fit2work-ichc-example.pdf" target="_blank" rel="noopener noreferrer">view a sample Fit2Work ICHC reference page</a>. This is only an example — upload your own page, not this sample.';
+    [INTRO_COUNTRY_DOCS, ADDITIONAL_DOCS].forEach(function(configMap) {
+      Object.keys(configMap).forEach(function(countryKey) {
+        var cfg = configMap[countryKey];
+        var inst = (cfg && cfg.institution) || [];
+        inst.forEach(function(doc) {
+          if (doc.key === "criminal_history" && doc.help && Array.isArray(doc.help.steps)) {
+            if (doc.help.steps.indexOf(ICHC_EXAMPLE_STEP_HTML) === -1) {
+              doc.help.steps.push(ICHC_EXAMPLE_STEP_HTML);
+            }
+          }
+        });
+      });
+    });
 
     // ── Help popover ──
     var ahpraHelpBackdrop = document.getElementById('ahpraHelpBackdrop');
