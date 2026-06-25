@@ -3355,6 +3355,19 @@
       if (base.stage === 'upload_qualifications' || base.stage === 'waiting_verification') base.stage = 'awaiting_outcome';
       if (base.stage === 'verification_issued') base.stage = 'awaiting_outcome';
       if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
+      // Carry over EVERY other top-level field the GP has saved — the English-language
+      // pathway choice (els_pathway / els_test_type / els_test_status / els_test_recency),
+      // the criminal-history reference, and any future preference. defaultProgress() only
+      // seeds stage/completed/updatedAt, so without this the migrate would silently DROP the
+      // GP's ELS pick. loadProgress() force-writes the migrated object back to localStorage on
+      // every load AND every hydrate, so a dropped pick gets blanked on reload and (because the
+      // stripped value carries a fresh updatedAt) wins the state-sync merge and overwrites the
+      // saved choice on the server too. Stage/completed/updatedAt are handled above; preserve
+      // the rest verbatim so the choice survives reloads, syncs, and stage completions.
+      Object.keys(v).forEach(function (k) {
+        if (k === 'stage' || k === 'completed' || k === 'updatedAt') return;
+        base[k] = v[k];
+      });
       return base;
     }
 
