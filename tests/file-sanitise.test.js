@@ -15,12 +15,14 @@ describe('detectMimeFromMagic', () => {
   const jpeg = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
   const png = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]);
   const heic = Buffer.concat([Buffer.from([0,0,0,0]), Buffer.from('ftypheic', 'latin1')]);
+  const webp = Buffer.from([0x52,0x49,0x46,0x46,0,0,0,0,0x57,0x45,0x42,0x50]); // RIFF....WEBP
 
-  it('detects pdf / jpeg / png / heic by content', () => {
+  it('detects pdf / jpeg / png / heic / webp by content', () => {
     expect(detectMimeFromMagic(pdf)).toBe('application/pdf');
     expect(detectMimeFromMagic(jpeg)).toBe('image/jpeg');
     expect(detectMimeFromMagic(png)).toBe('image/png');
     expect(detectMimeFromMagic(heic)).toBe('image/heic');
+    expect(detectMimeFromMagic(webp)).toBe('image/webp');
   });
   it('returns null for unrecognised / empty content', () => {
     expect(detectMimeFromMagic(Buffer.from([0x00, 0x01, 0x02, 0x03]))).toBeNull();
