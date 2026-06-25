@@ -2910,7 +2910,9 @@
               ichcState.docs.criminal_history = applyStoredFile({
                 uploaded: true, fileName: (data.document && data.document.fileName) || file.name,
                 status: "accepted", referenceNumber: data.referenceNumber
-              }, { url: (data.document && data.document.downloadUrl) || '' });
+              }, { downloadUrl: (data.document && data.document.downloadUrl) || '' });
+              // Mirror under .url too — the AHPRA download-pack snapshot reads item.url.
+              ichcState.docs.criminal_history.url = (data.document && data.document.downloadUrl) || '';
               // Keep the legacy fallback the AHPRA page also reads.
               try {
                 var amcRaw = localStorage.getItem('gp_amc_progress');
@@ -2927,7 +2929,8 @@
             }
             if (data && data.manualReview) {
               resetCertFailCount('criminal_history');
-              ichcState.docs.criminal_history = applyStoredFile({ uploaded: true, fileName: (data.document && data.document.fileName) || file.name, status: "under_review" }, { url: (data.document && data.document.downloadUrl) || '' });
+              ichcState.docs.criminal_history = applyStoredFile({ uploaded: true, fileName: (data.document && data.document.fileName) || file.name, status: "under_review" }, { downloadUrl: (data.document && data.document.downloadUrl) || '' });
+              ichcState.docs.criminal_history.url = (data.document && data.document.downloadUrl) || '';
               persistDocsState(ichcState, true);
               renderAll(ichcCountry, ichcState);
               showCertResultPopup(true, "Saved for review", "We couldn't read this automatically, so our team will check it by hand within 24 hours.");
