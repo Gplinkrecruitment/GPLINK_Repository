@@ -4530,6 +4530,10 @@ function buildOnboardingDocumentDownloadUrl(country, key) {
   return `/api/onboarding-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
 }
 
+function buildAccountCareerDocumentDownloadUrl(type) {
+  return `/api/account-career-documents/download?type=${encodeURIComponent(type)}`;
+}
+
 async function listPreparedDocumentRows(userId, country) {
   const normalizedCountry = normalizeDocumentCountry(country);
   if (!normalizedCountry || !userId || !isSupabaseDbConfigured()) return [];
@@ -4720,6 +4724,11 @@ async function listAccountCareerDocumentRows(userId) {
   );
   if (!result.ok || !Array.isArray(result.data)) return [];
   return result.data.filter((row) => row && ACCOUNT_CAREER_DOCUMENT_KEYS.has(String(row.document_key || '')));
+}
+
+async function getAccountCareerDocumentRowByKey(userId, key) {
+  const rows = await listAccountCareerDocumentRows(userId);
+  return rows.find((row) => String(row.document_key || '') === String(key || '')) || null;
 }
 
 function getAccountCareerDocumentRowFromRows(rows, type) {
@@ -30145,6 +30154,79 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Authoritative readiness for the AHPRA download pack. Merges the GP's REAL
+  // user_documents status across all three storage namespaces — prepared-by-you
+  // (qualification certs), onboarding uploads, and the account/career CV — into one
+  // map keyed by AHPRA document key. The AHPRA page reads this so a doc that was
+  // uploaded/accepted elsewhere never falsely shows as "Awaiting upload".
+  if (pathname === '/api/ahpra/document-readiness' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+    let country = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      country = normalizeDocumentCountry(requestUrl.searchParams.get('country') || '');
+    } catch (err) {
+      country = '';
+    }
+    if (!country) country = 'uk';
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document readiness.' });
+      return;
+    }
+
+    const docs = {};
+    const hasFile = (info) => !!(info && (info.downloadUrl || info.fileName || info.storagePath));
+
+    // 1) Prepared-by-you (qualification certs, and a CV uploaded under the reg country)
+    try {
+      const prepared = await getPreparedDocumentsForUser(userId, email, country);
+      Object.keys(prepared.docs || {}).forEach((k) => { docs[k] = prepared.docs[k]; });
+    } catch (e) { /* non-fatal */ }
+
+    // 2) Onboarding uploads — map onboarding_* to the canonical AHPRA keys, but only
+    //    fill a slot the prepared step did not already cover (prepared is authoritative).
+    try {
+      const onboarding = await getOnboardingDocumentsForUser(userId, email, country);
+      const specialistKey = country === 'ie' ? 'micgp_certified' : (country === 'nz' ? 'frnzcgp_certified' : 'mrcgp_certified');
+      const onbMap = {
+        onboarding_primary_med_degree: 'primary_medical_degree',
+        onboarding_specialist_qualification: specialistKey
+      };
+      Object.keys(onboarding.docs || {}).forEach((k) => {
+        const target = onbMap[k] || k;
+        if (hasFile(onboarding.docs[k]) && !hasFile(docs[target])) docs[target] = onboarding.docs[k];
+      });
+    } catch (e) { /* non-fatal */ }
+
+    // 3) Account/career CV (stored under the AU namespace) — only if not already present.
+    try {
+      const career = await getAccountCareerDocumentsForUser(userId);
+      const cv = career && career.cv;
+      if (cv && cv.fileName && !hasFile(docs.cv_signed_dated)) {
+        docs.cv_signed_dated = {
+          fileName: cv.fileName,
+          status: toStatusLabel(cv.status, true),
+          downloadUrl: buildAccountCareerDocumentDownloadUrl('cv'),
+          rejection_reason: ''
+        };
+      }
+    } catch (e) { /* non-fatal */ }
+
+    sendJson(res, 200, { ok: true, country, docs });
+    return;
+  }
+
   // ── Upload professional indemnity insurance certificate ──
   if (pathname === '/api/commencement/upload-indemnity' && req.method === 'POST') {
     const session = requireSession(req, res);
@@ -30364,6 +30446,65 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const existing = await getOnboardingDocumentRow(userId, country, key);
+    const mapped = mapPreparedDocumentRow(existing);
+    if (!mapped || !mapped.storagePath) {
+      sendJson(res, 404, { ok: false, message: 'Document not found.' });
+      return;
+    }
+
+    const signedUrl = await supabaseStorageCreateSignedUrl(
+      mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET,
+      mapped.storagePath,
+      mapped.fileName || ''
+    );
+    if (!signedUrl) {
+      sendJson(res, 502, { ok: false, message: 'Failed to create document download URL.' });
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: signedUrl,
+      'Cache-Control': 'no-store',
+      ...SECURITY_HEADERS
+    });
+    res.end();
+    return;
+  }
+
+  // Download the account/career CV (AU namespace) — lets the AHPRA "Work Practice
+  // History" section serve the same signed-and-dated CV the GP uploaded on their
+  // account page, so it's downloadable alongside the qualification docs.
+  if (pathname === '/api/account-career-documents/download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+    let type = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      type = getAccountCareerDocumentType(requestUrl.searchParams.get('type') || '');
+    } catch (err) {
+      type = '';
+    }
+    const docKey = type && ACCOUNT_CAREER_DOCUMENT_TYPES[type] ? ACCOUNT_CAREER_DOCUMENT_TYPES[type].key : '';
+    if (!docKey) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
+      return;
+    }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document download.' });
+      return;
+    }
+
+    const existing = await getAccountCareerDocumentRowByKey(userId, docKey);
     const mapped = mapPreparedDocumentRow(existing);
     if (!mapped || !mapped.storagePath) {
       sendJson(res, 404, { ok: false, message: 'Document not found.' });

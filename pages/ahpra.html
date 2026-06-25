@@ -2789,16 +2789,19 @@
       return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
-    // Pull the authoritative server document state into the localStorage the intro
-    // reads (gp_documents_prep). Without this, a doc uploaded elsewhere (e.g. the My
-    // Documents page → server user_documents) is shown as "Missing" here, because the
-    // intro only ever saw this device's local cache. A doc the server has is marked
-    // uploaded (+ its real status, so a rejected doc shows "Rejected", not "Missing").
+    // Pull the AUTHORITATIVE server document state into the localStorage every
+    // document view reads (gp_documents_prep). Without this, a doc uploaded/accepted
+    // elsewhere (My Documents, onboarding, or the account-page CV → server
+    // user_documents) is falsely shown as "Awaiting upload" here, because this page
+    // only ever saw the device's stale local cache. The /api/ahpra/document-readiness
+    // endpoint merges all three storage namespaces (prepared certs, onboarding
+    // uploads, account/career CV) so a doc the server has is marked uploaded with its
+    // real review status (accepted / under review / rejected) and a working download URL.
     async function syncIntroPreparedDocsFromServer(country) {
       var cc = (country || "").toLowerCase();
       if (cc === "gb") cc = "uk";
       try {
-        var resp = await fetch("/api/prepared-documents?country=" + encodeURIComponent(cc), { credentials: "same-origin" });
+        var resp = await fetch("/api/ahpra/document-readiness?country=" + encodeURIComponent(cc), { credentials: "same-origin" });
         if (!resp.ok) return false;
         var data = await resp.json().catch(function() { return {}; });
         if (!data || !data.ok || !data.docs || typeof data.docs !== "object") return false;
@@ -3565,7 +3568,13 @@
         const status = typeof item.status === "string" ? item.status : (uploaded ? "under_review" : "pending");
         const rejected = status === "rejected";
         const underReview = status === "under_review";
-        const ready = status === "accepted" || status === "approved" || !!item.url;
+        const approved = status === "accepted" || status === "approved";
+        // Accept either field: locally-saved uploads store `url`; the server reconcile
+        // (syncIntroPreparedDocsFromServer → /api/ahpra/document-readiness) writes `downloadUrl`.
+        const dlUrl = (typeof item.url === "string" && item.url)
+          ? item.url
+          : (typeof item.downloadUrl === "string" ? item.downloadUrl : "");
+        const ready = approved || !!dlUrl;
         const reason = rejected
           ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
           : underReview ? "Under review by GP Link (up to 24 hours)." : uploaded ? "Uploaded on Documents page." : "Upload this on the Documents page";
@@ -3577,8 +3586,9 @@
           ready,
           rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : underReview ? "Pending" : uploaded ? "Pending" : "Not ready",
+          approved,
           reason,
-          downloadUrl: typeof item.url === "string" ? item.url : "",
+          downloadUrl: dlUrl,
           category: ahpraDocCategory(doc.key)
         };
       });
@@ -3876,20 +3886,31 @@
       // Build one card per AHPRA upload box, listing the docs routed to it.
       const sectionsHtml = AHPRA_DOWNLOAD_SECTIONS.map((sec) => {
         const rows = snapshot.all.filter((r) => (r.category || "qualification") === sec.key);
-        const readyCount = rows.filter((r) => r.ready && r.downloadUrl).length;
+        const availCount = rows.filter((r) => r.downloadUrl && !r.rejected).length;
         let body;
         if (!rows.length) {
           body = `<div class="dp-empty">${sec.empty || "Nothing to download here yet."}</div>`;
         } else {
           body = rows.map((r) => {
-            const chip = r.rejected
-              ? `<span class="dp-chip dp-chip-rej">Action needed</span>`
-              : (r.ready
+            let chip;
+            if (r.rejected) {
+              chip = `<span class="dp-chip dp-chip-rej">Action needed</span>`;
+            } else if (r.group === "gp") {
+              // GP-uploaded doc: mirror the real RSO review status from My Documents.
+              chip = r.approved
                 ? `<span class="dp-chip dp-chip-ready">Ready</span>`
-                : `<span class="dp-chip dp-chip-prep">${r.group === "gp" ? "Awaiting your upload" : "Preparing"}</span>`);
+                : (r.uploaded || r.downloadUrl)
+                  ? `<span class="dp-chip dp-chip-prep">Under review</span>`
+                  : `<span class="dp-chip dp-chip-prep">Awaiting your upload</span>`;
+            } else {
+              // GP Link prepared doc (supervised practice pack).
+              chip = r.ready
+                ? `<span class="dp-chip dp-chip-ready">Ready</span>`
+                : `<span class="dp-chip dp-chip-prep">Preparing</span>`;
+            }
             return `<div class="dp-doc"><span class="dp-doc-name">${r.name}</span>${chip}</div>`;
           }).join("");
-          body += `<div class="dp-sec-dl"><button type="button" class="qp-dl-btn" data-modal-download-section="${sec.key}"${readyCount ? "" : " disabled"}>${DL_ICON_SVG} Download${readyCount ? ` (${readyCount} ready)` : ""}</button></div>`;
+          body += `<div class="dp-sec-dl"><button type="button" class="qp-dl-btn" data-modal-download-section="${sec.key}"${availCount ? "" : " disabled"}>${DL_ICON_SVG} Download${availCount ? ` (${availCount})` : ""}</button></div>`;
         }
         return `<div class="dp-sec"><div class="dp-sec-head"><span class="dp-ico">${sec.icon}</span><div class="dp-sec-meta"><h5>${sec.title}</h5><small>${sec.sub}</small></div></div><div class="dp-sec-body">${body}</div></div>`;
       }).join("");
@@ -3908,7 +3929,7 @@
           const fresh = getDocSnapshot();
           const secKey = btn.getAttribute("data-modal-download-section");
           const rows = fresh.all.filter((r) => (r.category || "qualification") === secKey);
-          const downloadable = rows.filter((item) => item.ready && item.downloadUrl);
+          const downloadable = rows.filter((item) => item.downloadUrl && !item.rejected);
           if (!downloadable.length) {
             showToast("No ready documents in this section");
             return;
@@ -4522,9 +4543,14 @@
       var addlBtn = document.getElementById('ahpraDocsDownloadBtn');
       if (addlBtn) {
         addlBtn.addEventListener('click', function() {
-          var snapshot = getDocSnapshot();
-          renderDownloadPackModal(snapshot);
+          renderDownloadPackModal(getDocSnapshot());
           if (downloadPackModalEl) openModal(downloadPackModalEl, addlBtn);
+          // Reconcile with the authoritative server status, then re-render the pack in
+          // place — so a doc accepted/uploaded elsewhere (My Documents, onboarding, the
+          // account-page CV) shows its real status instead of "Awaiting upload".
+          syncIntroPreparedDocsFromServer(getPageCountry()).then(function(changed) {
+            if (changed) renderDownloadPackModal(getDocSnapshot());
+          });
         });
       }
 
@@ -4883,6 +4909,9 @@
 
         if (key === 'account_establishment') {
           wireDocsActionButtons();
+          // Pre-warm authoritative document status so the download pack is already
+          // correct the first time the GP opens it (no "Awaiting upload" flash).
+          syncIntroPreparedDocsFromServer(getPageCountry());
         }
       }
 
@@ -4945,9 +4974,11 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.location.assign(AHPRA_URL);
           else if (meta.ctaType === "download_docs") {
-            const snapshot = getDocSnapshot();
-            renderDownloadPackModal(snapshot);
+            renderDownloadPackModal(getDocSnapshot());
             if (downloadPackModalEl) openModal(downloadPackModalEl, openBtn);
+            syncIntroPreparedDocsFromServer(getPageCountry()).then(function(changed) {
+              if (changed) renderDownloadPackModal(getDocSnapshot());
+            });
           }
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "home") {
