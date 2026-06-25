@@ -2791,12 +2791,13 @@
 
     // Pull the AUTHORITATIVE server document state into the localStorage every
     // document view reads (gp_documents_prep). Without this, a doc uploaded/accepted
-    // elsewhere (My Documents, onboarding, or the account-page CV → server
+    // elsewhere (My Documents prepared docs, or the account-page CV → server
     // user_documents) is falsely shown as "Awaiting upload" here, because this page
     // only ever saw the device's stale local cache. The /api/ahpra/document-readiness
-    // endpoint merges all three storage namespaces (prepared certs, onboarding
-    // uploads, account/career CV) so a doc the server has is marked uploaded with its
-    // real review status (accepted / under review / rejected) and a working download URL.
+    // endpoint merges the AHPRA document stores (prepared-by-you certs + the
+    // account/career CV — NOT onboarding uploads, which are a separate MyIntealth/ID
+    // store) so a doc the server has is marked uploaded with its real review status
+    // (accepted / under review / rejected) and a working download URL.
     async function syncIntroPreparedDocsFromServer(country) {
       var cc = (country || "").toLowerCase();
       if (cc === "gb") cc = "uk";

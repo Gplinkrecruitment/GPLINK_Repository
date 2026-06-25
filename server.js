@@ -30155,10 +30155,13 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // Authoritative readiness for the AHPRA download pack. Merges the GP's REAL
-  // user_documents status across all three storage namespaces — prepared-by-you
-  // (qualification certs), onboarding uploads, and the account/career CV — into one
-  // map keyed by AHPRA document key. The AHPRA page reads this so a doc that was
-  // uploaded/accepted elsewhere never falsely shows as "Awaiting upload".
+  // user_documents status from the AHPRA document stores — the prepared-by-you
+  // qualification certs and the account/career CV — into one map keyed by AHPRA
+  // document key. The AHPRA page reads this so a doc uploaded/accepted elsewhere
+  // never falsely shows as "Awaiting upload".
+  // NOTE: onboarding uploads (onboarding_*) are deliberately EXCLUDED — those are a
+  // separate store for the MyIntealth step / ID-name cross-check / record-keeping,
+  // not the certified AHPRA documents, so they must not satisfy an AHPRA slot.
   if (pathname === '/api/ahpra/document-readiness' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' });
@@ -30194,22 +30197,7 @@ Return ONLY valid JSON with no markdown formatting:
       Object.keys(prepared.docs || {}).forEach((k) => { docs[k] = prepared.docs[k]; });
     } catch (e) { /* non-fatal */ }
 
-    // 2) Onboarding uploads — map onboarding_* to the canonical AHPRA keys, but only
-    //    fill a slot the prepared step did not already cover (prepared is authoritative).
-    try {
-      const onboarding = await getOnboardingDocumentsForUser(userId, email, country);
-      const specialistKey = country === 'ie' ? 'micgp_certified' : (country === 'nz' ? 'frnzcgp_certified' : 'mrcgp_certified');
-      const onbMap = {
-        onboarding_primary_med_degree: 'primary_medical_degree',
-        onboarding_specialist_qualification: specialistKey
-      };
-      Object.keys(onboarding.docs || {}).forEach((k) => {
-        const target = onbMap[k] || k;
-        if (hasFile(onboarding.docs[k]) && !hasFile(docs[target])) docs[target] = onboarding.docs[k];
-      });
-    } catch (e) { /* non-fatal */ }
-
-    // 3) Account/career CV (stored under the AU namespace) — only if not already present.
+    // 2) Account/career CV (stored under the AU namespace) — only if not already present.
     try {
       const career = await getAccountCareerDocumentsForUser(userId);
       const cv = career && career.cv;
