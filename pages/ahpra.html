@@ -609,6 +609,27 @@
     .qp-dl-btn svg { width: 12px; height: 12px; }
     .qp-dl-btn:disabled { background: var(--border); color: var(--ink-muted); cursor: default; }
 
+    /* ── AHPRA download pack: 4 sections (one per AHPRA upload box) ── */
+    .dp-sections { display: grid; gap: 12px; }
+    .dp-sec { border: 1px solid var(--border); border-radius: 14px; background: var(--surface-raised); overflow: hidden; }
+    .dp-sec-head { display: flex; align-items: center; gap: 9px; padding: 11px 13px; background: var(--gp-surface-sunken); border-bottom: 1px solid var(--border); }
+    .dp-sec-head .dp-ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--gp-blue-soft); color: var(--accent); flex-shrink: 0; }
+    .dp-sec-head .dp-ico svg { width: 15px; height: 15px; }
+    .dp-sec-meta { min-width: 0; }
+    .dp-sec-meta h5 { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+    .dp-sec-meta small { display: block; font-size: 11px; color: var(--ink-muted); font-weight: 500; margin-top: 1px; }
+    .dp-sec-body { padding: 9px 13px 12px; }
+    .dp-doc { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 0; }
+    .dp-doc + .dp-doc { border-top: 1px dashed var(--border); }
+    .dp-doc-name { font-size: 12.5px; color: var(--ink-soft); font-weight: 500; line-height: 1.35; min-width: 0; }
+    .dp-chip { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex-shrink: 0; white-space: nowrap; }
+    .dp-chip-ready { background: var(--gp-green-soft); color: var(--gp-green-ink); border: 1px solid var(--gp-green-border); }
+    .dp-chip-prep { background: var(--gp-amber-soft); color: var(--gp-amber-ink); border: 1px solid var(--gp-amber-border); }
+    .dp-chip-rej { background: var(--gp-red-soft); color: var(--gp-red-ink); border: 1px solid var(--gp-red-border); }
+    .dp-sec-dl { margin-top: 9px; }
+    .dp-sec-dl .qp-dl-btn { width: 100%; justify-content: center; padding: 7px 12px; font-size: 12px; }
+    .dp-empty { font-size: 12px; color: var(--ink-muted); line-height: 1.5; padding: 2px 0; }
+
     /* Copy fields */
     .qp-copy-row {
       display: flex; align-items: center; gap: 12px;
@@ -2278,8 +2299,8 @@
 
   <div class="modal" id="downloadPackModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadPackTitle">
-      <h4 id="downloadPackTitle">Download Supporting Documents</h4>
-      <p>Download ready files now. Missing items can be uploaded directly from this flow.</p>
+      <h4 id="downloadPackTitle">Download your AHPRA documents</h4>
+      <p>Each section below matches an upload box on the AHPRA application. Download a section, then upload it to the matching box on AHPRA.</p>
       <div id="downloadPackSummary" style="display:grid; gap:10px;"></div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-modern btn-outline" data-close="downloadPackModal" type="button">Close</button>
@@ -3163,6 +3184,47 @@
       { key: "supervisor_cv", name: "Supervisor's CV" }
     ];
 
+    // ─── AHPRA DOWNLOAD SECTIONS ─────────────────────────────────
+    // The download pack is organised into the same 4 upload boxes the GP
+    // sees on the real AHPRA application, so they can grab one pack per box.
+    // Each document is routed to a section by its key (see ahpraDocCategory).
+    const DL_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+    const AHPRA_DOWNLOAD_SECTIONS = [
+      {
+        key: "ichc",
+        title: "International Criminal History",
+        sub: "Matches the International Criminal History box on AHPRA",
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+        empty: "We’ll guide you through this step separately — coming soon. There’s nothing to download here yet."
+      },
+      {
+        key: "work_practice",
+        title: "Work Practice History",
+        sub: "Matches the Work Practice History box on AHPRA",
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>'
+      },
+      {
+        key: "supervised_practice",
+        title: "Supervised Practice",
+        sub: "Matches the Supervised Practice box on AHPRA",
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+      },
+      {
+        key: "qualification",
+        title: "Qualification",
+        sub: "Matches the Qualification box on AHPRA",
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5"/></svg>'
+      }
+    ];
+    // Route a document key to one of the 4 AHPRA upload boxes above.
+    function ahpraDocCategory(key) {
+      if (key === "cv_signed_dated") return "work_practice";
+      if (key === "sppa_00" || key === "section_g" || key === "supervisor_cv"
+          || key === "offer_contract" || key === "position_description"
+          || /^alt_supervisor_cv/.test(key)) return "supervised_practice";
+      return "qualification";
+    }
+
     // Internal stages
     const STAGES = ["create_account", "account_establishment", "awaiting_outcome"];
 
@@ -3503,7 +3565,8 @@
           rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : underReview ? "Pending" : uploaded ? "Pending" : "Not ready",
           reason,
-          downloadUrl: typeof item.url === "string" ? item.url : ""
+          downloadUrl: typeof item.url === "string" ? item.url : "",
+          category: ahpraDocCategory(doc.key)
         };
       });
 
@@ -3520,14 +3583,42 @@
           rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
           reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
-          downloadUrl: typeof item.url === "string" ? item.url : ""
+          downloadUrl: typeof item.url === "string" ? item.url : "",
+          category: ahpraDocCategory(doc.key)
         };
       });
 
-      const all = [...rowsGp, ...rowsGpLink];
+      // Alternative supervisor CVs are created on the GP's record by the SPPA-00
+      // flow (keys alt_supervisor_cv_1, _2 …). Surface any that exist so they show
+      // under Supervised Practice — "(if applicable)" is handled automatically.
+      const altCvRows = Object.keys(preparedState.docs || {})
+        .filter((k) => /^alt_supervisor_cv/.test(k))
+        .sort()
+        .map((k) => {
+          const item = preparedState.docs[k] || {};
+          const ready = !!(item.ready || item.url);
+          const rejected = item.status === "rejected";
+          const nm = item.fileName
+            || (item.supervisorName ? `${item.supervisorName} — CV (alternative supervisor)` : "Alternative Supervisor's CV");
+          return {
+            group: "gplink",
+            key: k,
+            name: nm,
+            uploaded: ready,
+            ready,
+            rejected,
+            status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
+            reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
+            downloadUrl: typeof item.url === "string" ? item.url : "",
+            category: "supervised_practice"
+          };
+        });
+
+      const rowsGpLinkAll = [...rowsGpLink, ...altCvRows];
+      const all = [...rowsGp, ...rowsGpLinkAll];
       const missing = all.filter((item) => !item.ready || item.rejected);
       const downloadable = all.filter((item) => item.ready && item.downloadUrl);
-      return { gp: rowsGp, gplink: rowsGpLink, all, missing, downloadable, gpTotal: rowsGp.length, gplinkTotal: rowsGpLink.length };
+      return { gp: rowsGp, gplink: rowsGpLinkAll, all, missing, downloadable, gpTotal: rowsGp.length, gplinkTotal: rowsGpLinkAll.length };
     }
 
     function saveMissingUploadToDocuments(item, file) {
@@ -3767,34 +3858,43 @@
 
     function renderDownloadPackModal(snapshot) {
       if (!downloadPackSummaryEl || !downloadPackModalEl) return;
-      const gpReady = snapshot.gp.filter((item) => item.ready && item.downloadUrl).length;
-      const gplinkReady = snapshot.gplink.filter((item) => item.ready && item.downloadUrl).length;
-      const gpMissing = snapshot.gp.filter((item) => !item.ready || item.rejected);
       const allMissing = snapshot.all.filter((item) => !item.ready || item.rejected);
 
+      // Build one card per AHPRA upload box, listing the docs routed to it.
+      const sectionsHtml = AHPRA_DOWNLOAD_SECTIONS.map((sec) => {
+        const rows = snapshot.all.filter((r) => (r.category || "qualification") === sec.key);
+        const readyCount = rows.filter((r) => r.ready && r.downloadUrl).length;
+        let body;
+        if (!rows.length) {
+          body = `<div class="dp-empty">${sec.empty || "Nothing to download here yet."}</div>`;
+        } else {
+          body = rows.map((r) => {
+            const chip = r.rejected
+              ? `<span class="dp-chip dp-chip-rej">Action needed</span>`
+              : (r.ready
+                ? `<span class="dp-chip dp-chip-ready">Ready</span>`
+                : `<span class="dp-chip dp-chip-prep">${r.group === "gp" ? "Awaiting your upload" : "Preparing"}</span>`);
+            return `<div class="dp-doc"><span class="dp-doc-name">${r.name}</span>${chip}</div>`;
+          }).join("");
+          body += `<div class="dp-sec-dl"><button type="button" class="qp-dl-btn" data-modal-download-section="${sec.key}"${readyCount ? "" : " disabled"}>${DL_ICON_SVG} Download${readyCount ? ` (${readyCount} ready)` : ""}</button></div>`;
+        }
+        return `<div class="dp-sec"><div class="dp-sec-head"><span class="dp-ico">${sec.icon}</span><div class="dp-sec-meta"><h5>${sec.title}</h5><small>${sec.sub}</small></div></div><div class="dp-sec-body">${body}</div></div>`;
+      }).join("");
+
       downloadPackSummaryEl.innerHTML = `
-        <div style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--surface);">
-          <p style="margin:0; font-size:13px; font-weight:700; color:var(--ink);">Prepared by GP Link</p>
-          <p style="margin:4px 0 8px; font-size:12px; color:var(--ink-soft);">${gplinkReady}/${snapshot.gplinkTotal} files ready to download</p>
-          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gplink">Download</button>
-        </div>
-        <div style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--surface);">
-          <p style="margin:0; font-size:13px; font-weight:700; color:var(--ink);">Prepared by You</p>
-          <p style="margin:4px 0 8px; font-size:12px; color:var(--ink-soft);">${gpReady}/${snapshot.gpTotal} files ready to download</p>
-          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gp">Download</button>
-        </div>
+        <div class="dp-sections">${sectionsHtml}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn-modern btn-primary" id="modalDownloadAllBtn">Download All Required Documents</button>
+          <button type="button" class="btn-modern btn-primary" id="modalDownloadAllBtn">Download All (ZIP)</button>
         </div>
         ${allMissing.length ? `<div style="border:1px solid var(--gp-amber-border); border-radius:12px; padding:10px 12px; background:var(--gp-amber-soft);"><p style="margin:0; font-size:12px; font-weight:700; color:var(--warn-text);">${allMissing.length} document(s) not ready yet.</p></div>` : ""}
       `;
 
-      const groupBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-group]")];
-      groupBtns.forEach((btn) => {
+      const sectionBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-section]")];
+      sectionBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
           const fresh = getDocSnapshot();
-          const group = btn.getAttribute("data-modal-download-group");
-          const rows = group === "gplink" ? fresh.gplink : fresh.gp;
+          const secKey = btn.getAttribute("data-modal-download-section");
+          const rows = fresh.all.filter((r) => (r.category || "qualification") === secKey);
           const downloadable = rows.filter((item) => item.ready && item.downloadUrl);
           if (!downloadable.length) {
             showToast("No ready documents in this section");
@@ -4387,16 +4487,11 @@
       var row5 = '<div class="qp-row">' +
         '<div class="qp-num">5</div>' +
         '<div class="qp-body">' +
-          '<div class="qp-label">Upload additional documents to your AHPRA application</div>' +
-          '<div class="qp-desc">Download the supervised practice documents prepared by GP Link for your AHPRA application.</div>' +
+          '<div class="qp-label">Upload your documents to your AHPRA application</div>' +
+          '<div class="qp-desc">Download your documents below — they’re organised to match the four upload boxes on the AHPRA application, so you can add each set to the matching box.</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">Supervised Practice Documents</span>' +
-            '<button type="button" class="qp-dl-btn" id="supervisedDocsDownloadBtn">' + dlSvg + ' Download</button>' +
-          '</div>' +
-          '<div class="qp-desc" style="margin-top:10px;">Upload these additional supporting documents to your AHPRA application.</div>' +
-          '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">Additional documents</span>' +
-            '<button type="button" class="qp-dl-btn" id="addlDocsDownloadBtn">' + dlSvg + ' Download</button>' +
+            '<span class="qp-dl-name">Your AHPRA documents</span>' +
+            '<button type="button" class="qp-dl-btn" id="ahpraDocsDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -4408,32 +4503,10 @@
       '</div>';
     }
 
-    function wireQualDownloadButtons() {
-      var btn = document.getElementById('supervisedDocsDownloadBtn');
-      if (!btn) return;
-      btn.addEventListener('click', function() {
-        var snapshot = getDocSnapshot();
-        var supervisedDocs = snapshot.gplink.filter(function(d) {
-          return d.key === 'sppa_00' || d.key === 'section_g';
-        });
-        var supervisedSnapshot = {
-          gp: [],
-          gplink: supervisedDocs,
-          all: supervisedDocs,
-          missing: supervisedDocs.filter(function(d) { return !d.ready || d.rejected; }),
-          downloadable: supervisedDocs.filter(function(d) { return d.ready && d.downloadUrl; }),
-          gpTotal: 0,
-          gplinkTotal: supervisedDocs.length
-        };
-        renderDownloadPackModal(supervisedSnapshot);
-        if (downloadPackModalEl) openModal(downloadPackModalEl, btn);
-      });
-    }
-
     function wireDocsActionButtons() {
-      // Wire additional documents button to open download pack modal
-      // Wire additional documents button to open download pack modal
-      var addlBtn = document.getElementById('addlDocsDownloadBtn');
+      // Wire the single "Download your AHPRA documents" button → opens the
+      // 4-section download pack (one section per AHPRA upload box).
+      var addlBtn = document.getElementById('ahpraDocsDownloadBtn');
       if (addlBtn) {
         addlBtn.addEventListener('click', function() {
           var snapshot = getDocSnapshot();
@@ -4796,7 +4869,6 @@
         `;
 
         if (key === 'account_establishment') {
-          wireQualDownloadButtons();
           wireDocsActionButtons();
         }
       }
