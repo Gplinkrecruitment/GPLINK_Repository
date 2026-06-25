@@ -30816,6 +30816,21 @@ Return ONLY valid JSON with no markdown formatting:
           }
           if (v !== undefined && v !== null && v !== '') _nextAhpra[f] = v;
         });
+        // Normalise the Test-only details so a pathway switch can't leave stale data behind.
+        // The preserve-stored step above protects a chosen pathway from vanishing, but it also
+        // re-adds test_type/status/recency that the GP just cleared when they LEFT the Test
+        // pathway (the client deletes those keys, so they arrive omitted, not as an explicit
+        // clear). Drop anything that no longer applies to the GP's effective choice — keyed off
+        // the just-resolved pathway/status — so the DB and the admin view stay truthful for every
+        // future GP. els_pathway itself is never deleted here, so the no-vanish guarantee holds.
+        if (_nextAhpra.els_pathway !== 'test') {
+          delete _nextAhpra.els_test_type;
+          delete _nextAhpra.els_test_status;
+          delete _nextAhpra.els_test_recency;
+        } else if (_nextAhpra.els_test_status !== 'done') {
+          // Recency ("within 2 years / more than 2 years ago") only applies to a COMPLETED test.
+          delete _nextAhpra.els_test_recency;
+        }
         next.gp_ahpra_progress = _nextWasString ? JSON.stringify(_nextAhpra) : _nextAhpra;
       }
     } catch (e) { /* non-fatal: never block a state save over els preservation */ }
