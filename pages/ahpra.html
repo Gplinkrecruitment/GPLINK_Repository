@@ -4942,8 +4942,11 @@
           // Leaving the Test Pathway clears the test details so a stale test can't satisfy the gate.
           if (selectedKey !== "test") { delete ahpraState.els_test_type; delete ahpraState.els_test_status; delete ahpraState.els_test_recency; }
           ahpraState.updatedAt = new Date().toISOString();
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(ahpraState));
-          if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+          // Force an immediate, consistent write. A plain setItem + flushBatchedSave can be
+          // reverted: if a batched save is still pending, flushBatchedSave (and state-sync's
+          // pre-push flush) rewrites the STALE meta.lastValue over this choice before it syncs.
+          // queueBatchedSave(force) writes the value AND resets the batch meta, so it sticks.
+          queueBatchedSave(STORAGE_KEY, JSON.stringify(ahpraState), true);
           if (selectedKey) showToast("ELS pathway saved");
         } catch (e2) {}
         var container = document.getElementById("elsChecklistContainer");
@@ -4958,8 +4961,8 @@
           // Recency only applies to a standard test — clear it for PLAB/NZREX or no test.
           if (!testVal || isElsProfessionExam(testVal)) { delete st.els_test_recency; }
           st.updatedAt = new Date().toISOString();
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
-          if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+          // Force write + reset batch meta so a pending batched save can't revert this test pick.
+          queueBatchedSave(STORAGE_KEY, JSON.stringify(st), true);
         } catch (e3) {}
         var c2 = document.getElementById("elsChecklistContainer");
         if (c2) c2.innerHTML = buildElsChecklistHtml("test");
@@ -4982,8 +4985,8 @@
         s.els_test_status = status;
         if (status !== 'done') { delete s.els_test_recency; } // recency only relevant once completed
         s.updatedAt = new Date().toISOString();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-        if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+        // Force write + reset batch meta so a pending batched save can't revert this status pick.
+        queueBatchedSave(STORAGE_KEY, JSON.stringify(s), true);
       } catch (e4) {}
       var c3 = document.getElementById("elsChecklistContainer");
       if (c3) c3.innerHTML = buildElsChecklistHtml("test");
@@ -5004,8 +5007,8 @@
         var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         s.els_test_recency = recency;
         s.updatedAt = new Date().toISOString();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-        if (typeof flushBatchedSave === 'function') flushBatchedSave(STORAGE_KEY);
+        // Force write + reset batch meta so a pending batched save can't revert this recency pick.
+        queueBatchedSave(STORAGE_KEY, JSON.stringify(s), true);
       } catch (e5) {}
       var c4 = document.getElementById("elsChecklistContainer");
       if (c4) c4.innerHTML = buildElsChecklistHtml("test");
