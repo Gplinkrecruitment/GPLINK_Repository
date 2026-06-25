@@ -1631,6 +1631,20 @@
       }
     };
 
+    // Show the redacted sample page in "Show me how" for the Fit2Work step.
+    var ICHC_EXAMPLE_STEP_HTML = 'See what the page looks like: <a href="/documents/fit2work-ichc-example.pdf" target="_blank" rel="noopener noreferrer">view a sample Fit2Work ICHC reference page</a>. This is only an example — you must upload your own page, not this sample.';
+    Object.keys(COUNTRY_DOCS).forEach(function (c) {
+      (COUNTRY_DOCS[c].institution || []).forEach(function (d) {
+        if (d.key === 'criminal_history' && d.help && Array.isArray(d.help.steps)
+            && d.help.steps.indexOf(ICHC_EXAMPLE_STEP_HTML) === -1) {
+          d.help.steps = d.help.steps
+            .map(function (s) { return /Enter this reference number below/.test(s)
+              ? 'When your check is complete, Fit2Work emails you a <strong>reference page</strong> (PDF). Download it and upload it below — our system reads your <strong>FIT</strong> number from it automatically.' : s; })
+            .concat([ICHC_EXAMPLE_STEP_HTML]);
+        }
+      });
+    });
+
     const SUPERVISED_PRACTICE_DOCS = [
       { key: "sppa_00", label: "Supervised Practice Plan - SPPA-00" },
       { key: "section_g", label: "Supervised Practice Plan - Section G" },
@@ -2190,25 +2204,30 @@
         var refNumHtml = '';
         if (item.key === 'criminal_history') {
           var savedRef = itemState.referenceNumber || '';
-          var refIsValid = /^FIT\d{7}$/.test(savedRef);
-          refNumHtml = '<div class="doc-card-ref" style="margin-top:8px;">' +
-            '<label style="font-size:11px;font-weight:700;color:var(--gp-muted);display:block;margin-bottom:4px;">Fit2Work Reference Number</label>' +
-            '<div style="display:flex;gap:6px;align-items:center;">' +
-              '<div style="flex:1;display:flex;align-items:center;border-radius:8px;border:1px solid var(--gp-border-strong);background:var(--gp-surface-sunken);overflow:hidden;">' +
-                '<span style="padding:8px 0 8px 10px;font-size:13px;font-weight:700;color:var(--gp-faint);user-select:none;">FIT</span>' +
-                '<input type="text" class="criminal-ref-input" data-ref-key="criminal_history" placeholder="1234567" value="' + escapeHtml(savedRef.replace(/^FIT/i, '')) + '" maxlength="7" inputmode="numeric" pattern="[0-9]*" style="flex:1;padding:8px 10px 8px 2px;border:none;font-size:13px;font-weight:600;font-family:inherit;background:transparent;color:var(--gp-ink);outline:none;" />' +
+          var hasRef = /^FIT\d{7}$/.test(savedRef);
+          if (hasRef) {
+            refNumHtml = '<div class="doc-card-ref" style="margin-top:8px;">' +
+              '<label style="font-size:11px;font-weight:700;color:var(--gp-muted,#64748b);display:block;margin-bottom:4px;">Fit2Work Reference Number (read from your page)</label>' +
+              '<div style="display:flex;gap:6px;align-items:center;justify-content:space-between;border-radius:8px;border:1px solid #d1fae5;background:#ecfdf5;padding:8px 10px;">' +
+                '<span style="font-size:14px;font-weight:800;color:#047857;letter-spacing:0.5px;">' + escapeHtml(savedRef) + '</span>' +
+                '<span style="font-size:11px;color:#059669;font-weight:700;">&#10003; Verified</span>' +
               '</div>' +
-              (itemState.status !== 'pending' ? '<button type="button" class="btn btn-soft criminal-ref-save" data-ref-key="criminal_history" style="padding:8px 12px;font-size:12px;white-space:nowrap;">' + (refIsValid ? '\u2713 Saved' : 'Save') + '</button>' : '') +
-            '</div>' +
-          '</div>';
+              (itemState.fileName ? '<div style="font-size:11px;color:var(--gp-muted,#64748b);margin-top:6px;">Uploaded: ' + escapeHtml(itemState.fileName) + '</div>' : '') +
+              '<label class="btn btn-soft" style="margin-top:8px;cursor:pointer;font-size:12px;display:inline-block;">Re-upload page<input type="file" data-ichc-upload="criminal_history" accept="' + AI_SCAN_ACCEPT + '" style="display:none;" /></label>' +
+            '</div>';
+          } else {
+            refNumHtml = '<div class="doc-card-ref" style="margin-top:8px;">' +
+              (itemState.status === 'scanning' ? '<div class="cert-scanning"><div class="cert-scan-spinner"></div> Checking your document&hellip;</div>' :
+              (itemState.status === 'under_review' ? '<div style="font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:6px;">Saved for review \u2014 our team will check this within 24 hours.</div>' : '') +
+              '<label style="font-size:11px;font-weight:700;color:var(--gp-muted,#64748b);display:block;margin-bottom:6px;">Upload your Fit2Work ICHC reference page</label>' +
+              '<label class="upload-btn" style="cursor:pointer;"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload page<input type="file" data-ichc-upload="criminal_history" accept="' + AI_SCAN_ACCEPT + '" /></label>' +
+              '<div style="font-size:11px;color:var(--gp-muted,#64748b);margin-top:6px;">We\'ll read your reference number from the page automatically.</div>') +
+            '</div>';
+          }
         }
         var markBtnHtml = '';
-        if (itemState.status === "pending") {
-          if (item.key === 'criminal_history') {
-            markBtnHtml = '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '" id="criminalMarkBtn" disabled style="opacity:0.5">' + (item.actionLabel || "Mark Requested") + '</button>';
-          } else {
-            markBtnHtml = '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>';
-          }
+        if (itemState.status === "pending" && item.key !== 'criminal_history') {
+          markBtnHtml = '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>';
         }
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + item.title + '</span><span class="pill ' + instSClass + '">' + instSLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + markBtnHtml + '</div>' + refNumHtml;
         ahpraGrid.appendChild(card);
@@ -2804,18 +2823,6 @@
         });
       }
 
-      panelsWrap.addEventListener("input", function(event) {
-        var inp = event.target;
-        if (!inp || !inp.classList.contains("criminal-ref-input")) return;
-        var digits = inp.value.replace(/\D/g, '').slice(0, 7);
-        inp.value = digits;
-        var crimBtn = document.getElementById("criminalMarkBtn");
-        if (crimBtn) {
-          crimBtn.disabled = digits.length !== 7;
-          crimBtn.style.opacity = digits.length === 7 ? '1' : '0.5';
-        }
-      });
-
       panelsWrap.addEventListener("change", function(event) {
         var input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
@@ -2847,6 +2854,94 @@
           runPreparedDocumentClassificationCheck(file, key, docDef.title, state, country);
         }
       });
+
+      // ── Fit2Work ICHC upload + AI verify ──
+      panelsWrap.addEventListener("change", function (event) {
+        var input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        if (!input.matches("input[type='file'][data-ichc-upload]")) return;
+        var file = input.files && input.files[0];
+        if (!file) return;
+        input.value = "";
+        if (/^(video|audio)\//i.test(file.type) || /\.(mov|mp4|mp3|avi|wmv|mkv|flv|wav|aac|ogg|m4a|m4v|webm)$/i.test(file.name)) {
+          showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a PDF or image.");
+          return;
+        }
+        if (typeof isAiScannableFile === "function" && !isAiScannableFile(file)) {
+          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file.");
+          return;
+        }
+        runIchcVerification(file, state, country);
+      });
+
+      function handleIchcFailure(ichcState, ichcCountry, issuesHtml) {
+        var fails = incCertFailCount('criminal_history');
+        var remaining = CERT_SUPPORT_THRESHOLD - fails;
+        var extra = remaining > 0
+          ? '<br><span style="color:#64748b;font-size:12px;">You have ' + remaining + ' attempt' + (remaining === 1 ? '' : 's') + ' left. After that we\'ll save it for our team to check by hand.</span>'
+          : '';
+        if (ichcState.docs && ichcState.docs.criminal_history) { delete ichcState.docs.criminal_history.uploaded; }
+        persistDocsState(ichcState, true);
+        renderAll(ichcCountry, ichcState);
+        showCertResultPopup(false, "Couldn't verify", issuesHtml + extra);
+      }
+
+      function runIchcVerification(file, ichcState, ichcCountry) {
+        readFileAsDataUrl(file).then(function (fileDataUrl) {
+          var priorFails = getCertFailCount('criminal_history');
+          var isFinal = priorFails >= (CERT_SUPPORT_THRESHOLD - 1);
+          if (!ichcState.docs) ichcState.docs = {};
+          ichcState.docs.criminal_history = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, { fileName: file.name });
+          persistDocsState(ichcState, true);
+          renderAll(ichcCountry, ichcState);
+          return fetch('/api/ai/verify-ichc', {
+            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: fileDataUrl, mimeType: file.type || 'application/pdf', fileName: file.name, country: ichcCountry, finalAttempt: isFinal })
+          }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (data) {
+            if (data && data.isExample) {
+              if (ichcState.docs.criminal_history) delete ichcState.docs.criminal_history.uploaded;
+              persistDocsState(ichcState, true);
+              renderAll(ichcCountry, ichcState);
+              showCertResultPopup(false, "That's the example", data.message || "Please upload your own Fit2Work reference page, not the sample.");
+              return;
+            }
+            if (data && data.ok && data.verified && data.referenceNumber) {
+              resetCertFailCount('criminal_history');
+              ichcState.docs.criminal_history = applyStoredFile({
+                uploaded: true, fileName: (data.document && data.document.fileName) || file.name,
+                status: "accepted", referenceNumber: data.referenceNumber
+              }, { url: (data.document && data.document.downloadUrl) || '' });
+              // Keep the legacy fallback the AHPRA page also reads.
+              try {
+                var amcRaw = localStorage.getItem('gp_amc_progress');
+                var amcObj = amcRaw ? JSON.parse(amcRaw) : {};
+                amcObj.criminalHistoryRef = data.referenceNumber;
+                amcObj.updatedAt = new Date().toISOString();
+                localStorage.setItem('gp_amc_progress', JSON.stringify(amcObj));
+                if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+              } catch (e) {}
+              persistDocsState(ichcState, true);
+              renderAll(ichcCountry, ichcState);
+              showCertResultPopup(true, "Verified", "Your reference page is saved and your number <strong>" + data.referenceNumber + "</strong> has been filled in for you.");
+              return;
+            }
+            if (data && data.manualReview) {
+              resetCertFailCount('criminal_history');
+              ichcState.docs.criminal_history = applyStoredFile({ uploaded: true, fileName: (data.document && data.document.fileName) || file.name, status: "under_review" }, { url: (data.document && data.document.downloadUrl) || '' });
+              persistDocsState(ichcState, true);
+              renderAll(ichcCountry, ichcState);
+              showCertResultPopup(true, "Saved for review", "We couldn't read this automatically, so our team will check it by hand within 24 hours.");
+              return;
+            }
+            var issues = (data && data.issues && data.issues.length) ? data.issues : [(data && data.message) || "We couldn't verify this document."];
+            handleIchcFailure(ichcState, ichcCountry, issues.map(function (s) { return getFriendlyScanMessageHtml(s, { documentTitle: 'Fit2Work ICHC reference page', mode: 'classification' }); }).join('<br>'));
+          }).catch(function () {
+            handleIchcFailure(ichcState, ichcCountry, "Could not connect to the verification service. Please try again.");
+          });
+        }).catch(function () {
+          showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
+        });
+      }
 
       panelsWrap.addEventListener("click", function(event) {
         var target = event.target;
@@ -2912,49 +3007,10 @@
           return;
         }
 
-        /* Save criminal history reference number */
-        var refSaveBtn = target.closest(".criminal-ref-save");
-        if (refSaveBtn) {
-          var refKey = refSaveBtn.getAttribute("data-ref-key");
-          var refInput = refSaveBtn.parentElement.querySelector(".criminal-ref-input");
-          var refDigits = refInput ? refInput.value.trim().replace(/\D/g, '') : '';
-          if (refKey && refDigits.length === 7) {
-            if (!state.docs[refKey]) state.docs[refKey] = { uploaded: true, fileName: "", status: "requested" };
-            state.docs[refKey].referenceNumber = 'FIT' + refDigits;
-            persistDocsState(state, true);
-            // Also save to gp_amc_progress as fallback for AHPRA page
-            try {
-              var amcRaw = localStorage.getItem('gp_amc_progress');
-              var amcObj = amcRaw ? JSON.parse(amcRaw) : {};
-              amcObj.criminalHistoryRef = refInput.value.trim();
-              amcObj.updatedAt = new Date().toISOString();
-              localStorage.setItem('gp_amc_progress', JSON.stringify(amcObj));
-              if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
-            } catch (e) {}
-            refSaveBtn.textContent = '✓ Saved';
-            showToast('Reference number saved');
-          } else {
-            showToast('Enter 7 digits after FIT (e.g. FIT1234567)');
-          }
-          return;
-        }
-
         /* Mark Requested */
         var markBtn = target.closest("[data-inst-mark]");
         var key = markBtn ? markBtn.getAttribute("data-inst-mark") : null;
         if (!key) return;
-        // Criminal history requires valid FIT reference number first
-        if (key === 'criminal_history') {
-          var crimRefInput = document.querySelector('.criminal-ref-input[data-ref-key="criminal_history"]');
-          var crimDigits = crimRefInput ? crimRefInput.value.trim().replace(/\D/g, '') : '';
-          if (crimDigits.length !== 7) {
-            showToast('Enter your 7-digit Fit2Work reference number first');
-            if (crimRefInput) crimRefInput.focus();
-            return;
-          }
-          if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
-          state.docs[key].referenceNumber = 'FIT' + crimDigits;
-        }
         if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
         state.docs[key].uploaded = true;
         state.docs[key].status = "requested";
