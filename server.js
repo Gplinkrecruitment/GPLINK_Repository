@@ -117,7 +117,7 @@ const {
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
-const { validateFileUpload } = require('./lib/file-sanitise.js');
+const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -28181,10 +28181,14 @@ Check this document for certification markings.`;
     if (!imageBase64) { sendJson(res, 400, { ok:false, message:'Missing required field: imageBase64.' }); return; }
     if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) { sendJson(res, 413, { ok:false, message:'File too large. Maximum size is 15MB.' }); return; }
 
-    // Raw bytes for hashing + storage + validation
+    // Raw bytes for hashing + storage + validation. Trust the file's ACTUAL content type
+    // (magic bytes), NOT the client-declared mime — iOS frequently sends an empty or wrong
+    // type, which would otherwise fail magic-byte validation for a perfectly valid PDF/photo.
     const rawBase64 = stripBase64DataUrlPrefix(imageBase64);
     const fileBuffer = Buffer.from(rawBase64 || '', 'base64');
-    const fileCheck = validateFileUpload(fileBuffer, mimeType, fileName);
+    const effectiveMime = detectMimeFromMagic(fileBuffer);
+    if (!effectiveMime) { sendJson(res, 400, { ok:false, message:'Please upload a clear PDF or photo of your Fit2Work reference page.' }); return; }
+    const fileCheck = validateFileUpload(fileBuffer, effectiveMime, fileName);
     if (!fileCheck.valid) { sendJson(res, 400, { ok:false, message: fileCheck.errors[0] || 'File validation failed.' }); return; }
 
     // Anti-cheat: exact example file is never accepted/saved (before any AI spend).
@@ -28200,7 +28204,7 @@ Check this document for certification markings.`;
       const saved = await savePreparedDocumentForUser(userId, ichcEmail, {
         country, key: 'criminal_history',
         fileName: fileCheck.sanitisedFileName || fileName,
-        mimeType: mimeType || 'application/pdf',
+        mimeType: effectiveMime,
         fileDataUrl: imageBase64,
         updatedAt: new Date().toISOString(),
       });
@@ -28215,12 +28219,12 @@ Check this document for certification markings.`;
     const budgetOk = await checkAnthropicBudget();
     let verification = null;
     if (budgetOk) {
-      const isPdf = /pdf/i.test(mimeType || '');
+      const isPdf = effectiveMime === 'application/pdf';
       let contentBlock;
       if (isPdf) {
         contentBlock = { type:'document', source:{ type:'base64', media_type:'application/pdf', data: rawBase64 } };
       } else {
-        const norm = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+        const norm = await normalizeImageForAi(imageBase64, effectiveMime);
         if (!norm.ok) { sendJson(res, 400, { ok:false, message: norm.message || 'Unsupported image type.' }); return; }
         contentBlock = { type:'image', source:{ type:'base64', media_type: norm.mediaType, data: norm.base64 } };
       }

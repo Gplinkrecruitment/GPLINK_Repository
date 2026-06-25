@@ -2880,7 +2880,13 @@
         var extra = remaining > 0
           ? '<br><span style="color:#64748b;font-size:12px;">You have ' + remaining + ' attempt' + (remaining === 1 ? '' : 's') + ' left. After that we\'ll save it for our team to check by hand.</span>'
           : '';
-        if (ichcState.docs && ichcState.docs.criminal_history) { delete ichcState.docs.criminal_history.uploaded; }
+        // Clear the in-flight 'scanning' state so the card doesn't hang forever. Keep a
+        // previously-verified reference if one exists; otherwise reset to a clean upload state.
+        var _chFail = ichcState.docs && ichcState.docs.criminal_history;
+        if (_chFail) {
+          if (/^FIT\d{7}$/.test(_chFail.referenceNumber || '')) { _chFail.status = 'accepted'; delete _chFail.uploaded; }
+          else { delete ichcState.docs.criminal_history; }
+        }
         persistDocsState(ichcState, true);
         renderAll(ichcCountry, ichcState);
         showCertResultPopup(false, "Couldn't verify", issuesHtml + extra);
@@ -2899,7 +2905,12 @@
             body: JSON.stringify({ imageBase64: fileDataUrl, mimeType: file.type || 'application/pdf', fileName: file.name, country: ichcCountry, finalAttempt: isFinal })
           }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (data) {
             if (data && data.isExample) {
-              if (ichcState.docs.criminal_history) delete ichcState.docs.criminal_history.uploaded;
+              // Clear the 'scanning' state (don't leave the card hanging); keep a prior verified ref.
+              var _chEx = ichcState.docs && ichcState.docs.criminal_history;
+              if (_chEx) {
+                if (/^FIT\d{7}$/.test(_chEx.referenceNumber || '')) { _chEx.status = 'accepted'; delete _chEx.uploaded; }
+                else { delete ichcState.docs.criminal_history; }
+              }
               persistDocsState(ichcState, true);
               renderAll(ichcCountry, ichcState);
               showCertResultPopup(false, "That's the example", data.message || "Please upload your own Fit2Work reference page, not the sample.");

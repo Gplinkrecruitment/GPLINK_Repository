@@ -5,9 +5,36 @@ import {
   validateMagicBytes,
   validatePdfSafety,
   validateFileUpload,
+  detectMimeFromMagic,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES
 } from '../lib/file-sanitise.js';
+
+describe('detectMimeFromMagic', () => {
+  const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x37]); // %PDF-1.7
+  const jpeg = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+  const png = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]);
+  const heic = Buffer.concat([Buffer.from([0,0,0,0]), Buffer.from('ftypheic', 'latin1')]);
+
+  it('detects pdf / jpeg / png / heic by content', () => {
+    expect(detectMimeFromMagic(pdf)).toBe('application/pdf');
+    expect(detectMimeFromMagic(jpeg)).toBe('image/jpeg');
+    expect(detectMimeFromMagic(png)).toBe('image/png');
+    expect(detectMimeFromMagic(heic)).toBe('image/heic');
+  });
+  it('returns null for unrecognised / empty content', () => {
+    expect(detectMimeFromMagic(Buffer.from([0x00, 0x01, 0x02, 0x03]))).toBeNull();
+    expect(detectMimeFromMagic(Buffer.from([]))).toBeNull();
+    expect(detectMimeFromMagic(null)).toBeNull();
+  });
+  it('ignores a wrong declared type — the Smith Miller bug', () => {
+    // A real image whose client-declared type was "application/pdf" (iOS quirk):
+    // validating against the DECLARED type fails, but against the SNIFFED type passes.
+    expect(validateFileUpload(jpeg, 'application/pdf', 'page.pdf').valid).toBe(false);
+    const sniffed = detectMimeFromMagic(jpeg);
+    expect(validateFileUpload(jpeg, sniffed, 'page.pdf').valid).toBe(true);
+  });
+});
 
 describe('sanitiseFileName', () => {
   it('strips path traversal', () => {
