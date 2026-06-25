@@ -30436,7 +30436,7 @@ Return ONLY valid JSON with no markdown formatting:
       country = '';
       key = '';
     }
-    if (!country || !PREPARED_DOCUMENT_KEYS.has(key)) {
+    if (!country || !(PREPARED_DOCUMENT_KEYS.has(key) || INSTITUTION_DOCUMENT_KEYS.has(key))) {
       sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
       return;
     }
