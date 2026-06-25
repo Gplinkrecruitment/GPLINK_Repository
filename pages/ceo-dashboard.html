@@ -5013,7 +5013,12 @@
           html += '<div class="ceo-doc-check-item"><div class="ceo-doc-check' + (done ? ' checked' : '') + '">✓</div>';
           html += '<span class="ceo-doc-check-label">' + esc(doc.label || doc.document_key || '');
           if (doc.key === 'criminal_history' && doc.referenceNumber) html += '<span class="ceo-doc-refno">' + esc(doc.referenceNumber) + '</span>';
-          html += '</span><span class="ceo-doc-status s-' + (doc.status || 'pending') + '">' + docStatusLabel(doc.status) + '</span></div>';
+          html += '</span>';
+          if (docCaseId && (doc.file_url || doc.file_name)) {
+            var dtaPrev = '/api/admin/gp-document-preview?case_id=' + encodeURIComponent(docCaseId) + '&key=' + encodeURIComponent(doc.key);
+            html += '<button type="button" data-doc-view-url="' + escAttr(dtaPrev) + '" data-doc-view-label="' + escAttr(doc.label || 'Document') + '" style="margin-right:8px;font-size:11px;padding:2px 8px;border:1px solid var(--border,#e2e8f0);border-radius:4px;background:#fff;cursor:pointer">View</button>';
+          }
+          html += '<span class="ceo-doc-status s-' + (doc.status || 'pending') + '">' + docStatusLabel(doc.status) + '</span></div>';
         });
         html += '</div>';
       }

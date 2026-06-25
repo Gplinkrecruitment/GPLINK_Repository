@@ -3267,6 +3267,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h+='<span style="margin-left:8px;font-size:11px;font-weight:600;color:#64748b;background:#f1f5f9;padding:2px 8px;border-radius:4px;">'+esc(doc.referenceNumber)+'</span>';
       }
       h+='</span>';
+      if(caseId&&(doc.file_url||doc.file_name)){
+        var dtaPrev='/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key);
+        h+='<button type="button" class="btn sm" data-doc-view-url="'+escAttr(dtaPrev)+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="margin-right:8px">View</button>';
+      }
       h+='<span class="doc-placeholder-status s-'+(doc.status||'pending')+'">'+docStatusLabel(doc.status)+'</span>';
       h+='</div>';
     });

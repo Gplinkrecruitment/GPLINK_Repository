@@ -28278,7 +28278,9 @@ Return ONLY valid JSON, no markdown:
     }
 
     if (looksGenuine) {
-      const saved = await persistIchc('accepted');
+      // 'approved' (not 'accepted') matches the AI-accepted-on-upload convention so the admin
+      // row ticks and reconcileGpDrive mirrors the page to the GP's Google Drive folder.
+      const saved = await persistIchc('approved');
       if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
       sendJson(res, 200, { ok:true, verified:true, referenceNumber: extractedRef, applicantName: (verification.applicantName || null), document: saved.document });
       return;
