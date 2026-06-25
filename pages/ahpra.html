@@ -3601,7 +3601,9 @@
       const crimStatus = typeof crimDoc.status === "string" ? crimDoc.status : (crimUploaded ? "under_review" : "pending");
       const crimRejected = crimStatus === "rejected";
       const crimUnderReview = crimStatus === "under_review";
-      const crimReady = crimStatus === "accepted" || crimStatus === "approved" || !!crimDoc.url;
+      // Accept either field, matching rowsGp: local saves store `url`; the server reconcile writes `downloadUrl`.
+      const crimDlUrl = (typeof crimDoc.url === "string" && crimDoc.url) ? crimDoc.url : (typeof crimDoc.downloadUrl === "string" ? crimDoc.downloadUrl : "");
+      const crimReady = crimStatus === "accepted" || crimStatus === "approved" || !!crimDlUrl;
       const crimRef = typeof crimDoc.referenceNumber === "string" && crimDoc.referenceNumber ? " (" + crimDoc.referenceNumber + ")" : "";
       const crimReason = crimRejected
         ? "Rejected — re-upload required" + (crimDoc.reviewNote ? " (" + crimDoc.reviewNote + ")" : "")
@@ -3618,7 +3620,7 @@
           rejected: crimRejected,
           status: crimRejected ? "Rejected" : crimReady ? "Ready" : crimUnderReview ? "Pending" : crimUploaded ? "Pending" : "Not ready",
           reason: crimReason,
-          downloadUrl: typeof crimDoc.url === "string" ? crimDoc.url : "",
+          downloadUrl: crimDlUrl,
           category: "ichc"
         }
       ];
