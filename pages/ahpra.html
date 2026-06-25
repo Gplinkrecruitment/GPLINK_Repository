@@ -3727,18 +3727,76 @@
       return snapshot.gp.filter((item) => !item.ready || item.rejected);
     }
 
+    function extFromMime(mime) {
+      var m = String(mime || "").toLowerCase();
+      if (m.indexOf("pdf") >= 0) return ".pdf";
+      if (m.indexOf("png") >= 0) return ".png";
+      if (m.indexOf("jpeg") >= 0 || m.indexOf("jpg") >= 0) return ".jpg";
+      if (m.indexOf("wordprocessing") >= 0 || m.indexOf("msword") >= 0) return ".docx";
+      return "";
+    }
+
+    function downloadFileName(item, mime) {
+      var base = sanitizeZipName(item && item.name ? item.name : "document");
+      if (/\.[a-z0-9]{2,8}$/i.test(base)) return base; // already has an extension
+      return base + (extFromMime(mime) || ".pdf");
+    }
+
+    // Open a download in a new top-level context — escapes the app-shell <iframe>,
+    // where navigating window.location does NOT reliably trigger a download (esp. iOS).
+    function openDownloadInNewContext(url) {
+      if (!url) return;
+      try {
+        var a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (e) {
+        try { window.open(url, "_blank", "noopener"); } catch (e2) {}
+      }
+    }
+
+    // Robust single-file download. Fetches the file as a blob and saves it via an
+    // anchor (a real "Save" that works inside the app-shell iframe and on mobile),
+    // instead of navigating the iframe (which silently fails to download on iOS).
+    // Falls back to opening the file in a new tab if the blob fetch is blocked.
+    async function downloadSingleRow(item) {
+      var url = item && item.downloadUrl ? String(item.downloadUrl) : "";
+      if (!url) return false;
+      try {
+        var resp = await fetch(url, { credentials: "same-origin" });
+        if (!resp.ok) throw new Error("http " + resp.status);
+        var blob = await resp.blob();
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = downloadFileName(item, blob.type);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
+        return true;
+      } catch (e) {
+        openDownloadInNewContext(url);
+        return false;
+      }
+    }
+
     function tryDownloadRows(rows) {
       const readyRows = Array.isArray(rows)
         ? rows.filter((item) => item && item.downloadUrl)
         : [];
       if (!readyRows.length) return;
       if (readyRows.length === 1) {
-        window.location.assign(readyRows[0].downloadUrl);
+        downloadSingleRow(readyRows[0]);
         return;
       }
       downloadRowsAsZip(readyRows).catch(() => {
-        showToast("Could not bundle every document. Opening the first file instead.");
-        window.location.assign(readyRows[0].downloadUrl);
+        showToast("Could not bundle every document. Downloading files individually.");
+        readyRows.forEach(function (r) { downloadSingleRow(r); });
       });
     }
 
@@ -3852,7 +3910,9 @@
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row || !row.downloadUrl) continue;
-        const response = await fetch(row.downloadUrl, { credentials: "omit" });
+        // The download endpoints are session-gated (requireSession), so the cookie
+        // must be sent — "omit" returns 401 and silently fails the whole ZIP.
+        const response = await fetch(row.downloadUrl, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`download-failed-${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
         files.push({ name: inferFileName(row, i), bytes: new Uint8Array(arrayBuffer) });
