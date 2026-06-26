@@ -21668,6 +21668,97 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
+// A practice is identified either by a real practices-table row id, or — when it
+// only exists as a denormalised name on jobs (like the Medical Centres view) — by
+// a synthetic "name:<encoded>" id.
+function atsPracticeNameId(name) { return 'name:' + encodeURIComponent(String(name || '').trim()); }
+function atsParsePracticeId(id) {
+  var s = String(id || '');
+  if (s.indexOf('name:') === 0) return { name: decodeURIComponent(s.slice(5)) };
+  return { rowId: s };
+}
+function atsIsRejectedApp(a) {
+  var st = String((a && a.ats_stage) || '');
+  var stat = String((a && a.status) || '').toLowerCase();
+  return st === 'not_proceeding' || stat.indexOf('reject') !== -1 || stat.indexOf('withdraw') !== -1;
+}
+// Contact/location from a career_roles row's Zoho source_payload (mirrors the Medical Centres view).
+function atsPracticeContactFromJob(job) {
+  var sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
+  var z = (sp.zoho && typeof sp.zoho === 'object') ? sp.zoho : {};
+  var name = '', email = '', phone = '';
+  try { name = sanitizeZohoText(z.Contact_Name || z.contact_name || '') || buildZohoDisplayName(z) || ''; } catch (e) {}
+  try { email = getZohoField(z, ['Email', 'Contact_Email', 'Secondary_Email', 'Account_Email']) || ''; } catch (e) {}
+  try { phone = choosePreferredZohoPhone(z) || getZohoField(z, ['Contact_Phone', 'Account_Phone']) || ''; } catch (e) {}
+  return { contact_name: name, contact_email: email, contact_phone: phone };
+}
+// Build the practice directory by grouping jobs (career_roles) on practice_name and
+// merging in any practices-table rows. Each practice carries its matching .jobs[].
+// This makes the Practices tab populated from existing job data even before any
+// practices-table rows are backfilled (it is the same source as Medical Centres).
+async function atsListPracticesDerived() {
+  var jobs = await atsListJobRows();
+  var stored = await atsListPracticeRows();
+  var byKey = {};
+  jobs.forEach(function (j) {
+    var name = String(j.practice_name || '').trim();
+    if (!name) return;
+    var k = name.toLowerCase();
+    if (!byKey[k]) {
+      var ct = atsPracticeContactFromJob(j);
+      byKey[k] = {
+        id: atsPracticeNameId(name), name: name,
+        location_city: j.location_city || '', location_state: j.location_state || '',
+        location_country: j.location_country || 'Australia',
+        practice_type: j.practice_type || j.billing_model || '',
+        contact_name: ct.contact_name, contact_email: ct.contact_email, contact_phone: ct.contact_phone,
+        ahpra_number: '', source: (j.provider === 'internal_ats' ? 'internal_ats' : 'zoho_sync'), jobs: []
+      };
+    }
+    var e = byKey[k];
+    e.jobs.push(j);
+    if (!e.location_city && j.location_city) e.location_city = j.location_city;
+    if (!e.location_state && j.location_state) e.location_state = j.location_state;
+    if (!e.practice_type && (j.practice_type || j.billing_model)) e.practice_type = j.practice_type || j.billing_model;
+    if (!e.contact_name) { var ct2 = atsPracticeContactFromJob(j); if (ct2.contact_name) { e.contact_name = ct2.contact_name; e.contact_email = e.contact_email || ct2.contact_email; e.contact_phone = e.contact_phone || ct2.contact_phone; } }
+  });
+  stored.forEach(function (p) {
+    var name = String(p.name || '').trim(); if (!name) return;
+    var k = name.toLowerCase();
+    if (!byKey[k]) byKey[k] = { id: p.id, name: name, location_country: 'Australia', jobs: [] };
+    var e = byKey[k];
+    e.id = p.id; // a real practices-table row id wins over the synthetic name-id
+    e.location_city = p.location_city || e.location_city || '';
+    e.location_state = p.location_state || e.location_state || '';
+    e.practice_type = p.practice_type || e.practice_type || '';
+    e.contact_name = p.contact_name || e.contact_name || '';
+    e.contact_email = p.contact_email || e.contact_email || '';
+    e.contact_phone = p.contact_phone || e.contact_phone || '';
+    e.ahpra_number = p.ahpra_number || e.ahpra_number || '';
+    e.source = p.source || e.source || 'internal_ats';
+  });
+  return Object.keys(byKey).map(function (k) { return byKey[k]; });
+}
+// Resolve one practice (by name-id or row-id) with its jobs attached.
+async function atsResolvePractice(id) {
+  var all = await atsListPracticesDerived();
+  var parsed = atsParsePracticeId(id);
+  if (parsed.name) {
+    var nk = parsed.name.toLowerCase();
+    return all.find(function (p) { return String(p.name || '').toLowerCase() === nk; }) || null;
+  }
+  var byId = all.find(function (p) { return String(p.id) === String(parsed.rowId); });
+  if (byId) return byId;
+  var row = await atsGetPracticeRow(parsed.rowId);
+  if (!row) return null;
+  var rk = String(row.name || '').toLowerCase();
+  return all.find(function (p) { return String(p.name || '').toLowerCase() === rk; }) || {
+    id: row.id, name: row.name, location_city: row.location_city, location_state: row.location_state,
+    practice_type: row.practice_type, contact_name: row.contact_name, contact_email: row.contact_email,
+    contact_phone: row.contact_phone, ahpra_number: row.ahpra_number, source: row.source, jobs: []
+  };
+}
+
 // ---- Jobs (career_roles) ---------------------------------------------------
 async function atsListJobRows() {
   if (isSupabaseDbConfigured()) {
@@ -41678,15 +41769,21 @@ Return ONLY valid JSON with no markdown formatting:
     var bodyJ; try { bodyJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyJ || !String(bodyJ.title || '').trim()) { sendJson(res, 400, { ok: false, message: 'Job title is required.' }); return; }
     var practiceName = String(bodyJ.practice_name || '');
-    if (bodyJ.practice_id) { var pr = await atsGetPracticeRow(bodyJ.practice_id); if (pr) practiceName = pr.name; }
+    var practiceRowId = null;
+    if (bodyJ.practice_id) {
+      var pp = atsParsePracticeId(bodyJ.practice_id);
+      if (pp.name) { practiceName = pp.name; }
+      else { var pr = await atsGetPracticeRow(pp.rowId); if (pr) { practiceName = pr.name; practiceRowId = pr.id; } }
+    }
     var jobRow = {
       provider: 'internal_ats', provider_role_id: 'ats_' + atsLocalId(''),
-      title: String(bodyJ.title).trim(), practice_id: bodyJ.practice_id || null, practice_name: practiceName,
+      title: String(bodyJ.title).trim(), practice_name: practiceName,
       location_city: String(bodyJ.city || ''), location_state: String(bodyJ.state || ''), location_country: 'Australia',
       employment_type: String(bodyJ.type || ''), billing_model: String(bodyJ.billing || ''), summary: String(bodyJ.summary || ''),
       is_active: true, job_status: 'open', ats_created: true, posted_by: ctxJC.email || '',
       published_at: atsNowIso(), synced_at: atsNowIso()
     };
+    if (practiceRowId) jobRow.practice_id = practiceRowId;
     var createdJ = await atsInsertJobRow(jobRow);
     if (!createdJ) { sendJson(res, 502, { ok: false, message: 'Could not create job.' }); return; }
     sendJson(res, 200, { ok: true, job: atsJobCard(createdJ, {}, {}) });
@@ -41713,9 +41810,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof bodyJP.type === 'string') patchJ.employment_type = bodyJP.type;
     if (typeof bodyJP.billing === 'string') patchJ.billing_model = bodyJP.billing;
     if (bodyJP.practice_id !== undefined) {
-      patchJ.practice_id = bodyJP.practice_id || null;
-      var jpPr = bodyJP.practice_id ? await atsGetPracticeRow(bodyJP.practice_id) : null;
-      patchJ.practice_name = jpPr ? jpPr.name : '';
+      if (!bodyJP.practice_id) { patchJ.practice_name = ''; }
+      else {
+        var ppj = atsParsePracticeId(bodyJP.practice_id);
+        if (ppj.name) { patchJ.practice_name = ppj.name; }
+        else { var jpPr = await atsGetPracticeRow(ppj.rowId); patchJ.practice_name = jpPr ? jpPr.name : ''; if (jpPr) patchJ.practice_id = jpPr.id; }
+      }
     }
     if (typeof bodyJP.job_status === 'string' && ['open', 'filled', 'closed'].indexOf(bodyJP.job_status) !== -1) patchJ.job_status = bodyJP.job_status;
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
@@ -41765,20 +41865,18 @@ Return ONLY valid JSON with no markdown formatting:
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
     var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;
-    var plPracs = await atsListPracticeRows();
-    var plJobs = await atsListJobRows();
+    var derived = await atsListPracticesDerived();
     var plApps = await atsListApplicationRows({});
-    var jobsByPrac = {}; var appsByJobP = {};
+    var appsByJobP = {};
     plApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (appsByJobP[k] = appsByJobP[k] || []).push(a); });
-    plJobs.forEach(function (j) { var k = String(j.practice_id || ''); (jobsByPrac[k] = jobsByPrac[k] || []).push(j); });
     var plq = (url.searchParams.get('q') || '').toLowerCase();
-    var plCards = plPracs.map(function (p) {
-      var pjobs = jobsByPrac[String(p.id)] || [];
-      var cand = 0; pjobs.forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if ((a.ats_stage || 'applied') !== atsPracticeUtil.ATS_REJECT_STAGE) cand++; }); });
-      return { id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type, contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number, job_count: pjobs.length, candidate_count: cand };
+    var plCards = derived.map(function (p) {
+      var cand = 0;
+      (p.jobs || []).forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; }); });
+      return { id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type, contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number, job_count: (p.jobs || []).length, candidate_count: cand };
     });
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
-    plCards.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    plCards.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
     sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length });
     return;
   }
@@ -41802,18 +41900,26 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/ats/practice' && req.method === 'GET') {
     var ctxPG = requireCeoSession(req, res); if (!ctxPG) return;
     var pgId = url.searchParams.get('id'); if (!pgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
-    var pgRow = await atsGetPracticeRow(pgId); if (!pgRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
-    var pgJobs = (await atsListJobRows()).filter(function (j) { return String(j.practice_id) === String(pgId); });
+    var pg = await atsResolvePractice(pgId); if (!pg) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    var pgJobs = pg.jobs || [];
     var pgAllApps = await atsListApplicationRows({});
     var pgByJob = {}; pgAllApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (pgByJob[k] = pgByJob[k] || []).push(a); });
-    var pgJobCards = pgJobs.map(function (j) { return atsJobCard(j, (function () { var m = {}; m[pgRow.id] = pgRow; return m; })(), pgByJob); });
+    var pgJobCards = pgJobs.map(function (j) { return atsJobCard(j, {}, pgByJob); });
     // Candidates in this practice's pipeline
     var pgApps = [];
     pgJobs.forEach(function (j) { (pgByJob[String(j.id)] || []).forEach(function (a) { pgApps.push(Object.assign({ job_title: j.title }, a)); }); });
     var pgLabels = {};
     if (isSupabaseDbConfigured()) pgLabels = await atsResolveCandidateLabels(pgApps.map(function (a) { return a.user_id; }));
     var pgCands = pgApps.map(function (a) { var c = atsApplicationToCard(a, pgLabels[a.user_id]); c.job_title = a.job_title; return c; });
-    sendJson(res, 200, { ok: true, practice: pgRow, jobs: pgJobCards, candidates: pgCands });
+    sendJson(res, 200, {
+      ok: true,
+      practice: {
+        id: pg.id, name: pg.name, location_city: pg.location_city, location_state: pg.location_state,
+        practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
+        contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source
+      },
+      jobs: pgJobCards, candidates: pgCands
+    });
     return;
   }
 
@@ -41825,8 +41931,24 @@ Return ONLY valid JSON with no markdown formatting:
     var pmap = { name: 'name', city: 'location_city', state: 'location_state', type: 'practice_type', contact: 'contact_name', email: 'contact_email', phone: 'contact_phone', ahpra: 'ahpra_number', notes: 'notes' };
     Object.keys(pmap).forEach(function (k) { if (typeof bodyPP[k] === 'string') patchP[pmap[k]] = bodyPP[k]; });
     if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
-    var updatedP = await atsUpdatePracticeRow(ppgId, patchP);
-    if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    var parsedPP = atsParsePracticeId(ppgId);
+    var updatedP = null;
+    if (parsedPP.name) {
+      // Derived practice (exists only as a name on jobs): upsert a real practices row,
+      // matching by name so the edit persists. (Needs the practices table to exist.)
+      var stored = await atsListPracticeRows();
+      var existing = stored.find(function (p) { return String(p.name || '').trim().toLowerCase() === parsedPP.name.toLowerCase(); });
+      if (existing) {
+        updatedP = await atsUpdatePracticeRow(existing.id, patchP);
+      } else {
+        var newRow = Object.assign({ name: parsedPP.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxPPatch.email || '' }, patchP);
+        if (!newRow.name) newRow.name = parsedPP.name;
+        updatedP = await atsInsertPracticeRow(newRow);
+      }
+    } else {
+      updatedP = await atsUpdatePracticeRow(parsedPP.rowId, patchP);
+    }
+    if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
     sendJson(res, 200, { ok: true, practice: updatedP });
     return;
   }

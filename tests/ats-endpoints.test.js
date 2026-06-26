@@ -121,6 +121,24 @@ describe('ATS practices', () => {
     const g = b.practices.find((p) => p.id === 'p1');
     expect(g.job_count).toBeGreaterThanOrEqual(1);
   });
+  it('opening a practice shows all its jobs + candidates', async () => {
+    const list = await req('GET', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie() });
+    const greenslopes = parse(list.raw).practices.find((p) => p.name === 'Greenslopes Family Medical');
+    expect(greenslopes.job_count).toBeGreaterThanOrEqual(1);
+    const r = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(greenslopes.id), { host: SUPER_HOST, cookie: superCookie() });
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.jobs.some((j) => j.title === 'General Practitioner — VR')).toBe(true);
+    expect(b.candidates.length).toBeGreaterThanOrEqual(1);
+  });
+  it('derives a practice from job data even with no practices-table row', async () => {
+    // a name-based id (practice that only exists as a name on a job) still resolves
+    const id = 'name:' + encodeURIComponent('Greenslopes Family Medical');
+    const r = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() });
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.jobs.length).toBeGreaterThanOrEqual(1);
+  });
   it('creates and edits a practice', async () => {
     const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: 'Test Clinic ' + RUN_ID, city: 'Darwin', state: 'NT' } });
     const created = parse(c.raw).practice;
