@@ -21693,7 +21693,15 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/cron/sppa-backfill-scan') {
     var sbAuth = req.headers['authorization'] || '';
     var sbTok = sbAuth.indexOf('Bearer ') === 0 ? sbAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
-    if (!isValidCronSecret(sbTok)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    // Accept either the cron secret OR a short-lived HMAC token signed with SECRET (doc-preview style)
+    var sbExp = url.searchParams.get('exp') || '';
+    var sbSig = url.searchParams.get('sig') || '';
+    var sbHmacOk = false;
+    if (sbExp && sbSig && SECRET && Number(sbExp) > Date.now()) {
+      var sbExpected = crypto.createHmac('sha256', SECRET).update('sppa-backfill:' + sbExp).digest('hex');
+      try { sbHmacOk = timingSafeEqualStrings(sbSig, sbExpected); } catch (e) { sbHmacOk = (sbSig === sbExpected); }
+    }
+    if (!isValidCronSecret(sbTok) && !sbHmacOk) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var sbOnlyCase = (url.searchParams.get('caseId') || '').trim();
     var sbQ = 'select=id,case_id,status,metadata&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child';
