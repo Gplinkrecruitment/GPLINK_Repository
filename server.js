@@ -2587,6 +2587,117 @@ async function getPlacedGPsForTriage() {
   return placed;
 }
 
+// Create the inbound task_messages + task_documents rows for a practice-delivered/auto-matched
+// document so the admin GP-profile review panel (State B: "Practice Response" → Submit to Drive /
+// Request Revision) and /api/admin/task/submit-drive can find them. Mirrors the proven
+// responseMatch document-delivery path. Fail-open: never throws (returns null on error).
+async function _createPracticeDocArtifacts(opts) {
+  try {
+    var msgRes = await supabaseDbRequest('task_messages', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{
+        task_id: opts.taskId,
+        case_id: opts.caseId || null,
+        direction: 'inbound',
+        channel: 'email',
+        sender: opts.sender || '',
+        subject: opts.subject || '',
+        body_text: (opts.bodyText || '').substring(0, 5000),
+        gmail_message_id: opts.gmailMessageId || null,
+        gmail_thread_id: opts.gmailThreadId || '',
+        is_document_delivery: true,
+        ai_match_confidence: (typeof opts.confidence === 'number') ? opts.confidence : null,
+        created_at: opts.createdAt || new Date().toISOString()
+      }]
+    });
+    var msgId = (msgRes.ok && Array.isArray(msgRes.data) && msgRes.data[0]) ? msgRes.data[0].id : null;
+    // Mark any prior current docs as not-current before inserting the new one
+    await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(opts.taskId) + '&is_current=eq.true',
+      { method: 'PATCH', body: { is_current: false } });
+    var docRes = await supabaseDbRequest('task_documents', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{
+        task_id: opts.taskId,
+        case_id: opts.caseId || null,
+        message_id: msgId,
+        filename: opts.filename || 'document',
+        mime_type: opts.mimeType || null,
+        size_bytes: opts.sizeBytes || 0,
+        version: 1,
+        is_current: true,
+        uploaded_by: opts.uploadedBy || 'gp_email',
+        attachment_url: opts.attachmentUrl
+      }]
+    });
+    var docId = (docRes.ok && Array.isArray(docRes.data) && docRes.data[0]) ? docRes.data[0].id : null;
+    return { messageId: msgId, docId: docId };
+  } catch (e) {
+    console.error('[PracticeDocArtifacts] create failed:', e.message);
+    return null;
+  }
+}
+
+// Lazy, idempotent backfill. Older inbound-match code only PATCHed the matched attachment onto the
+// registration_tasks columns (attachment_url/attachment_filename/gmail_message_id/ai_match_confidence)
+// without creating the task_documents/task_messages rows the review panel and Submit-to-Drive rely on.
+// Such "auto-matched but row-less" tasks render the request-email composer (State A) instead of the
+// review UI, and Submit-to-Drive 404s. This heals them on first read of either GET endpoint below.
+// Safe no-op when the task has no auto-matched attachment or the rows already exist.
+var _ensureTaskArtifactsInflight = {};
+async function _ensureTaskArtifacts(taskId) {
+  if (!taskId) return;
+  // Dedupe concurrent calls within this process — the GP-profile panel fetches the messages and
+  // documents endpoints in parallel, so both would otherwise backfill at once and duplicate rows.
+  if (_ensureTaskArtifactsInflight[taskId]) { try { await _ensureTaskArtifactsInflight[taskId]; } catch (e) {} return; }
+  var run = (async function () {
+    var tRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,attachment_url,attachment_filename,gmail_message_id,gmail_thread_id,ai_match_confidence,task_type,related_document_key&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    var task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+    if (!task) return;
+    // Scope strictly to the practice-document tasks that use the State B review panel
+    if (task.task_type !== 'practice_pack_child') return;
+    if (task.related_document_key === 'sppa_00' || task.related_document_key === 'section_g') return;
+    // Only backfill auto-matched docs that carry the attachment on the task column itself
+    if (!task.attachment_url || !task.gmail_message_id) return;
+    // Idempotency: if either a doc row or an inbound message row already exists, assume healed
+    var dCheck = await supabaseDbRequest('task_documents', 'select=id&task_id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (dCheck.ok && Array.isArray(dCheck.data) && dCheck.data.length > 0) return;
+    var mCheck = await supabaseDbRequest('task_messages', 'select=id&task_id=eq.' + encodeURIComponent(taskId) + '&direction=eq.inbound&limit=1');
+    if (mCheck.ok && Array.isArray(mCheck.data) && mCheck.data.length > 0) return;
+    // Recover the original sender/subject from processed_gmail_messages (stored at match time)
+    var sender = '', subject = '';
+    try {
+      var pRes = await supabaseDbRequest('processed_gmail_messages',
+        'select=sender,subject&gmail_message_id=eq.' + encodeURIComponent(task.gmail_message_id) + '&limit=1');
+      if (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) {
+        sender = pRes.data[0].sender || '';
+        subject = pRes.data[0].subject || '';
+      }
+    } catch (e) { /* best-effort */ }
+    var mimeMatch = String(task.attachment_url).match(/^data:([^;,]+)/);
+    await _createPracticeDocArtifacts({
+      taskId: task.id,
+      caseId: task.case_id,
+      attachmentUrl: task.attachment_url,
+      filename: task.attachment_filename || 'document',
+      mimeType: mimeMatch ? mimeMatch[1] : null,
+      gmailMessageId: task.gmail_message_id,
+      gmailThreadId: task.gmail_thread_id || '',
+      sender: sender,
+      subject: subject,
+      bodyText: '',
+      confidence: (typeof task.ai_match_confidence === 'number') ? task.ai_match_confidence : null,
+      uploadedBy: 'backfill'
+    });
+    console.log('[EnsureTaskArtifacts] backfilled task_documents/task_messages for task', taskId);
+  })();
+  _ensureTaskArtifactsInflight[taskId] = run;
+  try { await run; } catch (e) { console.error('[EnsureTaskArtifacts] backfill failed:', e.message); }
+  finally { delete _ensureTaskArtifactsInflight[taskId]; }
+}
+
 async function processGmailNotification(emailAddress, notifiedHistoryId) {
   // Normalize — Pub/Sub may deliver mixed-case; watch state + processed records are stored lowercase.
   emailAddress = String(emailAddress || '').trim().toLowerCase();
@@ -3186,7 +3297,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         // Look up task details for Drive upload and event logging
         var taskLookup = await supabaseDbRequest(
           'registration_tasks',
-          'select=case_id,related_document_key&id=eq.' + encodeURIComponent(match.task_id) + '&limit=1'
+          'select=case_id,related_document_key,task_type&id=eq.' + encodeURIComponent(match.task_id) + '&limit=1'
         );
         var taskInfo = (taskLookup.ok && Array.isArray(taskLookup.data) && taskLookup.data[0]) ? taskLookup.data[0] : null;
 
@@ -3230,6 +3341,34 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             'From: ' + emailMeta.sender + ' | File: ' + attachmentMeta.filename + ' | Confidence: ' + (match.confidence * 100).toFixed(0) + '%',
             'system'
           );
+
+          // Create the inbound message + document rows the admin review panel relies on so the
+          // GP-profile task shows the "Practice Response" review UI (State B) and Submit-to-Drive
+          // works — not just the task columns. Scoped to the practice-document tasks that use that
+          // panel. Fail-open (never blocks email processing).
+          if (taskInfo.task_type === 'practice_pack_child'
+            && taskInfo.related_document_key !== 'sppa_00'
+            && taskInfo.related_document_key !== 'section_g') {
+          await _createPracticeDocArtifacts({
+            taskId: match.task_id,
+            caseId: taskInfo.case_id,
+            attachmentUrl: dataUrl,
+            filename: attachmentMeta.filename,
+            mimeType: attachmentMeta.mimeType,
+            sizeBytes: attachmentData ? attachmentData.length : 0,
+            gmailMessageId: currentMsgId,
+            // Intentionally do NOT bind the gmail_thread_id here: the attachments track accepts
+            // matches at confidence >= 0.4, and storing the thread id would make every later reply
+            // in this thread auto-route to this task (matchResponseToTask Signal 2, 0.93) — which
+            // would amplify a borderline mis-match. State B does not need the thread id.
+            gmailThreadId: '',
+            sender: emailMeta.sender || '',
+            subject: emailMeta.subject || '',
+            bodyText: emailMeta.bodyText || '',
+            confidence: match.confidence,
+            uploadedBy: 'gp_email'
+          });
+          }
         }
 
         console.log('[Gmail] Matched attachment', attachmentMeta.filename, 'to task', match.task_id, 'with confidence', match.confidence);
@@ -33244,6 +33383,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('taskId');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    // Heal legacy auto-matched tasks that have the attachment only on their columns (no rows yet)
+    await _ensureTaskArtifacts(taskId);
     const msgs = await supabaseDbRequest('task_messages',
       'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&order=created_at.asc');
     if (!msgs.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load messages.' }); return; }
@@ -33258,6 +33399,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('taskId');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    // Heal legacy auto-matched tasks that have the attachment only on their columns (no rows yet)
+    await _ensureTaskArtifacts(taskId);
     const docs = await supabaseDbRequest('task_documents',
       'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&order=version.desc,created_at.desc');
     if (!docs.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load documents.' }); return; }

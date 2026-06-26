@@ -1859,7 +1859,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (dk === 'offer_contract') {
       var html = '';
       if (task.gmail_message_id && task.attachment_url) {
-        var conf = typeof task.ai_confidence === 'number' ? task.ai_confidence : 0;
+        var conf = typeof task.ai_match_confidence === 'number' ? task.ai_match_confidence : (typeof task.ai_confidence === 'number' ? task.ai_confidence : 0);
         var confPct = Math.round(conf * 100);
         var confHigh = conf >= 0.7;
         var confBadgeBg = confHigh ? '#dcfce7' : '#fef9c3';
@@ -1904,7 +1904,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (dk === 'supervisor_cv') {
       var html2 = '';
       if (task.gmail_message_id && task.attachment_url) {
-        var conf2 = typeof task.ai_confidence === 'number' ? task.ai_confidence : 0;
+        var conf2 = typeof task.ai_match_confidence === 'number' ? task.ai_match_confidence : (typeof task.ai_confidence === 'number' ? task.ai_confidence : 0);
         var confPct2 = Math.round(conf2 * 100);
         var confHigh2 = conf2 >= 0.7;
         var confBadgeBg2 = confHigh2 ? '#dcfce7' : '#fef9c3';
@@ -3040,7 +3040,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='</div>';
 
           if(t.attachment_url&&t.attachment_filename){
-            const conf=typeof t.ai_confidence==='number'?Math.round(t.ai_confidence*100):0;
+            const conf=typeof t.ai_match_confidence==='number'?Math.round(t.ai_match_confidence*100):(typeof t.ai_confidence==='number'?Math.round(t.ai_confidence*100):0);
             html+='<div class="st-doc-info">';
             html+='<span class="st-doc-chip">\uD83D\uDCC4 '+esc(t.attachment_filename)+'</span>';
             if(t.gmail_message_id)html+='<span style="font-size:10px;color:var(--muted)">Auto-matched \u2022 '+conf+'% confidence</span>';
