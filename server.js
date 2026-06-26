@@ -9230,6 +9230,28 @@ function saveDoubleTickCustomerId(userId, url) {
   });
 }
 
+// ── DoubleTick chat-assignment helpers ──
+// Pure (no DB/fetch) so they can be unit-tested. Resolve an RSO's WhatsApp
+// phone from a roster (loadRsoTeam() output) and build the assign request body.
+function findRsoPhoneInRoster(roster, rsoUserId) {
+  if (!Array.isArray(roster) || !rsoUserId) return '';
+  const match = roster.find(function (r) { return r && r.user_id === rsoUserId; });
+  return match ? normalizePhone(match.phone || '') : '';
+}
+
+function buildDoubleTickAssignBody(opts) {
+  const gpPhone = normalizePhone((opts && opts.gpPhone) || '');
+  const rsoPhone = normalizePhone((opts && opts.rsoPhone) || '');
+  const wabaNumber = String((opts && opts.wabaNumber) || '').replace(/[^\d]/g, '');
+  if (!gpPhone || !rsoPhone || !wabaNumber) return null;
+  return {
+    customerPhoneNumber: gpPhone,
+    assignedUserPhoneNumber: rsoPhone,
+    reassign: true,
+    wabaNumber: wabaNumber
+  };
+}
+
 /**
  * Send a WhatsApp template message via DoubleTick API.
  * Non-blocking: logs failures but does not throw, so caller workflows are not interrupted.
@@ -41543,6 +41565,8 @@ if (process.env.VERCEL) {
 
 module.exports.createServer = createServer;
 module.exports.mergeRsoRoster = mergeRsoRoster;
+module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
+module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   buildRsoWritePayload,
