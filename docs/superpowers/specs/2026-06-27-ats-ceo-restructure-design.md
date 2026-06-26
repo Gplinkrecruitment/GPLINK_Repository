@@ -2,7 +2,25 @@
 
 **Date:** 2026-06-27
 **Branch:** `worktree-ats-prototype` (PREVIEW ONLY — never merge to `main` until owner approves)
-**Status:** Design locked. Ground-truth verified against the live codebase (10-agent investigation + adversarial critic). Ready to build.
+**Status:** BUILT + verified (see Build Status below). Ground-truth verified against the live codebase (10-agent investigation + adversarial critic).
+
+---
+
+## BUILD STATUS — 2026-06-27 (core complete + verified)
+
+**Done & verified** (all on `worktree-ats-prototype`, pushed; 671/671 tests pass; all 4 tabs screenshotted on the real gated page running locally):
+- DB: 6 additive migrations (practices, career_roles ATS cols, gp_applications.ats_stage, registration_cases intent+comms cols, career_interviews summary cols, ats_stage_events). **Written + committed; NOT yet applied to the shared Supabase** (kept preview-only; applying them — additive/safe — is the step that makes a Vercel preview show real data).
+- Libs: `lib/ats-intent.js` (intent calc), `lib/ats-practices.js`, `lib/ats-comms.js` + 53 unit tests.
+- Backend: 15 dual-mode endpoints (`/api/ats/*`, `/api/ceo/candidate*`) + recompute-intent cron + 13 endpoint tests. Comms scan calls Claude over real WhatsApp/email.
+- Frontend: master-tab shell in `ceo-dashboard.html` (existing dashboard wrapped, untouched) + `css/ceo-ats.css` + `js/ceo-ats-shared.js` (+ hash deep-linking) + 3 tab modules. Local-JSON seed (`scripts/seed-ats-dev.js`) mirrors the prototype so the localhost build runs the *real* code.
+- Verified visually: Candidates list (sorted by real intent), candidate profile (intent 97/100, rail, docs, comms, Zoom summaries), Jobs list + drag-drop board, Practices directory + detail. Registration tab wraps the existing dashboard unchanged (sticky fix correct).
+
+**Remaining (flagged, lower priority — can't be verified without external services):**
+1. **Apply the additive migrations** to the shared Supabase (one-time, safe) so a preview deployment shows real data. Then run a one-time **practices backfill** (dedup `career_roles.practice_name` → `practices` rows via `lib/ats-practices.normalizePracticeName`) + the recompute-intent cron once.
+2. **Interview Zoom-summary mechanism**: `career_interviews` summary columns exist; still to wire = generalise `fetchAndSaveZoomSummary(table,row)`, extend the Zoom webhook to match `career_interviews`, set the AI Companion flag in `createZoomMeeting`. (Registration-call summaries already surface on the profile — real, via Zoom AI Companion.)
+3. **Outbound WhatsApp persistence**: add a `direction='outbound'` insert in `sendDoubleTick*` so comms engagement is two-sided (column/CHECK already allow it).
+
+Items 2–3 depend on Zoom/DoubleTick being configured, so they're deployed-env-only.
 **Source of truth for UI/behaviour:** `pages/ceo-dashboard-prototype.html` (approved by owner).
 **Companion doc:** `2026-06-27-ats-ceo-restructure-HANDOVER.md` (vision + decisions).
 
