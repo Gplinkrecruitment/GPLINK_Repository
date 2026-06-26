@@ -32332,6 +32332,21 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(caseId, null, changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change', 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
     }
 
+    // ── Auto-sync DoubleTick chat ownership to the newly-assigned RSO ──
+    // Best-effort, one-way (GP Link is source of truth); never blocks the save.
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va && patch.assigned_va !== oldAssignedVa) {
+      try {
+        const _dtCaseRow = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+        const _dtUserId = _dtCaseRow ? _dtCaseRow.user_id : null;
+        if (_dtUserId) {
+          const _dtGpPhone = await getGpWhatsAppPhone(_dtUserId);
+          if (_dtGpPhone) {
+            await syncCaseChatAssignment({ gpPhone: _dtGpPhone, assignedVaUserId: patch.assigned_va });
+          }
+        }
+      } catch (e) { console.error('[doubletick-assign] case PATCH sync (admin) failed:', e && e.message); }
+    }
+
     // ── Gmail Label Management on VA assignment ──
     // Capture whether the Gmail label transfer succeeded so the caller learns the
     // truth instead of the try/catch silently swallowing failures (#12).
@@ -39867,6 +39882,19 @@ Return ONLY valid JSON with no markdown formatting:
     if (changes.length > 0) {
       const evType = changes.includes('assigned_va') ? 'owner_changed' : changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change';
       await _logCaseEvent(caseId, null, evType, 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
+    }
+    // ── Auto-sync DoubleTick chat ownership to the assigned RSO (best-effort) ──
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va) {
+      try {
+        const _dtCaseRow2 = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+        const _dtUserId2 = _dtCaseRow2 ? _dtCaseRow2.user_id : null;
+        if (_dtUserId2) {
+          const _dtGpPhone2 = await getGpWhatsAppPhone(_dtUserId2);
+          if (_dtGpPhone2) {
+            await syncCaseChatAssignment({ gpPhone: _dtGpPhone2, assignedVaUserId: patch.assigned_va });
+          }
+        }
+      } catch (e) { console.error('[doubletick-assign] case PATCH sync (ceo) failed:', e && e.message); }
     }
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
     return;
