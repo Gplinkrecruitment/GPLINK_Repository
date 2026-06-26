@@ -9252,6 +9252,81 @@ function buildDoubleTickAssignBody(opts) {
   };
 }
 
+// POST /team-member/assign — assign a GP's WhatsApp chat to an RSO in DoubleTick.
+// Fail-soft: never throws; returns a result object. Mirrors the auth/timeout
+// convention used by sendDoubleTickTemplate.
+async function assignDoubleTickChat(opts) {
+  if (!DOUBLETICK_API_KEY) {
+    console.warn('[doubletick-assign] DOUBLETICK_API_KEY not set — skipping assign');
+    return { ok: false, skipped: true };
+  }
+  const body = buildDoubleTickAssignBody({
+    gpPhone: opts && opts.gpPhone,
+    rsoPhone: opts && opts.rsoPhone,
+    wabaNumber: HAZEL_WHATSAPP_NUMBER
+  });
+  if (!body) {
+    console.warn('[doubletick-assign] Missing GP phone / RSO phone / WABA number — skipping assign');
+    return { ok: false, skipped: true };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/team-member/assign', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    clearTimeout(timeout);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error('[doubletick-assign] API error:', resp.status, JSON.stringify(data).slice(0, 300));
+      return { ok: false, status: resp.status, data: data };
+    }
+    console.log('[doubletick-assign] Assigned', body.customerPhoneNumber, '->', body.assignedUserPhoneNumber);
+    return { ok: true, data: data };
+  } catch (err) {
+    clearTimeout(timeout);
+    console.error('[doubletick-assign] Error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
+// Resolve a GP's WhatsApp phone from their user_profiles row.
+async function getGpWhatsAppPhone(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return '';
+  try {
+    const r = await supabaseDbRequest('user_profiles', 'select=phone,phone_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const p = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    return p ? normalizePhone(p.phone || p.phone_number || '') : '';
+  } catch (err) {
+    console.error('[doubletick-assign] getGpWhatsAppPhone error:', err && err.message);
+    return '';
+  }
+}
+
+// Orchestrator: given a GP phone and the assigned RSO's user_id, look up the
+// RSO's WhatsApp phone from the live roster and assign the chat in DoubleTick.
+// Skips silently (logged) for owner/archive RSOs or RSOs with no roster phone.
+async function syncCaseChatAssignment(opts) {
+  try {
+    const gpPhone = normalizePhone((opts && opts.gpPhone) || '');
+    const assignedVaUserId = (opts && opts.assignedVaUserId) || '';
+    if (!gpPhone || !assignedVaUserId) return { ok: false, skipped: true };
+    const roster = await loadRsoTeam({ includeInactive: true });
+    const rsoPhone = findRsoPhoneInRoster(roster, assignedVaUserId);
+    if (!rsoPhone) {
+      console.warn('[doubletick-assign] No WhatsApp phone for RSO', assignedVaUserId, '— skipping chat assignment (owner/archive or missing roster phone)');
+      return { ok: false, skipped: true };
+    }
+    return await assignDoubleTickChat({ gpPhone: gpPhone, rsoPhone: rsoPhone });
+  } catch (err) {
+    console.error('[doubletick-assign] syncCaseChatAssignment error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
 /**
  * Send a WhatsApp template message via DoubleTick API.
  * Non-blocking: logs failures but does not throw, so caller workflows are not interrupted.
