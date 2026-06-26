@@ -8628,6 +8628,18 @@ async function _completeRegTask(taskId, caseId, actor) {
   await supabaseDbRequest('task_timeline', '', {
     method: 'POST', body: [{ task_id: taskId, case_id: caseId, event_type: 'completed', title: 'Task completed', actor: actor || 'system' }]
   });
+  // If this completes an SPPA-00 prerequisite (supervisor_cv / offer_contract), (re)check whether to
+  // run the AI conflict scan that unlocks the deferred SPPA-00 task. Covers every completion path
+  // that goes through this helper. Fire-and-forget + idempotent so it never delays/blocks completion.
+  try {
+    var _ct = await supabaseDbRequest('registration_tasks', 'select=related_document_key&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    var _ctDk = (_ct.ok && Array.isArray(_ct.data) && _ct.data[0]) ? _ct.data[0].related_document_key : null;
+    if (_ctDk === 'supervisor_cv' || _ctDk === 'offer_contract') {
+      var _ctCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var _ctUid = (_ctCase.ok && Array.isArray(_ctCase.data) && _ctCase.data[0]) ? _ctCase.data[0].user_id : null;
+      _maybeRunSppaConflictScan(caseId, _ctUid).catch(function (e) { console.error('[SPPA-00] completeRegTask trigger error:', e.message); });
+    }
+  } catch (e) { console.error('[SPPA-00] completeRegTask trigger lookup error:', e.message); }
 }
 
 async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, metadata) {
@@ -8639,11 +8651,25 @@ async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, me
   });
 }
 
+// Idempotency wrapper: dedupes concurrent triggers (e.g. supervisor_cv and offer_contract
+// completing near-simultaneously, or the same completion firing the scan from more than one path)
+// so the AI conflict scan runs at most once per case at a time. The inner function also guards on
+// metadata.conflict_scan_completed for cross-request idempotency.
+var _sppaScanInflight = {};
+async function _maybeRunSppaConflictScan(caseId, userId) {
+  if (!caseId) return;
+  if (_sppaScanInflight[caseId]) { try { await _sppaScanInflight[caseId]; } catch (e) {} return; }
+  var run = _runSppaConflictScanInner(caseId, userId);
+  _sppaScanInflight[caseId] = run;
+  try { await run; } catch (e) { console.error('[SPPA-00] scan wrapper error:', e.message); }
+  finally { delete _sppaScanInflight[caseId]; }
+}
+
 /**
  * Check if both supervisor_cv and offer_contract are complete for a case,
  * then fire the AI conflict scan and fill Q7 on the SPPA-00 PDF.
  */
-async function _maybeRunSppaConflictScan(caseId, userId) {
+async function _runSppaConflictScanInner(caseId, userId) {
   try {
     // 1. Check both prerequisite tasks are complete
     var siblingRes = await supabaseDbRequest('registration_tasks',
@@ -33598,6 +33624,13 @@ Return ONLY valid JSON with no markdown formatting:
       // 8. Log timeline event
       await _logCaseEvent(task.case_id, taskId, 'completed', 'Document submitted to Drive: ' + doc.filename, null, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+
+      // 9. If this completes an SPPA-00 prerequisite, trigger the AI conflict scan that unlocks the
+      // deferred SPPA-00 task. This "Submit to Drive & Complete" path does NOT go through
+      // _completeRegTask, so the trigger must be wired here too (idempotent + fire-and-forget).
+      if (task.related_document_key === 'supervisor_cv' || task.related_document_key === 'offer_contract') {
+        _maybeRunSppaConflictScan(task.case_id, regCase ? regCase.user_id : null).catch(function (e) { console.error('[SPPA-00] submit-drive trigger error:', e.message); });
+      }
 
       sendJson(res, 200, { ok: true, driveFileId: driveFile ? driveFile.id : null });
     } catch (err) {
