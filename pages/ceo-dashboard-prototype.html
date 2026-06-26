@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GP Link · CEO Dashboard — ATS Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-elevated: #13151e;
+    --panel: #1a1d27;
+    --panel-hover: #1f2233;
+    --border: rgba(255,255,255,0.06);
+    --border-hover: rgba(255,255,255,0.12);
+    --text: #e2e8f0;
+    --text-muted: rgba(255,255,255,0.5);
+    --text-dim: rgba(255,255,255,0.3);
+    --blue: #60a5fa;   --blue-dim: rgba(96,165,250,0.15);
+    --red: #ef4444;    --red-dim: rgba(239,68,68,0.12);
+    --amber: #fbbf24;  --amber-dim: rgba(251,191,36,0.12);
+    --green: #34d399;  --green-dim: rgba(52,211,153,0.12);
+    --purple: #a78bfa; --purple-dim: rgba(167,139,250,0.12);
+    --accent: var(--blue);
+    --mono: 'JetBrains Mono', 'SF Mono', monospace;
+    --sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --shadow: 0 2px 12px rgba(0,0,0,0.3);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  button { font-family: inherit; }
+  a { color: inherit; }
+
+  /* ---------- Header ---------- */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px;
+    background: linear-gradient(180deg, rgba(15,17,23,0.98), rgba(15,17,23,0.92));
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, var(--blue), var(--purple)); display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; flex-shrink: 0; }
+  .title-block h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  .title-block p { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+  .header-spacer { flex: 1; }
+  .demo-badge { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); background: var(--amber-dim); border: 1px solid rgba(251,191,36,0.3); padding: 5px 10px; border-radius: 100px; }
+  .refresh-pill { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+  .refresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* ---------- Master tabs ---------- */
+  .master-tabs { display: flex; gap: 4px; padding: 0 24px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); position: sticky; top: 63px; z-index: 35; }
+  .master-tab { position: relative; display: flex; align-items: center; gap: 9px; padding: 14px 18px; background: none; border: none; color: var(--text-dim); font-size: 14px; font-weight: 500; cursor: pointer; transition: color 0.15s; }
+  .master-tab .tab-ico { width: 17px; height: 17px; opacity: 0.7; }
+  .master-tab:hover { color: var(--text-muted); }
+  .master-tab.active { color: var(--text); }
+  .master-tab.active .tab-ico { opacity: 1; }
+  .master-tab.active::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--blue), var(--purple)); }
+  .master-tab .count-chip { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 100px; background: rgba(255,255,255,0.06); color: var(--text-muted); }
+  .master-tab.active .count-chip { background: var(--blue-dim); color: var(--blue); }
+
+  /* ---------- Panels ---------- */
+  .panel-wrap { padding: 22px 24px 60px; max-width: 1500px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade 0.2s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .context-note { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-muted); background: rgba(96,165,250,0.05); border: 1px solid rgba(96,165,250,0.15); border-left: 3px solid var(--blue); border-radius: 8px; padding: 11px 14px; margin-bottom: 18px; }
+  .context-note b { color: var(--text); font-weight: 600; }
+
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .section-head p { font-size: 12.5px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ---------- Buttons ---------- */
+  .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 8px; border: 1px solid var(--border-hover); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn:hover { background: var(--panel-hover); border-color: rgba(255,255,255,0.18); }
+  .btn-primary { background: linear-gradient(135deg, var(--blue), #4f8ef0); border-color: transparent; color: #fff; box-shadow: 0 2px 12px rgba(96,165,250,0.25); }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
+  .btn-sm { padding: 6px 11px; font-size: 12px; }
+
+  /* ---------- Time filter (registration) ---------- */
+  .time-filter-bar { display: flex; align-items: center; gap: 6px; padding: 4px 0 18px; }
+  .time-filter-label { font-size: 11px; color: var(--text-dim); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
+  .time-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .time-btn:hover { color: var(--text-muted); border-color: var(--border-hover); }
+  .time-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ---------- KPI strip ---------- */
+  .kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 22px; }
+  .kpi-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 16px; overflow: hidden; }
+  .kpi-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--text-dim); }
+  .kpi-card.accent-blue::before { background: var(--blue); }
+  .kpi-card.accent-green::before { background: var(--green); }
+  .kpi-card.accent-red::before { background: var(--red); }
+  .kpi-card.accent-amber::before { background: var(--amber); }
+  .kpi-card.accent-purple::before { background: var(--purple); }
+  .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .kpi-value { font-size: 27px; font-weight: 700; font-family: var(--mono); margin-top: 6px; letter-spacing: -0.02em; }
+  .kpi-trend { font-size: 11px; margin-top: 4px; font-family: var(--mono); }
+  .kpi-trend.up { color: var(--green); } .kpi-trend.down { color: var(--red); }
+
+  /* ---------- Section grid (registration) ---------- */
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; }
+  .card-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  .card-title .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .funnel-row { display: grid; grid-template-columns: 130px 1fr 40px; align-items: center; gap: 12px; margin-bottom: 11px; }
+  .funnel-row .stage-name { font-size: 12.5px; color: var(--text-muted); }
+  .funnel-bar { height: 22px; border-radius: 6px; background: rgba(255,255,255,0.04); overflow: hidden; }
+  .funnel-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--blue), var(--purple)); }
+  .funnel-row .stage-count { font-family: var(--mono); font-size: 13px; text-align: right; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .metric { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 9px; padding: 12px 13px; }
+  .metric .m-val { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+  .metric .m-lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .blocker-row { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .blocker-row:last-child { border-bottom: none; }
+  .blocker-row .b-name { font-size: 13px; font-weight: 500; }
+  .blocker-row .b-meta { font-size: 11.5px; color: var(--text-dim); }
+  .pill { font-size: 11px; padding: 3px 9px; border-radius: 100px; font-weight: 500; white-space: nowrap; }
+  .pill.red { background: var(--red-dim); color: var(--red); }
+  .pill.amber { background: var(--amber-dim); color: var(--amber); }
+  .pill.green { background: var(--green-dim); color: var(--green); }
+  .pill.blue { background: var(--blue-dim); color: var(--blue); }
+  .pill.purple { background: var(--purple-dim); color: var(--purple); }
+  .pill.muted { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+
+  /* ---------- Jobs: list ---------- */
+  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .search { flex: 1; max-width: 320px; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .search input { background: none; border: none; outline: none; color: var(--text); font-size: 13px; width: 100%; font-family: inherit; }
+  .search input::placeholder { color: var(--text-dim); }
+
+  .job-list { display: grid; gap: 11px; }
+  .job-card { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; cursor: pointer; transition: all 0.15s; }
+  .job-card:hover { border-color: var(--border-hover); background: var(--panel-hover); transform: translateY(-1px); }
+  .job-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 5px; }
+  .job-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 12.5px; color: var(--text-muted); }
+  .job-meta span { display: inline-flex; align-items: center; gap: 5px; }
+  .job-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .stage-spark { display: flex; gap: 3px; }
+  .stage-spark i { width: 18px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); }
+  .cand-count { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+  .cand-count b { color: var(--text); }
+
+  /* ---------- Jobs: pipeline board ---------- */
+  .board-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .back-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 6px 0; }
+  .back-btn:hover { color: var(--text); }
+  .board-job-meta { font-size: 12.5px; color: var(--text-dim); margin-bottom: 18px; display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .board { display: flex; gap: 13px; overflow-x: auto; padding-bottom: 14px; align-items: flex-start; }
+  .pipeline-col { flex: 0 0 234px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px; min-height: 120px; transition: background 0.15s, border-color 0.15s; }
+  .pipeline-col.drop-active { background: rgba(96,165,250,0.06); border-color: rgba(96,165,250,0.4); }
+  .pipeline-col.lane-reject { flex: 0 0 210px; opacity: 0.85; }
+  .col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding: 0 2px; }
+  .col-head .ch-left { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+  .col-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .col-head .col-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 7px; border-radius: 100px; }
+
+  .cand-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 11px 12px; margin-bottom: 9px; cursor: grab; transition: all 0.12s; }
+  .cand-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow); }
+  .cand-card:active { cursor: grabbing; }
+  .cand-card.dragging { opacity: 0.4; }
+  .cand-card .cc-top { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0; }
+  .cand-card .cc-name { font-size: 13px; font-weight: 600; line-height: 1.2; }
+  .cand-card .cc-sub { font-size: 11px; color: var(--text-dim); }
+  .cand-card .cc-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .flag { font-size: 13px; }
+  .empty-col { font-size: 11.5px; color: var(--text-dim); text-align: center; padding: 16px 8px; border: 1px dashed var(--border); border-radius: 8px; }
+
+  /* ---------- Practices ---------- */
+  .practice-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+  .practice-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 17px; cursor: pointer; transition: all 0.15s; }
+  .practice-card:hover { border-color: var(--border-hover); background: var(--panel-hover); transform: translateY(-1px); }
+  .practice-card .pc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 13px; }
+  .practice-logo { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: #fff; flex-shrink: 0; }
+  .practice-card h3 { font-size: 15px; font-weight: 600; }
+  .practice-card .pc-loc { font-size: 12px; color: var(--text-dim); }
+  .pc-stats { display: flex; gap: 20px; padding-top: 13px; border-top: 1px solid var(--border); }
+  .pc-stat .s-val { font-size: 19px; font-weight: 700; font-family: var(--mono); }
+  .pc-stat .s-lbl { font-size: 11px; color: var(--text-muted); }
+
+  .detail-grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; align-items: start; }
+  .detail-field { padding: 11px 0; border-bottom: 1px solid var(--border); }
+  .detail-field:last-child { border-bottom: none; }
+  .detail-field .df-lbl { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .detail-field .df-val { font-size: 14px; margin-top: 3px; }
+  .mini-job { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 9px; cursor: pointer; }
+  .mini-job:hover { border-color: var(--border-hover); }
+  .mini-job .mj-title { font-size: 13.5px; font-weight: 500; }
+  .mini-job .mj-sub { font-size: 11.5px; color: var(--text-dim); }
+
+  /* ---------- Drawer (candidate detail) ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); z-index: 60; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 92vw; background: var(--bg-elevated); border-left: 1px solid var(--border); z-index: 61; transform: translateX(100%); transition: transform 0.25s cubic-bezier(.4,0,.2,1); display: flex; flex-direction: column; box-shadow: var(--shadow-lg); }
+  .drawer.open { transform: none; }
+  .drawer-head { display: flex; align-items: flex-start; gap: 13px; padding: 20px; border-bottom: 1px solid var(--border); }
+  .drawer-head .dh-name { font-size: 17px; font-weight: 600; }
+  .drawer-head .dh-sub { font-size: 12.5px; color: var(--text-dim); }
+  .drawer-close { margin-left: auto; background: none; border: none; color: var(--text-muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .drawer-body { padding: 20px; overflow-y: auto; flex: 1; }
+  .drawer-body label { display: block; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin: 18px 0 7px; }
+  .drawer-body label:first-child { margin-top: 0; }
+  select, .drawer-body textarea, .modal input, .modal select, .modal textarea { width: 100%; background: var(--panel); border: 1px solid var(--border-hover); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 13px; padding: 9px 11px; outline: none; }
+  .drawer-body textarea { resize: vertical; min-height: 70px; }
+  select:focus, textarea:focus, input:focus { border-color: var(--blue); }
+  .drawer-foot { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+
+  /* ---------- Modal (add job / add practice) ---------- */
+  .modal-wrap { position: fixed; inset: 0; z-index: 70; display: none; place-items: center; background: rgba(0,0,0,0.6); backdrop-filter: blur(3px); padding: 20px; }
+  .modal-wrap.open { display: grid; }
+  .modal { width: 480px; max-width: 100%; max-height: 90vh; overflow-y: auto; background: var(--bg-elevated); border: 1px solid var(--border-hover); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: pop 0.2s ease; }
+  @keyframes pop { from { transform: scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { font-size: 16px; font-weight: 600; }
+  .modal-body { padding: 20px; }
+  .modal-body label { display: block; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 7px; }
+  .modal-body label:first-child { margin-top: 0; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal-foot { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--green); color: var(--text); padding: 11px 18px; border-radius: 10px; font-size: 13px; z-index: 90; opacity: 0; transition: all 0.25s; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 9px; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Candidates: list ---------- */
+  .cand-head { display: grid; grid-template-columns: 2.2fr 0.9fr 1.3fr 1.5fr 1fr 1.1fr; gap: 14px; padding: 2px 16px 8px; font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .cand-table { display: grid; gap: 9px; }
+  .cand-row { display: grid; grid-template-columns: 2.2fr 0.9fr 1.3fr 1.5fr 1fr 1.1fr; gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 16px; cursor: pointer; transition: all 0.15s; }
+  .cand-row:hover { border-color: var(--border-hover); background: var(--panel-hover); transform: translateY(-1px); }
+  .cand-row .cr-id { display: flex; align-items: center; gap: 11px; }
+  .cand-row .cr-name { font-size: 13.5px; font-weight: 600; }
+  .cand-row .cr-sub { font-size: 11.5px; color: var(--text-dim); }
+  .intent-chip { display: flex; align-items: center; gap: 8px; }
+  .intent-bar { width: 50px; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; flex-shrink: 0; }
+  .intent-bar i { display: block; height: 100%; border-radius: 4px; }
+  .intent-score { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+  .band-hot { color: var(--red); } .band-warm { color: var(--amber); } .band-cold { color: var(--text-muted); }
+  .fill-hot { background: linear-gradient(90deg, #f97316, var(--red)); }
+  .fill-warm { background: linear-gradient(90deg, var(--amber), #f59e0b); }
+  .fill-cold { background: var(--text-dim); }
+  .doc-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .doc-chip { font-size: 10.5px; padding: 2px 8px; border-radius: 100px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .doc-chip.yes { color: var(--green); border-color: rgba(52,211,153,0.3); background: var(--green-dim); }
+
+  /* ---------- Candidate profile ---------- */
+  .cand-profile-grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+  .profile-hero { display: flex; align-items: center; gap: 15px; }
+  .profile-hero .avatar { width: 56px; height: 56px; font-size: 19px; }
+  .profile-hero h2 { font-size: 21px; }
+  .profile-hero .ph-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+  .intent-card { background: linear-gradient(160deg, rgba(96,165,250,0.07), var(--panel)); }
+  .intent-big { display: flex; align-items: baseline; gap: 9px; }
+  .intent-big .ib-score { font-size: 42px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.02em; line-height: 1; }
+  .intent-big .ib-max { font-size: 14px; color: var(--text-dim); }
+  .signal-row { display: grid; grid-template-columns: 1fr 64px 30px; gap: 11px; align-items: center; padding: 6px 0; font-size: 12px; color: var(--text-muted); }
+  .signal-row .sr-bar { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .signal-row .sr-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--purple)); }
+  .signal-row .sr-pts { font-family: var(--mono); font-size: 11px; text-align: right; color: var(--text-dim); }
+  .confirm-note { font-size: 11px; color: var(--text-dim); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-style: italic; }
+
+  /* journey rail */
+  .journey-wrap { display: flex; gap: 2px; overflow-x: auto; padding: 4px 0 8px; }
+  .jcol { display: flex; flex-direction: column; align-items: center; min-width: 70px; }
+  .jtop { display: flex; align-items: center; }
+  .jdot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 2px solid var(--border); color: var(--text-dim); background: var(--bg-elevated); flex-shrink: 0; }
+  .jdot.done { background: var(--green); border-color: var(--green); color: #06281c; }
+  .jdot.current { border-color: var(--blue); color: var(--blue); box-shadow: 0 0 0 4px var(--blue-dim); }
+  .jdot.blocked { border-color: var(--red); color: var(--red); box-shadow: 0 0 0 4px var(--red-dim); }
+  .jline { width: 100%; height: 2px; background: var(--border); flex: 1; min-width: 14px; }
+  .jline.done { background: var(--green); }
+  .jlabel { font-size: 10.5px; color: var(--text-muted); margin-top: 7px; text-align: center; line-height: 1.25; }
+  .job-app-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 9px; margin-bottom: 8px; }
+  .job-app-row .jar-title { font-size: 13px; font-weight: 500; }
+  .job-app-row .jar-sub { font-size: 11.5px; color: var(--text-dim); }
+
+  /* documents on file */
+  .doc-line { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .doc-line:last-child { border-bottom: none; }
+  .doc-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
+  .doc-ico.yes { background: var(--green-dim); color: var(--green); }
+  .doc-ico.no { background: rgba(255,255,255,0.04); color: var(--text-dim); }
+  .doc-line .dl-name { font-size: 13px; font-weight: 500; }
+  .doc-line .dl-sub { font-size: 11.5px; color: var(--text-dim); }
+
+  /* AI call summaries */
+  .ai-banner { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--purple); background: var(--purple-dim); border: 1px solid rgba(167,139,250,0.2); border-radius: 8px; padding: 9px 12px; margin-bottom: 14px; }
+  .ai-call { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 11px; padding: 14px; margin-bottom: 11px; }
+  .ai-call.upcoming { border-color: rgba(96,165,250,0.25); background: rgba(96,165,250,0.04); }
+  .ac-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+  .ac-head .ac-when { font-size: 12.5px; font-weight: 600; }
+  .ac-head .ac-type { font-size: 11px; color: var(--text-dim); }
+  .ai-badge { font-size: 9.5px; font-family: var(--mono); letter-spacing: 0.04em; color: var(--purple); background: var(--purple-dim); border: 1px solid rgba(167,139,250,0.3); padding: 2px 8px; border-radius: 100px; white-space: nowrap; }
+  .ac-sum { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; }
+  .ac-actions { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .ac-actions .aca-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 5px; }
+  .ac-actions ul { margin-left: 16px; }
+  .ac-actions li { font-size: 12px; margin: 3px 0; color: var(--text-muted); }
+  .handover-box { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+  .handover-box .hb-concern { color: var(--amber); }
+
+  @media (max-width: 900px) {
+    .kpi-strip { grid-template-columns: repeat(3, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+    .detail-grid { grid-template-columns: 1fr; }
+    .cand-profile-grid { grid-template-columns: 1fr; }
+    .cand-head { display: none; }
+    .cand-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">GP</div>
+  <div class="title-block">
+    <h1>GP Link · CEO Command Center</h1>
+    <p>EXECUTIVE OVERVIEW</p>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="demo-badge">● Prototype · dummy data</span>
+  <div class="refresh-pill"><span class="refresh-dot"></span> Live · synced 12s ago</div>
+</header>
+
+<!-- ===== MASTER TABS ===== -->
+<nav class="master-tabs" id="masterTabs">
+  <button class="master-tab active" data-tab="registration">
+    <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Registration <span class="count-chip">142</span>
+  </button>
+  <button class="master-tab" data-tab="candidates">
+    <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Candidates <span class="count-chip" id="candTabCount">13</span>
+  </button>
+  <button class="master-tab" data-tab="jobs">
+    <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+    Jobs <span class="count-chip" id="jobsTabCount">5</span>
+  </button>
+  <button class="master-tab" data-tab="practices">
+    <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg>
+    Practices <span class="count-chip" id="pracTabCount">5</span>
+  </button>
+</nav>
+
+<div class="panel-wrap">
+
+  <!-- ============ REGISTRATION PANEL ============ -->
+  <section class="panel active" id="panel-registration">
+    <div class="context-note">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      <span><b>This is your dashboard exactly as it is today</b> — every card below is unchanged. It now simply lives inside the <b>Registration</b> tab, leaving room for the new Jobs &amp; Practices tabs above.</span>
+    </div>
+
+    <div class="time-filter-bar">
+      <span class="time-filter-label">Period</span>
+      <button class="time-btn">Current</button>
+      <button class="time-btn">7 Days</button>
+      <button class="time-btn">14 Days</button>
+      <button class="time-btn">30 Days</button>
+      <button class="time-btn active">All Time</button>
+    </div>
+
+    <div class="kpi-strip">
+      <div class="kpi-card accent-blue"><div class="kpi-label">Total GPs</div><div class="kpi-value">142</div><div class="kpi-trend up">▲ 11 this month</div></div>
+      <div class="kpi-card accent-green"><div class="kpi-label">Placed</div><div class="kpi-value">38</div><div class="kpi-trend up">▲ 4 this month</div></div>
+      <div class="kpi-card accent-blue"><div class="kpi-label">Open Tasks</div><div class="kpi-value">67</div><div class="kpi-trend down">▼ 8 this week</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Overdue</div><div class="kpi-value">9</div><div class="kpi-trend up">▲ 2 this week</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">Blocked</div><div class="kpi-value">5</div><div class="kpi-trend">— flat</div></div>
+      <div class="kpi-card accent-purple"><div class="kpi-label">Completed</div><div class="kpi-value">38</div><div class="kpi-trend up">▲ 4 this month</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--blue)"></span> Registration Pipeline Funnel</div>
+        <div class="funnel-row"><span class="stage-name">Career / Placement</span><div class="funnel-bar"><div class="funnel-fill" style="width:100%"></div></div><span class="stage-count">142</span></div>
+        <div class="funnel-row"><span class="stage-name">MyIntealth</span><div class="funnel-bar"><div class="funnel-fill" style="width:81%"></div></div><span class="stage-count">115</span></div>
+        <div class="funnel-row"><span class="stage-name">AMC</span><div class="funnel-bar"><div class="funnel-fill" style="width:64%"></div></div><span class="stage-count">91</span></div>
+        <div class="funnel-row"><span class="stage-name">AHPRA</span><div class="funnel-bar"><div class="funnel-fill" style="width:46%"></div></div><span class="stage-count">66</span></div>
+        <div class="funnel-row"><span class="stage-name">PBS &amp; Medicare</span><div class="funnel-bar"><div class="funnel-fill" style="width:34%"></div></div><span class="stage-count">48</span></div>
+        <div class="funnel-row"><span class="stage-name">Commencement</span><div class="funnel-bar"><div class="funnel-fill" style="width:27%"></div></div><span class="stage-count">38</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--red)"></span> Blockers &amp; Red Flags</div>
+        <div class="blocker-row"><div style="flex:1"><div class="b-name">Dr Sana Mehta</div><div class="b-meta">AHPRA · waiting on PSV · 14 days</div></div><span class="pill red">Blocked</span></div>
+        <div class="blocker-row"><div style="flex:1"><div class="b-name">Dr Tom Reilly</div><div class="b-meta">AMC · supervisor CV missing · 9 days</div></div><span class="pill red">Blocked</span></div>
+        <div class="blocker-row"><div style="flex:1"><div class="b-name">Dr Grace Lim</div><div class="b-meta">MyIntealth · ID re-upload · 6 days</div></div><span class="pill amber">At risk</span></div>
+        <div class="blocker-row"><div style="flex:1"><div class="b-name">Dr Owen Park</div><div class="b-meta">AHPRA · English pathway unset · 5 days</div></div><span class="pill amber">At risk</span></div>
+        <div class="blocker-row"><div style="flex:1"><div class="b-name">Dr Maya Singh</div><div class="b-meta">Commencement · contract unsigned · 4 days</div></div><span class="pill amber">At risk</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--green)"></span> Task Health</div>
+        <div class="metric-grid">
+          <div class="metric"><div class="m-val">67</div><div class="m-lbl">Open tasks</div></div>
+          <div class="metric"><div class="m-val">41</div><div class="m-lbl">Done this week</div></div>
+          <div class="metric"><div class="m-val" style="color:var(--amber)">9</div><div class="m-lbl">Overdue</div></div>
+          <div class="metric"><div class="m-val">2.3d</div><div class="m-lbl">Avg resolve</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--purple)"></span> Placements &amp; Career</div>
+        <div class="metric-grid">
+          <div class="metric"><div class="m-val">31</div><div class="m-lbl">Applied</div></div>
+          <div class="metric"><div class="m-val">22</div><div class="m-lbl">Submitted</div></div>
+          <div class="metric"><div class="m-val">14</div><div class="m-lbl">Interviewing</div></div>
+          <div class="metric"><div class="m-val">7</div><div class="m-lbl">Offers</div></div>
+          <div class="metric"><div class="m-val" style="color:var(--green)">38</div><div class="m-lbl">Secured</div></div>
+          <div class="metric"><div class="m-val">12</div><div class="m-lbl">Active roles</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATES PANEL ============ -->
+  <section class="panel" id="panel-candidates">
+    <!-- LIST -->
+    <div id="candidatesListView">
+      <div class="section-head">
+        <div>
+          <h2>Candidates</h2>
+          <p>Every GP on file — profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="candSearch" placeholder="Search candidates…" oninput="renderCandidates()" />
+        </div>
+        <button class="btn btn-ghost btn-sm" id="candSortBtn" onclick="toggleCandSort()">Sort: Intent ▾</button>
+        <button class="btn btn-ghost btn-sm">All stages ▾</button>
+        <button class="btn btn-ghost btn-sm">All intent ▾</button>
+      </div>
+      <div class="cand-head">
+        <span>Candidate</span><span>Country</span><span>Registration stage</span><span>Intent score</span><span>Onboarding</span><span>Documents</span>
+      </div>
+      <div class="cand-table" id="candList"></div>
+    </div>
+
+    <!-- DETAIL -->
+    <div id="candidateDetailView" style="display:none">
+      <div class="board-head"><button class="back-btn" onclick="showCandidatesList()">‹ All candidates</button></div>
+      <div class="section-head" style="margin-bottom:16px">
+        <div class="profile-hero">
+          <div class="avatar" id="cpAvatar"></div>
+          <div><h2 id="cpName"></h2><div class="ph-sub" id="cpSub"></div></div>
+        </div>
+        <div style="display:flex;gap:9px">
+          <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — opens the full RSO file')">Open RSO file</button>
+          <button class="btn btn-primary btn-sm" onclick="toast('Demo only — schedule a call')">＋ Schedule call</button>
+        </div>
+      </div>
+      <div class="cand-profile-grid">
+        <div>
+          <div class="card" id="cpInfo" style="margin-bottom:16px"></div>
+          <div class="card intent-card" id="cpIntent"></div>
+        </div>
+        <div>
+          <div class="card" id="cpPipeline" style="margin-bottom:16px"></div>
+          <div class="card" id="cpOnboarding" style="margin-bottom:16px"></div>
+          <div class="card" id="cpDocs" style="margin-bottom:16px"></div>
+          <div class="card" id="cpComms" style="margin-bottom:16px"></div>
+          <div class="card" id="cpCalls" style="margin-bottom:16px"></div>
+          <div class="card" id="cpHandover"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ JOBS PANEL ============ -->
+  <section class="panel" id="panel-jobs">
+    <!-- LIST VIEW -->
+    <div id="jobsListView">
+      <div class="section-head">
+        <div>
+          <h2>Jobs &amp; Hiring</h2>
+          <p>Your built-in ATS — every job, every candidate, in one pipeline.</p>
+        </div>
+        <button class="btn btn-primary" onclick="openJobModal()">＋ Add job</button>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="jobSearch" placeholder="Search jobs or practices…" oninput="renderJobs()" />
+        </div>
+        <button class="btn btn-ghost btn-sm">All states ▾</button>
+        <button class="btn btn-ghost btn-sm">Open only ▾</button>
+      </div>
+      <div class="job-list" id="jobList"></div>
+    </div>
+
+    <!-- BOARD VIEW -->
+    <div id="jobBoardView" style="display:none">
+      <div class="board-head">
+        <button class="back-btn" onclick="showJobsList()">‹ All jobs</button>
+      </div>
+      <div class="section-head" style="margin-bottom:6px">
+        <div><h2 id="boardJobTitle"></h2></div>
+        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — job settings would open here')">⚙ Job settings</button>
+      </div>
+      <div class="board-job-meta" id="boardJobMeta"></div>
+      <div class="board" id="board"></div>
+    </div>
+  </section>
+
+  <!-- ============ PRACTICES PANEL ============ -->
+  <section class="panel" id="panel-practices">
+    <!-- LIST -->
+    <div id="practicesListView">
+      <div class="section-head">
+        <div>
+          <h2>Practices</h2>
+          <p>Clinics &amp; hospitals as real records — their jobs, contacts &amp; candidates in one place.</p>
+        </div>
+        <button class="btn btn-primary" onclick="openPracticeModal()">＋ Add practice</button>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="pracSearch" placeholder="Search practices…" oninput="renderPractices()" />
+        </div>
+      </div>
+      <div class="practice-list" id="practiceList"></div>
+    </div>
+
+    <!-- DETAIL -->
+    <div id="practiceDetailView" style="display:none">
+      <div class="board-head"><button class="back-btn" onclick="showPracticesList()">‹ All practices</button></div>
+      <div class="section-head" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="practice-logo" id="pdLogo"></div>
+          <div><h2 id="pdName"></h2><p id="pdLoc"></p></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — edit practice would open here')">✎ Edit</button>
+      </div>
+      <div class="detail-grid">
+        <div class="card" id="pdFields"></div>
+        <div>
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-title"><span class="dot" style="background:var(--blue)"></span> Jobs at this practice</div>
+            <div id="pdJobs"></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span class="dot" style="background:var(--purple)"></span> Candidates in pipeline</div>
+            <div id="pdCandidates"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ===== Candidate drawer ===== -->
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="avatar" id="drawerAvatar" style="width:38px;height:38px;font-size:13px"></div>
+    <div><div class="dh-name" id="drawerName"></div><div class="dh-sub" id="drawerSub"></div></div>
+    <button class="drawer-close" onclick="closeDrawer()">×</button>
+  </div>
+  <div class="drawer-body">
+    <label>Applying for</label>
+    <div id="drawerJob" style="font-size:13.5px"></div>
+    <label>Pipeline stage</label>
+    <select id="drawerStage" onchange="changeStageFromDrawer()"></select>
+    <label>Schedule</label>
+    <button class="btn btn-sm" style="width:100%;justify-content:center" onclick="toast('Demo only — Zoom interview scheduler would open')">📅 Schedule interview</button>
+    <label>Internal notes</label>
+    <textarea id="drawerNotes" placeholder="Add a note about this candidate…"></textarea>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveDrawer()">Save</button>
+  </div>
+</aside>
+
+<!-- ===== Add Job modal ===== -->
+<div class="modal-wrap" id="jobModal">
+  <div class="modal">
+    <div class="modal-head"><h3>Add a job</h3><button class="drawer-close" onclick="closeModal('jobModal')">×</button></div>
+    <div class="modal-body">
+      <label>Job title</label>
+      <input type="text" id="njTitle" placeholder="e.g. General Practitioner — VR" />
+      <label>Practice</label>
+      <select id="njPractice"></select>
+      <div class="form-row">
+        <div><label>City</label><input type="text" id="njCity" placeholder="Brisbane" /></div>
+        <div><label>State</label>
+          <select id="njState"><option>QLD</option><option>NSW</option><option>VIC</option><option>WA</option><option>SA</option><option>TAS</option><option>ACT</option><option>NT</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div><label>Type</label>
+          <select id="njType"><option>Permanent · Full-time</option><option>Permanent · Part-time</option><option>Locum</option><option>Contract</option></select>
+        </div>
+        <div><label>Billing</label>
+          <select id="njBilling"><option>Mixed billing</option><option>Private billing</option><option>Bulk billing</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('jobModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addJob()">Create job</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Add Practice modal ===== -->
+<div class="modal-wrap" id="practiceModal">
+  <div class="modal">
+    <div class="modal-head"><h3>Add a practice</h3><button class="drawer-close" onclick="closeModal('practiceModal')">×</button></div>
+    <div class="modal-body">
+      <label>Practice name</label>
+      <input type="text" id="npName" placeholder="e.g. Greenslopes Family Medical" />
+      <div class="form-row">
+        <div><label>City</label><input type="text" id="npCity" placeholder="Brisbane" /></div>
+        <div><label>State</label>
+          <select id="npState"><option>QLD</option><option>NSW</option><option>VIC</option><option>WA</option><option>SA</option><option>TAS</option><option>ACT</option><option>NT</option></select>
+        </div>
+      </div>
+      <label>Type</label>
+      <input type="text" id="npType" placeholder="e.g. GP Clinic — Mixed billing" />
+      <div class="form-row">
+        <div><label>Contact name</label><input type="text" id="npContact" placeholder="Dr. Helen Carter" /></div>
+        <div><label>Contact email</label><input type="text" id="npEmail" placeholder="admin@practice.com.au" /></div>
+      </div>
+      <div class="form-row">
+        <div><label>Phone</label><input type="text" id="npPhone" placeholder="07 0000 0000" /></div>
+        <div><label>AHPRA / reg no.</label><input type="text" id="npAhpra" placeholder="PRA-QLD-00000" /></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('practiceModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addPractice()">Create practice</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===================== DUMMY DATA ===================== */
+const STAGES = [
+  { key: 'applied',   label: 'Applied',              color: 'var(--blue)' },
+  { key: 'submitted', label: 'Submitted to Practice', color: 'var(--purple)' },
+  { key: 'reviewing', label: 'Practice Reviewing',    color: 'var(--amber)' },
+  { key: 'interview', label: 'Interview',             color: 'var(--blue)' },
+  { key: 'offer',     label: 'Offer',                 color: 'var(--green)' },
+  { key: 'hired',     label: 'Hired',                 color: 'var(--green)' },
+];
+const REJECT = { key: 'not_proceeding', label: 'Not Proceeding', color: 'var(--red)' };
+const ALL_STAGES = [...STAGES, REJECT];
+const stageLabel = k => (ALL_STAGES.find(s => s.key === k) || {}).label || k;
+const stageColor = k => (ALL_STAGES.find(s => s.key === k) || {}).color || 'var(--text-dim)';
+
+const AVATAR_COLORS = ['#60a5fa','#a78bfa','#34d399','#fbbf24','#f472b6','#22d3ee','#fb923c','#818cf8'];
+const avatarColor = name => AVATAR_COLORS[(name.charCodeAt(name.length-1) + name.length) % AVATAR_COLORS.length];
+const initials = name => name.replace(/^Dr\s+/,'').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+let practices = [
+  { id:'p1', name:'Greenslopes Family Medical', city:'Brisbane', state:'QLD', type:'GP Clinic — Mixed billing', contact:'Dr. Helen Carter', email:'admin@greenslopesfm.com.au', phone:'07 3845 1100', ahpra:'PRA-QLD-44821' },
+  { id:'p2', name:'Riverina Rural Practice',     city:'Wagga Wagga', state:'NSW', type:'Rural · DPA · Visa-friendly', contact:'Practice Mgr · Joanne Pike', email:'jobs@riverinarural.com.au', phone:'02 6921 4400', ahpra:'PRA-NSW-21097' },
+  { id:'p3', name:'Sunshine Coast Health',       city:'Maroochydore', state:'QLD', type:'Multi-site · Mixed billing', contact:'Dr. Aaron Boyd', email:'careers@sunshinecoasthealth.au', phone:'07 5443 8800', ahpra:'PRA-QLD-30562' },
+  { id:'p4', name:'Perth Metro GP',              city:'Perth', state:'WA', type:'GP Clinic — Private billing', contact:'Dr. Nina Sandhu', email:'hello@perthmetrogp.com.au', phone:'08 9322 7600', ahpra:'PRA-WA-11843' },
+  { id:'p5', name:'Tasman Medical Centre',       city:'Hobart', state:'TAS', type:'GP Clinic — Mixed billing', contact:'Practice Mgr · Greg Hall', email:'admin@tasmanmedical.au', phone:'03 6234 5500', ahpra:'PRA-TAS-09210' },
+];
+
+let jobs = [
+  { id:'j1', title:'General Practitioner — VR',        practiceId:'p1', city:'Brisbane',    state:'QLD', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-10' },
+  { id:'j2', title:'GP — Non-VR (DPA, visa support)',  practiceId:'p2', city:'Wagga Wagga', state:'NSW', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-14' },
+  { id:'j3', title:'GP Registrar',                     practiceId:'p3', city:'Maroochydore',state:'QLD', type:'Permanent · Part-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-19' },
+  { id:'j4', title:'General Practitioner — Private',   practiceId:'p4', city:'Perth',       state:'WA',  type:'Permanent · Full-time', billing:'Private billing', status:'open',   posted:'2026-06-21' },
+  { id:'j5', title:'GP — Mixed billing',               practiceId:'p5', city:'Hobart',      state:'TAS', type:'Permanent · Full-time', billing:'Mixed billing',  status:'filled', posted:'2026-05-02' },
+];
+
+let candidates = [
+  // j1 — Greenslopes
+  { id:'c1', name:'Dr Aisha Khan',     country:'🇬🇧 UK', jobId:'j1', stage:'applied',   email:'aisha.khan@nhs.uk',        notes:'' },
+  { id:'c2', name:'Dr Liam O’Connor', country:'🇮🇪 IE', jobId:'j1', stage:'submitted', email:'l.oconnor@hse.ie',         notes:'Strong rural experience.' },
+  { id:'c3', name:'Dr Priya Nair',     country:'🇬🇧 UK', jobId:'j1', stage:'reviewing', email:'priya.nair@nhs.uk',        notes:'Practice reviewing CV this week.' },
+  { id:'c4', name:'Dr Marcus Webb',    country:'🇳🇿 NZ', jobId:'j1', stage:'interview', email:'m.webb@health.nz',         notes:'Interview booked Fri 2pm AEST.' },
+  { id:'c5', name:'Dr Sofia Ramos',    country:'🇮🇪 IE', jobId:'j1', stage:'offer',     email:'sofia.ramos@hse.ie',       notes:'Verbal offer extended.' },
+  // j2 — Riverina
+  { id:'c6', name:'Dr Tao Chen',       country:'🇬🇧 UK', jobId:'j2', stage:'applied',   email:'tao.chen@nhs.uk',          notes:'' },
+  { id:'c7', name:'Dr Hannah Schmidt', country:'🇬🇧 UK', jobId:'j2', stage:'submitted', email:'h.schmidt@nhs.uk',         notes:'' },
+  { id:'c8', name:'Dr Daniel Okoro',   country:'🇮🇪 IE', jobId:'j2', stage:'interview', email:'d.okoro@hse.ie',           notes:'Keen on regional + DPA.' },
+  { id:'c9', name:'Dr Yuki Tanaka',    country:'🇬🇧 UK', jobId:'j2', stage:'hired',     email:'yuki.tanaka@nhs.uk',       notes:'Contract signed 🎉 commencing Aug.' },
+  // j3 — Sunshine Coast
+  { id:'c10', name:'Dr Emma Wilson',   country:'🇳🇿 NZ', jobId:'j3', stage:'applied',   email:'e.wilson@health.nz',       notes:'' },
+  { id:'c11', name:'Dr Raj Patel',     country:'🇬🇧 UK', jobId:'j3', stage:'reviewing', email:'raj.patel@nhs.uk',         notes:'' },
+  { id:'c12', name:'Dr Nadia Hassan',  country:'🇬🇧 UK', jobId:'j3', stage:'not_proceeding', email:'n.hassan@nhs.uk',     notes:'Practice passed — location mismatch.' },
+  // j4 — Perth Metro
+  { id:'c13', name:'Dr James Murphy',  country:'🇮🇪 IE', jobId:'j4', stage:'submitted', email:'j.murphy@hse.ie',          notes:'' },
+  { id:'c14', name:'Dr Lucia Ferraro', country:'🇬🇧 UK', jobId:'j4', stage:'offer',     email:'l.ferraro@nhs.uk',         notes:'Awaiting offer acceptance.' },
+];
+
+/* ===================== HELPERS ===================== */
+const $ = id => document.getElementById(id);
+const practiceById = id => practices.find(p => p.id === id);
+const jobById = id => jobs.find(j => j.id === id);
+const activeCandsForJob = jid => candidates.filter(c => c.jobId === jid && c.stage !== 'not_proceeding');
+const candsForJob = jid => candidates.filter(c => c.jobId === jid);
+const jobsForPractice = pid => jobs.filter(j => j.practiceId === pid);
+const candsForPractice = pid => candidates.filter(c => { const j = jobById(c.jobId); return j && j.practiceId === pid; });
+
+function toast(msg) {
+  const t = $('toast');
+  t.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>' + msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ===================== TABS ===================== */
+document.querySelectorAll('.master-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.master-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    $('panel-' + tab.dataset.tab).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+});
+
+/* ===================== JOBS LIST ===================== */
+function renderJobs() {
+  const q = ($('jobSearch').value || '').toLowerCase();
+  const list = $('jobList');
+  const filtered = jobs.filter(j => {
+    const p = practiceById(j.practiceId);
+    return !q || j.title.toLowerCase().includes(q) || (p && p.name.toLowerCase().includes(q));
+  });
+  list.innerHTML = filtered.map(j => {
+    const p = practiceById(j.practiceId);
+    const active = activeCandsForJob(j.id).length;
+    const spark = STAGES.map(s => {
+      const n = candidates.filter(c => c.jobId === j.id && c.stage === s.key).length;
+      return `<i title="${s.label}: ${n}" style="background:${n ? s.color : 'rgba(255,255,255,0.08)'};opacity:${n?1:0.4}"></i>`;
+    }).join('');
+    const statusPill = j.status === 'open' ? '<span class="pill green">Open</span>'
+      : j.status === 'filled' ? '<span class="pill muted">Filled</span>' : '<span class="pill amber">Closed</span>';
+    return `<div class="job-card" onclick="openBoard('${j.id}')">
+      <div>
+        <h3>${j.title} ${statusPill}</h3>
+        <div class="job-meta">
+          <span>🏥 ${p ? p.name : '—'}</span>
+          <span>📍 ${j.city}, ${j.state}</span>
+          <span>🗓 ${j.type}</span>
+          <span>💳 ${j.billing}</span>
+        </div>
+      </div>
+      <div class="job-right">
+        <div class="stage-spark">${spark}</div>
+        <div class="cand-count"><b>${active}</b> in pipeline</div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty-col" style="padding:40px">No jobs match your search.</div>';
+  $('jobsTabCount').textContent = jobs.filter(j => j.status === 'open').length;
+}
+
+/* ===================== JOBS BOARD ===================== */
+let currentBoardJob = null;
+function openBoard(jid) {
+  currentBoardJob = jid;
+  const j = jobById(jid), p = practiceById(j.practiceId);
+  $('jobsListView').style.display = 'none';
+  $('jobBoardView').style.display = 'block';
+  $('boardJobTitle').textContent = j.title;
+  $('boardJobMeta').innerHTML = `<span>🏥 ${p ? p.name : '—'}</span><span>📍 ${j.city}, ${j.state}</span><span>🗓 ${j.type}</span><span>💳 ${j.billing}</span><span>${activeCandsForJob(jid).length} active candidates</span>`;
+  renderBoard();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function showJobsList() {
+  $('jobBoardView').style.display = 'none';
+  $('jobsListView').style.display = 'block';
+  renderJobs();
+}
+function renderBoard() {
+  const board = $('board');
+  board.innerHTML = ALL_STAGES.map(s => {
+    const cands = candidates.filter(c => c.jobId === currentBoardJob && c.stage === s.key);
+    const cards = cands.map(candCardHTML).join('') || '<div class="empty-col">Drop here</div>';
+    return `<div class="pipeline-col ${s.key==='not_proceeding'?'lane-reject':''}" data-stage="${s.key}"
+        ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'${s.key}')">
+      <div class="col-head">
+        <span class="ch-left"><span class="dot" style="background:${s.color}"></span> ${s.label}</span>
+        <span class="col-count">${cands.length}</span>
+      </div>
+      ${cards}
+    </div>`;
+  }).join('');
+}
+function candCardHTML(c) {
+  return `<div class="cand-card" draggable="true" data-id="${c.id}"
+      ondragstart="onDragStart(event,'${c.id}')" ondragend="onDragEnd(event)" onclick="openDrawer('${c.id}')">
+    <div class="cc-top">
+      <div class="avatar" style="background:${avatarColor(c.name)}">${initials(c.name)}</div>
+      <div><div class="cc-name">${c.name}</div><div class="cc-sub">${c.country}</div></div>
+    </div>
+    <div class="cc-foot">
+      <span class="cc-sub">${c.notes ? '📝 ' + (c.notes.length > 22 ? c.notes.slice(0,22)+'…' : c.notes) : 'No notes yet'}</span>
+    </div>
+  </div>`;
+}
+
+/* ===================== DRAG & DROP ===================== */
+let dragId = null;
+function onDragStart(e, id) { dragId = id; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+function onDragEnd(e) { e.target.classList.remove('dragging'); }
+function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drop-active'); }
+function onDragLeave(e) { e.currentTarget.classList.remove('drop-active'); }
+function onDrop(e, stage) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drop-active');
+  const c = candidates.find(x => x.id === dragId);
+  if (c && c.stage !== stage) {
+    c.stage = stage;
+    renderBoard();
+    $('boardJobMeta').querySelector('span:last-child').textContent = activeCandsForJob(currentBoardJob).length + ' active candidates';
+    toast(`${c.name} → ${stageLabel(stage)}`);
+  }
+  dragId = null;
+}
+
+/* ===================== CANDIDATE DRAWER ===================== */
+let drawerCandId = null;
+function openDrawer(id) {
+  const c = candidates.find(x => x.id === id);
+  if (!c) return;
+  drawerCandId = id;
+  const j = jobById(c.jobId), p = practiceById(j.practiceId);
+  $('drawerAvatar').textContent = initials(c.name);
+  $('drawerAvatar').style.background = avatarColor(c.name);
+  $('drawerName').textContent = c.name;
+  $('drawerSub').textContent = c.country + ' · ' + c.email;
+  $('drawerJob').innerHTML = `${j.title} <span class="cc-sub">— ${p ? p.name : ''}</span>`;
+  $('drawerStage').innerHTML = ALL_STAGES.map(s => `<option value="${s.key}" ${s.key===c.stage?'selected':''}>${s.label}</option>`).join('');
+  $('drawerNotes').value = c.notes || '';
+  $('scrim').classList.add('open');
+  $('drawer').classList.add('open');
+}
+function closeDrawer() { $('scrim').classList.remove('open'); $('drawer').classList.remove('open'); drawerCandId = null; }
+function changeStageFromDrawer() {
+  const c = candidates.find(x => x.id === drawerCandId);
+  if (c) { c.stage = $('drawerStage').value; if (currentBoardJob) renderBoard(); }
+}
+function saveDrawer() {
+  const c = candidates.find(x => x.id === drawerCandId);
+  if (c) { c.notes = $('drawerNotes').value; c.stage = $('drawerStage').value; if (currentBoardJob) renderBoard(); }
+  toast('Candidate saved');
+  closeDrawer();
+}
+
+/* ===================== PRACTICES ===================== */
+function renderPractices() {
+  const q = ($('pracSearch').value || '').toLowerCase();
+  const list = $('practiceList');
+  const filtered = practices.filter(p => !q || p.name.toLowerCase().includes(q) || p.city.toLowerCase().includes(q));
+  list.innerHTML = filtered.map(p => {
+    const njobs = jobsForPractice(p.id).length;
+    const ncands = candsForPractice(p.id).filter(c => c.stage !== 'not_proceeding').length;
+    return `<div class="practice-card" onclick="openPractice('${p.id}')">
+      <div class="pc-top">
+        <div class="practice-logo" style="background:${avatarColor(p.name)}">${p.name.replace(/[^A-Za-z ]/g,'').split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+        <div><h3>${p.name}</h3><div class="pc-loc">📍 ${p.city}, ${p.state}</div></div>
+      </div>
+      <div class="pc-loc" style="margin-bottom:4px">${p.type}</div>
+      <div class="pc-stats">
+        <div class="pc-stat"><div class="s-val">${njobs}</div><div class="s-lbl">Jobs</div></div>
+        <div class="pc-stat"><div class="s-val">${ncands}</div><div class="s-lbl">In pipeline</div></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty-col" style="padding:40px">No practices match your search.</div>';
+  $('pracTabCount').textContent = practices.length;
+}
+function openPractice(pid) {
+  const p = practiceById(pid);
+  $('practicesListView').style.display = 'none';
+  $('practiceDetailView').style.display = 'block';
+  $('pdLogo').textContent = p.name.replace(/[^A-Za-z ]/g,'').split(' ').map(w=>w[0]).slice(0,2).join('');
+  $('pdLogo').style.background = avatarColor(p.name);
+  $('pdName').textContent = p.name;
+  $('pdLoc').textContent = '📍 ' + p.city + ', ' + p.state + ' · ' + p.type;
+  $('pdFields').innerHTML = `
+    <div class="detail-field"><div class="df-lbl">Primary contact</div><div class="df-val">${p.contact}</div></div>
+    <div class="detail-field"><div class="df-lbl">Email</div><div class="df-val">${p.email}</div></div>
+    <div class="detail-field"><div class="df-lbl">Phone</div><div class="df-val">${p.phone}</div></div>
+    <div class="detail-field"><div class="df-lbl">Practice type</div><div class="df-val">${p.type}</div></div>
+    <div class="detail-field"><div class="df-lbl">AHPRA / reg no.</div><div class="df-val">${p.ahpra}</div></div>`;
+  const pj = jobsForPractice(pid);
+  $('pdJobs').innerHTML = pj.map(j => `<div class="mini-job" onclick="gotoJobBoard('${j.id}')">
+      <div><div class="mj-title">${j.title}</div><div class="mj-sub">${j.city}, ${j.state} · ${j.type}</div></div>
+      <span class="cand-count"><b>${activeCandsForJob(j.id).length}</b> in pipeline ›</span>
+    </div>`).join('') || '<div class="empty-col">No jobs yet.</div>';
+  const pc = candsForPractice(pid);
+  $('pdCandidates').innerHTML = pc.map(c => `<div class="mini-job" onclick="openDrawer('${c.id}')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="avatar" style="background:${avatarColor(c.name)}">${initials(c.name)}</div>
+        <div><div class="mj-title">${c.name}</div><div class="mj-sub">${c.country} · ${jobById(c.jobId).title}</div></div>
+      </div>
+      <span class="pill" style="background:rgba(255,255,255,0.06);color:${stageColor(c.stage)}">${stageLabel(c.stage)}</span>
+    </div>`).join('') || '<div class="empty-col">No candidates yet.</div>';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function showPracticesList() {
+  $('practiceDetailView').style.display = 'none';
+  $('practicesListView').style.display = 'block';
+  renderPractices();
+}
+function gotoJobBoard(jid) {
+  document.querySelector('.master-tab[data-tab="jobs"]').click();
+  showJobsList();
+  openBoard(jid);
+}
+
+/* ===================== MODALS ===================== */
+function openJobModal() {
+  $('njPractice').innerHTML = practices.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  $('njTitle').value = ''; $('njCity').value = '';
+  $('jobModal').classList.add('open');
+}
+function openPracticeModal() {
+  ['npName','npCity','npType','npContact','npEmail','npPhone','npAhpra'].forEach(id => $(id).value = '');
+  $('practiceModal').classList.add('open');
+}
+function closeModal(id) { $(id).classList.remove('open'); }
+function addJob() {
+  const title = $('njTitle').value.trim();
+  if (!title) { toast('Enter a job title'); return; }
+  const id = 'j' + (jobs.length + 1) + Date.now().toString().slice(-3);
+  jobs.push({ id, title, practiceId: $('njPractice').value, city: $('njCity').value.trim() || '—', state: $('njState').value, type: $('njType').value, billing: $('njBilling').value, status: 'open', posted: 'today' });
+  closeModal('jobModal');
+  renderJobs(); renderPractices();
+  toast('Job created');
+}
+function addPractice() {
+  const name = $('npName').value.trim();
+  if (!name) { toast('Enter a practice name'); return; }
+  const id = 'p' + (practices.length + 1) + Date.now().toString().slice(-3);
+  practices.push({ id, name, city: $('npCity').value.trim() || '—', state: $('npState').value, type: $('npType').value || 'GP Clinic', contact: $('npContact').value || '—', email: $('npEmail').value || '—', phone: $('npPhone').value || '—', ahpra: $('npAhpra').value || '—' });
+  closeModal('practiceModal');
+  renderPractices();
+  toast('Practice created');
+}
+
+/* ===================== CANDIDATES (GPs on file) ===================== */
+const REG_STAGES = ['Placement', 'MyIntealth', 'AMC', 'AHPRA', 'PBS & Medicare', 'Commencement'];
+
+// AI-captured Zoom summaries are pre-baked per call (status: completed | upcoming | no_show)
+let gps = [
+  { id:'g1', name:'Dr Yuki Tanaka', country:'🇬🇧 UK', email:'yuki.tanaka@nhs.uk', phone:'+44 7700 900812', reg:'GMC 7841992', status:'active', joined:'12 Mar 2026', rso:'Hazel', zoho:'ZR-10293',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'18 Aug 2026', city:'Wagga Wagga, NSW', family:'Partner + 1 child (age 4)', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'Commencement', blockedDays:0, english:'done', lastActiveDays:1,
+    calls:[
+      { when:'24 Jun 2026 · 2:00pm', type:'Commencement check-in (Zoom)', status:'completed', summary:'Confirmed 18 Aug start date with Riverina Rural. Asked about relocation support for partner and childcare near Wagga. Fully documented, contract signed, no blockers. Very engaged and confident.', actions:['Send relocation + childcare pack','Confirm commencement checklist items'] },
+      { when:'09 Jun 2026 · 11:30am', type:'Offer discussion (Zoom)', status:'completed', summary:'Walked through the offer terms and billing split. Accepted verbally on the call; happy with mixed billing arrangement.', actions:['Issue contract via Zoho Sign'] },
+    ], aiHandover:'Star candidate — fully documented, contract signed, commencing Aug. No concerns. Keep warm through relocation.' },
+
+  { id:'g2', name:'Dr Sofia Ramos', country:'🇮🇪 IE', email:'sofia.ramos@hse.ie', phone:'+353 86 123 4567', reg:'IMC 408821', status:'active', joined:'02 Apr 2026', rso:'Hazel', zoho:'ZR-10341',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP — General Practice', target:'01 Oct 2026', city:'Brisbane, QLD', family:'Single', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'PBS & Medicare', blockedDays:0, english:'done', lastActiveDays:2,
+    calls:[
+      { when:'21 Jun 2026 · 4:00pm', type:'Placement update (Zoom)', status:'completed', summary:'Greenslopes extended a verbal offer. Sofia keen, asked about Medicare provider number timing and start flexibility. Strong intent, responsive.', actions:['Chase signed offer from practice','Start PBS prescriber application'] },
+    ], aiHandover:'Offer extended at Greenslopes, strong intent. Watch PBS/Medicare timing so start date holds.' },
+
+  { id:'g3', name:'Dr Marcus Webb', country:'🇳🇿 NZ', email:'m.webb@health.nz', phone:'+64 21 555 019', reg:'MCNZ 55831', status:'active', joined:'19 Mar 2026', rso:'Hazel', zoho:'ZR-10277',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'New Zealand', specialty:'FRNZCGP — General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
+    docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:0, english:'done', lastActiveDays:3,
+    calls:[
+      { when:'27 Jun 2026 · 10:00am', type:'Interview prep (Zoom)', status:'upcoming', summary:'', actions:[] },
+      { when:'18 Jun 2026 · 9:30am', type:'AHPRA progress (Zoom)', status:'completed', summary:'Reviewed AHPRA application progress. Awaiting supervised practice plan. Marcus organised and proactive; interview with Greenslopes booked for Fri.', actions:['Prep interview talking points','Follow up SPPA-00 with practice'] },
+    ], aiHandover:'Interviewing at Greenslopes, AHPRA in progress. Missing cover letter — request before interview.' },
+
+  { id:'g4', name:'Dr Priya Nair', country:'🇬🇧 UK', email:'priya.nair@nhs.uk', phone:'+44 7700 900145', reg:'GMC 7720461', status:'active', joined:'28 Mar 2026', rso:'Hazel', zoho:'ZR-10310',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Nov 2026', city:'Brisbane, QLD', family:'Partner + 2 children (ages 6, 9)', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:false }, regStage:'AHPRA', blockedDays:0, english:'planned', lastActiveDays:5,
+    calls:[
+      { when:'17 Jun 2026 · 1:00pm', type:'Onboarding call (Zoom)', status:'completed', summary:'Discussed family relocation logistics and school enrolment for two children. CV submitted to Greenslopes; practice now reviewing. English test (IELTS) planned for July.', actions:['Book IELTS reminder for July','Send school catchment info for Brisbane'] },
+    ], aiHandover:'CV under review at Greenslopes. English test only planned — nudge to book to avoid AHPRA delay.' },
+
+  { id:'g5', name:'Dr Daniel Okoro', country:'🇮🇪 IE', email:'d.okoro@hse.ie', phone:'+353 87 998 2210', reg:'IMC 415902', status:'active', joined:'05 Apr 2026', rso:'Hazel', zoho:'ZR-10355',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP — General Practice', target:'20 Sep 2026', city:'Wagga Wagga, NSW', family:'Single', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AMC', blockedDays:0, english:'done', lastActiveDays:4,
+    calls:[
+      { when:'20 Jun 2026 · 3:30pm', type:'Regional placement (Zoom)', status:'completed', summary:'Very keen on regional + DPA. Interview with Riverina Rural arranged. Comfortable with rural lifestyle, asked about visa support — all aligned.', actions:['Confirm interview slot','Share DPA + visa pathway summary'] },
+      { when:'12 Jun 2026 · 12:00pm', type:'Intro call (Zoom)', status:'no_show', summary:'Did not attend — rescheduled at his request after a roster clash.', actions:[] },
+    ], aiHandover:'Interviewing at Riverina Rural, strong regional fit. One earlier no-show (roster clash) — otherwise reliable.' },
+
+  { id:'g6', name:'Dr Aisha Khan', country:'🇬🇧 UK', email:'aisha.khan@nhs.uk', phone:'+44 7700 900233', reg:'GMC 7689201', status:'active', joined:'09 Apr 2026', rso:'Hazel', zoho:'ZR-10362',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Dec 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
+    docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:true }, regStage:'MyIntealth', blockedDays:0, english:'none', lastActiveDays:8,
+    calls:[
+      { when:'16 Jun 2026 · 10:30am', type:'Welcome call (Zoom)', status:'completed', summary:'Early stage — just applied to Greenslopes. Walked through registration journey. Has not started English test or cover letter yet. Engaged but needs prompting on next steps.', actions:['Request cover letter','Explain English pathway options'] },
+    ], aiHandover:'Early stage, applied at Greenslopes. No cover letter, no English test started — needs active nudging.' },
+
+  { id:'g7', name:'Dr Raj Patel', country:'🇬🇧 UK', email:'raj.patel@nhs.uk', phone:'+44 7700 900471', reg:'GMC 7755120', status:'active', joined:'31 Mar 2026', rso:'Hazel', zoho:'ZR-10318',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'15 Oct 2026', city:'Maroochydore, QLD', family:'Partner + 1 child', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AMC', blockedDays:0, english:'planned', lastActiveDays:6,
+    calls:[
+      { when:'19 Jun 2026 · 2:30pm', type:'Placement review (Zoom)', status:'completed', summary:'CV submitted to Sunshine Coast Health; practice reviewing. Keen on the Sunshine Coast for lifestyle. IELTS planned for August.', actions:['Follow up practice review','Reminder: IELTS in August'] },
+    ], aiHandover:'CV under review at Sunshine Coast. Solid docs; English only planned.' },
+
+  { id:'g8', name:'Dr Tao Chen', country:'🇬🇧 UK', email:'tao.chen@nhs.uk', phone:'+44 7700 900688', reg:'GMC 7798344', status:'active', joined:'14 Apr 2026', rso:'Hazel', zoho:'ZR-10377',
+    ob:{ completed:false, fieldsFilled:0.6, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
+    docs:{ cv:false, coverLetter:false, primaryDegree:true, idDoc:false }, regStage:'AMC', blockedDays:0, english:'planned', lastActiveDays:12,
+    calls:[
+      { when:'15 Jun 2026 · 11:00am', type:'Intro call (Zoom)', status:'completed', summary:'Interested in Riverina Rural but onboarding incomplete and ID not yet verified. Slightly hesitant about timeline. Needs to upload CV and complete profile.', actions:['Complete onboarding','Upload CV + verify ID'] },
+    ], aiHandover:'Applied at Riverina but onboarding incomplete, no CV, ID unverified. Lukewarm — confirm genuine intent.' },
+
+  { id:'g9', name:'Dr Hannah Schmidt', country:'🇬🇧 UK', email:'h.schmidt@nhs.uk', phone:'+44 7700 900502', reg:'GMC 7811003', status:'active', joined:'16 Apr 2026', rso:'Hazel', zoho:'ZR-10381',
+    ob:{ completed:false, fieldsFilled:0.5, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
+    docs:{ cv:true, coverLetter:false, primaryDegree:false, idDoc:false }, regStage:'MyIntealth', blockedDays:0, english:'none', lastActiveDays:20,
+    calls:[
+      { when:'10 Jun 2026 · 9:00am', type:'Intro call (Zoom)', status:'no_show', summary:'Did not attend; no response to reschedule yet.', actions:['Re-attempt contact'] },
+    ], aiHandover:'Submitted to Riverina but onboarding half-done, missed intro call, gone quiet 20 days. Cold — re-engage or park.' },
+
+  { id:'g10', name:'Dr Emma Wilson', country:'🇳🇿 NZ', email:'e.wilson@health.nz', phone:'+64 21 778 442', reg:'MCNZ 56012', status:'active', joined:'18 Apr 2026', rso:'Hazel', zoho:'ZR-10390',
+    ob:{ completed:false, fieldsFilled:0.4, qualCountry:'New Zealand', specialty:'FRNZCGP — General Practice', target:'Not set', city:'Maroochydore, QLD', family:'Not provided', idVerified:false },
+    docs:{ cv:false, coverLetter:false, primaryDegree:false, idDoc:false }, regStage:'Placement', blockedDays:0, english:'none', lastActiveDays:9,
+    calls:[], aiHandover:'Brand new — applied at Sunshine Coast but no onboarding, no docs, no call yet. Unqualified intent; book intro call.' },
+
+  { id:'g11', name:'Dr Grace Lim', country:'🇬🇧 UK', email:'grace.lim@nhs.uk', phone:'+44 7700 900917', reg:'GMC 7702588', status:'under_review', joined:'22 Mar 2026', rso:'Hazel', zoho:'ZR-10301',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Nov 2026', city:'Perth, WA', family:'Partner', idVerified:false },
+    docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:false }, regStage:'MyIntealth', blockedDays:6, english:'none', lastActiveDays:6,
+    calls:[
+      { when:'21 Jun 2026 · 1:30pm', type:'Document help (Zoom)', status:'completed', summary:'ID document was rejected (glare on photo). Walked Grace through re-uploading. Account under review until ID clears. Otherwise engaged.', actions:['Re-upload clear ID','Clear under-review flag once verified'] },
+    ], aiHandover:'BLOCKED at MyIntealth — ID re-upload needed (6 days), account under review. Engaged; unblock to keep momentum.' },
+
+  { id:'g12', name:'Dr Owen Park', country:'🇬🇧 UK', email:'owen.park@nhs.uk', phone:'+44 7700 900324', reg:'GMC 7766910', status:'active', joined:'25 Mar 2026', rso:'Hazel', zoho:'ZR-10308',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Dec 2026', city:'Perth, WA', family:'Single', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:5, english:'none', lastActiveDays:4,
+    calls:[
+      { when:'23 Jun 2026 · 11:00am', type:'AHPRA guidance (Zoom)', status:'completed', summary:'AHPRA application is held up — English pathway not yet selected. Explained options; Owen leaning toward OET. Documents otherwise complete.', actions:['Select English pathway','Book OET if chosen'] },
+    ], aiHandover:'BLOCKED at AHPRA — English pathway unset (5 days). Docs complete, engaged; resolve pathway to progress.' },
+
+  { id:'g13', name:'Dr Sana Mehta', country:'🇬🇧 UK', email:'sana.mehta@nhs.uk', phone:'+44 7700 900756', reg:'GMC 7733410', status:'active', joined:'20 Mar 2026', rso:'Hazel', zoho:'ZR-10295',
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner + 1 child', idVerified:true },
+    docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:14, english:'done', lastActiveDays:14,
+    calls:[
+      { when:'13 Jun 2026 · 10:00am', type:'AHPRA escalation (Zoom)', status:'completed', summary:'AHPRA stuck awaiting PSV (primary source verification) for 14 days — third-party delay, not the candidate. Sana frustrated but committed. Reassured on timeline.', actions:['Escalate PSV with AHPRA','Weekly status update to Sana'] },
+      { when:'04 Jun 2026 · 4:00pm', type:'Check-in (Zoom)', status:'no_show', summary:'Missed due to UK night shift; rescheduled.', actions:[] },
+    ], aiHandover:'BLOCKED at AHPRA — PSV delay (14 days, third-party). Committed candidate; keep updated weekly so intent doesn’t cool.' },
+];
+
+// AI communication-engagement scan (DoubleTick / WhatsApp + email) — dummy AI read per GP
+const COMMS = {
+  g1:  { messages30d:38, avgReplyHrs:1.5, tone:'Enthusiastic', engagementVal:0.95, aiRead:'Highly responsive across WhatsApp and email — usually replies within the hour. Consistently positive, proactive, asks forward-looking questions. Strong buying signals.' },
+  g2:  { messages30d:29, avgReplyHrs:2,   tone:'Enthusiastic', engagementVal:0.90, aiRead:'Very engaged, warm tone, often initiates contact. Keen to lock in start details — clear momentum.' },
+  g3:  { messages30d:22, avgReplyHrs:3,   tone:'Positive',     engagementVal:0.80, aiRead:'Reliable responder, upbeat and organised. Occasionally needs a nudge but always follows through.' },
+  g4:  { messages30d:18, avgReplyHrs:5,   tone:'Positive',     engagementVal:0.72, aiRead:'Engaged but practical — questions centre on family and logistics. Tone steady and committed.' },
+  g5:  { messages30d:20, avgReplyHrs:4,   tone:'Positive',     engagementVal:0.75, aiRead:'Good engagement, enthusiastic about the regional move. Quick on WhatsApp.' },
+  g6:  { messages30d:12, avgReplyHrs:12,  tone:'Neutral',      engagementVal:0.55, aiRead:'Moderate engagement — replies but rarely initiates. Tone polite yet non-committal; needs prompting on next steps.' },
+  g7:  { messages30d:16, avgReplyHrs:6,   tone:'Positive',     engagementVal:0.68, aiRead:'Steady responder, positive about the Sunshine Coast. Engagement solid, not urgent.' },
+  g8:  { messages30d:6,  avgReplyHrs:30,  tone:'Hesitant',     engagementVal:0.35, aiRead:'Slow to reply, short messages. Tone hesitant about timeline — intent unclear, confirm seriousness.' },
+  g9:  { messages30d:3,  avgReplyHrs:72,  tone:'Quiet',        engagementVal:0.18, aiRead:'Largely unresponsive the last 3 weeks. Minimal messages, flat tone — cooling off.' },
+  g10: { messages30d:2,  avgReplyHrs:96,  tone:'Quiet',        engagementVal:0.12, aiRead:'Almost no two-way contact yet. Has not replied to recent outreach — unqualified.' },
+  g11: { messages30d:15, avgReplyHrs:6,   tone:'Positive',     engagementVal:0.60, aiRead:'Engaged and cooperative despite the ID block — responds quickly when chased and wants it resolved.' },
+  g12: { messages30d:17, avgReplyHrs:5,   tone:'Positive',     engagementVal:0.70, aiRead:'Responsive and motivated to clear the English-pathway blocker. Constructive tone.' },
+  g13: { messages30d:11, avgReplyHrs:8,   tone:'Frustrated but committed', engagementVal:0.62, aiRead:'Still responsive but tone shows growing frustration at the PSV delay. Committed — needs reassurance to stay warm.' },
+};
+function commsFor(id) { return COMMS[id] || { messages30d:0, avgReplyHrs:'—', tone:'No data', engagementVal:0, aiRead:'No messages on file yet.' }; }
+function toneClass(t) { return /enthus/i.test(t) ? 'green' : /hesit|frustr|cautio/i.test(t) ? 'amber' : /posit|commit|warm/i.test(t) ? 'blue' : 'muted'; }
+
+const stageRank = { applied:1, submitted:2, reviewing:3, interview:4, offer:5, hired:6 };
+function bestAtsStageFor(name) {
+  const mine = candidates.filter(c => c.name === name && c.stage !== 'not_proceeding');
+  if (!mine.length) return null;
+  return mine.sort((a, b) => (stageRank[b.stage] || 0) - (stageRank[a.stage] || 0))[0].stage;
+}
+
+// THE INTENT CALCULATOR — a real weighted score the user can see and tune
+function intentFor(gp) {
+  const docKeys = ['cv', 'coverLetter', 'idDoc', 'primaryDegree'];
+  const docShare = docKeys.filter(k => gp.docs[k]).length / docKeys.length;
+  const stageIdx = Math.max(0, REG_STAGES.indexOf(gp.regStage));
+  let stageVal = stageIdx / (REG_STAGES.length - 1);
+  if (gp.blockedDays > 0) stageVal = Math.max(0, stageVal - Math.min(0.4, (gp.blockedDays / 30) * 0.4));
+  const done = gp.calls.filter(c => c.status === 'completed').length;
+  const missed = gp.calls.filter(c => c.status === 'no_show' || c.status === 'cancelled').length;
+  const callVal = (done + missed) ? done / (done + missed) : 0.5;
+  const recencyVal = gp.lastActiveDays <= 7 ? 1 : gp.lastActiveDays <= 14 ? 0.6 : gp.lastActiveDays <= 30 ? 0.3 : 0.1;
+  const commsVal = commsFor(gp.id).engagementVal || 0;
+  const best = bestAtsStageFor(gp.name);
+  const atsVal = best === 'hired' ? 1 : best === 'offer' ? 0.85 : best === 'interview' ? 0.7 : best === 'reviewing' ? 0.5 : best === 'submitted' ? 0.4 : best === 'applied' ? 0.3 : 0;
+  const onboardingVal = gp.ob.completed ? 1 : (gp.ob.fieldsFilled || 0);
+
+  const signals = [
+    { label: 'Comms engagement & tone (AI)',  w: 18, v: commsVal },
+    { label: 'Onboarding completed',          w: 18, v: onboardingVal },
+    { label: 'Documents (CV, cover letter, ID, degree)', w: 16, v: docShare },
+    { label: 'Registration progress',         w: 14, v: stageVal },
+    { label: 'Call attendance',               w: 14, v: callVal },
+    { label: 'Recent app activity',           w: 10, v: recencyVal },
+    { label: 'Job pipeline engagement',       w: 10, v: atsVal },
+  ];
+  const score = Math.round(signals.reduce((a, s) => a + s.w * s.v, 0));
+  const band = score >= 70 ? 'Hot' : score >= 40 ? 'Warm' : 'Cold';
+  return { score, band, signals };
+}
+
+let candSortMode = 'intent';
+function toggleCandSort() {
+  candSortMode = candSortMode === 'intent' ? 'name' : 'intent';
+  $('candSortBtn').textContent = 'Sort: ' + (candSortMode === 'intent' ? 'Intent ▾' : 'Name ▾');
+  renderCandidates();
+}
+
+function regStagePill(gp) {
+  if (gp.blockedDays > 0) return `<span class="pill red">${gp.regStage} · blocked ${gp.blockedDays}d</span>`;
+  return `<span class="pill blue">${gp.regStage}</span>`;
+}
+
+function renderCandidates() {
+  const q = ($('candSearch').value || '').toLowerCase();
+  let rows = gps.map(g => ({ g, intent: intentFor(g) }))
+    .filter(r => !q || r.g.name.toLowerCase().includes(q) || r.g.email.toLowerCase().includes(q));
+  rows.sort((a, b) => candSortMode === 'intent' ? b.intent.score - a.intent.score : a.g.name.localeCompare(b.g.name));
+  $('candList').innerHTML = rows.map(({ g, intent }) => {
+    const bl = intent.band.toLowerCase();
+    return `<div class="cand-row" onclick="openCandidate('${g.id}')">
+      <div class="cr-id"><div class="avatar" style="background:${avatarColor(g.name)}">${initials(g.name)}</div>
+        <div><div class="cr-name">${g.name}</div><div class="cr-sub">${g.email}</div></div></div>
+      <div class="cr-sub">${g.country}</div>
+      <div>${regStagePill(g)}</div>
+      <div class="intent-chip">
+        <div class="intent-bar"><i class="fill-${bl}" style="width:${intent.score}%"></i></div>
+        <span class="intent-score band-${bl}">${intent.score}</span>
+        <span class="pill ${bl === 'hot' ? 'red' : bl === 'warm' ? 'amber' : 'muted'}">${intent.band}</span>
+      </div>
+      <div>${g.ob.completed ? '<span class="pill green">Complete</span>' : '<span class="pill amber">' + Math.round(g.ob.fieldsFilled * 100) + '%</span>'}</div>
+      <div class="doc-chips">
+        <span class="doc-chip ${g.docs.cv ? 'yes' : ''}">CV ${g.docs.cv ? '✓' : '✗'}</span>
+        <span class="doc-chip ${g.docs.coverLetter ? 'yes' : ''}">Cover ${g.docs.coverLetter ? '✓' : '✗'}</span>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty-col" style="padding:40px">No candidates match your search.</div>';
+  $('candTabCount').textContent = gps.length;
+}
+
+function openCandidate(id) {
+  const g = gps.find(x => x.id === id);
+  if (!g) return;
+  const intent = intentFor(g), bl = intent.band.toLowerCase();
+  $('candidatesListView').style.display = 'none';
+  $('candidateDetailView').style.display = 'block';
+
+  $('cpAvatar').textContent = initials(g.name);
+  $('cpAvatar').style.background = avatarColor(g.name);
+  $('cpName').textContent = g.name;
+  $('cpSub').innerHTML = `${g.country} · ${g.specialty || g.ob.specialty} · joined ${g.joined}` +
+    (g.status === 'under_review' ? ' · <span class="pill amber">Under review</span>' : '');
+
+  // Profile info
+  $('cpInfo').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--blue)"></span> Profile</div>
+    <div class="detail-field"><div class="df-lbl">Email</div><div class="df-val">${g.email}</div></div>
+    <div class="detail-field"><div class="df-lbl">Phone</div><div class="df-val">${g.phone}</div></div>
+    <div class="detail-field"><div class="df-lbl">Registration country</div><div class="df-val">${g.ob.qualCountry}</div></div>
+    <div class="detail-field"><div class="df-lbl">Registration no.</div><div class="df-val">${g.reg}</div></div>
+    <div class="detail-field"><div class="df-lbl">Account status</div><div class="df-val">${g.status === 'under_review' ? '<span class="pill amber">Under review</span>' : '<span class="pill green">Active</span>'}</div></div>
+    <div class="detail-field"><div class="df-lbl">Assigned RSO</div><div class="df-val">${g.rso}</div></div>
+    <div class="detail-field"><div class="df-lbl">Zoho candidate ID</div><div class="df-val">${g.zoho}</div></div>`;
+
+  // Intent calculator
+  $('cpIntent').innerHTML = `<div class="card-title"><span class="dot" style="background:${bl==='hot'?'var(--red)':bl==='warm'?'var(--amber)':'var(--text-dim)'}"></span> Intent calculator</div>
+    <div class="intent-big"><span class="ib-score band-${bl}">${intent.score}</span><span class="ib-max">/ 100</span>
+      <span class="pill ${bl==='hot'?'red':bl==='warm'?'amber':'muted'}" style="margin-left:auto;font-size:12px">${intent.band==='Hot'?'🔥 ':''}${intent.band}</span></div>
+    <div style="margin-top:14px">${intent.signals.map(s => `<div class="signal-row">
+        <span>${s.label}</span>
+        <span class="sr-bar"><i style="width:${Math.round(s.v*100)}%"></i></span>
+        <span class="sr-pts">+${Math.round(s.w*s.v)}</span>
+      </div>`).join('')}</div>
+    <div class="confirm-note">Signals &amp; weights are a first proposal — tell me what to change.</div>`;
+
+  // Pipeline position (registration journey + job apps)
+  const curIdx = REG_STAGES.indexOf(g.regStage);
+  const rail = REG_STAGES.map((st, i) => {
+    const done = i < curIdx, current = i === curIdx;
+    const cls = g.blockedDays > 0 && current ? 'blocked' : current ? 'current' : done ? 'done' : '';
+    const line = i < REG_STAGES.length - 1 ? `<div class="jline ${i < curIdx ? 'done' : ''}"></div>` : '';
+    return `<div class="jcol"><div class="jtop">${i>0?`<div class="jline ${i<=curIdx?'done':''}"></div>`:'<div style="flex:1"></div>'}
+        <div class="jdot ${cls}">${done ? '✓' : i + 1}</div>
+        ${i<REG_STAGES.length-1?'<div style="flex:1"></div>':'<div style="flex:1"></div>'}</div>
+      <div class="jlabel">${st}</div></div>`;
+  }).join('');
+  const apps = candidates.filter(c => c.name === g.name);
+  const appsHtml = apps.length ? apps.map(a => {
+    const j = jobById(a.jobId), p = j ? practiceById(j.practiceId) : null;
+    return `<div class="job-app-row"><div><div class="jar-title">${j ? j.title : '—'}</div><div class="jar-sub">${p ? p.name : ''} · applied via ATS</div></div>
+      <span class="pill" style="background:rgba(255,255,255,0.06);color:${stageColor(a.stage)}">${stageLabel(a.stage)}</span></div>`;
+  }).join('') : '<div class="empty-col">No job applications yet.</div>';
+  $('cpPipeline').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--green)"></span> Pipeline position</div>
+    <div class="df-lbl" style="margin-bottom:6px">Registration journey ${g.blockedDays>0?'<span class="pill red" style="margin-left:6px">Blocked at '+g.regStage+'</span>':''}</div>
+    <div class="journey-wrap">${rail}</div>
+    <div class="df-lbl" style="margin:16px 0 9px">Job applications (ATS)</div>${appsHtml}`;
+
+  // Onboarding
+  $('cpOnboarding').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--amber)"></span> Onboarding information
+      ${g.ob.completed ? '<span class="pill green" style="margin-left:auto">Complete</span>' : '<span class="pill amber" style="margin-left:auto">'+Math.round(g.ob.fieldsFilled*100)+'% complete</span>'}</div>
+    <div class="metric-grid" style="grid-template-columns:1fr 1fr">
+      <div class="detail-field"><div class="df-lbl">Qualification country</div><div class="df-val">${g.ob.qualCountry}</div></div>
+      <div class="detail-field"><div class="df-lbl">Specialty</div><div class="df-val">${g.ob.specialty}</div></div>
+      <div class="detail-field"><div class="df-lbl">Target arrival</div><div class="df-val">${g.ob.target}</div></div>
+      <div class="detail-field"><div class="df-lbl">Preferred city</div><div class="df-val">${g.ob.city}</div></div>
+      <div class="detail-field"><div class="df-lbl">Family / who's moving</div><div class="df-val">${g.ob.family}</div></div>
+      <div class="detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">${g.ob.idVerified ? '<span class="pill green">Yes</span>' : '<span class="pill amber">Pending</span>'}</div></div>
+    </div>`;
+
+  // Documents
+  const docDef = [
+    { k:'cv', name:'CV / Résumé', sub:'Signed &amp; dated' },
+    { k:'coverLetter', name:'Cover letter', sub:'Tailored to role' },
+    { k:'primaryDegree', name:'Primary medical degree', sub:'Certified copy' },
+    { k:'idDoc', name:'Identity document', sub:'Passport / photo ID' },
+  ];
+  $('cpDocs').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--purple)"></span> Documents on file</div>
+    ${docDef.map(d => `<div class="doc-line">
+      <div class="doc-ico ${g.docs[d.k] ? 'yes' : 'no'}">${g.docs[d.k] ? '✓' : '○'}</div>
+      <div style="flex:1"><div class="dl-name">${d.name}</div><div class="dl-sub">${d.sub}</div></div>
+      ${g.docs[d.k] ? '<span class="pill green">Uploaded</span>' : '<span class="pill muted">Not uploaded</span>'}
+    </div>`).join('')}`;
+
+  // Communication & engagement (AI scan of DoubleTick + email)
+  const cm = commsFor(g.id);
+  $('cpComms').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--green)"></span> Communication &amp; engagement (AI)
+      <span class="pill ${toneClass(cm.tone)}" style="margin-left:auto">${cm.tone}</span></div>
+    <div class="ai-banner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> AI reads every DoubleTick (WhatsApp) &amp; email thread to gauge how often they engage, how fast they reply, and their tone.</div>
+    <div class="metric-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric"><div class="m-val">${cm.messages30d}</div><div class="m-lbl">Messages / 30d</div></div>
+      <div class="metric"><div class="m-val">${typeof cm.avgReplyHrs === 'number' ? cm.avgReplyHrs + 'h' : cm.avgReplyHrs}</div><div class="m-lbl">Avg reply time</div></div>
+      <div class="metric"><div class="m-val" style="color:${cm.engagementVal >= 0.7 ? 'var(--green)' : cm.engagementVal >= 0.4 ? 'var(--amber)' : 'var(--text-muted)'}">${Math.round(cm.engagementVal * 100)}</div><div class="m-lbl">Engagement / 100</div></div>
+    </div>
+    <div class="ai-call" style="margin-top:12px"><div class="ac-head"><div class="ac-when">AI tone &amp; engagement read</div><span class="ai-badge">✦ AI ANALYSIS</span></div>
+      <div class="ac-sum">${cm.aiRead}</div></div>`;
+
+  // Calls / AI summaries
+  const callsHtml = g.calls.length ? g.calls.map(c => {
+    if (c.status === 'upcoming') return `<div class="ai-call upcoming"><div class="ac-head"><div><div class="ac-when">${c.when}</div><div class="ac-type">${c.type}</div></div><span class="pill blue">Upcoming</span></div><div class="ac-sum">Scheduled — AI will capture &amp; summarise this call automatically.</div></div>`;
+    const tag = c.status === 'no_show' ? '<span class="pill amber">No-show</span>' : '<span class="ai-badge">✦ AI SUMMARY</span>';
+    return `<div class="ai-call"><div class="ac-head"><div><div class="ac-when">${c.when}</div><div class="ac-type">${c.type}</div></div>${tag}</div>
+      <div class="ac-sum">${c.summary}</div>
+      ${c.actions && c.actions.length ? `<div class="ac-actions"><div class="aca-lbl">AI-extracted action items</div><ul>${c.actions.map(a=>`<li>${a}</li>`).join('')}</ul></div>` : ''}</div>`;
+  }).join('') : '<div class="empty-col">No calls recorded yet.</div>';
+  $('cpCalls').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--purple)"></span> Zoom call summaries</div>
+    <div class="ai-banner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg> AI automatically joins, records &amp; summarises every Zoom call — no manual notes needed.</div>
+    ${callsHtml}`;
+
+  // AI handover summary
+  $('cpHandover').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--blue)"></span> AI handover summary</div>
+    <div class="handover-box">${g.aiHandover}</div>`;
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function showCandidatesList() {
+  $('candidateDetailView').style.display = 'none';
+  $('candidatesListView').style.display = 'block';
+  renderCandidates();
+}
+
+/* ===================== INIT ===================== */
+renderJobs();
+renderPractices();
+renderCandidates();
+
+// Lightweight deep-links (also used for screenshots)
+(function () {
+  const h = (location.hash || '').replace('#', '');
+  const go = t => document.querySelector('.master-tab[data-tab="' + t + '"]').click();
+  if (h === 'jobs') { go('jobs'); }
+  else if (h === 'board') { go('jobs'); openBoard('j1'); }
+  else if (h === 'practices') { go('practices'); }
+  else if (h === 'practice') { go('practices'); openPractice('p1'); }
+  else if (h === 'candidates') { go('candidates'); }
+  else if (h.indexOf('candidate') === 0) { go('candidates'); openCandidate(h.split('=')[1] || 'g3'); }
+})();
+</script>
+</body>
+</html>
