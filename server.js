@@ -130,6 +130,9 @@ const {
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoActions = require('./lib/ceo-actions');
+var atsIntent = require('./lib/ats-intent');
+var atsPracticeUtil = require('./lib/ats-practices');
+var atsComms = require('./lib/ats-comms');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
   normalizeIchcReference, isValidIchcReference,
@@ -4967,7 +4970,13 @@ function createEmptyState() {
     users: {},
     userProfiles: {},
     userState: {},
-    hybridAgentBridgeStore: null
+    hybridAgentBridgeStore: null,
+    // In-app ATS collections (dev / local-JSON mode). In prod these live in Supabase.
+    atsPractices: [],
+    atsJobs: [],
+    atsApplications: [],
+    atsCandidates: [],
+    atsStageAudit: []
   };
 }
 
@@ -4999,7 +5008,12 @@ function loadDbState() {
       userState: parsed && parsed.userState && typeof parsed.userState === 'object' ? parsed.userState : {},
       hybridAgentBridgeStore: parsed && parsed.hybridAgentBridgeStore && typeof parsed.hybridAgentBridgeStore === 'object'
         ? parsed.hybridAgentBridgeStore
-        : null
+        : null,
+      atsPractices: Array.isArray(parsed && parsed.atsPractices) ? parsed.atsPractices : [],
+      atsJobs: Array.isArray(parsed && parsed.atsJobs) ? parsed.atsJobs : [],
+      atsApplications: Array.isArray(parsed && parsed.atsApplications) ? parsed.atsApplications : [],
+      atsCandidates: Array.isArray(parsed && parsed.atsCandidates) ? parsed.atsCandidates : [],
+      atsStageAudit: Array.isArray(parsed && parsed.atsStageAudit) ? parsed.atsStageAudit : []
     };
   } catch (err) {
     console.error('[DB] Failed to parse DB file. Starting with empty state.', err);
@@ -21574,6 +21588,407 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div>
 <p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="${APP_BASE_URL}" style="color:#64748b">app.mygplink.com.au</a></p>
 </div></body></html>`;
+}
+
+// ============================================================================
+// IN-APP ATS — Jobs / Practices / Candidates (dual-mode: Supabase | local-JSON)
+// See docs/superpowers/specs/2026-06-27-ats-ceo-restructure-design.md
+// ============================================================================
+
+// Registration rail used by the candidate profile + the intent "registration
+// progress" signal. Ordered to match ceoMetrics.DB_STAGE_ORDER.
+var ATS_REG_RAIL = [
+  { key: 'myintealth', label: 'MyIntealth' },
+  { key: 'amc', label: 'AMC' },
+  { key: 'career', label: 'Secure Placement' },
+  { key: 'ahpra', label: 'AHPRA' },
+  { key: 'pbs', label: 'PBS & Medicare' },
+  { key: 'commencement', label: 'Commencement' }
+];
+var ATS_REG_STAGE_MAX = 6; // 'complete' = fully done (DB_STAGE_ORDER.complete)
+
+function atsNowIso() { return new Date().toISOString(); }
+function atsLocalId(prefix) {
+  return (prefix || '') + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+}
+function atsRegStageIndex(stage) {
+  var key = String(stage || '').trim().toLowerCase();
+  if (ceoMetrics.DB_STAGE_ORDER && ceoMetrics.DB_STAGE_ORDER[key] !== undefined) {
+    return ceoMetrics.DB_STAGE_ORDER[key];
+  }
+  // Allow a display label (e.g. 'Secure Placement') from local seed rows.
+  for (var i = 0; i < ATS_REG_RAIL.length; i++) {
+    if (ATS_REG_RAIL[i].label.toLowerCase() === key) return ceoMetrics.DB_STAGE_ORDER[ATS_REG_RAIL[i].key];
+  }
+  return 0;
+}
+function atsRailLabel(stage) {
+  var key = String(stage || '').trim().toLowerCase();
+  for (var i = 0; i < ATS_REG_RAIL.length; i++) {
+    if (ATS_REG_RAIL[i].key === key || ATS_REG_RAIL[i].label.toLowerCase() === key) return ATS_REG_RAIL[i].label;
+  }
+  if (key === 'complete') return 'Complete';
+  if (key === 'visa') return 'Visa';
+  return stage ? String(stage) : '—';
+}
+
+// ---- Practices -------------------------------------------------------------
+async function atsListPracticeRows() {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', 'select=*&order=name.asc&limit=1000');
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  return (dbState.atsPractices || []).slice();
+}
+async function atsGetPracticeRow(id) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.atsPractices || []).find(function (p) { return String(p.id) === String(id); }) || null;
+}
+async function atsInsertPracticeRow(row) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var local = Object.assign({ id: atsLocalId('prac_'), created_at: atsNowIso() }, row, { updated_at: atsNowIso() });
+  dbState.atsPractices = dbState.atsPractices || [];
+  dbState.atsPractices.push(local); saveDbState();
+  return local;
+}
+async function atsUpdatePracticeRow(id, patch) {
+  patch.updated_at = atsNowIso();
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', 'id=eq.' + encodeURIComponent(id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var p = (dbState.atsPractices || []).find(function (x) { return String(x.id) === String(id); });
+  if (!p) return null;
+  Object.assign(p, patch); saveDbState(); return p;
+}
+
+// ---- Jobs (career_roles) ---------------------------------------------------
+async function atsListJobRows() {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc&limit=1000');
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  return (dbState.atsJobs || []).slice();
+}
+async function atsGetJobRow(id) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.atsJobs || []).find(function (j) { return String(j.id) === String(id); }) || null;
+}
+async function atsInsertJobRow(row) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var local = Object.assign({ id: atsLocalId('job_'), created_at: atsNowIso(), synced_at: atsNowIso() }, row, { updated_at: atsNowIso() });
+  dbState.atsJobs = dbState.atsJobs || []; dbState.atsJobs.push(local); saveDbState(); return local;
+}
+async function atsUpdateJobRow(id, patch) {
+  patch.updated_at = atsNowIso();
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var j = (dbState.atsJobs || []).find(function (x) { return String(x.id) === String(id); });
+  if (!j) return null;
+  Object.assign(j, patch); saveDbState(); return j;
+}
+
+// ---- Applications (gp_applications) + pipeline -----------------------------
+async function atsListApplicationRows(filter) {
+  // filter: { jobId } | {} (all)
+  if (isSupabaseDbConfigured()) {
+    var q = 'select=*&limit=2000';
+    if (filter && filter.jobId) q = 'select=*&career_role_id=eq.' + encodeURIComponent(filter.jobId) + '&limit=2000';
+    var r = await supabaseDbRequest('gp_applications', q);
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  var rows = (dbState.atsApplications || []);
+  if (filter && filter.jobId) {
+    rows = rows.filter(function (a) { return String(a.career_role_id) === String(filter.jobId) || String(a.job_id) === String(filter.jobId); });
+  }
+  return rows.slice();
+}
+// Resolve {user_id -> {name,email,country}} for board cards (prod path).
+async function atsResolveCandidateLabels(userIds) {
+  var map = {};
+  var ids = (userIds || []).filter(Boolean);
+  if (!ids.length) return map;
+  if (isSupabaseDbConfigured()) {
+    var list = ids.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+    var r = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country&user_id=in.(' + encodeURIComponent(list) + ')&limit=2000');
+    var rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    rows.forEach(function (p) {
+      map[p.user_id] = {
+        name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || p.email || 'Candidate',
+        email: p.email || '',
+        country: p.registration_country || ''
+      };
+    });
+  }
+  return map;
+}
+function atsApplicationToCard(app, label) {
+  return {
+    id: app.id,
+    user_id: app.user_id || '',
+    case_id: app.case_id || '',
+    name: (label && label.name) || app.name || app.candidate_name || 'Candidate',
+    email: (label && label.email) || app.email || '',
+    country: (label && label.country) || app.country || '',
+    ats_stage: app.ats_stage || 'applied',
+    ats_notes: app.ats_notes || app.notes || '',
+    job_id: app.career_role_id || app.job_id || '',
+    provider_role_id: app.provider_role_id || ''
+  };
+}
+async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
+  var patch = { ats_stage: stage, ats_stage_updated_at: atsNowIso() };
+  if (typeof notes === 'string') patch.ats_notes = notes;
+  var updated = null, prevStage = '';
+  if (isSupabaseDbConfigured()) {
+    var prev = await supabaseDbRequest('gp_applications', 'select=ats_stage&id=eq.' + encodeURIComponent(appId) + '&limit=1');
+    prevStage = (prev.ok && prev.data && prev.data[0]) ? (prev.data[0].ats_stage || '') : '';
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    updated = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  } else {
+    var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(appId); });
+    if (a) { prevStage = a.ats_stage || ''; Object.assign(a, patch); updated = a; }
+  }
+  if (updated) await atsRecordStageEvent(appId, prevStage, stage, actor);
+  return updated;
+}
+async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
+  var ev = { application_id: appId, from_stage: fromStage || '', to_stage: toStage || '', actor: actor || '', created_at: atsNowIso() };
+  if (isSupabaseDbConfigured()) {
+    await supabaseDbRequest('ats_stage_events', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [ev] }).catch(function () {});
+  } else {
+    dbState.atsStageAudit = dbState.atsStageAudit || [];
+    dbState.atsStageAudit.push(Object.assign({ id: atsLocalId('aud_') }, ev));
+    saveDbState();
+  }
+}
+
+// ---- Candidate document flags (prod) ---------------------------------------
+async function atsGetDocFlagsProd(userId) {
+  var docsRes = await supabaseDbRequest('user_documents',
+    'select=document_key,country_code,file_url,storage_path,status&user_id=eq.' + encodeURIComponent(userId) + '&limit=200');
+  var rows = (docsRes.ok && Array.isArray(docsRes.data)) ? docsRes.data : [];
+  var hasFile = function (r) { return !!(r && (r.file_url || r.storage_path)); };
+  var present = function (pred) { return rows.some(function (r) { return pred(r) && hasFile(r); }); };
+  var profRes = await supabaseDbRequest('user_profiles',
+    'select=id_copy_name,id_copy_data_url,cv_file_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+  return {
+    cv: present(function (r) { return r.document_key === 'cv_signed_dated'; }) || !!String(prof.cv_file_name || '').trim(),
+    coverLetter: present(function (r) { return r.document_key === 'career_cover_letter'; }),
+    primaryDegree: present(function (r) { return r.document_key === 'primary_medical_degree' || r.document_key === 'onboarding_primary_med_degree'; }),
+    idDoc: !!String(prof.id_copy_data_url || '').trim() || !!String(prof.id_copy_name || '').trim()
+  };
+}
+
+// ---- Intent compute --------------------------------------------------------
+// Build the computeIntent() input from a normalized candidate fact bundle.
+function atsIntentInputFromFacts(f) {
+  var calls = Array.isArray(f.calls) ? f.calls : [];
+  var done = calls.filter(function (c) { return c.status === 'completed'; }).length;
+  var missed = calls.filter(function (c) { return c.status === 'no_show' || c.status === 'cancelled'; }).length;
+  var best = atsPracticeUtil.bestAtsStage((f.apps || []).map(function (a) { return { ats_stage: a.ats_stage }; }));
+  return {
+    commsEngagementVal: f.comms && typeof f.comms.engagementVal === 'number' ? f.comms.engagementVal : 0,
+    onboardingCompleted: !!(f.ob && f.ob.completed),
+    onboardingFieldsFilled: f.ob && typeof f.ob.fieldsFilled === 'number' ? f.ob.fieldsFilled : 0,
+    docs: f.docs || {},
+    regStageIndex: atsRegStageIndex(f.regStage),
+    regStageMax: ATS_REG_STAGE_MAX,
+    blockedDays: Number(f.blockedDays || 0),
+    callsCompleted: done,
+    callsMissed: missed,
+    lastActiveDays: Number(f.lastActiveDays != null ? f.lastActiveDays : 999),
+    bestAtsStage: best
+  };
+}
+
+function atsSpecialtyFromOnboarding(ob) {
+  var q = (ob && ob.qualDocs) || {};
+  if (q.mrcgp_cert || q.mrcgp_certified) return 'MRCGP — General Practice';
+  if (q.micgp_cert || q.micgp_certified) return 'MICGP — General Practice';
+  if (q.frnzcgp_cert || q.frnzcgp_certified) return 'FRNZCGP — General Practice';
+  return ob && ob.specialty ? ob.specialty : '';
+}
+function atsDaysSince(iso) {
+  if (!iso) return null;
+  var t = new Date(iso).getTime();
+  if (!isFinite(t)) return null;
+  return Math.max(0, Math.round((Date.now() - t) / 86400000));
+}
+function atsOnboardingFractionFilled(ob) {
+  if (!ob) return 0;
+  var checks = [
+    !!ob.preferredCity, !!ob.targetDate, !!ob.whoMoving,
+    !!(ob.qualDocs && Object.keys(ob.qualDocs).length),
+    !!(ob.idVerification && ob.idVerification.status === 'verified')
+  ];
+  return checks.filter(Boolean).length / checks.length;
+}
+
+// Build the normalized candidate "facts" bundle from a local seed row.
+function atsLocalCandidateFacts(row) {
+  return {
+    case_id: row.id, user_id: row.user_id || row.id,
+    name: row.name, email: row.email || '', phone: row.phone || '',
+    country: row.country || '', reg: row.reg || '', account_status: row.account_status || 'active',
+    joined: row.joined || '', rso: row.rso || '', zoho: row.zoho || '',
+    ob: row.ob || { completed: false, fieldsFilled: 0 },
+    docs: row.docs || { cv: false, coverLetter: false, primaryDegree: false, idDoc: false },
+    regStage: row.regStage || 'myintealth', blockedDays: Number(row.blockedDays || 0),
+    lastActiveDays: Number(row.lastActiveDays != null ? row.lastActiveDays : 999),
+    calls: Array.isArray(row.calls) ? row.calls : [],
+    comms: row.comms || null,
+    aiHandover: row.aiHandover || '',
+    apps: Array.isArray(row.apps) ? row.apps : []
+  };
+}
+
+// Build the normalized candidate "facts" bundle from Supabase tables.
+async function atsProdCandidateFacts(regCase) {
+  var userId = regCase.user_id;
+  var caseId = regCase.id;
+  var out = await Promise.all([
+    supabaseDbRequest('user_profiles', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+    supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+    atsGetDocFlagsProd(userId),
+    supabaseDbRequest('scheduled_calls', 'case_id=eq.' + encodeURIComponent(caseId) + '&select=stage,scheduled_at,status,meeting_summary,meeting_action_items&order=scheduled_at.desc&limit=20'),
+    supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=200')
+  ]);
+  var prof = (out[0].ok && out[0].data && out[0].data[0]) ? out[0].data[0] : {};
+  var stateRow = (out[1].ok && out[1].data && out[1].data[0]) ? out[1].data[0] : {};
+  var state = (stateRow && stateRow.state) ? stateRow.state : {};
+  var ob = _parseStateVal(state.gp_onboarding) || {};
+  var docs = out[2] || { cv: false, coverLetter: false, primaryDegree: false, idDoc: false };
+  var callRows = (out[3].ok && Array.isArray(out[3].data)) ? out[3].data : [];
+  var appRows = (out[4].ok && Array.isArray(out[4].data)) ? out[4].data : [];
+
+  // Resolve job titles + practice names for the candidate's applications.
+  var roleIds = appRows.map(function (a) { return a.career_role_id; }).filter(Boolean);
+  var roleMap = {};
+  if (roleIds.length && isSupabaseDbConfigured()) {
+    var list = roleIds.map(function (id) { return String(id); }).join(',');
+    var rr = await supabaseDbRequest('career_roles', 'select=id,title,practice_name&id=in.(' + encodeURIComponent(list) + ')&limit=500');
+    ((rr.ok && rr.data) || []).forEach(function (r) { roleMap[r.id] = r; });
+  }
+  var apps = appRows.map(function (a) {
+    var role = roleMap[a.career_role_id] || {};
+    return { id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—', practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false) };
+  });
+
+  var completed = !!(ob.completedAt || state.gp_onboarding_complete);
+  var commsRaw = regCase.comms_engagement || null;
+  var comms = commsRaw && typeof commsRaw === 'object' ? commsRaw : null;
+
+  return {
+    case_id: caseId, user_id: userId,
+    name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || regCase.gp_name || regCase.gp_email || 'Unknown',
+    email: prof.email || regCase.gp_email || '',
+    phone: prof.phone || prof.phone_number || regCase.gp_phone || '',
+    country: prof.registration_country || prof.qualification_country || ob.country || '',
+    reg: prof.registration_number || prof.gmc_number || '',
+    account_status: state.account_status || 'active',
+    joined: prof.created_at || '',
+    rso: regCase.assigned_rso || regCase.assigned_va || '',
+    zoho: prof.zoho_candidate_id || '',
+    ob: {
+      completed: completed,
+      fieldsFilled: completed ? 1 : atsOnboardingFractionFilled(ob),
+      qualCountry: prof.qualification_country || ob.country || prof.registration_country || '',
+      specialty: atsSpecialtyFromOnboarding(ob),
+      target: prof.target_arrival_date || ob.targetDate || 'Not set',
+      city: prof.preferred_city || ob.preferredCity || '',
+      family: ob.whoMoving || (prof.who_moving || ''),
+      idVerified: !!(ob.idVerification && ob.idVerification.status === 'verified') || !!docs.idDoc
+    },
+    docs: docs,
+    regStage: regCase.stage || 'myintealth',
+    blockedDays: regCase.blocker_status ? (atsDaysSince(regCase.blocker_set_at) || 0) : 0,
+    lastActiveDays: atsDaysSince(regCase.last_gp_activity_at),
+    calls: callRows.map(function (c) {
+      return {
+        when: c.scheduled_at || '', type: (c.stage ? (c.stage + ' call') : 'Call'),
+        status: c.status || '', summary: c.meeting_summary || '',
+        actions: (c.meeting_action_items && (c.meeting_action_items.next_steps || c.meeting_action_items.action_items)) || []
+      };
+    }),
+    comms: comms,
+    aiHandover: regCase.ai_handover_summary || '',
+    apps: apps
+  };
+}
+
+// Compute intent for a facts bundle. Returns { score, band(lower), signals }.
+function atsComputeIntent(facts) {
+  var intent = atsIntent.computeIntent(atsIntentInputFromFacts(facts));
+  return { score: intent.score, band: String(intent.band || 'Cold').toLowerCase(), bandLabel: intent.band, signals: intent.signals };
+}
+
+// Persist intent (+ display facts) onto the registration_cases row (prod).
+async function atsStoreIntentForCase(caseId, intent, facts) {
+  var signalsBlob = {
+    breakdown: intent.signals,
+    facts: {
+      country: facts.country, onboarding_pct: Math.round((facts.ob.completed ? 1 : (facts.ob.fieldsFilled || 0)) * 100),
+      docs: facts.docs, reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage),
+      blocked_days: facts.blockedDays, name: facts.name, email: facts.email,
+      account_status: facts.account_status, rso: facts.rso
+    }
+  };
+  await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: { intent_score: intent.score, intent_band: intent.band, intent_signals: signalsBlob, intent_computed_at: atsNowIso() }
+  }).catch(function () {});
+}
+
+// Candidate LIST row (compact) for the table.
+function atsCandidateListRow(facts, intent) {
+  return {
+    case_id: facts.case_id, user_id: facts.user_id, name: facts.name, email: facts.email,
+    country: facts.country, reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage),
+    blocked: facts.blockedDays > 0, blocked_days: facts.blockedDays,
+    intent_score: intent.score, intent_band: intent.band,
+    onboarding_completed: facts.ob.completed, onboarding_pct: Math.round((facts.ob.completed ? 1 : (facts.ob.fieldsFilled || 0)) * 100),
+    docs: { cv: !!facts.docs.cv, coverLetter: !!facts.docs.coverLetter },
+    account_status: facts.account_status, rso: facts.rso
+  };
+}
+
+// Shape a job row + its applications into a job-list card.
+function atsJobCard(job, practicesById, appsByJob) {
+  var p = job.practice_id ? practicesById[job.practice_id] : null;
+  var apps = appsByJob[String(job.id)] || [];
+  var counts = {};
+  atsPracticeUtil.ATS_STAGES.forEach(function (s) { counts[s] = 0; });
+  var active = 0;
+  apps.forEach(function (a) {
+    var st = a.ats_stage || 'applied';
+    if (st !== atsPracticeUtil.ATS_REJECT_STAGE) active++;
+    if (counts[st] !== undefined) counts[st]++;
+  });
+  return {
+    id: job.id, title: job.title || 'Untitled role',
+    practice_id: job.practice_id || '', practice_name: p ? p.name : (job.practice_name || ''),
+    city: job.location_city || '', state: job.location_state || '',
+    type: job.employment_type || '', billing: job.billing_model || '',
+    status: job.job_status || (job.is_active === false ? 'closed' : 'open'),
+    posted: job.published_at || job.created_at || '', ats_created: !!job.ats_created,
+    active_count: active, stage_counts: counts
+  };
 }
 
 async function handleApi(req, res, pathname) {
@@ -41232,6 +41647,391 @@ Return ONLY valid JSON with no markdown formatting:
     var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId) + '&select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
     sendJson(res, 200, { ok: true, error: r.data && r.data[0] ? r.data[0] : null });
+    return;
+  }
+
+  // ==========================================================================
+  // IN-APP ATS ENDPOINTS (CEO / super-admin). Dual-mode Supabase | local-JSON.
+  // ==========================================================================
+
+  // ---- Jobs ----------------------------------------------------------------
+  if (pathname === '/api/ats/jobs' && req.method === 'GET') {
+    var ctxJ = requireCeoSession(req, res); if (!ctxJ) return;
+    var jobs = await atsListJobRows();
+    var pracs = await atsListPracticeRows();
+    var pById = {}; pracs.forEach(function (p) { pById[p.id] = p; });
+    var allApps = await atsListApplicationRows({});
+    var byJob = {}; allApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (byJob[k] = byJob[k] || []).push(a); });
+    var qj = (url.searchParams.get('q') || '').toLowerCase();
+    var stateF = (url.searchParams.get('state') || '').toLowerCase();
+    var statusF = (url.searchParams.get('status') || '').toLowerCase();
+    var cards = jobs.map(function (j) { return atsJobCard(j, pById, byJob); });
+    if (qj) cards = cards.filter(function (c) { return (c.title || '').toLowerCase().indexOf(qj) !== -1 || (c.practice_name || '').toLowerCase().indexOf(qj) !== -1; });
+    if (stateF) cards = cards.filter(function (c) { return String(c.state || '').toLowerCase() === stateF; });
+    if (statusF === 'open') cards = cards.filter(function (c) { return c.status === 'open'; });
+    sendJson(res, 200, { ok: true, jobs: cards, open_count: cards.filter(function (c) { return c.status === 'open'; }).length, total: cards.length });
+    return;
+  }
+
+  if (pathname === '/api/ats/jobs' && req.method === 'POST') {
+    var ctxJC = requireCeoSession(req, res); if (!ctxJC) return;
+    var bodyJ; try { bodyJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    if (!bodyJ || !String(bodyJ.title || '').trim()) { sendJson(res, 400, { ok: false, message: 'Job title is required.' }); return; }
+    var practiceName = String(bodyJ.practice_name || '');
+    if (bodyJ.practice_id) { var pr = await atsGetPracticeRow(bodyJ.practice_id); if (pr) practiceName = pr.name; }
+    var jobRow = {
+      provider: 'internal_ats', provider_role_id: 'ats_' + atsLocalId(''),
+      title: String(bodyJ.title).trim(), practice_id: bodyJ.practice_id || null, practice_name: practiceName,
+      location_city: String(bodyJ.city || ''), location_state: String(bodyJ.state || ''), location_country: 'Australia',
+      employment_type: String(bodyJ.type || ''), billing_model: String(bodyJ.billing || ''), summary: String(bodyJ.summary || ''),
+      is_active: true, job_status: 'open', ats_created: true, posted_by: ctxJC.email || '',
+      published_at: atsNowIso(), synced_at: atsNowIso()
+    };
+    var createdJ = await atsInsertJobRow(jobRow);
+    if (!createdJ) { sendJson(res, 502, { ok: false, message: 'Could not create job.' }); return; }
+    sendJson(res, 200, { ok: true, job: atsJobCard(createdJ, {}, {}) });
+    return;
+  }
+
+  if (pathname === '/api/ats/job' && req.method === 'GET') {
+    var ctxJG = requireCeoSession(req, res); if (!ctxJG) return;
+    var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
+    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow });
+    return;
+  }
+
+  if (pathname === '/api/ats/job' && req.method === 'PATCH') {
+    var ctxJP = requireCeoSession(req, res); if (!ctxJP) return;
+    var jpId = url.searchParams.get('id'); if (!jpId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var bodyJP; try { bodyJP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var patchJ = {};
+    if (typeof bodyJP.title === 'string') patchJ.title = bodyJP.title.trim();
+    if (typeof bodyJP.city === 'string') patchJ.location_city = bodyJP.city;
+    if (typeof bodyJP.state === 'string') patchJ.location_state = bodyJP.state;
+    if (typeof bodyJP.type === 'string') patchJ.employment_type = bodyJP.type;
+    if (typeof bodyJP.billing === 'string') patchJ.billing_model = bodyJP.billing;
+    if (bodyJP.practice_id !== undefined) {
+      patchJ.practice_id = bodyJP.practice_id || null;
+      var jpPr = bodyJP.practice_id ? await atsGetPracticeRow(bodyJP.practice_id) : null;
+      patchJ.practice_name = jpPr ? jpPr.name : '';
+    }
+    if (typeof bodyJP.job_status === 'string' && ['open', 'filled', 'closed'].indexOf(bodyJP.job_status) !== -1) patchJ.job_status = bodyJP.job_status;
+    var updatedJ = await atsUpdateJobRow(jpId, patchJ);
+    if (!updatedJ) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    sendJson(res, 200, { ok: true, job: atsJobCard(updatedJ, {}, {}) });
+    return;
+  }
+
+  if (pathname === '/api/ats/job/pipeline' && req.method === 'GET') {
+    var ctxPP = requireCeoSession(req, res); if (!ctxPP) return;
+    var ppId = url.searchParams.get('id'); if (!ppId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var ppJob = await atsGetJobRow(ppId); if (!ppJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var ppPr = ppJob.practice_id ? await atsGetPracticeRow(ppJob.practice_id) : null;
+    var ppApps = await atsListApplicationRows({ jobId: ppId });
+    var labels = {};
+    if (isSupabaseDbConfigured()) labels = await atsResolveCandidateLabels(ppApps.map(function (a) { return a.user_id; }));
+    var ppCards = ppApps.map(function (a) { return atsApplicationToCard(a, labels[a.user_id]); });
+    var columns = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]).map(function (st) {
+      return { key: st, label: atsPracticeUtil.ATS_STAGE_LABELS[st], cards: ppCards.filter(function (c) { return c.ats_stage === st; }) };
+    });
+    sendJson(res, 200, {
+      ok: true,
+      job: atsJobCard(ppJob, ppPr ? (function () { var m = {}; m[ppPr.id] = ppPr; return m; })() : {}, {}),
+      columns: columns,
+      active_count: ppCards.filter(function (c) { return c.ats_stage !== atsPracticeUtil.ATS_REJECT_STAGE; }).length
+    });
+    return;
+  }
+
+  if (pathname === '/api/ats/application' && req.method === 'PATCH') {
+    var ctxAP = requireCeoSession(req, res); if (!ctxAP) return;
+    var apId = url.searchParams.get('id'); if (!apId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var bodyAP; try { bodyAP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
+    var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
+    if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
+    if (!newStage && typeof bodyAP.notes !== 'string') { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+    var updatedAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    if (!updatedAP && newStage) {
+      // stage required but row missing
+      sendJson(res, 404, { ok: false, message: 'Application not found.' }); return;
+    }
+    sendJson(res, 200, { ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null });
+    return;
+  }
+
+  // ---- Practices -----------------------------------------------------------
+  if (pathname === '/api/ats/practices' && req.method === 'GET') {
+    var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;
+    var plPracs = await atsListPracticeRows();
+    var plJobs = await atsListJobRows();
+    var plApps = await atsListApplicationRows({});
+    var jobsByPrac = {}; var appsByJobP = {};
+    plApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (appsByJobP[k] = appsByJobP[k] || []).push(a); });
+    plJobs.forEach(function (j) { var k = String(j.practice_id || ''); (jobsByPrac[k] = jobsByPrac[k] || []).push(j); });
+    var plq = (url.searchParams.get('q') || '').toLowerCase();
+    var plCards = plPracs.map(function (p) {
+      var pjobs = jobsByPrac[String(p.id)] || [];
+      var cand = 0; pjobs.forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if ((a.ats_stage || 'applied') !== atsPracticeUtil.ATS_REJECT_STAGE) cand++; }); });
+      return { id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type, contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number, job_count: pjobs.length, candidate_count: cand };
+    });
+    if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
+    plCards.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length });
+    return;
+  }
+
+  if (pathname === '/api/ats/practices' && req.method === 'POST') {
+    var ctxPC = requireCeoSession(req, res); if (!ctxPC) return;
+    var bodyP; try { bodyP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    if (!bodyP || !String(bodyP.name || '').trim()) { sendJson(res, 400, { ok: false, message: 'Practice name is required.' }); return; }
+    var pracRow = {
+      name: String(bodyP.name).trim(), location_city: String(bodyP.city || ''), location_state: String(bodyP.state || ''),
+      location_country: 'Australia', practice_type: String(bodyP.type || ''), contact_name: String(bodyP.contact || ''),
+      contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
+      source: 'internal_ats', is_active: true, created_by: ctxPC.email || ''
+    };
+    var createdP = await atsInsertPracticeRow(pracRow);
+    if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
+    sendJson(res, 200, { ok: true, practice: createdP });
+    return;
+  }
+
+  if (pathname === '/api/ats/practice' && req.method === 'GET') {
+    var ctxPG = requireCeoSession(req, res); if (!ctxPG) return;
+    var pgId = url.searchParams.get('id'); if (!pgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var pgRow = await atsGetPracticeRow(pgId); if (!pgRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    var pgJobs = (await atsListJobRows()).filter(function (j) { return String(j.practice_id) === String(pgId); });
+    var pgAllApps = await atsListApplicationRows({});
+    var pgByJob = {}; pgAllApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (pgByJob[k] = pgByJob[k] || []).push(a); });
+    var pgJobCards = pgJobs.map(function (j) { return atsJobCard(j, (function () { var m = {}; m[pgRow.id] = pgRow; return m; })(), pgByJob); });
+    // Candidates in this practice's pipeline
+    var pgApps = [];
+    pgJobs.forEach(function (j) { (pgByJob[String(j.id)] || []).forEach(function (a) { pgApps.push(Object.assign({ job_title: j.title }, a)); }); });
+    var pgLabels = {};
+    if (isSupabaseDbConfigured()) pgLabels = await atsResolveCandidateLabels(pgApps.map(function (a) { return a.user_id; }));
+    var pgCands = pgApps.map(function (a) { var c = atsApplicationToCard(a, pgLabels[a.user_id]); c.job_title = a.job_title; return c; });
+    sendJson(res, 200, { ok: true, practice: pgRow, jobs: pgJobCards, candidates: pgCands });
+    return;
+  }
+
+  if (pathname === '/api/ats/practice' && req.method === 'PATCH') {
+    var ctxPPatch = requireCeoSession(req, res); if (!ctxPPatch) return;
+    var ppgId = url.searchParams.get('id'); if (!ppgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var bodyPP; try { bodyPP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var patchP = {};
+    var pmap = { name: 'name', city: 'location_city', state: 'location_state', type: 'practice_type', contact: 'contact_name', email: 'contact_email', phone: 'contact_phone', ahpra: 'ahpra_number', notes: 'notes' };
+    Object.keys(pmap).forEach(function (k) { if (typeof bodyPP[k] === 'string') patchP[pmap[k]] = bodyPP[k]; });
+    if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+    var updatedP = await atsUpdatePracticeRow(ppgId, patchP);
+    if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    sendJson(res, 200, { ok: true, practice: updatedP });
+    return;
+  }
+
+  // ---- Candidates ----------------------------------------------------------
+  if (pathname === '/api/ceo/candidates' && req.method === 'GET') {
+    var ctxCL = requireCeoSession(req, res); if (!ctxCL) return;
+    var clQ = (url.searchParams.get('q') || '').toLowerCase();
+    var clStage = (url.searchParams.get('stage') || '').toLowerCase();
+    var clBand = (url.searchParams.get('band') || '').toLowerCase();
+    var clAccount = (url.searchParams.get('account_status') || '').toLowerCase();
+    var clSort = (url.searchParams.get('sort') || 'intent').toLowerCase();
+    var rows = [];
+    if (!isSupabaseDbConfigured()) {
+      rows = (dbState.atsCandidates || []).map(function (row) {
+        var facts = atsLocalCandidateFacts(row);
+        return atsCandidateListRow(facts, atsComputeIntent(facts));
+      });
+    } else {
+      var casesRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,stage,status,blocker_status,blocker_set_at,assigned_rso,assigned_va,intent_score,intent_band,intent_signals,gp_name,gp_email&order=intent_score.desc.nullslast&limit=1000');
+      var cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
+      var uids = cases.map(function (c) { return c.user_id; }).filter(Boolean);
+      var profMap = {};
+      for (var ci = 0; ci < uids.length; ci += 200) {
+        var chunk = uids.slice(ci, ci + 200);
+        var listStr = chunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+        ((pRes.ok && pRes.data) || []).forEach(function (p) { profMap[p.user_id] = p; });
+      }
+      rows = cases.map(function (c) {
+        var prof = profMap[c.user_id] || {};
+        var facts = (c.intent_signals && c.intent_signals.facts) || {};
+        return {
+          case_id: c.id, user_id: c.user_id,
+          name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || c.gp_name || facts.name || c.gp_email || 'Unknown',
+          email: prof.email || c.gp_email || facts.email || '',
+          country: prof.registration_country || facts.country || '',
+          reg_stage: c.stage || '', reg_stage_label: atsRailLabel(c.stage),
+          blocked: !!c.blocker_status, blocked_days: facts.blocked_days || 0,
+          intent_score: (c.intent_score != null ? c.intent_score : null), intent_band: c.intent_band || null,
+          onboarding_completed: facts.onboarding_pct === 100, onboarding_pct: (facts.onboarding_pct != null ? facts.onboarding_pct : null),
+          docs: facts.docs ? { cv: !!facts.docs.cv, coverLetter: !!facts.docs.coverLetter } : { cv: false, coverLetter: false },
+          account_status: facts.account_status || 'active', rso: c.assigned_rso || c.assigned_va || ''
+        };
+      });
+    }
+    // filters
+    if (clQ) rows = rows.filter(function (r) { return (r.name || '').toLowerCase().indexOf(clQ) !== -1 || (r.email || '').toLowerCase().indexOf(clQ) !== -1; });
+    if (clStage) rows = rows.filter(function (r) { return String(r.reg_stage || '').toLowerCase() === clStage; });
+    if (clBand) rows = rows.filter(function (r) { return String(r.intent_band || '').toLowerCase() === clBand; });
+    if (clAccount) rows = rows.filter(function (r) { return String(r.account_status || '').toLowerCase() === clAccount; });
+    if (clSort === 'name') rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    else rows.sort(function (a, b) { return (b.intent_score == null ? -1 : b.intent_score) - (a.intent_score == null ? -1 : a.intent_score); });
+    sendJson(res, 200, { ok: true, candidates: rows, total: rows.length });
+    return;
+  }
+
+  if (pathname === '/api/ceo/candidate' && req.method === 'GET') {
+    var ctxCP = requireCeoSession(req, res); if (!ctxCP) return;
+    var cpCaseId = url.searchParams.get('case_id');
+    var cpUserId = url.searchParams.get('user_id');
+    if (!cpCaseId && !cpUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
+    var facts = null;
+    if (!isSupabaseDbConfigured()) {
+      var lrow = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(cpCaseId) || String(r.user_id) === String(cpUserId) || String(r.id) === String(cpUserId); });
+      if (!lrow) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+      facts = atsLocalCandidateFacts(lrow);
+    } else {
+      var cq = cpCaseId ? ('id=eq.' + encodeURIComponent(cpCaseId)) : ('user_id=eq.' + encodeURIComponent(cpUserId));
+      var cRes = await supabaseDbRequest('registration_cases', 'select=*&' + cq + '&limit=1');
+      if (!cRes.ok || !cRes.data || !cRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+      facts = await atsProdCandidateFacts(cRes.data[0]);
+    }
+    var intent = atsComputeIntent(facts);
+    if (isSupabaseDbConfigured()) atsStoreIntentForCase(facts.case_id, intent, facts);
+    var railIdx = atsRegStageIndex(facts.regStage);
+    var rail = ATS_REG_RAIL.map(function (s, i) {
+      var dbIdx = ceoMetrics.DB_STAGE_ORDER[s.key];
+      return { key: s.key, label: s.label, state: (dbIdx < railIdx ? 'done' : (dbIdx === railIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
+    });
+    sendJson(res, 200, {
+      ok: true,
+      candidate: {
+        case_id: facts.case_id, user_id: facts.user_id, name: facts.name, email: facts.email, phone: facts.phone,
+        country: facts.country, reg: facts.reg, account_status: facts.account_status, joined: facts.joined, rso: facts.rso, zoho: facts.zoho,
+        intent: { score: intent.score, band: intent.bandLabel, signals: intent.signals },
+        reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage), blocked: facts.blockedDays > 0, blocked_days: facts.blockedDays,
+        rail: rail, onboarding: facts.ob, docs: facts.docs, comms: facts.comms, calls: facts.calls, apps: facts.apps, ai_handover: facts.aiHandover
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/ceo/candidate/recompute-intent' && req.method === 'POST') {
+    var ctxRI = requireCeoSession(req, res); if (!ctxRI) return;
+    var riCaseId = url.searchParams.get('case_id');
+    if (!riCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    if (!isSupabaseDbConfigured()) {
+      var rrow = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(riCaseId); });
+      if (!rrow) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+      var lintent = atsComputeIntent(atsLocalCandidateFacts(rrow));
+      sendJson(res, 200, { ok: true, intent_score: lintent.score, intent_band: lintent.band });
+      return;
+    }
+    var riRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(riCaseId) + '&limit=1');
+    if (!riRes.ok || !riRes.data || !riRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+    var riFacts = await atsProdCandidateFacts(riRes.data[0]);
+    var riIntent = atsComputeIntent(riFacts);
+    await atsStoreIntentForCase(riCaseId, riIntent, riFacts);
+    sendJson(res, 200, { ok: true, intent_score: riIntent.score, intent_band: riIntent.band, signals: riIntent.signals });
+    return;
+  }
+
+  if (pathname === '/api/ceo/candidate/comms-scan' && req.method === 'POST') {
+    var ctxCS = requireCeoSession(req, res); if (!ctxCS) return;
+    var csCaseId = url.searchParams.get('case_id');
+    if (!csCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    if (!isSupabaseDbConfigured()) {
+      var csRow = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(csCaseId); });
+      sendJson(res, 200, { ok: true, comms: (csRow && csRow.comms) || null, source: 'seed' });
+      return;
+    }
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'AI service not configured.' }); return; }
+    var csCaseRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(csCaseId) + '&limit=1');
+    if (!csCaseRes.ok || !csCaseRes.data || !csCaseRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    var csCase = csCaseRes.data[0];
+    var csForce = url.searchParams.get('force') === '1';
+    if (!csForce && csCase.comms_engagement && csCase.comms_engagement_at) {
+      var csAge = Date.now() - new Date(csCase.comms_engagement_at).getTime();
+      if (csAge < 86400000) { sendJson(res, 200, { ok: true, comms: csCase.comms_engagement, meta: { cached: true } }); return; }
+    }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'AI budget reached for today.' }); return; }
+    try {
+      var csUserId = csCase.user_id;
+      var csProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(csUserId) + '&limit=1');
+      var csProf = (csProfRes.ok && csProfRes.data && csProfRes.data[0]) ? csProfRes.data[0] : {};
+      var csName = [(csProf.first_name || ''), (csProf.last_name || '')].join(' ').trim() || csCase.gp_name || 'Candidate';
+      var csParts = await Promise.all([
+        supabaseDbRequest('doubletick_messages', 'case_id=eq.' + encodeURIComponent(csCaseId) + '&order=created_at.desc&limit=50'),
+        supabaseDbRequest('task_messages', 'select=direction,channel,subject,body_text,created_at&case_id=eq.' + encodeURIComponent(csCaseId) + '&order=created_at.desc&limit=50'),
+        (async function () { try { return await searchGmailForGP(csProf.email || '', csName, '', 30); } catch (e) { return []; } })()
+      ]);
+      var dtRows = (csParts[0].ok && Array.isArray(csParts[0].data)) ? csParts[0].data : [];
+      var tmRows = (csParts[1].ok && Array.isArray(csParts[1].data)) ? csParts[1].data : [];
+      var gmailRows = Array.isArray(csParts[2]) ? csParts[2] : [];
+      var msgsForLatency = []
+        .concat(dtRows.map(function (m) { return { direction: m.direction || 'inbound', at: m.created_at }; }))
+        .concat(tmRows.filter(function (m) { return m.channel === 'whatsapp' || m.channel === 'email'; }).map(function (m) { return { direction: m.direction, at: m.created_at }; }));
+      var csPrompt = atsComms.buildCommsPrompt({
+        candidateName: csName,
+        whatsappInbound: dtRows.map(function (m) { return { at: m.created_at, text: m.message_body }; }),
+        outboundEmails: tmRows.filter(function (m) { return m.direction === 'outbound' && m.channel === 'email'; }).map(function (m) { return { at: m.created_at, subject: m.subject, text: m.body_text }; }),
+        emailSnippets: gmailRows.map(function (g) { return { at: g.date, subject: g.subject, text: g.snippet }; }),
+        calls: []
+      });
+      var csSystem = 'You are an analyst gauging how engaged a doctor (candidate) is with GP Link, based ONLY on the real message threads provided. Estimate engagement honestly; if there is little data, say so and score low. Respond with ONLY valid JSON: { "messages30d": int, "avgReplyHrs": number|null, "tone": "short phrase", "engagementVal": 0..1, "aiRead": "2-3 sentences" }. No markdown.';
+      var csController = new AbortController();
+      var csTimeout = setTimeout(function () { csController.abort(); }, 60000);
+      var csAnthropic = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: csController.signal,
+        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 700, temperature: 0, system: [{ type: 'text', text: csSystem, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: csPrompt }] })
+      });
+      clearTimeout(csTimeout);
+      if (!csAnthropic.ok) { sendJson(res, 502, { ok: false, message: 'AI service error.' }); return; }
+      var csData = await csAnthropic.json();
+      recordAnthropicSpend((csData.usage && csData.usage.input_tokens) || 0, (csData.usage && csData.usage.output_tokens) || 0, (csData.usage && csData.usage.cache_read_input_tokens) || 0, (csData.usage && csData.usage.cache_creation_input_tokens) || 0);
+      var csText = '';
+      if (csData.content && Array.isArray(csData.content)) csData.content.forEach(function (b) { if (b.type === 'text') csText += b.text; });
+      var verdict = atsComms.parseCommsVerdict(csText);
+      // Prefer our own computed counts where we have ground truth.
+      var computedCount = atsComms.countMessages30d(dtRows.map(function (m) { return { at: m.created_at }; }), Date.now());
+      if (computedCount > 0) verdict.messages30d = computedCount;
+      var computedLatency = atsComms.computeReplyLatencyHrs(msgsForLatency);
+      if (computedLatency != null) verdict.avgReplyHrs = computedLatency;
+      verdict.generated_at = atsNowIso();
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(csCaseId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { comms_engagement: verdict, comms_engagement_at: verdict.generated_at }
+      }).catch(function () {});
+      sendJson(res, 200, { ok: true, comms: verdict });
+    } catch (e) {
+      if (e && e.name === 'AbortError') { sendJson(res, 504, { ok: false, message: 'AI comms scan timed out.' }); return; }
+      console.error('[ats comms-scan]', e && e.message);
+      sendJson(res, 500, { ok: false, message: 'Comms scan failed.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/cron/recompute-intent' && (req.method === 'POST' || req.method === 'GET')) {
+    var ciToken = String((req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')).trim();
+    if (!isValidCronSecret(ciToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', processed: 0 }); return; }
+    var ciCasesRes = await supabaseDbRequest('registration_cases', 'select=*&status=in.(active,on_hold,blocked)&order=updated_at.desc&limit=300');
+    var ciCases = (ciCasesRes.ok && Array.isArray(ciCasesRes.data)) ? ciCasesRes.data : [];
+    var ciDone = 0;
+    for (var cii = 0; cii < ciCases.length; cii++) {
+      try {
+        var cf = await atsProdCandidateFacts(ciCases[cii]);
+        await atsStoreIntentForCase(cf.case_id, atsComputeIntent(cf), cf);
+        ciDone++;
+      } catch (e) { /* skip individual failures */ }
+    }
+    sendJson(res, 200, { ok: true, processed: ciDone, total: ciCases.length });
     return;
   }
 
