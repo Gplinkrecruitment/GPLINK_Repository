@@ -6466,7 +6466,7 @@ async function handleDoubleTickWebhook(req, res) {
     if (gpProfile && isSupabaseDbConfigured()) {
       const cr = await supabaseDbRequest(
         'registration_cases',
-        'select=id,stage,substage,user_id&user_id=eq.' + encodeURIComponent(gpProfile.user_id) + '&status=not.eq.closed&order=created_at.desc&limit=1'
+        'select=id,stage,substage,user_id,assigned_va&user_id=eq.' + encodeURIComponent(gpProfile.user_id) + '&status=not.eq.closed&order=created_at.desc&limit=1'
       );
       if (cr.ok && Array.isArray(cr.data) && cr.data.length > 0) activeCase = cr.data[0];
     }
@@ -6475,6 +6475,14 @@ async function handleDoubleTickWebhook(req, res) {
     if (!activeCase && gpProfile && isSupabaseDbConfigured()) {
       activeCase = await _ensureRegCase(gpProfile.user_id);
       if (activeCase) console.log('[doubletick-webhook] Created registration case for', gpProfile.user_id);
+    }
+
+    // Backstop: if this GP's case is already assigned to an RSO, make sure the
+    // DoubleTick chat is owned by that RSO (closes the brief "unassigned, visible
+    // to all" window on first inbound). Best-effort, fire-and-forget.
+    if (activeCase && activeCase.assigned_va && fromPhone) {
+      syncCaseChatAssignment({ gpPhone: fromPhone, assignedVaUserId: activeCase.assigned_va })
+        .catch(function (e) { console.error('[doubletick-assign] webhook backstop failed:', e && e.message); });
     }
 
     const gpName = gpProfile
