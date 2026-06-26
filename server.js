@@ -1928,6 +1928,27 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
   }
 }
 
+// Resolve the "from" mailbox for a case's outbound email: the case's assigned RSO (so emails go
+// out from whoever owns the GP), falling back to the default team mailbox. Only @mygplink.com.au
+// mailboxes can be sent as via Google Workspace domain-wide delegation — an RSO whose roster email
+// is a personal address (e.g. a gmail.com) cannot be impersonated, so it falls back to the default.
+async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
+  var fallback = MONITORED_VA_EMAILS[0] || 'hazel@mygplink.com.au';
+  if (!caseId) return fallback;
+  try {
+    var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
+    if (!rsoUserId) return fallback;
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
+    var email = (rso && rso.email) ? String(rso.email).trim().toLowerCase() : '';
+    if (email && /@mygplink\.com\.au$/.test(email)) return email;
+    return fallback;
+  } catch (e) {
+    console.error('[resolveCaseSenderEmail] error:', e.message);
+    return fallback;
+  }
+}
+
 // ── URL safety helpers ──
 // Switch-based origin resolvers — each case returns a string literal so CodeQL
 // recognises the return value as non-tainted (equality check = sanitiser).
@@ -25234,8 +25255,15 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    // Determine sender
-    var senderEmail = MONITORED_VA_EMAILS[0];
+    // Determine sender — the case's assigned RSO mailbox, fallback to the default team mailbox
+    var senderCaseId = emailCaseId;
+    if (!senderCaseId && emailTaskId) {
+      try {
+        var _tcr = await supabaseDbRequest('registration_tasks', 'select=case_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
+        senderCaseId = (_tcr.ok && Array.isArray(_tcr.data) && _tcr.data[0]) ? _tcr.data[0].case_id : null;
+      } catch (e) {}
+    }
+    var senderEmail = await resolveCaseSenderEmail(senderCaseId);
     if (!senderEmail) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
 
     // Send via Gmail
@@ -35071,8 +35099,9 @@ Return ONLY valid JSON with no markdown formatting:
     const commaIdx = doc.attachment_url.indexOf(',');
     const pdfBase64 = doc.attachment_url.substring(commaIdx + 1);
 
+    const sppaCandFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au',
+      from: sppaCandFrom,
       to: candidateEmail,
       subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
       bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
@@ -35209,8 +35238,9 @@ Return ONLY valid JSON with no markdown formatting:
     const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
     var candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
 
+    const sppaPracFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au',
+      from: sppaPracFrom,
       to: practiceEmail,
       subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
       bodyHtml: '<p>Dear ' + practiceName + ',</p>' +
@@ -35890,8 +35920,9 @@ Return ONLY valid JSON with no markdown formatting:
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
 
+    var corrCandFrom = await resolveCaseSenderEmail(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au', to: corrCandidateEmail,
+      from: corrCandFrom, to: corrCandidateEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
@@ -35942,8 +35973,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
 
+    var corrPracFrom = await resolveCaseSenderEmail(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au', to: corrPracticeEmail,
+      from: corrPracFrom, to: corrPracticeEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
