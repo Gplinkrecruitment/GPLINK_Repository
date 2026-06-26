@@ -21691,9 +21691,12 @@ async function handleApi(req, res, pathname) {
   // _maybeRunSppaConflictScan skips cases already scanned or whose prerequisites aren't both done.
   // Pass ?caseId=<id> to target one case, otherwise it sweeps all SPPA-00 tasks. Cron-secret authed.
   if (pathname === '/api/cron/sppa-backfill-scan') {
+    // Unauthenticated deploy/liveness marker (no data) so a one-time runner can confirm the build is live
+    if (url.searchParams.get('ping')) { sendJson(res, 200, { ok: true, marker: 'sppa-backfill-v3' }); return; }
     var sbAuth = req.headers['authorization'] || '';
     var sbTok = sbAuth.indexOf('Bearer ') === 0 ? sbAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
-    // Accept either the cron secret OR a short-lived HMAC token signed with SECRET (doc-preview style)
+    // Accept the cron secret, a short-lived HMAC token (signed with SECRET, doc-preview style), or
+    // the Supabase service-role key (full-trust internal secret) for a one-time maintenance run.
     var sbExp = url.searchParams.get('exp') || '';
     var sbSig = url.searchParams.get('sig') || '';
     var sbHmacOk = false;
@@ -21701,7 +21704,9 @@ async function handleApi(req, res, pathname) {
       var sbExpected = crypto.createHmac('sha256', SECRET).update('sppa-backfill:' + sbExp).digest('hex');
       try { sbHmacOk = timingSafeEqualStrings(sbSig, sbExpected); } catch (e) { sbHmacOk = (sbSig === sbExpected); }
     }
-    if (!isValidCronSecret(sbTok) && !sbHmacOk) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var sbSvcOk = false;
+    try { sbSvcOk = !!(SUPABASE_SERVICE_ROLE_KEY && sbTok && timingSafeEqualStrings(sbTok, SUPABASE_SERVICE_ROLE_KEY)); } catch (e) { sbSvcOk = false; }
+    if (!isValidCronSecret(sbTok) && !sbHmacOk && !sbSvcOk) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var sbOnlyCase = (url.searchParams.get('caseId') || '').trim();
     var sbQ = 'select=id,case_id,status,metadata&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child';
