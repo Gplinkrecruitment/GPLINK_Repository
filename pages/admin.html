@@ -6710,9 +6710,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
       /* ── Expand/collapse GP Profile detail panel (accordion) ── */
       var gpExpBtn=e.target.closest("[data-gp-expand-task]");
-      if(gpExpBtn){
-        // Don't toggle if click is inside the detail panel or on interactive elements
-        if(e.target.closest('.gp-task-detail')||e.target.closest('button')||e.target.closest('a')||e.target.closest('input')||e.target.closest('textarea')||e.target.closest('[contenteditable]')||e.target.closest('[data-preview-doc]')||e.target.closest('.ops-email-composer-ahpra')||e.target.closest('.ops-action-row'))return;
+      // Only toggle when the click is on the row chrome itself, NOT on the detail
+      // panel or an interactive control. When it IS interactive (a button, link,
+      // input, the email composer, etc.) we must fall through to the ops-action
+      // handlers below — returning here would swallow the click and leave buttons
+      // like "Email Practice" dead.
+      var gpExpInteractive=e.target.closest('.gp-task-detail')||e.target.closest('button')||e.target.closest('a')||e.target.closest('input')||e.target.closest('textarea')||e.target.closest('[contenteditable]')||e.target.closest('[data-preview-doc]')||e.target.closest('.ops-email-composer-ahpra')||e.target.closest('.ops-action-row');
+      if(gpExpBtn&&!gpExpInteractive){
         var tid=gpExpBtn.getAttribute("data-gp-expand-task");
         var panel=document.getElementById("gpTaskDetail_"+tid);
         if(!panel)return;
