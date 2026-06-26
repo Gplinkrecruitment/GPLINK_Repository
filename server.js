@@ -21686,6 +21686,47 @@ async function handleApi(req, res, pathname) {
     return handleZoomSchedulingWebhook(req, res);
   }
 
+  // Maintenance: backfill the SPPA-00 conflict scan for cases stuck because the scan never fired
+  // (e.g. supervisor_cv/offer_contract completed via a path that didn't trigger it). Idempotent —
+  // _maybeRunSppaConflictScan skips cases already scanned or whose prerequisites aren't both done.
+  // Pass ?caseId=<id> to target one case, otherwise it sweeps all SPPA-00 tasks. Cron-secret authed.
+  if (pathname === '/api/cron/sppa-backfill-scan') {
+    var sbAuth = req.headers['authorization'] || '';
+    var sbTok = sbAuth.indexOf('Bearer ') === 0 ? sbAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
+    if (!isValidCronSecret(sbTok)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var sbOnlyCase = (url.searchParams.get('caseId') || '').trim();
+    var sbQ = 'select=id,case_id,status,metadata&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child';
+    if (sbOnlyCase) sbQ += '&case_id=eq.' + encodeURIComponent(sbOnlyCase);
+    var sbRes = await supabaseDbRequest('registration_tasks', sbQ);
+    var sbRows = (sbRes.ok && Array.isArray(sbRes.data)) ? sbRes.data : [];
+    var sbResults = [];
+    for (var sbi = 0; sbi < sbRows.length; sbi++) {
+      var sbRow = sbRows[sbi];
+      var sbMd = sbRow.metadata; if (typeof sbMd === 'string') { try { sbMd = JSON.parse(sbMd); } catch (e) { sbMd = {}; } }
+      if (sbMd && sbMd.conflict_scan_completed) { sbResults.push({ case_id: sbRow.case_id, action: 'skip_already_scanned' }); continue; }
+      var sbCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(sbRow.case_id) + '&limit=1');
+      var sbUid = (sbCase.ok && Array.isArray(sbCase.data) && sbCase.data[0]) ? sbCase.data[0].user_id : null;
+      try {
+        await _maybeRunSppaConflictScan(sbRow.case_id, sbUid);
+      } catch (e) {
+        sbResults.push({ case_id: sbRow.case_id, action: 'error', error: e.message }); continue;
+      }
+      // Re-read to report the real outcome (no fabrication)
+      var sbAfter = await supabaseDbRequest('registration_tasks', 'select=status,metadata&id=eq.' + encodeURIComponent(sbRow.id) + '&limit=1');
+      var sbAmd = (sbAfter.ok && Array.isArray(sbAfter.data) && sbAfter.data[0]) ? sbAfter.data[0].metadata : null;
+      if (typeof sbAmd === 'string') { try { sbAmd = JSON.parse(sbAmd); } catch (e) { sbAmd = {}; } }
+      sbResults.push({
+        case_id: sbRow.case_id,
+        action: (sbAmd && sbAmd.conflict_scan_completed) ? 'scanned' : 'not_eligible',
+        sppa_state: sbAmd ? (sbAmd.sppa_state || null) : null,
+        is_conflict: sbAmd ? (typeof sbAmd.is_conflict === 'boolean' ? sbAmd.is_conflict : null) : null
+      });
+    }
+    sendJson(res, 200, { ok: true, candidates: sbRows.length, results: sbResults });
+    return;
+  }
+
   // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
   if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
     var gdCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
