@@ -1716,7 +1716,7 @@ const TEST_WATCH_INBOXES = new Set(
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 const TEST_WATCH_FROM_SENDERS = new Set(
-  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com')
+  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com,smithmiller1234@gmail.com')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 // TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
