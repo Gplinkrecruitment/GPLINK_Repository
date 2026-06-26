@@ -41969,7 +41969,7 @@ Return ONLY valid JSON with no markdown formatting:
       });
     } else {
       var casesRes = await supabaseDbRequest('registration_cases',
-        'select=id,user_id,stage,status,blocker_status,blocker_set_at,assigned_rso,assigned_va,intent_score,intent_band,intent_signals,gp_name,gp_email&order=intent_score.desc.nullslast&limit=1000');
+        'select=id,user_id,stage,status,blocker_status,blocker_set_at,assigned_rso,assigned_va,intent_score,intent_band,intent_signals&order=intent_score.desc.nullslast&limit=1000');
       var cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
       var uids = cases.map(function (c) { return c.user_id; }).filter(Boolean);
       var profMap = {};
