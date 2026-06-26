@@ -96,10 +96,9 @@
 
   // -------------------- master-tab switcher --------------------
   var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices'];
-  function showMaster(name) {
-    if (!name || name === window.ATS.activeTab) {
-      // still (re)load if switching to same tab is requested explicitly the first time
-    }
+  // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
+  // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
+  function setActiveTab(name, skipLoad) {
     window.ATS.activeTab = name;
     var tabs = document.querySelectorAll('#masterTabs .ats-master-tab');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].getAttribute('data-mtab') === name);
@@ -107,11 +106,33 @@
       var el = document.getElementById('panel-' + k);
       if (el) el.style.display = (k === name) ? '' : 'none';
     });
-    if (name !== 'registration') {
+    if (!skipLoad && name !== 'registration') {
       var fn = window['load' + name.charAt(0).toUpperCase() + name.slice(1) + 'Tab'];
       if (typeof fn === 'function') { try { fn(); } catch (e) { console.error('[ATS] tab load failed', name, e); } }
     }
+  }
+  function showMaster(name) {
+    if (!name) return;
+    setActiveTab(name, false);
+    try { if (('' + (location.hash || '')).replace('#', '') !== name) history.replaceState(null, '', '#' + name); } catch (e) { /* ignore */ }
     if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  // Deep-link: #candidates | #jobs | #practices | #registration, plus drill-ins
+  // #candidate=<id> | #board=<jobId> | #practice=<id>. Returns true if handled.
+  function applyHash() {
+    var h = ('' + (location.hash || '')).replace(/^#/, '');
+    if (!h) return false;
+    function drill(tab, opener, arg) {
+      setActiveTab(tab, true);
+      var fn = window[opener];
+      if (typeof fn === 'function') { try { fn(arg); } catch (e) { console.error('[ATS] deep-link failed', opener, e); } }
+      if (window.scrollTo) window.scrollTo({ top: 0 });
+    }
+    if (h.indexOf('candidate=') === 0) { drill('candidates', 'atsOpenCandidate', h.split('=')[1]); return true; }
+    if (h.indexOf('board=') === 0) { drill('jobs', 'atsOpenJobBoard', h.split('=')[1]); return true; }
+    if (h.indexOf('practice=') === 0) { drill('practices', 'atsOpenPractice', h.split('=')[1]); return true; }
+    if (MASTER_PANELS.indexOf(h) !== -1) { setActiveTab(h, false); return true; }
+    return false;
   }
 
   function initSwitcher() {
@@ -122,10 +143,13 @@
       if (!item) return;
       showMaster(item.getAttribute('data-mtab'));
     });
+    window.addEventListener('hashchange', applyHash);
     // Populate the count chips once (lightweight).
     api('/api/ceo/candidates').then(function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); });
     api('/api/ats/jobs').then(function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); });
     api('/api/ats/practices').then(function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); });
+    // Honour an initial deep-link hash (used by tab links + screenshots).
+    applyHash();
   }
   window.ATS.showMaster = showMaster;
 
