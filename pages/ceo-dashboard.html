@@ -1271,6 +1271,8 @@
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
+  <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20260627a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260618a"></script>
@@ -1296,6 +1298,27 @@
       </div>
     </header>
 
+    <!-- MASTER TABS (ATS restructure) -->
+    <nav class="ats-master-tabs" id="masterTabs">
+      <button class="ats-master-tab active" data-mtab="registration">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Registration
+      </button>
+      <button class="ats-master-tab" data-mtab="candidates">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Candidates <span class="ats-count-chip" id="masterCandCount"></span>
+      </button>
+      <button class="ats-master-tab" data-mtab="jobs">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        Jobs <span class="ats-count-chip" id="masterJobsCount"></span>
+      </button>
+      <button class="ats-master-tab" data-mtab="practices">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+        Practices <span class="ats-count-chip" id="masterPracCount"></span>
+      </button>
+    </nav>
+
+    <div class="master-panel" id="panel-registration">
     <!-- STANDALONE TOP NAV -->
     <nav class="ceo-topnav" id="ceoTopNav">
       <div class="nav-item active" data-tab="overview">Overview</div>
@@ -1325,7 +1348,16 @@
     <div class="content" id="rsoContent" style="display:none"></div>
     <div class="content" id="mcContent" style="display:none"></div>
     <div class="content" id="techContent" style="display:none"></div>
+    </div><!-- /#panel-registration -->
+
+    <!-- ATS MASTER PANELS (rendered by /js/ceo-ats-*.js) -->
+    <div class="master-panel ats-scope" id="panel-candidates" style="display:none"></div>
+    <div class="master-panel ats-scope" id="panel-jobs" style="display:none"></div>
+    <div class="master-panel ats-scope" id="panel-practices" style="display:none"></div>
   </div>
+
+  <!-- ATS drawer + modals (rendered by /js/ceo-ats-*.js) -->
+  <div class="ats-scope" id="atsOverlayRoot"></div>
 
   <!-- MODAL -->
   <div class="modal-overlay" id="modalOverlay">
@@ -6110,5 +6142,10 @@
       });
     })();
   </script>
+  <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
+  <script src="/js/ceo-ats-shared.js?v=20260627a"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260627a"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20260627a"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260627a"></script>
 </body>
 </html>
