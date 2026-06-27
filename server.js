@@ -1888,8 +1888,27 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var rawBase64 = Buffer.from(rawMessage).toString('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+    // Gmail thread IDs are per-mailbox. A resolved threadId may belong to a
+    // DIFFERENT mailbox than `from` — e.g. the conversation started while the case
+    // was handled from hazel@, but the case's assigned RSO now sends from hello@.
+    // Passing such a foreign threadId to messages.send returns
+    // 404 "Requested entity was not found" and blocks the whole send. Verify the
+    // thread exists in the sender's own mailbox; if not (or verification fails for
+    // any reason), drop it and send as a new message. Recipient-side threading is
+    // still preserved via the In-Reply-To/References headers built above, and the
+    // caller re-anchors the task to the new thread from the returned threadId.
+    var safeThreadId = threadId || null;
+    if (safeThreadId) {
+      try {
+        await gmail.users.threads.get({ userId: from, id: safeThreadId, format: 'minimal' });
+      } catch (threadErr) {
+        console.warn('[Gmail send] threadId', safeThreadId, 'not found in mailbox', maskEmail(from), '— sending without it:', (threadErr && threadErr.message) || threadErr);
+        safeThreadId = null;
+      }
+    }
+
     var sendBody = { raw: rawBase64 };
-    if (threadId) sendBody.threadId = threadId;
+    if (safeThreadId) sendBody.threadId = safeThreadId;
 
     var result = await gmail.users.messages.send({
       userId: from,
@@ -1897,7 +1916,7 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     });
 
     var gmailMessageId = result.data && result.data.id ? result.data.id : '';
-    var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (threadId || '');
+    var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (safeThreadId || '');
     console.log('[Gmail] Email sent from', from, 'to', to, '— messageId:', gmailMessageId, 'threadId:', resultThreadId);
 
     // Apply Gmail labels if case is linked
