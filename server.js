@@ -33567,6 +33567,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (r.user_id) rsoNameByUserId[r.user_id] = r.name;
       if (r.email && String(r.email).trim().toLowerCase() === adminEmail) meUserId = r.user_id;
     });
+    // If the admin isn't on the RSO roster (e.g. a super-admin/CEO), "mine" has no
+    // meaningful owner — return empty rather than falling through to everyone's mail.
+    if (convScope === 'mine' && meUserId === null) {
+      sendJson(res, 200, { ok: true, conversations: [] });
+      return;
+    }
     var conversations = registrationHubInbox.groupConversations({
       messages: msgs, casesById: casesById, rsoNameByUserId: rsoNameByUserId,
       scope: convScope, meUserId: meUserId
