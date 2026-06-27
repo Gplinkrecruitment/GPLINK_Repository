@@ -5214,6 +5214,38 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return b;
     }
 
+    // GP-section completeness banner (shown in gp_returned state): did the
+    // candidate fill Section A Q1 and sign Section I? Result comes from the AI
+    // scan stored in meta.gp_section_scan when the SPPA is returned.
+    function gpSectionBanner() {
+      var scan = meta.gp_section_scan;
+      var rescanBtn = '<button class="ops-btn-secondary" style="margin-top:6px;font-size:11px" onclick="sppaScanGpSections(\'' + escAttr(task.id) + '\')">' + (scan ? 'Re-scan sections' : 'Run section check') + '</button>';
+      if (!scan) {
+        return '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">'
+          + '<b style="color:#1d4ed8">\u2139 Section check</b> \u2014 the AI is verifying the candidate completed their sections. Reload in a moment, or run it now.<br>' + rescanBtn
+          + '</div>';
+      }
+      var bg, bd, fg, head;
+      if (scan.overall === 'complete') { bg = '#ecfdf5'; bd = '#10b981'; fg = '#065f46'; head = '\u2713 Candidate sections complete'; }
+      else if (scan.overall === 'incomplete') { bg = '#fef2f2'; bd = '#ef4444'; fg = '#dc2626'; head = '\u26a0 Candidate sections look incomplete'; }
+      else { bg = '#fef3c7'; bd = '#f59e0b'; fg = '#b45309'; head = '\u26a0 Could not confirm \u2014 review the form manually'; }
+      var aMark = scan.section_a_filled ? '\u2713' : '\u2717';
+      var iMark = scan.section_i_signed ? '\u2713' : '\u2717';
+      var b = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      b += '<b style="color:' + fg + '">' + head + '</b>';
+      if (scan.summary) b += '<div style="margin-top:3px;color:#374151">' + esc(scan.summary) + '</div>';
+      b += '<div style="margin-top:6px;color:#374151">';
+      b += '<div>' + aMark + ' <b>Section A (Q1 \u2014 personal details)</b>' + (scan.section_a_notes ? ' \u2014 ' + esc(scan.section_a_notes) : '') + '</div>';
+      b += '<div>' + iMark + ' <b>Section I (Supervisee\'s signature)</b>' + (scan.section_i_notes ? ' \u2014 ' + esc(scan.section_i_notes) : '') + '</div>';
+      b += '</div>';
+      b += '<div style="margin-top:4px;color:#6b7280;font-size:10px">AI confidence: ' + esc(scan.confidence || 'low')
+        + (scan.candidate_name_detected ? ' \u00b7 name on form: ' + esc(scan.candidate_name_detected) : '')
+        + (scan.scanned_at ? ' \u00b7 ' + new Date(scan.scanned_at).toLocaleString('en-AU') : '') + '</div>';
+      b += rescanBtn;
+      b += '</div>';
+      return b;
+    }
+
     // ── READY TO SEND: show email composer to candidate ──
     if (sppaState === 'ready_to_send') {
       h += '<div class="ops-expand-section">';
@@ -5280,6 +5312,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // ── GP RETURNED: show thread + returned doc + email composer to practice ──
     if (sppaState === 'gp_returned') {
       h += '<div class="ops-expand-section">';
+      h += gpSectionBanner();
       h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
       h += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
       h += '</div>';
@@ -8455,6 +8488,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }).catch(function () { toast('Network error', 'red'); });
   }
 
+  // Run/re-run the AI check that the candidate completed Section A Q1 + signed Section I.
+  function sppaScanGpSections(taskId) {
+    toast('Scanning the GP’s sections…');
+    fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-scan-gp-sections', {
+      method: 'POST', credentials: 'include'
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) {
+        var s = d.gp_section_scan || {};
+        if (s.overall === 'incomplete') toast('Candidate sections look incomplete — see card', 'red');
+        else if (s.overall === 'complete') toast('Candidate sections complete');
+        else toast('Scan finished — see card');
+        loadAll(true);
+      } else { toast((d && d.error) || 'Scan failed', 'red'); }
+    }).catch(function () { toast('Network error', 'red'); });
+  }
+
   async function sppaMarkReturned(taskId, from) {
     var input = document.createElement('input');
     input.type = 'file';
@@ -9448,6 +9497,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaSendToCandidate = sppaSendToCandidate;
   window.sppaSendToPractice = sppaSendToPractice;
   window.sppaOverrideQ7 = sppaOverrideQ7;
+  window.sppaScanGpSections = sppaScanGpSections;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
   window.sppaRequestCorrections = sppaRequestCorrections;
