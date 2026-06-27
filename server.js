@@ -117,7 +117,7 @@ const {
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
-const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, bakeSppaAppearances } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -3101,6 +3101,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                   return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
                 }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
+                // Bake the candidate's filled values into the page content so the practice
+                // (and any content-only preview) sees them, not a blank template.
+                await _bakeSppaCurrentDoc(earlyTask.id);
                 // AI: confirm the candidate completed Section A Q1 + signed Section I (fire-and-forget).
                 _maybeRunGpSectionScan(earlyTask.id, { force: true }).catch(function (e) { console.error('[Gmail] GP section scan trigger error:', e.message); });
                 if (_earlyStoredDocIds.length > 0) {
@@ -8996,6 +8999,34 @@ async function _runGpSectionScanInner(taskId, opts) {
   } catch (err) {
     console.error('[SPPA-00] GP section scan orchestrator error:', err.message);
     return null;
+  }
+}
+
+// Bake the current SPPA-00 task document's filled form-field values into its page
+// content so they show in EVERY viewer (Gmail/Drive inline preview ignore the form
+// widget layer → otherwise the practice/admin sees a blank template). Keeps the
+// form fillable. Called right after a returned SPPA is stored. Idempotent-ish:
+// guarded by metadata flag so the same doc isn't baked twice. Fail-soft.
+async function _bakeSppaCurrentDoc(taskId) {
+  try {
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=id,attachment_url,mime_type,filename&task_id=eq.' + encodeURIComponent(taskId) +
+      '&is_current=eq.true&order=created_at.desc&limit=1');
+    var doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url || !/^data:/i.test(doc.attachment_url)) return;
+    if (!/pdf/i.test(doc.mime_type || '') && !/\.pdf$/i.test(doc.filename || '')) return;
+    var commaIdx = doc.attachment_url.indexOf(',');
+    var b64 = doc.attachment_url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+    var inBuf = Buffer.from(b64, 'base64');
+    var result = await bakeSppaAppearances(inBuf);
+    if (!result || !result.buffer || !result.baked) return; // nothing baked
+    var newUrl = 'data:application/pdf;base64,' + result.buffer.toString('base64');
+    await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(doc.id),
+      { method: 'PATCH', body: { attachment_url: newUrl, size_bytes: result.buffer.length } });
+    console.log('[SPPA-00] Baked ' + result.baked + ' field appearances into returned doc ' + doc.id);
+  } catch (e) {
+    console.error('[SPPA-00] _bakeSppaCurrentDoc error:', e.message);
   }
 }
 
@@ -35686,6 +35717,9 @@ Return ONLY valid JSON with no markdown formatting:
       _ensurePracticeDocOps(task.case_id).then(function () {
         return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
       }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
+      // Bake the candidate's filled values into the page content so the practice
+      // (and any content-only preview) sees them, not a blank template.
+      await _bakeSppaCurrentDoc(taskId);
       // AI: confirm the candidate completed Section A Q1 + signed Section I (fire-and-forget).
       _maybeRunGpSectionScan(taskId, { force: true }).catch(function (e) { console.error('[ADMIN] GP section scan trigger error:', e.message); });
       await _logCaseEvent(task.case_id, taskId, 'system', 'GP returned partially completed SPPA-00', null, admin.email);
