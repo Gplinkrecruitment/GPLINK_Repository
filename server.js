@@ -33603,11 +33603,25 @@ Return ONLY valid JSON with no markdown formatting:
       tCase.gp_name = 'Unknown';
     }
     var tMsgRes = await supabaseDbRequest('task_messages',
-      'select=id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
+      'select=id,task_id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
       encodeURIComponent(threadCaseId) + '&channel=eq.email&order=created_at.asc&limit=500');
     var tRoster = await loadRsoTeam({ includeInactive: true });
     var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
     var tIsPractice = !!(tCase.practice_name && String(tCase.practice_name).trim());
+    var tMsgs = (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : [];
+    // Resolve reply targets so the Inbox UI can send a real reply via /api/admin/email/send.
+    // Messages are ordered created_at.asc, so the most recent is the last element. All
+    // messages in a case-thread are with the same external party (GP/practice).
+    var tLatest = tMsgs.length ? tMsgs[tMsgs.length - 1] : null;
+    var tTo = '';
+    if (tLatest) {
+      tTo = (tLatest.direction === 'inbound') ? (tLatest.sender || '') : (tLatest.recipient || '');
+    }
+    var tLatestTaskId = null;
+    for (var tI = tMsgs.length - 1; tI >= 0; tI--) {
+      if (tMsgs[tI] && tMsgs[tI].task_id) { tLatestTaskId = tMsgs[tI].task_id; break; }
+    }
+    var tLastSubject = (tLatest && tLatest.subject) ? String(tLatest.subject).replace(/^\s*Re:\s*/i, '') : '';
     sendJson(res, 200, {
       ok: true,
       header: {
@@ -33616,9 +33630,12 @@ Return ONLY valid JSON with no markdown formatting:
         kind: tIsPractice ? 'practice' : 'doctor',
         stage: tCase.stage || '',
         assignedVa: tCase.assigned_va || null,
-        assignedRsoName: tRso ? tRso.name : ''
+        assignedRsoName: tRso ? tRso.name : '',
+        to: tTo,
+        latestTaskId: tLatestTaskId,
+        lastSubject: tLastSubject
       },
-      messages: (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : []
+      messages: tMsgs
     });
     return;
   }
