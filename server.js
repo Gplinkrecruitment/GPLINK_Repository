@@ -33633,7 +33633,7 @@ Return ONLY valid JSON with no markdown formatting:
     var mrCaseId = mrBody && mrBody.caseId;
     if (!mrCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
     var mrUpd = await supabaseDbRequest('task_messages',
-      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&direction=eq.inbound&read_at=is.null',
+      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&channel=eq.email&direction=eq.inbound&read_at=is.null',
       { method: 'PATCH', body: { read_at: new Date().toISOString() } });
     sendJson(res, 200, { ok: true, updated: (mrUpd.ok && Array.isArray(mrUpd.data)) ? mrUpd.data.length : 0 });
     return;
