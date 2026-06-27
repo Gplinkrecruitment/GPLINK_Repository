@@ -137,6 +137,8 @@ const {
 } = require('./lib/ichc-verify');
 const registrationHub = require('./lib/registration-hub.js');
 const registrationHubInbox = require('./lib/registration-hub-inbox.js');
+const registrationPlaybook = require('./lib/registration-playbook.js');
+const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -207,6 +209,8 @@ const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6')
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
+const SUGGEST_REPLY_MODEL = process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -33989,30 +33993,50 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 8. Build context and call Claude
-      var contextJson = JSON.stringify({
+      var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
+
+      // 8a. Stage-scoped playbook (static, cacheable).
+      var sgStage = (regCase && regCase.stage) ? regCase.stage : '';
+      var sgPlaybook = registrationPlaybook.playbookForStage(sgStage);
+
+      // 8b. Reuse the already-cached 24h handover summary — do NOT recompute.
+      var sgHandover = '';
+      try {
+        var sgHs = regCase && regCase.ai_handover_summary;
+        if (typeof sgHs === 'string') sgHs = JSON.parse(sgHs);
+        if (sgHs && (sgHs.overview || sgHs.key_history)) {
+          sgHandover = [sgHs.overview || '', sgHs.key_history || ''].filter(Boolean).join('\n');
+        }
+      } catch (e) { sgHandover = ''; }
+
+      // 8c. Compact structured facts (reuse what the handler already assembled).
+      var sgFacts = {
+        stage: sgStage,
+        substage: (regCase && regCase.substage) || null,
+        practice_name: (regCase && regCase.practice_name) || null,
         gp: { name: gpName, email: profile.email, phone: gpPhone, country: countryCode },
-        registration: { stage: regCase.stage, substage: regCase.substage, blocker: regCase.blocker_status, practice: regCase.practice_name || '' },
         open_tasks: openTasks.map(function (t) { return t.title + ' (' + t.priority + ', ' + t.related_stage + ')'; }),
         qualifications: { required: qualSnap.required.length, approved: qualSnap.approved.length, missing: qualSnap.missing.map(function (m) { return m.label || m.key; }) },
         whatsapp_recent: dtMessages,
-        email_thread: emailThread,
-        current_email: { from: task.email_sender, sender_name: task.email_sender ? task.email_sender.split('@')[0].replace(/[._]/g, ' ') : '', subject: task.title, body: task.email_body_snippet || task.description },
         practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' },
         practice_documents: {
           outstanding_from_practice: outstandingFromPractice, // ONLY these may be requested from the practice
           do_not_request: doNotRequest                        // already done / automatic / under review / waiting on GP / not yet requested
         }
-      }, null, 2);
+      };
 
-      var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
-      var systemPrompt = 'You are drafting an email reply for Hazel, a Registration Support Officer at GP Link who helps international GPs register to practice in Australia. Always sign off as "Hazel" with title "Registration Support Officer | GP Link". Never use the title "Virtual Assistant". '
-        + (senderIsGp
-          ? 'The sender IS the GP candidate themselves. Address them directly and personally about their own registration progress.'
-          : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
-        + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows.'
-        + ' CRITICAL — practice documents: you may ONLY ask the practice to provide, complete, sign, or send documents listed under practice_documents.outstanding_from_practice. NEVER ask the practice for anything listed under practice_documents.do_not_request — those are already received, handled automatically (e.g. Section G), under review, waiting on the GP, or have not yet been formally requested from the practice (still locked). If outstanding_from_practice is empty, do NOT request any documents at all — simply give a brief, accurate progress update. Never invent next steps, documents, or deadlines that the context does not support.'
-        + ' When you DO request one of these specific documents, state its signing requirement: a Supervisor CV must be dated and signed by the supervisor; a Position Description must be signed by the practice owner/employer; an Offer/Contract must be signed by both the candidate and the employer.'
-        + ' Return ONLY the email reply text, no subject line or metadata.';
+      // 8d. Current email as readable text.
+      var currentEmailText = 'From: ' + (task.email_sender || '') + '\nSubject: ' + (task.title || '') + '\n\n' + (task.email_body_snippet || task.description || '');
+
+      // 8e. Build the grounded, cache-friendly prompt via lib.
+      var sgMsgs = suggestReplyPrompt.buildSuggestReplyMessages({
+        playbookText: sgPlaybook,
+        handoverSummary: sgHandover,
+        facts: sgFacts,
+        threadText: JSON.stringify(emailThread),
+        currentEmail: currentEmailText,
+        senderIsGp: senderIsGp,
+      });
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
@@ -34024,10 +34048,10 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: ANTHROPIC_MODEL,
+            model: SUGGEST_REPLY_MODEL,
             max_tokens: 1000,
-            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-            messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]
+            system: sgMsgs.system,
+            messages: [{ role: 'user', content: sgMsgs.userText }]
           })
         });
         clearTimeout(aiTimeout);
