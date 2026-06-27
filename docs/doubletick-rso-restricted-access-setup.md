@@ -5,15 +5,49 @@ Developer API are Pro-only.
 
 ## 1. Create the restricted role (once)
 Settings → Manage Roles → create a **custom Channel role** named
-`RSO – Assigned + Unassigned` on the GP Link WhatsApp number (+61494391968):
+`RSO – Assigned + Unassigned` on the GP Link WhatsApp number (+61494391968).
 
+DoubleTick groups the toggles into a few sections. Set them as below. If your
+account doesn't show a particular row (e.g. Calls or Groups aren't enabled),
+just skip it — only the **Conversation** section matters for the restriction.
+
+**Conversation Management** (this is the section that enforces the restriction):
 - View Assigned Chats — **ON**
-- View Unassigned Chats — **ON**   (lets RSOs answer general inquiries)
-- View All Chats — **OFF**          (hides other RSOs' GPs)
+- View Unassigned Chats — **ON**     (lets RSOs answer general inquiries)
+- View All Chats — **OFF**            ← the key one: hides other RSOs' GPs
+- Start New Chats — **ON**            (RSO can open a chat with their own GP)
 - Message Assigned Chats — **ON**
 - Message Unassigned Chats — **ON**
-- Start New Chats — **ON**
-- Message All Chats — **OFF**, Delete Chats — **OFF**
+- Message All Chats — **OFF**
+- Delete Chats — **OFF**
+
+**Templates Management:**
+- View Templates — **ON**             (they need approved templates to send)
+- Create Templates — **OFF**
+- Delete Templates — **OFF**
+
+**WhatsApp Group Management:** (all **OFF** unless you actively use GP groups)
+- Create WhatsApp Groups — **OFF**
+- View Group Details — **OFF**
+- Edit Group Settings — **OFF**
+- Delete WhatsApp Groups — **OFF**
+
+**Bots Management:** (all **OFF** — automation stays owner-controlled)
+- View Bot Configurations — **OFF**
+- Toggle Bot Status — **OFF**
+- Edit Bot Responses — **OFF**
+- Delete Bot Keywords — **OFF**
+- Manage Catalog Requests — **OFF**
+
+**Call Management:** (only if WhatsApp calling is on — your call)
+- Make Outgoing Calls — **ON** if RSOs should call their GPs, else **OFF**
+- Receive Incoming Calls — **ON** if they should answer GP calls, else **OFF**
+- Configure Call Settings — **OFF**
+- View Call History — **ON** (optional)
+
+> The restriction lives in just three of these: **View All Chats = OFF**,
+> **View Assigned = ON**, **View Unassigned = ON**. Everything else is about
+> what an RSO is _allowed to do_, not what they can _see_.
 
 Organization role: a non-admin "Team Member" (no invite/remove/settings powers).
 
