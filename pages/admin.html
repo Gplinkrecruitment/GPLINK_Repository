@@ -2767,6 +2767,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
+        var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
+        var _sppaSt=(_sppaMeta&&_sppaMeta.sppa_state)||'';
+        if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate — awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='gp_returned')return{prompt:'Candidate returned the SPPA-00 — send it to the practice',label:'Send to Practice',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='sent_to_practice')return{prompt:'Sent to the practice — awaiting the completed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='practice_returned')return{prompt:'Practice returned the SPPA-00 — review and submit',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='completed')return{prompt:'SPPA-00 completed',label:'Done',action:null,taskId:t.id};
         return{prompt:'Send SPPA-00 to candidate via email',label:'Send SPPA',action:'sendSppa',taskId:t.id};
       }
       if(dk==='section_g'){
@@ -5314,7 +5321,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-section">';
       h += gpSectionBanner();
       h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      h += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       h += '</div>';
       h += opsRenderThread(msgs);
       h += opsRenderDocs(docs);
@@ -8392,7 +8399,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     if (sppaState === 'gp_returned') {
       html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
-      html += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      html += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       html += '</div>';
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
