@@ -37386,7 +37386,14 @@ Return ONLY valid JSON with no markdown formatting:
         // the client can reliably fill the "To"/greeting even if its cached task data is stale.
         var ccAppRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&status=eq.hired&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
         var ccApp = ccAppRes.ok && Array.isArray(ccAppRes.data) && ccAppRes.data[0] ? ccAppRes.data[0] : null;
-        if (ccApp && ccApp.practice_contact_email) practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
+        if (ccApp && ccApp.practice_contact_email) {
+          practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
+          // The practice's primary contact is the "To" recipient on practice emails and must
+          // never be offered as a CC — otherwise it shows up as a CC on the candidate's own
+          // emails (e.g. the SPPA-00 "Send to candidate" composer, where To = the candidate).
+          var ccPracEmail = String(ccApp.practice_contact_email).trim().toLowerCase();
+          contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccPracEmail; });
+        }
       }
     } catch (e) { /* non-fatal: fall back to unfiltered contacts */ }
     sendJson(res, 200, { ok: true, contacts: contacts, practiceContact: practiceContact });
