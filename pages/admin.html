@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RSO Command Centre - GP Link</title>
-  <script src="/js/perf-cache.js?v=20260627a" defer></script>
+  <script src="/js/perf-cache.js?v=20260627b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -1301,7 +1301,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #hubInboxPanel .hub-conv-name{font-size:14.5px;font-weight:600}
     #hubInboxPanel .hub-conv-row.unread .hub-conv-name{font-weight:700}
     #hubInboxPanel .hub-conv-time{font-size:12px;color:var(--muted);white-space:nowrap}
-    #hubInboxPanel .hub-conv-prev{font-size:13px;color:var(--muted);margin:3px 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #hubInboxPanel .hub-conv-prev{font-size:13px;color:var(--muted);margin:3px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #hubInboxPanel .hub-conv-with{font-size:12px;color:var(--muted);margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
     #hubInboxPanel .hub-conv-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
     #hubInboxPanel .hub-chip{font-size:11.5px;color:var(--muted);background:#f1f4f8;border-radius:999px;padding:2px 9px;font-weight:500}
     #hubInboxPanel .hub-chip.stage{background:var(--hub-teal-soft);color:var(--hub-teal-dark);font-weight:600}
@@ -7865,25 +7866,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           '<span class="hub-needs">'+needs+' need a reply</span></div></div>'+
         '<div class="hub-conv-list">'+(convs.length?convs.map(rowHtml).join(""):'<div class="hub-empty">No conversations yet.</div>')+'</div>';
       panel.querySelectorAll(".hub-filt").forEach(function(b){b.addEventListener("click",function(){currentScope=b.getAttribute("data-scope");loadList();});});
-      panel.querySelectorAll(".hub-conv-row").forEach(function(r){r.addEventListener("click",function(){openThread(r.getAttribute("data-cid"));});});
+      panel.querySelectorAll(".hub-conv-row").forEach(function(r){r.addEventListener("click",function(){openThread(r.getAttribute("data-cid"),r.getAttribute("data-tid"));});});
     }
     function rowHtml(c){
       const badge=c.needsReply?'<span class="hub-badge reply">Needs reply</span>':'<span class="hub-badge waiting">Waiting on doctor</span>';
       const dot=c.unread?'<span class="hub-dot"></span>':"";
-      return '<div class="hub-conv-row '+(c.unread?"unread":"")+'" data-cid="'+esc(c.caseId)+'">'+
+      return '<div class="hub-conv-row '+(c.unread?"unread":"")+'" data-cid="'+esc(c.caseId)+'" data-tid="'+esc(c.threadId||'')+'">'+
         '<div class="hub-conv-main"><div class="hub-conv-top"><span class="hub-conv-name">'+esc(c.name)+'</span>'+
         '<span class="hub-conv-time">'+esc(c.lastMessageAt?new Date(c.lastMessageAt).toLocaleString():"")+'</span></div>'+
         '<div class="hub-conv-prev">'+(c.lastDirection==="inbound"?"":"You: ")+esc(c.lastPreview)+'</div>'+
+        (c.counterparty?'<div class="hub-conv-with">with '+esc(c.counterparty)+'</div>':'')+
         '<div class="hub-conv-tags"><span class="hub-chip stage">'+esc(c.stage||"")+'</span>'+
         '<span class="hub-chip rso">'+esc(c.assignedRsoName||"")+'</span>'+badge+'</div></div>'+dot+'</div>';
     }
-    async function openThread(caseId){
+    async function openThread(caseId,threadId){
       currentCaseId=caseId;
       const panel=document.getElementById("hubInboxPanel");if(!panel)return;
       panel.innerHTML='<div class="hub-loading">Loading conversation…</div>';
       let j={};
       try{
-        const r=await fetch("/api/admin/inbox/thread?caseId="+encodeURIComponent(caseId),{credentials:"same-origin"});
+        const r=await fetch("/api/admin/inbox/thread?caseId="+encodeURIComponent(caseId)+"&threadId="+encodeURIComponent(threadId||""),{credentials:"same-origin"});
         j=await r.json();
       }catch(e){
         panel.innerHTML='<button class="hub-back">← Inbox</button><div class="hub-loading">Could not load this conversation.</div>';
@@ -7899,6 +7901,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       panel.innerHTML=
         '<button class="hub-back">← Inbox</button>'+
         '<div class="hub-thread-head"><h2>'+esc(header.name)+'</h2>'+
+          (header.counterparty?'<div class="hub-conv-with">with '+esc(header.counterparty)+'</div>':'')+
           '<span class="hub-chip stage">'+esc(header.stage)+'</span>'+
           '<span class="hub-chip rso">RSO: '+esc(header.assignedRsoName)+'</span></div>'+
         '<div class="hub-thread">'+(messages.length?messages.map(msgHtml).join(""):'<div class="hub-empty">No emails in this conversation yet.</div>')+'</div>'+
@@ -7929,7 +7932,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,to:header.to,
             subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:"<p>"+esc(txt)+"</p>",bodyText:txt})});
       }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
-      openThread(header.caseId);
+      openThread(header.caseId,header.threadId);
     }
     return {show:function(){const p=document.getElementById("hubInboxPanel");if(p)p.style.display="";loadList();},hide:function(){const p=document.getElementById("hubInboxPanel");if(p)p.style.display="none";}};
   })();

@@ -41,3 +41,41 @@ describe('groupConversations', () => {
     expect(c2.unread).toBe(false); // its inbound (none here) — last msg outbound + read
   });
 });
+
+describe('groupConversations — per-thread split', () => {
+  const casesById = { c1: { id:'c1', stage:'ahpra', assigned_va:'u-hazel', gp_name:'Dr Sana Khan', practice_name:'Greenslopes Medical Centre' } };
+  const rsoNameByUserId = { 'u-hazel':'Hazel' };
+  // Same case c1, TWO gmail threads: one with the GP, one with the practice
+  const messages = [
+    { case_id:'c1', gmail_thread_id:'t-gp', direction:'outbound', sender:'registration@mygplink.com.au', recipient:'sana@example.com', subject:'Your AHPRA docs', body_text:'Hi Sana', created_at:'2026-06-12T09:00:00Z', read_at:null },
+    { case_id:'c1', gmail_thread_id:'t-gp', direction:'inbound', sender:'sana@example.com', recipient:'registration@mygplink.com.au', subject:'Re', body_text:'Thanks', created_at:'2026-06-12T10:00:00Z', read_at:null },
+    { case_id:'c1', gmail_thread_id:'t-prac', direction:'outbound', sender:'registration@mygplink.com.au', recipient:'reception@greenslopes.com.au', subject:'Contract', body_text:'Hi team', created_at:'2026-06-13T09:00:00Z', read_at:null },
+    { case_id:'c1', gmail_thread_id:'t-prac', direction:'inbound', sender:'reception@greenslopes.com.au', recipient:'registration@mygplink.com.au', subject:'Re', body_text:'Signed', created_at:'2026-06-13T11:00:00Z', read_at:null }
+  ];
+  it('splits one case into two conversations, one per gmail thread', () => {
+    const out = groupConversations({ messages, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    expect(out.length).toBe(2);
+    expect(out.map(c => c.threadId).sort()).toEqual(['t-gp','t-prac']);
+  });
+  it('each conversation replies to its OWN counterparty (no cross-talk)', () => {
+    const out = groupConversations({ messages, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    const gp = out.find(c => c.threadId === 't-gp');
+    const prac = out.find(c => c.threadId === 't-prac');
+    expect(gp.counterparty).toBe('sana@example.com');         // GP thread → reply to Sana
+    expect(prac.counterparty).toBe('reception@greenslopes.com.au'); // practice thread → reply to practice
+  });
+  it('per-thread stats are independent', () => {
+    const out = groupConversations({ messages, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    const prac = out.find(c => c.threadId === 't-prac');
+    expect(prac.lastDirection).toBe('inbound');   // practice last wrote
+    expect(prac.needsReply).toBe(true);
+    expect(prac.lastPreview).toContain('Signed');
+  });
+  it('messages with no gmail_thread_id fall into a single per-case bucket', () => {
+    const noThread = [ { case_id:'c1', gmail_thread_id:null, direction:'inbound', sender:'x@example.com', recipient:'registration@mygplink.com.au', subject:'s', body_text:'b', created_at:'2026-06-14T09:00:00Z', read_at:null } ];
+    const out = groupConversations({ messages: noThread, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    expect(out.length).toBe(1);
+    expect(out[0].threadId).toBe('');
+    expect(out[0].counterparty).toBe('x@example.com');
+  });
+});

@@ -33533,7 +33533,7 @@ Return ONLY valid JSON with no markdown formatting:
     var convScope = (url.searchParams.get('scope') === 'all') ? 'all' : 'mine';
     // Recent email messages (cap 1000)
     var msgRes = await supabaseDbRequest('task_messages',
-      'select=case_id,direction,subject,body_text,created_at,read_at&channel=eq.email&order=created_at.desc&limit=1000');
+      'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&order=created_at.desc&limit=1000');
     var msgs = (msgRes.ok && Array.isArray(msgRes.data)) ? msgRes.data : [];
     var caseIds = Array.from(new Set(msgs.map(function (m) { return m.case_id; }).filter(Boolean)));
     var casesById = {};
@@ -33588,6 +33588,7 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     var threadCaseId = url.searchParams.get('caseId');
+    var threadIdParam = url.searchParams.get('threadId') || '';
     if (!threadCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
     var tCRes = await supabaseDbRequest('registration_cases',
       'select=id,stage,assigned_va,practice_name,user_id&id=eq.' + encodeURIComponent(threadCaseId) + '&limit=1');
@@ -33602,9 +33603,12 @@ Return ONLY valid JSON with no markdown formatting:
     } else {
       tCase.gp_name = 'Unknown';
     }
+    var tThreadFilter = threadIdParam
+      ? ('&gmail_thread_id=eq.' + encodeURIComponent(threadIdParam))
+      : '&gmail_thread_id=is.null';
     var tMsgRes = await supabaseDbRequest('task_messages',
       'select=id,task_id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
-      encodeURIComponent(threadCaseId) + '&channel=eq.email&order=created_at.asc&limit=500');
+      encodeURIComponent(threadCaseId) + tThreadFilter + '&channel=eq.email&order=created_at.asc&limit=500');
     var tRoster = await loadRsoTeam({ includeInactive: true });
     var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
     var tIsPractice = !!(tCase.practice_name && String(tCase.practice_name).trim());
@@ -33626,12 +33630,14 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true,
       header: {
         caseId: tCase.id,
+        threadId: threadIdParam,
         name: tIsPractice ? tCase.practice_name : (tCase.gp_name || 'Unknown'),
         kind: tIsPractice ? 'practice' : 'doctor',
         stage: tCase.stage || '',
         assignedVa: tCase.assigned_va || null,
         assignedRsoName: tRso ? tRso.name : '',
         to: tTo,
+        counterparty: tTo,
         latestTaskId: tLatestTaskId,
         lastSubject: tLastSubject
       },
