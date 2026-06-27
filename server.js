@@ -137,6 +137,11 @@ const {
   normalizeIchcReference, isValidIchcReference,
   isExampleIchcReference, isExampleIchcFile,
 } = require('./lib/ichc-verify');
+const registrationHub = require('./lib/registration-hub.js');
+const registrationHubInbox = require('./lib/registration-hub-inbox.js');
+const registrationPlaybook = require('./lib/registration-playbook.js');
+const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
+const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
 let _lifecycleFolderCache = null;
@@ -206,6 +211,8 @@ const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6')
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
+const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -1708,6 +1715,14 @@ const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@myg
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
   .filter(e => !NEVER_PROCESS_EMAILS.has(e));
 
+// When the registration hub mailbox is configured, it must be watched + processed.
+if (REGISTRATION_HUB_EMAIL) {
+  NEVER_PROCESS_EMAILS.delete(REGISTRATION_HUB_EMAIL);
+  if (!MONITORED_VA_EMAILS.includes(REGISTRATION_HUB_EMAIL)) {
+    MONITORED_VA_EMAILS.push(REGISTRATION_HUB_EMAIL);
+  }
+}
+
 // ⚠️⚠️ TEMPORARY TEST ONLY (added 2026-06-22) — re-watch the hello@ archive but ONLY
 // process mail from the allowlisted sender(s). Every other message (vendor mail, silent
 // case-copies, etc.) is dropped BEFORE any labeling/triage, so the archive is not flooded.
@@ -1782,7 +1797,7 @@ async function getGmailClient(userEmail) {
 }
 
 // ── Gmail send helper ──
-async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
+async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
   try {
     var gmail = await getGmailClient(from);
     if (!gmail) {
@@ -1809,7 +1824,7 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var fromDomain = from.split('@')[1] || 'mygplink.com.au';
 
     var headers = [];
-    headers.push('From: "GP Link Registration" <' + from + '>');
+    headers.push(registrationHub.buildFromHeader(fromName, from));
     headers.push('To: ' + to);
     if (cc) headers.push('Cc: ' + cc);
     // RFC 2047 encode subject if it contains non-ASCII characters
@@ -1968,6 +1983,31 @@ async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
     console.error('[resolveCaseSenderEmail] error:', e.message);
     return fallback;
   }
+}
+
+// Display name of the case's assigned RSO (empty string if none / not on roster).
+async function resolveCaseSenderName(caseId, knownAssignedVa) {
+  if (!caseId) return '';
+  try {
+    var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
+    if (!rsoUserId) return '';
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
+    return (rso && rso.name) ? String(rso.name).trim() : '';
+  } catch (e) { return ''; }
+}
+
+// Single source of truth for the From address + display name of a case email.
+// Hub OFF → per-RSO mailbox + generic name (unchanged). Hub ON → hub mailbox + RSO name.
+async function resolveCaseSenderInfo(caseId, knownAssignedVa) {
+  var rsoEmail = await resolveCaseSenderEmail(caseId, knownAssignedVa);
+  var rsoName = await resolveCaseSenderName(caseId, knownAssignedVa);
+  return registrationHub.resolveSender({
+    hubEmail: REGISTRATION_HUB_EMAIL,
+    rsoEmail: rsoEmail,
+    rsoName: rsoName,
+    fallback: MONITORED_VA_EMAILS[0] || 'hazel@mygplink.com.au'
+  });
 }
 
 // ── URL safety helpers ──
@@ -25736,12 +25776,13 @@ async function handleApi(req, res, pathname) {
         senderCaseId = (_tcr.ok && Array.isArray(_tcr.data) && _tcr.data[0]) ? _tcr.data[0].case_id : null;
       } catch (e) {}
     }
-    var senderEmail = await resolveCaseSenderEmail(senderCaseId);
-    if (!senderEmail) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
+    var senderInfo = await resolveCaseSenderInfo(senderCaseId);
+    if (!senderInfo || !senderInfo.from) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
 
     // Send via Gmail
     var sendResult = await sendGmailEmail({
-      from: senderEmail,
+      from: senderInfo.from,
+      fromName: senderInfo.fromName,
       to: emailTo,
       cc: emailCc,
       subject: emailSubject,
@@ -25765,7 +25806,7 @@ async function handleApi(req, res, pathname) {
           case_id: emailCaseId || null,
           direction: 'outbound',
           channel: 'email',
-          sender: senderEmail,
+          sender: senderInfo.from,
           recipient: emailTo,
           subject: emailSubject,
           body_text: emailBodyText || null,
@@ -33975,6 +34016,149 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Registration Email Hub: conversation list ──
+  // GET /api/admin/inbox/conversations?scope=mine|all
+  if (pathname === '/api/admin/inbox/conversations' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    // Optional caseId → per-candidate Emails view (one case, no owner filter).
+    var convCaseId = url.searchParams.get('caseId');
+    var convScope = convCaseId ? 'all' : ((url.searchParams.get('scope') === 'all') ? 'all' : 'mine');
+    // With a caseId: load only that case's email messages. Otherwise: the recent 1000.
+    var msgRes = convCaseId
+      ? await supabaseDbRequest('task_messages',
+          'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&case_id=eq.' + encodeURIComponent(convCaseId) + '&order=created_at.desc&limit=500')
+      : await supabaseDbRequest('task_messages',
+          'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&order=created_at.desc&limit=1000');
+    var msgs = (msgRes.ok && Array.isArray(msgRes.data)) ? msgRes.data : [];
+    var caseIds = Array.from(new Set(msgs.map(function (m) { return m.case_id; }).filter(Boolean)));
+    var casesById = {};
+    if (caseIds.length) {
+      var inList = caseIds.map(encodeURIComponent).join(',');
+      var cRes = await supabaseDbRequest('registration_cases',
+        'select=id,stage,assigned_va,practice_name,user_id&id=in.(' + inList + ')');
+      (cRes.ok && Array.isArray(cRes.data) ? cRes.data : []).forEach(function (c) { casesById[c.id] = c; });
+      // Enrich gp_name from user_profiles — one batched query
+      var userIds = Object.values(casesById).map(function (c) { return c.user_id; }).filter(Boolean);
+      var uniqueUserIds = Array.from(new Set(userIds));
+      if (uniqueUserIds.length) {
+        var profRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,first_name,last_name&user_id=in.(' + uniqueUserIds.map(encodeURIComponent).join(',') + ')');
+        var profileByUserId = {};
+        (profRes.ok && Array.isArray(profRes.data) ? profRes.data : []).forEach(function (p) {
+          profileByUserId[p.user_id] = p;
+        });
+        Object.values(casesById).forEach(function (c) {
+          var p = profileByUserId[c.user_id] || {};
+          c.gp_name = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown';
+        });
+      }
+    }
+    // Load RSO roster to build name map and resolve the current admin's user_id
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rsoNameByUserId = {};
+    var meUserId = null;
+    var adminEmail = String(adminCtx.email || '').trim().toLowerCase();
+    (roster || []).forEach(function (r) {
+      if (r.user_id) rsoNameByUserId[r.user_id] = r.name;
+      if (r.email && String(r.email).trim().toLowerCase() === adminEmail) meUserId = r.user_id;
+    });
+    // If the admin isn't on the RSO roster (e.g. a super-admin/CEO), "mine" has no
+    // meaningful owner — return empty rather than falling through to everyone's mail.
+    if (convScope === 'mine' && meUserId === null) {
+      sendJson(res, 200, { ok: true, conversations: [] });
+      return;
+    }
+    var conversations = registrationHubInbox.groupConversations({
+      messages: msgs, casesById: casesById, rsoNameByUserId: rsoNameByUserId,
+      scope: convScope, meUserId: convCaseId ? null : meUserId
+    });
+    sendJson(res, 200, { ok: true, conversations: conversations });
+    return;
+  }
+
+  // ── Registration Email Hub: thread messages ──
+  // GET /api/admin/inbox/thread?caseId=...
+  if (pathname === '/api/admin/inbox/thread' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var threadCaseId = url.searchParams.get('caseId');
+    var threadIdParam = url.searchParams.get('threadId') || '';
+    if (!threadCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    var tCRes = await supabaseDbRequest('registration_cases',
+      'select=id,stage,assigned_va,practice_name,user_id&id=eq.' + encodeURIComponent(threadCaseId) + '&limit=1');
+    var tCase = (tCRes.ok && Array.isArray(tCRes.data) && tCRes.data[0]) ? tCRes.data[0] : null;
+    if (!tCase) { sendJson(res, 404, { ok: false, error: 'case not found' }); return; }
+    // Enrich gp_name from user_profiles — inline batched pattern (mirrors conversations endpoint)
+    if (tCase.user_id) {
+      var tProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name&user_id=eq.' + encodeURIComponent(tCase.user_id) + '&limit=1');
+      var tProf = (tProfRes.ok && Array.isArray(tProfRes.data) && tProfRes.data[0]) ? tProfRes.data[0] : {};
+      tCase.gp_name = [(tProf.first_name || ''), (tProf.last_name || '')].join(' ').trim() || 'Unknown';
+    } else {
+      tCase.gp_name = 'Unknown';
+    }
+    var tThreadFilter = threadIdParam
+      ? ('&gmail_thread_id=eq.' + encodeURIComponent(threadIdParam))
+      : '&gmail_thread_id=is.null';
+    var tMsgRes = await supabaseDbRequest('task_messages',
+      'select=id,task_id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
+      encodeURIComponent(threadCaseId) + tThreadFilter + '&channel=eq.email&order=created_at.asc&limit=500');
+    var tRoster = await loadRsoTeam({ includeInactive: true });
+    var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
+    var tIsPractice = !!(tCase.practice_name && String(tCase.practice_name).trim());
+    var tMsgs = (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : [];
+    // Resolve reply targets so the Inbox UI can send a real reply via /api/admin/email/send.
+    // Messages are ordered created_at.asc, so the most recent is the last element. All
+    // messages in this gmail thread are with the same external party (GP or practice).
+    var tLatest = tMsgs.length ? tMsgs[tMsgs.length - 1] : null;
+    var tTo = '';
+    if (tLatest) {
+      tTo = (tLatest.direction === 'inbound') ? (tLatest.sender || '') : (tLatest.recipient || '');
+    }
+    var tLatestTaskId = null;
+    for (var tI = tMsgs.length - 1; tI >= 0; tI--) {
+      if (tMsgs[tI] && tMsgs[tI].task_id) { tLatestTaskId = tMsgs[tI].task_id; break; }
+    }
+    var tLastSubject = (tLatest && tLatest.subject) ? String(tLatest.subject).replace(/^\s*Re:\s*/i, '') : '';
+    sendJson(res, 200, {
+      ok: true,
+      header: {
+        caseId: tCase.id,
+        threadId: threadIdParam,
+        name: tIsPractice ? tCase.practice_name : (tCase.gp_name || 'Unknown'),
+        kind: tIsPractice ? 'practice' : 'doctor',
+        stage: tCase.stage || '',
+        assignedVa: tCase.assigned_va || null,
+        assignedRsoName: tRso ? tRso.name : '',
+        to: tTo,
+        counterparty: tTo,
+        latestTaskId: tLatestTaskId,
+        lastSubject: tLastSubject
+      },
+      messages: tMsgs
+    });
+    return;
+  }
+
+  // ── Registration Email Hub: mark conversation read ──
+  // POST /api/admin/inbox/mark-read  { caseId }
+  if (pathname === '/api/admin/inbox/mark-read' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let mrBody; try { mrBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    var mrCaseId = mrBody && mrBody.caseId;
+    if (!mrCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    var mrUpd = await supabaseDbRequest('task_messages',
+      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&channel=eq.email&direction=eq.inbound&read_at=is.null',
+      { method: 'PATCH', body: { read_at: new Date().toISOString() } });
+    sendJson(res, 200, { ok: true, updated: (mrUpd.ok && Array.isArray(mrUpd.data)) ? mrUpd.data.length : 0 });
+    return;
+  }
+
   // ── Get task documents (attached files/versions) ──
   if (pathname === '/api/admin/task/documents' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -34297,30 +34481,51 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 8. Build context and call Claude
-      var contextJson = JSON.stringify({
+      var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
+
+      // 8a. Stage-scoped playbook (static, cacheable).
+      var sgStage = (regCase && regCase.stage) ? regCase.stage : '';
+      var sgPlaybook = registrationPlaybook.playbookForStage(sgStage);
+
+      // 8b. Reuse the already-cached 24h handover summary — do NOT recompute.
+      var sgHandover = '';
+      try {
+        var sgHs = regCase && regCase.ai_handover_summary;
+        if (typeof sgHs === 'string') sgHs = JSON.parse(sgHs);
+        if (sgHs && (sgHs.overview || sgHs.key_history)) {
+          sgHandover = [sgHs.overview || '', sgHs.key_history || ''].filter(Boolean).join('\n');
+        }
+      } catch (e) { sgHandover = ''; }
+
+      // 8c. Compact structured facts (reuse what the handler already assembled).
+      var sgFacts = {
+        stage: sgStage,
+        substage: (regCase && regCase.substage) || null,
+        blocker: (regCase && regCase.blocker_status) || null,
+        practice_name: (regCase && regCase.practice_name) || null,
         gp: { name: gpName, email: profile.email, phone: gpPhone, country: countryCode },
-        registration: { stage: regCase.stage, substage: regCase.substage, blocker: regCase.blocker_status, practice: regCase.practice_name || '' },
         open_tasks: openTasks.map(function (t) { return t.title + ' (' + t.priority + ', ' + t.related_stage + ')'; }),
         qualifications: { required: qualSnap.required.length, approved: qualSnap.approved.length, missing: qualSnap.missing.map(function (m) { return m.label || m.key; }) },
         whatsapp_recent: dtMessages,
-        email_thread: emailThread,
-        current_email: { from: task.email_sender, sender_name: task.email_sender ? task.email_sender.split('@')[0].replace(/[._]/g, ' ') : '', subject: task.title, body: task.email_body_snippet || task.description },
         practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' },
         practice_documents: {
           outstanding_from_practice: outstandingFromPractice, // ONLY these may be requested from the practice
           do_not_request: doNotRequest                        // already done / automatic / under review / waiting on GP / not yet requested
         }
-      }, null, 2);
+      };
 
-      var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
-      var systemPrompt = 'You are drafting an email reply for Hazel, a Registration Support Officer at GP Link who helps international GPs register to practice in Australia. Always sign off as "Hazel" with title "Registration Support Officer | GP Link". Never use the title "Virtual Assistant". '
-        + (senderIsGp
-          ? 'The sender IS the GP candidate themselves. Address them directly and personally about their own registration progress.'
-          : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
-        + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows.'
-        + ' CRITICAL — practice documents: you may ONLY ask the practice to provide, complete, sign, or send documents listed under practice_documents.outstanding_from_practice. NEVER ask the practice for anything listed under practice_documents.do_not_request — those are already received, handled automatically (e.g. Section G), under review, waiting on the GP, or have not yet been formally requested from the practice (still locked). If outstanding_from_practice is empty, do NOT request any documents at all — simply give a brief, accurate progress update. Never invent next steps, documents, or deadlines that the context does not support.'
-        + ' When you DO request one of these specific documents, state its signing requirement: a Supervisor CV must be dated and signed by the supervisor; a Position Description must be signed by the practice owner/employer; an Offer/Contract must be signed by both the candidate and the employer.'
-        + ' Return ONLY the email reply text, no subject line or metadata.';
+      // 8d. Current email as readable text.
+      var currentEmailText = 'From: ' + (task.email_sender || '') + '\nSubject: ' + (task.title || '') + '\n\n' + (task.email_body_snippet || task.description || '');
+
+      // 8e. Build the grounded, cache-friendly prompt via lib.
+      var sgMsgs = suggestReplyPrompt.buildSuggestReplyMessages({
+        playbookText: sgPlaybook,
+        handoverSummary: sgHandover,
+        facts: sgFacts,
+        threadText: JSON.stringify(emailThread),
+        currentEmail: currentEmailText,
+        senderIsGp: senderIsGp,
+      });
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
@@ -34332,10 +34537,10 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'POST', signal: controller.signal,
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: ANTHROPIC_MODEL,
+            model: SUGGEST_REPLY_MODEL,
             max_tokens: 1000,
-            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-            messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]
+            system: sgMsgs.system,
+            messages: [{ role: 'user', content: sgMsgs.userText }]
           })
         });
         clearTimeout(aiTimeout);
@@ -35587,9 +35792,10 @@ Return ONLY valid JSON with no markdown formatting:
     const commaIdx = doc.attachment_url.indexOf(',');
     const pdfBase64 = doc.attachment_url.substring(commaIdx + 1);
 
-    const sppaCandFrom = await resolveCaseSenderEmail(task.case_id);
+    const _siSppaCand = await resolveCaseSenderInfo(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: sppaCandFrom,
+      from: _siSppaCand.from,
+      fromName: _siSppaCand.fromName,
       threadId: task.gmail_thread_id || undefined,
       to: candidateEmail,
       subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
@@ -35740,9 +35946,10 @@ Return ONLY valid JSON with no markdown formatting:
     const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
     var candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
 
-    const sppaPracFrom = await resolveCaseSenderEmail(task.case_id);
+    const _siSppaPrac = await resolveCaseSenderInfo(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: sppaPracFrom,
+      from: _siSppaPrac.from,
+      fromName: _siSppaPrac.fromName,
       threadId: task.gmail_thread_id || undefined,
       to: practiceEmail,
       subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
@@ -36489,9 +36696,9 @@ Return ONLY valid JSON with no markdown formatting:
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
 
-    var corrCandFrom = await resolveCaseSenderEmail(task.case_id);
+    var _siCorrCand = await resolveCaseSenderInfo(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: corrCandFrom, to: corrCandidateEmail,
+      from: _siCorrCand.from, fromName: _siCorrCand.fromName, to: corrCandidateEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
@@ -36542,9 +36749,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
 
-    var corrPracFrom = await resolveCaseSenderEmail(task.case_id);
+    var _siCorrPrac = await resolveCaseSenderInfo(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: corrPracFrom, to: corrPracticeEmail,
+      from: _siCorrPrac.from, fromName: _siCorrPrac.fromName, to: corrPracticeEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });

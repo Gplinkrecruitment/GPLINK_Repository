@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GP Link — RSO Email Hub (Prototype)</title>
+<style>
+  :root {
+    --teal: #0f766e;
+    --teal-dark: #0b5b54;
+    --teal-soft: #e6f4f2;
+    --ink: #1f2933;
+    --muted: #6b7280;
+    --line: #e3e8ee;
+    --bg: #f4f6f9;
+    --sent: #eef6f5;
+    --reply: #ffffff;
+    --amber: #b45309;
+    --amber-soft: #fff7ed;
+    --amber-line: #fed7aa;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 22px 18px 60px; }
+
+  .proto-flag {
+    background: var(--amber-soft);
+    border: 1px solid var(--amber-line);
+    color: var(--amber);
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  /* ---- Inbox ---- */
+  .inbox-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+  .inbox-head h1 { font-size: 19px; margin: 0 0 4px; }
+  .inbox-head p { font-size: 13px; color: var(--muted); margin: 0; }
+  .filterbar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
+  .filt {
+    font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 999px;
+    padding: 6px 14px; cursor: pointer; color: var(--ink);
+  }
+  .filt.active { background: var(--teal); color: #fff; border-color: var(--teal); font-weight: 600; }
+  .filt .ct { opacity: .7; margin-left: 4px; }
+
+  .convrow {
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px;
+    border-bottom: 1px solid var(--line); cursor: pointer; position: relative;
+  }
+  .convrow:hover { background: #f8fafc; }
+  .convrow.unread { background: #f4faf9; }
+  .convrow.unread:hover { background: #eef6f5; }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%; flex: 0 0 38px;
+    background: var(--teal); color: #fff; font-size: 13px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .avatar.practice { background: #475569; border-radius: 9px; }
+  .avatar.sm { width: 26px; height: 26px; flex-basis: 26px; font-size: 12px; }
+  .conv-main { flex: 1; min-width: 0; }
+  .conv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .conv-name { font-size: 14.5px; font-weight: 600; }
+  .convrow.unread .conv-name { font-weight: 700; }
+  .conv-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .conv-prev { font-size: 13px; color: var(--muted); margin: 3px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .convrow.unread .conv-prev { color: #374151; }
+  .conv-tags { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  .chip { font-size: 11.5px; color: var(--muted); background: #f1f4f8; border-radius: 999px; padding: 2px 9px; }
+  .chip.stage { background: var(--teal-soft); color: var(--teal-dark); font-weight: 600; }
+  .chip.rso { background: #eef2ff; color: #4338ca; }
+  .badge { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 9px; }
+  .badge.reply { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-line); }
+  .badge.waiting { background: #f1f4f8; color: #64748b; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--teal); flex: 0 0 9px; margin-top: 6px; }
+
+  /* ---- Thread view ---- */
+  .backbar { padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .backlink { font-size: 13px; color: var(--teal-dark); background: none; border: 0; cursor: pointer; padding: 0; display: inline-flex; gap: 6px; align-items: center; }
+  .backlink:hover { text-decoration: underline; }
+
+  .filehead { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .filehead h2 { font-size: 18px; margin: 0 0 6px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .assign { text-align: right; position: relative; }
+  .assign .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .assign .who { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 3px;}
+  .reassign-btn { margin-top: 8px; font-size: 12px; color: var(--teal-dark); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  .reassign-btn:hover { background: var(--teal-soft); }
+  .menu { position: absolute; right: 0; top: 100%; margin-top: 6px; z-index: 30; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); min-width: 180px; overflow: hidden; display: none; }
+  .menu.open { display: block; }
+  .menu button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 10px 12px; background: #fff; border: 0; cursor: pointer; font-size: 13px; text-align: left; }
+  .menu button:hover { background: var(--teal-soft); }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 12px; overflow-x: auto; }
+  .tab { padding: 12px 14px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; background: none; border-top: 0; border-left:0; border-right:0; }
+  .tab.active { color: var(--teal-dark); border-bottom-color: var(--teal); font-weight: 600; }
+
+  .panel { padding: 18px 20px; }
+  .placeholder { color: var(--muted); font-size: 14px; padding: 38px 10px; text-align: center; }
+  .hubbanner { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--teal-dark); background: var(--teal-soft); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  .hubbanner b { font-weight: 600; }
+
+  .thread { display: flex; flex-direction: column; gap: 12px; max-height: 420px; overflow-y: auto; padding: 2px 2px 6px; }
+  .msg { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .msg.sent { background: var(--sent); border-color: #d4e7e4; }
+  .msg.reply { background: var(--reply); }
+  .msg .mtop { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 5px; }
+  .dir { font-weight: 700; letter-spacing: .03em; font-size: 11px; padding: 2px 7px; border-radius: 5px; }
+  .dir.out { background: var(--teal); color: #fff; }
+  .dir.in { background: #e8eaef; color: #374151; }
+  .who-line { color: var(--muted); }
+  .time { color: var(--muted); font-size: 11.5px; }
+  .subj { font-weight: 600; font-size: 13.5px; margin: 2px 0 4px; }
+  .body-txt { font-size: 13.5px; line-height: 1.5; color: #374151; white-space: pre-wrap; }
+  .meta { display: flex; gap: 12px; margin-top: 8px; font-size: 12px; color: var(--muted); align-items: center; }
+  .att { display: inline-flex; gap: 5px; align-items: center; background: #f1f4f8; border-radius: 6px; padding: 2px 8px; }
+  .delivered { color: var(--teal-dark); }
+
+  .composer { margin-top: 18px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .composer .sendingas { font-size: 12px; color: var(--muted); background: #fafbfc; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .composer .sendingas b { color: var(--ink); }
+  .composer .toolbar { display: flex; gap: 8px; padding: 10px 12px 0; }
+  .ghost { font-size: 12.5px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 11px; cursor: pointer; color: var(--ink); display: inline-flex; gap: 6px; align-items: center; }
+  .ghost:hover { background: #f6f8fa; }
+  textarea#reply { width: 100%; border: 0; resize: vertical; min-height: 84px; padding: 12px; font: inherit; font-size: 14px; outline: none; }
+  .composer .foot { display: flex; justify-content: space-between; align-items: center; padding: 0 12px 12px; }
+  .pending-att { display: flex; gap: 6px; flex-wrap: wrap; }
+  .send { background: var(--teal); color: #fff; border: 0; border-radius: 9px; padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .send:hover { background: var(--teal-dark); }
+
+  .democtrl { margin-top: 22px; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 12px 14px; background: #fff; }
+  .democtrl .h { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 9px; }
+  .democtrl .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .democtrl button { font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 7px 13px; cursor: pointer; }
+  .democtrl button:hover { background: #f6f8fa; }
+
+  .toast { position: fixed; right: 22px; bottom: 22px; z-index: 50; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: 10px; box-shadow: var(--shadow); padding: 12px 16px; max-width: 320px; transform: translateY(140%); transition: transform .35s ease; cursor: pointer; }
+  .toast.show { transform: translateY(0); }
+  .toast .t { font-size: 13px; font-weight: 600; display: flex; gap: 7px; align-items: center; }
+  .toast .s { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 60; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .overlay.open { display: flex; }
+  .docview { background: #fff; border-radius: 14px; width: 380px; max-width: 100%; overflow: hidden; box-shadow: var(--shadow); }
+  .docview .bar { background: #1f2933; color: #fff; padding: 12px 16px; font-size: 14px; display:flex; justify-content: space-between; }
+  .docview .bar button { background: none; border: 0; color: #cbd5e1; font-size: 18px; cursor: pointer; }
+  .docview .note { font-size: 12px; color: var(--muted); padding: 10px 16px; background: #f8fafc; }
+  .mailrow { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .mailrow .from { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .mailrow .sub { font-size: 13px; margin-top: 3px; }
+  .mailrow .prev { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="proto-flag">
+    <span>🧪</span>
+    <span><b>Prototype</b> — dummy data, no real emails are sent. This shows the idea before anything is built for real.</span>
+  </div>
+
+  <!-- ============ INBOX VIEW ============ -->
+  <div class="card" id="inboxView">
+    <div class="inbox-head">
+      <h1>📥 Registration Inbox</h1>
+      <p>Every reply arrives at <b>registration@mygplink.com.au</b> and is filed into the right conversation automatically.</p>
+    </div>
+    <div class="filterbar" id="filterbar">
+      <button class="filt active" data-filter="mine">Mine (Hazel) <span class="ct" id="ctMine"></span></button>
+      <button class="filt" data-filter="all">All RSOs <span class="ct" id="ctAll"></span></button>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--muted)" id="needsCount"></span>
+    </div>
+    <div id="convList"></div>
+  </div>
+
+  <!-- ============ THREAD VIEW ============ -->
+  <div class="card" id="threadView" style="display:none;">
+    <div class="backbar"><button class="backlink" id="backBtn">← Inbox</button></div>
+    <div class="filehead">
+      <div>
+        <h2 id="fileName">Dr Sana Khan — Registration File</h2>
+        <div class="chips" id="fileChips"></div>
+      </div>
+      <div class="assign">
+        <div class="lbl">Assigned RSO</div>
+        <div class="who"><span class="avatar sm" id="avatar">HA</span><span id="rsoName">Hazel</span></div>
+        <button class="reassign-btn" id="reassignBtn">Reassign ▾</button>
+        <div class="menu" id="reassignMenu">
+          <button data-rso="Hazel">👩 Hazel</button>
+          <button data-rso="Smith Miller">👨 Smith Miller</button>
+          <button data-rso="Khaleed">👨 Khaleed</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab" data-tab="Profile">Profile</button>
+      <button class="tab" data-tab="Tasks">Tasks</button>
+      <button class="tab active" data-tab="Emails">Emails</button>
+      <button class="tab" data-tab="Calls">Calls</button>
+      <button class="tab" data-tab="Documents">Documents</button>
+      <button class="tab" data-tab="Notes">Notes</button>
+    </div>
+
+    <div class="panel" id="emailPanel">
+      <div class="hubbanner">
+        <span>🔗</span>
+        <span>All emails go through <b>registration@mygplink.com.au</b> — the doctor only ever sees this one address.</span>
+      </div>
+      <div class="thread" id="thread"></div>
+      <div class="composer">
+        <div class="sendingas">Sending as: <b id="sendingAs">Hazel — GP Link</b> &lt;registration@mygplink.com.au&gt;</div>
+        <div class="toolbar">
+          <button class="ghost" id="suggestBtn">✨ Suggest a reply</button>
+          <button class="ghost" id="attachBtn">📎 Attach</button>
+        </div>
+        <textarea id="reply" placeholder="Type your reply…"></textarea>
+        <div class="foot">
+          <div class="pending-att" id="pendingAtt"></div>
+          <button class="send" id="sendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="otherPanel" style="display:none;">
+      <div class="placeholder" id="otherPanelText"></div>
+    </div>
+  </div>
+
+  <!-- Demo controls (only meaningful in thread view) -->
+  <div class="democtrl" id="democtrl" style="display:none;">
+    <div class="h">Demo controls (not part of the real screen)</div>
+    <div class="row">
+      <button id="simulateBtn">📨 Simulate the doctor replying</button>
+      <button id="docViewBtn">👁 Show what the doctor sees</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast">
+  <div class="t">🔔 <span id="toastTitle">New reply</span></div>
+  <div class="s" id="toastSub"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="docview">
+    <div class="bar"><span id="docBarName">📥 Inbox</span><button id="closeDoc">✕</button></div>
+    <div class="note" id="docNote"></div>
+    <div id="docMail"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var ME = "Hazel"; // the logged-in RSO
+  var rsoInitials = { "Hazel": "HA", "Smith Miller": "SM", "Khaleed": "KH" };
+
+  var conversations = [
+    {
+      id: "priya", name: "Dr Priya Nair — Registration File", shortName: "Dr Priya Nair",
+      initials: "PN", kind: "doctor", rso: "Hazel", unread: true,
+      chips: [{label:"Stage: AMC", stage:true},{label:"India"},{label:"Case #GPL-2088"}],
+      messages: [
+        { dir:"out", who:"You (Hazel)", time:"26 Jun 10:05am", subj:"Your AMC exam booking",
+          body:"Hi Priya, to book your AMC CAT exam we just need your passport bio page and a recent passport-style photo.",
+          attachments:["1 document requested"], delivered:true },
+        { dir:"in", who:"Dr Priya Nair", time:"27 Jun 8:40am", subj:"Re: Your AMC exam booking",
+          body:"Hi Hazel, passport attached. Quick question — does the photo need to be a particular size?",
+          attachments:["Passport.pdf"], delivered:false }
+      ]
+    },
+    {
+      id: "sana", name: "Dr Sana Khan — Registration File", shortName: "Dr Sana Khan",
+      initials: "SK", kind: "doctor", rso: "Hazel", unread: false,
+      chips: [{label:"Stage: AHPRA", stage:true},{label:"United Kingdom"},{label:"Case #GPL-2041"}],
+      messages: [
+        { dir:"out", who:"You (Hazel)", time:"12 Jun 9:14am", subj:"Your AHPRA documents",
+          body:"Hi Sana, to move your AHPRA application forward we need two more documents from you:\n• A certified copy of your medical degree\n• Your signed, dated CV\n\nNo rush — whenever you have them handy.",
+          attachments:["2 documents requested"], delivered:true },
+        { dir:"in", who:"Dr Sana Khan", time:"12 Jun 4:02pm", subj:"Re: Your AHPRA documents",
+          body:"Thanks Hazel — I've attached my CV, but where do I find a certified copy of my degree? Does it need to be stamped by someone?",
+          attachments:["CV.pdf"], delivered:false },
+        { dir:"out", who:"You (Hazel)", time:"13 Jun 8:30am", subj:"Re: Your AHPRA documents",
+          body:"No problem at all! A certified copy just means a JP, pharmacist or doctor writes \"true copy of the original\", signs and dates it. Pop into any pharmacy and they'll do it in two minutes.",
+          attachments:[], delivered:true }
+      ]
+    },
+    {
+      id: "greenslopes", name: "Greenslopes Medical Centre — Practice File", shortName: "Greenslopes Medical Centre",
+      initials: "GM", kind: "practice", rso: "Hazel", unread: true,
+      chips: [{label:"Medical Practice", stage:true},{label:"QLD"},{label:"Re: Dr Khan"}],
+      messages: [
+        { dir:"out", who:"You (Hazel)", time:"25 Jun 2:15pm", subj:"Dr Khan — employment contract",
+          body:"Hi team at Greenslopes, please find Dr Khan's draft employment contract attached for signing.",
+          attachments:["Draft-contract.pdf"], delivered:true },
+        { dir:"in", who:"Greenslopes Medical Centre", time:"27 Jun 9:02am", subj:"Re: Dr Khan — employment contract",
+          body:"Thanks — signed copy attached. Could you let us know the next steps for her start date?",
+          attachments:["Signed-contract.pdf"], delivered:false }
+      ]
+    },
+    {
+      id: "ade", name: "Dr Ade Okonkwo — Registration File", shortName: "Dr Ade Okonkwo",
+      initials: "AO", kind: "doctor", rso: "Smith Miller", unread: false,
+      chips: [{label:"Stage: MyIntealth", stage:true},{label:"Nigeria"},{label:"Case #GPL-2067"}],
+      messages: [
+        { dir:"out", who:"You (Smith Miller)", time:"24 Jun 11:20am", subj:"Your MyIntealth account",
+          body:"Hi Ade, your MyIntealth account is set up. When you have a moment, please verify your email and upload a copy of your ID.",
+          attachments:[], delivered:true }
+      ]
+    },
+    {
+      id: "tom", name: "Dr Tom Harris — Registration File", shortName: "Dr Tom Harris",
+      initials: "TH", kind: "doctor", rso: "Khaleed", unread: false,
+      chips: [{label:"Stage: Commencement", stage:true},{label:"New Zealand"},{label:"Case #GPL-1990"}],
+      messages: [
+        { dir:"out", who:"You (Khaleed)", time:"23 Jun 4:45pm", subj:"Your start date is confirmed 🎉",
+          body:"Congratulations Tom! Your start date is confirmed for 14 July. I'll send your first-day pack through next week.",
+          attachments:[], delivered:true }
+      ]
+    }
+  ];
+
+  var state = { filter: "mine", currentId: null, pendingAtt: [], suggestIdx: 0, attachIdx: 0, docReplyIdx: 0 };
+
+  var suggestions = [
+    "Great question — a standard passport photo size (35×45mm) is perfect. Any chemist or post office can take one for you.",
+    "Thanks for sending that through! I've got everything I need now and I'll get this moving for you today.",
+    "Happy to jump on a quick call if that's easier — just let me know a time that suits you."
+  ];
+  var attachNames = ["AHPRA-checklist.pdf", "Certification-guide.pdf", "Next-steps.pdf"];
+  var doctorReplies = [
+    "Perfect, that's really helpful — sending it across now. Thank you so much!",
+    "One more thing — will I need to do anything else after this, or are we all set?",
+    "Brilliant, thanks for being so patient with all my questions!"
+  ];
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function cur(){ return conversations.filter(function(c){ return c.id === state.currentId; })[0]; }
+  function lastMsg(c){ return c.messages[c.messages.length - 1]; }
+  function needsReply(c){ return lastMsg(c).dir === "in"; }
+
+  function nowLabel(){
+    var d = new Date(), h = d.getHours(), m = d.getMinutes();
+    var ap = h >= 12 ? "pm" : "am"; h = h % 12; if (h === 0) h = 12;
+    var mm = m < 10 ? "0" + m : "" + m;
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return d.getDate() + " " + months[d.getMonth()] + " " + h + ":" + mm + ap;
+  }
+
+  // ---------- INBOX ----------
+  function visibleConvs(){
+    return conversations.filter(function(c){ return state.filter === "all" ? true : c.rso === ME; });
+  }
+  function renderInbox(){
+    var mineCt = conversations.filter(function(c){ return c.rso === ME; }).length;
+    $("ctMine").textContent = "(" + mineCt + ")";
+    $("ctAll").textContent = "(" + conversations.length + ")";
+    var list = visibleConvs();
+    var needs = list.filter(needsReply).length;
+    $("needsCount").textContent = needs + " need a reply";
+
+    $("convList").innerHTML = list.map(function(c){
+      var lm = lastMsg(c), nr = needsReply(c);
+      var stageChip = c.chips[0] ? '<span class="chip stage">' + esc(c.chips[0].label) + '</span>' : "";
+      var rsoChip = '<span class="chip rso">' + esc(c.rso) + '</span>';
+      var badge = nr ? '<span class="badge reply">Needs reply</span>' : '<span class="badge waiting">Waiting on doctor</span>';
+      var dot = c.unread ? '<span class="dot"></span>' : '';
+      var av = '<span class="avatar ' + (c.kind === "practice" ? "practice" : "") + '">' + esc(c.initials) + '</span>';
+      return (
+        '<div class="convrow ' + (c.unread ? "unread" : "") + '" data-id="' + c.id + '">' +
+          av +
+          '<div class="conv-main">' +
+            '<div class="conv-top"><span class="conv-name">' + esc(c.shortName) + '</span>' +
+              '<span class="conv-time">' + esc(lm.time) + '</span></div>' +
+            '<div class="conv-prev">' + (lm.dir === "in" ? "" : "You: ") + esc(lm.body.replace(/\n/g," ")) + '</div>' +
+            '<div class="conv-tags">' + stageChip + rsoChip + badge + '</div>' +
+          '</div>' +
+          dot +
+        '</div>'
+      );
+    }).join("");
+
+    Array.prototype.forEach.call($("convList").querySelectorAll(".convrow"), function(row){
+      row.addEventListener("click", function(){ openConversation(row.getAttribute("data-id")); });
+    });
+  }
+
+  Array.prototype.forEach.call($("filterbar").querySelectorAll(".filt"), function(btn){
+    btn.addEventListener("click", function(){
+      Array.prototype.forEach.call($("filterbar").querySelectorAll(".filt"), function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      state.filter = btn.getAttribute("data-filter");
+      renderInbox();
+    });
+  });
+
+  // ---------- OPEN / BACK ----------
+  function openConversation(id){
+    state.currentId = id;
+    var c = cur();
+    c.unread = false;
+    state.pendingAtt = []; renderPendingAtt();
+    $("fileName").textContent = c.name;
+    $("fileChips").innerHTML = c.chips.map(function(ch){
+      return '<span class="chip ' + (ch.stage ? "stage" : "") + '">' + esc(ch.label) + '</span>';
+    }).join("");
+    setRso(c.rso);
+    // reset to Emails tab
+    Array.prototype.forEach.call($("tabs").querySelectorAll(".tab"), function(t){ t.classList.remove("active"); });
+    $("tabs").querySelector('[data-tab="Emails"]').classList.add("active");
+    $("emailPanel").style.display = ""; $("otherPanel").style.display = "none";
+    renderThread(false);
+    $("inboxView").style.display = "none";
+    $("threadView").style.display = "";
+    $("democtrl").style.display = "";
+    window.scrollTo(0,0);
+  }
+  function backToInbox(){
+    state.currentId = null;
+    $("threadView").style.display = "none";
+    $("democtrl").style.display = "none";
+    $("inboxView").style.display = "";
+    renderInbox();
+  }
+  $("backBtn").addEventListener("click", backToInbox);
+
+  function setRso(name){
+    var c = cur(); if (c) c.rso = name;
+    $("rsoName").textContent = name;
+    $("avatar").textContent = rsoInitials[name] || name.slice(0,2).toUpperCase();
+    $("sendingAs").textContent = name + " — GP Link";
+  }
+
+  // ---------- THREAD ----------
+  function renderThread(scrollToBottom){
+    var c = cur(); if (!c) return;
+    $("thread").innerHTML = c.messages.map(function(msg){
+      var atts = (msg.attachments||[]).map(function(a){ return '<span class="att">📎 ' + esc(a) + '</span>'; }).join(" ");
+      var deliveredTag = msg.dir === "out" && msg.delivered ? '<span class="delivered">✓ Delivered</span>' : "";
+      var metaHtml = (atts || deliveredTag) ? '<div class="meta">' + atts + " " + deliveredTag + "</div>" : "";
+      return (
+        '<div class="msg ' + (msg.dir === "out" ? "sent" : "reply") + '">' +
+          '<div class="mtop"><span><span class="dir ' + (msg.dir === "out" ? "out" : "in") + '">' +
+            (msg.dir === "out" ? "SENT" : "REPLY") + '</span> <span class="who-line">· ' + esc(msg.who) + '</span></span>' +
+            '<span class="time">' + esc(msg.time) + '</span></div>' +
+          '<div class="subj">' + esc(msg.subj) + '</div>' +
+          '<div class="body-txt">' + esc(msg.body) + '</div>' + metaHtml +
+        '</div>'
+      );
+    }).join("");
+    if (scrollToBottom) $("thread").scrollTop = $("thread").scrollHeight;
+  }
+
+  function renderPendingAtt(){
+    $("pendingAtt").innerHTML = state.pendingAtt.map(function(a){ return '<span class="att">📎 ' + esc(a) + '</span>'; }).join(" ");
+  }
+
+  function showToast(title, sub){
+    $("toastTitle").textContent = title; $("toastSub").textContent = sub;
+    var t = $("toast"); t.classList.add("show");
+    clearTimeout(t._timer); t._timer = setTimeout(function(){ t.classList.remove("show"); }, 4200);
+  }
+
+  $("sendBtn").addEventListener("click", function(){
+    var c = cur(); var txt = $("reply").value.trim();
+    if (!txt) { $("reply").focus(); return; }
+    c.messages.push({ dir:"out", who:"You (" + c.rso + ")", time:nowLabel(),
+      subj:"Re: " + c.messages[0].subj, body:txt, attachments:state.pendingAtt.slice(), delivered:true });
+    $("reply").value = ""; state.pendingAtt = []; renderPendingAtt(); renderThread(true);
+    showToast("Sent ✓", "Sent to " + c.shortName + " as registration@ (" + c.rso + ")");
+  });
+
+  $("suggestBtn").addEventListener("click", function(){
+    $("reply").value = suggestions[state.suggestIdx % suggestions.length]; state.suggestIdx++; $("reply").focus();
+  });
+  $("attachBtn").addEventListener("click", function(){
+    state.pendingAtt.push(attachNames[state.attachIdx % attachNames.length]); state.attachIdx++; renderPendingAtt();
+  });
+
+  // Reassign
+  $("reassignBtn").addEventListener("click", function(e){ e.stopPropagation(); $("reassignMenu").classList.toggle("open"); });
+  document.addEventListener("click", function(){ $("reassignMenu").classList.remove("open"); });
+  Array.prototype.forEach.call($("reassignMenu").querySelectorAll("button"), function(btn){
+    btn.addEventListener("click", function(){
+      var newRso = btn.getAttribute("data-rso"); var c = cur();
+      if (!c || newRso === c.rso) return;
+      setRso(newRso); $("reassignMenu").classList.remove("open");
+      showToast("Reassigned to " + newRso, "The whole conversation stays on this file — only future messages show " + newRso + "'s name. (In the inbox it now appears under " + newRso + ".)");
+    });
+  });
+
+  // Tabs
+  Array.prototype.forEach.call($("tabs").querySelectorAll(".tab"), function(tab){
+    tab.addEventListener("click", function(){
+      Array.prototype.forEach.call($("tabs").querySelectorAll(".tab"), function(t){ t.classList.remove("active"); });
+      tab.classList.add("active");
+      var name = tab.getAttribute("data-tab");
+      if (name === "Emails") { $("emailPanel").style.display = ""; $("otherPanel").style.display = "none"; }
+      else { $("emailPanel").style.display = "none"; $("otherPanel").style.display = "";
+        $("otherPanelText").textContent = "The " + name + " tab lives here in the real dashboard. This prototype focuses on the Emails tab."; }
+    });
+  });
+
+  // Simulate doctor reply
+  $("simulateBtn").addEventListener("click", function(){
+    var c = cur(); if (!c) return;
+    var body = doctorReplies[state.docReplyIdx % doctorReplies.length];
+    var hasAtt = state.docReplyIdx % doctorReplies.length === 0; state.docReplyIdx++;
+    c.messages.push({ dir:"in", who:c.shortName, time:nowLabel(), subj:"Re: " + c.messages[0].subj,
+      body:body, attachments: hasAtt ? ["Document.pdf"] : [], delivered:false });
+    renderThread(true);
+    showToast("New reply from " + c.shortName, body.length > 60 ? body.slice(0,60) + "…" : body);
+  });
+  $("toast").addEventListener("click", function(){ this.classList.remove("show"); });
+
+  // Doctor view
+  $("docViewBtn").addEventListener("click", function(){
+    var c = cur(); if (!c) return;
+    $("docBarName").textContent = "📥 " + c.shortName + " — Inbox";
+    $("docNote").textContent = "This is their own email inbox. To them it is just one normal conversation with \"" + c.rso + " — GP Link\".";
+    var outs = c.messages.filter(function(m){ return m.dir === "out"; }).slice().reverse();
+    $("docMail").innerHTML = outs.map(function(m){
+      var prev = m.body.replace(/\n/g," ");
+      return '<div class="mailrow"><div class="from"><span class="avatar sm">' + (rsoInitials[c.rso]||"GL") +
+        '</span> ' + esc(c.rso) + ' — GP Link</div><div class="sub">' + esc(m.subj) + '</div>' +
+        '<div class="prev">' + esc(prev.length > 70 ? prev.slice(0,70) + "…" : prev) + '</div></div>';
+    }).join("");
+    $("overlay").classList.add("open");
+  });
+  $("closeDoc").addEventListener("click", function(){ $("overlay").classList.remove("open"); });
+  $("overlay").addEventListener("click", function(e){ if (e.target === this) this.classList.remove("open"); });
+
+  // Init
+  renderInbox();
+})();
+</script>
+</body>
+</html>
