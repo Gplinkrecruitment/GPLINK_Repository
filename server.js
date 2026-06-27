@@ -2740,9 +2740,16 @@ async function _ensureTaskArtifacts(taskId) {
   finally { delete _ensureTaskArtifactsInflight[taskId]; }
 }
 
-async function processGmailNotification(emailAddress, notifiedHistoryId) {
+async function processGmailNotification(emailAddress, notifiedHistoryId, options) {
   // Normalize — Pub/Sub may deliver mixed-case; watch state + processed records are stored lowercase.
   emailAddress = String(emailAddress || '').trim().toLowerCase();
+  // Optional recovery mode (used by the "recheck-thread" admin action): fetch messages by
+  // a specific Gmail thread id and/or by sender, instead of the normal incremental history /
+  // INBOX scan. This recovers a reply that is invisible to the normal paths because it sits
+  // BEHIND the stored history cursor AND/OR was auto-archived out of the INBOX label (the
+  // hello@ master-archive mailbox archives inbound mail, so practice replies never carry the
+  // INBOX label). Both lookups search ALL mail, not just INBOX. See sppa-recheck-thread.
+  options = options || {};
   // hello@ (master archive) inbox monitoring is DISABLED. We still archive VA
   // correspondence INTO hello@ (silent label copies, written during VA processing
   // below), but hello@'s own inbound mail is never processed into tasks. This guard
@@ -2801,6 +2808,43 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   var historyResponse;
   var usedFallbackList = false;
 
+  // Recovery mode — fetch by thread id and/or sender across ALL mail (not just INBOX),
+  // bypassing the history cursor. Used by the recheck-thread action to pull a reply that
+  // was archived (no INBOX label) and/or arrived before the stored cursor. Already-processed
+  // messages are skipped downstream by the dedup + per-task idempotency checks, so re-fetching
+  // the whole thread is safe and idempotent. The cursor is NOT advanced (newHistoryId stays at
+  // storedHistoryId), so a recovery pass never moves the live incremental cursor.
+  if (options.recoverThreadId || options.recoverFromSender) {
+    var recoverAdded = [];
+    var seenRecover = {};
+    if (options.recoverThreadId) {
+      try {
+        var recThread = await gmail.users.threads.get({ userId: emailAddress, id: String(options.recoverThreadId), format: 'minimal' });
+        var recThreadMsgs = (recThread.data && recThread.data.messages) || [];
+        for (var rtm = 0; rtm < recThreadMsgs.length; rtm++) {
+          var recTid = recThreadMsgs[rtm] && recThreadMsgs[rtm].id;
+          if (recTid && !seenRecover[recTid]) { seenRecover[recTid] = true; recoverAdded.push({ message: { id: recTid } }); }
+        }
+      } catch (recThreadErr) {
+        console.warn('[Gmail][recover] threads.get failed for', emailAddress, 'thread', options.recoverThreadId, '-', recThreadErr.message);
+      }
+    }
+    if (options.recoverFromSender) {
+      try {
+        var recSearch = await gmail.users.messages.list({ userId: emailAddress, q: 'from:' + String(options.recoverFromSender) + ' newer_than:30d', maxResults: 25 });
+        var recSearchMsgs = (recSearch.data && recSearch.data.messages) || [];
+        for (var rsm = 0; rsm < recSearchMsgs.length; rsm++) {
+          var recSid = recSearchMsgs[rsm] && recSearchMsgs[rsm].id;
+          if (recSid && !seenRecover[recSid]) { seenRecover[recSid] = true; recoverAdded.push({ message: { id: recSid } }); }
+        }
+      } catch (recSearchErr) {
+        console.warn('[Gmail][recover] sender search failed for', emailAddress, '-', recSearchErr.message);
+      }
+    }
+    historyResponse = { data: { history: [{ messagesAdded: recoverAdded }], historyId: storedHistoryId || notifiedHistoryId || null } };
+    usedFallbackList = true;
+    console.log('[Gmail][recover]', emailAddress, '— thread/sender recovery surfaced', recoverAdded.length, 'message id(s)');
+  } else
   // If no valid historyId (e.g. cron call before watch is set up), skip history.list
   // and go straight to fetching recent messages
   if (!storedHistoryId) {
@@ -36543,9 +36587,30 @@ Return ONLY valid JSON with no markdown formatting:
     if (!admin) return;
     const taskId = pathname.split('/')[5];
     const taskRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+      'select=id,case_id,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
     if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
     const task = taskRes.data[0];
+    var _recheckMeta = task.metadata;
+    if (typeof _recheckMeta === 'string') { try { _recheckMeta = JSON.parse(_recheckMeta); } catch (e) { _recheckMeta = {}; } }
+    _recheckMeta = _recheckMeta || {};
+    // The practice's reply lands in the conversation thread but is auto-archived out of INBOX,
+    // so an INBOX/history scan never sees it. Pull it by THREAD id and by the practice's sender
+    // address (across all mail) instead. Practice address: the one we sent the pack to, else the
+    // hired application's practice_contact_email.
+    var _recheckThreadId = task.gmail_thread_id || null;
+    var _recheckPracticeEmail = String(_recheckMeta.sent_to_practice_email || '').trim().toLowerCase();
+    if (!_recheckPracticeEmail) {
+      try {
+        var _caseRow = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+        var _caseUserId = _caseRow.ok && _caseRow.data && _caseRow.data[0] ? _caseRow.data[0].user_id : null;
+        if (_caseUserId) {
+          var _appRow = await supabaseDbRequest('gp_applications', 'select=practice_contact_email&user_id=eq.' + encodeURIComponent(_caseUserId) + '&status=eq.hired&limit=1');
+          if (_appRow.ok && _appRow.data && _appRow.data[0] && _appRow.data[0].practice_contact_email) {
+            _recheckPracticeEmail = String(_appRow.data[0].practice_contact_email).trim().toLowerCase();
+          }
+        }
+      } catch (e) {}
+    }
     var _scanInbox = '';
     try { _scanInbox = await resolveCaseSenderEmail(task.case_id); } catch (e) {}
     // Reply lands in the mailbox we sent FROM; also sweep any test-watched archive (hello@).
@@ -36553,15 +36618,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (_scanInbox) _recheckInboxes.push(String(_scanInbox).toLowerCase());
     for (var _twi of TEST_WATCH_INBOXES) { if (_recheckInboxes.indexOf(_twi) < 0) _recheckInboxes.push(_twi); }
     var _recheckScanned = [];
+    var _recheckOpts = { recoverThreadId: _recheckThreadId, recoverFromSender: _recheckPracticeEmail || null };
     for (var _sib of _recheckInboxes) {
-      try { await processGmailNotification(_sib, null); _recheckScanned.push({ inbox: _sib, ok: true }); }
+      try { await processGmailNotification(_sib, null, _recheckOpts); _recheckScanned.push({ inbox: _sib, ok: true }); }
       catch (e) { _recheckScanned.push({ inbox: _sib, ok: false, error: e.message }); }
     }
     var _afterRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
     var _afterMeta = (_afterRes.ok && _afterRes.data && _afterRes.data[0]) ? _afterRes.data[0].metadata : null;
     if (typeof _afterMeta === 'string') try { _afterMeta = JSON.parse(_afterMeta); } catch (e) { _afterMeta = {}; }
-    await _logCaseEvent(task.case_id, taskId, 'system', 'Manual re-check for practice reply triggered', JSON.stringify(_recheckScanned).slice(0, 300), admin.email);
-    sendJson(res, 200, { ok: true, scanned: _recheckScanned, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
+    await _logCaseEvent(task.case_id, taskId, 'system', 'Manual re-check for practice reply triggered',
+      JSON.stringify({ scanned: _recheckScanned, thread: _recheckThreadId, fromSender: _recheckPracticeEmail || null }).slice(0, 400), admin.email);
+    sendJson(res, 200, { ok: true, scanned: _recheckScanned, searchedThread: _recheckThreadId, searchedSender: _recheckPracticeEmail || null, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
     return;
   }
 
