@@ -25,6 +25,19 @@ The app code is ready. Live email stays OFF until these steps are done.
 ## Rollback
 - Unset `REGISTRATION_HUB_EMAIL` and redeploy. Sending reverts to per-RSO mailboxes immediately. (Inbound replies already in the hub remain filed; new ones go back to per-RSO inboxes.)
 
+## Pre-go-live correctness follow-ups (from final whole-branch review)
+
+Listed worst-first. None affect the OFF state — they only matter once `REGISTRATION_HUB_EMAIL` is set.
+
+1. **(MOST IMPORTANT — fix before broad rollout) One case can hold two live email threads, and the Inbox merges them.**
+   A registration case can be emailing the **GP** and the **medical practice** at the same time (both stored under the same `case_id`). The Inbox groups one row per *case*, and the reply box sends to whoever messaged **most recently** in that case. So if both threads are active, an RSO replying to the GP could have the message go to the practice (and vice-versa). **Safe for the staged test** (one case, one party). Before enabling for cases that run GP *and* practice correspondence at the same time, change the grouping to be per email thread (`gmail_thread_id`) instead of per case, so each party is a separate conversation with its own reply target.
+
+2. **Practice "Request Revision" draft path bypasses the hub.** In `server.js` (~37135/37172) the practice-revision draft is created from `hazel@` against the stored thread id and a hardcoded "GP Link Registration" From. Under the hub the thread belongs to `registration@`, so that draft's threading/mailbox will be wrong. Route this path through the hub (same `resolveCaseSenderInfo` pattern) before relying on it with the hub ON.
+
+3. **Reply threading lookup uses the wrong mailbox under the hub.** `/api/admin/email/send` (~25236) fetches the In-Reply-To/subject via `getGmailClient(MONITORED_VA_EMAILS[0])` (hazel@) instead of the hub mailbox. The reply still groups via the explicit `threadId`, so it's not a break, but switch the lookup to the sender mailbox for clean headers.
+
+4. **Inbox tab + copy aren't gated on the hub flag.** The "Inbox" tab and its "registration@…" wording show even when the hub is OFF (replies actually go from the per-RSO mailbox then). Functionally fine; soften the copy or gate the tab on a server-injected flag so it isn't misleading pre-go-live.
+
 ## Known follow-ups before enabling for non-Hazel RSOs
 
 - The SPPA correction emails (in `server.js`, the SPPA GP-corrections and practice-corrections send paths) hard-code the closing line `Kind regards, Hazel — GP Link Registration Team` in the email BODY. When the hub is ON and a case is assigned to a different RSO (e.g. Smith Miller), the From header will correctly show that RSO's name but the body sign-off will still say "Hazel". This is cosmetic, not a functional break, but it should be fixed (use the assigned RSO's name in the body) before enabling the hub for cases not assigned to Hazel. Until then, the hub is safe to enable for Hazel-assigned cases.
