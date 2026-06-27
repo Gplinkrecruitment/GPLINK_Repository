@@ -1708,6 +1708,14 @@ const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@myg
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
   .filter(e => !NEVER_PROCESS_EMAILS.has(e));
 
+// When the registration hub mailbox is configured, it must be watched + processed.
+if (REGISTRATION_HUB_EMAIL) {
+  NEVER_PROCESS_EMAILS.delete(REGISTRATION_HUB_EMAIL);
+  if (!MONITORED_VA_EMAILS.includes(REGISTRATION_HUB_EMAIL)) {
+    MONITORED_VA_EMAILS.push(REGISTRATION_HUB_EMAIL);
+  }
+}
+
 // ⚠️⚠️ TEMPORARY TEST ONLY (added 2026-06-22) — re-watch the hello@ archive but ONLY
 // process mail from the allowlisted sender(s). Every other message (vendor mail, silent
 // case-copies, etc.) is dropped BEFORE any labeling/triage, so the archive is not flooded.
