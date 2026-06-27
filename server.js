@@ -33615,7 +33615,7 @@ Return ONLY valid JSON with no markdown formatting:
     var tMsgs = (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : [];
     // Resolve reply targets so the Inbox UI can send a real reply via /api/admin/email/send.
     // Messages are ordered created_at.asc, so the most recent is the last element. All
-    // messages in a case-thread are with the same external party (GP/practice).
+    // messages in this gmail thread are with the same external party (GP or practice).
     var tLatest = tMsgs.length ? tMsgs[tMsgs.length - 1] : null;
     var tTo = '';
     if (tLatest) {
