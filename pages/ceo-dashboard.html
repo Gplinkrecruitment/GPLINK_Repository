@@ -4051,6 +4051,47 @@
     // machine actions (Send to candidate, Preview/Override PDF, Mark returned, Resend) depend
     // on admin-only handlers (openSppaReview/sppaOverrideQ7/sppaMarkReturned/_isPrereqDone)
     // and are surfaced as an RSO-tool note (Task 3d.6 NOTE).
+    // AI completeness verdict panel (port of admin renderSppaCompletenessPanel ~5181),
+    // dark-converted. Reads meta.completeness_check. Returns '' when never checked.
+    function ceoRenderSppaCompletenessPanel(meta) {
+      var cc = meta && meta.completeness_check;
+      if (!cc) {
+        return '<div style="background:var(--panel);border:1px dashed var(--border, rgba(255,255,255,0.12));border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--muted)">AI completeness check not run yet — re-check below before submitting.</div>';
+      }
+      var checkedAt = cc.checked_at ? new Date(cc.checked_at).toLocaleString() : '';
+      if (cc.error) {
+        return '<div style="background:var(--amber-dim);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">'
+          + '<div style="font-weight:700;color:var(--amber)">⚠ AI completeness check could not run</div>'
+          + '<div style="color:var(--amber);margin-top:2px">' + esc(cc.summary || 'Please review the form manually.') + '</div>'
+          + '</div>';
+      }
+      if (cc.is_complete) {
+        var hc = '<div style="background:var(--green-dim);border:1px solid rgba(52,211,153,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        hc += '<div style="font-weight:700;color:var(--green)">✓ AI completeness check: ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+        if (cc.summary) hc += '<div style="color:var(--green);margin-top:2px">' + esc(cc.summary) + '</div>';
+        if (cc.issues && cc.issues.length) hc += '<div style="color:var(--green);margin-top:4px;font-size:10px">' + cc.issues.map(function (x) { return '• ' + esc(x); }).join('<br>') + '</div>';
+        if (meta.completeness_override) hc += '<div style="color:var(--muted);margin-top:4px;font-size:10px">Overridden by ' + esc(meta.completeness_override.by || 'RSO') + '</div>';
+        if (checkedAt) hc += '<div style="color:var(--muted);margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+        hc += '</div>';
+        return hc;
+      }
+      var lists = '';
+      function addList(label, arr) {
+        if (arr && arr.length) lists += '<div style="margin-top:4px"><span style="font-weight:600">' + esc(label) + ':</span><ul style="margin:2px 0 0 16px;padding:0">' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+      }
+      addList('Missing or blank fields', cc.missing_fields);
+      addList('Missing signatures', cc.missing_signatures);
+      addList('Missing documents', cc.missing_documents);
+      addList('Other issues', cc.issues);
+      var hp = '<div style="background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
+      hp += '<div style="font-weight:700;color:var(--red)">⚠ AI completeness check: not ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+      if (cc.summary) hp += '<div style="color:var(--red);margin-top:2px">' + esc(cc.summary) + '</div>';
+      hp += '<div style="color:var(--text);margin-top:4px">' + lists + '</div>';
+      if (checkedAt) hp += '<div style="color:var(--muted);margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+      hp += '</div>';
+      return hp;
+    }
+
     function renderCeoOpsSppa00(task, msgs, docs) {
       var meta = task.metadata || {};
       if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
@@ -4066,8 +4107,75 @@
         return h;
       }
 
-      var stateLabel = { ready_to_send: 'Ready to send to candidate', sent_to_candidate: 'Sent to candidate — awaiting return', gp_returned: 'GP returned — review and send to practice' };
+      // Human-readable state labels (parity with admin's per-state copy).
+      var stateLabel = {
+        ready_to_send: 'Ready to send to candidate',
+        sent_to_candidate: 'Sent to candidate — awaiting return',
+        gp_returned: 'Returned by candidate — review and send to practice',
+        gp_corrections_requested: 'Awaiting candidate corrections',
+        sent_to_practice: 'Sent to practice — awaiting return',
+        practice_returned: 'Returned by practice — final review',
+        corrections_requested: 'Awaiting practice corrections',
+        completed: 'Completed — delivered to GP'
+      };
       h += '<div class="ops-expand-label">' + esc(stateLabel[sppaState] || sppaState) + '</div>';
+
+      // GP-section completeness banner (gp_returned): did the candidate fill Section A Q1 and
+      // sign Section I? Result comes from the AI scan stored in meta.gp_section_scan. Port of
+      // admin gpSectionBanner() (admin.html ~5265), dark-converted.
+      function ceoGpSectionBanner() {
+        var scan = meta.gp_section_scan;
+        var rescanBtn = '<button class="ops-btn-secondary" style="margin-top:6px;font-size:11px" data-ceo-act="sppa_scan_sections" data-task="' + esc(task.id) + '">' + (scan ? 'Re-scan sections' : 'Run section check') + '</button>';
+        if (!scan) {
+          return '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">'
+            + '<b style="color:var(--blue)">ℹ Section check</b> — the AI is verifying the candidate completed their sections. Reload in a moment, or run it now.<br>' + rescanBtn
+            + '</div>';
+        }
+        var bg, bd, fg, head;
+        if (scan.overall === 'complete') { bg = 'var(--green-dim)'; bd = 'rgba(52,211,153,0.3)'; fg = 'var(--green)'; head = '✓ Candidate sections complete'; }
+        else if (scan.overall === 'incomplete') { bg = 'var(--red-dim)'; bd = 'rgba(239,68,68,0.3)'; fg = 'var(--red)'; head = '⚠ Candidate sections look incomplete'; }
+        else { bg = 'var(--amber-dim)'; bd = 'rgba(251,191,36,0.3)'; fg = 'var(--amber)'; head = '⚠ Could not confirm — review the form manually'; }
+        var aMark = scan.section_a_filled ? '✓' : '✗';
+        var iMark = scan.section_i_signed ? '✓' : '✗';
+        var b = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
+        b += '<b style="color:' + fg + '">' + head + '</b>';
+        if (scan.summary) b += '<div style="margin-top:3px;color:var(--muted)">' + esc(scan.summary) + '</div>';
+        b += '<div style="margin-top:6px;color:var(--muted)">';
+        b += '<div>' + aMark + ' <b>Section A (Q1 — personal details)</b>' + (scan.section_a_notes ? ' — ' + esc(scan.section_a_notes) : '') + '</div>';
+        b += '<div>' + iMark + ' <b>Section I (Supervisee\'s signature)</b>' + (scan.section_i_notes ? ' — ' + esc(scan.section_i_notes) : '') + '</div>';
+        b += '</div>';
+        b += '<div style="margin-top:4px;color:var(--muted);font-size:10px">AI confidence: ' + esc(scan.confidence || 'low')
+          + (scan.candidate_name_detected ? ' · name on form: ' + esc(scan.candidate_name_detected) : '')
+          + (scan.scanned_at ? ' · ' + new Date(scan.scanned_at).toLocaleString('en-AU') : '') + '</div>';
+        b += rescanBtn;
+        b += '</div>';
+        return b;
+      }
+      if (sppaState === 'gp_returned') h += ceoGpSectionBanner();
+
+      // AI completeness verdict (practice_returned): the CEO must SEE this before Submit. Port of
+      // admin renderSppaCompletenessPanel(meta) (admin.html ~5181), dark-converted.
+      if (sppaState === 'practice_returned') h += ceoRenderSppaCompletenessPanel(meta);
+
+      // Corrections-requested states: human-readable status + the corrections note so the CEO can
+      // act on a failing case (admin gp_corrections_requested / corrections_requested branches).
+      if (sppaState === 'gp_corrections_requested' || sppaState === 'corrections_requested') {
+        var isGpCorr = sppaState === 'gp_corrections_requested';
+        var corrNote = isGpCorr ? meta.gp_corrections_note : meta.corrections_note;
+        var corrAt = isGpCorr ? meta.gp_corrections_requested_at : meta.corrections_requested_at;
+        var corrWho = isGpCorr ? 'candidate' : 'practice';
+        h += '<div style="background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        h += '<span style="color:var(--red)">Corrections requested from ' + corrWho + ' — awaiting revised SPPA</span>';
+        h += '</div>';
+        if (corrAt) {
+          var corrDays = Math.floor((Date.now() - new Date(corrAt).getTime()) / 86400000);
+          h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Requested ' + corrDays + ' day' + (corrDays === 1 ? '' : 's') + ' ago</div>';
+          if (corrDays >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + corrDays + ' days since corrections requested — consider a follow-up</div>';
+        }
+        if (corrNote) {
+          h += '<div style="background:var(--panel);border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--text)"><strong>Corrections requested:</strong> ' + esc(corrNote) + '</div>';
+        }
+      }
 
       // Conflict banner (port of admin conflictBanner 4821–4838), dark-converted.
       if (meta.is_conflict && meta.confidence !== 'low') {
@@ -4109,7 +4217,12 @@
         h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_practice" data-task="' + esc(task.id) + '">Upload Practice Return</button>';
       } else if (sppaState === 'practice_returned') {
         h += '<button class="ops-btn-green" data-ceo-act="sppa_submit" data-task="' + esc(task.id) + '">Submit — Deliver to GP</button>';
+        h += '<button class="ops-btn-secondary" data-ceo-act="sppa_recheck" data-task="' + esc(task.id) + '">Re-check with AI</button>';
         h += '<button class="ops-btn-danger" data-ceo-act="sppa_correct_practice" data-task="' + esc(task.id) + '" data-email="' + escAttr(practiceEmail) + '" data-name="' + escAttr(pcName) + '" data-gp="' + escAttr(gpNm) + '">Request Corrections</button>';
+      } else if (sppaState === 'gp_corrections_requested') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_candidate" data-task="' + esc(task.id) + '">Upload Corrected Return</button>';
+      } else if (sppaState === 'corrections_requested') {
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_practice" data-task="' + esc(task.id) + '">Upload Corrected Return</button>';
       }
       h += '<button class="ops-btn-secondary" data-ceo-act="open_pdf" data-task="' + esc(task.id) + '">Preview PDF</button>';
       h += '</div>';
@@ -4266,8 +4379,37 @@
         .then(function(d) { if (d && d.ok) { showToast('Corrections requested', 'success'); refreshGpDetailTasks(); } else showToast((d && (d.error || d.message)) || 'Failed to send', 'error'); })
         .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
     }
+    // Re-run the AI completeness check (port of admin runSppaCompletenessCheck 8698). Same
+    // /api/admin/va/task/{id}/sppa-completeness-check POST; a super-admin/CEO session passes its
+    // requireAdminSession guard (not RSO-assignment gated).
+    function ceoSppaCompletenessCheck(taskId) {
+      showToast('Running AI completeness check…', 'info');
+      apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-completeness-check', { method: 'POST' })
+        .then(function(d) {
+          if (d && d.ok) { showToast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found — see card', 'success'); refreshGpDetailTasks(); }
+          else showToast((d && (d.error || d.message)) || 'Check could not run', 'error');
+        })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
+    // Re-run the AI scan of the candidate's Section A / Section I (port of admin sppaScanGpSections 8543).
+    function ceoSppaScanGpSections(taskId) {
+      showToast('Scanning the candidate’s sections…', 'info');
+      apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-scan-gp-sections', { method: 'POST' })
+        .then(function(d) {
+          if (d && d.ok) {
+            var s = d.gp_section_scan || {};
+            if (s.overall === 'incomplete') showToast('Candidate sections look incomplete — see card', 'error');
+            else if (s.overall === 'complete') showToast('Candidate sections complete', 'success');
+            else showToast('Scan finished — see card', 'info');
+            refreshGpDetailTasks();
+          } else showToast((d && (d.error || d.message)) || 'Scan failed', 'error');
+        })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
     function ceoOpenTaskPdf(taskId) {
-      if (taskId) window.open('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf', '_blank', 'noopener');
+      // Cache-buster: the SPPA PDF at this URL changes as the form moves through its lifecycle
+      // (blank → GP-returned → practice-returned), so force a fresh fetch every open (admin parity).
+      if (taskId) window.open('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf?t=' + Date.now(), '_blank', 'noopener');
     }
     // AHPRA reply-to-officer composer (reuses ceoSendComposerEmail via data-ops-send-email).
     // Threads to the source Gmail message and auto-attaches the current document when present;
@@ -5529,6 +5671,8 @@
         else if (cAct === 'sppa_q7') ceoSppaOverrideQ7(cTid, ceoActBtn.getAttribute('data-conflict') === '1');
         else if (cAct === 'sppa_correct_gp') ceoSppaRequestCorrections(cTid, 'gp', ceoActBtn.getAttribute('data-email') || '', '', ceoActBtn.getAttribute('data-gp') || '');
         else if (cAct === 'sppa_correct_practice') ceoSppaRequestCorrections(cTid, 'practice', ceoActBtn.getAttribute('data-email') || '', ceoActBtn.getAttribute('data-name') || '', ceoActBtn.getAttribute('data-gp') || '');
+        else if (cAct === 'sppa_recheck') ceoSppaCompletenessCheck(cTid);
+        else if (cAct === 'sppa_scan_sections') ceoSppaScanGpSections(cTid);
         else if (cAct === 'open_pdf') ceoOpenTaskPdf(ceoActBtn.getAttribute('data-pdf-task') || cTid);
         return;
       }

@@ -2831,16 +2831,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   } catch (histErr) {
     // historyId too old — reset and fetch recent inbox messages directly as fallback
     if (histErr.code === 404 || (histErr.response && histErr.response.status === 404)) {
-      console.warn('[Gmail] historyId too old for', emailAddress, '— resetting to', notifiedHistoryId, 'and fetching recent inbox');
-      await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
-        method: 'PATCH',
-        body: { history_id: notifiedHistoryId || storedHistoryId, updated_at: new Date().toISOString() }
-      });
-      // Fallback: the stored historyId is too old (e.g. reset to recover dropped mail) —
-      // fetch a wider window of recent inbox messages so we don't miss anything that
-      // arrived during the gap. Already-processed messages are deduped downstream.
+      console.warn('[Gmail] historyId too old for', emailAddress, '— fetching recent inbox (cursor advanced only AFTER processing)');
+      // Do NOT advance history_id here. Advancing the cursor to notifiedHistoryId BEFORE the
+      // messages are processed would permanently skip any mail that arrived in the gap if
+      // processing then failed (this is how a practice return could silently vanish). The
+      // cursor is advanced at the END of this function, after the messages are actually
+      // handled. Already-processed messages are deduped downstream (processed_gmail_messages
+      // + per-task gmail_message_id idempotency), so a wider window is safe to re-scan.
       try {
-        var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 30 });
+        var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 50 });
         if (recentList.data && Array.isArray(recentList.data.messages)) {
           historyResponse = { data: { history: [{ messagesAdded: recentList.data.messages.map(function(m) { return { message: m }; }) }], historyId: notifiedHistoryId || storedHistoryId } };
           usedFallbackList = true;
@@ -3028,12 +3027,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         // Find any active case for this sender (by email match)
         var senderEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
         var earlyGpCase = null;
+        // Track WHO sent this reply (candidate vs practice). The whole SPPA exchange lives
+        // in one Gmail thread, so thread-matching alone cannot tell the candidate's reply
+        // apart from the practice's — and a candidate reply must never be accepted as the
+        // practice's return (or vice versa). This role gates the SPPA state transitions below.
+        var earlySenderRole = null;
         if (senderEmail) {
           // Check if sender matches a GP profile email
           var profileLookup = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(senderEmail) + '&limit=1');
           if (profileLookup.ok && Array.isArray(profileLookup.data) && profileLookup.data[0]) {
             var caseLookup = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(profileLookup.data[0].user_id) + '&status=eq.active&limit=1');
-            if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data[0]) earlyGpCase = caseLookup.data[0];
+            if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data[0]) { earlyGpCase = caseLookup.data[0]; earlySenderRole = 'candidate'; }
           }
           // Also check if sender matches a practice contact email in gp_applications
           if (!earlyGpCase) {
@@ -3042,10 +3046,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
               if (appLookup.data.length === 1) {
                 // Single GP — safe to match directly
                 var caseLookup2 = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(appLookup.data[0].user_id) + '&status=eq.active&limit=1');
-                if (caseLookup2.ok && Array.isArray(caseLookup2.data) && caseLookup2.data[0]) earlyGpCase = caseLookup2.data[0];
+                if (caseLookup2.ok && Array.isArray(caseLookup2.data) && caseLookup2.data[0]) { earlyGpCase = caseLookup2.data[0]; earlySenderRole = 'practice'; }
               } else {
                 // Multiple GPs at this practice — disambiguate
                 earlyGpCase = await _disambiguatePracticeEmail(appLookup.data, emailMeta);
+                if (earlyGpCase) earlySenderRole = 'practice';
               }
             }
           }
@@ -3054,7 +3059,19 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           var earlyMatch = await matchResponseToTask(earlyGpCase.id, emailMeta);
           if (earlyMatch && earlyMatch.confidence > 0.5) {
             var earlyTask = earlyMatch.task;
+            // Idempotency: never re-ingest a Gmail message already attached to this task.
+            // This survives the processed_gmail_messages deletion that recovery tooling does,
+            // and stops a reprocessed reply re-attaching documents or re-firing an SPPA state
+            // transition (the cause of the bogus practice_returned from a re-read candidate reply).
+            var _alreadyAttached = await supabaseDbRequest('task_messages',
+              'select=id&task_id=eq.' + encodeURIComponent(earlyTask.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+            if (_alreadyAttached.ok && Array.isArray(_alreadyAttached.data) && _alreadyAttached.data.length > 0) {
+              console.log('[Gmail] Skipping re-ingest — message', currentMsgId, 'already attached to task', earlyTask.id);
+              await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'duplicate_skipped', processed_at: new Date().toISOString() }] }).catch(function () {});
+              continue;
+            }
             var earlyIsDoc = earlyMatch.isDocumentDelivery || emailMeta.hasAttachments || false;
+            var _earlyStoredDocIds = [];
             console.log('[Gmail] Early response match: message', currentMsgId, '→ task', earlyTask.id, '(' + earlyTask.title + ')', 'confidence:', earlyMatch.confidence, 'isDoc:', earlyIsDoc);
             // Store as task_message
             var earlyMsgRecord = await supabaseDbRequest('task_messages', '', {
@@ -3065,21 +3082,25 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || '',
                 is_document_delivery: earlyIsDoc, ai_match_confidence: earlyMatch.confidence }]
             });
-            // Extract attachments if document delivery
+            // Extract attachments if document delivery. Use the RECURSIVE emailMeta.attachments
+            // (built by walkParts) — NOT a top-level payload.parts filter — so a reply whose
+            // attachment is nested inside a multipart part is still captured. Wipe the prior
+            // current doc LAZILY (only once an attachment has actually been fetched) so a
+            // missed/empty extraction can never leave the task with zero current documents.
             if (earlyIsDoc && emailMeta.attachments && emailMeta.attachments.length > 0) {
               try {
                 var earlyMsgId = (earlyMsgRecord.ok && earlyMsgRecord.data && earlyMsgRecord.data[0]) ? earlyMsgRecord.data[0].id : null;
-                // Mark previous docs as not current
-                await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(earlyTask.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
-                var fullMsgForAtt = await gmail.users.messages.get({ userId: emailAddress, id: currentMsgId, format: 'full' });
-                var attParts = ((fullMsgForAtt.data.payload && fullMsgForAtt.data.payload.parts) || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
-                var _earlyStoredDocIds = [];
-                for (var ap of attParts) {
-                  var attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: ap.body.attachmentId });
+                var _earlyWipedCurrent = false;
+                for (var ap of emailMeta.attachments) {
+                  var attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: ap.attachmentId });
+                  if (!_earlyWipedCurrent) {
+                    await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(earlyTask.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
+                    _earlyWipedCurrent = true;
+                  }
                   var _earlyDocRes = await supabaseDbRequest('task_documents', '', {
                     method: 'POST', headers: { Prefer: 'return=representation' },
                     body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
-                      filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.body.size || 0,
+                      filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
                       version: 1, is_current: true, uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                   var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
@@ -3092,7 +3113,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
               var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
               var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
               if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
-              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested')) {
+              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole !== 'practice') {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
                 sppaMeta.gp_returned_via = 'email_auto';
@@ -3111,10 +3132,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
-              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested')) {
+              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole !== 'candidate') {
                 sppaMeta.sppa_state = 'practice_returned';
                 sppaMeta.practice_returned_at = new Date().toISOString();
                 sppaMeta.practice_returned_via = 'email_auto';
+                // Fresh practice return → discard any stale AI completeness verdict / override
+                // so the submit gate re-checks THIS document version, not the prior one.
+                delete sppaMeta.completeness_check;
+                delete sppaMeta.completeness_override;
                 // Tag attachments: first PDF = SPPA, others = alt supervisor CVs
                 var _mainSppa = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
                 if (_earlyStoredDocIds.length > 1) {
@@ -3150,6 +3175,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc2.id, _sppaBuf2, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
               } else {
+                // No state advance: either the SPPA isn't awaiting a return, or the sender's
+                // role contradicts the state (e.g. a candidate reply arriving while we're
+                // waiting on the PRACTICE). Record + surface for RSO review; do NOT advance.
+                if (sppaMeta && earlySenderRole && ((sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole === 'candidate')) {
+                  console.warn('[Gmail] SPPA sender-role mismatch — candidate replied while awaiting practice; not advancing task', earlyTask.id);
+                  await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'system', 'SPPA-00 reply from the candidate received while awaiting the practice — left for review (state unchanged)', 'From: ' + (emailMeta.sender || ''), 'system');
+                }
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
               }
@@ -22320,6 +22352,20 @@ async function handleApi(req, res, pathname) {
         }
       }
     }
+    // TEST_WATCH inboxes (e.g. hello@) have no va_gmail_accounts row, so the loops above
+    // skip them — leaving the one inbox that test/practice mail routes to with NO polling
+    // safety net. Poll them here too (stored-history scan, NOT a state-deleting direct
+    // scan) so a missed Pub/Sub push still gets caught daily. The sender allowlist inside
+    // processGmailNotification drops all non-allowlisted mail, so the archive isn't flooded.
+    for (var twPgInbox of TEST_WATCH_INBOXES) {
+      if (MONITORED_VA_EMAILS.includes(twPgInbox)) continue;
+      try {
+        await processGmailNotification(twPgInbox, null);
+        pgResults.push({ email: twPgInbox, testWatch: true, ok: true });
+      } catch (twErr) {
+        pgResults.push({ email: twPgInbox, testWatch: true, ok: false, error: twErr.message });
+      }
+    }
     sendJson(res, 200, { ok: true, results: pgResults });
     return;
   }
@@ -35470,7 +35516,7 @@ Return ONLY valid JSON with no markdown formatting:
     const taskId = pathname.split('/')[5];
 
     const taskRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+      'select=id,case_id,metadata,gmail_thread_id&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
     if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
     const task = taskRes.data[0];
     var taskMeta = task.metadata;
@@ -35500,6 +35546,7 @@ Return ONLY valid JSON with no markdown formatting:
     const sppaCandFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
       from: sppaCandFrom,
+      threadId: task.gmail_thread_id || undefined,
       to: candidateEmail,
       subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
       bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
@@ -35523,10 +35570,14 @@ Return ONLY valid JSON with no markdown formatting:
     taskMeta.sppa_state = 'sent_to_candidate';
     taskMeta.sent_to_candidate_at = new Date().toISOString();
     taskMeta.sent_to_candidate_email = candidateEmail;
-    taskMeta.candidate_gmail_message_id = emailResult.messageId || null;
+    taskMeta.candidate_gmail_message_id = emailResult.gmailMessageId || null;
+    // Anchor the task to the thread this email went out on so the candidate's reply
+    // thread-matches (Signal 1). sendGmailEmail returns the resolved/created thread id.
+    var _candPatch = { status: 'waiting_on_gp', metadata: taskMeta, updated_at: new Date().toISOString() };
+    if (emailResult.threadId) _candPatch.gmail_thread_id = emailResult.threadId;
     await supabaseDbRequest('registration_tasks',
       'id=eq.' + encodeURIComponent(taskId),
-      { method: 'PATCH', body: { status: 'waiting_on_gp', metadata: taskMeta, updated_at: new Date().toISOString() } });
+      { method: 'PATCH', body: _candPatch });
 
     // Sync practice_doc_ops: sent_to_candidate → awaiting_gp
     _ensurePracticeDocOps(task.case_id).then(function () {
@@ -35594,7 +35645,7 @@ Return ONLY valid JSON with no markdown formatting:
     const taskId = pathname.split('/')[5];
 
     const taskRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+      'select=id,case_id,metadata,gmail_thread_id&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
     if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
     const task = taskRes.data[0];
     var taskMeta = task.metadata;
@@ -35648,6 +35699,7 @@ Return ONLY valid JSON with no markdown formatting:
     const sppaPracFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
       from: sppaPracFrom,
+      threadId: task.gmail_thread_id || undefined,
       to: practiceEmail,
       subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
       bodyHtml: '<p>Dear ' + practiceName + ',</p>' +
@@ -35672,10 +35724,13 @@ Return ONLY valid JSON with no markdown formatting:
     taskMeta.sppa_state = 'sent_to_practice';
     taskMeta.sent_to_practice_at = new Date().toISOString();
     taskMeta.sent_to_practice_email = practiceEmail;
-    taskMeta.practice_gmail_message_id = emailResult.messageId || null;
+    taskMeta.practice_gmail_message_id = emailResult.gmailMessageId || null;
+    // Keep the task anchored to the live thread so the practice's reply thread-matches.
+    var _pracPatch = { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() };
+    if (emailResult.threadId) _pracPatch.gmail_thread_id = emailResult.threadId;
     await supabaseDbRequest('registration_tasks',
       'id=eq.' + encodeURIComponent(taskId),
-      { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() } });
+      { method: 'PATCH', body: _pracPatch });
 
     // Sync practice_doc_ops: sent_to_practice → awaiting_practice
     _ensurePracticeDocOps(task.case_id).then(function () {
@@ -35841,6 +35896,10 @@ Return ONLY valid JSON with no markdown formatting:
     } else {
       taskMeta.sppa_state = 'practice_returned';
       taskMeta.practice_returned_at = new Date().toISOString();
+      // Fresh return → discard any stale AI completeness verdict / override so the submit
+      // gate re-checks this document version.
+      delete taskMeta.completeness_check;
+      delete taskMeta.completeness_override;
       // Extract alt supervisor names from the returned SPPA PDF
       try {
         var altNames = await extractAltSupervisorNames(pdfBuf);
@@ -36422,7 +36481,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!corrections) { sendJson(res, 400, { error: 'corrections text required' }); return; }
 
     const taskRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+      'select=id,case_id,metadata,gmail_thread_id&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
     if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
     const task = taskRes.data[0];
     var taskMeta = task.metadata;
@@ -36451,8 +36510,18 @@ Return ONLY valid JSON with no markdown formatting:
     taskMeta.sppa_state = 'corrections_requested';
     taskMeta.corrections_requested_at = new Date().toISOString();
     taskMeta.corrections_note = corrections;
+    // The corrected document is a NEW version — discard the stale AI verdict + override so
+    // the submit gate re-checks the corrected form, not the one we just rejected.
+    delete taskMeta.completeness_check;
+    delete taskMeta.completeness_override;
+    // Re-anchor the task to whatever thread the corrections email actually went out on, so
+    // the practice's corrected reply thread-matches (Signal 1). Before this, the handler did
+    // not even select gmail_thread_id, so the email started a brand-new thread that no
+    // inbound reply could ever match.
+    var _corrPatch = { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() };
+    if (emailResult.threadId) _corrPatch.gmail_thread_id = emailResult.threadId;
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
-      { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() } });
+      { method: 'PATCH', body: _corrPatch });
 
     // Sync practice_doc_ops
     _ensurePracticeDocOps(task.case_id).then(function () {
@@ -36461,6 +36530,38 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'Corrections requested on SPPA-00: ' + corrections.substring(0, 200), corrPracticeEmail, admin.email);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Pull the practice's (or candidate's) reply NOW — manual catch-up when Gmail
+  // auto-ingest lags or a push notification was missed. Scans the case's mailbox(es) on
+  // demand. Safe + idempotent: already-attached messages are skipped (per-task
+  // gmail_message_id guard) and the history cursor only advances after processing, so a
+  // re-check can never duplicate-attach or wrongly flip state. ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-recheck-thread')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+    var _scanInbox = '';
+    try { _scanInbox = await resolveCaseSenderEmail(task.case_id); } catch (e) {}
+    // Reply lands in the mailbox we sent FROM; also sweep any test-watched archive (hello@).
+    var _recheckInboxes = [];
+    if (_scanInbox) _recheckInboxes.push(String(_scanInbox).toLowerCase());
+    for (var _twi of TEST_WATCH_INBOXES) { if (_recheckInboxes.indexOf(_twi) < 0) _recheckInboxes.push(_twi); }
+    var _recheckScanned = [];
+    for (var _sib of _recheckInboxes) {
+      try { await processGmailNotification(_sib, null); _recheckScanned.push({ inbox: _sib, ok: true }); }
+      catch (e) { _recheckScanned.push({ inbox: _sib, ok: false, error: e.message }); }
+    }
+    var _afterRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    var _afterMeta = (_afterRes.ok && _afterRes.data && _afterRes.data[0]) ? _afterRes.data[0].metadata : null;
+    if (typeof _afterMeta === 'string') try { _afterMeta = JSON.parse(_afterMeta); } catch (e) { _afterMeta = {}; }
+    await _logCaseEvent(task.case_id, taskId, 'system', 'Manual re-check for practice reply triggered', JSON.stringify(_recheckScanned).slice(0, 300), admin.email);
+    sendJson(res, 200, { ok: true, scanned: _recheckScanned, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
     return;
   }
 
