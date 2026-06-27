@@ -1951,6 +1951,31 @@ async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
   }
 }
 
+// Display name of the case's assigned RSO (empty string if none / not on roster).
+async function resolveCaseSenderName(caseId, knownAssignedVa) {
+  if (!caseId) return '';
+  try {
+    var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
+    if (!rsoUserId) return '';
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
+    return (rso && rso.name) ? String(rso.name).trim() : '';
+  } catch (e) { return ''; }
+}
+
+// Single source of truth for the From address + display name of a case email.
+// Hub OFF → per-RSO mailbox + generic name (unchanged). Hub ON → hub mailbox + RSO name.
+async function resolveCaseSenderInfo(caseId, knownAssignedVa) {
+  var rsoEmail = await resolveCaseSenderEmail(caseId, knownAssignedVa);
+  var rsoName = await resolveCaseSenderName(caseId, knownAssignedVa);
+  return registrationHub.resolveSender({
+    hubEmail: REGISTRATION_HUB_EMAIL,
+    rsoEmail: rsoEmail,
+    rsoName: rsoName,
+    fallback: MONITORED_VA_EMAILS[0] || 'hazel@mygplink.com.au'
+  });
+}
+
 // ── URL safety helpers ──
 // Switch-based origin resolvers — each case returns a string literal so CodeQL
 // recognises the return value as non-tainted (equality check = sanitiser).
@@ -25265,12 +25290,13 @@ async function handleApi(req, res, pathname) {
         senderCaseId = (_tcr.ok && Array.isArray(_tcr.data) && _tcr.data[0]) ? _tcr.data[0].case_id : null;
       } catch (e) {}
     }
-    var senderEmail = await resolveCaseSenderEmail(senderCaseId);
-    if (!senderEmail) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
+    var senderInfo = await resolveCaseSenderInfo(senderCaseId);
+    if (!senderInfo || !senderInfo.from) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
 
     // Send via Gmail
     var sendResult = await sendGmailEmail({
-      from: senderEmail,
+      from: senderInfo.from,
+      fromName: senderInfo.fromName,
       to: emailTo,
       cc: emailCc,
       subject: emailSubject,
@@ -25294,7 +25320,7 @@ async function handleApi(req, res, pathname) {
           case_id: emailCaseId || null,
           direction: 'outbound',
           channel: 'email',
-          sender: senderEmail,
+          sender: senderInfo.from,
           recipient: emailTo,
           subject: emailSubject,
           body_text: emailBodyText || null,
@@ -35101,9 +35127,10 @@ Return ONLY valid JSON with no markdown formatting:
     const commaIdx = doc.attachment_url.indexOf(',');
     const pdfBase64 = doc.attachment_url.substring(commaIdx + 1);
 
-    const sppaCandFrom = await resolveCaseSenderEmail(task.case_id);
+    const _siSppaCand = await resolveCaseSenderInfo(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: sppaCandFrom,
+      from: _siSppaCand.from,
+      fromName: _siSppaCand.fromName,
       to: candidateEmail,
       subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
       bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
@@ -35240,9 +35267,10 @@ Return ONLY valid JSON with no markdown formatting:
     const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
     var candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
 
-    const sppaPracFrom = await resolveCaseSenderEmail(task.case_id);
+    const _siSppaPrac = await resolveCaseSenderInfo(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: sppaPracFrom,
+      from: _siSppaPrac.from,
+      fromName: _siSppaPrac.fromName,
       to: practiceEmail,
       subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
       bodyHtml: '<p>Dear ' + practiceName + ',</p>' +
@@ -35922,9 +35950,9 @@ Return ONLY valid JSON with no markdown formatting:
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
 
-    var corrCandFrom = await resolveCaseSenderEmail(task.case_id);
+    var _siCorrCand = await resolveCaseSenderInfo(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: corrCandFrom, to: corrCandidateEmail,
+      from: _siCorrCand.from, fromName: _siCorrCand.fromName, to: corrCandidateEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
@@ -35975,9 +36003,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
 
-    var corrPracFrom = await resolveCaseSenderEmail(task.case_id);
+    var _siCorrPrac = await resolveCaseSenderInfo(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: corrPracFrom, to: corrPracticeEmail,
+      from: _siCorrPrac.from, fromName: _siCorrPrac.fromName, to: corrPracticeEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
