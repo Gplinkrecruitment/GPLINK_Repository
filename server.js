@@ -116,6 +116,7 @@ const {
   pickCorrectionRecipient
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
+const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
@@ -1716,7 +1717,7 @@ const TEST_WATCH_INBOXES = new Set(
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 const TEST_WATCH_FROM_SENDERS = new Set(
-  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com')
+  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com,smithmiller1234@gmail.com')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 // TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
@@ -1888,8 +1889,27 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var rawBase64 = Buffer.from(rawMessage).toString('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+    // Gmail thread IDs are per-mailbox. A resolved threadId may belong to a
+    // DIFFERENT mailbox than `from` — e.g. the conversation started while the case
+    // was handled from hazel@, but the case's assigned RSO now sends from hello@.
+    // Passing such a foreign threadId to messages.send returns
+    // 404 "Requested entity was not found" and blocks the whole send. Verify the
+    // thread exists in the sender's own mailbox; if not (or verification fails for
+    // any reason), drop it and send as a new message. Recipient-side threading is
+    // still preserved via the In-Reply-To/References headers built above, and the
+    // caller re-anchors the task to the new thread from the returned threadId.
+    var safeThreadId = threadId || null;
+    if (safeThreadId) {
+      try {
+        await gmail.users.threads.get({ userId: from, id: safeThreadId, format: 'minimal' });
+      } catch (threadErr) {
+        console.warn('[Gmail send] threadId', safeThreadId, 'not found in mailbox', maskEmail(from), '— sending without it:', (threadErr && threadErr.message) || threadErr);
+        safeThreadId = null;
+      }
+    }
+
     var sendBody = { raw: rawBase64 };
-    if (threadId) sendBody.threadId = threadId;
+    if (safeThreadId) sendBody.threadId = safeThreadId;
 
     var result = await gmail.users.messages.send({
       userId: from,
@@ -1897,7 +1917,7 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     });
 
     var gmailMessageId = result.data && result.data.id ? result.data.id : '';
-    var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (threadId || '');
+    var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (safeThreadId || '');
     console.log('[Gmail] Email sent from', from, 'to', to, '— messageId:', gmailMessageId, 'threadId:', resultThreadId);
 
     // Apply Gmail labels if case is linked
@@ -1925,6 +1945,27 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     if (err && err.response && err.response.data) detail = JSON.stringify(err.response.data);
     console.error('[Gmail] sendGmailEmail failed:', detail);
     return { ok: false, error: detail };
+  }
+}
+
+// Resolve the "from" mailbox for a case's outbound email: the case's assigned RSO (so emails go
+// out from whoever owns the GP), falling back to the default team mailbox. Only @mygplink.com.au
+// mailboxes can be sent as via Google Workspace domain-wide delegation — an RSO whose roster email
+// is a personal address (e.g. a gmail.com) cannot be impersonated, so it falls back to the default.
+async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
+  var fallback = MONITORED_VA_EMAILS[0] || 'hazel@mygplink.com.au';
+  if (!caseId) return fallback;
+  try {
+    var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
+    if (!rsoUserId) return fallback;
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
+    var email = (rso && rso.email) ? String(rso.email).trim().toLowerCase() : '';
+    if (email && /@mygplink\.com\.au$/.test(email)) return email;
+    return fallback;
+  } catch (e) {
+    console.error('[resolveCaseSenderEmail] error:', e.message);
+    return fallback;
   }
 }
 
@@ -3052,11 +3093,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
                 sppaMeta.gp_returned_via = 'email_auto';
+                // Reset any prior GP-section scan so this fresh return gets re-checked.
+                sppaMeta.gp_section_scan_completed = false;
+                delete sppaMeta.gp_section_scan;
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
                 _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                   return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
                 }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
+                // AI: confirm the candidate completed Section A Q1 + signed Section I (fire-and-forget).
+                _maybeRunGpSectionScan(earlyTask.id, { force: true }).catch(function (e) { console.error('[Gmail] GP section scan trigger error:', e.message); });
                 if (_earlyStoredDocIds.length > 0) {
                   var _sppaPdfDoc = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('.pdf') > -1; }) || _earlyStoredDocIds[0];
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
@@ -8832,6 +8878,124 @@ async function _runSppaConflictScanInner(caseId, userId) {
 
   } catch (err) {
     console.error('[SPPA-00] Conflict scan orchestrator error:', err.message);
+  }
+}
+
+// ── GP-section completeness scan: run when the candidate returns the SPPA-00 ──
+// Confirms the candidate completed Section A Q1 (personal details) and signed
+// Section I (Supervisee's declaration); stores a plain-English result on the
+// task metadata so the admin sees it on the SPPA card. Fail-open: never throws,
+// never blocks the flow.
+var _sppaSectionScanInflight = {};
+
+async function _maybeRunGpSectionScan(taskId, opts) {
+  if (!taskId) return null;
+  if (_sppaSectionScanInflight[taskId]) { try { return await _sppaSectionScanInflight[taskId]; } catch (e) { return null; } }
+  var run = _runGpSectionScanInner(taskId, opts || {});
+  _sppaSectionScanInflight[taskId] = run;
+  try { return await run; }
+  catch (e) { console.error('[SPPA-00] GP section scan wrapper error:', e.message); return null; }
+  finally { delete _sppaSectionScanInflight[taskId]; }
+}
+
+async function _runGpSectionScanInner(taskId, opts) {
+  opts = opts || {};
+  try {
+    var taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,metadata,related_document_key&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) return null;
+    var task = taskRes.data[0];
+    if (task.related_document_key !== 'sppa_00') return null;
+    var meta = task.metadata;
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    meta = meta || {};
+
+    // Idempotency: skip if already scanned, unless a re-scan is forced.
+    if (!opts.force && meta.gp_section_scan_completed) return meta.gp_section_scan || null;
+
+    // Find the candidate-returned document (current version on the task).
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url,mime_type,filename,uploaded_by&task_id=eq.' + encodeURIComponent(taskId) +
+      '&is_current=eq.true&order=created_at.desc&limit=1');
+    var doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url) {
+      console.error('[SPPA-00] GP section scan: no current document for task ' + taskId);
+      return null;
+    }
+
+    // Decode the returned PDF (data: URL) or fetch it (Drive/http URL).
+    var pdfBuffer = null;
+    var pdfMime = doc.mime_type || 'application/pdf';
+    try {
+      if (/^data:/i.test(doc.attachment_url)) {
+        var commaIdx = doc.attachment_url.indexOf(',');
+        var mimeMatch = doc.attachment_url.substring(0, commaIdx).match(/data:([^;]+)/);
+        if (mimeMatch) pdfMime = mimeMatch[1];
+        var b64 = doc.attachment_url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4 !== 0) b64 += '=';
+        pdfBuffer = Buffer.from(b64, 'base64');
+      } else {
+        var fetched = await fetchAttachmentAsBase64(doc.attachment_url, doc.filename || 'SPPA-00.pdf');
+        pdfBuffer = Buffer.from(fetched.content, 'base64');
+        pdfMime = fetched.mimeType || pdfMime;
+      }
+    } catch (decodeErr) {
+      console.error('[SPPA-00] GP section scan: could not load returned PDF:', decodeErr.message);
+    }
+
+    var scan;
+    if (!pdfBuffer || !pdfBuffer.length) {
+      scan = { ok: false, error: 'could_not_load_document', overall: 'unclear', confidence: 'low',
+        summary: 'Could not read the returned document to scan it. Please review the form manually.',
+        section_a_filled: false, section_a_notes: '', section_i_signed: false, section_i_notes: '',
+        candidate_name_detected: '', scanned_at: new Date().toISOString() };
+    } else {
+      console.log('[SPPA-00] Running GP-section completeness scan for task ' + taskId);
+      var result = await scanGpSections({ pdfBuffer: pdfBuffer, pdfMime: pdfMime, candidateName: meta.candidate_name || '' });
+      scan = {
+        ok: !result._error,
+        error: result._error || null,
+        section_a_filled: result.section_a_filled,
+        section_a_notes: result.section_a_notes,
+        section_i_signed: result.section_i_signed,
+        section_i_notes: result.section_i_notes,
+        candidate_name_detected: result.candidate_name_detected,
+        overall: result._error ? 'unclear' : result.overall,
+        confidence: result._error ? 'low' : result.confidence,
+        summary: result._error
+          ? 'The automatic check could not run (' + result._error + '). Please review the form manually.'
+          : result.summary,
+        scanned_at: new Date().toISOString()
+      };
+      console.log('[SPPA-00] GP section scan result:', JSON.stringify({
+        overall: scan.overall, section_a: scan.section_a_filled, section_i: scan.section_i_signed,
+        confidence: scan.confidence, error: scan.error
+      }));
+    }
+
+    // Re-read metadata right before writing so we merge onto the latest state
+    // (the gp_returned transition PATCH ran just before this fire-and-forget).
+    var freshRes = await supabaseDbRequest('registration_tasks',
+      'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    var freshMeta = (freshRes.ok && freshRes.data && freshRes.data[0]) ? freshRes.data[0].metadata : meta;
+    if (typeof freshMeta === 'string') try { freshMeta = JSON.parse(freshMeta); } catch (e) { freshMeta = meta; }
+    freshMeta = freshMeta || {};
+    freshMeta.gp_section_scan = scan;
+    freshMeta.gp_section_scan_completed = true;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+      { method: 'PATCH', body: { metadata: freshMeta, updated_at: new Date().toISOString() } });
+
+    try {
+      await _logCaseEvent(task.case_id, taskId, 'system',
+        'AI checked the GP’s SPPA-00 sections — ' + (scan.overall === 'complete' ? 'sections complete' : (scan.overall === 'incomplete' ? 'sections incomplete' : 'needs manual review')),
+        scan.summary, 'system',
+        { section_a_filled: scan.section_a_filled, section_i_signed: scan.section_i_signed, confidence: scan.confidence });
+    } catch (e) {}
+
+    return scan;
+  } catch (err) {
+    console.error('[SPPA-00] GP section scan orchestrator error:', err.message);
+    return null;
   }
 }
 
@@ -25339,8 +25503,15 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    // Determine sender
-    var senderEmail = MONITORED_VA_EMAILS[0];
+    // Determine sender — the case's assigned RSO mailbox, fallback to the default team mailbox
+    var senderCaseId = emailCaseId;
+    if (!senderCaseId && emailTaskId) {
+      try {
+        var _tcr = await supabaseDbRequest('registration_tasks', 'select=case_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
+        senderCaseId = (_tcr.ok && Array.isArray(_tcr.data) && _tcr.data[0]) ? _tcr.data[0].case_id : null;
+      } catch (e) {}
+    }
+    var senderEmail = await resolveCaseSenderEmail(senderCaseId);
     if (!senderEmail) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
 
     // Send via Gmail
@@ -35191,8 +35362,9 @@ Return ONLY valid JSON with no markdown formatting:
     const commaIdx = doc.attachment_url.indexOf(',');
     const pdfBase64 = doc.attachment_url.substring(commaIdx + 1);
 
+    const sppaCandFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au',
+      from: sppaCandFrom,
       to: candidateEmail,
       subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
       bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
@@ -35266,7 +35438,16 @@ Return ONLY valid JSON with no markdown formatting:
     while (b64.length % 4 !== 0) b64 += '=';
     const pdfBuffer = Buffer.from(b64, 'base64');
 
-    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="SPPA-00.pdf"' });
+    // The document at this URL changes across the SPPA lifecycle (blank template →
+    // Q7-filled → GP-returned → practice-returned). Never let the browser cache it,
+    // or a stale earlier version (e.g. the empty form) shows after the GP returns it.
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="SPPA-00.pdf"',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
     res.end(pdfBuffer);
     return;
   }
@@ -35329,8 +35510,9 @@ Return ONLY valid JSON with no markdown formatting:
     const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
     var candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
 
+    const sppaPracFrom = await resolveCaseSenderEmail(task.case_id);
     const emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au',
+      from: sppaPracFrom,
       to: practiceEmail,
       subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
       bodyHtml: '<p>Dear ' + practiceName + ',</p>' +
@@ -35427,6 +35609,18 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Run (or re-run) the GP-section completeness scan on a returned SPPA-00 ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-scan-gp-sections')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const scanTaskId = pathname.split('/')[5];
+    if (!scanTaskId) { sendJson(res, 400, { ok: false, error: 'task id required' }); return; }
+    var scanOut = await _maybeRunGpSectionScan(scanTaskId, { force: true });
+    if (!scanOut) { sendJson(res, 422, { ok: false, error: 'Could not scan — no returned document found for this SPPA, or the task is not an SPPA-00.' }); return; }
+    sendJson(res, 200, { ok: true, gp_section_scan: scanOut });
+    return;
+  }
+
   // ── Store returned SPPA-00 (from candidate or practice) ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-store-returned')) {
     const admin = requireAdminSession(req, res);
@@ -35482,6 +35676,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (returnedFrom === 'candidate') {
       taskMeta.sppa_state = 'gp_returned';
       taskMeta.gp_returned_at = new Date().toISOString();
+      // Reset any prior GP-section scan so this fresh return gets re-checked.
+      taskMeta.gp_section_scan_completed = false;
+      delete taskMeta.gp_section_scan;
       await supabaseDbRequest('registration_tasks',
         'id=eq.' + encodeURIComponent(taskId),
         { method: 'PATCH', body: { status: 'in_progress', metadata: taskMeta, updated_at: new Date().toISOString() } });
@@ -35489,6 +35686,8 @@ Return ONLY valid JSON with no markdown formatting:
       _ensurePracticeDocOps(task.case_id).then(function () {
         return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
       }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
+      // AI: confirm the candidate completed Section A Q1 + signed Section I (fire-and-forget).
+      _maybeRunGpSectionScan(taskId, { force: true }).catch(function (e) { console.error('[ADMIN] GP section scan trigger error:', e.message); });
       await _logCaseEvent(task.case_id, taskId, 'system', 'GP returned partially completed SPPA-00', null, admin.email);
     } else {
       taskMeta.sppa_state = 'practice_returned';
@@ -36010,8 +36209,9 @@ Return ONLY valid JSON with no markdown formatting:
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
 
+    var corrCandFrom = await resolveCaseSenderEmail(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au', to: corrCandidateEmail,
+      from: corrCandFrom, to: corrCandidateEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
@@ -36062,8 +36262,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
 
+    var corrPracFrom = await resolveCaseSenderEmail(task.case_id);
     var emailResult = await sendGmailEmail({
-      from: 'hazel@mygplink.com.au', to: corrPracticeEmail,
+      from: corrPracFrom, to: corrPracticeEmail,
       subject: corrSubject, bodyHtml: corrBody,
       threadId: task.gmail_thread_id || undefined
     });
@@ -37455,7 +37656,14 @@ Return ONLY valid JSON with no markdown formatting:
         // the client can reliably fill the "To"/greeting even if its cached task data is stale.
         var ccAppRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&status=eq.hired&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
         var ccApp = ccAppRes.ok && Array.isArray(ccAppRes.data) && ccAppRes.data[0] ? ccAppRes.data[0] : null;
-        if (ccApp && ccApp.practice_contact_email) practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
+        if (ccApp && ccApp.practice_contact_email) {
+          practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
+          // The practice's primary contact is the "To" recipient on practice emails and must
+          // never be offered as a CC — otherwise it shows up as a CC on the candidate's own
+          // emails (e.g. the SPPA-00 "Send to candidate" composer, where To = the candidate).
+          var ccPracEmail = String(ccApp.practice_contact_email).trim().toLowerCase();
+          contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccPracEmail; });
+        }
       }
     } catch (e) { /* non-fatal: fall back to unfiltered contacts */ }
     sendJson(res, 200, { ok: true, contacts: contacts, practiceContact: practiceContact });
