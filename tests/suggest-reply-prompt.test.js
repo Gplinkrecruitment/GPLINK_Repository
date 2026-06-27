@@ -19,6 +19,12 @@ describe('buildSuggestReplyMessages', () => {
     expect(system[0].text).toContain(GROUNDING_RULES);
     expect(system[0].text).toContain('AHPRA: certified copies');
   });
+  it('grounding rules carry the practice-document request guardrail (no premature practice requests)', () => {
+    expect(GROUNDING_RULES).toContain('outstanding_from_practice');
+    expect(GROUNDING_RULES).toContain('do_not_request');
+    // and it reaches the model inside the cached static block
+    expect(buildSuggestReplyMessages(base).system[0].text).toContain('do_not_request');
+  });
   it('the cacheable static block does NOT contain the per-email content', () => {
     const { system } = buildSuggestReplyMessages(base);
     expect(system[0].text).not.toContain('where do I get my degree certified');

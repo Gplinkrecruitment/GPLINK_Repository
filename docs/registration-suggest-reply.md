@@ -11,6 +11,12 @@ The per-stage guidance lives in `lib/registration-playbook.js` (`STAGE_PLAYBOOK`
 - The static block (rules + playbook) is prompt-cached, so repeated suggestions within a few minutes are ~90% cheaper on that portion. Because the playbook is small, each suggestion is roughly a cent regardless of cache state.
 - It only runs when the RSO clicks Suggest — never automatically.
 
+## Grounding guardrails (why RSOs can trust it)
+- Draft-only — it fills the reply box; nothing is auto-sent.
+- Uses only the supplied facts; flags `[RSO: please confirm …]` when unsure; never claims a step is complete unless the facts say so.
+- **Practice-document guardrail:** the facts include `practice_documents.{outstanding_from_practice, do_not_request}`, and the grounding rules forbid the AI from asking a practice for anything in `do_not_request` (already received / automatic / under review / waiting on the GP / not yet formally requested). This stops premature SPPA-00 / Section G / Supervisor CV requests.
+
 ## Known follow-ups
-- The rest of the app's Anthropic calls still default to the deprecated `claude-opus-4-20250514` (`ANTHROPIC_MODEL`, server.js ~179). Out of scope here; migrate separately to a current model.
+- **Signer name:** the draft signs as "Hazel" regardless of the case's assigned RSO. Outbound mail already sends from the assigned RSO's mailbox, so parameterise the signer name to the assigned RSO (pass it into `buildSuggestReplyMessages`).
+- **Practice signing specifics:** the `career` playbook section could note the exact signing requirements (Supervisor CV dated+signed by the supervisor; Position Description signed by the owner; Offer/Contract signed by both) — domain content for the owner to add.
 - The playbook currently covers myintealth/amc/career(placement)/ahpra/pbs/commencement. Visa is aliased to the AHPRA section (visa is deferred in v1).
