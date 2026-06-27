@@ -13,7 +13,7 @@
 - **Draft-only, never auto-sent.** The output fills the reply box for the RSO to edit and send. No code path sends it automatically.
 - **Grounded:** the AI must use ONLY facts in the provided context; it must NOT invent document statuses, dates, requirements, or outcomes; when unsure it flags `[RSO: please confirm …]` rather than guessing; it never states a document/step is complete unless the facts say so.
 - **Token-light:** the stage playbook is small and **stage-scoped** (only the current stage's section is sent); the cached `ai_handover_summary` is **reused, never recomputed in the request path**; facts go as a compact structured object, not raw screens; the static block (rules + playbook) is cached via `cache_control: {type:'ephemeral'}` and placed **before** the dynamic content.
-- **Model:** the suggest-reply call must use a current, non-deprecated model via the new `SUGGEST_REPLY_MODEL` env (default `claude-sonnet-4-6`). Do NOT keep the existing hardcoded `claude-opus-4-20250514` (deprecated) for this endpoint. Do NOT change the other ~14 Anthropic call sites — out of scope (note as a follow-up).
+- **Model:** the suggest-reply call must use a current, non-deprecated model via the new `SUGGEST_REPLY_MODEL` env (default `claude-opus-4-6` — the owner's choice). Do NOT keep the existing hardcoded `claude-opus-4-20250514` (deprecated) for this endpoint. (Opus 4.6 accepts the plain `{model, max_tokens, system, messages}` body — no `thinking`/`temperature` fields needed or sent.) Do NOT change the other ~14 Anthropic call sites — out of scope (note as a follow-up).
 - **Non-destructive:** keep the endpoint's request (`{taskId}`) and response (`{ok, suggestedReply, context}`) shape unchanged so existing callers keep working.
 - **Test gate:** `npx vitest run` stays fully green (baseline 624). `node --check server.js` before any server.js commit. Run tests with `export PATH="/tmp/node-v20.18.1-darwin-arm64/bin:$PATH"; ./node_modules/.bin/vitest run`.
 - **Cache-buster:** admin.html script bump uses `?v=YYYYMMDD[letter]`.
@@ -278,8 +278,8 @@ const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 ```
 Near the existing `ANTHROPIC_MODEL` const (`grep -n "ANTHROPIC_MODEL =" server.js`, ~line 179) add:
 ```js
-// Suggest-a-reply is a focused drafting task — use a lighter, current model (not the deprecated default).
-const SUGGEST_REPLY_MODEL = process.env.SUGGEST_REPLY_MODEL || 'claude-sonnet-4-6';
+// Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
+const SUGGEST_REPLY_MODEL = process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6';
 ```
 
 - [ ] **Step 2: Wire the playbook + cached summary + new prompt into the handler**
@@ -436,7 +436,7 @@ The "✦ Suggest a reply" button drafts a reply the RSO reviews and sends (never
 The per-stage guidance lives in `lib/registration-playbook.js` (`STAGE_PLAYBOOK`). It is plain text — review and refine it as the registration process changes. Keep each stage section tight (under ~1200 chars) so it stays cheap to send.
 
 ## Cost / model
-- Model: `SUGGEST_REPLY_MODEL` env (default `claude-sonnet-4-6`). For lower cost you can set it to `claude-haiku-4-5` and compare quality; for maximum quality, `claude-opus-4-8`.
+- Model: `SUGGEST_REPLY_MODEL` env (default `claude-opus-4-6`). For lower cost you can set it to `claude-sonnet-4-6` or `claude-haiku-4-5` and compare quality.
 - The static block (rules + playbook) is prompt-cached, so repeated suggestions within a few minutes are ~90% cheaper on that portion. Because the playbook is small, each suggestion is roughly a cent regardless of cache state.
 - It only runs when the RSO clicks Suggest — never automatically.
 
