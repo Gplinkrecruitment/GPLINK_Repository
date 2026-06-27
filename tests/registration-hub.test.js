@@ -30,6 +30,10 @@ describe('resolveSender', () => {
     expect(resolveSender({ hubEmail: 'registration@mygplink.com.au', rsoEmail: '', rsoName: '', fallback: 'hazel@mygplink.com.au' }))
       .toEqual({ from: 'registration@mygplink.com.au', fromName: 'GP Link Registration' });
   });
+  it('misconfigured non-mygplink hub email is ignored → never violates the @mygplink.com.au sender rule', () => {
+    expect(resolveSender({ hubEmail: 'registration@gmail.com', rsoEmail: 'hazel@mygplink.com.au', rsoName: 'Hazel', fallback: 'hazel@mygplink.com.au' }))
+      .toEqual({ from: 'hazel@mygplink.com.au', fromName: 'GP Link Registration' });
+  });
 });
 
 describe('isHubInbox', () => {
