@@ -24,6 +24,18 @@ Items 2–3 depend on Zoom/DoubleTick being configured, so they're deployed-env-
 **Source of truth for UI/behaviour:** `pages/ceo-dashboard-prototype.html` (approved by owner).
 **Companion doc:** `2026-06-27-ats-ceo-restructure-HANDOVER.md` (vision + decisions).
 
+### BUILD STATUS — 2026-06-28 (increment: total-pipeline widget + movement plumbing)
+
+**Done & verified** (same branch; **682/682 tests pass**; 3 Candidates-tab views screenshotted on the real gated page):
+- **Total-pipeline widget** at the top of the Candidates tab — counts every GP **once**, by their furthest active stage, into 8 buckets that partition the universe (sum == total). New `'unassociated'` bucket = GPs with no applications; it appears **only** here (never on the per-job boards). A GP whose every application was passed on falls into `'not_proceeding'`. Each segment is a button that filters the candidate list to that bucket (toggle + Clear).
+- **Movement plumbing — how candidates move through the pipeline:**
+  - *Entry* — "＋ Add to a job" on a candidate's page creates a `gp_applications` row at `ats_stage='applied'` (moves them Unassociated → Applied). Idempotent on `(user_id, provider_role_id)`.
+  - *Move* — per-application **stage dropdown** on the candidate page (mirrors the job-board drag-and-drop), reusing the existing `PATCH /api/ats/application`. Every move records an `ats_stage_events` row and refreshes the widget.
+- New backend: `bucketForApps`/`PIPELINE_BUCKETS`/`PIPELINE_BUCKET_LABELS` in `lib/ats-practices.js`; `atsInsertApplicationRow` + `POST /api/ats/application` + `GET /api/ceo/pipeline-summary` + an `ats_bucket` filter (and `pipeline_bucket` per row) on `/api/ceo/candidates`. 9 new tests (pure bucketing + endpoints).
+- Reuses existing `gp_applications` columns only — **no new migrations** for this increment.
+
+
+
 > **Plain-English summary (for the owner).** Today the CEO dashboard is one long page about the registration process. We are turning it into four tabs across the top — **Registration | Candidates | Jobs | Practices** — and building a real recruitment system (ATS) inside the app, like Zoho but natively connected to everything else. "Registration" is your current dashboard, untouched, just moved inside the first tab. "Candidates" is every doctor on file with a profile, an automatic "how keen are they" intent score, their AI call summaries and message engagement, and where they sit in every pipeline. "Jobs" is the recruitment board where you drag a doctor from "Applied" to "Hired". "Practices" is every clinic as a proper record linked to its jobs and doctors. Every button will really work — nothing decorative.
 
 ---

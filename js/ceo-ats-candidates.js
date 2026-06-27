@@ -17,9 +17,10 @@
   function panel() { return document.getElementById(PANEL_ID); }
 
   // ---- list filter / sort / search state (kept in module scope) ----
-  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent' };
+  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '' };
   var searchTimer = null;
   var currentCandidate = null;
+  var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
 
   // Registration-stage filter options (rail stages).
   var STAGE_OPTS = [
@@ -42,6 +43,28 @@
     not_proceeding: { l: 'Not proceeding', c: 'var(--ats-red)' }
   };
   function atsStageMeta(s) { return ATS_STAGE[s] || { l: s ? String(s) : '—', c: 'var(--ats-muted)' }; }
+
+  // Selectable ATS pipeline stages for the per-application <select> (value, label).
+  var ATS_STAGE_OPTS = [
+    ['applied', 'Applied'], ['submitted', 'Submitted'], ['reviewing', 'Reviewing'],
+    ['interview', 'Interview'], ['offer', 'Offer'], ['hired', 'Hired'], ['not_proceeding', 'Not proceeding']
+  ];
+  function stageOptLabel(s) {
+    for (var i = 0; i < ATS_STAGE_OPTS.length; i++) { if (ATS_STAGE_OPTS[i][0] === s) return ATS_STAGE_OPTS[i][1]; }
+    return s ? String(s) : '—';
+  }
+
+  // Total-pipeline funnel: colour per bucket key (labels come from the endpoint).
+  var BUCKET_COLOR = {
+    unassociated: 'var(--ats-dim)',
+    applied: 'var(--ats-blue)',
+    submitted: 'var(--ats-purple)',
+    reviewing: 'var(--ats-amber)',
+    interview: 'var(--ats-blue)',
+    offer: 'var(--ats-green)',
+    hired: 'var(--ats-green)',
+    not_proceeding: 'var(--ats-red)'
+  };
 
   var SVG_SEARCH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ats-dim)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
   var SVG_CHAT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
@@ -78,6 +101,7 @@
     el.innerHTML = listScaffold();
     wireListEvents(el);
     fetchAndRenderRows();
+    fetchPipelineSummary();
   };
 
   function listScaffold() {
@@ -91,6 +115,7 @@
         '<h2>Candidates</h2>' +
         '<p>Every GP on file — profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>' +
       '</div></div>' +
+      '<div class="ats-pipeline-widget" id="ats-pipeline-widget">' + pipelineWidgetInner() + '</div>' +
       '<div class="ats-toolbar">' +
         '<div class="ats-search">' + SVG_SEARCH +
           '<input type="text" id="ats-cand-search" placeholder="Search candidates…" value="' + ATS.escAttr(state.q) + '" />' +
@@ -129,6 +154,24 @@
       bandSel.value = state.band;
       bandSel.addEventListener('change', function () { state.band = this.value; fetchAndRenderRows(); });
     }
+    // delegated: pipeline-funnel segments toggle the bucket filter; "Clear" resets it.
+    var widget = el.querySelector('#ats-pipeline-widget');
+    if (widget) widget.addEventListener('click', function (e) {
+      if (!e.target.closest) return;
+      if (e.target.closest('.ats-pw-clear')) {
+        if (!state.ats_bucket) return;
+        state.ats_bucket = '';
+        renderPipelineWidget();
+        fetchAndRenderRows();
+        return;
+      }
+      var seg = e.target.closest('.ats-pw-seg');
+      if (!seg) return;
+      var bucket = seg.getAttribute('data-bucket') || '';
+      state.ats_bucket = (state.ats_bucket === bucket) ? '' : bucket;
+      renderPipelineWidget();
+      fetchAndRenderRows();
+    });
     var table = el.querySelector('#ats-cand-table');
     if (table) table.addEventListener('click', function (e) {
       var row = e.target.closest ? e.target.closest('.ats-cand-row') : null;
@@ -145,7 +188,8 @@
       '&stage=' + encodeURIComponent(state.stage || '') +
       '&band=' + encodeURIComponent(state.band || '') +
       '&account_status=' + encodeURIComponent(state.account_status || '') +
-      '&sort=' + encodeURIComponent(state.sort || 'intent');
+      '&sort=' + encodeURIComponent(state.sort || 'intent') +
+      '&ats_bucket=' + encodeURIComponent(state.ats_bucket || '');
     ATS.api('/api/ceo/candidates' + qs).then(function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away (e.g. opened a candidate)
@@ -158,6 +202,55 @@
       t.innerHTML = list.map(rowHtml).join('');
     });
   }
+
+  /* ---- total-pipeline funnel widget (top of the list view) ---- */
+  function pipelineWidgetInner() {
+    if (!pipelineSummary) return '<div class="ats-pw-loading">Loading pipeline…</div>';
+    var buckets = pipelineSummary.buckets || [];
+    var total = pipelineSummary.total != null ? pipelineSummary.total : 0;
+    var active = state.ats_bucket || '';
+    var segs = buckets.map(function (b) {
+      var color = BUCKET_COLOR[b.key] || 'var(--ats-muted)';
+      var isActive = !!active && active === b.key;
+      return '<button type="button" class="ats-pw-seg' + (isActive ? ' active' : '') +
+          '" data-bucket="' + ATS.escAttr(b.key) + '" style="--seg-color:' + color + '">' +
+        '<span class="ats-pw-count">' + (b.count != null ? b.count : 0) + '</span>' +
+        '<span class="ats-pw-label">' + ATS.esc(b.label || b.key) + '</span>' +
+      '</button>';
+    }).join('');
+    var showing = '';
+    if (active) {
+      var lbl = active;
+      for (var i = 0; i < buckets.length; i++) { if (buckets[i].key === active) { lbl = buckets[i].label || active; break; } }
+      showing = '<span class="ats-pw-showing">Showing: <b>' + ATS.esc(lbl) + '</b>' +
+        ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
+    }
+    return '<div class="ats-pw-head"><span class="ats-pw-total">Total: <b>' + total + '</b> GPs</span>' + showing + '</div>' +
+      '<div class="ats-pw-funnel">' + segs + '</div>';
+  }
+
+  function renderPipelineWidget() {
+    var w = document.getElementById('ats-pipeline-widget');
+    if (w) w.innerHTML = pipelineWidgetInner();
+  }
+
+  function fetchPipelineSummary() {
+    ATS.api('/api/ceo/pipeline-summary').then(function (d) {
+      if (!d || !d.ok) {
+        pipelineSummary = null;
+        var w = document.getElementById('ats-pipeline-widget');
+        if (w) w.innerHTML = '<div class="ats-pw-loading">Could not load the pipeline summary.</div>';
+        return;
+      }
+      pipelineSummary = d;
+      renderPipelineWidget();
+    });
+  }
+
+  // Re-pull the funnel counts after a pipeline move, but only when the list view is mounted.
+  window.refreshPipelineWidget = function () {
+    if (document.getElementById('ats-pipeline-widget')) fetchPipelineSummary();
+  };
 
   function rowHtml(c) {
     var regPill = c.blocked
@@ -289,10 +382,17 @@
     var apps = c.apps || [];
     var appsHtml = apps.length ? apps.map(function (a) {
       var meta = atsStageMeta(a.ats_stage);
+      var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '">' +
+        ATS_STAGE_OPTS.map(function (o) {
+          return '<option value="' + o[0] + '"' + (a.ats_stage === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('') + '</select>';
       return '<div class="ats-job-app-row"><div>' +
         '<div class="jar-title">' + ATS.esc(a.job_title || '—') + '</div>' +
         '<div class="jar-sub">' + ATS.esc(a.practice_name || '') + ' · applied via ATS</div></div>' +
-        '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span></div>';
+        '<div class="ats-app-right">' +
+          '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
+          stageSel +
+        '</div></div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
     var blockedPill = c.blocked ? '<span class="ats-pill red" style="margin-left:6px">Blocked at ' + ATS.esc(c.reg_stage_label || '') + '</span>' : '';
@@ -300,7 +400,8 @@
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Pipeline position</div>' +
       '<div class="df-lbl" style="margin-bottom:6px">Registration journey ' + blockedPill + '</div>' +
       '<div class="ats-journey-wrap">' + railHtml + '</div>' +
-      '<div class="df-lbl" style="margin:16px 0 9px">Job applications (ATS)</div>' + appsHtml;
+      '<div class="ats-pw-apps-head"><div class="df-lbl">Job applications (ATS)</div>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-add-job">＋ Add to a job</button></div>' + appsHtml;
   }
 
   function onboardingCardInner(c) {
@@ -427,10 +528,26 @@
     });
     var sched = host.querySelector('#ats-cand-schedule');
     if (sched) sched.addEventListener('click', function () { openScheduleModal(c); });
-    // delegated: the comms-scan button can be re-rendered into #ats-cand-comms.
+    // delegated click: comms-scan + add-to-job buttons (either may be re-rendered).
     host.addEventListener('click', function (e) {
-      var scan = e.target.closest ? e.target.closest('#ats-comms-scan') : null;
-      if (scan) runCommsScan(c.case_id);
+      if (!e.target.closest) return;
+      if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
+      if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
+    });
+    // delegated change: a per-application stage <select> moves the GP along the pipeline.
+    host.addEventListener('change', function (e) {
+      var sel = e.target.closest ? e.target.closest('.ats-app-stage') : null;
+      if (!sel) return;
+      var appId = sel.getAttribute('data-app-id');
+      if (!appId) return;
+      var newStage = sel.value;
+      sel.disabled = true;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: { stage: newStage } }).then(function (res) {
+        if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
+        else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
+      });
     });
   }
 
@@ -503,6 +620,77 @@
         if (res && res.message) ATS.toast(res.message);
         else if (res && res.ok) ATS.toast('Booking link sent.');
         else ATS.toast((res && (res.error || res.message)) || 'Could not schedule the call.');
+      });
+    });
+  }
+
+  /* =====================================================================
+   *  ADD-TO-JOB MODAL  (Unassociated -> Applied)
+   * ===================================================================== */
+  function addJobModalHtml() {
+    return '<div class="ats-modal-wrap open" id="ats-addjob-wrap">' +
+      '<div class="ats-modal">' +
+        '<div class="ats-modal-head"><h3>Add to a job</h3><button class="ats-drawer-close" id="ats-addjob-close">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<label>Open job</label>' +
+          '<select id="ats-addjob-select"><option value="">Loading open jobs…</option></select>' +
+          '<p style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">Creates an application and moves this GP into the job pipeline.</p>' +
+        '</div>' +
+        '<div class="ats-modal-foot">' +
+          '<button class="ats-btn ats-btn-ghost" id="ats-addjob-cancel">Cancel</button>' +
+          '<button class="ats-btn ats-btn-primary" id="ats-addjob-confirm">Add to job</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function openAddJobModal(c) {
+    if (!c || !c.user_id) { ATS.toast('Missing candidate id'); return; }
+    ATS.setOverlay(addJobModalHtml());
+    var root = document.getElementById('atsOverlayRoot');
+    if (!root) return;
+    function close() { ATS.setOverlay(''); }
+    var closeBtn = root.querySelector('#ats-addjob-close');
+    var cancelBtn = root.querySelector('#ats-addjob-cancel');
+    var wrap = root.querySelector('#ats-addjob-wrap');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (cancelBtn) cancelBtn.addEventListener('click', close);
+    if (wrap) wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    var confirmBtn = root.querySelector('#ats-addjob-confirm');
+    // Populate the picker with the open jobs.
+    ATS.api('/api/ats/jobs?status=open').then(function (d) {
+      var sel = document.getElementById('ats-addjob-select');
+      if (!sel) return;
+      var jobs = (d && d.ok && d.jobs) ? d.jobs : [];
+      if (!jobs.length) {
+        sel.innerHTML = '<option value="">No open jobs available</option>';
+        if (confirmBtn) confirmBtn.disabled = true;
+        return;
+      }
+      sel.innerHTML = jobs.map(function (j) {
+        var lbl = j.title || '—';
+        if (j.practice_name) lbl += ' — ' + j.practice_name;
+        return '<option value="' + ATS.escAttr(j.id) + '">' + ATS.esc(lbl) + '</option>';
+      }).join('');
+    });
+    if (confirmBtn) confirmBtn.addEventListener('click', function () {
+      var jobId = (document.getElementById('ats-addjob-select') || {}).value || '';
+      if (!jobId) { ATS.toast('Pick a job first.'); return; }
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Adding…';
+      ATS.api('/api/ats/application', { method: 'POST', body: { user_id: c.user_id, career_role_id: jobId } }).then(function (res) {
+        if (res && res.ok) {
+          close();
+          if (res.message) ATS.toast(res.message);
+          else if (res.already) ATS.toast('Already in that pipeline');
+          else ATS.toast('Added to ' + (res.job_title || 'job'));
+          if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+          window.atsOpenCandidate(c.case_id); // reload so the new application appears
+        } else {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Add to job';
+          ATS.toast((res && (res.error || res.message)) || 'Could not add to the job.');
+        }
       });
     });
   }

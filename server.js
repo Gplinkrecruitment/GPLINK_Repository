@@ -21841,6 +21841,32 @@ function atsApplicationToCard(app, label) {
     provider_role_id: app.provider_role_id || ''
   };
 }
+// Insert a new gp_applications row (candidate -> job). Dual-mode.
+// The endpoint may pass display-only job_title/practice_name so the LOCAL
+// candidate view reads nicely; these are stripped before the prod insert
+// (prod gp_applications has no such columns).
+async function atsInsertApplicationRow(row) {
+  if (isSupabaseDbConfigured()) {
+    var prodRow = Object.assign({}, row);
+    delete prodRow.job_title;
+    delete prodRow.practice_name;
+    var r = await supabaseDbRequest('gp_applications', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [prodRow] });
+    return (r.ok && r.data && r.data[0]) || null;
+  }
+  var local = Object.assign({ id: atsLocalId('app_'), applied_at: atsNowIso(), ats_stage: 'applied' }, row, { updated_at: atsNowIso() });
+  dbState.atsApplications = dbState.atsApplications || [];
+  dbState.atsApplications.push(local);
+  // Keep the local candidate view consistent: mirror onto the candidate's .apps.
+  if (local.user_id) {
+    var cand = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === String(local.user_id); });
+    if (cand) {
+      cand.apps = Array.isArray(cand.apps) ? cand.apps : [];
+      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage });
+    }
+  }
+  saveDbState();
+  return local;
+}
 async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
   var patch = { ats_stage: stage, ats_stage_updated_at: atsNowIso() };
   if (typeof notes === 'string') patch.ats_notes = notes;
@@ -41862,6 +41888,38 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/ats/application' && req.method === 'POST') {
+    var ctxAA = requireCeoSession(req, res); if (!ctxAA) return;
+    var bodyAA; try { bodyAA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var aaUserId = (bodyAA && bodyAA.user_id != null) ? String(bodyAA.user_id) : '';
+    var aaJobId = (bodyAA && bodyAA.career_role_id != null) ? bodyAA.career_role_id : (bodyAA ? bodyAA.job_id : undefined);
+    aaJobId = (aaJobId != null) ? String(aaJobId) : '';
+    if (!aaUserId || !aaJobId) { sendJson(res, 400, { ok: false, message: 'user_id and career_role_id are required.' }); return; }
+    var aaJob = await atsGetJobRow(aaJobId);
+    if (!aaJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    // Idempotency: already in this job's pipeline?
+    var aaExistingList = await atsListApplicationRows({ jobId: aaJob.id });
+    var aaExisting = aaExistingList.find(function (a) { return String(a.user_id) === aaUserId; });
+    if (aaExisting) {
+      sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaExisting, null), already: true, message: 'Already in this job\'s pipeline.' });
+      return;
+    }
+    var aaRow = {
+      user_id: aaUserId,
+      career_role_id: aaJob.id,
+      provider_role_id: aaJob.provider_role_id || ('ats_' + atsLocalId('')),
+      status: 'applied',
+      ats_stage: 'applied',
+      job_title: aaJob.title,
+      practice_name: aaJob.practice_name || ''
+    };
+    var aaCreated = await atsInsertApplicationRow(aaRow);
+    if (!aaCreated) { sendJson(res, 502, { ok: false, message: 'Could not add candidate to this job.' }); return; }
+    await atsRecordStageEvent(aaCreated.id, '', 'applied', ctxAA.email || '');
+    sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false });
+    return;
+  }
+
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
     var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;
@@ -41960,12 +42018,15 @@ Return ONLY valid JSON with no markdown formatting:
     var clStage = (url.searchParams.get('stage') || '').toLowerCase();
     var clBand = (url.searchParams.get('band') || '').toLowerCase();
     var clAccount = (url.searchParams.get('account_status') || '').toLowerCase();
+    var clBucket = (url.searchParams.get('ats_bucket') || '').toLowerCase();
     var clSort = (url.searchParams.get('sort') || 'intent').toLowerCase();
     var rows = [];
     if (!isSupabaseDbConfigured()) {
       rows = (dbState.atsCandidates || []).map(function (row) {
         var facts = atsLocalCandidateFacts(row);
-        return atsCandidateListRow(facts, atsComputeIntent(facts));
+        var listRow = atsCandidateListRow(facts, atsComputeIntent(facts));
+        listRow.pipeline_bucket = atsPracticeUtil.bucketForApps(row.apps || []);
+        return listRow;
       });
     } else {
       var casesRes = await supabaseDbRequest('registration_cases',
@@ -41995,8 +42056,15 @@ Return ONLY valid JSON with no markdown formatting:
           account_status: facts.account_status || 'active', rso: c.assigned_rso || c.assigned_va || ''
         };
       });
+      // Pipeline bucket per candidate (furthest active app stage; none -> unassociated).
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
+      var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
+      var byUser2 = {};
+      apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
+      rows.forEach(function (r) { r.pipeline_bucket = byUser2[r.user_id] ? atsPracticeUtil.bucketForApps(byUser2[r.user_id]) : 'unassociated'; });
     }
     // filters
+    if (clBucket) rows = rows.filter(function (r) { return String(r.pipeline_bucket || 'unassociated') === clBucket; });
     if (clQ) rows = rows.filter(function (r) { return (r.name || '').toLowerCase().indexOf(clQ) !== -1 || (r.email || '').toLowerCase().indexOf(clQ) !== -1; });
     if (clStage) rows = rows.filter(function (r) { return String(r.reg_stage || '').toLowerCase() === clStage; });
     if (clBand) rows = rows.filter(function (r) { return String(r.intent_band || '').toLowerCase() === clBand; });
@@ -42004,6 +42072,39 @@ Return ONLY valid JSON with no markdown formatting:
     if (clSort === 'name') rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
     else rows.sort(function (a, b) { return (b.intent_score == null ? -1 : b.intent_score) - (a.intent_score == null ? -1 : a.intent_score); });
     sendJson(res, 200, { ok: true, candidates: rows, total: rows.length });
+    return;
+  }
+
+  if (pathname === '/api/ceo/pipeline-summary' && req.method === 'GET') {
+    var ctxPS = requireCeoSession(req, res); if (!ctxPS) return;
+    var psCounts = {};
+    atsPracticeUtil.PIPELINE_BUCKETS.forEach(function (k) { psCounts[k] = 0; });
+    var psTotal = 0;
+    if (!isSupabaseDbConfigured()) {
+      var psCands = dbState.atsCandidates || [];
+      psCands.forEach(function (c) {
+        var b = atsPracticeUtil.bucketForApps(c.apps || []);
+        psCounts[b] = (psCounts[b] || 0) + 1;
+      });
+      psTotal = psCands.length;
+    } else {
+      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&limit=2000');
+      var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
+      var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
+      var psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];
+      var psByUser = {};
+      psApps.forEach(function (a) { (psByUser[a.user_id] = psByUser[a.user_id] || []).push(a); });
+      psCases.forEach(function (c) {
+        var b = psByUser[c.user_id] ? atsPracticeUtil.bucketForApps(psByUser[c.user_id]) : 'unassociated';
+        psCounts[b] = (psCounts[b] || 0) + 1;
+      });
+      psTotal = psCases.length;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      total: psTotal,
+      buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; })
+    });
     return;
   }
 

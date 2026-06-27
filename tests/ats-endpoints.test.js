@@ -186,6 +186,70 @@ describe('Candidates + intent', () => {
   });
 });
 
+describe('pipeline summary + movement', () => {
+  const BUCKET_ORDER = ['unassociated', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
+  const getSummary = async () => parse((await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() })).raw);
+  const getBucket = async (key) => parse((await req('GET', '/api/ceo/candidates?ats_bucket=' + key, { host: SUPER_HOST, cookie: superCookie() })).raw);
+
+  it('partitions the candidate universe into 8 ordered buckets that sum to total', async () => {
+    const r = await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() });
+    expect(r.status).toBe(200);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.buckets.length).toBe(8);
+    expect(b.buckets.map((x) => x.key)).toEqual(BUCKET_ORDER);
+    expect(typeof b.total).toBe('number');
+    // Key invariant: the buckets partition the candidate universe.
+    expect(b.buckets.reduce((s, x) => s + x.count, 0)).toBe(b.total);
+    expect(b.total).toBe(13);
+  });
+
+  it('candidates?ats_bucket=unassociated matches the summary and tags every row', async () => {
+    const sum = await getSummary();
+    const unCount = sum.buckets.find((x) => x.key === 'unassociated').count;
+    const b = await getBucket('unassociated');
+    expect(b.ok).toBe(true);
+    expect(b.candidates.every((c) => c.pipeline_bucket === 'unassociated')).toBe(true);
+    expect(b.candidates.length).toBe(unCount);
+  });
+
+  it('adds an unassociated candidate to a job, moving them out of unassociated (idempotently)', async () => {
+    // Pick a candidate that is unassociated right now (read live state, do not hardcode).
+    const before = await getBucket('unassociated');
+    expect(before.candidates.length).toBeGreaterThan(0);
+    const userId = before.candidates[0].user_id;
+    const totalBefore = (await getSummary()).total;
+
+    const post = await req('POST', '/api/ats/application', { host: SUPER_HOST, cookie: superCookie(), body: { user_id: userId, career_role_id: 'j1' } });
+    expect(post.status).toBe(200);
+    const pb = parse(post.raw);
+    expect(pb.ok).toBe(true);
+    expect(pb.already).toBe(false);
+    expect(pb.application.ats_stage).toBe('applied');
+    expect(String(pb.application.user_id)).toBe(String(userId));
+    expect(typeof pb.job_title).toBe('string');
+    expect(pb.job_title.length).toBeGreaterThan(0);
+
+    // The candidate is no longer unassociated, and the universe total is unchanged.
+    const after = await getBucket('unassociated');
+    expect(after.candidates.some((c) => String(c.user_id) === String(userId))).toBe(false);
+    const summaryAfter = await getSummary();
+    expect(summaryAfter.total).toBe(totalBefore);
+    expect(summaryAfter.buckets.reduce((s, x) => s + x.count, 0)).toBe(summaryAfter.total);
+
+    // Idempotent: re-POSTing the same (job, user) pairing returns already:true.
+    const again = await req('POST', '/api/ats/application', { host: SUPER_HOST, cookie: superCookie(), body: { user_id: userId, career_role_id: 'j1' } });
+    expect(again.status).toBe(200);
+    expect(parse(again.raw).already).toBe(true);
+  });
+
+  it('blocks pipeline-summary without a session', async () => {
+    const r = await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST });
+    expect([401, 403, 302]).toContain(r.status);
+    expect(r.status).not.toBe(200);
+  });
+});
+
 describe('Auth', () => {
   it('blocks without a session', async () => {
     const r = await req('GET', '/api/ats/jobs', { host: SUPER_HOST });

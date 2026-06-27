@@ -133,6 +133,36 @@ describe('bestAtsStage', () => {
   });
 });
 
+describe('pipeline buckets', () => {
+  it('PIPELINE_BUCKETS lists the 8 buckets in order, each with a label', () => {
+    expect(M.PIPELINE_BUCKETS).toEqual([
+      'unassociated', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'
+    ]);
+    M.PIPELINE_BUCKETS.forEach((key) => {
+      expect(typeof M.PIPELINE_BUCKET_LABELS[key], key).toBe('string');
+      expect(M.PIPELINE_BUCKET_LABELS[key].length).toBeGreaterThan(0);
+    });
+  });
+
+  it("treats empty / missing apps as 'unassociated'", () => {
+    expect(M.bucketForApps([])).toBe('unassociated');
+    expect(M.bucketForApps(undefined)).toBe('unassociated');
+  });
+
+  it("buckets a single not_proceeding app as 'not_proceeding'", () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('not_proceeding');
+  });
+
+  it('uses the furthest active stage when several apps exist', () => {
+    expect(M.bucketForApps([{ ats_stage: 'applied' }, { ats_stage: 'interview' }])).toBe('interview');
+    expect(M.bucketForApps([{ ats_stage: 'hired' }, { ats_stage: 'offer' }])).toBe('hired');
+  });
+
+  it('ignores not_proceeding when an active app exists', () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }, { ats_stage: 'applied' }])).toBe('applied');
+  });
+});
+
 describe('ats-practices API surface', () => {
   it('exports every function the backfill + pipeline call', () => {
     ['normalizePracticeName', 'dedupePracticeNames', 'deriveAtsStage', 'bestAtsStage'].forEach((name) => {
