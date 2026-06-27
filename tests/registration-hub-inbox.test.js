@@ -1,0 +1,43 @@
+// tests/registration-hub-inbox.test.js
+import { describe, it, expect } from 'vitest';
+import pkg from '../lib/registration-hub-inbox.js';
+const { groupConversations } = pkg;
+
+const casesById = {
+  c1: { id: 'c1', stage: 'ahpra', assigned_va: 'u-hazel', gp_name: 'Dr Sana Khan', practice_name: null },
+  c2: { id: 'c2', stage: 'practice_contact', assigned_va: 'u-smith', gp_name: 'Dr Ade Okonkwo', practice_name: 'Greenslopes' }
+};
+const rsoNameByUserId = { 'u-hazel': 'Hazel', 'u-smith': 'Smith Miller' };
+const messages = [
+  { case_id: 'c1', direction: 'outbound', subject: 'AHPRA docs', body_text: 'Hi Sana...', created_at: '2026-06-12T09:14:00Z', read_at: null },
+  { case_id: 'c1', direction: 'inbound', subject: 'Re: AHPRA docs', body_text: 'Thanks Hazel', created_at: '2026-06-12T16:02:00Z', read_at: null },
+  { case_id: 'c2', direction: 'outbound', subject: 'Welcome', body_text: 'Hi Ade', created_at: '2026-06-24T11:20:00Z', read_at: '2026-06-24T12:00:00Z' }
+];
+
+describe('groupConversations', () => {
+  it('one row per case, newest-message summary, needsReply from last direction', () => {
+    const out = groupConversations({ messages, casesById, rsoNameByUserId, scope: 'all', meUserId: 'u-hazel' });
+    const c1 = out.find(x => x.caseId === 'c1');
+    expect(c1.name).toBe('Dr Sana Khan');
+    expect(c1.assignedRsoName).toBe('Hazel');
+    expect(c1.lastDirection).toBe('inbound');
+    expect(c1.needsReply).toBe(true);
+    expect(c1.unread).toBe(true);          // an inbound message with read_at null
+    expect(c1.lastPreview).toContain('Thanks Hazel');
+  });
+  it('scope=mine filters to the current user\'s cases', () => {
+    const mine = groupConversations({ messages, casesById, rsoNameByUserId, scope: 'mine', meUserId: 'u-hazel' });
+    expect(mine.map(x => x.caseId)).toEqual(['c1']);
+  });
+  it('sorts newest conversation first', () => {
+    const all = groupConversations({ messages, casesById, rsoNameByUserId, scope: 'all', meUserId: 'u-hazel' });
+    expect(all[0].caseId).toBe('c2'); // c2 last activity 24 Jun > c1 12 Jun
+  });
+  it('uses practice name + practice kind when present', () => {
+    const all = groupConversations({ messages, casesById, rsoNameByUserId, scope: 'all', meUserId: 'u-hazel' });
+    const c2 = all.find(x => x.caseId === 'c2');
+    expect(c2.kind).toBe('practice');
+    expect(c2.name).toBe('Greenslopes');
+    expect(c2.unread).toBe(false); // its inbound (none here) — last msg outbound + read
+  });
+});

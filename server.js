@@ -136,6 +136,7 @@ const {
   isExampleIchcReference, isExampleIchcFile,
 } = require('./lib/ichc-verify');
 const registrationHub = require('./lib/registration-hub.js');
+const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -33520,6 +33521,57 @@ Return ONLY valid JSON with no markdown formatting:
       'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&order=created_at.asc');
     if (!msgs.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load messages.' }); return; }
     sendJson(res, 200, { ok: true, messages: Array.isArray(msgs.data) ? msgs.data : [] });
+    return;
+  }
+
+  // ── Registration Email Hub: conversation list ──
+  // GET /api/admin/inbox/conversations?scope=mine|all
+  if (pathname === '/api/admin/inbox/conversations' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var convScope = (url.searchParams.get('scope') === 'all') ? 'all' : 'mine';
+    // Recent email messages (cap 1000)
+    var msgRes = await supabaseDbRequest('task_messages',
+      'select=case_id,direction,subject,body_text,created_at,read_at&channel=eq.email&order=created_at.desc&limit=1000');
+    var msgs = (msgRes.ok && Array.isArray(msgRes.data)) ? msgRes.data : [];
+    var caseIds = Array.from(new Set(msgs.map(function (m) { return m.case_id; }).filter(Boolean)));
+    var casesById = {};
+    if (caseIds.length) {
+      var inList = caseIds.map(encodeURIComponent).join(',');
+      var cRes = await supabaseDbRequest('registration_cases',
+        'select=id,stage,assigned_va,practice_name,user_id&id=in.(' + inList + ')');
+      (cRes.ok && Array.isArray(cRes.data) ? cRes.data : []).forEach(function (c) { casesById[c.id] = c; });
+      // Enrich gp_name from user_profiles — one batched query
+      var userIds = Object.values(casesById).map(function (c) { return c.user_id; }).filter(Boolean);
+      var uniqueUserIds = Array.from(new Set(userIds));
+      if (uniqueUserIds.length) {
+        var profRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,first_name,last_name&user_id=in.(' + uniqueUserIds.map(encodeURIComponent).join(',') + ')');
+        var profileByUserId = {};
+        (profRes.ok && Array.isArray(profRes.data) ? profRes.data : []).forEach(function (p) {
+          profileByUserId[p.user_id] = p;
+        });
+        Object.values(casesById).forEach(function (c) {
+          var p = profileByUserId[c.user_id] || {};
+          c.gp_name = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown';
+        });
+      }
+    }
+    // Load RSO roster to build name map and resolve the current admin's user_id
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rsoNameByUserId = {};
+    var meUserId = null;
+    var adminEmail = String(adminCtx.email || '').trim().toLowerCase();
+    (roster || []).forEach(function (r) {
+      if (r.user_id) rsoNameByUserId[r.user_id] = r.name;
+      if (r.email && String(r.email).trim().toLowerCase() === adminEmail) meUserId = r.user_id;
+    });
+    var conversations = registrationHubInbox.groupConversations({
+      messages: msgs, casesById: casesById, rsoNameByUserId: rsoNameByUserId,
+      scope: convScope, meUserId: meUserId
+    });
+    sendJson(res, 200, { ok: true, conversations: conversations });
     return;
   }
 
