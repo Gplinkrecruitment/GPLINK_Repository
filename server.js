@@ -210,7 +210,7 @@ const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6')
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
-const SUGGEST_REPLY_MODEL = process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6';
+const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -34013,6 +34013,7 @@ Return ONLY valid JSON with no markdown formatting:
       var sgFacts = {
         stage: sgStage,
         substage: (regCase && regCase.substage) || null,
+        blocker: (regCase && regCase.blocker_status) || null,
         practice_name: (regCase && regCase.practice_name) || null,
         gp: { name: gpName, email: profile.email, phone: gpPhone, country: countryCode },
         open_tasks: openTasks.map(function (t) { return t.title + ' (' + t.priority + ', ' + t.related_stage + ')'; }),
