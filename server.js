@@ -36689,12 +36689,14 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!corrCandidateEmail) { sendJson(res, 400, { error: 'candidate email missing' }); return; }
 
+    var corrCandRsoName = await resolveCaseSenderName(task.case_id);
+    var corrCandSignoff = corrCandRsoName ? (corrCandRsoName + ' \u2014 GP Link Registration Team') : 'GP Link Registration Team';
     var corrSubject = 'SPPA-00 \u2014 Corrections Needed';
     var corrBody = 'Dear ' + corrGpName + ',<br><br>'
       + 'Thank you for returning your SPPA-00. However, we need the following corrections before we can proceed:<br><br>'
       + '<strong>' + corrections.replace(/\n/g, '<br>') + '</strong><br><br>'
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
-      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
+      + 'Kind regards,<br>' + corrCandSignoff;
 
     var _siCorrCand = await resolveCaseSenderInfo(task.case_id);
     var emailResult = await sendGmailEmail({
@@ -36740,12 +36742,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (!taskMeta) taskMeta = {};
 
     // Send corrections email to practice
+    var corrPracRsoName = await resolveCaseSenderName(task.case_id);
+    var corrPracSignoff = corrPracRsoName ? (corrPracRsoName + ' \u2014 GP Link Registration Team') : 'GP Link Registration Team';
     var corrSubject = 'SPPA-00 for Dr ' + corrGpName + ' \u2014 Corrections Needed';
     var corrBody = 'Dear ' + corrContactName + ',<br><br>'
       + 'Thank you for returning the SPPA-00 for Dr ' + corrGpName + '. However, we need the following corrections before we can submit it:<br><br>'
       + '<strong>' + corrections.replace(/\n/g, '<br>') + '</strong><br><br>'
       + 'Please make the necessary changes and reply to this email with the corrected document attached.<br><br>'
-      + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team';
+      + 'Kind regards,<br>' + corrPracSignoff;
 
     if (!corrPracticeEmail) { sendJson(res, 400, { error: 'practice email missing' }); return; }
 
