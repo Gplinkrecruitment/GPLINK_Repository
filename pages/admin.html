@@ -5177,6 +5177,44 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return h;
   }
 
+  /* ── AI completeness verdict panel (practice-returned SPPA-00) ── */
+  function renderSppaCompletenessPanel(meta){
+    var cc = meta && meta.completeness_check;
+    if (!cc) return '';
+    var checkedAt = cc.checked_at ? new Date(cc.checked_at).toLocaleString() : '';
+    if (cc.error) {
+      return '<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">'
+        + '<div style="font-weight:700;color:#92400e">⚠ AI completeness check could not run</div>'
+        + '<div style="color:#92400e;margin-top:2px">' + esc(cc.summary || 'Please review the form manually.') + '</div>'
+        + '</div>';
+    }
+    if (cc.is_complete) {
+      var hc = '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      hc += '<div style="font-weight:700;color:#065f46">✓ AI completeness check: ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+      if (cc.summary) hc += '<div style="color:#065f46;margin-top:2px">' + esc(cc.summary) + '</div>';
+      if (cc.issues && cc.issues.length) hc += '<div style="color:#065f46;margin-top:4px;font-size:10px">' + cc.issues.map(function (x) { return '• ' + esc(x); }).join('<br>') + '</div>';
+      if (meta.completeness_override) hc += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Overridden by ' + esc(meta.completeness_override.by || 'RSO') + '</div>';
+      if (checkedAt) hc += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+      hc += '</div>';
+      return hc;
+    }
+    var lists = '';
+    function addList(label, arr) {
+      if (arr && arr.length) lists += '<div style="margin-top:4px"><span style="font-weight:600">' + esc(label) + ':</span><ul style="margin:2px 0 0 16px;padding:0">' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+    }
+    addList('Missing or blank fields', cc.missing_fields);
+    addList('Missing signatures', cc.missing_signatures);
+    addList('Missing documents', cc.missing_documents);
+    addList('Other issues', cc.issues);
+    var h = '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+    h += '<div style="font-weight:700;color:#b91c1c">⚠ AI completeness check: not ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+    if (cc.summary) h += '<div style="color:#b91c1c;margin-top:2px">' + esc(cc.summary) + '</div>';
+    h += '<div style="color:#7f1d1d;margin-top:4px">' + lists + '</div>';
+    if (checkedAt) h += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+    h += '</div>';
+    return h;
+  }
+
   /* ── SPPA-00 (7-state lifecycle) ── */
   function renderOpsSppa00(task,msgs,docs){
     var meta = task.metadata || {};
@@ -5428,6 +5466,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
       h += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
       h += '</div>';
+      h += renderSppaCompletenessPanel(meta);
       h += opsRenderThread(msgs);
       // Split docs into SPPA and alt supervisor CVs
       var sppaDocs = (docs||[]).filter(function(d) { return d.category !== 'alt_supervisor_cv'; });
@@ -5441,6 +5480,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';
+      h += '<button class="ops-btn-secondary" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
       h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(practiceEmail) + '\',\'' + escAttr(contactName || 'Practice Contact') + '\',\'' + escAttr(gpName) + '\')">Request Corrections</button>';
       h += '</div>';
       h += '</div>';
@@ -8427,8 +8467,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
       html += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
       html += '</div>';
+      html += renderSppaCompletenessPanel(meta);
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
+      html += '<button class="btn-action review" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
       html += '<button class="btn-action approve" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       html += '</div>';
       return html;
@@ -8623,13 +8665,47 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
-  async function sppaSubmitFinal(taskId) {
-    if (!confirm('Submit final SPPA-00 and deliver to the GP?')) return;
+  async function sppaSubmitFinal(taskId, override) {
+    if (!override && !confirm('Submit final SPPA-00 and deliver to the GP?')) return;
     try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', { method: 'POST', credentials: 'include' });
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(override ? { override: true } : {})
+      });
       var d = await r.json().catch(function () { return {}; });
-      if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); }
-      else { toast((d && d.error) || 'Failed to submit', 'red'); }
+      if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); return; }
+      if (d && d.needs_review) {
+        // AI flagged the form as not ready — show what's missing and let the RSO decide.
+        var cc = d.completeness || {};
+        var lines = [];
+        function _push(label, arr) { if (arr && arr.length) lines.push(label + ':\n  - ' + arr.join('\n  - ')); }
+        _push('Missing or blank fields', cc.missing_fields);
+        _push('Missing signatures', cc.missing_signatures);
+        _push('Missing documents', cc.missing_documents);
+        _push('Other issues', cc.issues);
+        var msg = 'The AI completeness check flagged this SPPA-00 as NOT ready to submit:\n\n'
+          + (cc.summary || '') + '\n\n' + lines.join('\n\n')
+          + '\n\nSubmit to AHPRA anyway?';
+        await loadAll(true); // refresh card so the stored verdict is visible
+        if (confirm(msg)) { await sppaSubmitFinal(taskId, true); }
+        return;
+      }
+      toast((d && d.error) || 'Failed to submit', 'red');
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function runSppaCompletenessCheck(taskId) {
+    toast('Running AI completeness check…');
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-completeness-check', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) {
+        toast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found — see card');
+        await loadAll(true);
+      } else {
+        toast((d && d.error) || 'Check could not run', 'red');
+      }
     } catch (err) { toast('Network error', 'red'); }
   }
 
@@ -9509,6 +9585,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaScanGpSections = sppaScanGpSections;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
+  window.runSppaCompletenessCheck = runSppaCompletenessCheck;
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   function closeCorrectionModal() { var el = document.getElementById('correctionOverlay'); if (el) el.style.display = 'none'; }
