@@ -33530,10 +33530,15 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
-    var convScope = (url.searchParams.get('scope') === 'all') ? 'all' : 'mine';
-    // Recent email messages (cap 1000)
-    var msgRes = await supabaseDbRequest('task_messages',
-      'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&order=created_at.desc&limit=1000');
+    // Optional caseId → per-candidate Emails view (one case, no owner filter).
+    var convCaseId = url.searchParams.get('caseId');
+    var convScope = convCaseId ? 'all' : ((url.searchParams.get('scope') === 'all') ? 'all' : 'mine');
+    // With a caseId: load only that case's email messages. Otherwise: the recent 1000.
+    var msgRes = convCaseId
+      ? await supabaseDbRequest('task_messages',
+          'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&case_id=eq.' + encodeURIComponent(convCaseId) + '&order=created_at.desc&limit=500')
+      : await supabaseDbRequest('task_messages',
+          'select=case_id,direction,subject,body_text,created_at,read_at,gmail_thread_id,sender,recipient&channel=eq.email&order=created_at.desc&limit=1000');
     var msgs = (msgRes.ok && Array.isArray(msgRes.data)) ? msgRes.data : [];
     var caseIds = Array.from(new Set(msgs.map(function (m) { return m.case_id; }).filter(Boolean)));
     var casesById = {};
@@ -33575,7 +33580,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var conversations = registrationHubInbox.groupConversations({
       messages: msgs, casesById: casesById, rsoNameByUserId: rsoNameByUserId,
-      scope: convScope, meUserId: meUserId
+      scope: convScope, meUserId: convCaseId ? null : meUserId
     });
     sendJson(res, 200, { ok: true, conversations: conversations });
     return;

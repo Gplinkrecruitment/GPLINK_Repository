@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RSO Command Centre - GP Link</title>
-  <script src="/js/perf-cache.js?v=20260627b" defer></script>
+  <script src="/js/perf-cache.js?v=20260628a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -1336,6 +1336,61 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #hubInboxPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
     #hubInboxPanel .hub-send:hover{background:var(--hub-teal-dark)}
     #hubInboxPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
+    /* Per-candidate Emails tab on the GP profile — same look as the global Inbox, scoped to #gpEmailsPanel */
+    #gpEmailsPanel{--hub-teal:#0f766e;--hub-teal-dark:#0b5b54;--hub-teal-soft:#e6f4f2;--hub-sent:#eef6f5;--hub-amber:#b45309;--hub-amber-soft:#fff7ed;--hub-amber-line:#fed7aa;max-width:940px;margin:0 auto;padding:18px 16px 60px}
+    #gpEmailsPanel .hub-loading,#gpEmailsPanel .hub-empty{color:var(--muted);font-size:14px;padding:34px 10px;text-align:center}
+    #gpEmailsPanel .hub-inbox-head{padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
+    #gpEmailsPanel .hub-inbox-head h2{font-size:19px;margin:0 0 4px}
+    #gpEmailsPanel .hub-inbox-sub{font-size:13px;color:var(--muted);margin:0 0 12px}
+    #gpEmailsPanel .hub-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #gpEmailsPanel .hub-filt{font-size:13px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 14px;cursor:pointer;color:var(--text);font-family:inherit}
+    #gpEmailsPanel .hub-filt.active{background:var(--hub-teal);color:#fff;border-color:var(--hub-teal);font-weight:600}
+    #gpEmailsPanel .hub-needs{margin-left:auto;font-size:12px;color:var(--muted)}
+    #gpEmailsPanel .hub-conv-list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+    #gpEmailsPanel .hub-conv-row{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+    #gpEmailsPanel .hub-conv-row:last-child{border-bottom:0}
+    #gpEmailsPanel .hub-conv-row:hover{background:#f8fafc}
+    #gpEmailsPanel .hub-conv-row.unread{background:#f4faf9}
+    #gpEmailsPanel .hub-conv-main{flex:1;min-width:0}
+    #gpEmailsPanel .hub-conv-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    #gpEmailsPanel .hub-conv-name{font-size:14.5px;font-weight:600}
+    #gpEmailsPanel .hub-conv-row.unread .hub-conv-name{font-weight:700}
+    #gpEmailsPanel .hub-conv-time{font-size:12px;color:var(--muted);white-space:nowrap}
+    #gpEmailsPanel .hub-conv-prev{font-size:13px;color:var(--muted);margin:3px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #gpEmailsPanel .hub-conv-with{font-size:12px;color:var(--muted);margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+    #gpEmailsPanel .hub-conv-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    #gpEmailsPanel .hub-chip{font-size:11.5px;color:var(--muted);background:#f1f4f8;border-radius:999px;padding:2px 9px;font-weight:500}
+    #gpEmailsPanel .hub-chip.stage{background:var(--hub-teal-soft);color:var(--hub-teal-dark);font-weight:600}
+    #gpEmailsPanel .hub-chip.rso{background:#eef2ff;color:#4338ca}
+    #gpEmailsPanel .hub-badge{font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 9px}
+    #gpEmailsPanel .hub-badge.reply{background:var(--hub-amber-soft);color:var(--hub-amber);border:1px solid var(--hub-amber-line)}
+    #gpEmailsPanel .hub-badge.waiting{background:#f1f4f8;color:#64748b}
+    #gpEmailsPanel .hub-dot{width:9px;height:9px;border-radius:50%;background:var(--hub-teal);flex:0 0 9px;margin-top:6px}
+    #gpEmailsPanel .hub-back{font-size:13px;color:var(--hub-teal-dark);background:none;border:0;cursor:pointer;padding:0 0 12px;font-family:inherit}
+    #gpEmailsPanel .hub-back:hover{text-decoration:underline}
+    #gpEmailsPanel .hub-thread-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+    #gpEmailsPanel .hub-thread-head h2{font-size:18px;margin:0 8px 0 0}
+    #gpEmailsPanel .hub-thread{display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;padding:2px}
+    #gpEmailsPanel .hub-msg{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+    #gpEmailsPanel .hub-msg.sent{background:var(--hub-sent);border-color:#d4e7e4}
+    #gpEmailsPanel .hub-msg.reply{background:#fff}
+    #gpEmailsPanel .hub-msg-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px}
+    #gpEmailsPanel .hub-dir{font-weight:700;letter-spacing:.03em;font-size:11px;padding:2px 7px;border-radius:5px}
+    #gpEmailsPanel .hub-dir.out{background:var(--hub-teal);color:#fff}
+    #gpEmailsPanel .hub-dir.in{background:#e8eaef;color:#374151}
+    #gpEmailsPanel .hub-msg-time{color:var(--muted);font-size:11.5px}
+    #gpEmailsPanel .hub-msg-subj{font-weight:600;font-size:13.5px;margin:2px 0 4px}
+    #gpEmailsPanel .hub-msg-body{font-size:13.5px;line-height:1.5;color:#374151;white-space:pre-wrap}
+    #gpEmailsPanel .hub-composer{margin-top:18px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+    #gpEmailsPanel .hub-sendingas{font-size:12px;color:var(--muted);background:#fafbfc;padding:9px 12px;border-bottom:1px solid var(--line)}
+    #gpEmailsPanel .hub-sendingas b{color:var(--text)}
+    #gpEmailsPanel #hubReply{width:100%;border:0;resize:vertical;min-height:84px;padding:12px;font:inherit;font-size:14px;outline:none;background:#fff;color:var(--text)}
+    #gpEmailsPanel #hubReply:disabled{background:#f8fafc;color:var(--muted)}
+    #gpEmailsPanel .hub-composer-foot{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:0 12px 12px}
+    #gpEmailsPanel .hub-nosend{font-size:12px;color:var(--amber);margin-right:auto}
+    #gpEmailsPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+    #gpEmailsPanel .hub-send:hover{background:var(--hub-teal-dark)}
+    #gpEmailsPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
 
   </style>
 </head>
@@ -3858,8 +3913,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-subtab ${tab==="documents"?"active":""}" data-gp-tab="documents">Documents${docCount!==null?' <span class="subtab-count">'+docCount+'</span>':''}</div>
         <div class="gp-subtab ${tab==="timeline"?"active":""}" data-gp-tab="timeline">Timeline</div>
         <div class="gp-subtab ${tab==="call_history"?"active":""}" data-gp-tab="call_history">Calls</div>
+        <div class="gp-subtab ${tab==="emails"?"active":""}" data-gp-tab="emails">Emails</div>
       </div>`;
-      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):tab==="call_history"?renderGpCallHistoryPane(c):renderGpTasksPane(c);
+      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):tab==="call_history"?renderGpCallHistoryPane(c):tab==="emails"?'<div id="gpEmailsPanel"></div>':renderGpTasksPane(c);
       el.innerHTML=`
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
@@ -3869,6 +3925,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
       renderAiSummary(c.id, document.getElementById('aiSummaryContainer'));
+      // Per-candidate Emails subtab → reuse the Inbox thread/reply view, scoped to this one case.
+      // Fresh view each open so it always reflects the currently-open candidate.
+      if(tab==="emails"){
+        createHubEmailView({panelId:"gpEmailsPanel",caseId:c.id,showFilters:false}).show();
+      }
       // Auto-expand only the FIRST practice_pack_child task detail on the Tasks tab
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
@@ -7840,30 +7901,42 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
-  const HubInbox=(function(){
+  // Reusable email-conversation view. Used twice:
+  //   • global Inbox tab  → createHubEmailView({panelId:"hubInboxPanel",showFilters:true})
+  //   • GP-profile Emails → createHubEmailView({panelId:"gpEmailsPanel",caseId:<case id>,showFilters:false})
+  function createHubEmailView(opts){
+    opts=opts||{};
+    var PANEL=opts.panelId;
+    var FIXED_CASE=opts.caseId||null;            // when set → per-candidate view (one case)
+    var SHOW_FILTERS=opts.showFilters!==false;   // global=true, candidate=false
     let currentScope="mine";
     let currentCaseId=null;
     function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
     async function loadList(){
-      const panel=document.getElementById("hubInboxPanel");if(!panel)return;
+      const panel=document.getElementById(PANEL);if(!panel)return;
       panel.innerHTML='<div class="hub-loading">Loading conversations…</div>';
       let convs=[];
+      const url=FIXED_CASE
+        ?"/api/admin/inbox/conversations?caseId="+encodeURIComponent(FIXED_CASE)
+        :"/api/admin/inbox/conversations?scope="+currentScope;
       try{
-        const r=await fetch("/api/admin/inbox/conversations?scope="+currentScope,{credentials:"same-origin"});
+        const r=await fetch(url,{credentials:"same-origin"});
         const j=await r.json();convs=(j&&j.conversations)||[];
       }catch(e){panel.innerHTML='<div class="hub-loading">Could not load the inbox. Try again.</div>';return;}
       renderList(convs);
     }
     function renderList(convs){
-      const panel=document.getElementById("hubInboxPanel");if(!panel)return;
+      const panel=document.getElementById(PANEL);if(!panel)return;
       const needs=convs.filter(function(c){return c.needsReply;}).length;
-      panel.innerHTML=
-        '<div class="hub-inbox-head"><h2>📥 Registration Inbox</h2>'+
-        '<p class="hub-inbox-sub">Every reply arrives at <b>registration@mygplink.com.au</b> and is filed into the right conversation automatically.</p>'+
-        '<div class="hub-filters">'+
-          '<button class="hub-filt '+(currentScope==="mine"?"active":"")+'" data-scope="mine">Mine</button>'+
-          '<button class="hub-filt '+(currentScope==="all"?"active":"")+'" data-scope="all">All RSOs</button>'+
-          '<span class="hub-needs">'+needs+' need a reply</span></div></div>'+
+      const head=SHOW_FILTERS
+        ?'<div class="hub-inbox-head"><h2>📥 Registration Inbox</h2>'+
+          '<p class="hub-inbox-sub">Every reply arrives at <b>registration@mygplink.com.au</b> and is filed into the right conversation automatically.</p>'+
+          '<div class="hub-filters">'+
+            '<button class="hub-filt '+(currentScope==="mine"?"active":"")+'" data-scope="mine">Mine</button>'+
+            '<button class="hub-filt '+(currentScope==="all"?"active":"")+'" data-scope="all">All RSOs</button>'+
+            '<span class="hub-needs">'+needs+' need a reply</span></div></div>'
+        :'<div class="hub-inbox-head"><p class="hub-inbox-sub">'+needs+' need a reply</p></div>';
+      panel.innerHTML=head+
         '<div class="hub-conv-list">'+(convs.length?convs.map(rowHtml).join(""):'<div class="hub-empty">No conversations yet.</div>')+'</div>';
       panel.querySelectorAll(".hub-filt").forEach(function(b){b.addEventListener("click",function(){currentScope=b.getAttribute("data-scope");loadList();});});
       panel.querySelectorAll(".hub-conv-row").forEach(function(r){r.addEventListener("click",function(){openThread(r.getAttribute("data-cid"),r.getAttribute("data-tid"));});});
@@ -7881,7 +7954,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     async function openThread(caseId,threadId){
       currentCaseId=caseId;
-      const panel=document.getElementById("hubInboxPanel");if(!panel)return;
+      const panel=document.getElementById(PANEL);if(!panel)return;
       panel.innerHTML='<div class="hub-loading">Loading conversation…</div>';
       let j={};
       try{
@@ -7895,7 +7968,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       fetch("/api/admin/inbox/mark-read",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({caseId:caseId})}).catch(function(){});
     }
     function renderThread(header,messages){
-      const panel=document.getElementById("hubInboxPanel");if(!panel)return;
+      const panel=document.getElementById(PANEL);if(!panel)return;
       const canSend=!!(header&&header.to);
       const sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
       panel.innerHTML=
@@ -7925,8 +7998,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     async function sendReply(header){
       if(!header||!header.to)return;
-      const ta=document.getElementById("hubReply");const txt=((ta&&ta.value)||"").trim();if(!txt)return;
-      const sendBtn=document.getElementById("hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      const ta=panel.querySelector("#hubReply");const txt=((ta&&ta.value)||"").trim();if(!txt)return;
+      const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
       try{
         await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,to:header.to,
@@ -7934,8 +8008,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
       openThread(header.caseId,header.threadId);
     }
-    return {show:function(){const p=document.getElementById("hubInboxPanel");if(p)p.style.display="";loadList();},hide:function(){const p=document.getElementById("hubInboxPanel");if(p)p.style.display="none";}};
-  })();
+    return {show:function(){const p=document.getElementById(PANEL);if(p)p.style.display="";loadList();},hide:function(){const p=document.getElementById(PANEL);if(p)p.style.display="none";}};
+  }
+  var HubInbox=createHubEmailView({panelId:"hubInboxPanel",showFilters:true});
   // ── Guide Tab ──────────────────────────────────────────────
   function parseScribeEmbed(input){
     if(!input)return'';
