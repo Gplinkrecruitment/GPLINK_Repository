@@ -35318,7 +35318,16 @@ Return ONLY valid JSON with no markdown formatting:
     while (b64.length % 4 !== 0) b64 += '=';
     const pdfBuffer = Buffer.from(b64, 'base64');
 
-    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="SPPA-00.pdf"' });
+    // The document at this URL changes across the SPPA lifecycle (blank template →
+    // Q7-filled → GP-returned → practice-returned). Never let the browser cache it,
+    // or a stale earlier version (e.g. the empty form) shows after the GP returns it.
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="SPPA-00.pdf"',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
     res.end(pdfBuffer);
     return;
   }

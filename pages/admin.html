@@ -8440,7 +8440,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function openSppaReview(taskId) {
     _sppaReviewTaskId = taskId;
     var iframe = document.getElementById('sppaReviewIframe');
-    iframe.src = '/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf';
+    // Cache-buster: the SPPA PDF at this URL changes as the form moves through its
+    // lifecycle (e.g. blank → GP-returned), so force a fresh fetch every open.
+    iframe.src = '/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf?t=' + Date.now();
     document.getElementById('sppaReviewOverlay').classList.add('open');
   }
 
