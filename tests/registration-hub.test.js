@@ -45,3 +45,17 @@ describe('isHubInbox', () => {
     expect(isHubInbox('registration@mygplink.com.au', '')).toBe(false);
   });
 });
+
+import pkg2 from '../lib/registration-hub.js';
+const { buildFromHeader } = pkg2;
+
+describe('buildFromHeader', () => {
+  it('uses the provided display name', () => {
+    expect(buildFromHeader('Hazel — GP Link', 'registration@mygplink.com.au'))
+      .toBe('From: "Hazel — GP Link" <registration@mygplink.com.au>');
+  });
+  it('defaults to GP Link Registration when no name', () => {
+    expect(buildFromHeader('', 'hazel@mygplink.com.au'))
+      .toBe('From: "GP Link Registration" <hazel@mygplink.com.au>');
+  });
+});

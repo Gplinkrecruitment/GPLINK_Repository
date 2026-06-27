@@ -135,6 +135,8 @@ const {
   normalizeIchcReference, isValidIchcReference,
   isExampleIchcReference, isExampleIchcFile,
 } = require('./lib/ichc-verify');
+const registrationHub = require('./lib/registration-hub.js');
+const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
 let _lifecycleFolderCache = null;
@@ -1780,7 +1782,7 @@ async function getGmailClient(userEmail) {
 }
 
 // ── Gmail send helper ──
-async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
+async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
   try {
     var gmail = await getGmailClient(from);
     if (!gmail) {
@@ -1807,7 +1809,7 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var fromDomain = from.split('@')[1] || 'mygplink.com.au';
 
     var headers = [];
-    headers.push('From: "GP Link Registration" <' + from + '>');
+    headers.push(registrationHub.buildFromHeader(fromName, from));
     headers.push('To: ' + to);
     if (cc) headers.push('Cc: ' + cc);
     // RFC 2047 encode subject if it contains non-ASCII characters
