@@ -33581,6 +33581,64 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Registration Email Hub: thread messages ──
+  // GET /api/admin/inbox/thread?caseId=...
+  if (pathname === '/api/admin/inbox/thread' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var threadCaseId = url.searchParams.get('caseId');
+    if (!threadCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    var tCRes = await supabaseDbRequest('registration_cases',
+      'select=id,stage,assigned_va,practice_name,user_id&id=eq.' + encodeURIComponent(threadCaseId) + '&limit=1');
+    var tCase = (tCRes.ok && Array.isArray(tCRes.data) && tCRes.data[0]) ? tCRes.data[0] : null;
+    if (!tCase) { sendJson(res, 404, { ok: false, error: 'case not found' }); return; }
+    // Enrich gp_name from user_profiles — inline batched pattern (mirrors conversations endpoint)
+    if (tCase.user_id) {
+      var tProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name&user_id=eq.' + encodeURIComponent(tCase.user_id) + '&limit=1');
+      var tProf = (tProfRes.ok && Array.isArray(tProfRes.data) && tProfRes.data[0]) ? tProfRes.data[0] : {};
+      tCase.gp_name = [(tProf.first_name || ''), (tProf.last_name || '')].join(' ').trim() || 'Unknown';
+    } else {
+      tCase.gp_name = 'Unknown';
+    }
+    var tMsgRes = await supabaseDbRequest('task_messages',
+      'select=id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
+      encodeURIComponent(threadCaseId) + '&channel=eq.email&order=created_at.asc&limit=500');
+    var tRoster = await loadRsoTeam({ includeInactive: true });
+    var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
+    var tIsPractice = !!(tCase.practice_name && String(tCase.practice_name).trim());
+    sendJson(res, 200, {
+      ok: true,
+      header: {
+        caseId: tCase.id,
+        name: tIsPractice ? tCase.practice_name : (tCase.gp_name || 'Unknown'),
+        kind: tIsPractice ? 'practice' : 'doctor',
+        stage: tCase.stage || '',
+        assignedVa: tCase.assigned_va || null,
+        assignedRsoName: tRso ? tRso.name : ''
+      },
+      messages: (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : []
+    });
+    return;
+  }
+
+  // ── Registration Email Hub: mark conversation read ──
+  // POST /api/admin/inbox/mark-read  { caseId }
+  if (pathname === '/api/admin/inbox/mark-read' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let mrBody; try { mrBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    var mrCaseId = mrBody && mrBody.caseId;
+    if (!mrCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    var mrUpd = await supabaseDbRequest('task_messages',
+      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&direction=eq.inbound&read_at=is.null',
+      { method: 'PATCH', body: { read_at: new Date().toISOString() } });
+    sendJson(res, 200, { ok: true, updated: (mrUpd.ok && Array.isArray(mrUpd.data)) ? mrUpd.data.length : 0 });
+    return;
+  }
+
   // ── Get task documents (attached files/versions) ──
   if (pathname === '/api/admin/task/documents' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
