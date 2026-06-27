@@ -2835,9 +2835,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         method: 'PATCH',
         body: { history_id: notifiedHistoryId || storedHistoryId, updated_at: new Date().toISOString() }
       });
-      // Fallback: fetch last 5 inbox messages directly so we don't lose this notification
+      // Fallback: the stored historyId is too old (e.g. reset to recover dropped mail) —
+      // fetch a wider window of recent inbox messages so we don't miss anything that
+      // arrived during the gap. Already-processed messages are deduped downstream.
       try {
-        var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 5 });
+        var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 30 });
         if (recentList.data && Array.isArray(recentList.data.messages)) {
           historyResponse = { data: { history: [{ messagesAdded: recentList.data.messages.map(function(m) { return { message: m }; }) }], historyId: notifiedHistoryId || storedHistoryId } };
           usedFallbackList = true;
@@ -3917,12 +3919,28 @@ async function setupGmailWatch(userEmail) {
     });
     var expiry = watchRes.data.expiration ? new Date(parseInt(watchRes.data.expiration)) : null;
     var historyId = String(watchRes.data.historyId);
-    await supabaseDbRequest('gmail_watch_state', '', {
-      method: 'POST',
-      body: { email_address: userEmail, history_id: historyId, watch_expiry: expiry ? expiry.toISOString() : null, updated_at: new Date().toISOString() },
-      headers: { 'Prefer': 'resolution=merge-duplicates' }
-    });
-    console.log('[Gmail] Watch registered for', userEmail, '- expires:', expiry, '- historyId:', historyId);
+    // CRITICAL: only SEED history_id on the first watch. On a renewal we must NOT
+    // overwrite it with the mailbox's CURRENT historyId — doing so skips every message
+    // that arrived since the last *processed* history (the webhook advances history_id
+    // only after processing). That silently drops inbound mail (e.g. a practice's
+    // returned SPPA that arrived between processing and the next watch renewal). On
+    // renewal, only refresh the expiry + updated_at and leave history_id untouched.
+    var existingWatch = await supabaseDbRequest('gmail_watch_state',
+      'select=email_address&email_address=eq.' + encodeURIComponent(userEmail) + '&limit=1');
+    var watchRowExists = existingWatch.ok && Array.isArray(existingWatch.data) && existingWatch.data.length > 0;
+    if (watchRowExists) {
+      await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(userEmail), {
+        method: 'PATCH',
+        body: { watch_expiry: expiry ? expiry.toISOString() : null, updated_at: new Date().toISOString() }
+      });
+    } else {
+      await supabaseDbRequest('gmail_watch_state', '', {
+        method: 'POST',
+        body: { email_address: userEmail, history_id: historyId, watch_expiry: expiry ? expiry.toISOString() : null, updated_at: new Date().toISOString() },
+        headers: { 'Prefer': 'resolution=merge-duplicates' }
+      });
+    }
+    console.log('[Gmail] Watch registered for', userEmail, '- expires:', expiry, '- historyId:', historyId, watchRowExists ? '(renewal, history_id preserved)' : '(first watch, history_id seeded)');
     return { ok: true, historyId: historyId, expiry: expiry };
   } catch (err) {
     var errorDetail = err.message || String(err);
