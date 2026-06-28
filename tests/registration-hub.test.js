@@ -50,9 +50,16 @@ import pkg2 from '../lib/registration-hub.js';
 const { buildFromHeader } = pkg2;
 
 describe('buildFromHeader', () => {
-  it('uses the provided display name', () => {
-    expect(buildFromHeader('Hazel — GP Link', 'registration@mygplink.com.au'))
-      .toBe('From: "Hazel — GP Link" <registration@mygplink.com.au>');
+  it('uses the provided ASCII display name in plain quoted form', () => {
+    expect(buildFromHeader('Hazel', 'registration@mygplink.com.au'))
+      .toBe('From: "Hazel" <registration@mygplink.com.au>');
+  });
+  it('RFC 2047-encodes a non-ASCII display name so it does not render as mojibake', () => {
+    const h = buildFromHeader('Hazel — GP Link', 'registration@mygplink.com.au');
+    // Must be an encoded-word (NOT the raw em dash, which would mojibake) that decodes back.
+    expect(h).toMatch(/^From: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?= <registration@mygplink\.com\.au>$/);
+    const b64 = h.match(/=\?UTF-8\?B\?(.+?)\?=/)[1];
+    expect(Buffer.from(b64, 'base64').toString('utf8')).toBe('Hazel — GP Link');
   });
   it('defaults to GP Link Registration when no name', () => {
     expect(buildFromHeader('', 'hazel@mygplink.com.au'))
