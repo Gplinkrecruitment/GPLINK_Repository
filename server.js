@@ -34044,7 +34044,7 @@ Return ONLY valid JSON with no markdown formatting:
       var uniqueUserIds = Array.from(new Set(userIds));
       if (uniqueUserIds.length) {
         var profRes = await supabaseDbRequest('user_profiles',
-          'select=user_id,first_name,last_name&user_id=in.(' + uniqueUserIds.map(encodeURIComponent).join(',') + ')');
+          'select=user_id,first_name,last_name,email&user_id=in.(' + uniqueUserIds.map(encodeURIComponent).join(',') + ')');
         var profileByUserId = {};
         (profRes.ok && Array.isArray(profRes.data) ? profRes.data : []).forEach(function (p) {
           profileByUserId[p.user_id] = p;
@@ -34052,6 +34052,9 @@ Return ONLY valid JSON with no markdown formatting:
         Object.values(casesById).forEach(function (c) {
           var p = profileByUserId[c.user_id] || {};
           c.gp_name = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown';
+          // gp_email lets groupConversations label each thread by its real counterparty
+          // (GP threads as the doctor, practice threads as the practice).
+          c.gp_email = p.email || '';
         });
       }
     }
@@ -34091,14 +34094,16 @@ Return ONLY valid JSON with no markdown formatting:
       'select=id,stage,assigned_va,practice_name,user_id&id=eq.' + encodeURIComponent(threadCaseId) + '&limit=1');
     var tCase = (tCRes.ok && Array.isArray(tCRes.data) && tCRes.data[0]) ? tCRes.data[0] : null;
     if (!tCase) { sendJson(res, 404, { ok: false, error: 'case not found' }); return; }
-    // Enrich gp_name from user_profiles — inline batched pattern (mirrors conversations endpoint)
+    // Enrich gp_name + gp_email from user_profiles — inline batched pattern (mirrors conversations endpoint)
     if (tCase.user_id) {
       var tProfRes = await supabaseDbRequest('user_profiles',
-        'select=user_id,first_name,last_name&user_id=eq.' + encodeURIComponent(tCase.user_id) + '&limit=1');
+        'select=user_id,first_name,last_name,email&user_id=eq.' + encodeURIComponent(tCase.user_id) + '&limit=1');
       var tProf = (tProfRes.ok && Array.isArray(tProfRes.data) && tProfRes.data[0]) ? tProfRes.data[0] : {};
       tCase.gp_name = [(tProf.first_name || ''), (tProf.last_name || '')].join(' ').trim() || 'Unknown';
+      tCase.gp_email = tProf.email || '';
     } else {
       tCase.gp_name = 'Unknown';
+      tCase.gp_email = '';
     }
     var tThreadFilter = threadIdParam
       ? ('&gmail_thread_id=eq.' + encodeURIComponent(threadIdParam))
@@ -34108,7 +34113,6 @@ Return ONLY valid JSON with no markdown formatting:
       encodeURIComponent(threadCaseId) + tThreadFilter + '&channel=eq.email&order=created_at.asc&limit=500');
     var tRoster = await loadRsoTeam({ includeInactive: true });
     var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
-    var tIsPractice = !!(tCase.practice_name && String(tCase.practice_name).trim());
     var tMsgs = (tMsgRes.ok && Array.isArray(tMsgRes.data)) ? tMsgRes.data : [];
     // Resolve reply targets so the Inbox UI can send a real reply via /api/admin/email/send.
     // Messages are ordered created_at.asc, so the most recent is the last element. All
@@ -34123,13 +34127,19 @@ Return ONLY valid JSON with no markdown formatting:
       if (tMsgs[tI] && tMsgs[tI].task_id) { tLatestTaskId = tMsgs[tI].task_id; break; }
     }
     var tLastSubject = (tLatest && tLatest.subject) ? String(tLatest.subject).replace(/^\s*Re:\s*/i, '') : '';
+    // Label this thread by its actual counterparty (GP vs practice), not by whether
+    // the case has a practice — same rule as the Inbox list (registration-hub-inbox).
+    var tHdr = registrationHubInbox.classifyThread({
+      counterparty: tTo, gpEmail: tCase.gp_email,
+      practiceName: tCase.practice_name, gpName: tCase.gp_name
+    });
     sendJson(res, 200, {
       ok: true,
       header: {
         caseId: tCase.id,
         threadId: threadIdParam,
-        name: tIsPractice ? tCase.practice_name : (tCase.gp_name || 'Unknown'),
-        kind: tIsPractice ? 'practice' : 'doctor',
+        name: tHdr.name,
+        kind: tHdr.kind,
         stage: tCase.stage || '',
         assignedVa: tCase.assigned_va || null,
         assignedRsoName: tRso ? tRso.name : '',

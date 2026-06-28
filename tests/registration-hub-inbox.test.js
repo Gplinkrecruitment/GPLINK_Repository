@@ -43,7 +43,7 @@ describe('groupConversations', () => {
 });
 
 describe('groupConversations — per-thread split', () => {
-  const casesById = { c1: { id:'c1', stage:'ahpra', assigned_va:'u-hazel', gp_name:'Dr Sana Khan', practice_name:'Greenslopes Medical Centre' } };
+  const casesById = { c1: { id:'c1', stage:'ahpra', assigned_va:'u-hazel', gp_name:'Dr Sana Khan', gp_email:'sana@example.com', practice_name:'Greenslopes Medical Centre' } };
   const rsoNameByUserId = { 'u-hazel':'Hazel' };
   // Same case c1, TWO gmail threads: one with the GP, one with the practice
   const messages = [
@@ -63,6 +63,24 @@ describe('groupConversations — per-thread split', () => {
     const prac = out.find(c => c.threadId === 't-prac');
     expect(gp.counterparty).toBe('sana@example.com');         // GP thread → reply to Sana
     expect(prac.counterparty).toBe('reception@greenslopes.com.au'); // practice thread → reply to practice
+  });
+  it('labels each thread by its OWN counterparty: GP thread → doctor name, practice thread → practice name', () => {
+    const out = groupConversations({ messages, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    const gp = out.find(c => c.threadId === 't-gp');
+    const prac = out.find(c => c.threadId === 't-prac');
+    // The case HAS a practice, but the GP thread must still be labelled as the doctor.
+    expect(gp.kind).toBe('doctor');
+    expect(gp.name).toBe('Dr Sana Khan');
+    expect(prac.kind).toBe('practice');
+    expect(prac.name).toBe('Greenslopes Medical Centre');
+  });
+  it('matches the GP email case-insensitively and through a "Name <addr>" counterparty', () => {
+    const msgs = [
+      { case_id:'c1', gmail_thread_id:'t-gp2', direction:'inbound', sender:'Dr Sana Khan <SANA@example.com>', recipient:'registration@mygplink.com.au', subject:'Re', body_text:'hi', created_at:'2026-06-15T09:00:00Z', read_at:null }
+    ];
+    const out = groupConversations({ messages: msgs, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
+    expect(out[0].kind).toBe('doctor');
+    expect(out[0].name).toBe('Dr Sana Khan');
   });
   it('per-thread stats are independent', () => {
     const out = groupConversations({ messages, casesById, rsoNameByUserId, scope:'all', meUserId:'u-hazel' });
