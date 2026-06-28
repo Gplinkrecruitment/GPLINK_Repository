@@ -2398,7 +2398,7 @@ async function matchResponseToTask(caseId, emailMeta) {
     if (msgMatch.ok && Array.isArray(msgMatch.data) && msgMatch.data.length > 0) {
       var taskId = msgMatch.data[0].task_id;
       var taskRes = await supabaseDbRequest('registration_tasks',
-        'select=id,task_type,title,status,related_document_key&id=eq.' + encodeURIComponent(taskId) +
+        'select=id,task_type,title,status,gmail_thread_id,related_document_key&id=eq.' + encodeURIComponent(taskId) +
         '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
       if (taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0) {
         return { task: taskRes.data[0], confidence: 0.93, method: 'message_thread_match' };
@@ -2410,7 +2410,7 @@ async function matchResponseToTask(caseId, emailMeta) {
   // task types (flagged_doc, zoom_call) so a general GP email is never guessed into a
   // qualification-review or scheduled-call task — those aren't email threads.
   var openTasks = await supabaseDbRequest('registration_tasks',
-    'select=id,task_type,title,description,status,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
+    'select=id,task_type,title,description,status,gmail_thread_id,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
     '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)' +
     '&task_type=not.in.(flagged_doc,zoom_call)&limit=20');
   if (!openTasks.ok || !Array.isArray(openTasks.data) || openTasks.data.length === 0) return null;
@@ -3380,8 +3380,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                       // already attached to the task; prevents duplicate hub rows on re-scan).
                       var _altHeaders = (_altFullMsg.data.payload.headers || []);
                       var _altSubject = (_altHeaders.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '';
+                      // Dedup by case + Gmail message id (the review task is freshly created
+                      // on THIS scan, so a task-scoped check would never see a prior copy).
                       var _altDup = await supabaseDbRequest('task_messages',
-                        'select=id&task_id=eq.' + encodeURIComponent(_reviewTask.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+                        'select=id&case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
                       if (!(_altDup.ok && Array.isArray(_altDup.data) && _altDup.data.length > 0)) {
                         await supabaseDbRequest('task_messages', '', {
                           method: 'POST', body: [{
