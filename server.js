@@ -2200,6 +2200,25 @@ function selectSppaReplyMessage(messages, meta, alreadyAttachedIds) {
   return { direction: direction, message: fresh[0], expectedSender: expectedSender, reason: 'matched' };
 }
 
+// Read the supervisee (candidate) name off a returned SPPA-00 PDF attachment via the AI Section-A
+// scan, so an ambiguous practice return (same practice contact, multiple candidates) can be routed
+// to the correct GP. Returns '' on any failure — the caller treats '' as "cannot confirm" and does
+// NOT route the form, so a read failure can never misfile.
+// IMPORTANT: read the name HINT-FREE (candidateName: ''). The detected name is the SOLE gate that
+// decides which candidate's task this form belongs to, so we must not feed the target name in as a
+// "cross-check" — that could bias the model into echoing it and route the wrong form.
+async function _readSppaSuperviseeName(gmail, mailbox, em) {
+  try {
+    var pdfAtt = (em.attachments || []).find(function (a) { return a && (/\.pdf$/i.test(a.filename || '') || /pdf/i.test(a.mimeType || '')); });
+    if (!pdfAtt || !pdfAtt.attachmentId) return '';
+    var att = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: em.messageId, id: pdfAtt.attachmentId });
+    var buf = Buffer.from(String((att.data && att.data.data) || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    if (!buf.length) return '';
+    var scan = await scanGpSections({ pdfBuffer: buf, candidateName: '' });
+    return String((scan && scan.candidate_name_detected) || '').trim();
+  } catch (e) { return ''; }
+}
+
 // Deterministic recovery for a KNOWN SPPA task awaiting a reply. Pulls the task's own Gmail
 // thread from the given mailbox (label- and cursor-independent), uses selectSppaReplyMessage to
 // pick the awaited reply from the EXPECTED sender, and — if found and fresh — ingests it exactly
@@ -2239,11 +2258,12 @@ async function recoverSppaThreadReply(task, mailbox) {
   // thread; selectSppaReplyMessage still gates on sender + attachment + not-already-attached.
   var _expectedSender = String(((preState === 'sent_to_practice' || preState === 'corrections_requested')
     ? meta.sent_to_practice_email : meta.sent_to_candidate_email) || '').trim().toLowerCase();
-  // Disambiguation guard for the sender-search (NEW-thread) path: a practice contact address can
-  // host MULTIPLE candidates, so a sender-only match could file the wrong candidate's form into
-  // this task. Only allow the sender search when this expected practice address is awaiting
-  // exactly ONE return. (Candidate addresses are unique per candidate, so they never need this.)
-  var _allowSenderSearch = !!_expectedSender;
+  // Disambiguation for the sender-search (NEW-thread) path: a practice contact address can host
+  // MULTIPLE candidates, so a sender-only match could file the wrong candidate's form. If this
+  // practice address is awaiting MORE THAN ONE return at once, switch on AI name-routing: read the
+  // supervisee name off each returned SPPA-00 and only accept the form that names THIS task's
+  // candidate. (Candidate addresses are unique per candidate, so they never need this.)
+  var _requireNameMatch = false;
   if (_expectedSender && (preState === 'sent_to_practice' || preState === 'corrections_requested')) {
     try {
       var _ambRes = await supabaseDbRequest('registration_tasks',
@@ -2251,12 +2271,28 @@ async function recoverSppaThreadReply(task, mailbox) {
         '&metadata->>sent_to_practice_email=eq.' + encodeURIComponent(_expectedSender) +
         '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested)');
       if (_ambRes.ok && Array.isArray(_ambRes.data) && _ambRes.data.length > 1) {
-        _allowSenderSearch = false;
-        console.warn('[SPPA recover] practice', _expectedSender, 'is awaiting', _ambRes.data.length, 'returns at once — skipping sender search (ambiguous); thread-only for task', task.id);
+        _requireNameMatch = true;
+        console.warn('[SPPA recover] practice', _expectedSender, 'is awaiting', _ambRes.data.length, 'returns at once — AI-routing each form by its supervisee name (task', task.id + ')');
       }
     } catch (e) {}
   }
-  if (_expectedSender && _allowSenderSearch) {
+  // This task's candidate name (only needed for AI name-routing). Without it we can't safely route.
+  var _taskCandidateName = '';
+  if (_requireNameMatch) {
+    _taskCandidateName = String(meta.candidate_name || '').trim();
+    if (!_taskCandidateName) {
+      try {
+        var _cr = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+        var _cuid = (_cr.ok && _cr.data && _cr.data[0]) ? _cr.data[0].user_id : null;
+        if (_cuid) {
+          var _pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(_cuid) + '&limit=1');
+          if (_pr.ok && _pr.data && _pr.data[0]) _taskCandidateName = ((_pr.data[0].first_name || '') + ' ' + (_pr.data[0].last_name || '')).trim();
+        }
+      } catch (e) {}
+    }
+    if (!_taskCandidateName) console.warn('[SPPA recover] no candidate name on file for task', task.id, '— cannot AI-route ambiguous practice forms; thread-only');
+  }
+  if (_expectedSender) {
     try {
       var _seenMetaIds = {};
       metas.forEach(function (m) { if (m && m.messageId) _seenMetaIds[m.messageId] = true; });
@@ -2274,6 +2310,17 @@ async function recoverSppaThreadReply(task, mailbox) {
         // The in-thread path stays permissive (it's already anchored to the SPPA conversation).
         var _hasPdf = (_sEm.attachments || []).some(function (a) { return a && (/\.pdf$/i.test(a.filename || '') || /pdf/i.test(a.mimeType || '')); });
         if (!_hasPdf) continue;
+        // Ambiguous practice: AI-read the supervisee name on THIS form and only accept it for this
+        // task if it names this task's candidate, so each form routes to the right GP.
+        if (_requireNameMatch) {
+          if (!_taskCandidateName) continue;
+          var _formName = await _readSppaSuperviseeName(gmail, mailbox, _sEm);
+          if (!_formName || !isConfirmedNameMatch(matchNames(_formName, _taskCandidateName))) {
+            console.log('[SPPA recover] form', _sid, 'supervisee "' + _formName + '" does NOT match task candidate "' + _taskCandidateName + '" — not routing to task', task.id);
+            continue;
+          }
+          console.log('[SPPA recover] form', _sid, 'supervisee "' + _formName + '" matches candidate "' + _taskCandidateName + '" — routing to task', task.id);
+        }
         metas.push(_sEm);
       }
     } catch (_sErr) { console.warn('[SPPA recover] sender search failed for', _expectedSender, '-', _sErr.message); }
