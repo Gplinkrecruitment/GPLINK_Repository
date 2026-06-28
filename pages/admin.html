@@ -8068,7 +8068,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const b=panel.querySelector(".hub-back");if(b)b.addEventListener("click",loadList);return;
       }
       renderThread(j.header||{},j.messages||[]);
-      fetch("/api/admin/inbox/mark-read",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({caseId:caseId})}).catch(function(){});
+      fetch("/api/admin/inbox/mark-read",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({caseId:caseId,threadId:threadId||""})}).catch(function(){});
     }
     function renderThread(header,messages){
       const panel=document.getElementById(PANEL);if(!panel)return;
@@ -8108,13 +8108,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       const t=panel.querySelector(".hub-thread");if(t)t.scrollTop=t.scrollHeight;
     }
+    function hubStripQuoted(body){
+      var t=String(body||"");
+      // Cut from the standard Gmail "On <date>, <name> wrote:" quote marker.
+      var mk=t.search(/On\s[\s\S]{0,220}?wrote:/);
+      if(mk>0)t=t.slice(0,mk);
+      // Drop trailing quoted (">"-prefixed) lines.
+      var lines=t.split(/\r?\n/);
+      while(lines.length&&/^\s*>/.test(lines[lines.length-1]))lines.pop();
+      var stripped=lines.join("\n").trim();
+      return stripped||String(body||"").trim();
+    }
+    function hubParseAtts(a){
+      if(!a)return[];
+      if(Array.isArray(a))return a;
+      try{var p=JSON.parse(a);return Array.isArray(p)?p:[];}catch(e){return[];}
+    }
     function msgHtml(m){
       const out=m.direction==="outbound";
+      var atts=hubParseAtts(m.attachments).map(function(f){return typeof f==="string"?f:((f&&(f.filename||f.name))||"");}).filter(Boolean);
+      var attHtml=atts.length?'<div class="hub-msg-atts">'+atts.map(function(f){
+        return '<span class="hub-att" style="display:inline-block;margin:6px 6px 0 0;padding:3px 9px;background:#eef2f7;border:1px solid #d7dee8;border-radius:11px;font-size:12px">📎 '+esc(f)+'</span>';
+      }).join("")+'</div>':"";
       return '<div class="hub-msg '+(out?"sent":"reply")+'"><div class="hub-msg-top">'+
         '<span class="hub-dir '+(out?"out":"in")+'">'+(out?"SENT":"REPLY")+'</span>'+
         '<span class="hub-msg-time">'+esc(m.created_at?new Date(m.created_at).toLocaleString():"")+'</span></div>'+
         '<div class="hub-msg-subj">'+esc(m.subject||"")+'</div>'+
-        '<div class="hub-msg-body">'+esc(m.body_text||"")+'</div></div>';
+        '<div class="hub-msg-body">'+esc(hubStripQuoted(m.body_text||""))+'</div>'+attHtml+'</div>';
     }
     async function sendReply(header){
       if(!header||!header.to)return;
@@ -8123,7 +8143,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
       try{
         await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,to:header.to,
+          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,
             subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:"<p>"+esc(txt)+"</p>",bodyText:txt})});
       }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
       openThread(header.caseId,header.threadId);

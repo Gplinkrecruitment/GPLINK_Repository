@@ -1723,17 +1723,23 @@ if (REGISTRATION_HUB_EMAIL) {
   }
 }
 
-// ⚠️⚠️ TEMPORARY TEST ONLY (added 2026-06-22) — re-watch the hello@ archive but ONLY
-// process mail from the allowlisted sender(s). Every other message (vendor mail, silent
-// case-copies, etc.) is dropped BEFORE any labeling/triage, so the archive is not flooded.
-// REVERT this block (and the three guarded spots that reference it) to fully restore the
-// permanent hello@ guard. See memory: hello-inbox-never-watched.
+// ⚠️ TEMPORARY TEST (added 2026-06-22) — DISABLED 2026-06-29 now that registration@ is the
+// live hub. This block re-watched the hello@ archive and processed mail from an allowlisted
+// sender. While ON it double-ingested candidate/practice replies: the hello@ copy of a reply
+// is a standalone message there, so its per-mailbox threadId == its own message id, producing
+// an ORPHAN conversation row (split from the real thread) plus a cross-mailbox duplicate that
+// no gmail_message_id dedup can catch. Replies now come back to registration@ (the hub, which
+// is watched), so the hello@ scoped watch is pure duplication. Defaults are now '' so the
+// permanent hello@ guard (NEVER_PROCESS_EMAILS) is fully restored and the cron stops renewing
+// hello@'s watch (it lapses on its own). NOTE: if TEST_WATCH_INBOXES / TEST_WATCH_FROM_SENDERS
+// are also set as Vercel env vars, they must be cleared there too. See memory:
+// hello-inbox-never-watched and temp-scoped-hello-watch.
 const TEST_WATCH_INBOXES = new Set(
-  String(process.env.TEST_WATCH_INBOXES || 'hello@mygplink.com.au')
+  String(process.env.TEST_WATCH_INBOXES || '')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 const TEST_WATCH_FROM_SENDERS = new Set(
-  String(process.env.TEST_WATCH_FROM_SENDERS || 'khaleedmahmoud1211@gmail.com,smithmiller1234@gmail.com')
+  String(process.env.TEST_WATCH_FROM_SENDERS || '')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 // TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
@@ -3161,9 +3167,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             var earlyMsgRecord = await supabaseDbRequest('task_messages', '', {
               method: 'POST', headers: { Prefer: 'return=representation' },
               body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, direction: 'inbound', channel: 'email',
-                sender: emailMeta.sender || '', subject: emailMeta.subject || '',
+                sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
                 body_text: (emailMeta.bodyText || '').substring(0, 5000),
-                gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || '',
+                gmail_message_id: currentMsgId,
+                // Anchor to the matched task's real Gmail thread — NOT the scanning mailbox's
+                // per-mailbox threadId (an archive/hello@ copy would otherwise orphan the row).
+                gmail_thread_id: earlyTask.gmail_thread_id || emailMeta.threadId || null,
+                // Surface the reply's attachments on the hub message so the Inbox can show
+                // "replied with the completed form" (the files also go to task_documents).
+                attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                 is_document_delivery: earlyIsDoc, ai_match_confidence: earlyMatch.confidence }]
             });
             // Extract attachments if document delivery. Use the RECURSIVE emailMeta.attachments
@@ -3364,21 +3376,27 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                           }]
                         });
                       }
-                      // Store inbound message
+                      // Store inbound message (idempotent — skip if this Gmail message is
+                      // already attached to the task; prevents duplicate hub rows on re-scan).
                       var _altHeaders = (_altFullMsg.data.payload.headers || []);
                       var _altSubject = (_altHeaders.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '';
-                      await supabaseDbRequest('task_messages', '', {
-                        method: 'POST', body: [{
-                          task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
-                          sender: emailMeta.sender || '', subject: _altSubject,
-                          body_text: (emailMeta.bodyText || '').substring(0, 5000),
-                          gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || '',
-                          is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
-                        }]
-                      });
-                      await _logCaseEvent(_altCvCaseId, _reviewTask.id, 'system',
-                        _matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
-                        _matchedCvs.map(function(c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
+                      var _altDup = await supabaseDbRequest('task_messages',
+                        'select=id&task_id=eq.' + encodeURIComponent(_reviewTask.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+                      if (!(_altDup.ok && Array.isArray(_altDup.data) && _altDup.data.length > 0)) {
+                        await supabaseDbRequest('task_messages', '', {
+                          method: 'POST', body: [{
+                            task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
+                            sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: _altSubject,
+                            body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                            gmail_message_id: currentMsgId, gmail_thread_id: _reviewTask.gmail_thread_id || emailMeta.threadId || null,
+                            attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+                            is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
+                          }]
+                        });
+                        await _logCaseEvent(_altCvCaseId, _reviewTask.id, 'system',
+                          _matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
+                          _matchedCvs.map(function(c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
+                      }
                     }
                     await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'alt_cv_matched', matched_task_id: _reviewTask ? _reviewTask.id : null, processed_at: new Date().toISOString() }] });
                     _altCvMatched = true;
@@ -3793,6 +3811,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               var rTask = responseMatch.task;
               var isDocDelivery = responseMatch.isDocumentDelivery || emailMeta.hasAttachments || false;
 
+              // Idempotency: never re-ingest a Gmail message already attached to this task
+              // (mirrors the early-match guard above). Survives processed_gmail_messages
+              // deletion by recovery tooling and stops re-scans creating duplicate hub rows.
+              var _dDup = await supabaseDbRequest('task_messages',
+                'select=id&task_id=eq.' + encodeURIComponent(rTask.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+              if (_dDup.ok && Array.isArray(_dDup.data) && _dDup.data.length > 0) {
+                console.log('[Gmail] Skipping re-ingest (triage match) — message', currentMsgId, 'already attached to task', rTask.id);
+                await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'duplicate_skipped', processed_at: new Date().toISOString() }] }).catch(function () {});
+                continue;
+              }
+
               // Store as task_message
               var msgRecord = await supabaseDbRequest('task_messages', '', {
                 method: 'POST',
@@ -3803,10 +3832,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   direction: 'inbound',
                   channel: 'email',
                   sender: emailMeta.sender || '',
+                  recipient: emailMeta.to || '',
                   subject: emailMeta.subject || '',
                   body_text: (emailMeta.bodyText || '').substring(0, 5000),
                   gmail_message_id: currentMsgId,
-                  gmail_thread_id: emailMeta.threadId || '',
+                  // Anchor to the task's real thread, never the scanning mailbox's per-mailbox id.
+                  gmail_thread_id: rTask.gmail_thread_id || emailMeta.threadId || null,
+                  attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                   is_document_delivery: isDocDelivery,
                   ai_match_confidence: responseMatch.confidence,
                   created_at: new Date().toISOString()
@@ -34198,8 +34230,15 @@ Return ONLY valid JSON with no markdown formatting:
     let mrBody; try { mrBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     var mrCaseId = mrBody && mrBody.caseId;
     if (!mrCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    // Scope to the opened thread when given, so opening ONE conversation doesn't clear the
+    // unread flag on the case's OTHER threads (a candidate usually has both a GP thread and a
+    // practice thread). Empty threadId → the null-thread "case bucket", matching the thread view.
+    var mrThreadId = (mrBody && typeof mrBody.threadId === 'string') ? mrBody.threadId.trim() : '';
+    var mrThreadFilter = mrThreadId
+      ? '&gmail_thread_id=eq.' + encodeURIComponent(mrThreadId)
+      : '&gmail_thread_id=is.null';
     var mrUpd = await supabaseDbRequest('task_messages',
-      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&channel=eq.email&direction=eq.inbound&read_at=is.null',
+      'case_id=eq.' + encodeURIComponent(mrCaseId) + '&channel=eq.email&direction=eq.inbound&read_at=is.null' + mrThreadFilter,
       { method: 'PATCH', body: { read_at: new Date().toISOString() } });
     sendJson(res, 200, { ok: true, updated: (mrUpd.ok && Array.isArray(mrUpd.data)) ? mrUpd.data.length : 0 });
     return;
