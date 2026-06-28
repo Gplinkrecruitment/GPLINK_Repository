@@ -25737,16 +25737,19 @@ async function handleApi(req, res, pathname) {
     // Auto-resolve threading from task when threadId not explicitly provided
     if (!emailThreadId && emailTaskId) {
       try {
-        var threadTaskRes = await supabaseDbRequest('registration_tasks', 'select=gmail_thread_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
+        var threadTaskRes = await supabaseDbRequest('registration_tasks', 'select=gmail_thread_id,case_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
         var threadTask = threadTaskRes.ok && Array.isArray(threadTaskRes.data) && threadTaskRes.data[0] ? threadTaskRes.data[0] : null;
         if (threadTask && threadTask.gmail_thread_id) {
           emailThreadId = threadTask.gmail_thread_id;
-          // Fetch last message's Message-ID for In-Reply-To header + original subject for threading
+          // Fetch last message's Message-ID for In-Reply-To header + original subject for threading.
+          // Use the hub mailbox (where the thread lives under the hub), not MONITORED_VA_EMAILS[0].
           try {
-            var tGmail = await getGmailClient(MONITORED_VA_EMAILS[0]);
+            var _siThr = await resolveCaseSenderInfo(threadTask.case_id);
+            var _thrBox = (_siThr && _siThr.from) ? String(_siThr.from).toLowerCase() : MONITORED_VA_EMAILS[0];
+            var tGmail = await getGmailClient(_thrBox);
             if (tGmail) {
               var tThread = await tGmail.users.threads.get({
-                userId: MONITORED_VA_EMAILS[0], id: emailThreadId,
+                userId: _thrBox, id: emailThreadId,
                 format: 'metadata', metadataHeaders: ['Message-ID', 'Subject']
               });
               if (tThread.data && Array.isArray(tThread.data.messages) && tThread.data.messages.length > 0) {
@@ -34509,9 +34512,11 @@ Return ONLY valid JSON with no markdown formatting:
       var emailThread = [];
       if (task.gmail_thread_id) {
         try {
-          var gmail = await getGmailClient('hazel@mygplink.com.au');
+          var _siSug = await resolveCaseSenderInfo(task.case_id);
+          var _sugBox = (_siSug && _siSug.from) ? String(_siSug.from).toLowerCase() : 'hazel@mygplink.com.au';
+          var gmail = await getGmailClient(_sugBox);
           if (gmail) {
-            var threadRes = await gmail.users.threads.get({ userId: 'hazel@mygplink.com.au', id: task.gmail_thread_id, format: 'metadata', metadataHeaders: ['From', 'To', 'Subject', 'Date'] });
+            var threadRes = await gmail.users.threads.get({ userId: _sugBox, id: task.gmail_thread_id, format: 'metadata', metadataHeaders: ['From', 'To', 'Subject', 'Date'] });
             if (threadRes.data && Array.isArray(threadRes.data.messages)) {
               emailThread = threadRes.data.messages.map(function (m) {
                 var hdrs = {};
@@ -37861,8 +37866,14 @@ Return ONLY valid JSON with no markdown formatting:
     var practiceName = placement.practiceName || 'the practice';
     var emailSubject = 'Re: ' + docLabel + ' Required — ' + gpName + ' at ' + practiceName;
 
-    // Build RFC 2822 email with attachment (threaded as reply when possible)
-    var vaEmail = MONITORED_VA_EMAILS[0];
+    // Build RFC 2822 email with attachment (threaded as reply when possible).
+    // Under the registration hub the case sends FROM the hub mailbox (registration@) and the
+    // thread lives there, so the thread lookup, From identity, AND the draft must all use the
+    // hub mailbox — not MONITORED_VA_EMAILS[0] (hazel@), which would break threading + send
+    // from the wrong identity so the practice's reply never returns to the watched hub inbox.
+    var _siRev = await resolveCaseSenderInfo(task.case_id);
+    var vaEmail = (_siRev && _siRev.from) ? String(_siRev.from).toLowerCase() : MONITORED_VA_EMAILS[0];
+    var revFromName = (_siRev && _siRev.fromName) ? _siRev.fromName : 'GP Link Registration';
     var boundary = 'boundary_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
     // Look up original thread to get In-Reply-To / References headers
@@ -37899,7 +37910,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    var rawHeaders = 'From: "GP Link Registration" <' + vaEmail + '>\r\n'
+    var rawHeaders = registrationHub.buildFromHeader(revFromName, vaEmail) + '\r\n'
       + 'To: ' + practiceEmail + '\r\n'
       + 'Subject: ' + emailSubject + '\r\n'
       + 'MIME-Version: 1.0\r\n';
