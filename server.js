@@ -2152,6 +2152,221 @@ function extractEmailMeta(gmailMessage) {
   };
 }
 
+// Deterministic SPPA reply selection (no AI / no thread-match heuristics). Given the messages
+// of a task's OWN Gmail thread (each extractEmailMeta-shaped) plus the task's metadata, decide
+// which message is the awaited reply and from which side. The whole SPPA exchange lives in one
+// thread, so thread-matching alone cannot tell the candidate's reply from the practice's — the
+// EXPECTED SENDER (the address we actually sent the form to) is what identifies the awaited
+// reply. This is the known-task recovery path that bypasses the fragile earlyGpCase /
+// matchResponseToTask chain (which could surface a reply yet silently drop it).
+// Returns { direction:'practice'|'candidate'|null, message, expectedSender, reason }.
+function selectSppaReplyMessage(messages, meta, alreadyAttachedIds) {
+  meta = meta || {};
+  var state = String(meta.sppa_state || '');
+  var awaitingPractice = (state === 'sent_to_practice' || state === 'corrections_requested');
+  var awaitingCandidate = (state === 'sent_to_candidate' || state === 'gp_corrections_requested');
+  if (!awaitingPractice && !awaitingCandidate) {
+    return { direction: null, message: null, expectedSender: null, reason: 'not-awaiting' };
+  }
+  var direction = awaitingPractice ? 'practice' : 'candidate';
+  var expectedSender = String((awaitingPractice ? meta.sent_to_practice_email : meta.sent_to_candidate_email) || '').trim().toLowerCase();
+  if (!expectedSender) {
+    return { direction: null, message: null, expectedSender: null, reason: 'no-expected-sender' };
+  }
+  var attachedSet = {};
+  (alreadyAttachedIds || []).forEach(function (id) { attachedSet[String(id)] = true; });
+  function bareEmail(s) {
+    var angle = String(s || '').match(/<([^>]+)>/);
+    var addr = angle ? angle[1] : String(s || '');
+    var m2 = addr.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    return (m2 ? m2[0] : addr).trim().toLowerCase();
+  }
+  var candidates = (messages || []).filter(function (msg) {
+    if (!msg) return false;
+    if (bareEmail(msg.sender) !== expectedSender) return false;
+    if (!msg.attachments || msg.attachments.length === 0) return false;
+    return true;
+  });
+  if (candidates.length === 0) {
+    return { direction: null, message: null, expectedSender: expectedSender, reason: 'no-matching-reply' };
+  }
+  // Idempotency: if EVERY eligible message is already attached to the task, nothing new to ingest.
+  var fresh = candidates.filter(function (msg) { return !attachedSet[String(msg.messageId)]; });
+  if (fresh.length === 0) {
+    return { direction: null, message: null, expectedSender: expectedSender, reason: 'already-attached' };
+  }
+  // Newest first by internalDate (epoch ms, as a string from the Gmail API).
+  fresh.sort(function (a, b) { return Number(b.internalDate || 0) - Number(a.internalDate || 0); });
+  return { direction: direction, message: fresh[0], expectedSender: expectedSender, reason: 'matched' };
+}
+
+// Deterministic recovery for a KNOWN SPPA task awaiting a reply. Pulls the task's own Gmail
+// thread from the given mailbox (label- and cursor-independent), uses selectSppaReplyMessage to
+// pick the awaited reply from the EXPECTED sender, and — if found and fresh — ingests it exactly
+// like the inline auto-pickup (task_message + task_documents + sppa_state transition + ops + AI
+// follow-ups + Drive upload + dedup row). This is the safety net that guarantees a surfaced reply
+// can never be silently dropped. Always logs one line. Returns a structured result.
+async function recoverSppaThreadReply(task, mailbox) {
+  if (!task || !task.id || !task.gmail_thread_id || !mailbox) {
+    return { recovered: false, reason: 'missing-inputs' };
+  }
+  if (!isSupabaseDbConfigured()) return { recovered: false, reason: 'db-not-configured' };
+  var meta = task.metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+  meta = meta || {};
+  // Cheap pre-gate so we don't fetch a thread for a task that isn't awaiting anything.
+  var preState = String(meta.sppa_state || '');
+  if (!['sent_to_practice', 'corrections_requested', 'sent_to_candidate', 'gp_corrections_requested'].includes(preState)) {
+    return { recovered: false, reason: 'not-awaiting:' + preState };
+  }
+  var gmail = await getGmailClient(mailbox);
+  if (!gmail) { console.warn('[SPPA recover] no Gmail client for', mailbox, '— task', task.id); return { recovered: false, reason: 'no-gmail-client' }; }
+
+  var thread;
+  try {
+    thread = await gmail.users.threads.get({ userId: mailbox, id: String(task.gmail_thread_id), format: 'full' });
+  } catch (e) {
+    console.warn('[SPPA recover] threads.get failed for', mailbox, 'thread', task.gmail_thread_id, '-', e.message);
+    return { recovered: false, reason: 'threads-get-failed' };
+  }
+  var rawMsgs = (thread.data && thread.data.messages) || [];
+  var metas = rawMsgs.map(function (m) { var em = extractEmailMeta(m); em.internalDate = m.internalDate || '0'; return em; });
+
+  // Which thread message ids are already attached to this task (idempotency)?
+  var attachedIds = [];
+  try {
+    var amRes = await supabaseDbRequest('task_messages', 'select=gmail_message_id&task_id=eq.' + encodeURIComponent(task.id));
+    if (amRes.ok && Array.isArray(amRes.data)) attachedIds = amRes.data.map(function (r) { return r.gmail_message_id; }).filter(Boolean);
+  } catch (e) {}
+
+  var pick = selectSppaReplyMessage(metas, meta, attachedIds);
+  if (!pick.direction || !pick.message) {
+    console.log('[SPPA recover] task', task.id, 'mailbox', mailbox, '— no pickup (' + pick.reason + ', state ' + preState + ', thread msgs ' + metas.length + ')');
+    return { recovered: false, reason: pick.reason, sppa_state: preState };
+  }
+
+  var picked = pick.message;
+  var direction = pick.direction; // 'practice' | 'candidate'
+  console.log('[SPPA recover] task', task.id, '— ingesting', direction, 'reply', picked.messageId, 'from', pick.expectedSender, '(thread recovery)');
+
+  // 1) Record the inbound message on the task.
+  var msgRecord = await supabaseDbRequest('task_messages', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: [{
+      task_id: task.id, case_id: task.case_id, direction: 'inbound', channel: 'email',
+      sender: picked.sender || '', recipient: mailbox, subject: picked.subject || '',
+      body_text: (picked.bodyText || '').substring(0, 5000),
+      gmail_message_id: picked.messageId,
+      gmail_thread_id: task.gmail_thread_id,
+      attachments: JSON.stringify((picked.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+      is_document_delivery: true
+    }]
+  });
+  var msgRecordId = (msgRecord.ok && msgRecord.data && msgRecord.data[0]) ? msgRecord.data[0].id : null;
+
+  // 2) Pull the attachments and store them as the task's current documents. Wipe the prior
+  //    current doc LAZILY (only once an attachment has actually been fetched) so a failed
+  //    fetch can never leave the task with zero current documents.
+  var storedDocs = [];
+  try {
+    var wipedCurrent = false;
+    for (var ap of (picked.attachments || [])) {
+      if (!ap || !ap.attachmentId) continue;
+      var attData = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: picked.messageId, id: ap.attachmentId });
+      if (!wipedCurrent) {
+        await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
+        wipedCurrent = true;
+      }
+      var docRes = await supabaseDbRequest('task_documents', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [{
+          task_id: task.id, case_id: task.case_id, message_id: msgRecordId,
+          filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
+          version: 1, is_current: true, uploaded_by: 'email_response',
+          attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '')
+        }]
+      });
+      var docId = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0].id : null;
+      if (docId) storedDocs.push({ id: docId, b64: attData.data.data || '', filename: ap.filename });
+    }
+  } catch (attErr) { console.error('[SPPA recover] attachment extraction failed:', attErr.message); }
+
+  // 3) Re-load fresh metadata, apply the state transition (mirrors the inline auto-pickup).
+  var freshRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var fm = (freshRes.ok && freshRes.data && freshRes.data[0]) ? freshRes.data[0].metadata : meta;
+  if (typeof fm === 'string') { try { fm = JSON.parse(fm); } catch (e) { fm = {}; } }
+  fm = fm || {};
+  var newState;
+  if (direction === 'candidate') {
+    newState = 'gp_returned';
+    fm.sppa_state = 'gp_returned';
+    fm.gp_returned_at = new Date().toISOString();
+    fm.gp_returned_via = 'thread_recovery';
+    fm.gp_section_scan_completed = false;
+    delete fm.gp_section_scan;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
+      { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
+    }).catch(function (err) { console.error('[SPPA recover] ops sync error:', err.message); });
+    _maybeRunGpSectionScan(task.id, { force: true }).catch(function (e) { console.error('[SPPA recover] GP section scan error:', e.message); });
+    if (storedDocs.length > 0) {
+      var gpDoc = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('.pdf') > -1; }) || storedDocs[0];
+      var gpBuf = Buffer.from((gpDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      _uploadSppaDocToDrive(task.case_id, gpDoc.id, gpBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[SPPA recover] Drive upload error:', e.message); });
+    }
+  } else {
+    newState = 'practice_returned';
+    fm.sppa_state = 'practice_returned';
+    fm.practice_returned_at = new Date().toISOString();
+    fm.practice_returned_via = 'thread_recovery';
+    delete fm.completeness_check;
+    delete fm.completeness_override;
+    // Tag attachments: the SPPA PDF is the main doc; any others are alternative supervisor CVs.
+    var mainSppa = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('sppa') > -1; }) || storedDocs[0];
+    if (storedDocs.length > 1 && mainSppa) {
+      for (var aDoc of storedDocs) {
+        if (aDoc.id !== mainSppa.id) {
+          await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
+        }
+      }
+      fm.has_alt_supervisor_cvs = true;
+    }
+    if (mainSppa && mainSppa.b64) {
+      try {
+        var sppaBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        var altNames = await extractAltSupervisorNames(sppaBuf);
+        if (altNames.length > 0) {
+          fm.alt_supervisor_names = altNames;
+          _createAltSupervisorCvPlaceholders(task.case_id, altNames).catch(function (e) { console.error('[SPPA recover] alt CV placeholder error:', e.message); });
+        }
+      } catch (exErr) { console.error('[SPPA recover] alt supervisor name extraction error:', exErr.message); }
+    }
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
+      { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
+    }).catch(function (err) { console.error('[SPPA recover] ops sync error:', err.message); });
+    _runSppaCompletenessCheck(task.case_id, task.id).catch(function (e) { console.error('[SPPA recover] completeness check error:', e.message); });
+    if (storedDocs.length > 0 && mainSppa) {
+      var pracBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      _uploadSppaDocToDrive(task.case_id, mainSppa.id, pracBuf, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[SPPA recover] Drive upload error:', e.message); });
+    }
+  }
+
+  // 4) Dedup row so the heuristic path won't re-ingest this message later.
+  await supabaseDbRequest('processed_gmail_messages', '', {
+    method: 'POST',
+    body: [{ gmail_message_id: picked.messageId, email_address: mailbox, sender: picked.sender || '', subject: picked.subject || '', result: 'matched', ai_summary: 'sppa thread_recovery (' + newState + ')', processed_at: new Date().toISOString() }]
+  }).catch(function () {});
+
+  await _logCaseEvent(task.case_id, task.id, 'system',
+    'SPPA-00 ' + (direction === 'practice' ? 'practice' : 'candidate') + ' reply recovered from the email thread',
+    'From: ' + (picked.sender || '') + ' — ' + (picked.attachments || []).length + ' file(s)', 'system').catch(function () {});
+
+  return { recovered: true, direction: direction, message_id: picked.messageId, sppa_state: newState };
+}
+
 function extractAhpraApplicationNumber(subject, bodyText) {
   var pattern = /APP[-–—]?\s*(\d{10,13})/i;
   var match = (subject || '').match(pattern) || (bodyText || '').match(pattern);
@@ -3304,6 +3519,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // Mark as processed
             await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'response_matched', processed_at: new Date().toISOString() }] });
             earlyResponseMatched = true;
+          } else {
+            // DIAGNOSTIC: the sender resolved to a known case (so this IS a tracked party's
+            // reply) but matchResponseToTask produced no confident task match. Historically this
+            // path fell through with ZERO trace — a surfaced practice/candidate reply could
+            // silently vanish right here. Log it so any live drop is always visible. (The
+            // deterministic recoverSppaThreadReply path is the real fix; this makes the gap
+            // observable for the known-task recovery + future debugging.)
+            console.warn('[Gmail] Threaded reply from a known', earlySenderRole || 'party',
+              '(case ' + earlyGpCase.id + ') produced NO confident task match — message', currentMsgId,
+              'thread', emailMeta.threadId || '(none)', '— match:', earlyMatch ? ('confidence ' + earlyMatch.confidence) : 'null');
           }
         }
       }
@@ -22526,10 +22751,16 @@ async function handleApi(req, res, pathname) {
     // (per-task gmail_message_id + processed_gmail_messages dedup), so safe to run each cron.
     if (isSupabaseDbConfigured()) {
       try {
+        // Select by the SPPA AWAITING STATE (metadata.sppa_state), NOT the `status` column —
+        // an awaiting-practice/candidate SPPA task carries status `open`/`in_progress`, so the
+        // old `status=in.(waiting_on_gp,waiting_on_practice)` filter matched ZERO tasks and the
+        // sweep never ran. The real awaiting state lives in metadata.
         var reconRes = await supabaseDbRequest('registration_tasks',
-          'select=id,case_id,gmail_thread_id&related_document_key=eq.sppa_00&gmail_thread_id=not.is.null&status=in.(waiting_on_gp,waiting_on_practice)&limit=200');
+          'select=id,case_id,gmail_thread_id,metadata&related_document_key=eq.sppa_00&gmail_thread_id=not.is.null' +
+          '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested,sent_to_candidate,gp_corrections_requested)&limit=200');
         var reconTasks = reconRes.ok && Array.isArray(reconRes.data) ? reconRes.data : [];
         var reconCount = 0;
+        var reconRecovered = 0;
         for (var rti = 0; rti < reconTasks.length; rti++) {
           var rcTask = reconTasks[rti];
           if (!rcTask.gmail_thread_id) continue;
@@ -22537,11 +22768,15 @@ async function handleApi(req, res, pathname) {
             var rcSi = await resolveCaseSenderInfo(rcTask.case_id);
             var rcInbox = (rcSi && rcSi.from) ? String(rcSi.from).toLowerCase() : '';
             if (!rcInbox) continue;
+            // First the heuristic recovery (handles non-SPPA threading too)...
             await processGmailNotification(rcInbox, null, { recoverThreadId: rcTask.gmail_thread_id });
             reconCount++;
+            // ...then the deterministic pickup as a guaranteed backstop if still awaiting.
+            var rcResult = await recoverSppaThreadReply(rcTask, rcInbox);
+            if (rcResult && rcResult.recovered) reconRecovered++;
           } catch (rcErr) { /* best-effort per task */ }
         }
-        pgResults.push({ sppaReconcile: true, tasksSwept: reconCount });
+        pgResults.push({ sppaReconcile: true, tasksSwept: reconCount, deterministicRecovered: reconRecovered });
       } catch (reconErr) {
         pgResults.push({ sppaReconcile: true, ok: false, error: reconErr.message });
       }
@@ -36965,12 +37200,31 @@ Return ONLY valid JSON with no markdown formatting:
       try { await processGmailNotification(_sib, null, _recheckOpts); _recheckScanned.push({ inbox: _sib, ok: true }); }
       catch (e) { _recheckScanned.push({ inbox: _sib, ok: false, error: e.message }); }
     }
+    // Deterministic safety net: the heuristic scan above can SURFACE the reply yet silently
+    // drop it (the bug this endpoint exists for). If the task is still awaiting, pull the
+    // thread directly and pick up the reply from the address we sent the form to — bypassing
+    // the earlyGpCase/matchResponseToTask heuristics entirely.
+    var _recheckRecovered = null;
+    try {
+      var _stillRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      var _stillTask = (_stillRes.ok && _stillRes.data && _stillRes.data[0]) ? _stillRes.data[0] : null;
+      var _stillMeta = _stillTask ? _stillTask.metadata : null;
+      if (typeof _stillMeta === 'string') { try { _stillMeta = JSON.parse(_stillMeta); } catch (e) { _stillMeta = {}; } }
+      var _stillState = String((_stillMeta && _stillMeta.sppa_state) || '');
+      if (_stillTask && ['sent_to_practice', 'corrections_requested', 'sent_to_candidate', 'gp_corrections_requested'].includes(_stillState)) {
+        for (var _rib of _recheckInboxes) {
+          var _rr = await recoverSppaThreadReply(_stillTask, _rib);
+          if (_rr && _rr.recovered) { _recheckRecovered = Object.assign({ inbox: _rib }, _rr); break; }
+        }
+      }
+    } catch (e) { _recheckRecovered = { recovered: false, error: e.message }; }
     var _afterRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
     var _afterMeta = (_afterRes.ok && _afterRes.data && _afterRes.data[0]) ? _afterRes.data[0].metadata : null;
     if (typeof _afterMeta === 'string') try { _afterMeta = JSON.parse(_afterMeta); } catch (e) { _afterMeta = {}; }
     await _logCaseEvent(task.case_id, taskId, 'system', 'Manual re-check for practice reply triggered',
-      JSON.stringify({ scanned: _recheckScanned, thread: _recheckThreadId, fromSender: _recheckPracticeEmail || null }).slice(0, 400), admin.email);
-    sendJson(res, 200, { ok: true, scanned: _recheckScanned, searchedThread: _recheckThreadId, searchedSender: _recheckPracticeEmail || null, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
+      JSON.stringify({ scanned: _recheckScanned, thread: _recheckThreadId, fromSender: _recheckPracticeEmail || null, recovered: _recheckRecovered || null }).slice(0, 500), admin.email);
+    sendJson(res, 200, { ok: true, scanned: _recheckScanned, searchedThread: _recheckThreadId, searchedSender: _recheckPracticeEmail || null, recovered: _recheckRecovered || null, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
     return;
   }
 
@@ -42582,6 +42836,7 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   buildRsoWritePayload,
+  selectSppaReplyMessage,
   mapPreparedDocumentRow,
   toStatusLabel,
   stageGateDecision,
