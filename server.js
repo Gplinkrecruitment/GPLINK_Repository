@@ -3188,6 +3188,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
   // Fetch open tasks once for all messages
   var openTasks = await getOpenPracticePackTasks();
 
+  // Threads touched by this push — used by the instant SPPA backstop after the loop so a
+  // practice/candidate reply that the per-message heuristic misses is still picked up NOW.
+  var _seenThreadIds = {};
+
   for (var i = 0; i < messageIds.length; i++) {
     var currentMsgId = messageIds[i];
     try {
@@ -3251,6 +3255,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
       // ── Gmail Label Auto-Filing ──
       var allAddresses = extractAllAddresses(lowerHeaders);
       var msgThreadId = fullMsg.data.threadId || null;
+      if (msgThreadId) _seenThreadIds[msgThreadId] = true;
       var caseMatches = await matchEmailToCase(allAddresses, emailAddress, msgThreadId);
       if (caseMatches.length > 0) {
         for (var mi = 0; mi < caseMatches.length; mi++) {
@@ -4289,6 +4294,33 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
       console.error('[Gmail] Error processing message', currentMsgId, ':', msgErr.message);
     }
   }
+
+  // ── Instant SPPA reply pickup (real-time backstop) ──
+  // The same realtime Gmail push that delivered the message(s) above is also how a practice's
+  // (or candidate's) completed SPPA-00 reply arrives. The per-message heuristic can SURFACE that
+  // reply yet silently drop it (the bug that left the task stuck). So, for any SPPA task still
+  // awaiting a reply whose own Gmail thread was just touched by this push, pull that thread and
+  // pick up the awaited reply NOW — deterministically, by the address we sent the form to. This
+  // makes the pickup instant (no button, no waiting for the hourly sweep). Idempotent + scoped to
+  // the threads this push actually touched, so it adds no work unless a reply really landed.
+  try {
+    var _touchedThreads = Object.keys(_seenThreadIds);
+    if (isSupabaseDbConfigured() && _touchedThreads.length > 0) {
+      var _sppaAwaitRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,gmail_thread_id,metadata&related_document_key=eq.sppa_00' +
+        '&gmail_thread_id=in.(' + _touchedThreads.map(function (t) { return encodeURIComponent(t); }).join(',') + ')' +
+        '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested,sent_to_candidate,gp_corrections_requested)&limit=20');
+      var _sppaAwait = (_sppaAwaitRes.ok && Array.isArray(_sppaAwaitRes.data)) ? _sppaAwaitRes.data : [];
+      for (var _sai = 0; _sai < _sppaAwait.length; _sai++) {
+        try {
+          var _sRec = await recoverSppaThreadReply(_sppaAwait[_sai], emailAddress);
+          if (_sRec && _sRec.recovered) {
+            console.log('[Gmail] Instant SPPA pickup on push — task', _sppaAwait[_sai].id, '→', _sRec.sppa_state);
+          }
+        } catch (_sErr) { console.error('[Gmail] Instant SPPA pickup error for task', _sppaAwait[_sai].id, ':', _sErr.message); }
+      }
+    }
+  } catch (_sppaPushErr) { console.error('[Gmail] SPPA instant-pickup backstop error:', _sppaPushErr.message); }
 
   // Update stored historyId (only if we have a valid one — never store null)
   if (newHistoryId) {
