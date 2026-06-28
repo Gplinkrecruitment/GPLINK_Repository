@@ -2232,7 +2232,54 @@ async function recoverSppaThreadReply(task, mailbox) {
   var rawMsgs = (thread.data && thread.data.messages) || [];
   var metas = rawMsgs.map(function (m) { var em = extractEmailMeta(m); em.internalDate = m.internalDate || '0'; return em; });
 
-  // Which thread message ids are already attached to this task (idempotency)?
+  // ALSO search for recent mail FROM the expected sender across the mailbox — a practice (or
+  // candidate) often sends the completed form as a BRAND-NEW email (fresh subject, e.g. "SPPA")
+  // instead of replying in the original thread, so it never lands in task.gmail_thread_id. The
+  // expected sender + an attachment while we're awaiting their return identifies it regardless of
+  // thread; selectSppaReplyMessage still gates on sender + attachment + not-already-attached.
+  var _expectedSender = String(((preState === 'sent_to_practice' || preState === 'corrections_requested')
+    ? meta.sent_to_practice_email : meta.sent_to_candidate_email) || '').trim().toLowerCase();
+  // Disambiguation guard for the sender-search (NEW-thread) path: a practice contact address can
+  // host MULTIPLE candidates, so a sender-only match could file the wrong candidate's form into
+  // this task. Only allow the sender search when this expected practice address is awaiting
+  // exactly ONE return. (Candidate addresses are unique per candidate, so they never need this.)
+  var _allowSenderSearch = !!_expectedSender;
+  if (_expectedSender && (preState === 'sent_to_practice' || preState === 'corrections_requested')) {
+    try {
+      var _ambRes = await supabaseDbRequest('registration_tasks',
+        'select=id&related_document_key=eq.sppa_00' +
+        '&metadata->>sent_to_practice_email=eq.' + encodeURIComponent(_expectedSender) +
+        '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested)');
+      if (_ambRes.ok && Array.isArray(_ambRes.data) && _ambRes.data.length > 1) {
+        _allowSenderSearch = false;
+        console.warn('[SPPA recover] practice', _expectedSender, 'is awaiting', _ambRes.data.length, 'returns at once — skipping sender search (ambiguous); thread-only for task', task.id);
+      }
+    } catch (e) {}
+  }
+  if (_expectedSender && _allowSenderSearch) {
+    try {
+      var _seenMetaIds = {};
+      metas.forEach(function (m) { if (m && m.messageId) _seenMetaIds[m.messageId] = true; });
+      var _sList = await gmail.users.messages.list({ userId: mailbox, q: 'from:' + _expectedSender + ' has:attachment newer_than:30d', maxResults: 15 });
+      var _sMsgs = (_sList.data && _sList.data.messages) || [];
+      for (var _smi = 0; _smi < _sMsgs.length; _smi++) {
+        var _sid = _sMsgs[_smi] && _sMsgs[_smi].id;
+        if (!_sid || _seenMetaIds[_sid]) continue;
+        var _sFull = await gmail.users.messages.get({ userId: mailbox, id: _sid, format: 'full' });
+        var _sEm = extractEmailMeta(_sFull.data);
+        _sEm.internalDate = _sFull.data.internalDate || '0';
+        _seenMetaIds[_sid] = true;
+        // A completed SPPA-00 is always a PDF. Require one on a NEW-thread/sender-search hit so a
+        // stray practice email (e.g. a question with a screenshot) can't falsely advance the task.
+        // The in-thread path stays permissive (it's already anchored to the SPPA conversation).
+        var _hasPdf = (_sEm.attachments || []).some(function (a) { return a && (/\.pdf$/i.test(a.filename || '') || /pdf/i.test(a.mimeType || '')); });
+        if (!_hasPdf) continue;
+        metas.push(_sEm);
+      }
+    } catch (_sErr) { console.warn('[SPPA recover] sender search failed for', _expectedSender, '-', _sErr.message); }
+  }
+
+  // Which message ids are already attached to this task (idempotency)?
   var attachedIds = [];
   try {
     var amRes = await supabaseDbRequest('task_messages', 'select=gmail_message_id&task_id=eq.' + encodeURIComponent(task.id));
@@ -2247,7 +2294,8 @@ async function recoverSppaThreadReply(task, mailbox) {
 
   var picked = pick.message;
   var direction = pick.direction; // 'practice' | 'candidate'
-  console.log('[SPPA recover] task', task.id, '— ingesting', direction, 'reply', picked.messageId, 'from', pick.expectedSender, '(thread recovery)');
+  var _pickedInThread = rawMsgs.some(function (m) { return m && m.id === picked.messageId; });
+  console.log('[SPPA recover] task', task.id, '— ingesting', direction, 'return', picked.messageId, 'from', pick.expectedSender, '(' + (_pickedInThread ? 'in-thread' : 'new-thread/sender-search') + ')');
 
   // 1) Record the inbound message on the task.
   var msgRecord = await supabaseDbRequest('task_messages', '', {
@@ -3188,9 +3236,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
   // Fetch open tasks once for all messages
   var openTasks = await getOpenPracticePackTasks();
 
-  // Threads touched by this push — used by the instant SPPA backstop after the loop so a
-  // practice/candidate reply that the per-message heuristic misses is still picked up NOW.
+  // Threads + senders touched by this push — used by the instant SPPA backstop after the loop so
+  // a practice/candidate SPPA return the per-message heuristic misses is still picked up NOW —
+  // whether they replied in the original thread OR sent a brand-new email from the same address.
   var _seenThreadIds = {};
+  var _seenSenders = {};
 
   for (var i = 0; i < messageIds.length; i++) {
     var currentMsgId = messageIds[i];
@@ -3256,6 +3306,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
       var allAddresses = extractAllAddresses(lowerHeaders);
       var msgThreadId = fullMsg.data.threadId || null;
       if (msgThreadId) _seenThreadIds[msgThreadId] = true;
+      var _pushSender = (String(emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+      if (_pushSender) _seenSenders[_pushSender] = true;
       var caseMatches = await matchEmailToCase(allAddresses, emailAddress, msgThreadId);
       if (caseMatches.length > 0) {
         for (var mi = 0; mi < caseMatches.length; mi++) {
@@ -4297,27 +4349,41 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
 
   // ── Instant SPPA reply pickup (real-time backstop) ──
   // The same realtime Gmail push that delivered the message(s) above is also how a practice's
-  // (or candidate's) completed SPPA-00 reply arrives. The per-message heuristic can SURFACE that
-  // reply yet silently drop it (the bug that left the task stuck). So, for any SPPA task still
-  // awaiting a reply whose own Gmail thread was just touched by this push, pull that thread and
-  // pick up the awaited reply NOW — deterministically, by the address we sent the form to. This
-  // makes the pickup instant (no button, no waiting for the hourly sweep). Idempotent + scoped to
-  // the threads this push actually touched, so it adds no work unless a reply really landed.
+  // (or candidate's) completed SPPA-00 arrives — either as a reply in the original thread OR as a
+  // brand-new email from the same address. The per-message heuristic can miss both. So, for any
+  // SPPA task still awaiting a return whose ORIGINAL THREAD was touched OR whose EXPECTED SENDER
+  // emailed in this push, run the deterministic pickup NOW (it checks the task's thread AND
+  // searches that sender's recent mail). Instant (no button / no hourly wait), idempotent, and
+  // scoped to what this push touched, so it adds no work unless a relevant message really landed.
   try {
-    var _touchedThreads = Object.keys(_seenThreadIds);
-    if (isSupabaseDbConfigured() && _touchedThreads.length > 0) {
+    if (isSupabaseDbConfigured() && (Object.keys(_seenThreadIds).length || Object.keys(_seenSenders).length)) {
+      // limit is a generous backstop (awaiting SPPA tasks are rare) so a thread/sender that this
+      // push actually touched can't fall outside the fetched rows before the JS filter below.
       var _sppaAwaitRes = await supabaseDbRequest('registration_tasks',
-        'select=id,case_id,gmail_thread_id,metadata&related_document_key=eq.sppa_00' +
-        '&gmail_thread_id=in.(' + _touchedThreads.map(function (t) { return encodeURIComponent(t); }).join(',') + ')' +
-        '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested,sent_to_candidate,gp_corrections_requested)&limit=20');
+        'select=id,case_id,gmail_thread_id,metadata&related_document_key=eq.sppa_00&gmail_thread_id=not.is.null' +
+        '&metadata->>sppa_state=in.(sent_to_practice,corrections_requested,sent_to_candidate,gp_corrections_requested)&limit=500');
       var _sppaAwait = (_sppaAwaitRes.ok && Array.isArray(_sppaAwaitRes.data)) ? _sppaAwaitRes.data : [];
       for (var _sai = 0; _sai < _sppaAwait.length; _sai++) {
+        var _sTask = _sppaAwait[_sai];
+        var _sMeta = _sTask.metadata;
+        if (typeof _sMeta === 'string') { try { _sMeta = JSON.parse(_sMeta); } catch (e) { _sMeta = {}; } }
+        _sMeta = _sMeta || {};
+        var _sState = String(_sMeta.sppa_state || '');
+        var _sExpected = String(((_sState === 'sent_to_practice' || _sState === 'corrections_requested')
+          ? _sMeta.sent_to_practice_email : _sMeta.sent_to_candidate_email) || '').trim().toLowerCase();
+        var _threadHit = _sTask.gmail_thread_id && _seenThreadIds[_sTask.gmail_thread_id];
+        var _senderHit = _sExpected && _seenSenders[_sExpected];
+        if (!_threadHit && !_senderHit) continue;
         try {
-          var _sRec = await recoverSppaThreadReply(_sppaAwait[_sai], emailAddress);
+          // Only act for tasks whose send-mailbox is THIS mailbox (where the reply would land).
+          var _sSi = await resolveCaseSenderInfo(_sTask.case_id);
+          var _sFrom = (_sSi && _sSi.from) ? String(_sSi.from).toLowerCase() : '';
+          if (_sFrom && _sFrom !== String(emailAddress).toLowerCase()) continue;
+          var _sRec = await recoverSppaThreadReply(_sTask, emailAddress);
           if (_sRec && _sRec.recovered) {
-            console.log('[Gmail] Instant SPPA pickup on push — task', _sppaAwait[_sai].id, '→', _sRec.sppa_state);
+            console.log('[Gmail] Instant SPPA pickup on push — task', _sTask.id, '→', _sRec.sppa_state, '(' + (_threadHit ? 'thread' : 'sender') + ' hit)');
           }
-        } catch (_sErr) { console.error('[Gmail] Instant SPPA pickup error for task', _sppaAwait[_sai].id, ':', _sErr.message); }
+        } catch (_sErr) { console.error('[Gmail] Instant SPPA pickup error for task', _sTask.id, ':', _sErr.message); }
       }
     }
   } catch (_sppaPushErr) { console.error('[Gmail] SPPA instant-pickup backstop error:', _sppaPushErr.message); }
