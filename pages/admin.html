@@ -8124,14 +8124,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(Array.isArray(a))return a;
       try{var p=JSON.parse(a);return Array.isArray(p)?p:[];}catch(e){return[];}
     }
+    // Convert a plain-text reply into tidy HTML for the OUTBOUND email: blank lines become
+    // paragraphs, single newlines become <br>, **bold** is rendered. Without this the email
+    // client collapses every line break into one wall-of-text paragraph.
+    function hubTextToHtml(t){
+      var blocks=String(t||"").replace(/\r\n/g,"\n").replace(/\n{3,}/g,"\n\n").split(/\n{2,}/);
+      return blocks.map(function(b){
+        var safe=esc(b).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>");
+        return '<p style="margin:0 0 12px;line-height:1.5">'+safe+'</p>';
+      }).join("")||'<p></p>';
+    }
     function msgHtml(m){
       const out=m.direction==="outbound";
+      // Inbound is only a "REPLY" when the subject is actually a reply (Re:); a fresh email the
+      // candidate sends is "RECEIVED" so the admin doesn't think it answers a previous message.
+      var dirLabel=out?"SENT":(/^\s*re:/i.test(m.subject||"")?"REPLY":"RECEIVED");
       var atts=hubParseAtts(m.attachments).map(function(f){return typeof f==="string"?f:((f&&(f.filename||f.name))||"");}).filter(Boolean);
       var attHtml=atts.length?'<div class="hub-msg-atts">'+atts.map(function(f){
         return '<span class="hub-att" style="display:inline-block;margin:6px 6px 0 0;padding:3px 9px;background:#eef2f7;border:1px solid #d7dee8;border-radius:11px;font-size:12px">📎 '+esc(f)+'</span>';
       }).join("")+'</div>':"";
       return '<div class="hub-msg '+(out?"sent":"reply")+'"><div class="hub-msg-top">'+
-        '<span class="hub-dir '+(out?"out":"in")+'">'+(out?"SENT":"REPLY")+'</span>'+
+        '<span class="hub-dir '+(out?"out":"in")+'">'+dirLabel+'</span>'+
         '<span class="hub-msg-time">'+esc(m.created_at?new Date(m.created_at).toLocaleString():"")+'</span></div>'+
         '<div class="hub-msg-subj">'+esc(m.subject||"")+'</div>'+
         '<div class="hub-msg-body">'+esc(hubStripQuoted(m.body_text||""))+'</div>'+attHtml+'</div>';
@@ -8144,7 +8157,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       try{
         await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,
-            subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:"<p>"+esc(txt)+"</p>",bodyText:txt})});
+            subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:hubTextToHtml(txt),bodyText:txt})});
       }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
       openThread(header.caseId,header.threadId);
     }

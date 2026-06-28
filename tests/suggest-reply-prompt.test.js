@@ -34,6 +34,12 @@ describe('buildSuggestReplyMessages', () => {
     expect(system[0].text).not.toContain('Hazel');               // cached block shared across RSOs
     expect(userText).toContain('Sign the reply off as Smith Miller');
   });
+  it('instructs plain-text formatting (no markdown / no Subject line) so drafts are not a wall of text', () => {
+    expect(GROUNDING_RULES.toLowerCase()).toContain('plain text');
+    expect(GROUNDING_RULES.toLowerCase()).toContain('markdown');
+    expect(GROUNDING_RULES).toContain('Subject:');
+    expect(buildSuggestReplyMessages(base).system[0].text.toLowerCase()).toContain('plain text');
+  });
   it('signs off generically when no RSO name is given', () => {
     expect(buildSuggestReplyMessages(base).userText).toContain('GP Link Registration team');
   });
