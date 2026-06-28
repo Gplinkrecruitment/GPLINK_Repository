@@ -1803,7 +1803,7 @@ async function getGmailClient(userEmail) {
 }
 
 // ── Gmail send helper ──
-async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, caseId }) {
+async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, references, caseId }) {
   try {
     var gmail = await getGmailClient(from);
     if (!gmail) {
@@ -1844,8 +1844,11 @@ async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyT
     headers.push('MIME-Version: 1.0');
     headers.push('X-Mailer: GP-Link-Admin/1.0');
     if (inReplyTo) {
-      headers.push('In-Reply-To: ' + inReplyTo);
-      headers.push('References: ' + inReplyTo);
+      // Sanitize — these ids originate from inbound email headers; never let a CR/LF inject a header.
+      var _irt = String(inReplyTo).replace(/[\r\n]/g, '').trim();
+      var _refs = String(references || inReplyTo).replace(/[\r\n]/g, '').trim();
+      headers.push('In-Reply-To: ' + _irt);
+      headers.push('References: ' + _refs);
     }
 
     var rawParts = [];
@@ -1961,7 +1964,7 @@ async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyT
       }
     }
 
-    return { ok: true, gmailMessageId: gmailMessageId, threadId: resultThreadId };
+    return { ok: true, gmailMessageId: gmailMessageId, threadId: resultThreadId, rfc822MessageId: messageId };
   } catch (err) {
     var detail = err && err.message ? err.message : String(err);
     if (err && err.response && err.response.data) detail = JSON.stringify(err.response.data);
@@ -2094,8 +2097,36 @@ function parseGmailPubSubMessage(body) {
   } catch (e) { return null; }
 }
 
+// Convert an HTML email body to readable plain text (used when a message has no
+// text/plain part). Detached-string transform; the result is escaped before render.
+function htmlBodyToText(html) {
+  var s = String(html || '');
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/<br\s*\/?>(?!\n)/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n');
+  s = s.replace(/<[^>]+>/g, '');
+  s = s.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+       .replace(/&quot;/gi, '"').replace(/&#0?39;|&apos;/gi, "'")
+       .replace(/&#(\d+);/g, function (_, n) { try { return String.fromCodePoint(parseInt(n, 10)); } catch (e) { return ''; } });
+  return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Decode a MIME part body honouring its charset (Gmail already removed the
+// transfer-encoding, so body.data is base64url of the raw decoded bytes).
+function decodeMailPart(part) {
+  if (!part || !part.body || !part.body.data) return '';
+  var buf;
+  try { buf = Buffer.from(part.body.data, 'base64url'); } catch (e) { return ''; }
+  var charset = '';
+  var ctHeader = (part.headers || []).find(function (h) { return h.name && h.name.toLowerCase() === 'content-type'; });
+  if (ctHeader && ctHeader.value) { var m = ctHeader.value.match(/charset\s*=\s*"?([^";]+)"?/i); if (m) charset = m[1].toLowerCase().trim(); }
+  if (!charset || charset === 'utf-8' || charset === 'utf8' || charset === 'us-ascii' || charset === 'ascii') return buf.toString('utf-8');
+  if (charset === 'iso-8859-1' || charset === 'latin1' || charset === 'windows-1252' || charset === 'cp1252') return buf.toString('latin1');
+  try { return new TextDecoder(charset).decode(buf); } catch (e) { return buf.toString('utf-8'); }
+}
+
 function extractEmailMeta(gmailMessage) {
-  var headers = gmailMessage.payload ? gmailMessage.payload.headers || [] : [];
+  var payload = gmailMessage.payload || {};
+  var headers = payload.headers || [];
   var getHeader = function (name) { var h = headers.find(function (h) { return h.name.toLowerCase() === name.toLowerCase(); }); return h ? h.value : ''; };
 
   var fromRaw = getHeader('From');
@@ -2108,34 +2139,42 @@ function extractEmailMeta(gmailMessage) {
     senderName = _sn.replace(/[<>"'`]/g, '').trim();
   }
 
-  var parts = gmailMessage.payload ? gmailMessage.payload.parts || [] : [];
-  var bodyText = '';
+  var textBody = '';
+  var htmlBody = '';
   var attachments = [];
   var attachIdx = 0;
 
-  function walkParts(partsList) {
-    for (var i = 0; i < partsList.length; i++) {
-      var part = partsList[i];
-      if (part.mimeType === 'text/plain' && part.body && part.body.data && !bodyText) {
-        bodyText = Buffer.from(part.body.data, 'base64url').toString('utf-8');
-      }
-      if (part.filename && part.body && part.body.attachmentId) {
-        var isInline = (part.headers || []).some(function (h) { return h.name === 'Content-Disposition' && h.value.startsWith('inline'); });
-        var isSmallImage = (part.body.size || 0) < 10240 && part.mimeType && part.mimeType.startsWith('image/');
-        if (!(isInline && isSmallImage)) {
-          attachments.push({
-            index: attachIdx++,
-            filename: part.filename,
-            mimeType: part.mimeType,
-            attachmentId: part.body.attachmentId,
-            size: part.body.size || 0
-          });
-        }
-      }
-      if (part.parts) walkParts(part.parts);
+  // Walk the payload ITSELF (so a simple non-multipart email, whose body lives in
+  // payload.body.data, is read) and recurse into multipart parts. Capture BOTH the
+  // text/plain and text/html bodies. Do not read a forwarded message/rfc822 body as ours.
+  function walk(node) {
+    if (!node) return;
+    var mt = (node.mimeType || '').toLowerCase();
+    if (mt === 'message/rfc822') return;
+    if (mt === 'text/plain' && node.body && node.body.data && !textBody) {
+      textBody = decodeMailPart(node);
+    } else if (mt === 'text/html' && node.body && node.body.data && !htmlBody) {
+      htmlBody = decodeMailPart(node);
     }
+    if (node.filename && node.body && node.body.attachmentId) {
+      var hdrs = node.headers || [];
+      var disp = (hdrs.find(function (h) { return h.name && h.name.toLowerCase() === 'content-disposition'; }) || {}).value || '';
+      var hasCid = hdrs.some(function (h) { return h.name && h.name.toLowerCase() === 'content-id'; });
+      var isInlineImg = (/inline/i.test(disp) || hasCid) && /^image\//i.test(node.mimeType || '');
+      if (!isInlineImg) {
+        attachments.push({ index: attachIdx++, filename: node.filename, mimeType: node.mimeType, attachmentId: node.body.attachmentId, size: node.body.size || 0 });
+      }
+    }
+    if (node.parts) for (var i = 0; i < node.parts.length; i++) walk(node.parts[i]);
   }
-  walkParts(parts);
+  walk(payload);
+
+  // Prefer the plain-text body; fall back to the HTML body converted to text; last
+  // resort the Gmail snippet — so a tile is never blank when content exists.
+  var finalText = textBody || (htmlBody ? htmlBodyToText(htmlBody) : '') || (gmailMessage.snippet || '');
+
+  var lowerHeaders = {};
+  for (var hi = 0; hi < headers.length; hi++) { if (headers[hi] && headers[hi].name) lowerHeaders[headers[hi].name.toLowerCase()] = headers[hi].value; }
 
   return {
     messageId: gmailMessage.id,
@@ -2146,7 +2185,12 @@ function extractEmailMeta(gmailMessage) {
     to: getHeader('To'),
     cc: getHeader('Cc') || getHeader('CC') || '',
     date: getHeader('Date'),
-    bodyText: bodyText.substring(0, 2000),
+    bodyText: (finalText || '').substring(0, 50000),
+    bodyHtml: htmlBody ? htmlBody.substring(0, 100000) : null,
+    rfc822MessageId: (getHeader('Message-ID') || getHeader('Message-Id') || '').trim(),
+    rfc822References: (getHeader('References') || '').trim(),
+    inReplyTo: (getHeader('In-Reply-To') || '').trim(),
+    headers: lowerHeaders,
     attachments: attachments,
     hasAttachments: attachments.length > 0
   };
@@ -2350,7 +2394,10 @@ async function recoverSppaThreadReply(task, mailbox) {
     body: [{
       task_id: task.id, case_id: task.case_id, direction: 'inbound', channel: 'email',
       sender: picked.sender || '', recipient: mailbox, subject: picked.subject || '',
-      body_text: (picked.bodyText || '').substring(0, 5000),
+      body_text: (picked.bodyText || '').substring(0, 50000),
+      body_html: picked.bodyHtml || null,
+      rfc822_message_id: picked.rfc822MessageId || null,
+      rfc822_references: picked.rfc822References || null,
       gmail_message_id: picked.messageId,
       gmail_thread_id: task.gmail_thread_id,
       attachments: JSON.stringify((picked.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
@@ -2666,13 +2713,19 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
           method: 'POST',
           body: [{
             task_id: actionTask.id,
+            case_id: gpCase.id,
             direction: 'inbound',
             channel: 'email',
             sender: emailMeta.sender || '',
+            recipient: emailMeta.to || '',
             subject: emailMeta.subject || '',
-            body_text: (emailMeta.bodyText || '').substring(0, 4000),
+            body_text: (emailMeta.bodyText || '').substring(0, 50000),
+            body_html: emailMeta.bodyHtml || null,
+            rfc822_message_id: emailMeta.rfc822MessageId || null,
+            rfc822_references: emailMeta.rfc822References || null,
             gmail_message_id: currentMsgId || '',
-            gmail_thread_id: emailMeta.threadId || '',
+            gmail_thread_id: actionTask.gmail_thread_id || emailMeta.threadId || null,
+            attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
             is_document_delivery: false,
             created_at: new Date().toISOString()
           }]
@@ -2712,6 +2765,28 @@ async function matchResponseToTask(caseId, emailMeta) {
         '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
       if (taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0) {
         return { task: taskRes.data[0], confidence: 0.93, method: 'message_thread_match' };
+      }
+    }
+  }
+
+  // Signal 1.5: RFC822 header match across mailboxes. A reply's In-Reply-To / References point
+  // at a Message-ID we stored (on an earlier inbound or our own sent reply), even when the reply
+  // landed in a DIFFERENT Gmail mailbox/thread (candidate wrote to hello@, we replied from
+  // registration@). This re-anchors it to the original conversation deterministically, and
+  // exposes that conversation's canonical gmail_thread_id so the message records WITH it.
+  var _hdrIds = (String(emailMeta.inReplyTo || '') + ' ' + String(emailMeta.rfc822References || '')).match(/<[^>"\s]+>/g);
+  if (_hdrIds && _hdrIds.length) {
+    var _inList = _hdrIds.slice(0, 20).map(function (s) { return encodeURIComponent('"' + s + '"'); }).join(',');
+    var _hm = await supabaseDbRequest('task_messages',
+      'select=task_id,gmail_thread_id&case_id=eq.' + encodeURIComponent(caseId) + '&rfc822_message_id=in.(' + _inList + ')&order=created_at.desc&limit=1');
+    if (_hm.ok && Array.isArray(_hm.data) && _hm.data.length > 0 && _hm.data[0].task_id) {
+      var _ht = await supabaseDbRequest('registration_tasks',
+        'select=id,task_type,title,status,gmail_thread_id,related_document_key&id=eq.' + encodeURIComponent(_hm.data[0].task_id) +
+        '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
+      if (_ht.ok && Array.isArray(_ht.data) && _ht.data.length > 0) {
+        var _hTask = _ht.data[0];
+        if (_hm.data[0].gmail_thread_id) _hTask.gmail_thread_id = _hm.data[0].gmail_thread_id;
+        return { task: _hTask, confidence: 0.97, method: 'header_match' };
       }
     }
   }
@@ -3000,10 +3075,14 @@ async function _createPracticeDocArtifacts(opts) {
         direction: 'inbound',
         channel: 'email',
         sender: opts.sender || '',
+        recipient: opts.recipient || '',
         subject: opts.subject || '',
-        body_text: (opts.bodyText || '').substring(0, 5000),
+        body_text: (opts.bodyText || '').substring(0, 50000),
+        body_html: opts.bodyHtml || null,
+        rfc822_message_id: opts.rfc822MessageId || null,
+        rfc822_references: opts.rfc822References || null,
         gmail_message_id: opts.gmailMessageId || null,
-        gmail_thread_id: opts.gmailThreadId || '',
+        gmail_thread_id: opts.gmailThreadId || null,
         is_document_delivery: true,
         ai_match_confidence: (typeof opts.confidence === 'number') ? opts.confidence : null,
         created_at: opts.createdAt || new Date().toISOString()
@@ -3493,7 +3572,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               method: 'POST', headers: { Prefer: 'return=representation' },
               body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, direction: 'inbound', channel: 'email',
                 sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
-                body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
                 gmail_message_id: currentMsgId,
                 // Anchor to the matched task's real Gmail thread — NOT the scanning mailbox's
                 // per-mailbox threadId (an archive/hello@ copy would otherwise orphan the row).
@@ -3724,7 +3803,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                           method: 'POST', body: [{
                             task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
                             sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: _altSubject,
-                            body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                            body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
                             gmail_message_id: currentMsgId, gmail_thread_id: _reviewTask.gmail_thread_id || emailMeta.threadId || null,
                             attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                             is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
@@ -4171,7 +4250,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   sender: emailMeta.sender || '',
                   recipient: emailMeta.to || '',
                   subject: emailMeta.subject || '',
-                  body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
                   gmail_message_id: currentMsgId,
                   // Anchor to the task's real thread, never the scanning mailbox's per-mailbox id.
                   gmail_thread_id: rTask.gmail_thread_id || emailMeta.threadId || null,
@@ -4340,7 +4419,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 body: [{
                   task_id: taskResult.id, case_id: gpCase.id, direction: 'inbound', channel: 'email',
                   sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
-                  body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
                   gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || null,
                   attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                   is_document_delivery: false, created_at: new Date().toISOString()
@@ -26177,6 +26256,25 @@ async function handleApi(req, res, pathname) {
     if (!emailSubject) { sendJson(res, 400, { ok: false, message: 'subject is required.' }); return; }
     if (!emailBodyHtml && !emailBodyText) { sendJson(res, 400, { ok: false, message: 'bodyHtml or bodyText is required.' }); return; }
 
+    // Resolve In-Reply-To/References from the latest inbound message's STORED RFC822 Message-ID
+    // so the candidate's own email client threads our reply — independent of the per-mailbox
+    // Gmail threadId (which can't be reused when we reply from a different mailbox than the one
+    // the original arrived in). This is DB-based, so it never 404s on a wrong-mailbox lookup.
+    var emailReferences = '';
+    if (!emailInReplyTo && (emailThreadId || emailCaseId)) {
+      try {
+        var _irq = 'select=rfc822_message_id,rfc822_references&channel=eq.email&direction=eq.inbound&rfc822_message_id=not.is.null'
+          + (emailThreadId ? ('&gmail_thread_id=eq.' + encodeURIComponent(emailThreadId)) : ('&case_id=eq.' + encodeURIComponent(emailCaseId)))
+          + '&order=created_at.desc&limit=1';
+        var _irr = await supabaseDbRequest('task_messages', _irq);
+        var _irRow = (_irr.ok && Array.isArray(_irr.data) && _irr.data[0]) ? _irr.data[0] : null;
+        if (_irRow && _irRow.rfc822_message_id) {
+          emailInReplyTo = _irRow.rfc822_message_id;
+          emailReferences = ((_irRow.rfc822_references || '') + ' ' + _irRow.rfc822_message_id).trim();
+        }
+      } catch (e) { /* non-critical — falls back to a new thread */ }
+    }
+
     // Auto-resolve threading from task when threadId not explicitly provided
     if (!emailThreadId && emailTaskId) {
       try {
@@ -26269,7 +26367,8 @@ async function handleApi(req, res, pathname) {
       bodyText: emailBodyText,
       attachments: resolvedAttachments.length > 0 ? resolvedAttachments : null,
       threadId: emailThreadId,
-      inReplyTo: emailInReplyTo
+      inReplyTo: emailInReplyTo,
+      references: emailReferences
     });
 
     if (!sendResult.ok) {
@@ -26291,6 +26390,10 @@ async function handleApi(req, res, pathname) {
           body_text: emailBodyText || null,
           body_html: emailBodyHtml || null,
           gmail_message_id: sendResult.gmailMessageId || null,
+          // Store our own Message-ID so when the candidate replies, their In-Reply-To header
+          // matches this row and the reply re-anchors to this conversation (rank 5/6).
+          rfc822_message_id: sendResult.rfc822MessageId || null,
+          rfc822_references: emailReferences || null,
           // Record under the CONVERSATION thread we replied into (emailThreadId), not the
           // mailbox-specific thread Gmail created for this send. Under the hub a candidate may
           // have written to hello@ (thread X) while we reply from registration@ (new thread Y);
@@ -34596,7 +34699,7 @@ Return ONLY valid JSON with no markdown formatting:
       ? ('&gmail_thread_id=eq.' + encodeURIComponent(threadIdParam))
       : '&gmail_thread_id=is.null';
     var tMsgRes = await supabaseDbRequest('task_messages',
-      'select=id,task_id,direction,channel,sender,recipient,subject,body_text,attachments,created_at,read_at,gmail_thread_id&case_id=eq.' +
+      'select=id,task_id,direction,channel,sender,recipient,subject,body_text,body_html,attachments,created_at,read_at,gmail_thread_id,rfc822_message_id&case_id=eq.' +
       encodeURIComponent(threadCaseId) + tThreadFilter + '&channel=eq.email&order=created_at.asc&limit=500');
     var tRoster = await loadRsoTeam({ includeInactive: true });
     var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
@@ -34660,6 +34763,55 @@ Return ONLY valid JSON with no markdown formatting:
       'case_id=eq.' + encodeURIComponent(mrCaseId) + '&channel=eq.email&direction=eq.inbound&read_at=is.null' + mrThreadFilter,
       { method: 'PATCH', body: { read_at: new Date().toISOString() } });
     sendJson(res, 200, { ok: true, updated: (mrUpd.ok && Array.isArray(mrUpd.data)) ? mrUpd.data.length : 0 });
+    return;
+  }
+
+  // ── Registration Email Hub: backfill empty inbound bodies (one-off recovery) ──
+  // POST /api/admin/inbox/backfill-bodies  { caseId?, limit? }
+  // Re-fetches inbound email rows that were stored with an empty body by the old parser and
+  // repairs body_text/body_html/rfc822 ids using the current extractEmailMeta. Idempotent —
+  // only touches empty-body rows. Probes each watched mailbox (a gmail_message_id resolves
+  // only in its own mailbox).
+  if (pathname === '/api/admin/inbox/backfill-bodies' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let bfBody; try { bfBody = await readJsonBody(req); } catch (e) { bfBody = {}; }
+    var bfLimit = Math.max(1, Math.min(Number(bfBody && bfBody.limit) || 50, 200));
+    var bfCaseFilter = (bfBody && bfBody.caseId) ? ('&case_id=eq.' + encodeURIComponent(String(bfBody.caseId))) : '';
+    var bfRows = await supabaseDbRequest('task_messages',
+      'select=id,gmail_message_id,recipient,rfc822_message_id&channel=eq.email&direction=eq.inbound&gmail_message_id=not.is.null&or=(body_text.is.null,body_text.eq.)' +
+      bfCaseFilter + '&order=created_at.desc&limit=' + bfLimit);
+    if (!bfRows.ok) { sendJson(res, 502, { ok: false, message: 'query failed' }); return; }
+    var bfBoxes = Array.from(new Set([REGISTRATION_HUB_EMAIL, MASTER_ARCHIVE_EMAIL].concat(MONITORED_VA_EMAILS || []).filter(Boolean).map(function (e) { return String(e).toLowerCase().trim(); }).filter(Boolean)));
+    var bfFixed = 0, bfUnresolved = 0;
+    for (var bfi = 0; bfi < (bfRows.data || []).length; bfi++) {
+      var bfRow = bfRows.data[bfi];
+      var bfFull = null;
+      for (var bfm = 0; bfm < bfBoxes.length; bfm++) {
+        try {
+          var bfGm = await getGmailClient(bfBoxes[bfm]);
+          if (!bfGm) continue;
+          var bfGet = await bfGm.users.messages.get({ userId: bfBoxes[bfm], id: bfRow.gmail_message_id, format: 'full' });
+          if (bfGet && bfGet.data) { bfFull = bfGet.data; break; }
+        } catch (e) { /* not in this mailbox — try the next */ }
+      }
+      if (!bfFull) { bfUnresolved++; continue; }
+      var bfMeta = extractEmailMeta(bfFull);
+      var bfPatch = {
+        body_text: (bfMeta.bodyText || '').substring(0, 50000),
+        body_html: bfMeta.bodyHtml || null,
+        rfc822_message_id: bfRow.rfc822_message_id || bfMeta.rfc822MessageId || null,
+        rfc822_references: bfMeta.rfc822References || null
+      };
+      if (!bfRow.recipient && bfMeta.to) bfPatch.recipient = bfMeta.to;
+      var bfAtt = (bfMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean);
+      if (bfAtt.length) bfPatch.attachments = JSON.stringify(bfAtt);
+      await supabaseDbRequest('task_messages', 'id=eq.' + encodeURIComponent(bfRow.id), { method: 'PATCH', body: bfPatch }).catch(function () {});
+      if (bfMeta.bodyText) bfFixed++;
+    }
+    console.log('[InboxBackfill] scanned', (bfRows.data || []).length, 'fixed', bfFixed, 'unresolved', bfUnresolved);
+    sendJson(res, 200, { ok: true, scanned: (bfRows.data || []).length, fixed: bfFixed, unresolved: bfUnresolved });
     return;
   }
 

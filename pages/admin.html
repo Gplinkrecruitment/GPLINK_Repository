@@ -8049,8 +8049,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const dot=c.unread?'<span class="hub-dot"></span>':"";
       return '<div class="hub-conv-row '+(c.unread?"unread":"")+'" data-cid="'+esc(c.caseId)+'" data-tid="'+esc(c.threadId||'')+'">'+
         '<div class="hub-conv-main"><div class="hub-conv-top"><span class="hub-conv-name">'+esc(c.name)+'</span>'+
-        '<span class="hub-conv-time">'+esc(c.lastMessageAt?new Date(c.lastMessageAt).toLocaleString():"")+'</span></div>'+
-        '<div class="hub-conv-prev">'+(c.lastDirection==="inbound"?"":"You: ")+esc(c.lastPreview)+'</div>'+
+        '<span class="hub-conv-time">'+esc(hubFmtTime(c.lastMessageAt))+'</span></div>'+
+        '<div class="hub-conv-prev">'+(c.lastDirection==="inbound"?"":"You: ")+esc(c.lastPreview||c.lastSubject||"(no preview)")+'</div>'+
         (c.counterparty?'<div class="hub-conv-with">with '+esc(c.counterparty)+'</div>':'')+
         '<div class="hub-conv-tags"><span class="hub-chip stage">'+esc(c.stage||"")+'</span>'+
         '<span class="hub-chip rso">'+esc(c.assignedRsoName||"")+'</span>'+badge+'</div></div>'+dot+'</div>';
@@ -8072,6 +8072,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     function renderThread(header,messages){
       const panel=document.getElementById(PANEL);if(!panel)return;
+      messages=(messages||[]).slice().sort(function(a,b){return new Date(a.created_at||0)-new Date(b.created_at||0);});
       const canSend=!!(header&&header.to);
       const sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
       panel.innerHTML=
@@ -8110,10 +8111,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     function hubStripQuoted(body){
       var t=String(body||"");
-      // Cut from the standard Gmail "On <date>, <name> wrote:" quote marker.
-      var mk=t.search(/On\s[\s\S]{0,220}?wrote:/);
-      if(mk>0)t=t.slice(0,mk);
-      // Drop trailing quoted (">"-prefixed) lines.
+      // Cut from the earliest reply-quote marker (Gmail / Outlook / Apple), but only if it
+      // sits past a bit of real text, so a sentence that happens to contain "wrote:" is kept.
+      var markers=[/(^|\n)\s*On\s[\s\S]{0,220}?wrote:/i,/\n-{2,}\s*Original Message\s*-{2,}/i,/\n\s*From:.*\n\s*Sent:/i,/\nBegin forwarded message:/i];
+      var cut=-1;
+      markers.forEach(function(re){var mm=t.search(re);if(mm>40&&(cut<0||mm<cut))cut=mm;});
+      if(cut>0)t=t.slice(0,cut);
       var lines=t.split(/\r?\n/);
       while(lines.length&&/^\s*>/.test(lines[lines.length-1]))lines.pop();
       var stripped=lines.join("\n").trim();
@@ -8124,6 +8127,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(Array.isArray(a))return a;
       try{var p=JSON.parse(a);return Array.isArray(p)?p:[];}catch(e){return[];}
     }
+    // HTML->text for an email that arrived as HTML only. PURE STRING transform (no innerHTML /
+    // no DOMParser) so an attacker's <img onerror=…> in body_html can never load a resource or
+    // run script in the admin session; the result is esc()'d again before render.
+    function hubHtmlToText(h){
+      var s=String(h||"");
+      s=s.replace(/<style[\s\S]*?<\/style>/gi,"").replace(/<script[\s\S]*?<\/script>/gi,"");
+      s=s.replace(/<br\s*\/?>/gi,"\n").replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi,"\n");
+      s=s.replace(/<[^>]+>/g,"");
+      s=s.replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#0?39;|&apos;/gi,"'")
+         .replace(/&#(\d+);/g,function(_,n){try{return String.fromCodePoint(parseInt(n,10));}catch(e){return "";}});
+      return s.replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+    }
+    // Choose what to show in a message tile: stripped plain body -> stripped html -> placeholder
+    // (so a missing body is never a silently blank tile). **bold** is rendered.
+    function hubDisplayBody(m){
+      var t=hubStripQuoted(m.body_text||"");
+      if(!t&&m.body_html)t=hubStripQuoted(hubHtmlToText(m.body_html));
+      if(!t)return '<div class="hub-msg-body" style="color:#9aa3b2;font-style:italic">(no message text — open the original email)</div>';
+      return '<div class="hub-msg-body">'+esc(t).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")+'</div>';
+    }
+    function hubFmtTime(v){var d=v?new Date(v):null;return (d&&!isNaN(d.getTime()))?d.toLocaleString():"";}
     // Convert a plain-text reply into tidy HTML for the OUTBOUND email: blank lines become
     // paragraphs, single newlines become <br>, **bold** is rendered. Without this the email
     // client collapses every line break into one wall-of-text paragraph.
@@ -8134,20 +8158,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return '<p style="margin:0 0 12px;line-height:1.5">'+safe+'</p>';
       }).join("")||'<p></p>';
     }
-    function msgHtml(m){
+    function msgHtml(m,idx,arr){
       const out=m.direction==="outbound";
-      // Inbound is only a "REPLY" when the subject is actually a reply (Re:); a fresh email the
-      // candidate sends is "RECEIVED" so the admin doesn't think it answers a previous message.
-      var dirLabel=out?"SENT":(/^\s*re:/i.test(m.subject||"")?"REPLY":"RECEIVED");
-      var atts=hubParseAtts(m.attachments).map(function(f){return typeof f==="string"?f:((f&&(f.filename||f.name))||"");}).filter(Boolean);
+      // The first INBOUND message in a thread is "RECEIVED"; later inbound messages are "REPLY".
+      // Position-based, so it doesn't depend on the sender remembering a "Re:" subject.
+      var firstIn=(arr&&arr.length)?arr.findIndex(function(x){return x.direction==="inbound";}):-1;
+      var dirLabel=out?"SENT":(idx===firstIn?"RECEIVED":"REPLY");
+      var atts=hubParseAtts(m.attachments).map(function(f){
+        if(typeof f==="string")return {name:f,url:""};
+        return {name:(f&&(f.filename||f.name||f.file_name||f.fileName||f.title))||"attachment",url:(f&&(f.url||f.downloadUrl||f.driveUrl))||""};
+      }).filter(function(f){return f.name;});
       var attHtml=atts.length?'<div class="hub-msg-atts">'+atts.map(function(f){
-        return '<span class="hub-att" style="display:inline-block;margin:6px 6px 0 0;padding:3px 9px;background:#eef2f7;border:1px solid #d7dee8;border-radius:11px;font-size:12px">📎 '+esc(f)+'</span>';
+        var chip='📎 '+esc(f.name);var st='display:inline-block;margin:6px 6px 0 0;padding:3px 9px;background:#eef2f7;border:1px solid #d7dee8;border-radius:11px;font-size:12px;text-decoration:none;color:#374151';
+        return f.url?('<a class="hub-att" target="_blank" rel="noopener" href="'+esc(f.url)+'" style="'+st+'">'+chip+'</a>'):('<span class="hub-att" style="'+st+'">'+chip+'</span>');
       }).join("")+'</div>':"";
       return '<div class="hub-msg '+(out?"sent":"reply")+'"><div class="hub-msg-top">'+
         '<span class="hub-dir '+(out?"out":"in")+'">'+dirLabel+'</span>'+
-        '<span class="hub-msg-time">'+esc(m.created_at?new Date(m.created_at).toLocaleString():"")+'</span></div>'+
+        '<span class="hub-msg-time">'+esc(hubFmtTime(m.created_at))+'</span></div>'+
         '<div class="hub-msg-subj">'+esc(m.subject||"")+'</div>'+
-        '<div class="hub-msg-body">'+esc(hubStripQuoted(m.body_text||""))+'</div>'+attHtml+'</div>';
+        hubDisplayBody(m)+attHtml+'</div>';
     }
     async function sendReply(header){
       if(!header||!header.to)return;
