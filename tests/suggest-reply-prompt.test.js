@@ -24,6 +24,19 @@ describe('buildSuggestReplyMessages', () => {
     expect(system[0].text).not.toContain('where do I get my degree certified');
     expect(system[0].text).not.toContain('Upload certified degree'); // facts are dynamic
   });
+  it('grounding rules carry the practice-document request guardrail (no premature practice requests)', () => {
+    expect(GROUNDING_RULES).toContain('outstanding_from_practice');
+    expect(GROUNDING_RULES).toContain('do_not_request');
+    expect(buildSuggestReplyMessages(base).system[0].text).toContain('do_not_request');
+  });
+  it('signs off as the assigned RSO, not a hardcoded name; static block stays RSO-agnostic', () => {
+    const { system, userText } = buildSuggestReplyMessages({ ...base, rsoName: 'Smith Miller' });
+    expect(system[0].text).not.toContain('Hazel');               // cached block shared across RSOs
+    expect(userText).toContain('Sign the reply off as Smith Miller');
+  });
+  it('signs off generically when no RSO name is given', () => {
+    expect(buildSuggestReplyMessages(base).userText).toContain('GP Link Registration team');
+  });
   it('user text carries summary, facts, thread, and the email to answer', () => {
     const { userText } = buildSuggestReplyMessages(base);
     expect(userText).toContain('Dr Sana Khan');

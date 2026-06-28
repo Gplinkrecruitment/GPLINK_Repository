@@ -34517,6 +34517,10 @@ Return ONLY valid JSON with no markdown formatting:
       // 8d. Current email as readable text.
       var currentEmailText = 'From: ' + (task.email_sender || '') + '\nSubject: ' + (task.title || '') + '\n\n' + (task.email_body_snippet || task.description || '');
 
+      // 8d2. Resolve the case's assigned RSO name so the draft signs off as them (not always "Hazel").
+      var sgRsoName = '';
+      try { sgRsoName = await resolveCaseSenderName(regCase.id, regCase.assigned_va); } catch (e) { sgRsoName = ''; }
+
       // 8e. Build the grounded, cache-friendly prompt via lib.
       var sgMsgs = suggestReplyPrompt.buildSuggestReplyMessages({
         playbookText: sgPlaybook,
@@ -34525,6 +34529,7 @@ Return ONLY valid JSON with no markdown formatting:
         threadText: JSON.stringify(emailThread),
         currentEmail: currentEmailText,
         senderIsGp: senderIsGp,
+        rsoName: sgRsoName,
       });
 
       var apiKey = process.env.ANTHROPIC_API_KEY;

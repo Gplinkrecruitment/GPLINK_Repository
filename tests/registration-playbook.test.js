@@ -16,6 +16,11 @@ describe('playbookForStage', () => {
     expect(playbookForStage('nonsense')).toBe('');
     expect(playbookForStage(null)).toBe('');
   });
+  it('the career/placement section spells out the practice signing requirements', () => {
+    const t = playbookForStage('career').toLowerCase();
+    expect(t).toContain('sign');
+    expect(t).toContain('supervisor cv');
+  });
   it('every section is non-empty and reasonably small (<1200 chars)', () => {
     Object.values(STAGE_PLAYBOOK).forEach((v) => {
       expect(v.length).toBeGreaterThan(0);
