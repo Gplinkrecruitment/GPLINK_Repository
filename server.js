@@ -1723,19 +1723,19 @@ if (REGISTRATION_HUB_EMAIL) {
   }
 }
 
-// ⚠️ TEMPORARY TEST (added 2026-06-22) — DISABLED 2026-06-29 now that registration@ is the
-// live hub. This block re-watched the hello@ archive and processed mail from an allowlisted
-// sender. While ON it double-ingested candidate/practice replies: the hello@ copy of a reply
-// is a standalone message there, so its per-mailbox threadId == its own message id, producing
-// an ORPHAN conversation row (split from the real thread) plus a cross-mailbox duplicate that
-// no gmail_message_id dedup can catch. Replies now come back to registration@ (the hub, which
-// is watched), so the hello@ scoped watch is pure duplication. Defaults are now '' so the
-// permanent hello@ guard (NEVER_PROCESS_EMAILS) is fully restored and the cron stops renewing
-// hello@'s watch (it lapses on its own). NOTE: if TEST_WATCH_INBOXES / TEST_WATCH_FROM_SENDERS
-// are also set as Vercel env vars, they must be cleared there too. See memory:
-// hello-inbox-never-watched and temp-scoped-hello-watch.
+// hello@ is BOTH the master archive (it holds a copy of every case email) AND the public
+// contact / "GP Link Admin" RSO inbox that candidates write to directly. We must surface the
+// direct mail without re-processing the archive copies. The rule (enforced per-message in
+// processGmailNotification): a TEST_WATCH inbox is processed ONLY for messages actually
+// ADDRESSED to it (its address appears in To/Cc). Archive copies of case mail are addressed to
+// the candidate/practice (not hello@), so they're skipped — that is what prevents the duplicate
+// + orphan rows. TEST_WATCH_INBOXES = which archive inbox(es) to watch this way (default
+// hello@). TEST_WATCH_FROM_SENDERS = optional sender allow-list; EMPTY (default) means accept
+// any sender that wrote directly to the inbox (case-matching/triage routes it downstream).
+// Set TEST_WATCH_FROM_SENDERS via env to restrict to specific senders during testing.
+// See memory: hello-inbox-never-watched, temp-scoped-hello-watch, registration-email-hub-branch.
 const TEST_WATCH_INBOXES = new Set(
-  String(process.env.TEST_WATCH_INBOXES || '')
+  String(process.env.TEST_WATCH_INBOXES || 'hello@mygplink.com.au')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 const TEST_WATCH_FROM_SENDERS = new Set(
@@ -3004,13 +3004,19 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
       }
       emailMeta.headers = lowerHeaders;
 
-      // ⚠️ TEMPORARY TEST — for a test-watched archive inbox (hello@), drop any message
-      // NOT from an allowlisted sender BEFORE any labeling/contact-detection/triage, so the
-      // archive's vendor/admin/case-copy mail is never processed. Only allowlisted senders pass.
+      // For a watched ARCHIVE inbox (hello@): process a message ONLY if it was actually
+      // addressed to the archive (its address is in To/Cc) — i.e. a candidate writing directly
+      // to hello@. Archive COPIES of case mail are addressed to the candidate/practice, not
+      // hello@, so they're skipped here (this is what stops the duplicate/orphan rows the hub
+      // mailbox already records). An optional sender allow-list (TEST_WATCH_FROM_SENDERS, empty
+      // by default) can further restrict which senders are accepted during testing.
       if (TEST_WATCH_INBOXES.has(emailAddress) && NEVER_PROCESS_EMAILS.has(emailAddress)) {
         var _twFrom = (String(emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
-        if (!TEST_WATCH_FROM_SENDERS.has(_twFrom)) {
-          console.log('[Gmail][test-watch] Skipping', emailAddress, 'message from', _twFrom || '(unknown)', '— not in TEST_WATCH_FROM_SENDERS');
+        var _twRecipients = (String(emailMeta.to || '') + ',' + String(emailMeta.cc || '')).toLowerCase();
+        var _twAddressedToArchive = _twRecipients.indexOf(emailAddress.toLowerCase()) >= 0;
+        var _twSenderAllowed = (TEST_WATCH_FROM_SENDERS.size === 0) || TEST_WATCH_FROM_SENDERS.has(_twFrom);
+        if (!_twAddressedToArchive || !_twSenderAllowed) {
+          console.log('[Gmail][archive-watch] Skipping', emailAddress, 'message from', _twFrom || '(unknown)', '— addressedToArchive:', _twAddressedToArchive, 'senderAllowed:', _twSenderAllowed);
           await supabaseDbRequest('processed_gmail_messages', '', {
             method: 'POST',
             body: [{
@@ -3019,7 +3025,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               sender: emailMeta.sender,
               subject: emailMeta.subject,
               result: 'filtered',
-              ai_summary: 'test-watch: sender not in allowlist',
+              ai_summary: !_twAddressedToArchive ? 'archive-watch: not addressed to archive (copy)' : 'archive-watch: sender not in allowlist',
               processed_at: new Date().toISOString()
             }]
           }).catch(function () {});
@@ -3991,6 +3997,29 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           console.error('[Gmail] Failed to create email_triage task for message', currentMsgId);
         } else {
           console.log('[Gmail] Created email_triage task', taskResult.id, 'for message', currentMsgId, gpCase ? '(case ' + gpCase.id + ')' : '(no case)');
+        }
+        // Surface this email in the registration Inbox/Emails hub too (it reads task_messages),
+        // not only the Ops triage queue — so a candidate's general question appears as an email
+        // conversation. Only when it matched a case. Idempotent on case_id + gmail_message_id.
+        if (gpCase && taskResult && taskResult.id) {
+          try {
+            var _trDup = await supabaseDbRequest('task_messages',
+              'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+            if (!(_trDup.ok && Array.isArray(_trDup.data) && _trDup.data.length > 0)) {
+              var _trIns = await supabaseDbRequest('task_messages', '', {
+                method: 'POST',
+                body: [{
+                  task_id: taskResult.id, case_id: gpCase.id, direction: 'inbound', channel: 'email',
+                  sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
+                  body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                  gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || null,
+                  attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+                  is_document_delivery: false, created_at: new Date().toISOString()
+                }]
+              });
+              if (!_trIns.ok) console.error('[Gmail] hub message row (triage) insert rejected for', currentMsgId, ':', (_trIns.data && _trIns.data.message) || _trIns.status);
+            }
+          } catch (_trErr) { console.error('[Gmail] hub message row (triage) failed:', _trErr.message); }
         }
         }
 
