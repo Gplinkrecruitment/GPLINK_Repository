@@ -26146,7 +26146,11 @@ async function handleApi(req, res, pathname) {
           body_text: emailBodyText || null,
           body_html: emailBodyHtml || null,
           gmail_message_id: sendResult.gmailMessageId || null,
-          gmail_thread_id: sendResult.threadId || null,
+          // Record under the CONVERSATION thread we replied into (emailThreadId), not the
+          // mailbox-specific thread Gmail created for this send. Under the hub a candidate may
+          // have written to hello@ (thread X) while we reply from registration@ (new thread Y);
+          // storing Y would split the reply into its own hub conversation. Keep it on X.
+          gmail_thread_id: emailThreadId || sendResult.threadId || null,
           attachments: JSON.stringify(resolvedAttachments.map(function(a) { return a.filename; }))
         };
         await supabaseDbRequest('task_messages', '', {
@@ -26158,11 +26162,15 @@ async function handleApi(req, res, pathname) {
         // Don't fail the whole request — email was already sent
       }
 
-      // Store gmail_thread_id on the task itself for response matching
-      if (sendResult.threadId) {
+      // Store the CONVERSATION thread on the task (the one we replied into), not the
+      // mailbox-specific thread Gmail created for this send — so the candidate's original
+      // email and our reply stay ONE conversation in the hub even across mailboxes. For a
+      // brand-new conversation (no thread to reply into) we fall back to the sent thread.
+      var canonicalThread = emailThreadId || sendResult.threadId;
+      if (canonicalThread) {
         try {
           await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(emailTaskId), {
-            method: 'PATCH', body: { gmail_thread_id: sendResult.threadId }
+            method: 'PATCH', body: { gmail_thread_id: canonicalThread }
           });
         } catch (tErr) {
           console.error('[AdminEmailSend] Task thread_id update failed:', tErr.message);
