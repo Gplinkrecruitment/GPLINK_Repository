@@ -36839,9 +36839,17 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var _scanInbox = '';
     try { _scanInbox = await resolveCaseSenderEmail(task.case_id); } catch (e) {}
+    // Under the registration hub the case sends FROM the hub mailbox (registration@), so the
+    // practice's reply lands THERE — not in the assigned-RSO mailbox. resolveCaseSenderInfo.from
+    // is the actual send mailbox (hub mailbox when the hub is ON, else the assigned RSO), so it
+    // is the primary place a reply can be. Without this the recheck scanned only the RSO mailbox
+    // (e.g. hello@) and never saw a hub-routed practice reply.
+    var _hubInbox = '';
+    try { var _siRecheck = await resolveCaseSenderInfo(task.case_id); _hubInbox = (_siRecheck && _siRecheck.from) ? String(_siRecheck.from).toLowerCase() : ''; } catch (e) {}
     // Reply lands in the mailbox we sent FROM; also sweep any test-watched archive (hello@).
     var _recheckInboxes = [];
-    if (_scanInbox) _recheckInboxes.push(String(_scanInbox).toLowerCase());
+    if (_hubInbox) _recheckInboxes.push(_hubInbox);
+    if (_scanInbox && _recheckInboxes.indexOf(String(_scanInbox).toLowerCase()) < 0) _recheckInboxes.push(String(_scanInbox).toLowerCase());
     for (var _twi of TEST_WATCH_INBOXES) { if (_recheckInboxes.indexOf(_twi) < 0) _recheckInboxes.push(_twi); }
     var _recheckScanned = [];
     var _recheckOpts = { recoverThreadId: _recheckThreadId, recoverFromSender: _recheckPracticeEmail || null };
