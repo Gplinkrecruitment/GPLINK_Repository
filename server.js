@@ -3817,10 +3817,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 // Document delivery: extract attachments into task_documents, flip to Hazel's ball
                 if (emailMeta.hasAttachments) {
                   try {
-                    var vaEmail = MONITORED_VA_EMAILS[0];
-                    var respGmail = await getGmailClient(vaEmail);
+                    // Use the mailbox actually being processed (emailAddress). Gmail message
+                    // ids are per-mailbox: under the hub the reply lives in registration@, not
+                    // MONITORED_VA_EMAILS[0] (hazel@), so fetching from hazel@ 404s and silently
+                    // loses the attachment. Reuse the existing client + already-fetched message.
+                    var respGmail = gmail;
                     if (respGmail) {
-                      var respFullMsg = await respGmail.users.messages.get({ userId: vaEmail, id: currentMsgId, format: 'full' });
+                      var respFullMsg = fullMsg;
                       var respParts = (respFullMsg.data.payload.parts || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
                       var respMsgId = (msgRecord.ok && msgRecord.data && msgRecord.data[0]) ? msgRecord.data[0].id : null;
                       // Mark previous docs as not current
@@ -3828,7 +3831,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                         { method: 'PATCH', body: { is_current: false } });
                       for (var rpi = 0; rpi < respParts.length; rpi++) {
                         var rPart = respParts[rpi];
-                        var rAtt = await respGmail.users.messages.attachments.get({ userId: vaEmail, messageId: currentMsgId, id: rPart.body.attachmentId });
+                        var rAtt = await respGmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: rPart.body.attachmentId });
                         var rAttData = rAtt.data.data; // base64url encoded
                         await supabaseDbRequest('task_documents', '', {
                           method: 'POST',
@@ -22448,6 +22451,36 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ email: twPgInbox, testWatch: true, ok: true });
       } catch (twErr) {
         pgResults.push({ email: twPgInbox, testWatch: true, ok: false, error: twErr.message });
+      }
+    }
+    // SPPA awaiting-reply reconciliation — cursor-independent safety net.
+    // The realtime watch only listens to INBOX/SENT, so a reply that is auto-archived on
+    // arrival fires no push; and the forward-only history cursor can skip a message that a
+    // later run advanced past — so a candidate/practice reply can be silently missed by BOTH
+    // the push and the incremental cron scan. For every open SPPA task that is awaiting a
+    // reply, re-pull its Gmail thread DIRECTLY (threads.get — label- AND cursor-independent)
+    // via the same recovery path the "Check for practice reply now" button uses. Idempotent
+    // (per-task gmail_message_id + processed_gmail_messages dedup), so safe to run each cron.
+    if (isSupabaseDbConfigured()) {
+      try {
+        var reconRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,gmail_thread_id&related_document_key=eq.sppa_00&gmail_thread_id=not.is.null&status=in.(waiting_on_gp,waiting_on_practice)&limit=200');
+        var reconTasks = reconRes.ok && Array.isArray(reconRes.data) ? reconRes.data : [];
+        var reconCount = 0;
+        for (var rti = 0; rti < reconTasks.length; rti++) {
+          var rcTask = reconTasks[rti];
+          if (!rcTask.gmail_thread_id) continue;
+          try {
+            var rcSi = await resolveCaseSenderInfo(rcTask.case_id);
+            var rcInbox = (rcSi && rcSi.from) ? String(rcSi.from).toLowerCase() : '';
+            if (!rcInbox) continue;
+            await processGmailNotification(rcInbox, null, { recoverThreadId: rcTask.gmail_thread_id });
+            reconCount++;
+          } catch (rcErr) { /* best-effort per task */ }
+        }
+        pgResults.push({ sppaReconcile: true, tasksSwept: reconCount });
+      } catch (reconErr) {
+        pgResults.push({ sppaReconcile: true, ok: false, error: reconErr.message });
       }
     }
     sendJson(res, 200, { ok: true, results: pgResults });
