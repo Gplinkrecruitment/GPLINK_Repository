@@ -34720,23 +34720,43 @@ Return ONLY valid JSON with no markdown formatting:
         });
       });
 
-      // Alt supervisor CVs — add dynamically if user_documents exist
-      var _altCvUserDocs = [];
-      if (_altCvUserDocs.length === 0) {
-        // Fallback: query directly
-        var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%');
-        _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
-      }
+      // Alt supervisor CVs — show a "Prepared by GP Link" placeholder card for
+      // each alternate supervisor the returned SPPA-00 named. The status badge
+      // tracks the collection lifecycle so the RSO can see what's outstanding:
+      //   pending (alternate detected) → requested (request email sent) →
+      //   under review (CV arrived) → completed (CV approved + delivered).
+      // IMPORTANT: use %25 (URL-encoded %). supabaseDbRequest concatenates the
+      // query string into the URL raw, so a bare % produces a malformed filter
+      // → HTTP 500 → the card silently never renders (this was the bug: the
+      // placeholder existed in the DB but the section showed "5/5" with no card).
+      var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%25&order=document_key.asc');
+      var _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
       if (_altCvUserDocs.length > 0) {
+        // The request-email task is per-case (one email asks for every named
+        // alternate), so look it up once and apply to each placeholder.
+        var _altReqStatus = '';
+        try {
+          var _altReqRes = await supabaseDbRequest('registration_tasks', 'select=status&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.alt_supervisor_cv_request&order=created_at.desc&limit=1');
+          if (_altReqRes.ok && Array.isArray(_altReqRes.data) && _altReqRes.data[0]) _altReqStatus = _altReqRes.data[0].status || '';
+        } catch (_altReqErr) { console.error('[gp-documents] alt request task lookup failed (non-fatal):', _altReqErr.message); }
+        var _altCardStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
         _altCvUserDocs.forEach(function(aDoc) {
           var driveFile = null;
           if (aDoc.google_drive_file_id) {
             driveFile = gdDriveFiles.find(function(f) { return f.id === aDoc.google_drive_file_id; });
             if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
+          // Placeholder rows carry the supervisor's name as file_name (no file
+          // extension); a real uploaded CV carries the document filename.
+          var _fn = String(aDoc.file_name || '').trim();
+          var _isPlaceholderName = _fn && !/\.(pdf|docx?|png|jpe?g|heic)$/i.test(_fn);
+          var _label = _isPlaceholderName
+            ? ('Alternate Supervisor CV — ' + _fn.replace(/\s*[-—]\s*cv\s*$/i, '').trim())
+            : 'Alternate Supervisor CV';
           gdPreparedByGpLink.push({
-            key: aDoc.document_key, label: aDoc.file_name || aDoc.document_key,
-            ops_status: aDoc.status === 'approved' ? 'completed' : (aDoc.status === 'pending' ? 'awaiting_practice' : 'under_review'),
+            key: aDoc.document_key,
+            label: _label,
+            ops_status: _altCardStatus(aDoc.status, _altReqStatus),
             drive_file: driveFile
           });
         });
