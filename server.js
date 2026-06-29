@@ -44261,6 +44261,30 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Interview ingest-reply (POST) ---------------------------------------
+  if (pathname === '/api/ats/interview/ingest-reply' && req.method === 'POST') {
+    var ctxIngR = requireCeoSession(req, res); if (!ctxIngR) return;
+    var bodyIngR; try { bodyIngR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var ingAppId = (bodyIngR && bodyIngR.application_id != null) ? String(bodyIngR.application_id) : '';
+    var ingReplyText = (bodyIngR && bodyIngR.reply_text != null) ? String(bodyIngR.reply_text) : '';
+    if (!ingAppId || !ingReplyText) { sendJson(res, 400, { ok: false, message: 'application_id and reply_text required' }); return; }
+    var ingInterviewRef = await findInterviewForApplication(ingAppId);
+    if (!ingInterviewRef) { sendJson(res, 404, { ok: false, message: 'no interview for this application' }); return; }
+    await ingestPracticeAvailabilityReply(ingInterviewRef.id, ingReplyText, new Date().toISOString());
+    // Re-read the row (dual-mode) to get the updated status and windows.
+    var ingRow;
+    if (isSupabaseDbConfigured()) {
+      var ingRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(String(ingInterviewRef.id)) + '&limit=1');
+      ingRow = (ingRowRes.ok && ingRowRes.data && ingRowRes.data[0]) ? ingRowRes.data[0] : null;
+    } else {
+      ingRow = await findInterviewForApplication(ingAppId);
+    }
+    var ingStatus = (ingRow && ingRow.practice_availability_status) || '';
+    var ingWindowsCount = (ingRow && Array.isArray(ingRow.practice_availability_windows)) ? ingRow.practice_availability_windows.length : 0;
+    sendJson(res, 200, { ok: true, status: ingStatus, windows_count: ingWindowsCount });
+    return;
+  }
+
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
     var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;

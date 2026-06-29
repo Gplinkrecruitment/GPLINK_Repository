@@ -210,3 +210,33 @@ describe('POST /api/ats/interview/book', () => {
     expect(res.body.ok).toBe(false);
   });
 });
+
+describe('POST /api/ats/interview/ingest-reply', () => {
+  it('requests interview then ingests reply → status received + windows_count > 0', async () => {
+    // Use c4 (Dr Marcus Webb) — untouched by any other test in this file.
+    const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c4' });
+    expect(reqRes.status).toBe(200);
+    expect(reqRes.body.ok).toBe(true);
+    const res = await call('POST', '/api/ats/interview/ingest-reply', { application_id: 'c4', reply_text: 'weekdays 6-10pm' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.status).toBe('received');
+    expect(res.body.windows_count).toBeGreaterThan(0);
+    // Confirm the DB row itself reflects the ingestion.
+    const db = readDb();
+    const row = (db.scheduledCalls || []).find((r) => r.application_id === 'c4' && r.meeting_kind === 'interview');
+    expect(row).toBeTruthy();
+    expect(row.practice_availability_status).toBe('received');
+  });
+
+  it('returns 401 without an admin session', async () => {
+    const res = await callNoAuth('POST', '/api/ats/interview/ingest-reply', { application_id: 'c4', reply_text: 'any text' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 for an application with no interview row', async () => {
+    const res = await call('POST', '/api/ats/interview/ingest-reply', { application_id: 'no-such-app-ir', reply_text: 'some text' });
+    expect(res.status).toBe(404);
+    expect(res.body.ok).toBe(false);
+  });
+});
