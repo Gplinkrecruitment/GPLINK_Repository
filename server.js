@@ -23355,6 +23355,22 @@ function atsOnboardingFractionFilled(ob) {
 
 // Build the normalized candidate "facts" bundle from a local seed row.
 function atsLocalCandidateFacts(row) {
+  // Enrich each seeded app with interview (most-recent non-cancelled interview from
+  // dbState.scheduledCalls for that application_id) + offer placeholder.
+  var rawApps = Array.isArray(row.apps) ? row.apps : [];
+  var scAll = dbState.scheduledCalls || [];
+  var enrichedApps = rawApps.map(function (a) {
+    var matches = scAll.filter(function (r) {
+      return String(r.application_id) === String(a.id) && r.meeting_kind === 'interview' && r.status !== 'cancelled';
+    });
+    var intRow = null;
+    if (matches.length) {
+      matches.sort(function (x, y) { return (y.created_at || '') > (x.created_at || '') ? 1 : -1; });
+      var m = matches[0];
+      intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null };
+    }
+    return Object.assign({}, a, { interview: intRow, offer: { status: 'not_started', label: '—' } });
+  });
   return {
     case_id: row.id, user_id: row.user_id || row.id,
     name: row.name, email: row.email || '', phone: row.phone || '',
@@ -23367,7 +23383,7 @@ function atsLocalCandidateFacts(row) {
     calls: Array.isArray(row.calls) ? row.calls : [],
     comms: row.comms || null,
     aiHandover: row.aiHandover || '',
-    apps: Array.isArray(row.apps) ? row.apps : []
+    apps: enrichedApps
   };
 }
 
@@ -23398,9 +23414,28 @@ async function atsProdCandidateFacts(regCase) {
     var rr = await supabaseDbRequest('career_roles', 'select=id,title,practice_name&id=in.(' + encodeURIComponent(list) + ')&limit=500');
     ((rr.ok && rr.data) || []).forEach(function (r) { roleMap[r.id] = r; });
   }
+  // Fetch most-recent non-cancelled interview row for each application (prod only).
+  var appInterviewMap = {};
+  var prodAppIds = appRows.map(function (a) { return a.id; }).filter(Boolean);
+  if (prodAppIds.length) {
+    var prodAppIdList = prodAppIds.map(function (id) { return String(id); }).join(',');
+    var aiRes = await supabaseDbRequest('scheduled_calls',
+      'select=id,application_id,status,scheduled_at,meeting_summary&application_id=in.(' + encodeURIComponent(prodAppIdList) + ')&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=200');
+    ((aiRes.ok && aiRes.data) || []).forEach(function (r) {
+      if (!appInterviewMap[r.application_id]) {
+        appInterviewMap[r.application_id] = r;
+      }
+    });
+  }
   var apps = appRows.map(function (a) {
     var role = roleMap[a.career_role_id] || {};
-    return { id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—', practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false) };
+    var intRow = appInterviewMap[a.id] || null;
+    return {
+      id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—',
+      practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false),
+      interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
+      offer: { status: 'not_started', label: '—' }
+    };
   });
 
   var completed = !!(ob.completedAt || state.gp_onboarding_complete);
@@ -44543,6 +44578,56 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[ats comms-scan]', e && e.message);
       sendJson(res, 500, { ok: false, message: 'Comms scan failed.' });
     }
+    return;
+  }
+
+  // GET /api/ceo/meetings?kind=all|consultation|interview
+  // Returns CEO-hosted meetings only (host_kind='ceo'). Excludes abandoned drafts
+  // (status='cancelled' with no scheduled_at and no booked_at). Dual-mode.
+  if (pathname === '/api/ceo/meetings' && req.method === 'GET') {
+    var ctxMtg = requireCeoSession(req, res); if (!ctxMtg) return;
+    var mtgKind = url.searchParams.get('kind') || 'all';
+    if (!isSupabaseDbConfigured()) {
+      var mtgLocalRows = (dbState.scheduledCalls || []).filter(function (r) {
+        if ((r.host_kind || 'rso') !== 'ceo') return false;
+        if (r.status === 'cancelled' && !r.scheduled_at && !r.booked_at) return false;
+        if (mtgKind !== 'all' && r.meeting_kind !== mtgKind) return false;
+        return true;
+      });
+      var mtgLocalMeetings = mtgLocalRows.map(function (r) {
+        return interviewMeetings.normalizeMeetingForApi(normalizeScheduledCallForApi(Object.assign({}, r)));
+      });
+      sendJson(res, 200, { ok: true, meetings: mtgLocalMeetings });
+      return;
+    }
+    var mtgQuery = 'select=*&host_kind=eq.ceo&order=created_at.desc&limit=200';
+    if (mtgKind !== 'all') mtgQuery += '&meeting_kind=eq.' + encodeURIComponent(mtgKind);
+    var mtgRes = await supabaseDbRequest('scheduled_calls', mtgQuery);
+    var mtgAllRows = (mtgRes.ok && Array.isArray(mtgRes.data)) ? mtgRes.data : [];
+    // Exclude abandoned drafts server-side (cancelled + never scheduled/booked).
+    mtgAllRows = mtgAllRows.filter(function (r) {
+      return !(r.status === 'cancelled' && !r.scheduled_at && !r.booked_at);
+    });
+    // Resolve gp_name from the linked registration_cases rows.
+    var mtgCaseIds = [];
+    var seenMtgCase = {};
+    mtgAllRows.forEach(function (r) {
+      if (r.case_id && !seenMtgCase[r.case_id]) { seenMtgCase[r.case_id] = true; mtgCaseIds.push(r.case_id); }
+    });
+    var mtgNameMap = {};
+    if (mtgCaseIds.length) {
+      var mtgCaseRes = await supabaseDbRequest('registration_cases',
+        'select=id,gp_name,gp_email&id=in.(' + mtgCaseIds.map(encodeURIComponent).join(',') + ')&limit=500');
+      ((mtgCaseRes.ok && mtgCaseRes.data) || []).forEach(function (c) {
+        mtgNameMap[c.id] = c.gp_name || c.gp_email || '';
+      });
+    }
+    var mtgMeetings = mtgAllRows.map(function (r) {
+      var base = normalizeScheduledCallForApi(r);
+      base.gp_name = mtgNameMap[r.case_id] || '';
+      return interviewMeetings.normalizeMeetingForApi(base);
+    });
+    sendJson(res, 200, { ok: true, meetings: mtgMeetings });
     return;
   }
 
