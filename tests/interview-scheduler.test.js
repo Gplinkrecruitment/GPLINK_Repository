@@ -25,9 +25,12 @@ describe('interview-scheduler', () => {
 
   it('produces weekday slots inside the practice 6–10pm Sydney window (= UK morning)', () => {
     const out = s.computeInterviewSlots(base());
-    expect(out.slots.length).toBeGreaterThan(0);
-    // every slot must start at or after 08:00Z and end by 11:15Z (practice 18:00–22:00 AEST in July)
-    out.slots.forEach(function (sl) {
+    const weekdaySlots = out.slots.filter(function (sl) {
+      const dow = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Australia/Sydney' }).format(new Date(sl.startUtc));
+      return dow !== 'Sat' && dow !== 'Sun';
+    });
+    expect(weekdaySlots.length).toBeGreaterThan(0);
+    weekdaySlots.forEach(function (sl) {
       const h = new Date(sl.startUtc).getUTCHours();
       expect(h).toBeGreaterThanOrEqual(8);
       expect(h).toBeLessThan(12);
@@ -65,15 +68,15 @@ describe('interview-scheduler', () => {
     });
   });
 
-  it('weekend opens the practice window all day (slots exist outside 6–10pm AU)', () => {
-    // horizon includes Sat 4 / Sun 5 Jul 2026
+  it('weekend opens the practice window all day (a weekend slot exists outside the 6–10pm AU evening window)', () => {
     const out = s.computeInterviewSlots(base({ horizonDays: 7, maxSlots: 50 }));
-    const weekendSlot = out.slots.find(function (sl) {
-      const day = new Date(sl.startUtc).getUTCDay();
-      const audow = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Australia/Sydney' }).format(new Date(sl.startUtc));
-      return audow === 'Sat' || audow === 'Sun';
+    const weekendOutsideEvening = out.slots.find(function (sl) {
+      const dow = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Australia/Sydney' }).format(new Date(sl.startUtc));
+      const isWeekend = dow === 'Sat' || dow === 'Sun';
+      const h = new Date(sl.startUtc).getUTCHours();
+      return isWeekend && (h < 8 || h >= 12);
     });
-    expect(weekendSlot).toBeTruthy();
+    expect(weekendOutsideEvening).toBeTruthy();
   });
 
   it('a practice override narrows the window for that date', () => {
