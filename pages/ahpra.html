@@ -629,6 +629,13 @@
     .dp-sec-dl { margin-top: 9px; }
     .dp-sec-dl .qp-dl-btn { width: 100%; justify-content: center; padding: 7px 12px; font-size: 12px; }
     .dp-empty { font-size: 12px; color: var(--ink-muted); line-height: 1.5; padding: 2px 0; }
+    /* Deep-link (?doc=<key>) flash: briefly ring + tint the document row we jumped to. */
+    .dp-doc.dp-doc-flash { position: relative; z-index: 1; border-radius: 8px; animation: dpDocFlash 2.2s ease; }
+    @keyframes dpDocFlash {
+      0%   { background: var(--gp-blue-soft); box-shadow: 0 0 0 2px var(--accent); }
+      65%  { background: var(--gp-blue-soft); box-shadow: 0 0 0 2px var(--accent); }
+      100% { background: transparent; box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    }
 
     /* Copy fields */
     .qp-copy-row {
@@ -4000,7 +4007,7 @@
                 ? `<span class="dp-chip dp-chip-ready">Ready</span>`
                 : `<span class="dp-chip dp-chip-prep">Preparing</span>`;
             }
-            return `<div class="dp-doc"><span class="dp-doc-name">${r.name}</span>${chip}</div>`;
+            return `<div class="dp-doc" id="dp-doc-${r.key}" data-doc-key="${r.key}"><span class="dp-doc-name">${r.name}</span>${chip}</div>`;
           }).join("");
           body += `<div class="dp-sec-dl"><button type="button" class="qp-dl-btn" data-modal-download-section="${sec.key}"${availCount ? "" : " disabled"}>${DL_ICON_SVG} Download${availCount ? ` (${availCount})` : ""}</button></div>`;
         }
@@ -5894,8 +5901,63 @@
       }
     }
 
+    // ── Deep link: ?doc=<key> jumps straight to a delivered document ────────────
+    // An admin "document delivered" email links the GP here as
+    // …/pages/ahpra.html?doc=<key>. Open the same download-pack modal the Download
+    // button opens, scroll to + briefly flash that document's row, then strip ?doc
+    // so a refresh won't re-trigger. Defensive: must never break page load.
+    var _deepLinkDocHandled = false;
+    // Capture ?doc NOW, at script-eval time — this line runs BEFORE initPage()
+    // (called further below). initPage() → showSecuredPage() → syncRouteForStage()
+    // does history.replaceState(…, "/registration/ahpra/<slug>") with NO query
+    // string, which would wipe ?doc before focusDeepLinkedDoc() could read it
+    // (the bug: a returning GP with warm localStorage hit that strip synchronously
+    // and the document modal never opened). Reading the key here makes the deep
+    // link immune to that strip and to the re-init on gp-state-hydrated/gp-data-ready.
+    var _deepLinkDocKey = '';
+    try { _deepLinkDocKey = new URLSearchParams(window.location.search).get('doc') || ''; } catch (e) {}
+    function _flashDeepLinkedDocRow(key) {
+      if (!key || !downloadPackSummaryEl) return false;
+      var row = downloadPackSummaryEl.querySelector('[data-doc-key="' + key + '"]')
+        || document.getElementById('dp-doc-' + key);
+      if (!row) return false;
+      try { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      row.classList.remove('dp-doc-flash');
+      void row.offsetWidth; // reflow so re-adding the class restarts the animation
+      row.classList.add('dp-doc-flash');
+      setTimeout(function () { try { row.classList.remove('dp-doc-flash'); } catch (e) {} }, 2300);
+      return true;
+    }
+    function focusDeepLinkedDoc() {
+      try {
+        if (_deepLinkDocHandled) return;
+        var key = _deepLinkDocKey;
+        if (!key) return;
+        _deepLinkDocHandled = true;
+        // Strip ?doc straight away (matches the replaceState pattern used elsewhere on
+        // this page) so a refresh won't re-open the modal.
+        try { history.replaceState({}, '', window.location.pathname + window.location.hash); } catch (e) {}
+        // Open the pack exactly like the #ahpraDocsDownloadBtn handler: render from the
+        // local snapshot first, open the modal, then reconcile with the server.
+        renderDownloadPackModal(getDocSnapshot());
+        if (downloadPackModalEl) openModal(downloadPackModalEl, null);
+        // Flash on the immediate render so the GP sees it without waiting on the network.
+        // If the row isn't found we still leave the modal open (degrade gracefully).
+        setTimeout(function () { _flashDeepLinkedDocRow(key); }, 80);
+        // Then refresh authoritative status (same call the button uses) and re-flash —
+        // a re-render replaces the modal markup, so the row + flash must be re-applied.
+        syncIntroPreparedDocsFromServer(getPageCountry()).then(function (changed) {
+          if (changed) {
+            renderDownloadPackModal(getDocSnapshot());
+            setTimeout(function () { _flashDeepLinkedDocRow(key); }, 80);
+          }
+        }).catch(function () {});
+      } catch (e) { /* nice-to-have: never break page load */ }
+    }
+
     // Run immediately, then re-check after state sync hydrates
     initPage();
+    focusDeepLinkedDoc();
     window.addEventListener("gp-state-hydrated", function() { initPage(); });
     window.addEventListener("gp-data-ready", function() { initPage(); });
 

@@ -117,7 +117,7 @@ const {
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
-const { checkSppaCompleteness } = require('./lib/sppa-completeness-check.js');
+const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
@@ -954,7 +954,7 @@ async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload)
 }
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
-async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType) {
+async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType, opts) {
   const results = { userDoc: null, driveFile: null };
 
   // 1. Upsert into user_documents
@@ -981,7 +981,51 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     if (driveFile) results.driveFile = driveFile.id;
   }
 
+  // Notify the GP by email that a document was delivered to their account (best-effort,
+  // deep-linked). Callers can opt out with opts.notifyGp === false.
+  if (!opts || opts.notifyGp !== false) {
+    notifyGpDocumentDelivered(userId, docKey, fileName).catch(function () {});
+  }
   return results;
+}
+
+// Friendly labels for the "document delivered" email (falls back to the file name / cleaned key).
+var DELIVERED_DOC_LABELS = {
+  sppa_00: 'SPPA-00 (Supervised Practice Plan)',
+  section_g: 'Section G (Supervised Practice Goals)',
+  offer_contract: 'Offer / Contract',
+  position_description: 'Position Description',
+  supervisor_cv: 'Supervisor CV',
+  cv_signed_dated: 'Signed CV',
+  criminal_history: 'Criminal History Check'
+};
+function _deliveredDocLabel(docKey, fileName) {
+  if (DELIVERED_DOC_LABELS[docKey]) return DELIVERED_DOC_LABELS[docKey];
+  if (/^alt_supervisor_cv/i.test(String(docKey || ''))) return 'Alternate Supervisor CV';
+  var fn = String(fileName || '').replace(/\.[a-z0-9]+$/i, '').trim();
+  if (fn) return fn;
+  return String(docKey || 'document').replace(/_/g, ' ');
+}
+
+// Email the GP that a document has been delivered to their account, with an "Open Document" button
+// that deep-links straight to that document. The link is to /pages/ahpra.html?doc=<key>; if the GP
+// isn't signed in, the auth bounce preserves the full path+query as ?next (buildSigninRedirect /
+// auth-guard.js), so after login they land back on the document — it doesn't break on sign-in.
+// Best-effort: never throws; call sites fire-and-forget.
+async function notifyGpDocumentDelivered(userId, docKey, fileName) {
+  try {
+    if (!userId) return;
+    var label = _deliveredDocLabel(docKey, fileName);
+    var deepLink = APP_BASE_URL + '/pages/ahpra.html?doc=' + encodeURIComponent(String(docKey || ''));
+    await sendGpNotificationEmail(userId,
+      label + ' added to your documents — GP Link',
+      'A new document is ready, {{name}}',
+      'Your ' + label + ' has been added to your GP Link account by our team. You can view and download it any time from your documents — just tap the button below and it will take you straight there.',
+      'Open Document',
+      deepLink,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    );
+  } catch (e) { console.error('[doc-notify] failed for', docKey, e && e.message); }
 }
 
 // Helper: upload SPPA-00 PDF to Google Drive and update the task_document row with Drive refs
@@ -1243,19 +1287,18 @@ async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
 }
 
 // Helper: when a returned SPPA-00 names alternate supervisor(s) whose signed CV GP Link does NOT
-// yet hold, auto-send the practice an email requesting the CV(s) AND create an admin task to track
-// it (same contact resolution + threading as /sppa-send-to-practice). Idempotent by three guards:
-//  (1) an in-process per-case lock so two overlapping triggers (Gmail push, hourly reconcile,
-//      manual "pull reply now") can't both send; (2) an open alt_supervisor_cv_request task already
-//      exists (blocks re-send between request and receipt); (3) the CV is already in hand — arrived
-//      with the form (tagged on the SPPA task) or already on the GP's profile (blocks after receipt).
-// Sends BEFORE creating the task so a failed send retries on the next trigger instead of leaving a
-// stuck task. Deliberately does NOT write the SPPA task's metadata, to avoid racing the concurrent
-// completeness-check verdict. `sppaTask` must carry { id, case_id, metadata, gmail_thread_id }.
+// yet hold, create an admin task carrying a SUGGESTED (pre-filled) email so the RSO can review and
+// SEND it to the practice manually from the dashboard composer. It does NOT auto-send. Idempotent
+// by three guards: (1) an in-process per-case lock so two overlapping triggers (Gmail push, hourly
+// reconcile, manual "pull reply now") can't both create a task; (2) an open alt_supervisor_cv_request
+// task already exists; (3) the CV is already in hand — arrived with the form (tagged on the SPPA
+// task) or already on the GP's profile. Deliberately does NOT write the SPPA task's metadata, to
+// avoid racing the concurrent completeness-check verdict. `sppaTask` must carry
+// { id, case_id, metadata, gmail_thread_id }.
 var _altCvRequestInflight = {};
 async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
   if (!caseId || !sppaTask || !sppaTask.id || !Array.isArray(altNames) || altNames.length === 0) return;
-  if (_altCvRequestInflight[caseId]) return; // a request for this case is already being sent
+  if (_altCvRequestInflight[caseId]) return; // a request task for this case is already being created
   _altCvRequestInflight[caseId] = true;
   try {
     var meta = sppaTask.metadata;
@@ -1318,40 +1361,33 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
       gpName: gpName, altNames: needed, contactName: practiceName, rsoSignoffName: rsoName || ''
     });
 
-    // Send FIRST (threaded on the SPPA conversation) so a failed send retries on the next trigger
-    // rather than leaving a stuck task. The inbound CV match is sender-keyed, so a new-thread reply
-    // still matches.
-    var si = await resolveCaseSenderInfo(caseId);
-    var emailResult = await sendGmailEmail({
-      from: si.from, fromName: si.fromName, to: practiceEmail,
-      subject: emailContent.subject, bodyHtml: emailContent.bodyHtml,
-      threadId: sppaTask.gmail_thread_id || undefined, caseId: caseId
-    });
-    if (!emailResult || !emailResult.ok) {
-      console.error('[SPPA] alt-CV request email failed for case', caseId, '— will retry on next return trigger:', emailResult && emailResult.error);
-      try {
-        await _logCaseEvent(caseId, sppaTask.id, 'system',
-          'Alternate supervisor CV request email could not be sent (will retry): ' + needed.join(', '), practiceEmail, 'system');
-      } catch (e) {}
-      return;
-    }
-
-    // Record the request as an admin tracking task (open until the CV comes back). Its existence is
-    // Guard 2 for any later trigger. Anchored to the conversation the email actually went out on.
+    // Do NOT auto-send. Create an admin task carrying a SUGGESTED (pre-filled) email for the RSO to
+    // review and SEND manually from the dashboard composer (the generic /api/admin/email/send). The
+    // task's existence is the idempotency guard for later triggers; it stays open until the
+    // practice's CV arrives (auto-match closes it) or the RSO delivers it.
     await supabaseDbRequest('registration_tasks', '', {
       method: 'POST', headers: { Prefer: 'return=minimal' },
       body: [{
         case_id: caseId, task_type: 'alt_supervisor_cv_request', related_document_key: 'sppa_00',
+        related_stage: 'ahpra',
         title: 'Request alternate supervisor CV from practice',
-        description: 'Awaiting signed CV(s) for: ' + needed.join(', '),
+        description: 'Send the practice a request for the signed CV(s): ' + needed.join(', '),
         status: 'open', priority: 'normal',
-        gmail_thread_id: emailResult.threadId || sppaTask.gmail_thread_id || null,
-        metadata: { sppa_task_id: sppaTask.id, alt_supervisor_names: needed, practice_email: practiceEmail, alt_cv_requested_at: new Date().toISOString() }
+        gmail_thread_id: sppaTask.gmail_thread_id || null,
+        metadata: {
+          sppa_task_id: sppaTask.id,
+          alt_supervisor_names: needed,
+          practice_email: practiceEmail,
+          practice_contact_name: practiceName,
+          suggested_subject: emailContent.subject,
+          suggested_body: emailContent.bodyHtml,
+          created_at: new Date().toISOString()
+        }
       }]
     });
     await _logCaseEvent(caseId, sppaTask.id, 'system',
-      'Requested alternate supervisor CV(s) from practice: ' + needed.join(', '), practiceEmail, 'system');
-    console.log('[SPPA] Requested alt supervisor CV(s) from practice for case', caseId, '→', needed.join(', '));
+      'Created task to request alternate supervisor CV(s) from practice (RSO to review + send): ' + needed.join(', '), practiceEmail, 'system');
+    console.log('[SPPA] Created alt supervisor CV request task for case', caseId, '→', needed.join(', '));
   } catch (err) {
     console.error('[SPPA] _ensureAltSupervisorCvRequest error:', err.message);
   } finally {
@@ -9905,6 +9941,9 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       issues: verdict.issues,
       summary: verdict.summary,
       alternate_supervisors_on_form: verdict.alternate_supervisors_on_form,
+      // True when the form is otherwise complete/signed and the ONLY gap is an alternate-supervisor
+      // CV — that has its own task, so the UI reframes it as a reminder and the submit gate allows it.
+      only_alt_cv_outstanding: isOnlyAltCvOutstanding(verdict),
       checked_at: new Date().toISOString(),
       model: verdict._model || null,
       error: verdict._error || null,
@@ -34915,23 +34954,43 @@ Return ONLY valid JSON with no markdown formatting:
         });
       });
 
-      // Alt supervisor CVs — add dynamically if user_documents exist
-      var _altCvUserDocs = [];
-      if (_altCvUserDocs.length === 0) {
-        // Fallback: query directly
-        var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%');
-        _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
-      }
+      // Alt supervisor CVs — show a "Prepared by GP Link" placeholder card for
+      // each alternate supervisor the returned SPPA-00 named. The status badge
+      // tracks the collection lifecycle so the RSO can see what's outstanding:
+      //   pending (alternate detected) → requested (request email sent) →
+      //   under review (CV arrived) → completed (CV approved + delivered).
+      // IMPORTANT: use %25 (URL-encoded %). supabaseDbRequest concatenates the
+      // query string into the URL raw, so a bare % produces a malformed filter
+      // → HTTP 500 → the card silently never renders (this was the bug: the
+      // placeholder existed in the DB but the section showed "5/5" with no card).
+      var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%25&order=document_key.asc');
+      var _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
       if (_altCvUserDocs.length > 0) {
+        // The request-email task is per-case (one email asks for every named
+        // alternate), so look it up once and apply to each placeholder.
+        var _altReqStatus = '';
+        try {
+          var _altReqRes = await supabaseDbRequest('registration_tasks', 'select=status&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.alt_supervisor_cv_request&order=created_at.desc&limit=1');
+          if (_altReqRes.ok && Array.isArray(_altReqRes.data) && _altReqRes.data[0]) _altReqStatus = _altReqRes.data[0].status || '';
+        } catch (_altReqErr) { console.error('[gp-documents] alt request task lookup failed (non-fatal):', _altReqErr.message); }
+        var _altCardStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
         _altCvUserDocs.forEach(function(aDoc) {
           var driveFile = null;
           if (aDoc.google_drive_file_id) {
             driveFile = gdDriveFiles.find(function(f) { return f.id === aDoc.google_drive_file_id; });
             if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
+          // Placeholder rows carry the supervisor's name as file_name (no file
+          // extension); a real uploaded CV carries the document filename.
+          var _fn = String(aDoc.file_name || '').trim();
+          var _isPlaceholderName = _fn && !/\.(pdf|docx?|png|jpe?g|heic)$/i.test(_fn);
+          var _label = _isPlaceholderName
+            ? ('Alternate Supervisor CV — ' + _fn.replace(/\s*[-—]\s*cv\s*$/i, '').trim())
+            : 'Alternate Supervisor CV';
           gdPreparedByGpLink.push({
-            key: aDoc.document_key, label: aDoc.file_name || aDoc.document_key,
-            ops_status: aDoc.status === 'approved' ? 'completed' : (aDoc.status === 'pending' ? 'awaiting_practice' : 'under_review'),
+            key: aDoc.document_key,
+            label: _label,
+            ops_status: _altCardStatus(aDoc.status, _altReqStatus),
             drive_file: driveFile
           });
         });
@@ -37823,7 +37882,12 @@ Return ONLY valid JSON with no markdown formatting:
         _completeness = await _runSppaCompletenessCheck(task.case_id, task.id);
         if (_completeness) taskMeta.completeness_check = _completeness;
       }
-      if (_completeness && _completeness.error == null && _completeness.is_complete === false) {
+      // A missing alternate-supervisor CV alone does NOT block the SPPA-00 submit: that CV is
+      // collected + delivered to the GP by its own alt_supervisor_cv_request task. Only hard-block
+      // when the form itself is genuinely incomplete. (Check the stored flag, and recompute for
+      // verdicts stored before the flag existed.)
+      var _onlyAltCv = _completeness && (_completeness.only_alt_cv_outstanding === true || isOnlyAltCvOutstanding(_completeness));
+      if (_completeness && _completeness.error == null && _completeness.is_complete === false && !_onlyAltCv) {
         sendJson(res, 200, { ok: false, needs_review: true, completeness: _completeness });
         return;
       }
@@ -38535,6 +38599,8 @@ Return ONLY valid JSON with no markdown formatting:
             // Flip the GP's My Documents / AHPRA "Supervised Practice" placeholder for this alt CV
             // from "Preparing" to "Ready".
             try { await _updatePreparedDocsState(userId, altDocKey, cvDriveFile.id, userDoc.file_name); } catch (e) { console.error('[AltCV] prepared-docs state update error:', e.message); }
+            // Notify the GP this document was delivered (the alt-CV path bypasses deliverToMyDocuments).
+            notifyGpDocumentDelivered(userId, altDocKey, userDoc.file_name).catch(function () {});
           }
         } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
       }

@@ -3326,7 +3326,11 @@
       var other = [];
       var practiceContact = [];
       (tasks || []).forEach(function(t) {
-        var stage = (t && t.related_stage) || '';
+        // The supervised-practice document set — the practice pack (SPPA-00, Section G, Position
+        // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks — is
+        // part of the AHPRA application, so group it under AHPRA even though practice-pack tasks are
+        // stamped 'career' at placement-secured time. (Mirrors admin.html groupTasksByStage.)
+        var stage = (t && (t.task_type === 'practice_pack_child' || t.task_type === 'alt_supervisor_cv_request' || t.task_type === 'alt_supervisor_cv_review')) ? 'ahpra' : ((t && t.related_stage) || '');
         if (stage === 'practice_contact') {
           practiceContact.push(t);
         } else if (stage && STAGE_ORDER.indexOf(stage) !== -1) {
@@ -3381,7 +3385,7 @@
       // and wrongly offered a "Send SPPA" button. Read-only — status only, no action.
       if (t.task_type === 'alt_supervisor_cv_request') {
         if (t.status === 'completed') return { prompt: 'Alternate supervisor CV received', label: 'Done', action: null, taskId: t.id };
-        return { prompt: 'Requested alternate supervisor CV from the practice — awaiting reply', label: 'Waiting', action: null, taskId: t.id };
+        return { prompt: 'Send the practice a request for the alternate supervisor’s CV', label: 'Waiting', action: null, taskId: t.id };
       }
       if (t.task_type === 'practice_pack_child' || dk) {
         if (dk === 'sppa_00') {
@@ -3577,7 +3581,7 @@
           // Tasks with an interactive task-detail panel (Task 3d.6): clicking the row expands
           // an accordion (port of admin _hasDetailPanel 2726). Mirrors admin exactly:
           // practice_pack_child (except section_g) + AHPRA + alt-supervisor-CV.
-          var hasDetailPanel = (t.task_type === 'practice_pack_child' && t.related_document_key && t.related_document_key !== 'section_g') || t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item' || t.task_type === 'alt_supervisor_cv_review';
+          var hasDetailPanel = (t.task_type === 'practice_pack_child' && t.related_document_key && t.related_document_key !== 'section_g') || t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item' || t.task_type === 'alt_supervisor_cv_review' || t.task_type === 'alt_supervisor_cv_request';
           html += '<div class="stage-task' + (isNext ? ' active-next' : '') + (t.task_type === 'email_triage' ? ' unlocked-email' : '') + (isWaiting ? ' st-waiting-state' : '') + '" data-task-row="' + esc(t.id) + '"' + (hasDetailPanel ? ' data-gp-expand-task="' + esc(t.id) + '" style="cursor:pointer"' : '') + '>';
           html += '<div class="st-top">';
           html += '<div class="st-body">';
@@ -3603,8 +3607,8 @@
           if (t.task_type === 'alt_supervisor_cv_request') {
             var _acrMeta = t.metadata; if (typeof _acrMeta === 'string') { try { _acrMeta = JSON.parse(_acrMeta); } catch (e) { _acrMeta = {}; } }
             var _acrNames = (_acrMeta && Array.isArray(_acrMeta.alt_supervisor_names)) ? _acrMeta.alt_supervisor_names : [];
-            var _acrReqAt = (_acrMeta && _acrMeta.alt_cv_requested_at) ? _acrMeta.alt_cv_requested_at : '';
-            var _acrStatus = t.status === 'completed' ? '✅ CV received' : ('⏳ Requested' + (_acrReqAt ? ' ' + esc(new Date(_acrReqAt).toLocaleDateString()) : '') + ' — awaiting practice reply');
+            var _acrSent = (t.status === 'waiting_on_practice' || t.status === 'waiting_on_external');
+            var _acrStatus = t.status === 'completed' ? '✅ CV received' : (_acrSent ? '📤 Requested — awaiting practice reply' : 'Send the practice a request for the alternate supervisor’s CV');
             html += '<div class="st-guide">' + (_acrNames.length ? 'Alternate supervisor' + (_acrNames.length > 1 ? 's' : '') + ': ' + esc(_acrNames.join(', ')) + ' — ' : '') + _acrStatus + '</div>';
           }
           if (t.status === 'escalated') {
@@ -4031,16 +4035,36 @@
       var meta = task.metadata || {};
       if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
       var names = Array.isArray(meta.alt_supervisor_names) ? meta.alt_supervisor_names : [];
-      var reqAt = meta.alt_cv_requested_at || '';
-      var done = task.status === 'completed';
       var h = '<div class="ops-expand-section">';
-      h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:var(--blue)">📤 Alternate supervisor CV requested from the practice — awaiting their reply</span>';
-      h += '</div>';
-      if (names.length) {
-        h += '<div style="font-size:12px;margin:4px 0;color:var(--text)"><strong>Alternate supervisor' + (names.length > 1 ? 's' : '') + ':</strong> ' + esc(names.join(', ')) + '</div>';
+      // Completed: the alternate supervisor CV has come back.
+      if (task.status === 'completed') {
+        h += '<div style="background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--green)">✅ Alternate supervisor CV received</span></div>';
+        h += '</div>';
+        return h;
       }
-      h += '<div style="font-size:12px;margin:4px 0;color:var(--text)">' + (done ? '✅ CV received' : '⏳ Requested' + (reqAt ? ' ' + esc(new Date(reqAt).toLocaleDateString()) : '') + ' — awaiting practice reply') + '</div>';
+      // Already sent to the practice: read-only waiting banner.
+      if (task.status === 'waiting_on_practice' || task.status === 'waiting_on_external') {
+        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:var(--blue)">📤 Request sent to the practice — awaiting their reply</span></div>';
+        if (names.length) {
+          h += '<div style="font-size:12px;margin:4px 0;color:var(--text)"><strong>Alternate supervisor' + (names.length > 1 ? 's' : '') + ':</strong> ' + esc(names.join(', ')) + '</div>';
+        }
+        h += '</div>';
+        return h;
+      }
+      // Open: review the suggested email and send it to the practice. Reuses the shared
+      // data-ops-send-email composer + handler (NO auto-send — the user clicks Send).
+      if (names.length) {
+        h += '<div style="font-size:12px;margin:4px 0 8px;color:var(--text)">Alternate supervisor' + (names.length > 1 ? 's' : '') + ': ' + esc(names.join(', ')) + '</div>';
+      }
+      var fallbackBody = 'Dear ' + esc(meta.practice_contact_name || 'Practice Contact') + ',<br><br>'
+        + 'The returned SPPA-00 names ' + esc(names.join(', ')) + ' as an alternate supervisor. AHPRA requires a signed CV for each named alternate supervisor before we can submit the plan. Please reply to this email with the CV(s) attached.<br><br>'
+        + 'Kind regards,<br>GP Link Registration Team';
+      h += '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(meta.practice_email || '') + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'SPPA-00 for Dr — Alternate Supervisor CV needed') + '" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + (meta.suggested_body ? meta.suggested_body : fallbackBody) + '</div>';
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
+      h += '</div>';
       h += '</div>';
       return h;
     }
@@ -4149,6 +4173,23 @@
         if (checkedAt) hc += '<div style="color:var(--muted);margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
         hc += '</div>';
         return hc;
+      }
+      // Reminder (NOT a blocker): form complete + signed and the only outstanding item is the
+      // alternate supervisor's CV, which has its own task. (Mirrors admin renderSppaCompletenessPanel.)
+      function _ccOnlyAltCv(c){
+        function a(v){return Array.isArray(v)?v.filter(function(x){return x&&String(x).trim();}):[];}
+        if(a(c.missing_fields).length||a(c.missing_signatures).length||a(c.issues).length)return false;
+        var d=a(c.missing_documents); if(!d.length)return false;
+        return d.every(function(x){return /alternate\s+supervisor/i.test(String(x));});
+      }
+      if(!cc.is_complete && (cc.only_alt_cv_outstanding===true || _ccOnlyAltCv(cc))){
+        var altn=(cc.alternate_supervisors_on_form&&cc.alternate_supervisors_on_form.length)?cc.alternate_supervisors_on_form.join(', '):'';
+        var hr='<div style="background:var(--amber-dim);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
+        hr+='<div style="font-weight:700;color:var(--amber)">✓ SPPA-00 form complete &amp; signed — one item to collect</div>';
+        hr+='<div style="color:var(--amber);margin-top:2px">The form is fully completed and all declarations are signed. The only outstanding item is the alternate supervisor’s signed CV'+(altn?' ('+esc(altn)+')':'')+'. Complete the <strong>"Request alternate supervisor CV from practice"</strong> task to collect it — the SPPA-00 can be submitted now; the CV is delivered to the GP separately.</div>';
+        if(checkedAt) hr+='<div style="color:var(--muted);margin-top:4px;font-size:10px">Checked '+esc(checkedAt)+'</div>';
+        hr+='</div>';
+        return hr;
       }
       var lists = '';
       function addList(label, arr) {

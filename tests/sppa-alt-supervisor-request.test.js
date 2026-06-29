@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 process.env.NODE_ENV = 'test';
 
 const require = createRequire(import.meta.url);
-const { buildAltCvRequestEmail, altSupervisorsNeedingCv } = require('../lib/sppa-alt-supervisor-request.js');
+const { buildAltCvRequestEmail, altSupervisorsNeedingCv, altCvCardStatus } = require('../lib/sppa-alt-supervisor-request.js');
 
 describe('buildAltCvRequestEmail', () => {
   it('puts the GP name in the subject and the alt, contact and signoff names in the body', () => {
@@ -98,5 +98,47 @@ describe('altSupervisorsNeedingCv', () => {
     const result = altSupervisorsNeedingCv(alts, undefined);
     expect(result).toEqual(['Ahmed Mahmoud']);
     expect(result).not.toBe(alts);
+  });
+});
+
+describe('altCvCardStatus', () => {
+  it('shows "pending" when the alternate is detected but the request email has not been sent', () => {
+    expect(altCvCardStatus('pending', 'open')).toBe('pending');
+    expect(altCvCardStatus('pending', null)).toBe('pending');
+    expect(altCvCardStatus('pending', '')).toBe('pending');
+  });
+
+  it('shows "requested" once the request email task has been sent to the practice', () => {
+    expect(altCvCardStatus('pending', 'waiting_on_practice')).toBe('requested');
+  });
+
+  it('shows "under_review" when the CV has arrived (uploaded / under review / received)', () => {
+    expect(altCvCardStatus('uploaded', 'waiting_on_practice')).toBe('under_review');
+    expect(altCvCardStatus('under_review', 'waiting_on_practice')).toBe('under_review');
+    expect(altCvCardStatus('received', 'completed')).toBe('under_review');
+  });
+
+  it('shows "under_review" when the request task is completed but the doc has not flipped to approved yet', () => {
+    expect(altCvCardStatus('pending', 'completed')).toBe('under_review');
+  });
+
+  it('shows "completed" once the CV is approved/accepted', () => {
+    expect(altCvCardStatus('approved', 'completed')).toBe('completed');
+    expect(altCvCardStatus('accepted', 'waiting_on_practice')).toBe('completed');
+  });
+
+  it('shows "under_review" when a received CV was rejected / needs correction (RSO action needed)', () => {
+    expect(altCvCardStatus('rejected', 'completed')).toBe('under_review');
+    expect(altCvCardStatus('needs_correction', 'waiting_on_practice')).toBe('under_review');
+  });
+
+  it('is case- and whitespace-insensitive', () => {
+    expect(altCvCardStatus('  PENDING ', '  Waiting_On_Practice ')).toBe('requested');
+    expect(altCvCardStatus('Approved', '')).toBe('completed');
+  });
+
+  it('defaults to "pending" for an unknown/empty doc status with no request task', () => {
+    expect(altCvCardStatus('', '')).toBe('pending');
+    expect(altCvCardStatus(null, null)).toBe('pending');
   });
 });
