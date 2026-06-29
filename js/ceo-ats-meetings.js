@@ -40,9 +40,11 @@
 
   // Format a UTC datetime string in Sydney local time.
   var sydFmt = null;
+  var sydTzFmt = null;
   function sydneyTime(iso) {
     if (!iso) return '—';
     try {
+      var d = new Date(iso);
       if (!sydFmt) {
         sydFmt = new Intl.DateTimeFormat('en-GB', {
           timeZone: 'Australia/Sydney',
@@ -54,7 +56,15 @@
           hour12:   true
         });
       }
-      return sydFmt.format(new Date(iso)) + ' AEDT';
+      if (!sydTzFmt) {
+        sydTzFmt = new Intl.DateTimeFormat('en-AU', {
+          timeZone: 'Australia/Sydney',
+          timeZoneName: 'short'
+        });
+      }
+      var tzParts = sydTzFmt.formatToParts(d);
+      var tzName = (tzParts.find(function (p) { return p.type === 'timeZoneName'; }) || {}).value || 'AEST';
+      return sydFmt.format(d) + ' ' + tzName;
     } catch (e) {
       return String(iso);
     }

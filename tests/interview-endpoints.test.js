@@ -211,6 +211,30 @@ describe('POST /api/ats/interview/book', () => {
   });
 });
 
+describe('GET /api/ats/interview/slots — exhaustive windows when practice has replied', () => {
+  it('returns slots ONLY on the day(s) the practice named, not on other days', async () => {
+    // Use c5 (Dr Sofia Ramos) — untouched by any earlier test in this file.
+    const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c5' });
+    expect(reqRes.status).toBe(200);
+    expect(reqRes.body.ok).toBe(true);
+    const id = reqRes.body.interview_id;
+    const mod = await import('../server.js');
+    // Ingest a reply that names only Thursday evenings.
+    await mod.__testUtils.ingestPracticeAvailabilityReply(id, 'Thursday after 7pm', '2026-07-01T00:00:00Z');
+    // Fetch slots pinned to the same "now".
+    const res = await call('GET', '/api/ats/interview/slots?application_id=c5&now=2026-07-01T00:00:00Z');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    // Must have at least one slot (the parser finds 2 Thursdays in the 14-day horizon).
+    expect(res.body.slots.length).toBeGreaterThan(0);
+    // Every returned slot must fall on a Thursday in Australia/Sydney.
+    // (The practice tz for Greenslopes Family Medical / j1 resolves to Australia/Sydney.)
+    const dayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Australia/Sydney' });
+    const nonThursday = res.body.slots.filter(function (s) { return dayFmt.format(new Date(s.startUtc)) !== 'Thu'; });
+    expect(nonThursday).toHaveLength(0);
+  });
+});
+
 describe('POST /api/ats/interview/ingest-reply', () => {
   it('requests interview then ingests reply → status received + windows_count > 0', async () => {
     // Use c4 (Dr Marcus Webb) — untouched by any other test in this file.

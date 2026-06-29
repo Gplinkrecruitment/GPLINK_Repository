@@ -448,7 +448,7 @@
     if (!containerEl) return;
     containerEl.innerHTML = '<span style="font-size:12px;color:var(--ats-dim)">Loading available slots…</span>';
     ATS.api('/api/ats/interview/slots?application_id=' + encodeURIComponent(applicationId)).then(function (res) {
-      if (!res) {
+      if (!res || res.ok === false) {
         containerEl.innerHTML = '<span style="font-size:12px;color:var(--ats-red)">Could not load slots.</span>';
         return;
       }

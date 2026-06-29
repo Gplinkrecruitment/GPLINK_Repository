@@ -44048,12 +44048,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Build per-party configs.
     var slHost = interviewMeetings.DEFAULT_HOST_CONFIG;
-    var slPractice = {
-      tz: interviewMeetings.practiceTzForLocation(slCtx.practiceName || ''),
-      weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday,
-      weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend,
-      overrides: Array.isArray(slRow.practice_availability_windows) ? slRow.practice_availability_windows : []
-    };
+    var slPractice = buildInterviewPracticeConfig(slRow, interviewMeetings.practiceTzForLocation(slCtx.practiceName || ''));
     var slGp = {
       tz: interviewMeetings.gpTzForCountry(slCtx.gpCountry),
       weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
@@ -44132,12 +44127,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!bkCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
     var bkHost = interviewMeetings.DEFAULT_HOST_CONFIG;
-    var bkPractice = {
-      tz: interviewMeetings.practiceTzForLocation(bkCtx.practiceName || ''),
-      weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday,
-      weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend,
-      overrides: Array.isArray(bkRow.practice_availability_windows) ? bkRow.practice_availability_windows : []
-    };
+    var bkPractice = buildInterviewPracticeConfig(bkRow, interviewMeetings.practiceTzForLocation(bkCtx.practiceName || ''));
     var bkGp = {
       tz: interviewMeetings.gpTzForCountry(bkCtx.gpCountry),
       weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
@@ -44934,6 +44924,20 @@ if (process.env.VERCEL) {
 //   } catch (e) { /* never break the hub */ }
 //
 // This is NOT wired here to protect the hub; see task-5-report.md §Hook.
+
+// Build the practice party config for the interview scheduler.
+// When the practice has replied with specific windows ('received'), those windows are
+// exhaustive — dates that have no override get [0,0] (no availability at all), so the
+// scheduler never falls back to the default weekday/weekend window for dates the practice
+// never agreed to. When the practice has not replied ('defaulted'), use the standard
+// default weekday/weekend windows with no date-specific overrides.
+function buildInterviewPracticeConfig(interviewRow, practiceTz) {
+  var windows = Array.isArray(interviewRow.practice_availability_windows) ? interviewRow.practice_availability_windows : [];
+  if ((interviewRow.practice_availability_status || '') === interviewMeetings.PRACTICE_AVAIL.RECEIVED) {
+    return { tz: practiceTz, weekday: [0, 0], weekend: [0, 0], overrides: windows };
+  }
+  return { tz: practiceTz, weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday, weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend, overrides: [] };
+}
 
 async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
   if (!interviewId || !replyText) return;
