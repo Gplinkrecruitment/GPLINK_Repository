@@ -117,7 +117,7 @@ const {
 } = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
-const { checkSppaCompleteness } = require('./lib/sppa-completeness-check.js');
+const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
@@ -9895,6 +9895,9 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       issues: verdict.issues,
       summary: verdict.summary,
       alternate_supervisors_on_form: verdict.alternate_supervisors_on_form,
+      // True when the form is otherwise complete/signed and the ONLY gap is an alternate-supervisor
+      // CV — that has its own task, so the UI reframes it as a reminder and the submit gate allows it.
+      only_alt_cv_outstanding: isOnlyAltCvOutstanding(verdict),
       checked_at: new Date().toISOString(),
       model: verdict._model || null,
       error: verdict._error || null,
@@ -37581,7 +37584,12 @@ Return ONLY valid JSON with no markdown formatting:
         _completeness = await _runSppaCompletenessCheck(task.case_id, task.id);
         if (_completeness) taskMeta.completeness_check = _completeness;
       }
-      if (_completeness && _completeness.error == null && _completeness.is_complete === false) {
+      // A missing alternate-supervisor CV alone does NOT block the SPPA-00 submit: that CV is
+      // collected + delivered to the GP by its own alt_supervisor_cv_request task. Only hard-block
+      // when the form itself is genuinely incomplete. (Check the stored flag, and recompute for
+      // verdicts stored before the flag existed.)
+      var _onlyAltCv = _completeness && (_completeness.only_alt_cv_outstanding === true || isOnlyAltCvOutstanding(_completeness));
+      if (_completeness && _completeness.error == null && _completeness.is_complete === false && !_onlyAltCv) {
         sendJson(res, 200, { ok: false, needs_review: true, completeness: _completeness });
         return;
       }
