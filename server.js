@@ -1323,6 +1323,7 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
       method: 'POST', headers: { Prefer: 'return=minimal' },
       body: [{
         case_id: caseId, task_type: 'alt_supervisor_cv_request', related_document_key: 'sppa_00',
+        related_stage: 'ahpra',
         title: 'Request alternate supervisor CV from practice',
         description: 'Send the practice a request for the signed CV(s): ' + needed.join(', '),
         status: 'open', priority: 'normal',

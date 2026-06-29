@@ -2815,7 +2815,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const other=[];
     const practiceContact=[];
     tasks.forEach(t=>{
-      const stage=t.related_stage||"";
+      // The supervised-practice document set — the practice pack (SPPA-00, Section G, Position
+      // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks — is part
+      // of the AHPRA application, so group it under AHPRA even though practice-pack tasks are
+      // stamped 'career' at placement-secured time.
+      const stage=(t.task_type==="practice_pack_child"||t.task_type==="alt_supervisor_cv_request"||t.task_type==="alt_supervisor_cv_review")?"ahpra":(t.related_stage||"");
       if(stage==="practice_contact"){
         practiceContact.push(t);
       }else if(stage&&STAGE_ORDER.includes(stage)){
