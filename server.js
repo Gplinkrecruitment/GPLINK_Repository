@@ -135,6 +135,7 @@ var ceoActions = require('./lib/ceo-actions');
 var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
 var atsComms = require('./lib/ats-comms');
+var interviewMeetings = require('./lib/interview-meetings');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
   normalizeIchcReference, isValidIchcReference,
@@ -23176,6 +23177,118 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
   }
 }
 
+// ---- Interview request helpers (Task 4) ------------------------------------
+
+// Resolve context needed to create an interview row from a gp_applications id.
+// Returns { app, userId, caseId, careerRoleId, practiceName, gpName, gpCountry, practiceEmail }
+// or null if the application is not found.  Practice email is best-effort (blank if unresolvable).
+async function atsGetApplicationContext(appId) {
+  var app = null, job = null, practice = null, candidate = null;
+  if (isSupabaseDbConfigured()) {
+    var ar = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(appId) + '&limit=1');
+    app = (ar.ok && ar.data && ar.data[0]) ? ar.data[0] : null;
+    if (!app) return null;
+    if (app.career_role_id) {
+      var jr = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+      job = (jr.ok && jr.data && jr.data[0]) ? jr.data[0] : null;
+    }
+    if (app.user_id) {
+      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id,gp_name&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      candidate = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
+      if (!candidate) {
+        var upr = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+        var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
+        if (up) candidate = { user_id: up.user_id, id: null, gp_name: [String(up.first_name || '').trim(), String(up.last_name || '').trim()].filter(Boolean).join(' ') || 'Dr', email: up.email };
+      }
+    }
+    var practiceEmail = '';
+    if (job && job.practice_id) {
+      var pr = await supabaseDbRequest('practices', 'select=contact_email&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
+      if (pr.ok && pr.data && pr.data[0]) practiceEmail = String(pr.data[0].contact_email || '').trim();
+    }
+    return {
+      app: app,
+      userId: app.user_id || null,
+      caseId: candidate ? (candidate.id || null) : null,
+      careerRoleId: app.career_role_id || null,
+      practiceName: (job && job.practice_name) || app.practice_name || '',
+      gpName: candidate ? (candidate.gp_name || 'Dr') : (app.candidate_name || app.name || 'Dr'),
+      gpCountry: app.country || '',
+      practiceEmail: practiceEmail
+    };
+  }
+  // Local mode — resolve from in-memory seed collections.
+  app = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(appId); }) || null;
+  if (!app) return null;
+  job = (app.career_role_id || app.job_id)
+    ? ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(app.career_role_id || app.job_id); }) || null)
+    : null;
+  if (job && job.practice_id) {
+    practice = (dbState.atsPractices || []).find(function (p) { return String(p.id) === String(job.practice_id); }) || null;
+  }
+  if (!practice && job && job.practice_name) {
+    practice = (dbState.atsPractices || []).find(function (p) { return p.name === job.practice_name; }) || null;
+  }
+  if (app.user_id) {
+    candidate = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === String(app.user_id); }) || null;
+  }
+  if (!candidate && (app.name || app.email)) {
+    candidate = (dbState.atsCandidates || []).find(function (c) { return c.name === app.name || (app.email && c.email === app.email); }) || null;
+  }
+  return {
+    app: app,
+    userId: app.user_id || (candidate ? candidate.user_id : null),
+    caseId: candidate ? (candidate.id || null) : null,
+    careerRoleId: app.career_role_id || app.job_id || null,
+    practiceName: (job && job.practice_name) || app.practice_name || '',
+    gpName: (candidate && candidate.name) || app.name || 'Dr',
+    gpCountry: (candidate && candidate.country) || app.country || '',
+    practiceEmail: (practice && practice.contact_email) || ''
+  };
+}
+
+// Find a non-cancelled interview row for a given application id.  Used for idempotency.
+async function findInterviewForApplication(appId) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls',
+      'select=id,status&application_id=eq.' + encodeURIComponent(appId) + '&meeting_kind=eq.interview&status=neq.cancelled&limit=1');
+    return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.scheduledCalls || []).find(function (r) {
+    return String(r.application_id) === String(appId) && r.meeting_kind === 'interview' && r.status !== 'cancelled';
+  }) || null;
+}
+
+// Dual-mode insert for a scheduled_calls row.  Returns the saved row (with id).
+async function insertScheduledCallRow(row) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
+    return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
+  }
+  var local = Object.assign({ id: atsLocalId('int_') }, row);
+  dbState.scheduledCalls = dbState.scheduledCalls || [];
+  dbState.scheduledCalls.push(local);
+  saveDbState();
+  return local;
+}
+
+// Best-effort practice email send.  A missing transport, empty address, or any
+// thrown error must never block the interview-request endpoint from responding.
+async function sendPracticeAvailabilityEmail(opts) {
+  try {
+    if (!opts || !opts.to) return;
+    if (!isEmailConfigured()) return;
+    await sendEmail({
+      to: opts.to,
+      subject: opts.subject || '',
+      text: opts.text || '',
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+    });
+  } catch (e) {
+    console.warn('[interview] sendPracticeAvailabilityEmail failed (ignored):', e && e.message);
+  }
+}
+
 // ---- Candidate document flags (prod) ---------------------------------------
 async function atsGetDocFlagsProd(userId) {
   var docsRes = await supabaseDbRequest('user_documents',
@@ -43834,6 +43947,35 @@ Return ONLY valid JSON with no markdown formatting:
     if (!aaCreated) { sendJson(res, 502, { ok: false, message: 'Could not add candidate to this job.' }); return; }
     await atsRecordStageEvent(aaCreated.id, '', 'applied', ctxAA.email || '');
     sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false });
+    return;
+  }
+
+  // ---- Interview request ---------------------------------------------------
+  if (pathname === '/api/ats/interview/request' && req.method === 'POST') {
+    var ctxIR = requireCeoSession(req, res); if (!ctxIR) return;
+    var bodyIR; try { bodyIR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var irAppId = (bodyIR && bodyIR.application_id != null) ? String(bodyIR.application_id) : '';
+    if (!irAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var irCtx = await atsGetApplicationContext(irAppId);
+    if (!irCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    var irExisting = await findInterviewForApplication(irAppId);
+    if (irExisting) { sendJson(res, 200, { ok: true, interview_id: irExisting.id, already: true }); return; }
+    var irRow = interviewMeetings.buildInterviewRow({
+      caseId: irCtx.caseId,
+      userId: irCtx.userId,
+      applicationId: irAppId,
+      careerRoleId: irCtx.careerRoleId,
+      practiceName: irCtx.practiceName,
+      createdBy: ctxIR.email || '',
+      nowIso: new Date().toISOString()
+    });
+    var irSaved = await insertScheduledCallRow(irRow);
+    if (!irSaved) { sendJson(res, 502, { ok: false, message: 'Could not create interview row.' }); return; }
+    // Email the practice — best-effort (missing transport / email does not block the response).
+    var irSubject = 'Interview availability — Dr ' + irCtx.gpName;
+    var irBodyText = 'Which evenings/weekends over the next 2 weeks suit to interview Dr ' + irCtx.gpName + '?';
+    sendPracticeAvailabilityEmail({ to: irCtx.practiceEmail, subject: irSubject, text: irBodyText }).catch(function () {});
+    sendJson(res, 200, { ok: true, interview_id: irSaved.id, already: false });
     return;
   }
 
