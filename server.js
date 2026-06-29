@@ -952,7 +952,7 @@ async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload)
 }
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
-async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType) {
+async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType, opts) {
   const results = { userDoc: null, driveFile: null };
 
   // 1. Upsert into user_documents
@@ -979,7 +979,51 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     if (driveFile) results.driveFile = driveFile.id;
   }
 
+  // Notify the GP by email that a document was delivered to their account (best-effort,
+  // deep-linked). Callers can opt out with opts.notifyGp === false.
+  if (!opts || opts.notifyGp !== false) {
+    notifyGpDocumentDelivered(userId, docKey, fileName).catch(function () {});
+  }
   return results;
+}
+
+// Friendly labels for the "document delivered" email (falls back to the file name / cleaned key).
+var DELIVERED_DOC_LABELS = {
+  sppa_00: 'SPPA-00 (Supervised Practice Plan)',
+  section_g: 'Section G (Supervised Practice Goals)',
+  offer_contract: 'Offer / Contract',
+  position_description: 'Position Description',
+  supervisor_cv: 'Supervisor CV',
+  cv_signed_dated: 'Signed CV',
+  criminal_history: 'Criminal History Check'
+};
+function _deliveredDocLabel(docKey, fileName) {
+  if (DELIVERED_DOC_LABELS[docKey]) return DELIVERED_DOC_LABELS[docKey];
+  if (/^alt_supervisor_cv/i.test(String(docKey || ''))) return 'Alternate Supervisor CV';
+  var fn = String(fileName || '').replace(/\.[a-z0-9]+$/i, '').trim();
+  if (fn) return fn;
+  return String(docKey || 'document').replace(/_/g, ' ');
+}
+
+// Email the GP that a document has been delivered to their account, with an "Open Document" button
+// that deep-links straight to that document. The link is to /pages/ahpra.html?doc=<key>; if the GP
+// isn't signed in, the auth bounce preserves the full path+query as ?next (buildSigninRedirect /
+// auth-guard.js), so after login they land back on the document — it doesn't break on sign-in.
+// Best-effort: never throws; call sites fire-and-forget.
+async function notifyGpDocumentDelivered(userId, docKey, fileName) {
+  try {
+    if (!userId) return;
+    var label = _deliveredDocLabel(docKey, fileName);
+    var deepLink = APP_BASE_URL + '/pages/ahpra.html?doc=' + encodeURIComponent(String(docKey || ''));
+    await sendGpNotificationEmail(userId,
+      label + ' added to your documents — GP Link',
+      'A new document is ready, {{name}}',
+      'Your ' + label + ' has been added to your GP Link account by our team. You can view and download it any time from your documents — just tap the button below and it will take you straight there.',
+      'Open Document',
+      deepLink,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    );
+  } catch (e) { console.error('[doc-notify] failed for', docKey, e && e.message); }
 }
 
 // Helper: upload SPPA-00 PDF to Google Drive and update the task_document row with Drive refs
@@ -38301,6 +38345,8 @@ Return ONLY valid JSON with no markdown formatting:
             // Flip the GP's My Documents / AHPRA "Supervised Practice" placeholder for this alt CV
             // from "Preparing" to "Ready".
             try { await _updatePreparedDocsState(userId, altDocKey, cvDriveFile.id, userDoc.file_name); } catch (e) { console.error('[AltCV] prepared-docs state update error:', e.message); }
+            // Notify the GP this document was delivered (the alt-CV path bypasses deliverToMyDocuments).
+            notifyGpDocumentDelivered(userId, altDocKey, userDoc.file_name).catch(function () {});
           }
         } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
       }
