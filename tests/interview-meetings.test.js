@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as m from '../lib/interview-meetings.js';
+import gcal from '../lib/google-calendar.js';
 
 describe('interview-meetings model', () => {
   it('maps GP country to IANA timezone, defaulting to London', () => {
@@ -32,5 +33,26 @@ describe('interview-meetings model', () => {
     const out = m.normalizeMeetingForApi({ meeting_kind: 'interview' });
     expect(out.is_interview).toBe(true);
     expect(out.meeting_kind_label).toBe('Interview');
+  });
+});
+
+describe('google-calendar request builders', () => {
+  it('builds a freebusy request for the calendar + window', () => {
+    const { url, body } = gcal.buildFreeBusyRequest({ calendarId: 'hello@x', fromUtc: '2026-07-01T00:00:00Z', toUtc: '2026-07-08T00:00:00Z' });
+    expect(url).toContain('/freeBusy');
+    expect(body.items[0].id).toBe('hello@x');
+    expect(body.timeMin).toBe('2026-07-01T00:00:00Z');
+  });
+  it('parses a freebusy response into busy intervals', () => {
+    const json = { calendars: { 'hello@x': { busy: [{ start: '2026-07-03T08:00:00Z', end: '2026-07-03T11:00:00Z' }] } } };
+    const out = gcal.parseFreeBusy(json, 'hello@x');
+    expect(out).toEqual([{ startUtc: '2026-07-03T08:00:00Z', endUtc: '2026-07-03T11:00:00Z' }]);
+  });
+  it('builds an event insert with attendees + zoom link', () => {
+    const { url, body } = gcal.buildEventInsert({ calendarId: 'hello@x', summary: 'Interview', startUtc: '2026-07-03T08:00:00Z', endUtc: '2026-07-03T08:45:00Z', attendees: ['gp@x','prac@x'], description: 'd', zoomJoinUrl: 'https://zoom/x' });
+    expect(url).toContain('/calendars/hello%40x/events');
+    expect(body.attendees.map(a => a.email)).toContain('gp@x');
+    expect(body.start.dateTime).toBe('2026-07-03T08:00:00Z');
+    expect(body.location).toBe('https://zoom/x');
   });
 });

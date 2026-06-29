@@ -22271,6 +22271,74 @@ async function deleteZoomMeeting(meetingId) {
   }
 }
 
+/* ───────── Interview integration helpers: Zoom create + Google Calendar ───────── */
+
+var gcalLib = require('./lib/google-calendar.js');
+
+// Mint a raw Google access token for the given scopes (reuses the same service-account
+// credentials already used for Drive, adding the Calendar scope as needed).
+async function getGoogleAccessToken(scopes, impersonateEmail) {
+  const { google } = require('googleapis');
+  const jwtOpts = {
+    email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    scopes: scopes || []
+  };
+  if (impersonateEmail) jwtOpts.subject = impersonateEmail;
+  const auth = new google.auth.JWT(jwtOpts);
+  await auth.authorize();
+  return auth.credentials.access_token;
+}
+
+function isGoogleCalendarConfigured() {
+  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && process.env.GOOGLE_CALENDAR_ID);
+}
+
+// Read busy intervals from Google Calendar (or from the local fakeCalendar store).
+async function gcalReadBusy(o) {
+  if (!isGoogleCalendarConfigured()) {
+    return (dbState.fakeCalendar || []).filter(function (e) {
+      return new Date(e.endUtc) > new Date(o.fromUtc) && new Date(e.startUtc) < new Date(o.toUtc);
+    }).map(function (e) { return { startUtc: e.startUtc, endUtc: e.endUtc }; });
+  }
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar.events'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || process.env.GOOGLE_CALENDAR_ID);
+  var req = gcalLib.buildFreeBusyRequest({ calendarId: process.env.GOOGLE_CALENDAR_ID, fromUtc: o.fromUtc, toUtc: o.toUtc });
+  var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
+  var json = await res.json();
+  return gcalLib.parseFreeBusy(json, process.env.GOOGLE_CALENDAR_ID);
+}
+
+// Create a Calendar event (or push to the local fakeCalendar store).
+async function gcalCreateEvent(o) {
+  if (!isGoogleCalendarConfigured()) {
+    var id = 'gcal_local_' + ((dbState.fakeCalendar ? dbState.fakeCalendar.length : 0) + 1);
+    dbState.fakeCalendar = dbState.fakeCalendar || [];
+    dbState.fakeCalendar.push({ id: id, startUtc: o.startUtc, endUtc: o.endUtc, summary: o.summary });
+    saveDbState();
+    return { id: id };
+  }
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar.events'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || process.env.GOOGLE_CALENDAR_ID);
+  var req = gcalLib.buildEventInsert(Object.assign({ calendarId: process.env.GOOGLE_CALENDAR_ID }, o));
+  var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
+  var json = await res.json();
+  return { id: json.id };
+}
+
+// Create a Zoom meeting for an interview (separate from the consultation Zoom path).
+async function createZoomInterviewMeeting(o) {
+  if (!isZoomConfigured()) {
+    return { id: 'zoom_local_' + Date.now(), uuid: 'uuid_local', join_url: 'https://zoom.local/j/interview', passcode: '' };
+  }
+  var token = await getZoomAccessToken();
+  var res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: o.topic, type: 2, start_time: o.startUtc, duration: o.durationMin, timezone: 'UTC', settings: { join_before_host: false } })
+  });
+  var d = await res.json();
+  return { id: String(d.id || ''), uuid: d.uuid || '', join_url: d.join_url || '', passcode: d.password || '' };
+}
+
 /* ───────── Email via Resend HTTP API ───────── */
 
 function isEmailConfigured() {
