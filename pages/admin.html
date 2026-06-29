@@ -8117,6 +8117,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     function renderThread(header,messages){
       const panel=document.getElementById(PANEL);if(!panel)return;
+      _hubHdr=header;
       messages=(messages||[]).slice().sort(function(a,b){return new Date(a.created_at||0)-new Date(b.created_at||0);});
       const canSend=!!(header&&header.to);
       const sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
@@ -8128,6 +8129,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           '<span class="hub-chip rso">RSO: '+esc(header.assignedRsoName)+'</span></div>'+
         '<div class="hub-thread">'+(messages.length?messages.map(msgHtml).join(""):'<div class="hub-empty">No emails in this conversation yet.</div>')+'</div>'+
         '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;registration@mygplink.com.au&gt;</div>'+
+        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(header.latestTaskId?'':' disabled')+'>✦ Suggest a reply</button>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
         '<textarea id="hubReply" placeholder="Type your reply…"'+(canSend?"":" disabled")+'></textarea>'+
@@ -8203,12 +8205,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return '<p style="margin:0 0 12px;line-height:1.5">'+safe+'</p>';
       }).join("")||'<p></p>';
     }
+    var _hubHdr=null; // set by renderThread so msgHtml can name who an outbound was sent as
     function msgHtml(m,idx,arr){
       const out=m.direction==="outbound";
       // The first INBOUND message in a thread is "RECEIVED"; later inbound messages are "REPLY".
       // Position-based, so it doesn't depend on the sender remembering a "Re:" subject.
       var firstIn=(arr&&arr.length)?arr.findIndex(function(x){return x.direction==="inbound";}):-1;
       var dirLabel=out?"SENT":(idx===firstIn?"RECEIVED":"REPLY");
+      // Small "who from / to" line next to the label so it's clear who each message involved.
+      var sentAs=(out&&_hubHdr&&_hubHdr.assignedRsoName)?_hubHdr.assignedRsoName:"";
+      var fromLine=out
+        ? ("sent from "+(m.sender||"registration@mygplink.com.au")+(sentAs?(" (as "+sentAs+")"):""))
+        : ("from "+(m.sender||"unknown sender"));
+      var toBits=[];
+      if(out&&m.recipient)toBits.push("to "+m.recipient);
+      if(m.cc)toBits.push("cc "+m.cc);
+      var toCcLine=toBits.join(" · ");
       var atts=hubParseAtts(m.attachments).map(function(f){
         if(typeof f==="string")return {name:f,url:""};
         return {name:(f&&(f.filename||f.name||f.file_name||f.fileName||f.title))||"attachment",url:(f&&(f.url||f.downloadUrl||f.driveUrl))||""};
@@ -8218,8 +8230,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return f.url?('<a class="hub-att" target="_blank" rel="noopener" href="'+esc(f.url)+'" style="'+st+'">'+chip+'</a>'):('<span class="hub-att" style="'+st+'">'+chip+'</span>');
       }).join("")+'</div>':"";
       return '<div class="hub-msg '+(out?"sent":"reply")+'"><div class="hub-msg-top">'+
-        '<span class="hub-dir '+(out?"out":"in")+'">'+dirLabel+'</span>'+
+        '<span class="hub-msg-id" style="display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px">'+
+          '<span class="hub-dir '+(out?"out":"in")+'">'+dirLabel+'</span>'+
+          '<span class="hub-msg-from" style="font-size:11.5px;color:#8a93a3;font-weight:500">'+esc(fromLine)+'</span>'+
+        '</span>'+
         '<span class="hub-msg-time">'+esc(hubFmtTime(m.created_at))+'</span></div>'+
+        (toCcLine?'<div class="hub-msg-tocc" style="font-size:11px;color:#9aa3b2;margin:1px 0 0">'+esc(toCcLine)+'</div>':'')+
         '<div class="hub-msg-subj">'+esc(m.subject||"")+'</div>'+
         hubDisplayBody(m)+attHtml+'</div>';
     }
@@ -8227,10 +8243,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!header||!header.to)return;
       const panel=document.getElementById(PANEL);if(!panel)return;
       const ta=panel.querySelector("#hubReply");const txt=((ta&&ta.value)||"").trim();if(!txt)return;
+      const ccEl=panel.querySelector("#hubCc");const ccVal=((ccEl&&ccEl.value)||"").trim();
       const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
       try{
         await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,
+          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,cc:ccVal||undefined,
             subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:hubTextToHtml(txt),bodyText:txt})});
       }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
       openThread(header.caseId,header.threadId);

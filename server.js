@@ -1948,8 +1948,8 @@ async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyT
 
     var headers = [];
     headers.push(registrationHub.buildFromHeader(fromName, from));
-    headers.push('To: ' + to);
-    if (cc) headers.push('Cc: ' + cc);
+    headers.push('To: ' + String(to).replace(/[\r\n]/g, ''));
+    if (cc) headers.push('Cc: ' + String(cc).replace(/[\r\n]/g, ''));
     // RFC 2047 encode subject if it contains non-ASCII characters
     var encodedSubject = /[^\x20-\x7E]/.test(subject)
       ? '=?UTF-8?B?' + Buffer.from(subject, 'utf8').toString('base64') + '?='
@@ -2843,7 +2843,7 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
             body_text: (emailMeta.bodyText || '').substring(0, 50000),
             body_html: emailMeta.bodyHtml || null,
             rfc822_message_id: emailMeta.rfc822MessageId || null,
-            rfc822_references: emailMeta.rfc822References || null,
+            rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
             gmail_message_id: currentMsgId || '',
             gmail_thread_id: actionTask.gmail_thread_id || emailMeta.threadId || null,
             attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
@@ -3693,7 +3693,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               method: 'POST', headers: { Prefer: 'return=representation' },
               body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, direction: 'inbound', channel: 'email',
                 sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
-                body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
+                body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
                 gmail_message_id: currentMsgId,
                 // Anchor to the matched task's real Gmail thread — NOT the scanning mailbox's
                 // per-mailbox threadId (an archive/hello@ copy would otherwise orphan the row).
@@ -3928,7 +3928,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                           method: 'POST', body: [{
                             task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
                             sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: _altSubject,
-                            body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
+                            body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
                             gmail_message_id: currentMsgId, gmail_thread_id: _reviewTask.gmail_thread_id || emailMeta.threadId || null,
                             attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                             is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
@@ -4380,7 +4380,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   sender: emailMeta.sender || '',
                   recipient: emailMeta.to || '',
                   subject: emailMeta.subject || '',
-                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
                   gmail_message_id: currentMsgId,
                   // Anchor to the task's real thread, never the scanning mailbox's per-mailbox id.
                   gmail_thread_id: rTask.gmail_thread_id || emailMeta.threadId || null,
@@ -4549,7 +4549,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 body: [{
                   task_id: taskResult.id, case_id: gpCase.id, direction: 'inbound', channel: 'email',
                   sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
-                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
                   gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || null,
                   attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
                   is_document_delivery: false, created_at: new Date().toISOString()
@@ -26547,6 +26547,7 @@ async function handleApi(req, res, pathname) {
           // matches this row and the reply re-anchors to this conversation (rank 5/6).
           rfc822_message_id: sendResult.rfc822MessageId || null,
           rfc822_references: emailReferences || null,
+          cc: emailCc || null,
           // Record under the CONVERSATION thread we replied into (emailThreadId), not the
           // mailbox-specific thread Gmail created for this send. Under the hub a candidate may
           // have written to hello@ (thread X) while we reply from registration@ (new thread Y);
@@ -34852,7 +34853,7 @@ Return ONLY valid JSON with no markdown formatting:
       ? ('&gmail_thread_id=eq.' + encodeURIComponent(threadIdParam))
       : '&gmail_thread_id=is.null';
     var tMsgRes = await supabaseDbRequest('task_messages',
-      'select=id,task_id,direction,channel,sender,recipient,subject,body_text,body_html,attachments,created_at,read_at,gmail_thread_id,rfc822_message_id&case_id=eq.' +
+      'select=id,task_id,direction,channel,sender,recipient,cc,subject,body_text,body_html,attachments,created_at,read_at,gmail_thread_id,rfc822_message_id&case_id=eq.' +
       encodeURIComponent(threadCaseId) + tThreadFilter + '&channel=eq.email&order=created_at.asc&limit=500');
     var tRoster = await loadRsoTeam({ includeInactive: true });
     var tRso = (tRoster || []).find(function (r) { return r.user_id === tCase.assigned_va; });
