@@ -261,6 +261,27 @@
 .ats-mini-job .mj-title { font-size:13.5px; font-weight:500; }
 .ats-mini-job .mj-sub { font-size:11.5px; color:var(--ats-dim); }
 
+/* ---------- Applications section (candidate detail) ---------- */
+.ats-app-card { background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+.ats-app-card:last-child { margin-bottom:0; }
+.ats-app-card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.ats-app-job-title { font-size:13.5px; font-weight:600; line-height:1.3; }
+.ats-app-practice { font-size:11.5px; color:var(--ats-dim); margin-top:2px; }
+.ats-app-interview { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-top:1px solid var(--ats-border); font-size:12.5px; }
+.ats-app-offer { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--ats-border); font-size:12.5px; color:var(--ats-muted); }
+.ats-app-lbl { font-size:10.5px; color:var(--ats-dim); text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; min-width:88px; padding-top:2px; }
+.ats-app-interview-none { color:var(--ats-dim); }
+.ats-app-interview-booked { color:var(--ats-green); font-weight:500; }
+.ats-app-interview-pending { color:var(--ats-amber); font-style:italic; }
+.ats-app-interview-summary { margin-top:7px; font-size:12px; color:var(--ats-muted); background:rgba(255,255,255,0.03); border-left:2px solid var(--ats-border-hover); border-radius:0 6px 6px 0; padding:6px 10px; line-height:1.5; }
+
+/* ---------- Interview slot picker ---------- */
+.ats-slot-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+.ats-slot { display:flex; flex-direction:column; align-items:center; gap:3px; padding:9px 14px; background:var(--ats-panel); border:1px solid var(--ats-border-hover); border-radius:9px; color:var(--ats-text); font:inherit; font-size:12.5px; font-weight:500; cursor:pointer; transition:all .15s; min-width:140px; }
+.ats-slot:hover { background:var(--ats-blue-dim); border-color:var(--ats-blue); color:var(--ats-blue); }
+.ats-slot:disabled { opacity:.5; cursor:not-allowed; }
+.ats-slot-note { font-size:10.5px; color:var(--ats-dim); font-weight:400; }
+
 @media (max-width: 900px) {
   .ats-cand-profile-grid { grid-template-columns:1fr; }
   .ats-detail-grid { grid-template-columns:1fr; }

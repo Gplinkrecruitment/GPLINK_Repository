@@ -324,6 +324,7 @@
         '</div>' +
         '<div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
+          '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + onboardingCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + docsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px" id="ats-cand-comms">' + commsCardInner(c) + '</div>' +
@@ -379,6 +380,14 @@
         '<div class="ats-jlabel">' + ATS.esc(st.label || '') + '</div></div>';
     }).join('');
 
+    var blockedPill = c.blocked ? '<span class="ats-pill red" style="margin-left:6px">Blocked at ' + ATS.esc(c.reg_stage_label || '') + '</span>' : '';
+
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Pipeline position</div>' +
+      '<div class="df-lbl" style="margin-bottom:6px">Registration journey ' + blockedPill + '</div>' +
+      '<div class="ats-journey-wrap">' + railHtml + '</div>';
+  }
+
+  function applicationsCardInner(c) {
     var apps = c.apps || [];
     var appsHtml = apps.length ? apps.map(function (a) {
       var meta = atsStageMeta(a.ats_stage);
@@ -386,23 +395,101 @@
         ATS_STAGE_OPTS.map(function (o) {
           return '<option value="' + o[0] + '"' + (a.ats_stage === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
         }).join('') + '</select>';
-      return '<div class="ats-job-app-row"><div>' +
-        '<div class="jar-title">' + ATS.esc(a.job_title || '—') + '</div>' +
-        '<div class="jar-sub">' + ATS.esc(a.practice_name || '') + ' · applied via ATS</div></div>' +
-        '<div class="ats-app-right">' +
-          '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
-          stageSel +
-        '</div></div>';
+
+      // Interview line
+      var interviewHtml;
+      if (!a.interview) {
+        interviewHtml = '<span class="ats-app-interview-none">No interview yet</span>';
+      } else if (a.interview.status === 'booked') {
+        var dt = '';
+        try { dt = new Date(a.interview.scheduled_at).toLocaleString(); } catch (ex) { dt = a.interview.scheduled_at || ''; }
+        interviewHtml = '<span class="ats-app-interview-booked">Booked for ' + ATS.esc(dt) + '</span>';
+        if (a.interview.summary) {
+          interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
+        }
+      } else {
+        // Awaiting GP slot pick — placeholder filled by atsRenderSlotPicker in wireDetailEvents.
+        interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
+      }
+
+      var offer = a.offer || {};
+      var offerLabel = offer.label || '—';
+
+      return '<div class="ats-app-card">' +
+        '<div class="ats-app-card-top">' +
+          '<div>' +
+            '<div class="ats-app-job-title">' + ATS.esc(a.job_title || '—') + '</div>' +
+            '<div class="ats-app-practice">' + ATS.esc(a.practice_name || '') + '</div>' +
+          '</div>' +
+          '<div class="ats-app-right">' +
+            '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
+            stageSel +
+          '</div>' +
+        '</div>' +
+        '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
+        '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span><span>' + ATS.esc(offerLabel) + '</span></div>' +
+      '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
-    var blockedPill = c.blocked ? '<span class="ats-pill red" style="margin-left:6px">Blocked at ' + ATS.esc(c.reg_stage_label || '') + '</span>' : '';
-
-    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Pipeline position</div>' +
-      '<div class="df-lbl" style="margin-bottom:6px">Registration journey ' + blockedPill + '</div>' +
-      '<div class="ats-journey-wrap">' + railHtml + '</div>' +
-      '<div class="ats-pw-apps-head"><div class="df-lbl">Job applications (ATS)</div>' +
-        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-add-job">＋ Add to a job</button></div>' + appsHtml;
+    var appCount = apps.length;
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Applications</div>' +
+      '<div class="ats-pw-apps-head" style="margin-top:0;margin-bottom:12px">' +
+        '<span style="font-size:12px;color:var(--ats-dim)">' + appCount + ' application' + (appCount === 1 ? '' : 's') + '</span>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-add-job">＋ Add to a job</button>' +
+      '</div>' +
+      appsHtml;
   }
+
+  // Expose globally so GP-facing pages can reuse the slot picker.
+  // applicationId  — the gp_applications.id (or ATS application id)
+  // containerEl    — the DOM element to fill with the slot UI
+  // caseId         — (optional) used to refresh the candidate detail after booking
+  window.atsRenderSlotPicker = function (applicationId, containerEl, caseId) {
+    if (!containerEl) return;
+    containerEl.innerHTML = '<span style="font-size:12px;color:var(--ats-dim)">Loading available slots…</span>';
+    ATS.api('/api/ats/interview/slots?application_id=' + encodeURIComponent(applicationId)).then(function (res) {
+      if (!res) {
+        containerEl.innerHTML = '<span style="font-size:12px;color:var(--ats-red)">Could not load slots.</span>';
+        return;
+      }
+      if (res.status === 'requested') {
+        containerEl.innerHTML = '<span class="ats-app-interview-pending">Waiting for the practice to share their availability.</span>';
+        return;
+      }
+      var slots = res.slots || [];
+      if (!slots.length) {
+        containerEl.innerHTML = '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks — we\'ll widen the search.</span>';
+        return;
+      }
+      var html = '<div class="ats-slot-grid">' + slots.map(function (slot) {
+        var gp = (slot.local && slot.local.gp) || {};
+        var label = gp.label || slot.startUtc || '';
+        return '<button type="button" class="ats-slot" data-slot-utc="' + ATS.escAttr(slot.startUtc || '') + '" data-gp-label="' + ATS.escAttr(label) + '">' +
+          ATS.esc(label) + '<span class="ats-slot-note">(your local time)</span>' +
+        '</button>';
+      }).join('') + '</div>';
+      containerEl.innerHTML = html;
+      containerEl.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('.ats-slot') : null;
+        if (!btn || btn.disabled) return;
+        var slotUtc = btn.getAttribute('data-slot-utc');
+        var gpLabel = btn.getAttribute('data-gp-label');
+        if (!slotUtc) return;
+        btn.disabled = true;
+        btn.textContent = 'Booking…';
+        ATS.api('/api/ats/interview/book', { method: 'POST', body: { application_id: applicationId, slot_start_utc: slotUtc } }).then(function (r) {
+          if (r && r.ok) {
+            ATS.toast('Interview booked for ' + gpLabel);
+            if (caseId) window.atsOpenCandidate(caseId);
+          } else {
+            ATS.toast((r && (r.error || r.message)) || 'Could not book the interview.');
+            btn.disabled = false;
+            btn.innerHTML = ATS.esc(gpLabel) + '<span class="ats-slot-note">(your local time)</span>';
+          }
+        });
+      });
+    });
+  };
 
   function onboardingCardInner(c) {
     var ob = c.onboarding || {};
@@ -534,6 +621,14 @@
       if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
     });
+    // Render slot pickers for any application that is awaiting a GP slot pick.
+    var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
+    for (var pi = 0; pi < pickEls.length; pi++) {
+      (function (el) {
+        var appId = el.getAttribute('data-slot-pick-id');
+        window.atsRenderSlotPicker(appId, el, c.case_id);
+      })(pickEls[pi]);
+    }
     // delegated change: a per-application stage <select> moves the GP along the pipeline.
     host.addEventListener('change', function (e) {
       var sel = e.target.closest ? e.target.closest('.ats-app-stage') : null;
