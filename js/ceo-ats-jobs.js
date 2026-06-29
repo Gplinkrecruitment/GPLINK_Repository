@@ -384,9 +384,7 @@
           '<div style="font-size:13.5px">' + A.esc(job.title || '—') + ' <span class="cc-sub">— ' + A.esc(job.practice_name || '') + '</span></div>' +
           '<label>Pipeline stage</label>' +
           '<select id="atsJobDrawerStage">' + stageOptions + '</select>' +
-          // Interview scheduling is intentionally not surfaced yet: it needs the
-          // career_interviews table (absent in this DB) + Zoom wiring. Re-add the
-          // button here once that feature is built, to avoid a dead/erroring control.
+          '<button class="ats-btn ats-btn-primary" id="atsJobSchedBtn">📅 Book interview</button>' +
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +
@@ -394,8 +392,7 @@
           '<button class="ats-btn ats-btn-ghost" id="atsJobDrawerCloseBtn" style="flex:1;justify-content:center">Close</button>' +
           '<button class="ats-btn ats-btn-primary" id="atsJobDrawerSave" style="flex:1;justify-content:center">Save</button>' +
         '</div>' +
-      '</aside>' +
-      interviewModalHtml();
+      '</aside>';
 
     A.setOverlay(html);
 
@@ -409,11 +406,6 @@
     on('atsJobDrawerStage', 'change', onDrawerStageChange);
     on('atsJobDrawerSave', 'click', onDrawerSave);
     on('atsJobSchedBtn', 'click', openInterviewModal);
-
-    // Interview modal controls (lives inside the same overlay, hidden until opened)
-    on('atsInterviewClose', 'click', closeInterviewModal);
-    on('atsInterviewCancel', 'click', closeInterviewModal);
-    on('atsInterviewSubmit', 'click', submitInterview);
   }
 
   function closeDrawer() {
@@ -447,53 +439,14 @@
     });
   }
 
-  /* -------------------- schedule interview -------------------- */
-  function interviewModalHtml() {
-    return '<div class="ats-modal-wrap" id="atsInterviewModal">' +
-      '<div class="ats-modal">' +
-        '<div class="ats-modal-head"><h3>Schedule interview</h3><button class="ats-drawer-close" id="atsInterviewClose">×</button></div>' +
-        '<div class="ats-modal-body">' +
-          '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:2px">Creates a Zoom interview and notifies the doctor.</div>' +
-          '<label>Date &amp; time</label>' +
-          '<input type="datetime-local" id="atsInterviewWhen" />' +
-          '<label>Interviewer name</label>' +
-          '<input type="text" id="atsInterviewWho" placeholder="e.g. Dr. Helen Carter" />' +
-          '<label>Format</label>' +
-          '<select id="atsInterviewFormat">' +
-            '<option value="video">Video (Zoom)</option>' +
-            '<option value="phone">Phone</option>' +
-            '<option value="in_person">In person</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="ats-modal-foot">' +
-          '<button class="ats-btn ats-btn-ghost" id="atsInterviewCancel">Cancel</button>' +
-          '<button class="ats-btn ats-btn-primary" id="atsInterviewSubmit">Schedule</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  }
-  function openInterviewModal() { var m = el('atsInterviewModal'); if (m) m.classList.add('open'); }
-  function closeInterviewModal() { var m = el('atsInterviewModal'); if (m) m.classList.remove('open'); }
-
-  function submitInterview() {
+  /* -------------------- book interview -------------------- */
+  function openInterviewModal() {
     if (!drawerCardId) return;
-    var whenVal = val('atsInterviewWhen');
-    if (!whenVal) { A.toast('Pick a date & time'); return; }
-    var iso;
-    try { iso = new Date(whenVal).toISOString(); } catch (e) { iso = whenVal; }
-    var body = {
-      applicationId: drawerCardId,
-      scheduledAt: iso,
-      format: val('atsInterviewFormat') || 'video',
-      interviewerName: (val('atsInterviewWho') || '').trim()
-    };
-    A.api('/api/admin/career/interview/schedule', { method: 'POST', body: body }).then(function (d) {
-      // This endpoint needs Zoom/Supabase configured — locally it may return an
-      // error; surface whatever the server says either way.
-      var msg = (d && (d.message || (d.ok ? 'Interview scheduled' : 'Could not schedule interview'))) || 'Could not schedule interview';
-      A.toast(msg);
-      if (d && d.ok) closeInterviewModal();
-    });
+    if (!window.confirm('Send this candidate\'s practice an availability request and start interview scheduling?')) return;
+    A.api('/api/ats/interview/request', { method: 'POST', body: { application_id: drawerCardId } }).then(function (r) {
+      if (r && r.ok) { A.toast(r.already ? 'An interview is already in progress for this application.' : 'Availability request sent to the practice. You\'ll be able to pick a time once they reply.'); }
+      else { A.toast('Could not start interview scheduling. Please try again.'); }
+    }).catch(function () { A.toast('Could not start interview scheduling. Please try again.'); });
   }
 
   /* ============================================================
