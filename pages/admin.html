@@ -8208,10 +8208,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var _hubHdr=null; // set by renderThread so msgHtml can name who an outbound was sent as
     function msgHtml(m,idx,arr){
       const out=m.direction==="outbound";
-      // The first INBOUND message in a thread is "RECEIVED"; later inbound messages are "REPLY".
-      // Position-based, so it doesn't depend on the sender remembering a "Re:" subject.
-      var firstIn=(arr&&arr.length)?arr.findIndex(function(x){return x.direction==="inbound";}):-1;
-      var dirLabel=out?"SENT":(idx===firstIn?"RECEIVED":"REPLY");
+      // An inbound email is a "REPLY" only if WE sent something earlier in the thread for them to
+      // reply to; otherwise it's a fresh "RECEIVED". So two emails the practice/candidate sends us
+      // with no reply from us in between are both RECEIVED (not RECEIVED then REPLY).
+      var dirLabel;
+      if(out){dirLabel="SENT";}
+      else{
+        var priorOutbound=false;
+        if(arr&&arr.length){for(var _k=0;_k<idx;_k++){if(arr[_k]&&arr[_k].direction==="outbound"){priorOutbound=true;break;}}}
+        dirLabel=priorOutbound?"REPLY":"RECEIVED";
+      }
       // Small "who from / to" line next to the label so it's clear who each message involved.
       var sentAs=(out&&_hubHdr&&_hubHdr.assignedRsoName)?_hubHdr.assignedRsoName:"";
       var fromLine=out
