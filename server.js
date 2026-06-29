@@ -22301,7 +22301,7 @@ async function gcalReadBusy(o) {
       return new Date(e.endUtc) > new Date(o.fromUtc) && new Date(e.startUtc) < new Date(o.toUtc);
     }).map(function (e) { return { startUtc: e.startUtc, endUtc: e.endUtc }; });
   }
-  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar.events'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || process.env.GOOGLE_CALENDAR_ID);
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
   var req = gcalLib.buildFreeBusyRequest({ calendarId: process.env.GOOGLE_CALENDAR_ID, fromUtc: o.fromUtc, toUtc: o.toUtc });
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
@@ -22317,7 +22317,7 @@ async function gcalCreateEvent(o) {
     saveDbState();
     return { id: id };
   }
-  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar.events'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || process.env.GOOGLE_CALENDAR_ID);
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
   var req = gcalLib.buildEventInsert(Object.assign({ calendarId: process.env.GOOGLE_CALENDAR_ID }, o));
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
