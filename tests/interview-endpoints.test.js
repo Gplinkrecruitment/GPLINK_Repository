@@ -129,13 +129,18 @@ describe('GET /api/ats/interview/slots', () => {
     expect(res.body.slots[0].local.gp.tz).toBe('Europe/London');
   });
 
-  it('returns empty slots when practice availability has not been received', async () => {
-    // Create a fresh interview row on a fresh DB — but we share SEED_APP_ID which is already requested.
-    // The previous test ingested availability, so we cannot reuse it cleanly here.
-    // We just verify the shape of a still-requested row on a different application that has no row.
-    // Instead: call request again (idempotent) to confirm the row is not freshly "not_requested".
-    // Since we already received availability in the test above, status is 'received', not 'requested'.
-    // So we test the 404 path: slots for a non-existent application returns 404.
+  it('returns {ok:true, status:"requested", slots:[]} when practice has not yet replied', async () => {
+    // Use a fresh application (c3) that has no interview row yet — do NOT ingest availability.
+    // This exercises the 'requested' guard branch (status !== 'received'/'defaulted' → empty slots).
+    await call('POST', '/api/ats/interview/request', { application_id: 'c3' });
+    const res = await call('GET', '/api/ats/interview/slots?application_id=c3&now=2026-07-01T00:00:00Z');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.status).toBe('requested');
+    expect(res.body.slots.length).toBe(0);
+  });
+
+  it('returns 404 for a nonexistent application', async () => {
     const res = await call('GET', '/api/ats/interview/slots?application_id=nonexistent-app&now=2026-07-01T00:00:00Z');
     expect(res.status).toBe(404);
   });
@@ -188,15 +193,20 @@ describe('POST /api/ats/interview/book', () => {
     expect(readDb().fakeCalendar.length).toBe(1);
   });
 
-  it('returns 409 when the slot is not in the computed list', async () => {
+  it('returns 409 when the requested slot is not in the computed available list', async () => {
+    // Use a fresh application (c2) that is unbooked — independent of the c1 tests above.
+    const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c2' });
+    expect(reqRes.status).toBe(200);
+    const freshId = reqRes.body.interview_id;
+    const mod = await import('../server.js');
+    await mod.__testUtils.ingestPracticeAvailabilityReply(freshId, 'weekdays 6-10pm', '2026-07-01T00:00:00Z');
+    // Book with a slot far in the past — guaranteed not to be in the computed list.
     const res = await call('POST', '/api/ats/interview/book', {
-      application_id: SEED_APP_ID,
-      slot_start_utc: '2000-01-01T00:00:00.000Z', // far in the past
+      application_id: 'c2',
+      slot_start_utc: '2000-01-01T00:00:00.000Z',
       now: '2026-07-01T00:00:00Z'
     });
-    // The row is already 'booked' so the idempotent guard fires first → 200/already:true.
-    // Only a non-booked row with an invalid slot would reach 409.
-    // Just verify the endpoint returns something parseable.
-    expect([200, 409].includes(res.status)).toBe(true);
+    expect(res.status).toBe(409);
+    expect(res.body.ok).toBe(false);
   });
 });

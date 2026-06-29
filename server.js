@@ -44143,6 +44143,16 @@ Return ONLY valid JSON with no markdown formatting:
     var bkSlotValid = bkResult.slots.some(function (s) { return s.startUtc === bkSlotStart; });
     if (!bkSlotValid) { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
 
+    // ⚠️  Partial-failure risk (accepted for v1):
+    // The three side-effects below — Zoom create → GCal create → row PATCH + stage advance —
+    // are NOT wrapped in a transaction. In Supabase mode, if the row PATCH fails after Zoom
+    // and GCal have already been created, the row stays 'requested' and a client retry would
+    // produce duplicate Zoom meetings and GCal events (no orphan cleanup). This is accepted for
+    // v1 because the window is narrow and duplicates can be cleaned up manually. A future
+    // hardening pass should either (a) set an intermediate 'booking' status before the external
+    // calls and clear it on failure, or (b) run a reconciliation job that detects orphaned
+    // Zoom/GCal entries and removes them.
+
     // Create Zoom meeting.
     var bkZoom = await createZoomInterviewMeeting({
       topic: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
