@@ -384,8 +384,9 @@
           '<div style="font-size:13.5px">' + A.esc(job.title || '—') + ' <span class="cc-sub">— ' + A.esc(job.practice_name || '') + '</span></div>' +
           '<label>Pipeline stage</label>' +
           '<select id="atsJobDrawerStage">' + stageOptions + '</select>' +
-          '<label>Schedule</label>' +
-          '<button class="ats-btn ats-btn-sm" id="atsJobSchedBtn" style="width:100%;justify-content:center">📅 Schedule interview</button>' +
+          // Interview scheduling is intentionally not surfaced yet: it needs the
+          // career_interviews table (absent in this DB) + Zoom wiring. Re-add the
+          // button here once that feature is built, to avoid a dead/erroring control.
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +
