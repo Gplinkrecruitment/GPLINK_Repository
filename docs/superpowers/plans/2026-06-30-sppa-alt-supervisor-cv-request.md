@@ -8,6 +8,14 @@ CV — this should be a NEW task for the admin. Also ensure the GP's profile cre
 placeholder for the supervisor's CV. Ensure registration@ automatically matches the alternate
 supervisor's CV to the task once the practice sends it, on the same thread OR a new thread."
 
+## DESIGN CHANGE (2026-06-30, owner) — NOT auto-sent
+The request email is **not** sent automatically. `_ensureAltSupervisorCvRequest` creates a NEW admin
+task carrying a **suggested (pre-filled) email** (stored in task metadata: `suggested_subject`,
+`suggested_body`, `practice_email`); the RSO reviews and **sends it from the dashboard email
+composer** (the existing `.ops-email-composer` + `data-ops-send-email` → `/api/admin/email/send`,
+flip status → `waiting_on_practice`). Everything else below (placeholder, sender-keyed auto-match of
+the reply, deliver-to-profile, flag-clear) is unchanged.
+
 ## What already exists (verified in code, 2026-06-30)
 - **Detection on return**: `extractAltSupervisorNames(pdfBuffer)` (lib/sppa-pdf-fill.js) reads the
   "Name of alternate supervisor 1/2" AcroForm fields with an AI fallback. Runs on all 3 return

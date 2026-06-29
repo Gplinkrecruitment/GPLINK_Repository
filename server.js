@@ -1241,19 +1241,18 @@ async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
 }
 
 // Helper: when a returned SPPA-00 names alternate supervisor(s) whose signed CV GP Link does NOT
-// yet hold, auto-send the practice an email requesting the CV(s) AND create an admin task to track
-// it (same contact resolution + threading as /sppa-send-to-practice). Idempotent by three guards:
-//  (1) an in-process per-case lock so two overlapping triggers (Gmail push, hourly reconcile,
-//      manual "pull reply now") can't both send; (2) an open alt_supervisor_cv_request task already
-//      exists (blocks re-send between request and receipt); (3) the CV is already in hand — arrived
-//      with the form (tagged on the SPPA task) or already on the GP's profile (blocks after receipt).
-// Sends BEFORE creating the task so a failed send retries on the next trigger instead of leaving a
-// stuck task. Deliberately does NOT write the SPPA task's metadata, to avoid racing the concurrent
-// completeness-check verdict. `sppaTask` must carry { id, case_id, metadata, gmail_thread_id }.
+// yet hold, create an admin task carrying a SUGGESTED (pre-filled) email so the RSO can review and
+// SEND it to the practice manually from the dashboard composer. It does NOT auto-send. Idempotent
+// by three guards: (1) an in-process per-case lock so two overlapping triggers (Gmail push, hourly
+// reconcile, manual "pull reply now") can't both create a task; (2) an open alt_supervisor_cv_request
+// task already exists; (3) the CV is already in hand — arrived with the form (tagged on the SPPA
+// task) or already on the GP's profile. Deliberately does NOT write the SPPA task's metadata, to
+// avoid racing the concurrent completeness-check verdict. `sppaTask` must carry
+// { id, case_id, metadata, gmail_thread_id }.
 var _altCvRequestInflight = {};
 async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
   if (!caseId || !sppaTask || !sppaTask.id || !Array.isArray(altNames) || altNames.length === 0) return;
-  if (_altCvRequestInflight[caseId]) return; // a request for this case is already being sent
+  if (_altCvRequestInflight[caseId]) return; // a request task for this case is already being created
   _altCvRequestInflight[caseId] = true;
   try {
     var meta = sppaTask.metadata;
@@ -1316,40 +1315,32 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
       gpName: gpName, altNames: needed, contactName: practiceName, rsoSignoffName: rsoName || ''
     });
 
-    // Send FIRST (threaded on the SPPA conversation) so a failed send retries on the next trigger
-    // rather than leaving a stuck task. The inbound CV match is sender-keyed, so a new-thread reply
-    // still matches.
-    var si = await resolveCaseSenderInfo(caseId);
-    var emailResult = await sendGmailEmail({
-      from: si.from, fromName: si.fromName, to: practiceEmail,
-      subject: emailContent.subject, bodyHtml: emailContent.bodyHtml,
-      threadId: sppaTask.gmail_thread_id || undefined, caseId: caseId
-    });
-    if (!emailResult || !emailResult.ok) {
-      console.error('[SPPA] alt-CV request email failed for case', caseId, '— will retry on next return trigger:', emailResult && emailResult.error);
-      try {
-        await _logCaseEvent(caseId, sppaTask.id, 'system',
-          'Alternate supervisor CV request email could not be sent (will retry): ' + needed.join(', '), practiceEmail, 'system');
-      } catch (e) {}
-      return;
-    }
-
-    // Record the request as an admin tracking task (open until the CV comes back). Its existence is
-    // Guard 2 for any later trigger. Anchored to the conversation the email actually went out on.
+    // Do NOT auto-send. Create an admin task carrying a SUGGESTED (pre-filled) email for the RSO to
+    // review and SEND manually from the dashboard composer (the generic /api/admin/email/send). The
+    // task's existence is the idempotency guard for later triggers; it stays open until the
+    // practice's CV arrives (auto-match closes it) or the RSO delivers it.
     await supabaseDbRequest('registration_tasks', '', {
       method: 'POST', headers: { Prefer: 'return=minimal' },
       body: [{
         case_id: caseId, task_type: 'alt_supervisor_cv_request', related_document_key: 'sppa_00',
         title: 'Request alternate supervisor CV from practice',
-        description: 'Awaiting signed CV(s) for: ' + needed.join(', '),
+        description: 'Send the practice a request for the signed CV(s): ' + needed.join(', '),
         status: 'open', priority: 'normal',
-        gmail_thread_id: emailResult.threadId || sppaTask.gmail_thread_id || null,
-        metadata: { sppa_task_id: sppaTask.id, alt_supervisor_names: needed, practice_email: practiceEmail, alt_cv_requested_at: new Date().toISOString() }
+        gmail_thread_id: sppaTask.gmail_thread_id || null,
+        metadata: {
+          sppa_task_id: sppaTask.id,
+          alt_supervisor_names: needed,
+          practice_email: practiceEmail,
+          practice_contact_name: practiceName,
+          suggested_subject: emailContent.subject,
+          suggested_body: emailContent.bodyHtml,
+          created_at: new Date().toISOString()
+        }
       }]
     });
     await _logCaseEvent(caseId, sppaTask.id, 'system',
-      'Requested alternate supervisor CV(s) from practice: ' + needed.join(', '), practiceEmail, 'system');
-    console.log('[SPPA] Requested alt supervisor CV(s) from practice for case', caseId, '→', needed.join(', '));
+      'Created task to request alternate supervisor CV(s) from practice (RSO to review + send): ' + needed.join(', '), practiceEmail, 'system');
+    console.log('[SPPA] Created alt supervisor CV request task for case', caseId, '→', needed.join(', '));
   } catch (err) {
     console.error('[SPPA] _ensureAltSupervisorCvRequest error:', err.message);
   } finally {
