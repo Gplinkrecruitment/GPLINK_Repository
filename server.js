@@ -1237,6 +1237,123 @@ async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
   }
 }
 
+// Helper: when a returned SPPA-00 names alternate supervisor(s) whose signed CV GP Link does NOT
+// yet hold, auto-send the practice an email requesting the CV(s) AND create an admin task to track
+// it (same contact resolution + threading as /sppa-send-to-practice). Idempotent by three guards:
+//  (1) an in-process per-case lock so two overlapping triggers (Gmail push, hourly reconcile,
+//      manual "pull reply now") can't both send; (2) an open alt_supervisor_cv_request task already
+//      exists (blocks re-send between request and receipt); (3) the CV is already in hand — arrived
+//      with the form (tagged on the SPPA task) or already on the GP's profile (blocks after receipt).
+// Sends BEFORE creating the task so a failed send retries on the next trigger instead of leaving a
+// stuck task. Deliberately does NOT write the SPPA task's metadata, to avoid racing the concurrent
+// completeness-check verdict. `sppaTask` must carry { id, case_id, metadata, gmail_thread_id }.
+var _altCvRequestInflight = {};
+async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
+  if (!caseId || !sppaTask || !sppaTask.id || !Array.isArray(altNames) || altNames.length === 0) return;
+  if (_altCvRequestInflight[caseId]) return; // a request for this case is already being sent
+  _altCvRequestInflight[caseId] = true;
+  try {
+    var meta = sppaTask.metadata;
+    if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+    if (!meta || typeof meta !== 'object') meta = {};
+
+    // Don't double-create if an open request task already exists for this case.
+    var existingReq = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.alt_supervisor_cv_request&status=neq.completed&limit=1');
+    if (existingReq.ok && Array.isArray(existingReq.data) && existingReq.data.length > 0) return;
+
+    // If every named alternate's CV already arrived with the form, there is nothing to request.
+    var heldCvs = await supabaseDbRequest('task_documents',
+      'select=id&task_id=eq.' + encodeURIComponent(sppaTask.id) + '&category=eq.alt_supervisor_cv&is_current=eq.true');
+    var heldCount = (heldCvs.ok && Array.isArray(heldCvs.data)) ? heldCvs.data.length : 0;
+    if (heldCount >= altNames.length) return;
+
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+
+    // Alternates whose signed CV is already on the GP's profile need no chase.
+    var onFileNames = [];
+    if (userId) {
+      var udRes = await supabaseDbRequest('user_documents',
+        'select=file_name,status&user_id=eq.' + encodeURIComponent(userId) + '&document_key=like.alt_supervisor_cv_%25&status=in.(approved,uploaded)');
+      if (udRes.ok && Array.isArray(udRes.data)) {
+        onFileNames = udRes.data.map(function (d) { return String(d.file_name || '').replace(/\s*[—-]\s*CV\s*$/i, '').trim(); }).filter(Boolean);
+      }
+    }
+    var altReqLib = require('./lib/sppa-alt-supervisor-request.js');
+    var needed = altReqLib.altSupervisorsNeedingCv(altNames, onFileNames);
+    if (needed.length === 0) return;
+
+    // Practice contact (same precedence as /sppa-send-to-practice: where we sent the pack, else the
+    // hired application's stored contact).
+    var practiceEmail = String(meta.sent_to_practice_email || '').trim();
+    var practiceName = 'Practice Contact';
+    if (userId) {
+      var appRow = await supabaseDbRequest('gp_applications',
+        'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+      if (appRow.ok && appRow.data && appRow.data[0]) {
+        if (!practiceEmail) practiceEmail = String(appRow.data[0].practice_contact_email || '').trim();
+        if (appRow.data[0].practice_contact_name) practiceName = String(appRow.data[0].practice_contact_name).trim();
+      }
+    }
+    if (!practiceEmail) { console.warn('[SPPA] alt-CV request skipped — no practice email for case', caseId); return; }
+
+    // GP display name (mirror /sppa-send-to-practice).
+    var gpName = '';
+    if (userId) {
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+      gpName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+    }
+    if (!gpName) gpName = String(meta.candidate_name || 'the candidate').trim();
+
+    var rsoName = '';
+    try { rsoName = await resolveCaseSenderName(caseId); } catch (e) {}
+    var emailContent = altReqLib.buildAltCvRequestEmail({
+      gpName: gpName, altNames: needed, contactName: practiceName, rsoSignoffName: rsoName || ''
+    });
+
+    // Send FIRST (threaded on the SPPA conversation) so a failed send retries on the next trigger
+    // rather than leaving a stuck task. The inbound CV match is sender-keyed, so a new-thread reply
+    // still matches.
+    var si = await resolveCaseSenderInfo(caseId);
+    var emailResult = await sendGmailEmail({
+      from: si.from, fromName: si.fromName, to: practiceEmail,
+      subject: emailContent.subject, bodyHtml: emailContent.bodyHtml,
+      threadId: sppaTask.gmail_thread_id || undefined, caseId: caseId
+    });
+    if (!emailResult || !emailResult.ok) {
+      console.error('[SPPA] alt-CV request email failed for case', caseId, '— will retry on next return trigger:', emailResult && emailResult.error);
+      try {
+        await _logCaseEvent(caseId, sppaTask.id, 'system',
+          'Alternate supervisor CV request email could not be sent (will retry): ' + needed.join(', '), practiceEmail, 'system');
+      } catch (e) {}
+      return;
+    }
+
+    // Record the request as an admin tracking task (open until the CV comes back). Its existence is
+    // Guard 2 for any later trigger. Anchored to the conversation the email actually went out on.
+    await supabaseDbRequest('registration_tasks', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: [{
+        case_id: caseId, task_type: 'alt_supervisor_cv_request', related_document_key: 'sppa_00',
+        title: 'Request alternate supervisor CV from practice',
+        description: 'Awaiting signed CV(s) for: ' + needed.join(', '),
+        status: 'open', priority: 'normal',
+        gmail_thread_id: emailResult.threadId || sppaTask.gmail_thread_id || null,
+        metadata: { sppa_task_id: sppaTask.id, alt_supervisor_names: needed, practice_email: practiceEmail, alt_cv_requested_at: new Date().toISOString() }
+      }]
+    });
+    await _logCaseEvent(caseId, sppaTask.id, 'system',
+      'Requested alternate supervisor CV(s) from practice: ' + needed.join(', '), practiceEmail, 'system');
+    console.log('[SPPA] Requested alt supervisor CV(s) from practice for case', caseId, '→', needed.join(', '));
+  } catch (err) {
+    console.error('[SPPA] _ensureAltSupervisorCvRequest error:', err.message);
+  } finally {
+    delete _altCvRequestInflight[caseId];
+  }
+}
+
 // Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
 async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
   const driveUrl = driveFileId ? 'https://drive.google.com/file/d/' + driveFileId + '/view' : '';
@@ -2486,6 +2603,10 @@ async function recoverSppaThreadReply(task, mailbox) {
     }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
       { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
+    if (fm.alt_supervisor_names && fm.alt_supervisor_names.length) {
+      _ensureAltSupervisorCvRequest(task.case_id, { id: task.id, case_id: task.case_id, metadata: fm, gmail_thread_id: task.gmail_thread_id }, fm.alt_supervisor_names)
+        .catch(function (e) { console.error('[SPPA recover] alt CV request error:', e.message); });
+    }
     _ensurePracticeDocOps(task.case_id).then(function () {
       return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
     }).catch(function (err) { console.error('[SPPA recover] ops sync error:', err.message); });
@@ -3664,6 +3785,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 }
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
+                if (sppaMeta.alt_supervisor_names && sppaMeta.alt_supervisor_names.length) {
+                  _ensureAltSupervisorCvRequest(earlyGpCase.id, { id: earlyTask.id, case_id: earlyGpCase.id, metadata: sppaMeta, gmail_thread_id: earlyTask.gmail_thread_id }, sppaMeta.alt_supervisor_names)
+                    .catch(function (e) { console.error('[Gmail] alt CV request error:', e.message); });
+                }
                 _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                   return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
                 }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
@@ -3813,6 +3938,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                           _matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
                           _matchedCvs.map(function(c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
                       }
+                      // The practice has now sent the CV(s) — close out any open "request alt
+                      // supervisor CV" chase task for this case (idempotent: matches only open ones).
+                      await supabaseDbRequest('registration_tasks',
+                        'case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&task_type=eq.alt_supervisor_cv_request&status=neq.completed',
+                        { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
                     }
                     await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'alt_cv_matched', matched_task_id: _reviewTask ? _reviewTask.id : null, processed_at: new Date().toISOString() }] });
                     _altCvMatched = true;
@@ -9711,6 +9841,29 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       'select=id,filename&task_id=eq.' + encodeURIComponent(sppaTask.id) + '&category=eq.alt_supervisor_cv&is_current=eq.true');
     var altCvDocs = (altCvRes.ok && Array.isArray(altCvRes.data)) ? altCvRes.data : [];
     var altNames = Array.isArray(meta.alt_supervisor_names) ? meta.alt_supervisor_names : [];
+    // Also recognise alternate-supervisor CVs already delivered to the GP's profile (user_documents)
+    // — a CV collected via the request/match flow lives there, NOT as a task_document on the SPPA
+    // task, so without this an already-collected CV would be reported as still missing and the
+    // "missing CV" flag would never clear. Match by NAME against the alternates named on THIS form,
+    // so a stale profile CV from an earlier version (a removed/different alternate) can't falsely
+    // satisfy the check.
+    try {
+      var _ccCaseRow = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var _ccUserId = (_ccCaseRow.ok && _ccCaseRow.data && _ccCaseRow.data[0]) ? _ccCaseRow.data[0].user_id : null;
+      if (_ccUserId && altNames.length) {
+        var _ccProfileCvs = await supabaseDbRequest('user_documents',
+          'select=file_name&user_id=eq.' + encodeURIComponent(_ccUserId) + '&document_key=like.alt_supervisor_cv_%25&status=in.(approved,uploaded)');
+        if (_ccProfileCvs.ok && Array.isArray(_ccProfileCvs.data)) {
+          var _ccAltLower = altNames.map(function (n) { return String(n || '').trim().toLowerCase(); });
+          for (var _pcv of _ccProfileCvs.data) {
+            var _pcvName = String(_pcv.file_name || '').replace(/\s*[—-]\s*CV\s*$/i, '').trim();
+            if (_pcvName && _ccAltLower.indexOf(_pcvName.toLowerCase()) >= 0) {
+              altCvDocs.push({ filename: _pcvName + ' — CV (on GP profile)' });
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('[SPPA] completeness alt-CV profile lookup error:', e.message); }
 
     var inventory = [
       'Primary supervisor CV (Q3): ' + (supCvPresent ? 'PRESENT on file' : 'NOT on file'),
@@ -36856,6 +37009,13 @@ Return ONLY valid JSON with no markdown formatting:
           { method: 'PATCH', body: { metadata: taskMeta, updated_at: new Date().toISOString() } });
         await _logCaseEvent(task.case_id, taskId, 'system', altSupervisorCvs.length + ' alternate supervisor CV(s) uploaded', null, admin.email);
       }
+      // If the returned form names alternate supervisor(s) we don't already hold, chase the practice
+      // for their signed CV (creates an admin task + auto-sends the request email). Runs AFTER any
+      // inline-uploaded CVs are stored above, so the helper sees them and won't over-request.
+      if (taskMeta.alt_supervisor_names && taskMeta.alt_supervisor_names.length) {
+        _ensureAltSupervisorCvRequest(task.case_id, { id: task.id, case_id: task.case_id, metadata: taskMeta, gmail_thread_id: task.gmail_thread_id }, taskMeta.alt_supervisor_names)
+          .catch(function (e) { console.error('[SPPA] alt CV request error:', e.message); });
+      }
     }
 
     sendJson(res, 200, { ok: true, state: taskMeta.sppa_state });
@@ -37605,9 +37765,30 @@ Return ONLY valid JSON with no markdown formatting:
               await supabaseDbRequest('user_documents', '', { method: 'POST', body: [userDoc] });
             }
             delivered++;
+            // Flip the GP's My Documents / AHPRA "Supervised Practice" placeholder for this alt CV
+            // from "Preparing" to "Ready".
+            try { await _updatePreparedDocsState(userId, altDocKey, cvDriveFile.id, userDoc.file_name); } catch (e) { console.error('[AltCV] prepared-docs state update error:', e.message); }
           }
         } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
       }
+    }
+
+    // Find the linked SPPA task, close any open "request alt supervisor CV" chase task, and re-run
+    // the AI completeness check now the CV is on the GP's profile so the "missing CV" flag clears.
+    var _revMeta = task.metadata;
+    if (typeof _revMeta === 'string') { try { _revMeta = JSON.parse(_revMeta); } catch (e) { _revMeta = {}; } }
+    if (!_revMeta || typeof _revMeta !== 'object') _revMeta = {};
+    var _sppaTaskId = _revMeta.sppa_task_id || null;
+    if (!_sppaTaskId) {
+      var _sppaLookup = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&limit=1');
+      if (_sppaLookup.ok && _sppaLookup.data && _sppaLookup.data[0]) _sppaTaskId = _sppaLookup.data[0].id;
+    }
+    await supabaseDbRequest('registration_tasks',
+      'case_id=eq.' + encodeURIComponent(task.case_id) + '&task_type=eq.alt_supervisor_cv_request&status=neq.completed',
+      { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+    if (_sppaTaskId) {
+      _runSppaCompletenessCheck(task.case_id, _sppaTaskId).catch(function (e) { console.error('[AltCV] completeness re-check error:', e.message); });
     }
 
     // Complete the task
