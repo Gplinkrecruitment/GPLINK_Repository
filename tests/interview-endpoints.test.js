@@ -81,6 +81,9 @@ describe('POST /api/ats/interview/request', () => {
     expect(row.meeting_kind).toBe('interview');
     expect(row.application_id).toBe(SEED_APP_ID);
     expect(row.practice_availability_status).toBe('requested');
+    // correlation_token is TEXT NOT NULL UNIQUE in prod — every interview row must carry one.
+    expect(typeof row.correlation_token).toBe('string');
+    expect(row.correlation_token.length).toBeGreaterThan(0);
   });
 
   it('is idempotent — a second request returns already:true', async () => {

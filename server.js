@@ -23193,13 +23193,29 @@ async function atsGetApplicationContext(appId) {
       var jr = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
       job = (jr.ok && jr.data && jr.data[0]) ? jr.data[0] : null;
     }
+    // registration_cases has NO gp_name/gp_email/country columns (see commit 9f4c6df) — select
+    // only real columns. The case id (when one exists) is the real registration_cases.id; name,
+    // email and country are resolved from user_profiles (same pattern the rest of server.js uses).
+    var caseId = null, gpName = '', gpEmail = '', gpCountry = '';
     if (app.user_id) {
-      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id,gp_name&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
-      candidate = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
-      if (!candidate) {
-        var upr = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
-        var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
-        if (up) candidate = { user_id: up.user_id, id: null, gp_name: [String(up.first_name || '').trim(), String(up.last_name || '').trim()].filter(Boolean).join(' ') || 'Dr', email: up.email };
+      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var caseRow = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
+      if (caseRow) {
+        caseId = caseRow.id || null;
+        gpCountry = String(caseRow.registration_country || '').trim();
+      }
+      var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
+      if (up) {
+        gpName = [String(up.first_name || '').trim(), String(up.last_name || '').trim()].filter(Boolean).join(' ');
+        gpEmail = String(up.email || '').trim();
+        if (!gpCountry) gpCountry = String(up.registration_country || '').trim();
+      }
+      // Country fallback mirrors _resolveGpCountry: user_profiles.registration_country → user_state.gp_selected_country.
+      if (!gpCountry) {
+        var usr = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+        var us = (usr.ok && usr.data && usr.data[0] && usr.data[0].state) ? usr.data[0].state : null;
+        if (us && us.gp_selected_country) gpCountry = String(us.gp_selected_country).trim();
       }
     }
     var practiceEmail = '';
@@ -23210,11 +23226,12 @@ async function atsGetApplicationContext(appId) {
     return {
       app: app,
       userId: app.user_id || null,
-      caseId: candidate ? (candidate.id || null) : null,
+      caseId: caseId,
       careerRoleId: app.career_role_id || null,
       practiceName: (job && job.practice_name) || app.practice_name || '',
-      gpName: candidate ? (candidate.gp_name || 'Dr') : (app.candidate_name || app.name || 'Dr'),
-      gpCountry: app.country || '',
+      gpName: gpName || app.candidate_name || app.name || 'Dr',
+      gpEmail: gpEmail || (app && app.email) || '',
+      gpCountry: gpCountry || '',
       practiceEmail: practiceEmail
     };
   }
@@ -23243,6 +23260,7 @@ async function atsGetApplicationContext(appId) {
     careerRoleId: app.career_role_id || app.job_id || null,
     practiceName: (job && job.practice_name) || app.practice_name || '',
     gpName: (candidate && candidate.name) || app.name || 'Dr',
+    gpEmail: (candidate && candidate.email) || app.email || '',
     gpCountry: (candidate && candidate.country) || app.country || '',
     practiceEmail: (practice && practice.contact_email) || ''
   };
@@ -44005,6 +44023,11 @@ Return ONLY valid JSON with no markdown formatting:
       createdBy: ctxIR.email || '',
       nowIso: new Date().toISOString()
     });
+    // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default, so every
+    // interview row must carry a freshly-generated unique token (same generator the
+    // consultation path uses in buildScheduledCallInsertPayload). Without it the prod
+    // INSERT would violate the NOT NULL constraint.
+    irRow.correlation_token = generateCorrelationToken();
     var irSaved = await insertScheduledCallRow(irRow);
     if (!irSaved) { sendJson(res, 502, { ok: false, message: 'Could not create interview row.' }); return; }
     // Email the practice — best-effort (missing transport / email does not block the response).
@@ -44152,13 +44175,15 @@ Return ONLY valid JSON with no markdown formatting:
       }
     });
 
+    // Validation must use a large maxSlots so the cap+spread that GET /slots applies (12) can't
+    // drop a still-valid slot the user legitimately picked and make us 409 a good booking.
     var bkResult = interviewScheduler.computeInterviewSlots({
       now: bkNow,
       horizonDays: 14,
       durationMin: 45,
       leadHours: 48,
       gridMin: 30,
-      maxSlots: 12,
+      maxSlots: 500,
       host: bkHost,
       practice: bkPractice,
       gp: bkGp,
@@ -44191,7 +44216,7 @@ Return ONLY valid JSON with no markdown formatting:
       summary: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
       startUtc: bkSlotStart,
       endUtc: bkSlotEnd,
-      attendees: [bkCtx.app && bkCtx.app.email || '', bkCtx.practiceEmail || ''].filter(Boolean),
+      attendees: [bkCtx.gpEmail || '', bkCtx.practiceEmail || ''].filter(Boolean),
       description: 'GP Link interview: ' + bkCtx.gpName + ' for ' + (bkCtx.practiceName || '') + '. Join: ' + (bkZoom.join_url || ''),
       zoomJoinUrl: bkZoom.join_url || ''
     });
@@ -44224,7 +44249,7 @@ Return ONLY valid JSON with no markdown formatting:
     // Notify GP + practice — best-effort, must not throw past the response.
     (async function () {
       try {
-        var bkGpEmail = (bkCtx.app && bkCtx.app.email) || '';
+        var bkGpEmail = bkCtx.gpEmail || '';
         var bkTimeLabel = new Date(bkSlotStart).toUTCString();
         if (bkCtx.practiceEmail && isEmailConfigured()) {
           await sendEmail({
@@ -44596,14 +44621,20 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // GET /api/ceo/meetings?kind=all|consultation|interview
-  // Returns CEO-hosted meetings only (host_kind='ceo'). Excludes abandoned drafts
+  // "The CEO's meetings" = host_kind='ceo' (interviews + any CEO-hosted consultation) OR a
+  // consultation assigned to the logged-in CEO/super-admin (assigned_rso_email = session email).
+  // Consultations default to host_kind='rso', so without the assigned-email branch the tab would
+  // never show the CEO's own standard consultations. Excludes abandoned drafts
   // (status='cancelled' with no scheduled_at and no booked_at). Dual-mode.
   if (pathname === '/api/ceo/meetings' && req.method === 'GET') {
     var ctxMtg = requireCeoSession(req, res); if (!ctxMtg) return;
     var mtgKind = url.searchParams.get('kind') || 'all';
+    var mtgSessEmail = String(ctxMtg.email || '').trim().toLowerCase();
     if (!isSupabaseDbConfigured()) {
       var mtgLocalRows = (dbState.scheduledCalls || []).filter(function (r) {
-        if ((r.host_kind || 'rso') !== 'ceo') return false;
+        var isCeoMeeting = (r.host_kind || 'rso') === 'ceo' ||
+          (!!mtgSessEmail && String(r.assigned_rso_email || '').trim().toLowerCase() === mtgSessEmail);
+        if (!isCeoMeeting) return false;
         if (r.status === 'cancelled' && !r.scheduled_at && !r.booked_at) return false;
         if (mtgKind !== 'all' && r.meeting_kind !== mtgKind) return false;
         return true;
@@ -44614,7 +44645,10 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, meetings: mtgLocalMeetings });
       return;
     }
-    var mtgQuery = 'select=*&host_kind=eq.ceo&order=created_at.desc&limit=200';
+    var mtgScope = mtgSessEmail
+      ? 'or=(host_kind.eq.ceo,assigned_rso_email.eq.' + encodeURIComponent(mtgSessEmail) + ')'
+      : 'host_kind=eq.ceo';
+    var mtgQuery = 'select=*&' + mtgScope + '&order=created_at.desc&limit=200';
     if (mtgKind !== 'all') mtgQuery += '&meeting_kind=eq.' + encodeURIComponent(mtgKind);
     var mtgRes = await supabaseDbRequest('scheduled_calls', mtgQuery);
     var mtgAllRows = (mtgRes.ok && Array.isArray(mtgRes.data)) ? mtgRes.data : [];
@@ -44622,23 +44656,24 @@ Return ONLY valid JSON with no markdown formatting:
     mtgAllRows = mtgAllRows.filter(function (r) {
       return !(r.status === 'cancelled' && !r.scheduled_at && !r.booked_at);
     });
-    // Resolve gp_name from the linked registration_cases rows.
-    var mtgCaseIds = [];
-    var seenMtgCase = {};
+    // Resolve gp_name from user_profiles by user_id (registration_cases has no gp_name column).
+    // Batch into one user_id=in.(...) query to avoid N+1.
+    var mtgUserIds = [];
+    var seenMtgUser = {};
     mtgAllRows.forEach(function (r) {
-      if (r.case_id && !seenMtgCase[r.case_id]) { seenMtgCase[r.case_id] = true; mtgCaseIds.push(r.case_id); }
+      if (r.user_id && !seenMtgUser[r.user_id]) { seenMtgUser[r.user_id] = true; mtgUserIds.push(r.user_id); }
     });
     var mtgNameMap = {};
-    if (mtgCaseIds.length) {
-      var mtgCaseRes = await supabaseDbRequest('registration_cases',
-        'select=id,gp_name,gp_email&id=in.(' + mtgCaseIds.map(encodeURIComponent).join(',') + ')&limit=500');
-      ((mtgCaseRes.ok && mtgCaseRes.data) || []).forEach(function (c) {
-        mtgNameMap[c.id] = c.gp_name || c.gp_email || '';
+    if (mtgUserIds.length) {
+      var mtgProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name&user_id=in.(' + mtgUserIds.map(encodeURIComponent).join(',') + ')&limit=500');
+      ((mtgProfRes.ok && mtgProfRes.data) || []).forEach(function (p) {
+        mtgNameMap[p.user_id] = [String(p.first_name || '').trim(), String(p.last_name || '').trim()].filter(Boolean).join(' ');
       });
     }
     var mtgMeetings = mtgAllRows.map(function (r) {
       var base = normalizeScheduledCallForApi(r);
-      base.gp_name = mtgNameMap[r.case_id] || '';
+      base.gp_name = mtgNameMap[r.user_id] || base.gp_name || '';
       return interviewMeetings.normalizeMeetingForApi(base);
     });
     sendJson(res, 200, { ok: true, meetings: mtgMeetings });

@@ -16,6 +16,12 @@ ALTER TABLE scheduled_calls DROP CONSTRAINT IF EXISTS scheduled_calls_meeting_ki
 ALTER TABLE scheduled_calls ADD CONSTRAINT scheduled_calls_meeting_kind_chk
   CHECK (meeting_kind IN ('consultation','interview'));
 
+-- case_id / user_id were NOT NULL (consultations always have a registration case + user).
+-- An ATS-only candidate may have an application but no registration case yet, so an interview
+-- row legitimately has a null case_id/user_id. Relax (additive; consultations still set both).
+ALTER TABLE scheduled_calls ALTER COLUMN case_id DROP NOT NULL;
+ALTER TABLE scheduled_calls ALTER COLUMN user_id DROP NOT NULL;
+
 -- stage was NOT NULL CHECK (myintealth/amc/ahpra). Interviews have no stage → relax.
 ALTER TABLE scheduled_calls ALTER COLUMN stage DROP NOT NULL;
 ALTER TABLE scheduled_calls DROP CONSTRAINT IF EXISTS scheduled_calls_stage_check;

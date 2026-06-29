@@ -119,6 +119,9 @@ beforeAll(async () => {
       id: RSO_CONSULT_ID,
       meeting_kind: 'consultation',
       host_kind: 'rso',         // MUST be excluded — not the CEO's meeting
+      // assigned to a DIFFERENT RSO than the test session email, so the assigned-email
+      // branch of the scope filter does not pull it in.
+      assigned_rso_email: 'other-rso@gplink-test.local',
       application_id: null,
       case_id: 'g2',
       status: 'completed',
@@ -258,8 +261,7 @@ describe('GET /api/ceo/candidate — apps[] has interview + offer', () => {
     expect(res.status).toBe(200);
     const apps = res.body.candidate.apps;
     expect(Array.isArray(apps)).toBe(true);
-    if (apps.length > 0) {
-      expect(apps[0].interview).toBeNull();
-    }
+    expect(apps.length).toBeGreaterThan(0);
+    expect(apps[0].interview).toBeNull();
   });
 });
