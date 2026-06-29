@@ -23198,11 +23198,10 @@ async function atsGetApplicationContext(appId) {
     // email and country are resolved from user_profiles (same pattern the rest of server.js uses).
     var caseId = null, gpName = '', gpEmail = '', gpCountry = '';
     if (app.user_id) {
-      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var caseRow = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
       if (caseRow) {
         caseId = caseRow.id || null;
-        gpCountry = String(caseRow.registration_country || '').trim();
       }
       var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
