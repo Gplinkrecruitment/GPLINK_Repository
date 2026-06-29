@@ -5907,6 +5907,15 @@
     // button opens, scroll to + briefly flash that document's row, then strip ?doc
     // so a refresh won't re-trigger. Defensive: must never break page load.
     var _deepLinkDocHandled = false;
+    // Capture ?doc NOW, at script-eval time — this line runs BEFORE initPage()
+    // (called further below). initPage() → showSecuredPage() → syncRouteForStage()
+    // does history.replaceState(…, "/registration/ahpra/<slug>") with NO query
+    // string, which would wipe ?doc before focusDeepLinkedDoc() could read it
+    // (the bug: a returning GP with warm localStorage hit that strip synchronously
+    // and the document modal never opened). Reading the key here makes the deep
+    // link immune to that strip and to the re-init on gp-state-hydrated/gp-data-ready.
+    var _deepLinkDocKey = '';
+    try { _deepLinkDocKey = new URLSearchParams(window.location.search).get('doc') || ''; } catch (e) {}
     function _flashDeepLinkedDocRow(key) {
       if (!key || !downloadPackSummaryEl) return false;
       var row = downloadPackSummaryEl.querySelector('[data-doc-key="' + key + '"]')
@@ -5922,7 +5931,7 @@
     function focusDeepLinkedDoc() {
       try {
         if (_deepLinkDocHandled) return;
-        var key = new URLSearchParams(window.location.search).get('doc');
+        var key = _deepLinkDocKey;
         if (!key) return;
         _deepLinkDocHandled = true;
         // Strip ?doc straight away (matches the replaceState pattern used elsewhere on
