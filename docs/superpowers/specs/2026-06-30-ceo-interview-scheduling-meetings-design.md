@@ -18,7 +18,9 @@ This project makes the **"Book interview"** button work, and it adds two things:
 
 The hard part of an interview is that **three people in two countries have to be free at once**: the GP (UK), the medical practice (Australia), and the CEO (Sydney). The system automates this: it asks the practice for their availability by email, an AI reads the reply, and the software works out the exact slots where all three are free — correct across timezones and daylight saving — then lets the GP pick one. We then create the Zoom interview automatically and save its AI summary, the same way consultations work.
 
-**Important honesty note:** interviews do **not** go through Calendly. Calendly only knows the CEO's calendar — it can't see the practice's or GP's availability, and it can't be told to book one specific pre-agreed slot. So for interviews the app does the three-way matching itself and creates the Zoom meeting directly. Standard consultations are unchanged and keep using Calendly.
+**Your Google Calendar becomes the single source of truth for your time.** We connect it so that: (a) when we work out interview slots we read it and never offer a time that clashes with a standard consultation, and (b) when an interview is booked we write it onto that calendar, so Calendly sees the slot as busy and won't let a consultation be booked over it. Clashes are prevented in both directions.
+
+**Important honesty note:** interviews do **not** go through Calendly, and they can't — Calendly has no way for software to create a booking inside it, and it can't see the practice's or GP's availability. So the app does the three-way matching itself, creates the Zoom meeting, and records the interview on your Google Calendar (which is exactly where Calendly looks to decide if you're free). Standard consultations are unchanged and keep using Calendly; they already land on the same Google Calendar, so everything reconciles in one place.
 
 ---
 
@@ -29,6 +31,8 @@ The hard part of an interview is that **three people in two countries have to be
 - Automate three-way (GP + practice + CEO) availability matching across UK ↔ AU timezones, with daylight-saving handled correctly.
 - Collect the practice's availability by email and extract it with AI (the practice replies in plain English — "Option A").
 - Create the Zoom interview automatically and reuse the existing Zoom AI Companion summary pipeline so interview summaries save themselves.
+- **Connect the CEO's Google Calendar** as the single source of truth for their time.
+- **Two-way clash prevention:** never offer an interview slot that clashes with a consultation (read the calendar), and block consultations from being booked over an interview (write the interview to the calendar Calendly checks).
 - Add a **Meetings** master tab to the CEO dashboard: the CEO's own meetings, filter Consultation/Interview, grouped Upcoming/Past/Summaries.
 - Add an **Applications** section to each candidate's detail view: per-application pipeline stage, interview summary, and an offer/contract placeholder.
 - Every code path works end to end (UI → API → DB → read-back) and is covered by tests, including timezone/DST edge cases.
@@ -63,9 +67,15 @@ The hard part of an interview is that **three people in two countries have to be
 - **The Zoom summary pipeline is reused with zero new wiring.** `fetchAndSaveZoomSummary` already matches `scheduled_calls` rows by `zoom_meeting_id` / `zoom_meeting_uuid`. As long as we store the `zoom_meeting_id` when we create the interview's Zoom meeting, summaries save automatically — same as consultations.
 - **Avoids merging two tables** with two different summary mechanisms in the Meetings tab.
 
-**Why not Calendly for interviews (the honest constraint):** Calendly only knows the host's calendar; it cannot enforce the practice's windows or the GP's sleep window, and it has no API to book a specific pre-agreed slot on the user's behalf. Routing interviews through Calendly would discard the three-way filtering that is the entire purpose. Therefore the app computes the overlap itself and creates the Zoom meeting via the Zoom API. **Consultations keep using Calendly unchanged.**
+**Why not Calendly for interviews (the honest constraint):** Calendly cannot enforce the practice's windows or the GP's sleep window, and it has **no API to create a booking** on the user's behalf. Routing interviews through Calendly would discard the three-way filtering that is the entire purpose. Therefore the app computes the overlap itself and creates the Zoom meeting via the Zoom API. **Consultations keep using Calendly unchanged.**
 
-**Consequence for the owner:** No "Interview" Calendly event type is required. The only external setup is on the Zoom account (a credential able to create meetings + AI Companion auto-summary enabled). See §12.
+**Second decision — the CEO's Google Calendar is the single source of truth for their time, giving two-way clash prevention.** We add a Google Calendar integration (new — none exists today) for the CEO's account:
+- **Read (prevents proposing a clash):** the scheduling engine reads the CEO's calendar free/busy when generating slots. Because Calendly writes booked consultations onto this same calendar, free/busy already reflects consultations — so we never offer an interview slot that overlaps one.
+- **Write (prevents a future clash):** on booking we create a calendar event for the interview on the CEO's Google Calendar. Calendly checks that calendar for conflicts, so it will not offer or accept a consultation over an interview.
+
+This reconciles consultations (written by Calendly) and interviews (written by us) in one calendar that everything reads. It requires the owner to connect Google Calendar both to our app (so we can read/write) and to Calendly's conflict-checking (so Calendly respects interviews). See §12.
+
+**Consequence for the owner:** No "Interview" Calendly event type is required. Setup is: connect Google Calendar (to our app + to Calendly's conflict-check) and confirm the Zoom credential can create meetings with AI Companion summaries on. See §12.
 
 ---
 
@@ -83,7 +93,7 @@ This is the heart of the build. It is a **pure module** (`lib/interview-schedule
 
 Notes:
 - These are **defaults**. The practice's emailed reply (§5.4) **narrows or overrides** the practice's default windows for specific dates ("Only Thursday after 7pm").
-- The host window is additionally constrained by the CEO's **real calendar free/busy** — times the CEO is already booked are subtracted. (Free/busy source: the same connected calendar used for consultations; if not programmatically available at build time, this is a documented follow-up — see §13. Until then the host window is the table value minus existing `scheduled_calls` for the CEO.)
+- The host window is additionally constrained by the CEO's **real Google Calendar free/busy** — any time the CEO is already booked (including Calendly-booked consultations, which Calendly writes onto this calendar) is subtracted. This is the read half of the two-way clash prevention (§4).
 - Each party window is configurable via constants at the top of the module so the owner's hours can change without code spelunking.
 
 ### 5.2 Timezone + daylight-saving handling
@@ -97,7 +107,7 @@ Notes:
 Given: reference `now`, a horizon (default **next 14 days**), interview duration (default **45 minutes**), minimum lead time (default **48 hours** so the practice has notice), and the three sets of daily windows:
 
 1. Build, for each day in the horizon, each party's availability as UTC intervals (host, practice, GP), applying weekday/weekend rules and the practice's emailed overrides.
-2. Subtract the host's existing bookings (busy intervals) from the host set.
+2. Subtract the host's busy intervals — read from the CEO's Google Calendar free/busy (which includes Calendly-booked consultations) plus any existing interviews — from the host set.
 3. Intersect the three sets day by day → **three-way-free intervals** (UTC).
 4. Drop any interval shorter than the interview duration and anything inside the lead-time buffer.
 5. Slice the surviving intervals into discrete start times on a **30-minute grid** → the candidate slot list.
@@ -130,11 +140,13 @@ Additive migration on `scheduled_calls` (keeps consultations working):
   - `practice_availability_windows JSONB` — the AI-extracted windows.
   - `practice_availability_requested_at` / `_received_at TIMESTAMPTZ`.
 - Host identity: add `host_kind TEXT DEFAULT 'rso'` (`rso | ceo`) so the Meetings tab can select the CEO's own meetings cleanly. (Consultations the CEO personally runs are `ceo`; RSO consultations stay `rso`.)
+- `gcal_event_id TEXT NULL` — the Google Calendar event id created for a booked interview (so we can update/cancel it and confirm it was written to the calendar Calendly checks).
 
 Local-JSON parity: the same fields are mirrored in `dbState.scheduledCalls` (or the existing local collection) so the gated page runs the real code offline, consistent with the existing ATS local-mode pattern.
 
 New/changed server helpers:
 - `createZoomMeeting({ topic, startUtc, durationMin, hostEmail })` — new helper using the existing Zoom API credentials (same auth path as `fetchAndSaveZoomSummary`) to create the interview's Zoom meeting; returns `{ id, uuid, join_url, passcode, host_url }`. Requires the Zoom credential to have meeting-create scope (§12).
+- `lib/google-calendar.js` (new) — a small client with `googleCalendarFreeBusy({ calendarId, fromUtc, toUtc })` (read) and `createCalendarEvent({ calendarId, summary, startUtc, endUtc, attendees, zoomJoinUrl })` (write), using the CEO account's Google credentials with a new Calendar scope (§12). **Dual-mode:** in local/dev/test it reads/writes a fake calendar held in `dbState` so the engine and endpoints are fully testable without Google; in prod it calls the Google Calendar API. Same prod-only-credential pattern as Drive — see [[drive-folders-and-docs-mechanics]] — so the real calendar path is verified in production and mocked locally.
 - Reuse `fetchAndSaveZoomSummary` unchanged for interview summaries (matches by `zoom_meeting_id`).
 - The career_interviews migrations remain unapplied and the `/api/admin/career/interview/*` endpoints + the old modal are retired/removed to avoid a second, dead interview path. (Note: `lib/ceo-metrics.js` references `career_interviews`; since that table is absent in the DB those reads are already no-ops — they'll be repointed at the unified `scheduled_calls` interview rows or left inert, decided during implementation.)
 
@@ -147,7 +159,7 @@ An interview `scheduled_calls` row moves through:
 1. **`requested`** — CEO clicked Book interview; practice availability email sent; `practice_availability_status = requested`. (We reuse `status` semantics; interview-specific sub-state lives in `practice_availability_status` + whether `scheduled_at` is set.)
 2. **practice replied / defaulted** — AI windows stored (`received`) or defaults applied (`defaulted`); the engine computes slots; the GP is notified (WhatsApp + email via existing channels) that slots are ready to pick.
 3. **`invited` → awaiting GP pick** — GP opens the app and sees the pre-cleared slots.
-4. **GP picks** → we `createZoomMeeting`, store Zoom fields + `scheduled_at`, set `status = 'booked'`, send calendar invites to all three (each in their local time), and move the application's `ats_stage` to `interview` (writing an `ats_stage_events` row).
+4. **GP picks** → we re-check the slot is still free against the CEO's Google Calendar, `createZoomMeeting`, then `createCalendarEvent` on the CEO's Google Calendar (storing `gcal_event_id` — this is what blocks Calendly from booking a consultation over it), store Zoom fields + `scheduled_at`, set `status = 'booked'`, send calendar invites to all three (each in their local time), and move the application's `ats_stage` to `interview` (writing an `ats_stage_events` row).
 5. **`completed`** — Zoom `meeting.ended` → `summary_status = 'pending'` (existing handler).
 6. **summarized** — Zoom `meeting.summary_completed` → `fetchAndSaveZoomSummary` saves the summary (existing handler).
 
@@ -188,7 +200,7 @@ Cancel / no-show / reschedule reuse the existing consultation handlers where pos
 - `POST /api/ats/interview/request` — body `{ application_id }`. Creates the interview `scheduled_calls` row (`meeting_kind='interview'`, `host_kind='ceo'`), sends the practice availability email, sets `practice_availability_status='requested'`. CEO/super-admin guarded.
 - (internal) practice-reply ingestion — when the hub receives the practice's reply, AI-parse → store `practice_availability_windows`, compute slots, notify the GP. Hooks into the existing hub reply path.
 - `GET /api/ats/interview/slots?application_id=…` — returns the computed pre-cleared slots for the GP picker (each with per-party local times).
-- `POST /api/ats/interview/book` — body `{ application_id, slot_start_utc }`. Validates the slot is still three-way-free, `createZoomMeeting`, stores Zoom fields + `scheduled_at`, sets `status='booked'`, moves `ats_stage` to `interview`, sends invites. Idempotent on the interview row.
+- `POST /api/ats/interview/book` — body `{ application_id, slot_start_utc }`. Re-validates the slot is still three-way-free **including a fresh Google Calendar free/busy check**, `createZoomMeeting`, `createCalendarEvent` on the CEO's Google Calendar (stores `gcal_event_id`), stores Zoom fields + `scheduled_at`, sets `status='booked'`, moves `ats_stage` to `interview`, sends invites. Idempotent on the interview row.
 - `GET /api/ceo/meetings?kind=all|consultation|interview` — the CEO's host meetings for the Meetings tab.
 - `GET /api/ceo/candidate` — extended `apps[]` with interview summary + offer/contract placeholder (no new route).
 
@@ -198,8 +210,12 @@ All endpoints dual-mode (Supabase + local-JSON), following the existing ATS endp
 
 ## 12. External setup the owner must do once (and what I'll provide)
 
-- **Zoom:** ensure the Zoom credential used by the app can **create meetings** (meeting-create scope on the Server-to-Server OAuth app) and that **AI Companion meeting summaries** are enabled for the host account so summaries generate automatically. I'll write click-by-click steps.
-- **No Calendly change needed** for interviews (they don't use Calendly).
+- **Google Calendar (new — this is the main setup):**
+  1. Connect the CEO's Google Calendar to **Calendly's conflict-checking** (Calendly → Calendar connection → "check this calendar for conflicts"), so Calendly treats interviews on that calendar as busy.
+  2. Grant **our app** access to the CEO's Google Calendar (Calendar API scope, added to the existing Google integration — the CEO consents once, or we use Google Workspace domain-wide delegation for hello@). This lets us read free/busy and write interview events.
+  3. Confirm Calendly is set to **add booked consultations to this same Google Calendar**, so consultations appear in free/busy.
+- **Zoom:** ensure the Zoom credential can **create meetings** (meeting-create scope on the Server-to-Server OAuth app) and that **AI Companion meeting summaries** are enabled for the host account. I'll write click-by-click steps.
+- **No "Interview" Calendly event type needed** (interviews don't use Calendly).
 - The practice availability email uses the existing hub — no new setup.
 
 I'll build and test everything in local mode so it's ready the moment the Zoom scope is confirmed, then ship to the preview branch and (on the owner's say-so) production, applying the additive migration to the shared Supabase.
@@ -210,6 +226,7 @@ I'll build and test everything in local mode so it's ready the moment the Zoom s
 
 - **Unit tests for `lib/interview-scheduler.js`** (the pure engine): overlaps across UK/AU with **DST boundary cases** (UK in BST while AU in standard time, and vice-versa), weekday vs weekend rules, GP sleep-window exclusion, practice override narrowing, lead-time and duration filtering, empty-overlap days. Deterministic via injected `now`.
 - **Endpoint tests** (vitest, local-JSON mode, minted `gp_admin_session`): request → slots → book happy path; idempotency; auth guard; application stage moves to `interview` and an `ats_stage_events` row is written; Meetings list filtering by `meeting_kind`; candidate `apps[]` includes interview summary + placeholder.
+- **Google Calendar read/write is mocked** in dev/test (the fake calendar in `dbState`): tests assert booking writes a calendar event and stores `gcal_event_id`, and that a busy calendar interval is excluded from the offered slots (the two-way clash prevention). The real Google Calendar API path is prod-only (mocked locally, like Drive).
 - **Regression:** the full existing suite (753+) stays green; consultations behave identically.
 - **Visual:** screenshot the Meetings tab (both filters), the candidate Applications section, and the GP slot picker on the real gated page via the existing screenshot harness.
 
@@ -218,7 +235,7 @@ I'll build and test everything in local mode so it's ready the moment the Zoom s
 ## 14. Open items to verify during implementation (not blockers)
 - **Practice timezone data:** confirm what location/state we store per derived practice (from `career_roles` / `source_payload.zoho`) so practice TZ is correct, not just defaulted to Sydney. If too thin, default to Sydney and surface the assumption on the booking screen.
 - **GP timezone source:** confirm `registration_country` reliably yields a timezone for every GP; otherwise default by country with an override.
-- **CEO calendar free/busy:** confirm whether the connected calendar's busy times are readable programmatically; if not this round, subtract only existing `scheduled_calls` and treat full calendar free/busy as a fast follow.
+- **Google auth for Calendar:** confirm the existing Google integration's auth mechanism (service account with domain-wide delegation vs OAuth) and add the Calendar scope for the CEO account (hello@). The real calendar read/write can only be verified in production (no Google creds locally — see [[machine-environment-quirks]]), so it ships behind the same prod-only pattern as Drive, mocked locally.
 - **Zoom create-meeting scope:** confirm the existing Zoom app credential can create meetings; if a scope change is needed, that's the one owner setup step.
 
 ---
@@ -226,7 +243,7 @@ I'll build and test everything in local mode so it's ready the moment the Zoom s
 ## 15. Sequencing (for the implementation plan)
 1. Migration + `scheduled_calls` model changes (+ local-mode parity).
 2. `lib/interview-scheduler.js` pure engine + its unit tests.
-3. `createZoomMeeting` helper + reuse of the summary pipeline.
+3. `createZoomMeeting` helper + `lib/google-calendar.js` (free/busy read + event write, dual-mode) + reuse of the summary pipeline.
 4. Practice availability email + AI-parse ingestion.
 5. Interview API endpoints (request / slots / book) + stage move.
 6. UI: Book interview button + GP slot picker.
