@@ -95,3 +95,18 @@ describe('POST /api/ats/interview/request', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('ingestPracticeAvailabilityReply', () => {
+  it('parses a practice reply into windows and marks received', async () => {
+    // The interview row was created by the test above; fetch its id via the idempotent endpoint.
+    const res = await call('POST', '/api/ats/interview/request', { application_id: SEED_APP_ID });
+    expect(res.status).toBe(200);
+    const id = res.body.interview_id;
+    const mod = await import('../server.js');
+    await mod.__testUtils.ingestPracticeAvailabilityReply(id, 'Thursday or Friday after 7pm works for us', '2026-07-01T00:00:00Z');
+    const row = (readDb().scheduledCalls || []).find((r) => r.id === id);
+    expect(row.practice_availability_status).toBe('received');
+    expect(Array.isArray(row.practice_availability_windows)).toBe(true);
+    expect(row.practice_availability_windows.length).toBeGreaterThanOrEqual(1);
+  });
+});

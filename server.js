@@ -44549,12 +44549,244 @@ if (process.env.VERCEL) {
   });
 }
 
+// ── Task 5: Practice-reply ingestion — AI-parse availability windows ──────────
+//
+// Parses a free-text practice reply into concrete interview time windows,
+// stores them on the scheduled_calls row, and notifies the GP.
+//
+// INTEGRATION POINT (hub auto-ingestion):
+// The registration email hub (registrationHubInbox / the inbound path through
+// matchResponseToTask at server.js:2868) is delicate and has a documented bug
+// history. To wire auto-ingestion safely, add ONLY this guarded additive call
+// in the caller that processes inbound mail addressed to a practice contact:
+//
+//   try {
+//     if (emailMeta && emailMeta.from) {
+//       var pendingInterview = isSupabaseDbConfigured()
+//         ? /* supabaseDbRequest('scheduled_calls', 'select=id&meeting_kind=eq.interview&practice_availability_status=eq.requested&limit=1') */
+//         : (dbState.scheduledCalls || []).find(function (r) {
+//             return r.meeting_kind === 'interview' &&
+//                    r.practice_availability_status === 'requested' &&
+//                    /* match sender email to practice contact on the application */
+//                    r.status !== 'cancelled';
+//           });
+//       if (pendingInterview) {
+//         ingestPracticeAvailabilityReply(pendingInterview.id, emailMeta.bodyText || emailMeta.snippet, new Date().toISOString())
+//           .catch(function (e) { console.warn('[interview] auto-ingest availability failed (ignored):', e && e.message); });
+//       }
+//     }
+//   } catch (e) { /* never break the hub */ }
+//
+// This is NOT wired here to protect the hub; see task-5-report.md §Hook.
+
+async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
+  if (!interviewId || !replyText) return;
+  var now = nowIso || new Date().toISOString();
+
+  // 1. Load the interview row (dual-mode).
+  var row;
+  if (isSupabaseDbConfigured()) {
+    var rr = await supabaseDbRequest('scheduled_calls',
+      'select=*&id=eq.' + encodeURIComponent(String(interviewId)) + '&meeting_kind=eq.interview&limit=1');
+    row = (rr.ok && Array.isArray(rr.data) && rr.data[0]) ? rr.data[0] : null;
+  } else {
+    row = (dbState.scheduledCalls || []).find(function (r) {
+      return String(r.id) === String(interviewId) && r.meeting_kind === 'interview';
+    }) || null;
+  }
+  if (!row) return;
+
+  // 2. Parse reply into windows.
+  var windows;
+  if (process.env.ANTHROPIC_API_KEY) {
+    windows = await _parseAvailabilityViaAI(replyText, now);
+  } else {
+    windows = _parseAvailabilityFallback(replyText, now);
+  }
+
+  // 3. Store on the row (dual-mode).
+  var patch = {
+    practice_availability_windows: windows,
+    practice_availability_status: interviewMeetings.PRACTICE_AVAIL.RECEIVED,
+    practice_availability_received_at: now,
+    updated_at: now
+  };
+  if (isSupabaseDbConfigured()) {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(interviewId)), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+  } else {
+    Object.assign(row, patch);
+    saveDbState();
+  }
+
+  // 4. Notify the GP — best-effort; any thrown error is swallowed so it
+  //    can never block callers or break tests that have no transport.
+  try {
+    var gpUserId = row.user_id;
+    var gpCaseId = row.case_id;
+    if ((gpUserId || gpCaseId) && isSupabaseDbConfigured()) {
+      var pFilter = gpCaseId
+        ? 'case_id=eq.' + encodeURIComponent(gpCaseId)
+        : 'user_id=eq.' + encodeURIComponent(gpUserId);
+      var pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&' + pFilter + '&limit=1');
+      var pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+      if (pRow) {
+        var gpFirstName = pRow.first_name || 'there';
+        var notifyMsg = 'Hi ' + gpFirstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
+          var dtPhone = normalizePhone(pRow.phone);
+          if (dtPhone) {
+            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
+              signal: AbortSignal.timeout(10000)
+            }).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
+          }
+        }
+        if (pRow.email && isEmailConfigured()) {
+          sendEmail({
+            to: pRow.email,
+            subject: 'Your interview slots are ready',
+            text: notifyMsg,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          }).catch(function (e) { console.warn('[interview] GP email notify failed (ignored):', e && e.message); });
+        }
+      }
+    }
+  } catch (notifyErr) {
+    console.warn('[interview] ingestPracticeAvailabilityReply notify error (ignored):', notifyErr && notifyErr.message);
+  }
+
+  return { windows: windows };
+}
+
+// AI path: call Claude to parse the reply into windows.
+async function _parseAvailabilityViaAI(replyText, nowIso) {
+  var horizonEnd = new Date(new Date(nowIso).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  var prompt = 'A medical practice has replied to an interview-availability request.\n\nReply:\n"""\n' + replyText + '\n"""\n\nToday is ' + nowIso.slice(0, 10) + '. Extract all interview availability windows. Only include dates from today to ' + horizonEnd + ' (the next 14 days). Return ONLY a raw JSON array (no markdown, no commentary) with this exact shape:\n[{"date":"YYYY-MM-DD","fromMin":<integer minutes from local midnight>,"toMin":<integer minutes from local midnight>}]\nUse Australia/Sydney time. Map weekday names to their next concrete date(s) in the 14-day window. Cap open-ended "after X pm" at toMin=1320 (22:00). Return [] if no clear windows can be extracted.';
+  var controller = new AbortController();
+  var aiTimeout = setTimeout(function () { controller.abort(); }, 20000);
+  try {
+    var aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 512, messages: [{ role: 'user', content: prompt }] })
+    });
+    clearTimeout(aiTimeout);
+    if (aiResp.ok) {
+      var aiData = await aiResp.json();
+      if (aiData.usage) recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0, aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+      var text = (aiData.content && aiData.content[0] && aiData.content[0].text) || '';
+      var parsed = JSON.parse(text.trim());
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    clearTimeout(aiTimeout);
+    console.warn('[interview] AI availability parse failed, using fallback:', e && e.message);
+  }
+  return _parseAvailabilityFallback(replyText, nowIso);
+}
+
+// Deterministic fallback parser — no API required; used in tests.
+// Handles: named weekdays, "weekday(s)"/"weekend(s)", time ranges like
+// "6-10pm"/"9am-12pm", "after Npm", "before Nam".
+// Produces [{date:'YYYY-MM-DD', fromMin, toMin}] for dates in the 14-day horizon.
+function _parseAvailabilityFallback(replyText, nowIso) {
+  var txt = String(replyText || '').toLowerCase();
+  var now = new Date(nowIso || new Date().toISOString());
+
+  // ── Time parsing ──
+  function parseTimeRange(s) {
+    // "6-10pm", "9am-12pm", "6pm-10pm", "6:00pm-10:00pm"
+    var rangeM = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/);
+    if (rangeM) {
+      var h1 = parseInt(rangeM[1], 10), m1 = parseInt(rangeM[2] || '0', 10), ap1 = rangeM[3] || rangeM[6];
+      var h2 = parseInt(rangeM[4], 10), m2 = parseInt(rangeM[5] || '0', 10), ap2 = rangeM[6];
+      if (ap1 === 'pm' && h1 < 12) h1 += 12;
+      if (ap1 === 'am' && h1 === 12) h1 = 0;
+      if (ap2 === 'pm' && h2 < 12) h2 += 12;
+      if (ap2 === 'am' && h2 === 12) h2 = 0;
+      return { fromMin: h1 * 60 + m1, toMin: h2 * 60 + m2 };
+    }
+    // "after 7pm"
+    var afterM = s.match(/after\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+    if (afterM) {
+      var ah = parseInt(afterM[1], 10), am_ = parseInt(afterM[2] || '0', 10), aap = afterM[3] || 'pm';
+      if (aap === 'pm' && ah < 12) ah += 12;
+      if (aap === 'am' && ah === 12) ah = 0;
+      return { fromMin: ah * 60 + am_, toMin: 1320 }; // cap at 22:00
+    }
+    // "before 10am"
+    var beforeM = s.match(/before\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+    if (beforeM) {
+      var bh = parseInt(beforeM[1], 10), bm = parseInt(beforeM[2] || '0', 10), bap = beforeM[3] || 'am';
+      if (bap === 'pm' && bh < 12) bh += 12;
+      if (bap === 'am' && bh === 12) bh = 0;
+      return { fromMin: 0, toMin: bh * 60 + bm };
+    }
+    return null;
+  }
+
+  // ── Day name → UTC day-of-week (0=Sun, 1=Mon, … 6=Sat) ──
+  var DAY_NAMES = {
+    monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 0,
+    mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0
+  };
+
+  // Find all dates within 14 days that fall on a given UTC day-of-week.
+  function datesForDow(dow) {
+    var results = [];
+    for (var d = 0; d < 14; d++) {
+      var candidate = new Date(now.getTime() + d * 24 * 60 * 60 * 1000);
+      if (candidate.getUTCDay() === dow) results.push(candidate.toISOString().slice(0, 10));
+    }
+    return results;
+  }
+
+  // ── Collect target dates ──
+  var targetDates = [];
+
+  if (/\bweekend/.test(txt)) {
+    [6, 0].forEach(function (dow) { targetDates = targetDates.concat(datesForDow(dow)); });
+  }
+  if (/\bweekday/.test(txt)) {
+    [1, 2, 3, 4, 5].forEach(function (dow) { targetDates = targetDates.concat(datesForDow(dow)); });
+  }
+
+  // Named weekdays
+  Object.keys(DAY_NAMES).forEach(function (name) {
+    if (new RegExp('\\b' + name + '\\b').test(txt)) {
+      datesForDow(DAY_NAMES[name]).forEach(function (dt) {
+        if (targetDates.indexOf(dt) === -1) targetDates.push(dt);
+      });
+    }
+  });
+
+  // Fallback: if no day signal found, assume any weekday in the horizon.
+  if (targetDates.length === 0) {
+    [1, 2, 3, 4, 5].forEach(function (dow) { targetDates = targetDates.concat(datesForDow(dow)); });
+  }
+
+  // ── Time range ──
+  var timeRange = parseTimeRange(txt);
+  if (!timeRange) timeRange = { fromMin: 1020, toMin: 1260 }; // default 5pm–9pm
+
+  // ── Build and return windows ──
+  targetDates.sort();
+  return targetDates.map(function (date) {
+    return { date: date, fromMin: timeRange.fromMin, toMin: timeRange.toMin };
+  });
+}
+
 module.exports.createServer = createServer;
 module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
   selectSppaReplyMessage,
   mapPreparedDocumentRow,
