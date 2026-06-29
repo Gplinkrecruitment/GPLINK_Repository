@@ -136,6 +136,7 @@ var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
 var atsComms = require('./lib/ats-comms');
 var interviewMeetings = require('./lib/interview-meetings');
+var interviewScheduler = require('./lib/interview-scheduler');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
   normalizeIchcReference, isValidIchcReference,
@@ -43976,6 +43977,242 @@ Return ONLY valid JSON with no markdown formatting:
     var irBodyText = 'Which evenings/weekends over the next 2 weeks suit to interview Dr ' + irCtx.gpName + '?';
     sendPracticeAvailabilityEmail({ to: irCtx.practiceEmail, subject: irSubject, text: irBodyText }).catch(function () {});
     sendJson(res, 200, { ok: true, interview_id: irSaved.id, already: false });
+    return;
+  }
+
+  // ---- Interview slots (GET) -----------------------------------------------
+  if (pathname === '/api/ats/interview/slots' && req.method === 'GET') {
+    var ctxSL = requireCeoSession(req, res); if (!ctxSL) return;
+    var slAppId = url.searchParams.get('application_id');
+    if (!slAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var slNowParam = url.searchParams.get('now');
+    var slNow = slNowParam ? new Date(slNowParam) : new Date();
+
+    // Find the interview row (local mode returns the full object; Supabase returns {id,status}).
+    var slInterviewRef = await findInterviewForApplication(slAppId);
+    if (!slInterviewRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+
+    // Load full row to access practice_availability_status and windows.
+    var slRow;
+    if (isSupabaseDbConfigured()) {
+      var slRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(slInterviewRef.id) + '&limit=1');
+      slRow = (slRowRes.ok && slRowRes.data && slRowRes.data[0]) ? slRowRes.data[0] : null;
+    } else {
+      slRow = slInterviewRef; // local findInterviewForApplication returns the full object
+    }
+    if (!slRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
+
+    var slStatus = slRow.practice_availability_status || 'not_requested';
+    if (slStatus !== interviewMeetings.PRACTICE_AVAIL.RECEIVED && slStatus !== interviewMeetings.PRACTICE_AVAIL.DEFAULTED) {
+      sendJson(res, 200, { ok: true, status: slStatus, slots: [] }); return;
+    }
+
+    // Get application context for timezone + practice info.
+    var slCtx = await atsGetApplicationContext(slAppId);
+    if (!slCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Build per-party configs.
+    var slHost = interviewMeetings.DEFAULT_HOST_CONFIG;
+    var slPractice = {
+      tz: interviewMeetings.practiceTzForLocation(slCtx.practiceName || ''),
+      weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday,
+      weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend,
+      overrides: Array.isArray(slRow.practice_availability_windows) ? slRow.practice_availability_windows : []
+    };
+    var slGp = {
+      tz: interviewMeetings.gpTzForCountry(slCtx.gpCountry),
+      weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
+      weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
+    };
+
+    // Build busy intervals: gcal + existing booked interviews.
+    var slNowIso = slNow.toISOString();
+    var slHorizonIso = new Date(slNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    var slBusy = await gcalReadBusy({ fromUtc: slNowIso, toUtc: slHorizonIso });
+    var slBookedInterviews = [];
+    if (isSupabaseDbConfigured()) {
+      var slBR = await supabaseDbRequest('scheduled_calls', 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&limit=200');
+      slBookedInterviews = (slBR.ok && Array.isArray(slBR.data)) ? slBR.data : [];
+    } else {
+      slBookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
+        return r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at;
+      });
+    }
+    slBookedInterviews.forEach(function (r) {
+      if (r.scheduled_at) {
+        slBusy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
+      }
+    });
+
+    var slResult = interviewScheduler.computeInterviewSlots({
+      now: slNow,
+      horizonDays: 14,
+      durationMin: 45,
+      leadHours: 48,
+      gridMin: 30,
+      maxSlots: 12,
+      host: slHost,
+      practice: slPractice,
+      gp: slGp,
+      busy: slBusy
+    });
+
+    sendJson(res, 200, { ok: true, status: slStatus, slots: slResult.slots });
+    return;
+  }
+
+  // ---- Interview book (POST) -----------------------------------------------
+  if (pathname === '/api/ats/interview/book' && req.method === 'POST') {
+    var ctxBK = requireCeoSession(req, res); if (!ctxBK) return;
+    var bodyBK; try { bodyBK = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var bkAppId = (bodyBK && bodyBK.application_id != null) ? String(bodyBK.application_id) : '';
+    var bkSlotStart = (bodyBK && bodyBK.slot_start_utc) ? String(bodyBK.slot_start_utc) : '';
+    var bkNowParam = (bodyBK && bodyBK.now) ? bodyBK.now : null;
+    var bkNow = bkNowParam ? new Date(bkNowParam) : new Date();
+    if (!bkAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    if (!bkSlotStart) { sendJson(res, 400, { ok: false, message: 'slot_start_utc required.' }); return; }
+
+    // Find the interview row.
+    var bkInterviewRef = await findInterviewForApplication(bkAppId);
+    if (!bkInterviewRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+
+    // Load full row.
+    var bkRow;
+    if (isSupabaseDbConfigured()) {
+      var bkRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(bkInterviewRef.id) + '&limit=1');
+      bkRow = (bkRowRes.ok && bkRowRes.data && bkRowRes.data[0]) ? bkRowRes.data[0] : null;
+    } else {
+      bkRow = bkInterviewRef;
+    }
+    if (!bkRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
+
+    // Idempotent: already booked.
+    if (bkRow.status === 'booked') {
+      sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkRow.scheduled_at, zoom_join_url: bkRow.zoom_join_url || '', already: true });
+      return;
+    }
+
+    // Re-run slot computation to validate the requested slot is still available.
+    var bkCtx = await atsGetApplicationContext(bkAppId);
+    if (!bkCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    var bkHost = interviewMeetings.DEFAULT_HOST_CONFIG;
+    var bkPractice = {
+      tz: interviewMeetings.practiceTzForLocation(bkCtx.practiceName || ''),
+      weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday,
+      weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend,
+      overrides: Array.isArray(bkRow.practice_availability_windows) ? bkRow.practice_availability_windows : []
+    };
+    var bkGp = {
+      tz: interviewMeetings.gpTzForCountry(bkCtx.gpCountry),
+      weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
+      weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
+    };
+
+    var bkNowIso = bkNow.toISOString();
+    var bkHorizonIso = new Date(bkNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    var bkBusy = await gcalReadBusy({ fromUtc: bkNowIso, toUtc: bkHorizonIso });
+    var bkBookedInterviews = [];
+    if (isSupabaseDbConfigured()) {
+      var bkBR = await supabaseDbRequest('scheduled_calls', 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&id=neq.' + encodeURIComponent(bkRow.id) + '&limit=200');
+      bkBookedInterviews = (bkBR.ok && Array.isArray(bkBR.data)) ? bkBR.data : [];
+    } else {
+      bkBookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
+        return r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at && String(r.id) !== String(bkRow.id);
+      });
+    }
+    bkBookedInterviews.forEach(function (r) {
+      if (r.scheduled_at) {
+        bkBusy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
+      }
+    });
+
+    var bkResult = interviewScheduler.computeInterviewSlots({
+      now: bkNow,
+      horizonDays: 14,
+      durationMin: 45,
+      leadHours: 48,
+      gridMin: 30,
+      maxSlots: 12,
+      host: bkHost,
+      practice: bkPractice,
+      gp: bkGp,
+      busy: bkBusy
+    });
+
+    var bkSlotValid = bkResult.slots.some(function (s) { return s.startUtc === bkSlotStart; });
+    if (!bkSlotValid) { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
+
+    // Create Zoom meeting.
+    var bkZoom = await createZoomInterviewMeeting({
+      topic: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
+      startUtc: bkSlotStart,
+      durationMin: 45
+    });
+
+    // Create Calendar event.
+    var bkSlotEnd = new Date(new Date(bkSlotStart).getTime() + 45 * 60000).toISOString();
+    var bkGcal = await gcalCreateEvent({
+      summary: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
+      startUtc: bkSlotStart,
+      endUtc: bkSlotEnd,
+      attendees: [bkCtx.app && bkCtx.app.email || '', bkCtx.practiceEmail || ''].filter(Boolean),
+      description: 'GP Link interview: ' + bkCtx.gpName + ' for ' + (bkCtx.practiceName || '') + '. Join: ' + (bkZoom.join_url || ''),
+      zoomJoinUrl: bkZoom.join_url || ''
+    });
+
+    // Persist the booking on the interview row (dual-mode).
+    var bkNowTs = atsNowIso();
+    var bkPatch = {
+      status: 'booked',
+      scheduled_at: bkSlotStart,
+      booked_at: bkNowTs,
+      zoom_meeting_id: String(bkZoom.id || ''),
+      zoom_meeting_uuid: String(bkZoom.uuid || ''),
+      zoom_join_url: String(bkZoom.join_url || ''),
+      zoom_passcode: String(bkZoom.passcode || ''),
+      gcal_event_id: String(bkGcal.id || ''),
+      updated_at: bkNowTs
+    };
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(bkRow.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: bkPatch
+      });
+    } else {
+      Object.assign(bkRow, bkPatch);
+      saveDbState();
+    }
+
+    // Move application stage to 'interview'.
+    await atsUpdateApplicationStageRow(bkAppId, 'interview', '', ctxBK.email || '');
+
+    // Notify GP + practice — best-effort, must not throw past the response.
+    (async function () {
+      try {
+        var bkGpEmail = (bkCtx.app && bkCtx.app.email) || '';
+        var bkTimeLabel = new Date(bkSlotStart).toUTCString();
+        if (bkCtx.practiceEmail && isEmailConfigured()) {
+          await sendEmail({
+            to: bkCtx.practiceEmail,
+            subject: 'Interview confirmed — ' + bkCtx.gpName,
+            text: 'The interview with ' + bkCtx.gpName + ' is confirmed for ' + bkTimeLabel + '. Zoom: ' + (bkZoom.join_url || ''),
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        }
+        if (bkGpEmail && isEmailConfigured()) {
+          await sendEmail({
+            to: bkGpEmail,
+            subject: 'Your interview is confirmed',
+            text: 'Your interview at ' + (bkCtx.practiceName || 'the practice') + ' is confirmed for ' + bkTimeLabel + '. Zoom: ' + (bkZoom.join_url || ''),
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        }
+      } catch (bkNotifyErr) {
+        console.warn('[interview] book notify error (ignored):', bkNotifyErr && bkNotifyErr.message);
+      }
+    })().catch(function () {});
+
+    sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkSlotStart, zoom_join_url: bkZoom.join_url || '' });
     return;
   }
 
