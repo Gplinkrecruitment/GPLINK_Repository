@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RSO Command Centre - GP Link</title>
-  <script src="/js/perf-cache.js?v=20260608a" defer></script>
+  <script src="/js/perf-cache.js?v=20260628b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -1281,6 +1281,120 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .call-history-summary-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text);margin-bottom:4px}
 .call-history-summary-body{font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap}
 
+    /* ── Registration Email Hub (Inbox tab) ── */
+    #hubInboxPanel{--hub-teal:#0f766e;--hub-teal-dark:#0b5b54;--hub-teal-soft:#e6f4f2;--hub-sent:#eef6f5;--hub-amber:#b45309;--hub-amber-soft:#fff7ed;--hub-amber-line:#fed7aa;max-width:940px;margin:0 auto;padding:18px 16px 60px}
+    #hubInboxPanel .hub-loading,#hubInboxPanel .hub-empty{color:var(--muted);font-size:14px;padding:34px 10px;text-align:center}
+    #hubInboxPanel .hub-inbox-head{padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
+    #hubInboxPanel .hub-inbox-head h2{font-size:19px;margin:0 0 4px}
+    #hubInboxPanel .hub-inbox-sub{font-size:13px;color:var(--muted);margin:0 0 12px}
+    #hubInboxPanel .hub-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #hubInboxPanel .hub-filt{font-size:13px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 14px;cursor:pointer;color:var(--text);font-family:inherit}
+    #hubInboxPanel .hub-filt.active{background:var(--hub-teal);color:#fff;border-color:var(--hub-teal);font-weight:600}
+    #hubInboxPanel .hub-needs{margin-left:auto;font-size:12px;color:var(--muted)}
+    #hubInboxPanel .hub-conv-list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+    #hubInboxPanel .hub-conv-row{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+    #hubInboxPanel .hub-conv-row:last-child{border-bottom:0}
+    #hubInboxPanel .hub-conv-row:hover{background:#f8fafc}
+    #hubInboxPanel .hub-conv-row.unread{background:#f4faf9}
+    #hubInboxPanel .hub-conv-main{flex:1;min-width:0}
+    #hubInboxPanel .hub-conv-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    #hubInboxPanel .hub-conv-name{font-size:14.5px;font-weight:600}
+    #hubInboxPanel .hub-conv-row.unread .hub-conv-name{font-weight:700}
+    #hubInboxPanel .hub-conv-time{font-size:12px;color:var(--muted);white-space:nowrap}
+    #hubInboxPanel .hub-conv-prev{font-size:13px;color:var(--muted);margin:3px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #hubInboxPanel .hub-conv-with{font-size:12px;color:var(--muted);margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+    #hubInboxPanel .hub-conv-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    #hubInboxPanel .hub-chip{font-size:11.5px;color:var(--muted);background:#f1f4f8;border-radius:999px;padding:2px 9px;font-weight:500}
+    #hubInboxPanel .hub-chip.stage{background:var(--hub-teal-soft);color:var(--hub-teal-dark);font-weight:600}
+    #hubInboxPanel .hub-chip.rso{background:#eef2ff;color:#4338ca}
+    #hubInboxPanel .hub-badge{font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 9px}
+    #hubInboxPanel .hub-badge.reply{background:var(--hub-amber-soft);color:var(--hub-amber);border:1px solid var(--hub-amber-line)}
+    #hubInboxPanel .hub-badge.waiting{background:#f1f4f8;color:#64748b}
+    #hubInboxPanel .hub-dot{width:9px;height:9px;border-radius:50%;background:var(--hub-teal);flex:0 0 9px;margin-top:6px}
+    #hubInboxPanel .hub-back{font-size:13px;color:var(--hub-teal-dark);background:none;border:0;cursor:pointer;padding:0 0 12px;font-family:inherit}
+    #hubInboxPanel .hub-back:hover{text-decoration:underline}
+    #hubInboxPanel .hub-thread-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+    #hubInboxPanel .hub-thread-head h2{font-size:18px;margin:0 8px 0 0}
+    #hubInboxPanel .hub-thread{display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;padding:2px}
+    #hubInboxPanel .hub-msg{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+    #hubInboxPanel .hub-msg.sent{background:var(--hub-sent);border-color:#d4e7e4}
+    #hubInboxPanel .hub-msg.reply{background:#fff}
+    #hubInboxPanel .hub-msg-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px}
+    #hubInboxPanel .hub-dir{font-weight:700;letter-spacing:.03em;font-size:11px;padding:2px 7px;border-radius:5px}
+    #hubInboxPanel .hub-dir.out{background:var(--hub-teal);color:#fff}
+    #hubInboxPanel .hub-dir.in{background:#e8eaef;color:#374151}
+    #hubInboxPanel .hub-msg-time{color:var(--muted);font-size:11.5px}
+    #hubInboxPanel .hub-msg-subj{font-weight:600;font-size:13.5px;margin:2px 0 4px}
+    #hubInboxPanel .hub-msg-body{font-size:13.5px;line-height:1.5;color:#374151;white-space:pre-wrap}
+    #hubInboxPanel .hub-composer{margin-top:18px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+    #hubInboxPanel .hub-sendingas{font-size:12px;color:var(--muted);background:#fafbfc;padding:9px 12px;border-bottom:1px solid var(--line)}
+    #hubInboxPanel .hub-sendingas b{color:var(--text)}
+    #hubInboxPanel #hubReply{width:100%;border:0;resize:vertical;min-height:84px;padding:12px;font:inherit;font-size:14px;outline:none;background:#fff;color:var(--text)}
+    #hubInboxPanel #hubReply:disabled{background:#f8fafc;color:var(--muted)}
+    #hubInboxPanel .hub-composer-foot{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:0 12px 12px}
+    #hubInboxPanel .hub-nosend{font-size:12px;color:var(--amber);margin-right:auto}
+    #hubInboxPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+    #hubInboxPanel .hub-send:hover{background:var(--hub-teal-dark)}
+    #hubInboxPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
+    /* Per-candidate Emails tab on the GP profile — same look as the global Inbox, scoped to #gpEmailsPanel */
+    #gpEmailsPanel{--hub-teal:#0f766e;--hub-teal-dark:#0b5b54;--hub-teal-soft:#e6f4f2;--hub-sent:#eef6f5;--hub-amber:#b45309;--hub-amber-soft:#fff7ed;--hub-amber-line:#fed7aa;max-width:940px;margin:0 auto;padding:18px 16px 60px}
+    #gpEmailsPanel .hub-loading,#gpEmailsPanel .hub-empty{color:var(--muted);font-size:14px;padding:34px 10px;text-align:center}
+    #gpEmailsPanel .hub-inbox-head{padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
+    #gpEmailsPanel .hub-inbox-head h2{font-size:19px;margin:0 0 4px}
+    #gpEmailsPanel .hub-inbox-sub{font-size:13px;color:var(--muted);margin:0 0 12px}
+    #gpEmailsPanel .hub-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #gpEmailsPanel .hub-filt{font-size:13px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 14px;cursor:pointer;color:var(--text);font-family:inherit}
+    #gpEmailsPanel .hub-filt.active{background:var(--hub-teal);color:#fff;border-color:var(--hub-teal);font-weight:600}
+    #gpEmailsPanel .hub-needs{margin-left:auto;font-size:12px;color:var(--muted)}
+    #gpEmailsPanel .hub-conv-list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+    #gpEmailsPanel .hub-conv-row{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+    #gpEmailsPanel .hub-conv-row:last-child{border-bottom:0}
+    #gpEmailsPanel .hub-conv-row:hover{background:#f8fafc}
+    #gpEmailsPanel .hub-conv-row.unread{background:#f4faf9}
+    #gpEmailsPanel .hub-conv-main{flex:1;min-width:0}
+    #gpEmailsPanel .hub-conv-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    #gpEmailsPanel .hub-conv-name{font-size:14.5px;font-weight:600}
+    #gpEmailsPanel .hub-conv-row.unread .hub-conv-name{font-weight:700}
+    #gpEmailsPanel .hub-conv-time{font-size:12px;color:var(--muted);white-space:nowrap}
+    #gpEmailsPanel .hub-conv-prev{font-size:13px;color:var(--muted);margin:3px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #gpEmailsPanel .hub-conv-with{font-size:12px;color:var(--muted);margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+    #gpEmailsPanel .hub-conv-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    #gpEmailsPanel .hub-chip{font-size:11.5px;color:var(--muted);background:#f1f4f8;border-radius:999px;padding:2px 9px;font-weight:500}
+    #gpEmailsPanel .hub-chip.stage{background:var(--hub-teal-soft);color:var(--hub-teal-dark);font-weight:600}
+    #gpEmailsPanel .hub-chip.rso{background:#eef2ff;color:#4338ca}
+    #gpEmailsPanel .hub-badge{font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 9px}
+    #gpEmailsPanel .hub-badge.reply{background:var(--hub-amber-soft);color:var(--hub-amber);border:1px solid var(--hub-amber-line)}
+    #gpEmailsPanel .hub-badge.waiting{background:#f1f4f8;color:#64748b}
+    #gpEmailsPanel .hub-dot{width:9px;height:9px;border-radius:50%;background:var(--hub-teal);flex:0 0 9px;margin-top:6px}
+    #gpEmailsPanel .hub-back{font-size:13px;color:var(--hub-teal-dark);background:none;border:0;cursor:pointer;padding:0 0 12px;font-family:inherit}
+    #gpEmailsPanel .hub-back:hover{text-decoration:underline}
+    #gpEmailsPanel .hub-thread-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+    #gpEmailsPanel .hub-thread-head h2{font-size:18px;margin:0 8px 0 0}
+    #gpEmailsPanel .hub-thread{display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;padding:2px}
+    #gpEmailsPanel .hub-msg{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+    #gpEmailsPanel .hub-msg.sent{background:var(--hub-sent);border-color:#d4e7e4}
+    #gpEmailsPanel .hub-msg.reply{background:#fff}
+    #gpEmailsPanel .hub-msg-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px}
+    #gpEmailsPanel .hub-dir{font-weight:700;letter-spacing:.03em;font-size:11px;padding:2px 7px;border-radius:5px}
+    #gpEmailsPanel .hub-dir.out{background:var(--hub-teal);color:#fff}
+    #gpEmailsPanel .hub-dir.in{background:#e8eaef;color:#374151}
+    #gpEmailsPanel .hub-msg-time{color:var(--muted);font-size:11.5px}
+    #gpEmailsPanel .hub-msg-subj{font-weight:600;font-size:13.5px;margin:2px 0 4px}
+    #gpEmailsPanel .hub-msg-body{font-size:13.5px;line-height:1.5;color:#374151;white-space:pre-wrap}
+    #gpEmailsPanel .hub-composer{margin-top:18px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+    #gpEmailsPanel .hub-sendingas{font-size:12px;color:var(--muted);background:#fafbfc;padding:9px 12px;border-bottom:1px solid var(--line)}
+    #gpEmailsPanel .hub-sendingas b{color:var(--text)}
+    #gpEmailsPanel #hubReply{width:100%;border:0;resize:vertical;min-height:84px;padding:12px;font:inherit;font-size:14px;outline:none;background:#fff;color:var(--text)}
+    #gpEmailsPanel #hubReply:disabled{background:#f8fafc;color:var(--muted)}
+    #gpEmailsPanel .hub-composer-foot{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:0 12px 12px}
+    #gpEmailsPanel .hub-nosend{font-size:12px;color:var(--amber);margin-right:auto}
+    #gpEmailsPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+    #gpEmailsPanel .hub-send:hover{background:var(--hub-teal-dark)}
+    #gpEmailsPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
+    #hubInboxPanel .hub-suggest-row,#gpEmailsPanel .hub-suggest-row{display:flex;align-items:center;gap:10px;padding:10px 12px 0}
+    #hubInboxPanel .hub-suggest,#gpEmailsPanel .hub-suggest{font-size:12.5px;font-weight:600;color:var(--hub-teal-dark,#0b5b54);background:#f0fdfa;border:1px solid #cdeae5;border-radius:8px;padding:6px 11px;cursor:pointer}
+    #hubInboxPanel .hub-suggest-note,#gpEmailsPanel .hub-suggest-note{font-size:11.5px;color:var(--muted)}
+
   </style>
 </head>
 <body>
@@ -1318,6 +1432,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <a class="view-tab" id="ceoRsoOversightTab" href="/pages/ceo-dashboard?tab=rsos" style="display:none;text-decoration:none">RSO Oversight</a>
     <div class="view-tab active" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="gps">GPs</div>
+    <div class="view-tab" data-view="hubInbox">Inbox</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
@@ -1337,6 +1452,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
+  <div id="hubInboxPanel" style="display:none"></div>
   <div class="medical-centres-wrap" id="medicalCentresPanel" style="display:none"></div>
   <div class="support-wrap" id="supportPanel" style="display:none"></div>
   <div class="tools-wrap" id="toolsPanel" style="display:none">
@@ -2128,6 +2244,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       tools:"toolsOps",
       gps:"detail",
       inbox:"inboxPanel",
+      hubInbox:"hubInboxPanel",
       medicalcentres:"medicalCentresPanel",
       support:"supportPanel",
       guide:"guidePanel",
@@ -2146,6 +2263,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();return;}
     if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();return;}
     if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();return;}
+    if(S.view==="hubInbox"){vaShowPanel("hubInbox");HubInbox.show();return;}
     if(S.view==="medicalcentres"){vaShowPanel("medicalcentres");renderMedicalCentresPanel();return;}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
@@ -2764,9 +2882,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return{prompt:'Review the uploaded document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
+    // An alternate-supervisor CV REQUEST task is just a tracker for the email we auto-sent the
+    // practice asking for a named alternate supervisor's CV. It carries
+    // related_document_key='sppa_00' to tie it to the SPPA, so intercept it BEFORE the
+    // practice-doc branch below — otherwise it would be mistaken for the SPPA-00 task and
+    // wrongly offer a "Send SPPA" button. Read-only: status only, no action button.
+    if(t.task_type==='alt_supervisor_cv_request'){
+      if(t.status==='completed')return{prompt:'Alternate supervisor CV received',label:'Done',action:null,taskId:t.id};
+      return{prompt:'Requested alternate supervisor CV from the practice — awaiting reply',label:'Waiting',action:null,taskId:t.id};
+    }
+
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
+        var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
+        var _sppaSt=(_sppaMeta&&_sppaMeta.sppa_state)||'';
+        if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate — awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='gp_returned')return{prompt:'Candidate returned the SPPA-00 — send it to the practice',label:'Send to Practice',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='sent_to_practice')return{prompt:'Sent to the practice — awaiting the completed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='practice_returned')return{prompt:'Practice returned the SPPA-00 — review and submit',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='completed')return{prompt:'SPPA-00 completed',label:'Done',action:null,taskId:t.id};
         return{prompt:'Send SPPA-00 to candidate via email',label:'Send SPPA',action:'sendSppa',taskId:t.id};
       }
       if(dk==='section_g'){
@@ -3049,6 +3184,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           if(guided.prompt&&guided.action!==null){
             html+='<div class="st-guide">\u2192 '+esc(guided.prompt)+'</div>';
+          }
+          // Alternate-supervisor CV request tracker: show who we asked for + the request status
+          // inline (read-only \u2014 this task has no documents to review, so no expand panel).
+          if(t.task_type==='alt_supervisor_cv_request'){
+            var _acrMeta=t.metadata; if(typeof _acrMeta==='string'){try{_acrMeta=JSON.parse(_acrMeta);}catch(e){_acrMeta={};}}
+            var _acrNames=(_acrMeta&&Array.isArray(_acrMeta.alt_supervisor_names))?_acrMeta.alt_supervisor_names:[];
+            var _acrReqAt=(_acrMeta&&_acrMeta.alt_cv_requested_at)?_acrMeta.alt_cv_requested_at:'';
+            var _acrStatus=t.status==='completed'?'\u2705 CV received':('\u23f3 Requested'+(_acrReqAt?' '+esc(new Date(_acrReqAt).toLocaleDateString()):'')+' \u2014 awaiting practice reply');
+            html+='<div class="st-guide">'+(_acrNames.length?'Alternate supervisor'+(_acrNames.length>1?'s':'')+': '+esc(_acrNames.join(', '))+' \u2014 ':'')+_acrStatus+'</div>';
           }
           if(t.status==='escalated'){
             html+='<div><span class="tp escalated" style="display:inline-flex;align-items:center;border-radius:4px;padding:2px 8px;width:auto;height:auto;font-size:0.75rem;">\uD83D\uDEA8 Escalated</span></div>';
@@ -3798,8 +3942,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-subtab ${tab==="documents"?"active":""}" data-gp-tab="documents">Documents${docCount!==null?' <span class="subtab-count">'+docCount+'</span>':''}</div>
         <div class="gp-subtab ${tab==="timeline"?"active":""}" data-gp-tab="timeline">Timeline</div>
         <div class="gp-subtab ${tab==="call_history"?"active":""}" data-gp-tab="call_history">Calls</div>
+        <div class="gp-subtab ${tab==="emails"?"active":""}" data-gp-tab="emails">Emails</div>
       </div>`;
-      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):tab==="call_history"?renderGpCallHistoryPane(c):renderGpTasksPane(c);
+      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):tab==="call_history"?renderGpCallHistoryPane(c):tab==="emails"?'<div id="gpEmailsPanel"></div>':renderGpTasksPane(c);
       el.innerHTML=`
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
@@ -3809,6 +3954,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
       renderAiSummary(c.id, document.getElementById('aiSummaryContainer'));
+      // Per-candidate Emails subtab → reuse the Inbox thread/reply view, scoped to this one case.
+      // Fresh view each open so it always reflects the currently-open candidate.
+      if(tab==="emails"){
+        createHubEmailView({panelId:"gpEmailsPanel",caseId:c.id,showFilters:false}).show();
+      }
       // Auto-expand only the FIRST practice_pack_child task detail on the Tasks tab
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
@@ -5069,6 +5219,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsEmailTriage(task,msgs,docs);
     }else if(tt==='alt_supervisor_cv_review'){
       html=renderOpsAltSupervisorCvReview(task,msgs,docs);
+    }else if(tt==='alt_supervisor_cv_request'){
+      html=renderOpsAltSupervisorCvRequest(task);
     }else if(tt==='zoom_call'){
       html=await renderOpsZoomCall(task);
     }else{
@@ -5170,6 +5322,44 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return h;
   }
 
+  /* ── AI completeness verdict panel (practice-returned SPPA-00) ── */
+  function renderSppaCompletenessPanel(meta){
+    var cc = meta && meta.completeness_check;
+    if (!cc) return '';
+    var checkedAt = cc.checked_at ? new Date(cc.checked_at).toLocaleString() : '';
+    if (cc.error) {
+      return '<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">'
+        + '<div style="font-weight:700;color:#92400e">⚠ AI completeness check could not run</div>'
+        + '<div style="color:#92400e;margin-top:2px">' + esc(cc.summary || 'Please review the form manually.') + '</div>'
+        + '</div>';
+    }
+    if (cc.is_complete) {
+      var hc = '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      hc += '<div style="font-weight:700;color:#065f46">✓ AI completeness check: ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+      if (cc.summary) hc += '<div style="color:#065f46;margin-top:2px">' + esc(cc.summary) + '</div>';
+      if (cc.issues && cc.issues.length) hc += '<div style="color:#065f46;margin-top:4px;font-size:10px">' + cc.issues.map(function (x) { return '• ' + esc(x); }).join('<br>') + '</div>';
+      if (meta.completeness_override) hc += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Overridden by ' + esc(meta.completeness_override.by || 'RSO') + '</div>';
+      if (checkedAt) hc += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+      hc += '</div>';
+      return hc;
+    }
+    var lists = '';
+    function addList(label, arr) {
+      if (arr && arr.length) lists += '<div style="margin-top:4px"><span style="font-weight:600">' + esc(label) + ':</span><ul style="margin:2px 0 0 16px;padding:0">' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+    }
+    addList('Missing or blank fields', cc.missing_fields);
+    addList('Missing signatures', cc.missing_signatures);
+    addList('Missing documents', cc.missing_documents);
+    addList('Other issues', cc.issues);
+    var h = '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+    h += '<div style="font-weight:700;color:#b91c1c">⚠ AI completeness check: not ready to submit' + (cc.confidence ? ' (' + esc(cc.confidence) + ' confidence)' : '') + '</div>';
+    if (cc.summary) h += '<div style="color:#b91c1c;margin-top:2px">' + esc(cc.summary) + '</div>';
+    h += '<div style="color:#7f1d1d;margin-top:4px">' + lists + '</div>';
+    if (checkedAt) h += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
+    h += '</div>';
+    return h;
+  }
+
   /* ── SPPA-00 (7-state lifecycle) ── */
   function renderOpsSppa00(task,msgs,docs){
     var meta = task.metadata || {};
@@ -5211,6 +5401,38 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         b += '<b style="color:#dc2626">\u26a0 AI could not determine with confidence. Manual review required.</b>';
         b += '</div>';
       }
+      return b;
+    }
+
+    // GP-section completeness banner (shown in gp_returned state): did the
+    // candidate fill Section A Q1 and sign Section I? Result comes from the AI
+    // scan stored in meta.gp_section_scan when the SPPA is returned.
+    function gpSectionBanner() {
+      var scan = meta.gp_section_scan;
+      var rescanBtn = '<button class="ops-btn-secondary" style="margin-top:6px;font-size:11px" onclick="sppaScanGpSections(\'' + escAttr(task.id) + '\')">' + (scan ? 'Re-scan sections' : 'Run section check') + '</button>';
+      if (!scan) {
+        return '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">'
+          + '<b style="color:#1d4ed8">\u2139 Section check</b> \u2014 the AI is verifying the candidate completed their sections. Reload in a moment, or run it now.<br>' + rescanBtn
+          + '</div>';
+      }
+      var bg, bd, fg, head;
+      if (scan.overall === 'complete') { bg = '#ecfdf5'; bd = '#10b981'; fg = '#065f46'; head = '\u2713 Candidate sections complete'; }
+      else if (scan.overall === 'incomplete') { bg = '#fef2f2'; bd = '#ef4444'; fg = '#dc2626'; head = '\u26a0 Candidate sections look incomplete'; }
+      else { bg = '#fef3c7'; bd = '#f59e0b'; fg = '#b45309'; head = '\u26a0 Could not confirm \u2014 review the form manually'; }
+      var aMark = scan.section_a_filled ? '\u2713' : '\u2717';
+      var iMark = scan.section_i_signed ? '\u2713' : '\u2717';
+      var b = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      b += '<b style="color:' + fg + '">' + head + '</b>';
+      if (scan.summary) b += '<div style="margin-top:3px;color:#374151">' + esc(scan.summary) + '</div>';
+      b += '<div style="margin-top:6px;color:#374151">';
+      b += '<div>' + aMark + ' <b>Section A (Q1 \u2014 personal details)</b>' + (scan.section_a_notes ? ' \u2014 ' + esc(scan.section_a_notes) : '') + '</div>';
+      b += '<div>' + iMark + ' <b>Section I (Supervisee\'s signature)</b>' + (scan.section_i_notes ? ' \u2014 ' + esc(scan.section_i_notes) : '') + '</div>';
+      b += '</div>';
+      b += '<div style="margin-top:4px;color:#6b7280;font-size:10px">AI confidence: ' + esc(scan.confidence || 'low')
+        + (scan.candidate_name_detected ? ' \u00b7 name on form: ' + esc(scan.candidate_name_detected) : '')
+        + (scan.scanned_at ? ' \u00b7 ' + new Date(scan.scanned_at).toLocaleString('en-AU') : '') + '</div>';
+      b += rescanBtn;
+      b += '</div>';
       return b;
     }
 
@@ -5280,8 +5502,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // ── GP RETURNED: show thread + returned doc + email composer to practice ──
     if (sppaState === 'gp_returned') {
       h += '<div class="ops-expand-section">';
+      h += gpSectionBanner();
       h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      h += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       h += '</div>';
       h += opsRenderThread(msgs);
       h += opsRenderDocs(docs);
@@ -5376,6 +5599,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Practice Return</button>';
       h += '<button class="ops-btn-secondary" onclick="var w=document.getElementById(\'opsNudgeWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Nudge Practice</button>';
+      h += '<button class="ops-btn-secondary" onclick="sppaRecheckThread(\'' + escAttr(task.id) + '\')">Check for practice reply now</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
@@ -5388,6 +5612,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
       h += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
       h += '</div>';
+      h += renderSppaCompletenessPanel(meta);
       h += opsRenderThread(msgs);
       // Split docs into SPPA and alt supervisor CVs
       var sppaDocs = (docs||[]).filter(function(d) { return d.category !== 'alt_supervisor_cv'; });
@@ -5401,6 +5626,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';
+      h += '<button class="ops-btn-secondary" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
       h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(practiceEmail) + '\',\'' + escAttr(contactName || 'Practice Contact') + '\',\'' + escAttr(gpName) + '\')">Request Corrections</button>';
       h += '</div>';
       h += '</div>';
@@ -5418,10 +5644,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Requested ' + days + ' day' + (days === 1 ? '' : 's') + ' ago</div>';
         if (days >= 7) h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:11px;color:#92400e">\u23f0 ' + days + ' days since corrections requested \u2014 consider a follow-up</div>';
       }
+      if (meta.corrections_note) {
+        h += '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px"><strong>Corrections requested:</strong> ' + esc(meta.corrections_note) + '</div>';
+      }
       h += opsRenderThread(msgs);
+      // Resend corrections request (collapsed by default)
+      var resendTo = meta.sent_to_practice_email || practiceEmail;
+      h += '<div id="opsResendWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
+      h += '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(resendTo) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Corrections Needed — Dr ' + esc(gpName) + '" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
+        + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
+        + 'This is a follow-up regarding the corrections needed on the SPPA-00 for Dr ' + esc(gpName) + '.<br><br>'
+        + (meta.corrections_note ? esc(meta.corrections_note) + '<br><br>' : '')
+        + 'Could you please provide the corrected document as soon as possible?<br><br>'
+        + 'Kind regards,<br>Hazel — GP Link Registration Team'
+        + '</div>';
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Send</button></div>';
+      h += '</div></div>';
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Corrected Return</button>';
-      h += '<button class="ops-btn-secondary" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Resend Request</button>';
+      h += '<button class="ops-btn-secondary" onclick="var w=document.getElementById(\'opsResendWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Resend Request</button>';
+      h += '<button class="ops-btn-secondary" onclick="sppaRecheckThread(\'' + escAttr(task.id) + '\')">Check for practice reply now</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div>';
@@ -5470,6 +5715,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(meta.sppa_task_id || '') + '\')">Review SPPA-00</button>';
     h += '</div>';
     h += '</div>';
+    return h;
+  }
+
+  /* ── Alt Supervisor CV Request (read-only tracker — no documents to review) ── */
+  // The practice was auto-emailed asking for a named alternate supervisor's CV. This shows who
+  // we asked for and whether the CV has come back. No fetch/upload/review wiring — the matching
+  // review happens in the separate alt_supervisor_cv_review task once a CV actually arrives.
+  function renderOpsAltSupervisorCvRequest(task){
+    var meta=task.metadata||{};
+    if(typeof meta==='string')try{meta=JSON.parse(meta);}catch(e){meta={};}
+    var names=Array.isArray(meta.alt_supervisor_names)?meta.alt_supervisor_names:[];
+    var reqAt=meta.alt_cv_requested_at||'';
+    var done=task.status==='completed';
+    var h='<div class="ops-expand-section">';
+    h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+    h+='<span style="color:#1d4ed8">📤 Alternate supervisor CV requested from the practice — awaiting their reply</span>';
+    h+='</div>';
+    if(names.length){
+      h+='<div style="font-size:12px;margin:4px 0"><strong>Alternate supervisor'+(names.length>1?'s':'')+':</strong> '+esc(names.join(', '))+'</div>';
+    }
+    h+='<div style="font-size:12px;margin:4px 0">'+(done?'✅ CV received':'⏳ Requested'+(reqAt?' '+esc(new Date(reqAt).toLocaleDateString()):'')+' — awaiting practice reply')+'</div>';
+    h+='</div>';
     return h;
   }
 
@@ -6205,6 +6472,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       container.innerHTML=renderOpsAhpraActionItem(adapted,msgs,docs);
     }else if(tt2==='alt_supervisor_cv_review'){
       container.innerHTML=renderOpsAltSupervisorCvReview(adapted,msgs,docs);
+    }else if(tt2==='alt_supervisor_cv_request'){
+      container.innerHTML=renderOpsAltSupervisorCvRequest(adapted);
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }
@@ -6263,6 +6532,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(view==="inbox"){
         if(!S.va.dashboard)await loadVaDashboard();
         renderInboxPanel();
+      }else if(view==="hubInbox"){
+        HubInbox.show();
       }else if(view==="gps"){
         if(!S.va.dashboard)await loadVaDashboard();
         renderCaseList();renderDetail();
@@ -7774,9 +8045,216 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
+  // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
+  // Reusable email-conversation view. Used twice:
+  //   • global Inbox tab  → createHubEmailView({panelId:"hubInboxPanel",showFilters:true})
+  //   • GP-profile Emails → createHubEmailView({panelId:"gpEmailsPanel",caseId:<case id>,showFilters:false})
+  function createHubEmailView(opts){
+    opts=opts||{};
+    var PANEL=opts.panelId;
+    var FIXED_CASE=opts.caseId||null;            // when set → per-candidate view (one case)
+    var SHOW_FILTERS=opts.showFilters!==false;   // global=true, candidate=false
+    let currentScope="mine";
+    let currentCaseId=null;
+    function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+    async function loadList(){
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      panel.innerHTML='<div class="hub-loading">Loading conversations…</div>';
+      let convs=[];
+      const url=FIXED_CASE
+        ?"/api/admin/inbox/conversations?caseId="+encodeURIComponent(FIXED_CASE)
+        :"/api/admin/inbox/conversations?scope="+currentScope;
+      try{
+        const r=await fetch(url,{credentials:"same-origin"});
+        const j=await r.json();convs=(j&&j.conversations)||[];
+      }catch(e){panel.innerHTML='<div class="hub-loading">Could not load the inbox. Try again.</div>';return;}
+      renderList(convs);
+    }
+    function renderList(convs){
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      const needs=convs.filter(function(c){return c.needsReply;}).length;
+      const head=SHOW_FILTERS
+        ?'<div class="hub-inbox-head"><h2>📥 Registration Inbox</h2>'+
+          '<p class="hub-inbox-sub">Every reply arrives at <b>registration@mygplink.com.au</b> and is filed into the right conversation automatically.</p>'+
+          '<div class="hub-filters">'+
+            '<button class="hub-filt '+(currentScope==="mine"?"active":"")+'" data-scope="mine">Mine</button>'+
+            '<button class="hub-filt '+(currentScope==="all"?"active":"")+'" data-scope="all">All RSOs</button>'+
+            '<span class="hub-needs">'+needs+' need a reply</span></div></div>'
+        :'<div class="hub-inbox-head"><p class="hub-inbox-sub">'+needs+' need a reply</p></div>';
+      panel.innerHTML=head+
+        '<div class="hub-conv-list">'+(convs.length?convs.map(rowHtml).join(""):'<div class="hub-empty">No conversations yet.</div>')+'</div>';
+      panel.querySelectorAll(".hub-filt").forEach(function(b){b.addEventListener("click",function(){currentScope=b.getAttribute("data-scope");loadList();});});
+      panel.querySelectorAll(".hub-conv-row").forEach(function(r){r.addEventListener("click",function(){openThread(r.getAttribute("data-cid"),r.getAttribute("data-tid"));});});
+    }
+    function rowHtml(c){
+      const badge=c.needsReply?'<span class="hub-badge reply">Needs reply</span>':'<span class="hub-badge waiting">Waiting on doctor</span>';
+      const dot=c.unread?'<span class="hub-dot"></span>':"";
+      return '<div class="hub-conv-row '+(c.unread?"unread":"")+'" data-cid="'+esc(c.caseId)+'" data-tid="'+esc(c.threadId||'')+'">'+
+        '<div class="hub-conv-main"><div class="hub-conv-top"><span class="hub-conv-name">'+esc(c.name)+'</span>'+
+        '<span class="hub-conv-time">'+esc(hubFmtTime(c.lastMessageAt))+'</span></div>'+
+        '<div class="hub-conv-prev">'+(c.lastDirection==="inbound"?"":"You: ")+esc(c.lastPreview||c.lastSubject||"(no preview)")+'</div>'+
+        (c.counterparty?'<div class="hub-conv-with">with '+esc(c.counterparty)+'</div>':'')+
+        '<div class="hub-conv-tags"><span class="hub-chip stage">'+esc(c.stage||"")+'</span>'+
+        '<span class="hub-chip rso">'+esc(c.assignedRsoName||"")+'</span>'+badge+'</div></div>'+dot+'</div>';
+    }
+    async function openThread(caseId,threadId){
+      currentCaseId=caseId;
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      panel.innerHTML='<div class="hub-loading">Loading conversation…</div>';
+      let j={};
+      try{
+        const r=await fetch("/api/admin/inbox/thread?caseId="+encodeURIComponent(caseId)+"&threadId="+encodeURIComponent(threadId||""),{credentials:"same-origin"});
+        j=await r.json();
+      }catch(e){
+        panel.innerHTML='<button class="hub-back">← Inbox</button><div class="hub-loading">Could not load this conversation.</div>';
+        const b=panel.querySelector(".hub-back");if(b)b.addEventListener("click",loadList);return;
+      }
+      renderThread(j.header||{},j.messages||[]);
+      fetch("/api/admin/inbox/mark-read",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({caseId:caseId,threadId:threadId||""})}).catch(function(){});
+    }
+    function renderThread(header,messages){
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      _hubHdr=header;
+      messages=(messages||[]).slice().sort(function(a,b){return new Date(a.created_at||0)-new Date(b.created_at||0);});
+      const canSend=!!(header&&header.to);
+      const sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
+      panel.innerHTML=
+        '<button class="hub-back">← Inbox</button>'+
+        '<div class="hub-thread-head"><h2>'+esc(header.name)+'</h2>'+
+          (header.counterparty?'<div class="hub-conv-with">with '+esc(header.counterparty)+'</div>':'')+
+          '<span class="hub-chip stage">'+esc(header.stage)+'</span>'+
+          '<span class="hub-chip rso">RSO: '+esc(header.assignedRsoName)+'</span></div>'+
+        '<div class="hub-thread">'+(messages.length?messages.map(msgHtml).join(""):'<div class="hub-empty">No emails in this conversation yet.</div>')+'</div>'+
+        '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;registration@mygplink.com.au&gt;</div>'+
+        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
+        '<div class="hub-suggest-row"><button class="hub-suggest"'+(header.latestTaskId?'':' disabled')+'>✦ Suggest a reply</button>'+
+        '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
+        '<textarea id="hubReply" placeholder="Type your reply…"'+(canSend?"":" disabled")+'></textarea>'+
+        '<div class="hub-composer-foot">'+
+          (canSend?"":'<span class="hub-nosend">No reply address found for this conversation — open the case to reply.</span>')+
+          '<button id="hubSend" class="hub-send"'+(canSend?"":" disabled")+'>Send</button></div></div>';
+      panel.querySelector(".hub-back").addEventListener("click",loadList);
+      const sendBtn=panel.querySelector("#hubSend");
+      if(canSend&&sendBtn)sendBtn.addEventListener("click",function(){sendReply(header);});
+      var sgBtn=panel.querySelector(".hub-suggest");
+      if(sgBtn&&header.latestTaskId){
+        sgBtn.addEventListener("click",function(){
+          sgBtn.disabled=true;sgBtn.textContent="✦ Drafting…";
+          fetch("/api/admin/email-triage/suggest-reply",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({taskId:header.latestTaskId}),
+          }).then(function(r){return r.json();}).then(function(j){
+            var ta=panel.querySelector("#hubReply");
+            if(ta&&j&&j.suggestedReply)ta.value=j.suggestedReply;
+            sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";
+          }).catch(function(){sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";});
+        });
+      }
+      const t=panel.querySelector(".hub-thread");if(t)t.scrollTop=t.scrollHeight;
+    }
+    function hubStripQuoted(body){
+      var t=String(body||"");
+      // Cut from the earliest reply-quote marker (Gmail / Outlook / Apple), but only if it
+      // sits past a bit of real text, so a sentence that happens to contain "wrote:" is kept.
+      var markers=[/(^|\n)\s*On\s[\s\S]{0,220}?wrote:/i,/\n-{2,}\s*Original Message\s*-{2,}/i,/\n\s*From:.*\n\s*Sent:/i,/\nBegin forwarded message:/i];
+      var cut=-1;
+      markers.forEach(function(re){var mm=t.search(re);if(mm>40&&(cut<0||mm<cut))cut=mm;});
+      if(cut>0)t=t.slice(0,cut);
+      var lines=t.split(/\r?\n/);
+      while(lines.length&&/^\s*>/.test(lines[lines.length-1]))lines.pop();
+      var stripped=lines.join("\n").trim();
+      return stripped||String(body||"").trim();
+    }
+    function hubParseAtts(a){
+      if(!a)return[];
+      if(Array.isArray(a))return a;
+      try{var p=JSON.parse(a);return Array.isArray(p)?p:[];}catch(e){return[];}
+    }
+    // HTML->text for an email that arrived as HTML only. PURE STRING transform (no innerHTML /
+    // no DOMParser) so an attacker's <img onerror=…> in body_html can never load a resource or
+    // run script in the admin session; the result is esc()'d again before render.
+    function hubHtmlToText(h){
+      var s=String(h||"");
+      s=s.replace(/<style[\s\S]*?<\/style>/gi,"").replace(/<script[\s\S]*?<\/script>/gi,"");
+      s=s.replace(/<br\s*\/?>/gi,"\n").replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi,"\n");
+      s=s.replace(/<[^>]+>/g,"");
+      s=s.replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#0?39;|&apos;/gi,"'")
+         .replace(/&#(\d+);/g,function(_,n){try{return String.fromCodePoint(parseInt(n,10));}catch(e){return "";}});
+      return s.replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+    }
+    // Choose what to show in a message tile: stripped plain body -> stripped html -> placeholder
+    // (so a missing body is never a silently blank tile). **bold** is rendered.
+    function hubDisplayBody(m){
+      var t=hubStripQuoted(m.body_text||"");
+      if(!t&&m.body_html)t=hubStripQuoted(hubHtmlToText(m.body_html));
+      if(!t)return '<div class="hub-msg-body" style="color:#9aa3b2;font-style:italic">(no message text — open the original email)</div>';
+      return '<div class="hub-msg-body">'+esc(t).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")+'</div>';
+    }
+    function hubFmtTime(v){var d=v?new Date(v):null;return (d&&!isNaN(d.getTime()))?d.toLocaleString():"";}
+    // Convert a plain-text reply into tidy HTML for the OUTBOUND email: blank lines become
+    // paragraphs, single newlines become <br>, **bold** is rendered. Without this the email
+    // client collapses every line break into one wall-of-text paragraph.
+    function hubTextToHtml(t){
+      var blocks=String(t||"").replace(/\r\n/g,"\n").replace(/\n{3,}/g,"\n\n").split(/\n{2,}/);
+      return blocks.map(function(b){
+        var safe=esc(b).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>");
+        return '<p style="margin:0 0 12px;line-height:1.5">'+safe+'</p>';
+      }).join("")||'<p></p>';
+    }
+    var _hubHdr=null; // set by renderThread so msgHtml can name who an outbound was sent as
+    function msgHtml(m,idx,arr){
+      const out=m.direction==="outbound";
+      // The first INBOUND message in a thread is "RECEIVED"; later inbound messages are "REPLY".
+      // Position-based, so it doesn't depend on the sender remembering a "Re:" subject.
+      var firstIn=(arr&&arr.length)?arr.findIndex(function(x){return x.direction==="inbound";}):-1;
+      var dirLabel=out?"SENT":(idx===firstIn?"RECEIVED":"REPLY");
+      // Small "who from / to" line next to the label so it's clear who each message involved.
+      var sentAs=(out&&_hubHdr&&_hubHdr.assignedRsoName)?_hubHdr.assignedRsoName:"";
+      var fromLine=out
+        ? ("sent from "+(m.sender||"registration@mygplink.com.au")+(sentAs?(" (as "+sentAs+")"):""))
+        : ("from "+(m.sender||"unknown sender"));
+      var toBits=[];
+      if(out&&m.recipient)toBits.push("to "+m.recipient);
+      if(m.cc)toBits.push("cc "+m.cc);
+      var toCcLine=toBits.join(" · ");
+      var atts=hubParseAtts(m.attachments).map(function(f){
+        if(typeof f==="string")return {name:f,url:""};
+        return {name:(f&&(f.filename||f.name||f.file_name||f.fileName||f.title))||"attachment",url:(f&&(f.url||f.downloadUrl||f.driveUrl))||""};
+      }).filter(function(f){return f.name;});
+      var attHtml=atts.length?'<div class="hub-msg-atts">'+atts.map(function(f){
+        var chip='📎 '+esc(f.name);var st='display:inline-block;margin:6px 6px 0 0;padding:3px 9px;background:#eef2f7;border:1px solid #d7dee8;border-radius:11px;font-size:12px;text-decoration:none;color:#374151';
+        return f.url?('<a class="hub-att" target="_blank" rel="noopener" href="'+esc(f.url)+'" style="'+st+'">'+chip+'</a>'):('<span class="hub-att" style="'+st+'">'+chip+'</span>');
+      }).join("")+'</div>':"";
+      return '<div class="hub-msg '+(out?"sent":"reply")+'"><div class="hub-msg-top">'+
+        '<span class="hub-msg-id" style="display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px">'+
+          '<span class="hub-dir '+(out?"out":"in")+'">'+dirLabel+'</span>'+
+          '<span class="hub-msg-from" style="font-size:11.5px;color:#8a93a3;font-weight:500">'+esc(fromLine)+'</span>'+
+        '</span>'+
+        '<span class="hub-msg-time">'+esc(hubFmtTime(m.created_at))+'</span></div>'+
+        (toCcLine?'<div class="hub-msg-tocc" style="font-size:11px;color:#9aa3b2;margin:1px 0 0">'+esc(toCcLine)+'</div>':'')+
+        '<div class="hub-msg-subj">'+esc(m.subject||"")+'</div>'+
+        hubDisplayBody(m)+attHtml+'</div>';
+    }
+    async function sendReply(header){
+      if(!header||!header.to)return;
+      const panel=document.getElementById(PANEL);if(!panel)return;
+      const ta=panel.querySelector("#hubReply");const txt=((ta&&ta.value)||"").trim();if(!txt)return;
+      const ccEl=panel.querySelector("#hubCc");const ccVal=((ccEl&&ccEl.value)||"").trim();
+      const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
+      try{
+        await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,cc:ccVal||undefined,
+            subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:hubTextToHtml(txt),bodyText:txt})});
+      }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
+      openThread(header.caseId,header.threadId);
+    }
+    return {show:function(){const p=document.getElementById(PANEL);if(p)p.style.display="";loadList();},hide:function(){const p=document.getElementById(PANEL);if(p)p.style.display="none";}};
+  }
+  var HubInbox=createHubEmailView({panelId:"hubInboxPanel",showFilters:true});
   // ── Guide Tab ──────────────────────────────────────────────
   function parseScribeEmbed(input){
     if(!input)return'';
@@ -8359,7 +8837,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     if (sppaState === 'gp_returned') {
       html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
-      html += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      html += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       html += '</div>';
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
@@ -8387,8 +8865,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
       html += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
       html += '</div>';
+      html += renderSppaCompletenessPanel(meta);
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
+      html += '<button class="btn-action review" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
       html += '<button class="btn-action approve" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       html += '</div>';
       return html;
@@ -8407,7 +8887,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function openSppaReview(taskId) {
     _sppaReviewTaskId = taskId;
     var iframe = document.getElementById('sppaReviewIframe');
-    iframe.src = '/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf';
+    // Cache-buster: the SPPA PDF at this URL changes as the form moves through its
+    // lifecycle (e.g. blank → GP-returned), so force a fresh fetch every open.
+    iframe.src = '/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf?t=' + Date.now();
     document.getElementById('sppaReviewOverlay').classList.add('open');
   }
 
@@ -8452,6 +8934,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d && d.ok) { toast('Q7 overridden to ' + (newVal ? 'YES' : 'NO')); loadAll(true); }
       else { toast((d && d.error) || 'Override failed', 'red'); }
+    }).catch(function () { toast('Network error', 'red'); });
+  }
+
+  // Run/re-run the AI check that the candidate completed Section A Q1 + signed Section I.
+  function sppaScanGpSections(taskId) {
+    toast('Scanning the GP’s sections…');
+    fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-scan-gp-sections', {
+      method: 'POST', credentials: 'include'
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) {
+        var s = d.gp_section_scan || {};
+        if (s.overall === 'incomplete') toast('Candidate sections look incomplete — see card', 'red');
+        else if (s.overall === 'complete') toast('Candidate sections complete');
+        else toast('Scan finished — see card');
+        loadAll(true);
+      } else { toast((d && d.error) || 'Scan failed', 'red'); }
     }).catch(function () { toast('Network error', 'red'); });
   }
 
@@ -8565,13 +9063,65 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
-  async function sppaSubmitFinal(taskId) {
-    if (!confirm('Submit final SPPA-00 and deliver to the GP?')) return;
+  async function sppaRecheckThread(taskId) {
+    toast('Checking the mailbox for a practice reply…');
     try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', { method: 'POST', credentials: 'include' });
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-recheck-thread', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json().catch(function () { return {}; });
-      if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); }
-      else { toast((d && d.error) || 'Failed to submit', 'red'); }
+      if (d && d.ok) {
+        if (d.sppa_state === 'practice_returned') {
+          toast("The practice's reply was found and attached — review the completeness check");
+        } else {
+          toast('No new practice reply found yet.');
+        }
+        await loadAll(true);
+      } else {
+        toast((d && d.error) || 'Could not check for a reply', 'red');
+      }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function sppaSubmitFinal(taskId, override) {
+    if (!override && !confirm('Submit final SPPA-00 and deliver to the GP?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(override ? { override: true } : {})
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); return; }
+      if (d && d.needs_review) {
+        // AI flagged the form as not ready — show what's missing and let the RSO decide.
+        var cc = d.completeness || {};
+        var lines = [];
+        function _push(label, arr) { if (arr && arr.length) lines.push(label + ':\n  - ' + arr.join('\n  - ')); }
+        _push('Missing or blank fields', cc.missing_fields);
+        _push('Missing signatures', cc.missing_signatures);
+        _push('Missing documents', cc.missing_documents);
+        _push('Other issues', cc.issues);
+        var msg = 'The AI completeness check flagged this SPPA-00 as NOT ready to submit:\n\n'
+          + (cc.summary || '') + '\n\n' + lines.join('\n\n')
+          + '\n\nSubmit to AHPRA anyway?';
+        await loadAll(true); // refresh card so the stored verdict is visible
+        if (confirm(msg)) { await sppaSubmitFinal(taskId, true); }
+        return;
+      }
+      toast((d && d.error) || 'Failed to submit', 'red');
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function runSppaCompletenessCheck(taskId) {
+    toast('Running AI completeness check…');
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-completeness-check', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) {
+        toast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found — see card');
+        await loadAll(true);
+      } else {
+        toast((d && d.error) || 'Check could not run', 'red');
+      }
     } catch (err) { toast('Network error', 'red'); }
   }
 
@@ -9448,10 +9998,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaSendToCandidate = sppaSendToCandidate;
   window.sppaSendToPractice = sppaSendToPractice;
   window.sppaOverrideQ7 = sppaOverrideQ7;
+  window.sppaScanGpSections = sppaScanGpSections;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
+  window.runSppaCompletenessCheck = runSppaCompletenessCheck;
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
+  window.sppaRecheckThread = sppaRecheckThread;
   function closeCorrectionModal() { var el = document.getElementById('correctionOverlay'); if (el) el.style.display = 'none'; }
   function sendSppaCorrection() { closeCorrectionModal(); toast('Use the Request Corrections button on the task instead'); }
   window.closeCorrectionModal = closeCorrectionModal;
