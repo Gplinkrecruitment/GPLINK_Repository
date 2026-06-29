@@ -1316,6 +1316,10 @@
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
         Practices <span class="ats-count-chip" id="masterPracCount"></span>
       </button>
+      <button class="ats-master-tab" data-mtab="meetings">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 2v4M16 2v4M2 10h20"/><circle cx="12" cy="15" r="2"/></svg>
+        Meetings
+      </button>
     </nav>
 
     <div class="master-panel" id="panel-registration">
@@ -1354,6 +1358,7 @@
     <div class="master-panel ats-scope" id="panel-candidates" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-jobs" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-practices" style="display:none"></div>
+    <div class="master-panel ats-scope" id="panel-meetings" style="display:none"></div>
   </div>
 
   <!-- ATS drawer + modals (rendered by /js/ceo-ats-*.js) -->
@@ -6327,9 +6332,10 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
-  <script src="/js/ceo-ats-shared.js?v=20260627a"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260630b"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260630b"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260627a"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260630b"></script>
+  <script src="/js/ceo-ats-meetings.js?v=20260630b"></script>
 </body>
 </html>

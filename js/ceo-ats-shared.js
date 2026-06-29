@@ -95,7 +95,7 @@
   };
 
   // -------------------- master-tab switcher --------------------
-  var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices'];
+  var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices', 'meetings'];
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
   function setActiveTab(name, skipLoad) {
@@ -131,6 +131,7 @@
     if (h.indexOf('candidate=') === 0) { drill('candidates', 'atsOpenCandidate', h.split('=')[1]); return true; }
     if (h.indexOf('board=') === 0) { drill('jobs', 'atsOpenJobBoard', h.split('=')[1]); return true; }
     if (h.indexOf('practice=') === 0) { drill('practices', 'atsOpenPractice', h.split('=')[1]); return true; }
+    if (h === 'meetings') { setActiveTab('meetings', false); return true; }
     if (MASTER_PANELS.indexOf(h) !== -1) { setActiveTab(h, false); return true; }
     return false;
   }
