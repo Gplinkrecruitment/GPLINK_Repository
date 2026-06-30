@@ -3581,7 +3581,7 @@
           // Tasks with an interactive task-detail panel (Task 3d.6): clicking the row expands
           // an accordion (port of admin _hasDetailPanel 2726). Mirrors admin exactly:
           // practice_pack_child (except section_g) + AHPRA + alt-supervisor-CV.
-          var hasDetailPanel = (t.task_type === 'practice_pack_child' && t.related_document_key && t.related_document_key !== 'section_g') || t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item' || t.task_type === 'alt_supervisor_cv_review' || t.task_type === 'alt_supervisor_cv_request';
+          var hasDetailPanel = (t.task_type === 'practice_pack_child' && t.related_document_key && t.related_document_key !== 'section_g') || t.task_type === 'ahpra_correspondence' || t.task_type === 'ahpra_action_item' || t.task_type === 'alt_supervisor_cv_review' || t.task_type === 'alt_supervisor_cv_request' || t.task_type === 'ahpra_conflict_letter';
           html += '<div class="stage-task' + (isNext ? ' active-next' : '') + (t.task_type === 'email_triage' ? ' unlocked-email' : '') + (isWaiting ? ' st-waiting-state' : '') + '" data-task-row="' + esc(t.id) + '"' + (hasDetailPanel ? ' data-gp-expand-task="' + esc(t.id) + '" style="cursor:pointer"' : '') + '>';
           html += '<div class="st-top">';
           html += '<div class="st-body">';
@@ -4065,6 +4065,36 @@
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + (meta.suggested_body ? meta.suggested_body : fallbackBody) + '</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
       h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── AHPRA Conflict-of-Interest Letter (port of admin renderOpsAhpraConflictLetter) ──
+    function renderCeoOpsAhpraConflictLetter(task) {
+      var meta = task.metadata || {};
+      if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      var h = '<div class="ops-expand-section">';
+      // Completed: confirmation received from the practice.
+      if (task.status === 'completed') {
+        h += '<div style="background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--green)">✅ Confirmation received — on file.</span></div>';
+        h += '</div>';
+        return h;
+      }
+      // Already sent: read-only waiting banner.
+      if (task.status === 'waiting_on_practice' || task.status === 'waiting_on_external') {
+        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--blue)">📤 Sent — awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
+        h += '</div>';
+        return h;
+      }
+      // Open: review the suggested email and send it to the practice.
+      // Reuses the shared data-ops-send-email composer + handler (NO auto-send — click Send).
+      h += '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(meta.practice_email || '') + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'AHPRA Conflict of Interest — Action Required') + '" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + (meta.suggested_body || '') + '</div>';
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send to practice</button></div>';
+      h += '</div>';
+      h += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Practice will email: ' + esc(meta.ahpra_officer_name || 'AHPRA officer') + ' (' + esc(meta.ahpra_officer_email || '') + '), CC ' + esc(meta.cc_mailbox || '') + '</div>';
       h += '</div>';
       return h;
     }
@@ -4600,6 +4630,8 @@
           c2.innerHTML = renderCeoOpsAltSupervisorCvReview(adapted, msgs, docs);
         } else if (tt === 'alt_supervisor_cv_request') {
           c2.innerHTML = renderCeoOpsAltSupervisorCvRequest(adapted);
+        } else if (tt === 'ahpra_conflict_letter') {
+          c2.innerHTML = renderCeoOpsAhpraConflictLetter(adapted);
         } else if (tt === 'practice_pack_child') {
           c2.innerHTML = renderCeoOpsPracticePackChild(adapted, msgs, docs);
         } else {
