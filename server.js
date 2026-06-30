@@ -119,6 +119,7 @@ const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
+const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -1393,6 +1394,88 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
   } finally {
     delete _altCvRequestInflight[caseId];
   }
+}
+
+/**
+ * Deliver matched alternate-supervisor CV(s) onto the case: create the
+ * alt_supervisor_cv_review task + task_documents + inbound task_message + case
+ * event, and close the open alt_supervisor_cv_request chase task. Shared by BOTH
+ * the realtime Gmail path and the deterministic backstop (recoverAltSupervisorCvReply)
+ * so the two can never diverge.
+ *
+ * IDEMPOTENCY (the key guard): the FIRST action is a (case_id, gmail_message_id)
+ * task_messages lookup. If this Gmail message was already delivered, we DO NOT create
+ * a second review task / duplicate docs — we reuse the existing review task and STILL
+ * re-issue the (idempotent) request-close PATCH, so a partially-applied prior delivery
+ * (review task created but close failed) self-heals on the next pass.
+ *
+ * matchedCvs entries: { filename, mimeType, b64, cvName, matchedSupervisor, confidence }.
+ * Returns { review_task_id, deduped? }.
+ */
+async function _deliverAltSupervisorCvMatch(caseId, sppaTaskId, matchedCvs, emailMeta, gmailMsgId, mailbox) {
+  if (!caseId || !Array.isArray(matchedCvs) || matchedCvs.length === 0) return { review_task_id: null };
+  emailMeta = emailMeta || {};
+  var _closeRequest = async function () {
+    await supabaseDbRequest('registration_tasks',
+      'case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.alt_supervisor_cv_request&status=neq.completed',
+      { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } }).catch(function () {});
+  };
+  // 1) Idempotency FIRST — if this message is already ingested for the case, reuse + self-heal.
+  if (gmailMsgId) {
+    var _dup = await supabaseDbRequest('task_messages',
+      'select=task_id&case_id=eq.' + encodeURIComponent(caseId) + '&gmail_message_id=eq.' + encodeURIComponent(gmailMsgId) + '&limit=1');
+    if (_dup.ok && Array.isArray(_dup.data) && _dup.data[0]) {
+      await _closeRequest(); // self-heal: ensure the request task is closed even if a prior pass missed it
+      return { review_task_id: _dup.data[0].task_id || null, deduped: true };
+    }
+  }
+  // 2) Create the review task.
+  var _reviewRes = await supabaseDbRequest('registration_tasks', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: [{
+      case_id: caseId, task_type: 'alt_supervisor_cv_review', related_document_key: 'sppa_00',
+      title: 'Review alternate supervisor CV(s)',
+      description: matchedCvs.map(function (c) { return c.cvName + ' → ' + c.matchedSupervisor; }).join(', '),
+      status: 'open', priority: 'normal',
+      metadata: {
+        sppa_task_id: sppaTaskId || null,
+        matched_cvs: matchedCvs.map(function (c) { return { cvName: c.cvName, matchedSupervisor: c.matchedSupervisor, confidence: c.confidence, filename: c.filename }; })
+      }
+    }]
+  });
+  var _reviewTask = (_reviewRes.ok && _reviewRes.data && _reviewRes.data[0]) ? _reviewRes.data[0] : null;
+  if (!_reviewTask) return { review_task_id: null };
+  // 3) Store CV(s) as task_documents.
+  for (var _i = 0; _i < matchedCvs.length; _i++) {
+    var _mc = matchedCvs[_i];
+    await supabaseDbRequest('task_documents', '', {
+      method: 'POST', body: [{
+        task_id: _reviewTask.id, case_id: caseId,
+        filename: _mc.filename, mime_type: _mc.mimeType, size_bytes: Math.ceil((_mc.b64 || '').length * 3 / 4),
+        version: 1, is_current: true, uploaded_by: 'email_auto_alt_cv',
+        attachment_url: 'data:' + (_mc.mimeType || 'application/octet-stream') + ';base64,' + (_mc.b64 || ''),
+        category: 'alt_supervisor_cv'
+      }]
+    });
+  }
+  // 4) Record the inbound message + case event.
+  await supabaseDbRequest('task_messages', '', {
+    method: 'POST', body: [{
+      task_id: _reviewTask.id, case_id: caseId, direction: 'inbound', channel: 'email',
+      sender: emailMeta.sender || '', recipient: emailMeta.to || mailbox || '', subject: emailMeta.subject || '',
+      body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null,
+      rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
+      gmail_message_id: gmailMsgId || null, gmail_thread_id: emailMeta.threadId || null,
+      attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+      is_document_delivery: true, ai_match_confidence: matchedCvs[0].confidence
+    }]
+  });
+  await _logCaseEvent(caseId, _reviewTask.id, 'system',
+    matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
+    matchedCvs.map(function (c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
+  // 5) Close the open request chase task (idempotent).
+  await _closeRequest();
+  return { review_task_id: _reviewTask.id };
 }
 
 // Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
@@ -2683,6 +2766,132 @@ async function recoverSppaThreadReply(task, mailbox) {
   return { recovered: true, direction: direction, message_id: picked.messageId, sppa_state: newState };
 }
 
+/**
+ * Deterministic, watch/label/cursor-INDEPENDENT pickup for an open
+ * alt_supervisor_cv_request task. Mirrors recoverSppaThreadReply: it pulls the
+ * practice's reply directly from Gmail by the task's thread AND by the expected
+ * practice sender (across ALL mail, not just INBOX), so a reply that fired no
+ * Pub/Sub push / was auto-archived / landed behind the history cursor is still found.
+ *
+ * Routing safety: the alt request task's gmail_thread_id is the SPPA thread, which
+ * also contains the SPPA-00 form / contract / position description — documents that
+ * NAME the alt supervisor but are NOT a CV. Two guards stop a misfile: (1) messages
+ * already ingested for the case (the filed SPPA-00 etc.) are excluded; (2) the AI
+ * matcher now returns is_cv and only an actual CV is accepted.
+ *
+ * Returns {recovered:bool, reason?, message_id?, review_task_id?}.
+ */
+async function recoverAltSupervisorCvReply(task, mailbox) {
+  if (!task || !task.id || !mailbox) return { recovered: false, reason: 'missing-inputs' };
+  if (task.task_type && task.task_type !== 'alt_supervisor_cv_request') return { recovered: false, reason: 'wrong-task-type' };
+  if (task.status === 'completed') return { recovered: false, reason: 'already-completed' };
+  if (!isSupabaseDbConfigured()) return { recovered: false, reason: 'db-not-configured' };
+  var meta = task.metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+  meta = meta || {};
+  var expectedSender = String(meta.practice_email || '').trim().toLowerCase();
+  var altNames = Array.isArray(meta.alt_supervisor_names) ? meta.alt_supervisor_names : [];
+  var threadId = task.gmail_thread_id || meta.gmail_thread_id || '';
+  if (!expectedSender && !threadId) return { recovered: false, reason: 'no-thread-or-sender' };
+  if (altNames.length === 0) return { recovered: false, reason: 'no-alt-names' };
+
+  var gmail = await getGmailClient(mailbox);
+  if (!gmail) return { recovered: false, reason: 'no-gmail-client' };
+
+  // Build candidate metas: thread messages + sender-search (NEW-thread sends).
+  var metas = [];
+  var _seen = {};
+  if (threadId) {
+    try {
+      var _thread = await gmail.users.threads.get({ userId: mailbox, id: String(threadId), format: 'full' });
+      var _tMsgs = (_thread.data && _thread.data.messages) || [];
+      for (var _ti = 0; _ti < _tMsgs.length; _ti++) {
+        var _em = extractEmailMeta(_tMsgs[_ti]); _em.internalDate = _tMsgs[_ti].internalDate || '0'; _em.threadId = _tMsgs[_ti].threadId || threadId;
+        if (_em.messageId && !_seen[_em.messageId]) { _seen[_em.messageId] = true; metas.push(_em); }
+      }
+    } catch (e) { console.warn('[AltCV recover] threads.get failed for', mailbox, threadId, '-', e.message); }
+  }
+  if (expectedSender) {
+    try {
+      var _list = await gmail.users.messages.list({ userId: mailbox, q: 'from:' + expectedSender + ' has:attachment newer_than:30d', maxResults: 15 });
+      var _msgs = (_list.data && _list.data.messages) || [];
+      for (var _mi = 0; _mi < _msgs.length; _mi++) {
+        var _id = _msgs[_mi] && _msgs[_mi].id;
+        if (!_id || _seen[_id]) continue;
+        var _full = await gmail.users.messages.get({ userId: mailbox, id: _id, format: 'full' });
+        var _sem = extractEmailMeta(_full.data); _sem.internalDate = _full.data.internalDate || '0'; _sem.threadId = _full.data.threadId || '';
+        _seen[_id] = true; metas.push(_sem);
+      }
+    } catch (e) { console.warn('[AltCV recover] sender search failed for', expectedSender, '-', e.message); }
+  }
+
+  // Exclude messages already ingested for the CASE (the filed SPPA-00 form etc.) so a non-CV
+  // doc from the same thread is never re-delivered as the CV.
+  var _attachedIds = [];
+  try {
+    var _am = await supabaseDbRequest('task_messages', 'select=gmail_message_id&case_id=eq.' + encodeURIComponent(task.case_id));
+    if (_am.ok && Array.isArray(_am.data)) _attachedIds = _am.data.map(function (r) { return r.gmail_message_id; }).filter(Boolean);
+  } catch (e) {}
+
+  var candidates = altCvRecover.selectAltCvReplyCandidates(metas, { expectedSender: expectedSender, attachedIds: _attachedIds });
+
+  if (candidates.length === 0) {
+    // Self-heal: a prior pass may have created the review task but failed to close the request.
+    try {
+      var _rv = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&task_type=eq.alt_supervisor_cv_review&limit=1');
+      if (_rv.ok && Array.isArray(_rv.data) && _rv.data[0]) {
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id) + '&status=neq.completed', { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } }).catch(function () {});
+        return { recovered: false, reason: 'already-delivered-closed' };
+      }
+    } catch (e) {}
+    return { recovered: false, reason: 'no-candidate' };
+  }
+
+  var { matchCvToAltSupervisor } = require('./lib/alt-supervisor-cv-match.js');
+  var _foundAttachmentNoMatch = false;
+  for (var _ci = 0; _ci < candidates.length; _ci++) {
+    var _cand = candidates[_ci];
+    var _results = [];
+    var _matchedCvs = [];
+    for (var _ai = 0; _ai < (_cand.attachments || []).length; _ai++) {
+      var _att = _cand.attachments[_ai];
+      if (!_att || !_att.attachmentId) continue;
+      try {
+        var _ad = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: _cand.messageId, id: _att.attachmentId });
+        if (!_ad.data || !_ad.data.data) continue;
+        var _buf = Buffer.from((_ad.data.data || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        var _mr = await matchCvToAltSupervisor(_buf, _att.mimeType, altNames);
+        _results.push(_mr || { matched: false });
+        if (_mr && _mr.matched) _matchedCvs.push({ filename: _att.filename, mimeType: _att.mimeType, b64: _ad.data.data, cvName: _mr.cvName, matchedSupervisor: _mr.matchedSupervisor, confidence: _mr.confidence });
+      } catch (e) { console.warn('[AltCV recover] attachment fetch/match failed:', e.message); }
+    }
+    if (_matchedCvs.length > 0) {
+      console.log('[AltCV recover] task', task.id, '— delivering', _matchedCvs.length, 'CV(s) from message', _cand.messageId);
+      var _d = await _deliverAltSupervisorCvMatch(task.case_id, meta.sppa_task_id || null, _matchedCvs, _cand, _cand.messageId, mailbox);
+      await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: _cand.messageId, email_address: mailbox, sender: _cand.sender, subject: _cand.subject, result: 'alt_cv_matched', matched_task_id: (_d && _d.review_task_id) || null, processed_at: new Date().toISOString() }] }).catch(function () {});
+      return { recovered: true, message_id: _cand.messageId, review_task_id: (_d && _d.review_task_id) || null };
+    }
+    var _sum = altCvRecover.summarizeAltCvMatch(_results);
+    if (_sum.foundAttachmentButNoMatch) _foundAttachmentNoMatch = true;
+  }
+
+  if (_foundAttachmentNoMatch) {
+    // Never silent: a practice reply WITH attachments but no recognised CV is surfaced for the
+    // RSO (once-only, guarded so the hourly sweep doesn't spam the timeline).
+    console.warn('[AltCV recover] task', task.id, '— practice reply WITH attachment(s) found but NO alt-supervisor CV matched (', altNames.join(', '), ') — flagging for RSO');
+    if (!meta.unmatched_reply_flagged) {
+      try {
+        await _logCaseEvent(task.case_id, task.id, 'system', 'Practice replied but no alternate-supervisor CV was recognised',
+          'Awaiting a signed CV for: ' + altNames.join(', ') + '. RSO review needed.', 'system').catch(function () {});
+        var _newMeta = Object.assign({}, meta, { unmatched_reply_flagged: true });
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: _newMeta } }).catch(function () {});
+      } catch (e) {}
+    }
+    return { recovered: false, reason: 'found-unmatched' };
+  }
+  return { recovered: false, reason: 'no-cv-in-candidates' };
+}
+
 function extractAhpraApplicationNumber(subject, bodyText) {
   var pattern = /APP[-–—]?\s*(\d{10,13})/i;
   var match = (subject || '').match(pattern) || (bodyText || '').match(pattern);
@@ -3668,31 +3877,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         console.log('[Gmail Labels] Auto-filed message', currentMsgId, 'into', caseMatches.length, 'case label(s)');
       }
 
-      // ── Test-phase inbound sender allow-list (main VA-mailbox triage path) ──
-      // The hello@ archive watch above is sender-gated, but the main VA mailbox (e.g. hazel@)
-      // had no such gate — so every non-internal/non-marketing email it received was triaged
-      // into the ops queue, flooding "Unknown" with unrelated inbox mail. Gate it the same way:
-      // when TEST_WATCH_FROM_SENDERS is populated, only triage mail from those senders. An empty
-      // set (TEST_WATCH_FROM_SENDERS="*"/"all") disables the gate for full production.
-      if (TEST_WATCH_FROM_SENDERS.size > 0) {
-        var _triageFrom = (String(emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
-        if (!TEST_WATCH_FROM_SENDERS.has(_triageFrom)) {
-          console.log('[Gmail] Sender not in TEST_WATCH_FROM_SENDERS — skipping triage for', currentMsgId, 'from', _triageFrom || '(unknown)');
-          await supabaseDbRequest('processed_gmail_messages', '', {
-            method: 'POST',
-            body: [{
-              gmail_message_id: currentMsgId,
-              email_address: emailAddress,
-              sender: emailMeta.sender,
-              subject: emailMeta.subject,
-              result: 'filtered',
-              ai_summary: 'sender not in TEST_WATCH_FROM_SENDERS allow-list',
-              processed_at: new Date().toISOString()
-            }]
-          });
-          continue;
-        }
-      }
+      // NOTE: the TEST_WATCH_FROM_SENDERS allow-list no longer gates here at the TOP of the loop.
+      // Doing so dropped practice/AHPRA/SPPA/alt-CV REPLY-matching for every sender that isn't a
+      // test address (regression f893ad3). The allow-list now gates ONLY genuinely-unmatched mail
+      // (new "Unknown" triage tasks + speculative attachment auto-delivery) — see the moved gate
+      // below, just before "Route by track", which runs AFTER all reply-matching so it can never
+      // drop a tracked-task reply. shouldSuppressUnmatched() in lib/alt-supervisor-cv-recover.js.
 
       // Run pre-filter
       var filterResult = preFilterEmail(emailMeta);
@@ -3950,80 +4140,27 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             var _altNames = _cand.altNames;
             if (_altCvCaseId && _altNames.length > 0) {
                 var { matchCvToAltSupervisor } = require('./lib/alt-supervisor-cv-match.js');
-                // Fetch attachments and try matching
+                // Fetch attachments and try matching. Iterate the RECURSIVE emailMeta.attachments
+                // (not just top-level payload.parts) so a CV nested in a multipart part is caught.
                 try {
-                  var _altFullMsg = await gmail.users.messages.get({ userId: emailAddress, id: currentMsgId, format: 'full' });
-                  var _altAttParts = ((_altFullMsg.data.payload && _altFullMsg.data.payload.parts) || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
                   var _matchedCvs = [];
-                  for (var _atp of _altAttParts) {
-                    var _attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: _atp.body.attachmentId });
+                  for (var _atIdx = 0; _atIdx < (emailMeta.attachments || []).length; _atIdx++) {
+                    var _at = emailMeta.attachments[_atIdx];
+                    if (!_at || !_at.attachmentId) continue;
+                    var _attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: _at.attachmentId });
+                    if (!_attData.data || !_attData.data.data) continue;
                     var _cvBuf = Buffer.from((_attData.data.data || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-                    var _matchResult = await matchCvToAltSupervisor(_cvBuf, _atp.mimeType, _altNames);
+                    var _matchResult = await matchCvToAltSupervisor(_cvBuf, _at.mimeType, _altNames);
                     if (_matchResult && _matchResult.matched) {
-                      _matchedCvs.push({ filename: _atp.filename, mimeType: _atp.mimeType, b64: _attData.data.data, cvName: _matchResult.cvName, matchedSupervisor: _matchResult.matchedSupervisor, confidence: _matchResult.confidence });
+                      _matchedCvs.push({ filename: _at.filename, mimeType: _at.mimeType, b64: _attData.data.data, cvName: _matchResult.cvName, matchedSupervisor: _matchResult.matchedSupervisor, confidence: _matchResult.confidence });
                     }
                   }
                   if (_matchedCvs.length > 0) {
                     console.log('[Gmail] Matched', _matchedCvs.length, 'alt supervisor CV(s) for case', _altCvCaseId);
-                    // Create alt_supervisor_cv_review task
-                    var _reviewTaskRes = await supabaseDbRequest('registration_tasks', '', {
-                      method: 'POST', headers: { Prefer: 'return=representation' },
-                      body: [{
-                        case_id: _altCvCaseId, task_type: 'alt_supervisor_cv_review',
-                        related_document_key: 'sppa_00',
-                        title: 'Review alternate supervisor CV(s)',
-                        description: _matchedCvs.map(function(c) { return c.cvName + ' → ' + c.matchedSupervisor; }).join(', '),
-                        status: 'open', priority: 'normal',
-                        metadata: {
-                          sppa_task_id: _sppaTask.id,
-                          matched_cvs: _matchedCvs.map(function(c) { return { cvName: c.cvName, matchedSupervisor: c.matchedSupervisor, confidence: c.confidence, filename: c.filename }; })
-                        }
-                      }]
-                    });
-                    var _reviewTask = (_reviewTaskRes.ok && _reviewTaskRes.data && _reviewTaskRes.data[0]) ? _reviewTaskRes.data[0] : null;
-                    if (_reviewTask) {
-                      // Store CVs as task_documents
-                      for (var _mc of _matchedCvs) {
-                        await supabaseDbRequest('task_documents', '', {
-                          method: 'POST', body: [{
-                            task_id: _reviewTask.id, case_id: _altCvCaseId,
-                            filename: _mc.filename, mime_type: _mc.mimeType, size_bytes: Math.ceil((_mc.b64 || '').length * 3 / 4),
-                            version: 1, is_current: true, uploaded_by: 'email_auto_alt_cv',
-                            attachment_url: 'data:' + (_mc.mimeType || 'application/octet-stream') + ';base64,' + (_mc.b64 || ''),
-                            category: 'alt_supervisor_cv'
-                          }]
-                        });
-                      }
-                      // Store inbound message (idempotent — skip if this Gmail message is
-                      // already attached to the task; prevents duplicate hub rows on re-scan).
-                      var _altHeaders = (_altFullMsg.data.payload.headers || []);
-                      var _altSubject = (_altHeaders.find(function(h) { return h.name.toLowerCase() === 'subject'; }) || {}).value || '';
-                      // Dedup by case + Gmail message id (the review task is freshly created
-                      // on THIS scan, so a task-scoped check would never see a prior copy).
-                      var _altDup = await supabaseDbRequest('task_messages',
-                        'select=id&case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
-                      if (!(_altDup.ok && Array.isArray(_altDup.data) && _altDup.data.length > 0)) {
-                        await supabaseDbRequest('task_messages', '', {
-                          method: 'POST', body: [{
-                            task_id: _reviewTask.id, case_id: _altCvCaseId, direction: 'inbound', channel: 'email',
-                            sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: _altSubject,
-                            body_text: (emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null, rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
-                            gmail_message_id: currentMsgId, gmail_thread_id: _reviewTask.gmail_thread_id || emailMeta.threadId || null,
-                            attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
-                            is_document_delivery: true, ai_match_confidence: _matchedCvs[0].confidence
-                          }]
-                        });
-                        await _logCaseEvent(_altCvCaseId, _reviewTask.id, 'system',
-                          _matchedCvs.length + ' alt supervisor CV(s) received from practice — review needed',
-                          _matchedCvs.map(function(c) { return c.cvName + ' matched to ' + c.matchedSupervisor; }).join('; '), 'system');
-                      }
-                      // The practice has now sent the CV(s) — close out any open "request alt
-                      // supervisor CV" chase task for this case (idempotent: matches only open ones).
-                      await supabaseDbRequest('registration_tasks',
-                        'case_id=eq.' + encodeURIComponent(_altCvCaseId) + '&task_type=eq.alt_supervisor_cv_request&status=neq.completed',
-                        { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
-                    }
-                    await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'alt_cv_matched', matched_task_id: _reviewTask ? _reviewTask.id : null, processed_at: new Date().toISOString() }] });
+                    // Shared delivery (dedups on case+gmail_message_id FIRST, so realtime + the
+                    // cron/recheck backstop can never create duplicate review tasks/docs).
+                    var _altDelivered = await _deliverAltSupervisorCvMatch(_altCvCaseId, _sppaTask ? _sppaTask.id : null, _matchedCvs, emailMeta, currentMsgId, emailAddress);
+                    await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'alt_cv_matched', matched_task_id: (_altDelivered && _altDelivered.review_task_id) || null, processed_at: new Date().toISOString() }] }).catch(function () {});
                     _altCvMatched = true;
                   }
                 } catch (_altCvErr) { console.error('[Gmail] Alt supervisor CV matching error:', _altCvErr.message); }
@@ -4032,6 +4169,38 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           }
         }
         if (_altCvMatched) continue;
+      }
+
+      // ── Moved sender allow-list gate (UNMATCHED-only suppression) ──
+      // By here EVERY reply-matching path has already run for ALL senders: early-response
+      // thread match (3903 continue), alt-CV detection (4015 continue), and the SPPA push
+      // backstop after the loop. So anything still here did NOT bind to a tracked task or a
+      // known GP case. During the scoped rollout, suppress such genuinely-unmatched mail from a
+      // non-allow-listed, non-trusted sender so it neither floods the ops queue ("Unknown"
+      // triage tasks) NOR auto-delivers a stray attachment to a GP profile via the attachments
+      // track. Matched replies, known-party mail, and AHPRA officer mail are never suppressed.
+      // TEST_WATCH_FROM_SENDERS="*"/empty disables this entirely (full production).
+      if (altCvRecover.shouldSuppressUnmatched({
+            allowSet: TEST_WATCH_FROM_SENDERS,
+            fromAddr: emailMeta.sender,
+            earlyResponseMatched: earlyResponseMatched,
+            altCvMatched: (typeof _altCvMatched !== 'undefined' && _altCvMatched),
+            hasKnownCase: !!earlyGpCase
+          })) {
+        console.log('[Gmail] Unmatched non-allow-listed sender — suppressing triage/delivery for', currentMsgId, 'from', altCvRecover.bareEmail(emailMeta.sender) || '(unknown)');
+        await supabaseDbRequest('processed_gmail_messages', '', {
+          method: 'POST',
+          body: [{
+            gmail_message_id: currentMsgId,
+            email_address: emailAddress,
+            sender: emailMeta.sender,
+            subject: emailMeta.subject,
+            result: 'filtered',
+            ai_summary: 'unmatched sender not in TEST_WATCH_FROM_SENDERS allow-list',
+            processed_at: new Date().toISOString()
+          }]
+        }).catch(function () {});
+        continue;
       }
 
       // Route by track: attachments (existing AI matching) or triage (email classifier)
@@ -24001,6 +24170,36 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ sppaReconcile: true, ok: false, error: reconErr.message });
       }
     }
+    // Alt-supervisor-CV awaiting-reply reconciliation — the SAME cursor-independent net as SPPA,
+    // but for alt_supervisor_cv_request tasks (which carry no sppa_state, so the SPPA sweep above
+    // skips them). This is the watch-independent backstop that closes the root gap: a practice's
+    // CV reply that fired no push / was archived / is behind the cursor is pulled directly by the
+    // task's thread + practice sender. Idempotent (case+gmail_message_id), so safe to run hourly.
+    if (isSupabaseDbConfigured()) {
+      try {
+        var altReconRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,gmail_thread_id,task_type,status,metadata&task_type=eq.alt_supervisor_cv_request&status=neq.completed&limit=200');
+        var altReconTasks = altReconRes.ok && Array.isArray(altReconRes.data) ? altReconRes.data : [];
+        var altSwept = 0, altRecovered = 0, altFoundUnmatched = 0;
+        for (var arti = 0; arti < altReconTasks.length; arti++) {
+          var acTask = altReconTasks[arti];
+          try {
+            var acInboxes = [];
+            try { var _acSi = await resolveCaseSenderInfo(acTask.case_id); if (_acSi && _acSi.from) acInboxes.push(String(_acSi.from).toLowerCase()); } catch (e) {}
+            for (var _twAc of TEST_WATCH_INBOXES) { if (acInboxes.indexOf(_twAc) < 0) acInboxes.push(_twAc); }
+            altSwept++;
+            for (var _aci = 0; _aci < acInboxes.length; _aci++) {
+              var acRes = await recoverAltSupervisorCvReply(acTask, acInboxes[_aci]);
+              if (acRes && acRes.recovered) { altRecovered++; break; }
+              if (acRes && acRes.reason === 'found-unmatched') { altFoundUnmatched++; break; }
+            }
+          } catch (acErr) { /* best-effort per task */ }
+        }
+        pgResults.push({ altCvReconcile: true, tasksSwept: altSwept, recovered: altRecovered, foundUnmatched: altFoundUnmatched });
+      } catch (altReconErr) {
+        pgResults.push({ altCvReconcile: true, ok: false, error: altReconErr.message });
+      }
+    }
     sendJson(res, 200, { ok: true, results: pgResults });
     return;
   }
@@ -38559,6 +38758,39 @@ Return ONLY valid JSON with no markdown formatting:
     await _logCaseEvent(task.case_id, taskId, 'system', 'Manual re-check for practice reply triggered',
       JSON.stringify({ scanned: _recheckScanned, thread: _recheckThreadId, fromSender: _recheckPracticeEmail || null, recovered: _recheckRecovered || null }).slice(0, 500), admin.email);
     sendJson(res, 200, { ok: true, scanned: _recheckScanned, searchedThread: _recheckThreadId, searchedSender: _recheckPracticeEmail || null, recovered: _recheckRecovered || null, sppa_state: (_afterMeta && _afterMeta.sppa_state) || null });
+    return;
+  }
+
+  // ── Alt-supervisor-CV: pull the practice's reply now (deterministic, watch-independent) ──
+  // The instant operator path that mirrors the SPPA "Check for practice reply now" button, for
+  // alt_supervisor_cv_request tasks. Needs only an admin session (no cron secret), so it can be
+  // triggered from the dashboard the moment a practice says they replied.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/alt-cv-recheck')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const altTaskId = pathname.split('/')[5];
+    const altTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,gmail_thread_id,task_type,status,metadata&id=eq.' + encodeURIComponent(altTaskId) + '&task_type=eq.alt_supervisor_cv_request&limit=1');
+    if (!altTaskRes.ok || !altTaskRes.data || !altTaskRes.data[0]) { sendJson(res, 404, { error: 'alt supervisor CV request task not found' }); return; }
+    const altTask = altTaskRes.data[0];
+    var _altRecMeta = altTask.metadata;
+    if (typeof _altRecMeta === 'string') { try { _altRecMeta = JSON.parse(_altRecMeta); } catch (e) { _altRecMeta = {}; } }
+    _altRecMeta = _altRecMeta || {};
+    // Reply lands in the mailbox we sent FROM (hub mailbox when the hub is ON, else the RSO),
+    // plus any test-watched archive (hello@).
+    var _altRecInboxes = [];
+    try { var _altSi = await resolveCaseSenderInfo(altTask.case_id); if (_altSi && _altSi.from) _altRecInboxes.push(String(_altSi.from).toLowerCase()); } catch (e) {}
+    for (var _altTwi of TEST_WATCH_INBOXES) { if (_altRecInboxes.indexOf(_altTwi) < 0) _altRecInboxes.push(_altTwi); }
+    var _altRecResult = null;
+    for (var _arib = 0; _arib < _altRecInboxes.length; _arib++) {
+      try {
+        var _arr = await recoverAltSupervisorCvReply(altTask, _altRecInboxes[_arib]);
+        if (_arr && (_arr.recovered || _arr.reason === 'found-unmatched')) { _altRecResult = Object.assign({ inbox: _altRecInboxes[_arib] }, _arr); if (_arr.recovered) break; }
+      } catch (e) { /* try next inbox */ }
+    }
+    await _logCaseEvent(altTask.case_id, altTaskId, 'system', 'Manual re-check for alternate-supervisor CV reply triggered',
+      JSON.stringify({ inboxes: _altRecInboxes, searchedSender: _altRecMeta.practice_email || null, result: _altRecResult || null }).slice(0, 500), admin.email);
+    sendJson(res, 200, { ok: true, searchedSender: _altRecMeta.practice_email || null, inboxes: _altRecInboxes, recovered: (_altRecResult && _altRecResult.recovered) || false, review_task_id: (_altRecResult && _altRecResult.review_task_id) || null, reason: (_altRecResult && _altRecResult.reason) || 'no-candidate' });
     return;
   }
 

@@ -5761,6 +5761,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(names.length){
         h+='<div style="font-size:12px;margin:4px 0"><strong>Alternate supervisor'+(names.length>1?'s':'')+':</strong> '+esc(names.join(', '))+'</div>';
       }
+      // Deterministic watch-independent pull: the practice's CV reply can be auto-archived / fire
+      // no push, so the realtime watch may miss it. This pulls it directly by thread + sender.
+      h+='<div style="margin-top:10px"><button class="ops-btn-secondary" onclick="altCvRecheck(\''+escAttr(task.id)+'\')">Check for practice reply now</button> <span id="altcv-recheck-'+escAttr(task.id)+'" style="font-size:11px;color:#64748b"></span></div>';
       h+='</div>';
       return h;
     }
@@ -9129,6 +9132,32 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
+  async function altCvRecheck(taskId) {
+    var statusEl = document.getElementById('altcv-recheck-' + taskId);
+    if (statusEl) statusEl.textContent = 'Checking…';
+    toast('Checking the mailbox for the alternate-supervisor CV…');
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/alt-cv-recheck', { method: 'POST', credentials: 'same-origin' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) {
+        if (d.recovered) {
+          if (statusEl) statusEl.textContent = 'CV found and delivered for review.';
+          toast('The alternate-supervisor CV was found and attached — review it');
+        } else if (d.reason === 'found-unmatched') {
+          if (statusEl) statusEl.textContent = 'A reply was found but no CV was recognised — see the case timeline.';
+          toast('A practice reply was found but no CV was recognised', 'red');
+        } else {
+          if (statusEl) statusEl.textContent = 'No CV reply found yet.';
+          toast('No alternate-supervisor CV reply found yet.');
+        }
+        await loadAll(true);
+      } else {
+        if (statusEl) statusEl.textContent = '';
+        toast((d && d.error) || 'Could not check for a reply', 'red');
+      }
+    } catch (err) { if (statusEl) statusEl.textContent = ''; toast('Network error', 'red'); }
+  }
+
   async function sppaSubmitFinal(taskId, override) {
     if (!override && !confirm('Submit final SPPA-00 and deliver to the GP?')) return;
     try {
@@ -10049,6 +10078,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaScanGpSections = sppaScanGpSections;
   window.sppaMarkReturned = sppaMarkReturned;
   window.sppaSubmitFinal = sppaSubmitFinal;
+  window.altCvRecheck = altCvRecheck;
   window.runSppaCompletenessCheck = runSppaCompletenessCheck;
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
