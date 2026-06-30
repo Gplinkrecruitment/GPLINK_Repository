@@ -35335,6 +35335,27 @@ Return ONLY valid JSON with no markdown formatting:
         }
       });
 
+      // Reverse map: docKey → most recent driveFileId (for fallback fetch by id)
+      var gdDocKeyToDriveId = {};
+      Object.keys(gdDriveIdToDocKey).forEach(function(fid) {
+        var dk = gdDriveIdToDocKey[fid];
+        if (dk) gdDocKeyToDriveId[dk] = fid; // last-writer wins; fine for our use
+      });
+
+      // Helper: resolve a Drive file by its stored id. Checks the top-level listing first
+      // (fast, no API call), then falls back to drive.files.get (works for files in any subfolder).
+      async function gdFetchById(fileId) {
+        if (!fileId || !gdCase.google_drive_folder_id || !isGoogleDriveConfigured()) return null;
+        var cached = gdDriveFiles.find(function(f) { return f.id === fileId; });
+        if (cached) return cached;
+        try {
+          var _gfDrive = await getGoogleDriveClient();
+          if (!_gfDrive) return null;
+          var _gfRes = await _gfDrive.files.get({ fileId: fileId, fields: 'id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink', supportsAllDrives: true });
+          return (_gfRes && _gfRes.data && _gfRes.data.id) ? _gfRes.data : null;
+        } catch (_gfErr) { console.error('[gp-documents] fetch-by-id failed for', fileId + ':', _gfErr.message); return null; }
+      }
+
       // 9. Categorize
       var gdMatchedDriveIds = new Set();
       var gdDirectToAhpra = [];
@@ -35342,7 +35363,9 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPreparedByGpLink = [];
 
       // Direct to AHPRA + Prepared by Candidate
-      gdAllDocs.forEach(function(doc) {
+      // Use for...of so we can await gdFetchById for files now living in subfolders.
+      for (var _gdi = 0; _gdi < gdAllDocs.length; _gdi++) {
+        var doc = gdAllDocs[_gdi];
         var userDoc = gdUserDocsByKey[doc.key];
         var stateDoc = gdDocPrepDocs[doc.key];
         var status = 'pending';
@@ -35357,11 +35380,16 @@ Return ONLY valid JSON with no markdown formatting:
           entry.file_url = userDoc.file_url || '';
           entry.updated_at = userDoc.updated_at || '';
           entry.flag_reason = userDoc.flag_reason || '';
+          // Resolve Drive file (may be in a per-document subfolder after organisation).
+          if (userDoc.google_drive_file_id) {
+            var _entryDf = await gdFetchById(userDoc.google_drive_file_id);
+            if (_entryDf) { entry.drive_file = _entryDf; gdMatchedDriveIds.add(_entryDf.id); }
+          }
         }
         if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
-      });
+      }
 
       // Prepared by GP LINK
       var gdOpsMap = {};
@@ -35374,10 +35402,11 @@ Return ONLY valid JSON with no markdown formatting:
         }
       });
 
-      GP_LINK_DOCUMENT_META.forEach(function(doc) {
+      for (var _gpli = 0; _gpli < GP_LINK_DOCUMENT_META.length; _gpli++) {
+        var doc = GP_LINK_DOCUMENT_META[_gpli];
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
         var driveFile = null;
-        // Find matching Drive file by document key
+        // Attempt 1: find file in top-level listing by stored Drive ID
         for (var i = 0; i < gdDriveFiles.length; i++) {
           if (gdDriveIdToDocKey[gdDriveFiles[i].id] === doc.key) {
             driveFile = gdDriveFiles[i];
@@ -35385,7 +35414,7 @@ Return ONLY valid JSON with no markdown formatting:
             break;
           }
         }
-        // Fallback: match by filename containing the document label
+        // Attempt 2: match by filename (legacy fallback; fires when Drive id not stored)
         if (!driveFile) {
           var labelLower = doc.label.toLowerCase().replace(/[^a-z0-9]/g, '');
           for (var j = 0; j < gdDriveFiles.length; j++) {
@@ -35395,6 +35424,14 @@ Return ONLY valid JSON with no markdown formatting:
               gdMatchedDriveIds.add(gdDriveFiles[j].id);
               break;
             }
+          }
+        }
+        // Attempt 3: fetch by stored Drive file ID (works when file is in a subfolder).
+        if (!driveFile) {
+          var _knownId = (ops && ops.google_drive_file_id) || gdDocKeyToDriveId[doc.key] || null;
+          if (_knownId) {
+            driveFile = await gdFetchById(_knownId);
+            if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
         }
         // Auto-complete: if a Drive file exists but status is still not_requested, upgrade to completed
@@ -35409,7 +35446,7 @@ Return ONLY valid JSON with no markdown formatting:
           ops_id: ops.id || null,
           drive_file: driveFile
         });
-      });
+      }
 
       // Alt supervisor CVs — show a "Prepared by GP Link" placeholder card for
       // each alternate supervisor the returned SPPA-00 named. The status badge
@@ -35435,23 +35472,10 @@ Return ONLY valid JSON with no markdown formatting:
           var aDoc = _altCvUserDocs[_aci];
           var driveFile = null;
           if (aDoc.google_drive_file_id) {
-            driveFile = gdDriveFiles.find(function(f) { return f.id === aDoc.google_drive_file_id; });
-            if (driveFile) {
-              gdMatchedDriveIds.add(driveFile.id);
-            } else if (isGoogleDriveConfigured()) {
-              // The delivered alt-CV lives in the "Alternative Supervisor CVs" SUBFOLDER (see
-              // /alt-cv-submit), so it is NOT a direct child of the case folder and never appears
-              // in gdDriveFiles — the card then rendered as an empty "Upload" placeholder even
-              // though the file was on Drive. Fetch it directly by id so the saved file shows
-              // (thumbnail + preview), matching every other delivered document.
-              try {
-                var _altDrive = await getGoogleDriveClient();
-                if (_altDrive) {
-                  var _altFileRes = await _altDrive.files.get({ fileId: aDoc.google_drive_file_id, fields: 'id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink' });
-                  if (_altFileRes && _altFileRes.data && _altFileRes.data.id) driveFile = _altFileRes.data;
-                }
-              } catch (_altDriveErr) { console.error('[gp-documents] alt CV drive fetch failed (non-fatal):', _altDriveErr.message); }
-            }
+            // Use the shared helper: checks top-level listing first, then fetches by id
+            // (covers both the old Alternative Supervisor CVs subfolder and the new Alternate Supervisor CV subfolder).
+            driveFile = await gdFetchById(aDoc.google_drive_file_id);
+            if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
           // Placeholder rows carry the supervisor's name as file_name (no file
           // extension); a real uploaded CV carries the document filename.
@@ -35469,8 +35493,37 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
-      // Other unmatched Drive files
-      var gdOtherFiles = gdDriveFiles.filter(function(f) { return !gdMatchedDriveIds.has(f.id); });
+      // Other unmatched Drive files: top-level unmatched + contents of the Other Files subfolder
+      var gdOtherFiles = gdDriveFiles.filter(function(f) {
+        return f.mimeType !== 'application/vnd.google-apps.folder' && !gdMatchedDriveIds.has(f.id);
+      });
+      // Also list the "Other Files" subfolder (created by organizeCaseDrive for unrecognised docs).
+      if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
+        try {
+          var _ofDrive = await getGoogleDriveClient();
+          if (_ofDrive) {
+            var _ofFolderQ = "'" + gdCase.google_drive_folder_id + "' in parents" +
+              " and name = '" + driveDocFolders.OTHER_FILES_FOLDER.replace(/'/g, "\\'") + "'" +
+              " and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+            var _ofFolderRes = await _ofDrive.files.list({ q: _ofFolderQ, fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
+            var _ofFolderEntry = _ofFolderRes.data.files && _ofFolderRes.data.files[0];
+            if (_ofFolderEntry) {
+              var _ofFilesRes = await _ofDrive.files.list({
+                q: "'" + _ofFolderEntry.id + "' in parents and trashed = false",
+                fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
+                orderBy: 'modifiedTime desc', pageSize: 100,
+                supportsAllDrives: true, includeItemsFromAllDrives: true
+              });
+              var _ofFiles = _ofFilesRes.data.files || [];
+              _ofFiles.forEach(function(f) {
+                if (f.mimeType !== 'application/vnd.google-apps.folder' && !gdMatchedDriveIds.has(f.id)) {
+                  gdOtherFiles.push(f);
+                }
+              });
+            }
+          }
+        } catch (_ofErr) { console.error('[gp-documents] Other Files subfolder listing failed (non-fatal):', _ofErr.message); }
+      }
 
       sendJson(res, 200, {
         ok: true,
