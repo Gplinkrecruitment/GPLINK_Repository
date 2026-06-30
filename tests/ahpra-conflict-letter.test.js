@@ -1,6 +1,6 @@
 // tests/ahpra-conflict-letter.test.js
 import { describe, it, expect } from 'vitest';
-import { buildConflictLetterEmail } from '../lib/ahpra-conflict-letter.js';
+import { buildConflictLetterEmail, isConflictLetterConfirmation } from '../lib/ahpra-conflict-letter.js';
 
 describe('buildConflictLetterEmail', () => {
   const base = {
@@ -33,5 +33,35 @@ describe('buildConflictLetterEmail', () => {
     expect(bodyHtml).toContain('Dear Practice Contact,');
     expect(bodyHtml).toContain('the supervisor');
     expect(bodyHtml).toContain('GP Link Registration Team');
+  });
+});
+
+describe('isConflictLetterConfirmation', () => {
+  const ctx = { practiceEmail: 'reception@sopclinic.com.au', officerEmail: 'jane.officer@ahpra.gov.au' };
+
+  it('matches a practice→officer email that CCs us (officer in To)', () => {
+    const meta = { sender: 'Reception <reception@sopclinic.com.au>',
+      to: 'jane.officer@ahpra.gov.au', cc: 'hazel@mygplink.com.au' };
+    expect(isConflictLetterConfirmation(meta, ctx)).toBe(true);
+  });
+
+  it('matches when to/cc are arrays and officer is in cc', () => {
+    const meta = { sender: 'reception@sopclinic.com.au',
+      to: ['someone@x.com'], cc: ['hazel@mygplink.com.au', 'Jane <jane.officer@ahpra.gov.au>'] };
+    expect(isConflictLetterConfirmation(meta, ctx)).toBe(true);
+  });
+
+  it('rejects when sender is not the practice', () => {
+    const meta = { sender: 'random@gmail.com', to: 'jane.officer@ahpra.gov.au' };
+    expect(isConflictLetterConfirmation(meta, ctx)).toBe(false);
+  });
+
+  it('rejects when the officer is not a recipient', () => {
+    const meta = { sender: 'reception@sopclinic.com.au', to: 'hazel@mygplink.com.au' };
+    expect(isConflictLetterConfirmation(meta, ctx)).toBe(false);
+  });
+
+  it('rejects when context is incomplete', () => {
+    expect(isConflictLetterConfirmation({ sender: 'reception@sopclinic.com.au' }, { practiceEmail: '', officerEmail: '' })).toBe(false);
   });
 });
