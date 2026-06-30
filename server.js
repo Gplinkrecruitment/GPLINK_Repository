@@ -1165,7 +1165,11 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
   const folderId = await ensureGPDriveFolder(caseId, null, null);
   if (folderId && buffer) {
     const driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType || 'application/pdf');
-    if (driveFile) results.driveFile = driveFile.id;
+    if (driveFile) {
+      results.driveFile = driveFile.id;
+      // File into its document-type subfolder (best-effort).
+      fileDocOnDrive(caseId, docKey, driveFile.id).catch(function () {});
+    }
   }
 
   // Notify the GP by email that a document was delivered to their account (best-effort,
@@ -1252,6 +1256,8 @@ async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
         method: 'PATCH', body: { google_drive_file_id: driveFile.id, google_drive_url: driveUrl }
       });
     }
+    // File the SPPA-00 into its document subfolder (best-effort).
+    fileDocOnDrive(caseId, 'sppa_00', driveFile.id).catch(function () {});
     return { id: driveFile.id, url: driveUrl, webViewLink: driveFile.webViewLink };
   } catch (err) {
     console.error('[SPPA Drive] upload failed:', err.message);
@@ -33122,6 +33128,8 @@ Return ONLY valid JSON with no markdown formatting:
           if (driveFile) {
             await supabaseDbRequest('user_documents', 'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
               { method: 'PATCH', body: { google_drive_file_id: driveFile.id } });
+            // File into its document subfolder (best-effort).
+            fileDocOnDrive(caseId, docKey, driveFile.id).catch(function () {});
           }
         }
       } catch (driveErr) { console.error('[Commencement] Drive upload error:', driveErr.message); }
@@ -36447,6 +36455,11 @@ Return ONLY valid JSON with no markdown formatting:
         _maybeRunSppaConflictScan(task.case_id, regCase ? regCase.user_id : null).catch(function (e) { console.error('[SPPA-00] submit-drive trigger error:', e.message); });
       }
 
+      // 10. File the Drive document into its per-document subfolder (best-effort).
+      if (driveFileId && docKey && task.case_id) {
+        fileDocOnDrive(task.case_id, docKey, driveFileId).catch(function () {});
+      }
+
       sendJson(res, 200, { ok: true, driveFileId: driveFile ? driveFile.id : null });
     } catch (err) {
       console.error('[AdminSubmitDrive] Error:', err.message);
@@ -39018,27 +39031,9 @@ Return ONLY valid JSON with no markdown formatting:
     var cvDocs = (altDocs.ok && Array.isArray(altDocs.data)) ? altDocs.data : [];
     if (cvDocs.length === 0) { sendJson(res, 400, { error: 'No CV documents found' }); return; }
 
-    // Create Drive subfolder
-    var altFolderId = null;
-    try {
-      var caseFolderId = await ensureGPDriveFolder(task.case_id, null, null);
-      if (caseFolderId) {
-        // Check if folder already exists
-        var drive = await getGoogleDriveClient();
-        if (drive) {
-          var existingFolders = await drive.files.list({
-            q: "'" + caseFolderId + "' in parents and name = 'Alternative Supervisor CVs' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-            fields: 'files(id)', pageSize: 1
-          });
-          if (existingFolders.data.files && existingFolders.data.files[0]) {
-            altFolderId = existingFolders.data.files[0].id;
-          } else {
-            var altFolder = await createGoogleDriveFolder('Alternative Supervisor CVs', caseFolderId);
-            if (altFolder) altFolderId = altFolder.id;
-          }
-        }
-      }
-    } catch (e) { console.error('[AltCV] folder creation error:', e.message); }
+    // Resolve the case's Drive folder once (files uploaded to the root, then moved by fileDocOnDrive).
+    var caseFolderId = null;
+    try { caseFolderId = await ensureGPDriveFolder(task.case_id, null, null); } catch (e) { console.error('[AltCV] Drive folder error:', e.message); }
 
     var delivered = 0;
     for (var ci = 0; ci < cvDocs.length; ci++) {
@@ -39046,36 +39041,39 @@ Return ONLY valid JSON with no markdown formatting:
       if (!cvDoc.attachment_url) continue;
       var altDocKey = 'alt_supervisor_cv_' + (ci + 1);
 
-      if (altFolderId) {
-        try {
-          var cvComma = cvDoc.attachment_url.indexOf(',');
-          var cvB64 = cvDoc.attachment_url.substring(cvComma + 1).replace(/-/g, '+').replace(/_/g, '/');
-          while (cvB64.length % 4 !== 0) cvB64 += '=';
-          var cvBuf = Buffer.from(cvB64, 'base64');
-          var cvDriveFile = await uploadToGoogleDrive(altFolderId, cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1) + '.pdf'), cvBuf, cvDoc.mime_type || 'application/pdf');
-          if (cvDriveFile) {
-            var cvDriveUrl = 'https://drive.google.com/file/d/' + cvDriveFile.id + '/view';
-            var existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(altDocKey) + '&limit=1');
-            var userDoc = {
-              user_id: userId, document_key: altDocKey,
-              file_name: cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1)),
-              status: 'approved', reviewed_at: new Date().toISOString(),
-              google_drive_file_id: cvDriveFile.id
-            };
-            if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
-              await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: userDoc });
-            } else {
-              await supabaseDbRequest('user_documents', '', { method: 'POST', body: [userDoc] });
-            }
-            delivered++;
-            // Flip the GP's My Documents / AHPRA "Supervised Practice" placeholder for this alt CV
-            // from "Preparing" to "Ready".
-            try { await _updatePreparedDocsState(userId, altDocKey, cvDriveFile.id, userDoc.file_name); } catch (e) { console.error('[AltCV] prepared-docs state update error:', e.message); }
-            // Notify the GP this document was delivered (the alt-CV path bypasses deliverToMyDocuments).
-            notifyGpDocumentDelivered(userId, altDocKey, userDoc.file_name).catch(function () {});
+      try {
+        var cvComma = cvDoc.attachment_url.indexOf(',');
+        var cvB64 = cvDoc.attachment_url.substring(cvComma + 1).replace(/-/g, '+').replace(/_/g, '/');
+        while (cvB64.length % 4 !== 0) cvB64 += '=';
+        var cvBuf = Buffer.from(cvB64, 'base64');
+        // Upload to the case folder root; fileDocOnDrive will move it into 'Alternate Supervisor CV'.
+        var cvDriveFile = caseFolderId
+          ? await uploadToGoogleDrive(caseFolderId, cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1) + '.pdf'), cvBuf, cvDoc.mime_type || 'application/pdf')
+          : null;
+        if (cvDriveFile) {
+          var cvDriveUrl = 'https://drive.google.com/file/d/' + cvDriveFile.id + '/view';
+          var existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(altDocKey) + '&limit=1');
+          var userDoc = {
+            user_id: userId, document_key: altDocKey,
+            file_name: cvDoc.filename || ('Alt Supervisor CV ' + (ci + 1)),
+            status: 'approved', reviewed_at: new Date().toISOString(),
+            google_drive_file_id: cvDriveFile.id
+          };
+          if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+            await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: userDoc });
+          } else {
+            await supabaseDbRequest('user_documents', '', { method: 'POST', body: [userDoc] });
           }
-        } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
-      }
+          // Move the file into the canonical 'Alternate Supervisor CV' subfolder (best-effort).
+          fileDocOnDrive(task.case_id, altDocKey, cvDriveFile.id).catch(function () {});
+          delivered++;
+          // Flip the GP's My Documents / AHPRA "Supervised Practice" placeholder for this alt CV
+          // from "Preparing" to "Ready".
+          try { await _updatePreparedDocsState(userId, altDocKey, cvDriveFile.id, userDoc.file_name); } catch (e) { console.error('[AltCV] prepared-docs state update error:', e.message); }
+          // Notify the GP this document was delivered (the alt-CV path bypasses deliverToMyDocuments).
+          notifyGpDocumentDelivered(userId, altDocKey, userDoc.file_name).catch(function () {});
+        }
+      } catch (cvErr) { console.error('[AltCV] delivery error:', cvErr.message); }
     }
 
     // Find the linked SPPA task, close any open "request alt supervisor CV" chase task, and re-run
