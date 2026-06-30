@@ -24449,6 +24449,38 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ altCvReconcile: true, ok: false, error: altReconErr.message });
       }
     }
+    // AHPRA officer-reply reconciliation — the SAME cursor-independent net as SPPA/alt-CV, but for
+    // ahpra_correspondence cards (no sppa_state, not alt-CV tasks, so the sweeps above skip them).
+    // An AHPRA officer's reply that fired no push / was auto-archived / is behind the forward-only
+    // history cursor is re-pulled DIRECTLY by the card's Gmail thread (threads.get via
+    // recoverThreadId), so a regulator deadline isn't silently missed. The re-ingested reply is
+    // attached to the existing card by response-matching; _processAhpraEmail's thread-dedup stops a
+    // second card, and per-message dedup makes this safe to run hourly.
+    if (isSupabaseDbConfigured()) {
+      try {
+        var ahReconRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,gmail_thread_id&task_type=eq.ahpra_correspondence&gmail_thread_id=not.is.null' +
+          '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=200');
+        var ahReconTasks = ahReconRes.ok && Array.isArray(ahReconRes.data) ? ahReconRes.data : [];
+        var ahSwept = 0;
+        for (var ahi = 0; ahi < ahReconTasks.length; ahi++) {
+          var ahTask = ahReconTasks[ahi];
+          if (!ahTask.gmail_thread_id) continue;
+          try {
+            var ahInboxes = [];
+            try { var _ahSi = await resolveCaseSenderInfo(ahTask.case_id); if (_ahSi && _ahSi.from) ahInboxes.push(String(_ahSi.from).toLowerCase()); } catch (e) {}
+            for (var _twAh of TEST_WATCH_INBOXES) { if (ahInboxes.indexOf(_twAh) < 0) ahInboxes.push(_twAh); }
+            for (var _ahx = 0; _ahx < ahInboxes.length; _ahx++) {
+              await processGmailNotification(ahInboxes[_ahx], null, { recoverThreadId: ahTask.gmail_thread_id });
+            }
+            ahSwept++;
+          } catch (ahErr) { /* best-effort per task */ }
+        }
+        pgResults.push({ ahpraReconcile: true, tasksSwept: ahSwept });
+      } catch (ahReconErr) {
+        pgResults.push({ ahpraReconcile: true, ok: false, error: ahReconErr.message });
+      }
+    }
     sendJson(res, 200, { ok: true, results: pgResults });
     return;
   }
