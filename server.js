@@ -4522,14 +4522,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         var _cloRecipients = (String(emailMeta.to || '') + ',' + String(emailMeta.cc || '')).toLowerCase();
         var _cloOfficerAddrs = (_cloRecipients.match(/[\w.+\-]+@ahpra\.gov\.au/g) || []);
         if (_cloOfficerAddrs.length > 0) {
-          var _cloUniq = {};
-          for (var _cloui = 0; _cloui < _cloOfficerAddrs.length; _cloui++) { _cloUniq[_cloOfficerAddrs[_cloui].trim()] = true; }
-          var _cloUniqueAddrs = Object.keys(_cloUniq);
-          for (var _clofi = 0; _clofi < _cloUniqueAddrs.length && !_conflictLetterClosed; _clofi++) {
-            var _cloAddr = _cloUniqueAddrs[_clofi];
-            var _cloTaskRes = await supabaseDbRequest('registration_tasks',
-              'select=id,case_id,metadata&task_type=eq.ahpra_conflict_letter&status=neq.completed&metadata->>ahpra_officer_email=eq.' + encodeURIComponent(_cloAddr) + '&limit=10');
-            if (!(_cloTaskRes.ok && Array.isArray(_cloTaskRes.data))) continue;
+          // Fetch all active conflict-letter tasks without an officer-email filter.
+          // PostgREST text equality is case-sensitive, so filtering by the lowercased
+          // To/Cc address would miss stored mixed-case values (e.g. Jane.Officer@ahpra.gov.au).
+          // isConflictLetterConfirmation already handles case-insensitive matching on both sides.
+          var _cloTaskRes = await supabaseDbRequest('registration_tasks',
+            'select=id,case_id,metadata&task_type=eq.ahpra_conflict_letter&status=in.(open,waiting_on_practice)&limit=50');
+          if (_cloTaskRes.ok && Array.isArray(_cloTaskRes.data)) {
             for (var _cloti = 0; _cloti < _cloTaskRes.data.length && !_conflictLetterClosed; _cloti++) {
               var _cloTask = _cloTaskRes.data[_cloti];
               var _cloMeta = _cloTask.metadata;
@@ -4537,7 +4536,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               _cloMeta = _cloMeta || {};
               if (!isConflictLetterConfirmation(emailMeta, {
                 practiceEmail: _cloMeta.practice_email || '',
-                officerEmail: _cloMeta.ahpra_officer_email || _cloAddr
+                officerEmail: _cloMeta.ahpra_officer_email || ''
               })) continue;
               // Idempotency: skip if this message is already recorded on the task
               var _cloDup = await supabaseDbRequest('task_messages',

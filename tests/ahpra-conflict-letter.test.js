@@ -64,6 +64,12 @@ describe('isConflictLetterConfirmation', () => {
   it('rejects when context is incomplete', () => {
     expect(isConflictLetterConfirmation({ sender: 'reception@sopclinic.com.au' }, { practiceEmail: '', officerEmail: '' })).toBe(false);
   });
+
+  it('matches case-insensitively when stored officer/practice emails are mixed-case', () => {
+    const meta = { sender: 'Reception <Reception@SOPClinic.com.au>', to: 'JANE.OFFICER@ahpra.gov.au', cc: 'hazel@mygplink.com.au' };
+    const ctx = { practiceEmail: 'reception@sopclinic.com.au', officerEmail: 'Jane.Officer@AHPRA.gov.au' };
+    expect(isConflictLetterConfirmation(meta, ctx)).toBe(true);
+  });
 });
 
 describe('shouldEnsureConflictLetter', () => {
