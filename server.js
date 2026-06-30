@@ -4512,6 +4512,105 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         continue;
       }
 
+      // ── Task 6: Conflict-letter auto-close (practice → officer CC) ──
+      // When a practice emails an AHPRA officer and CCs our mailbox, that copy lands here.
+      // The email is FROM the practice, with the officer in To/Cc (not as the sender), so the
+      // AHPRA-officer-sender pipeline (line ~4706) will NOT catch it. This is a cheap pre-check:
+      // only fires when at least one @ahpra.gov.au address appears in To/Cc.
+      var _conflictLetterClosed = false;
+      try {
+        var _cloRecipients = (String(emailMeta.to || '') + ',' + String(emailMeta.cc || '')).toLowerCase();
+        var _cloOfficerAddrs = (_cloRecipients.match(/[\w.+\-]+@ahpra\.gov\.au/g) || []);
+        if (_cloOfficerAddrs.length > 0) {
+          var _cloUniq = {};
+          for (var _cloui = 0; _cloui < _cloOfficerAddrs.length; _cloui++) { _cloUniq[_cloOfficerAddrs[_cloui].trim()] = true; }
+          var _cloUniqueAddrs = Object.keys(_cloUniq);
+          for (var _clofi = 0; _clofi < _cloUniqueAddrs.length && !_conflictLetterClosed; _clofi++) {
+            var _cloAddr = _cloUniqueAddrs[_clofi];
+            var _cloTaskRes = await supabaseDbRequest('registration_tasks',
+              'select=id,case_id,metadata&task_type=eq.ahpra_conflict_letter&status=neq.completed&metadata->>ahpra_officer_email=eq.' + encodeURIComponent(_cloAddr) + '&limit=10');
+            if (!(_cloTaskRes.ok && Array.isArray(_cloTaskRes.data))) continue;
+            for (var _cloti = 0; _cloti < _cloTaskRes.data.length && !_conflictLetterClosed; _cloti++) {
+              var _cloTask = _cloTaskRes.data[_cloti];
+              var _cloMeta = _cloTask.metadata;
+              if (typeof _cloMeta === 'string') { try { _cloMeta = JSON.parse(_cloMeta); } catch (e) { _cloMeta = {}; } }
+              _cloMeta = _cloMeta || {};
+              if (!isConflictLetterConfirmation(emailMeta, {
+                practiceEmail: _cloMeta.practice_email || '',
+                officerEmail: _cloMeta.ahpra_officer_email || _cloAddr
+              })) continue;
+              // Idempotency: skip if this message is already recorded on the task
+              var _cloDup = await supabaseDbRequest('task_messages',
+                'select=id&task_id=eq.' + encodeURIComponent(_cloTask.id) +
+                '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+              if (_cloDup.ok && Array.isArray(_cloDup.data) && _cloDup.data.length > 0) {
+                _conflictLetterClosed = true; break;
+              }
+              // Record the confirming email on the task
+              await supabaseDbRequest('task_messages', '', {
+                method: 'POST',
+                body: [{
+                  task_id: _cloTask.id, case_id: _cloTask.case_id,
+                  direction: 'inbound', channel: 'email',
+                  sender: emailMeta.sender || '', recipient: emailMeta.to || '',
+                  subject: emailMeta.subject || '',
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000),
+                  body_html: emailMeta.bodyHtml || null,
+                  rfc822_message_id: emailMeta.rfc822MessageId || null,
+                  rfc822_references: emailMeta.rfc822References || null,
+                  cc: emailMeta.cc || null,
+                  gmail_message_id: currentMsgId,
+                  gmail_thread_id: emailMeta.threadId || null,
+                  attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+                  is_document_delivery: false,
+                  created_at: new Date().toISOString()
+                }]
+              }).catch(function (_cloMsgErr) { console.error('[conflict-letter] task_message insert error:', _cloMsgErr.message); });
+              // Stamp confirmed_at + confirmed_via into existing metadata (merge, don't clobber)
+              var _cloNewMeta = Object.assign({}, _cloMeta, {
+                confirmed_at: new Date().toISOString(),
+                confirmed_via: 'practice_cc'
+              });
+              // Complete the task
+              await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(_cloTask.id), {
+                method: 'PATCH',
+                body: {
+                  status: 'completed',
+                  completed_at: new Date().toISOString(),
+                  completed_by: 'system:practice_cc',
+                  metadata: _cloNewMeta,
+                  updated_at: new Date().toISOString()
+                }
+              });
+              await supabaseDbRequest('task_timeline', '', {
+                method: 'POST',
+                body: [{
+                  task_id: _cloTask.id, case_id: _cloTask.case_id,
+                  event_type: 'completed',
+                  title: 'Practice emailed AHPRA officer — conflict letter confirmed',
+                  actor: 'system:practice_cc'
+                }]
+              }).catch(function () {});
+              // Mark as processed so dedup gate catches re-runs
+              await supabaseDbRequest('processed_gmail_messages', '', {
+                method: 'POST',
+                body: [{
+                  gmail_message_id: currentMsgId, email_address: emailAddress,
+                  sender: emailMeta.sender, subject: emailMeta.subject,
+                  result: 'conflict_letter_confirmed',
+                  processed_at: new Date().toISOString()
+                }]
+              }).catch(function () {});
+              console.log('[conflict-letter] Auto-closed task', _cloTask.id, '— practice_cc confirmation from', emailMeta.sender);
+              _conflictLetterClosed = true;
+            }
+          }
+        }
+      } catch (_cloErr) {
+        console.error('[conflict-letter] auto-close check error:', _cloErr.message);
+      }
+      if (_conflictLetterClosed) continue;
+
       // Route by track: attachments (existing AI matching) or triage (email classifier)
       if (filterResult.track === 'attachments') {
       // Run AI matching
@@ -10575,6 +10674,27 @@ async function _processAhpraEmail(emailMeta) {
       }
     }
 
+    // Task 5: Route officer conflict requests to the single ahpra_conflict_letter task.
+    // If the triage flags this as a conflict followup, ensure/return the conflict-letter task
+    // and suppress the generic ahpra_correspondence creation below.
+    var isConflictFollowup = triage.category === 'conflict_followup' || triage.response_type === 'request_from_practice';
+    var suppressedByConflictLetter = false;
+    if (isConflictFollowup) {
+      try {
+        var _clRouteTask = await _ensureAhpraConflictLetter(caseId, {
+          officerName: triage.officer_name || '',
+          officerEmail: triage.officer_email || emailMeta.sender,
+          officerRequestMessageId: emailMeta.messageId || null
+        });
+        if (_clRouteTask) {
+          suppressedByConflictLetter = true;
+          console.log('[AHPRA Email] Conflict followup — routed to conflict-letter task', _clRouteTask.id, '(suppressed ahpra_correspondence)');
+        }
+      } catch (_clRouteErr) {
+        console.error('[AHPRA Email] conflict-letter route check error:', _clRouteErr.message);
+      }
+    }
+
     var taskTitle = '';
     var taskDetail = '';
     var taskMeta = {
@@ -10645,6 +10765,7 @@ async function _processAhpraEmail(emailMeta) {
       ahpraDueDate = tenDaysOut.toISOString().slice(0, 10);
     }
 
+    if (!suppressedByConflictLetter) {
     var _ahpraTaskRes = await supabaseDbRequest('registration_tasks', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -10723,6 +10844,14 @@ async function _processAhpraEmail(emailMeta) {
     }
 
     console.log('[AHPRA Email] Created task: ' + taskTitle);
+    } else {
+      // Suppressed: conflict followup is handled by the ahpra_conflict_letter task.
+      // Still log to the case timeline so the email arrival is visible.
+      await _logCaseEvent(caseId, null, 'system',
+        'AHPRA conflict followup — handled via conflict-letter task',
+        triage.summary, 'ahpra_email_pipeline',
+        { officer_email: triage.officer_email || emailMeta.sender });
+    }
   } catch (err) {
     console.error('[AHPRA Email] processing error:', err.message);
   }
