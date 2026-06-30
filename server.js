@@ -1626,82 +1626,96 @@ var _ahpraConflictLetterInflight = {};
 async function _ensureAhpraConflictLetter(caseId, opts) {
   opts = opts || {};
   if (!caseId) return null;
-  if (_ahpraConflictLetterInflight[caseId]) return null;
-  _ahpraConflictLetterInflight[caseId] = true;
-  try {
-    // 1) Reuse any existing open task (idempotency guard).
-    var existingTask = await supabaseDbRequest('registration_tasks',
-      'select=id,metadata,status&case_id=eq.' + encodeURIComponent(caseId) +
-      '&task_type=eq.ahpra_conflict_letter&status=neq.completed&limit=1');
-    if (existingTask.ok && Array.isArray(existingTask.data) && existingTask.data[0]) {
-      return existingTask.data[0];
-    }
-    // 2) Read conflict flag + supervisor name from the SPPA-00 task.
-    var sppaRes = await supabaseDbRequest('registration_tasks',
-      'select=metadata&case_id=eq.' + encodeURIComponent(caseId) +
-      '&task_type=eq.practice_pack_child&related_document_key=eq.sppa_00&limit=1');
-    var sMeta = (sppaRes.ok && sppaRes.data && sppaRes.data[0]) ? sppaRes.data[0].metadata : null;
-    if (typeof sMeta === 'string') { try { sMeta = JSON.parse(sMeta); } catch (e) { sMeta = {}; } }
-    sMeta = sMeta || {};
-    var officerEmail = String(opts.officerEmail || '').trim();
-    if (!shouldEnsureConflictLetter({ hasConflict: sMeta.is_conflict === true, officerEmail: officerEmail })) return null;
-    // 3) Case → user_id + practice_name.
-    var caseRow2 = await supabaseDbRequest('registration_cases',
-      'select=user_id,practice_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-    var cRow = (caseRow2.ok && caseRow2.data && caseRow2.data[0]) ? caseRow2.data[0] : {};
-    var userId = cRow.user_id || null;
-    var practiceName = String(cRow.practice_name || sMeta.practice_owner_name || '').trim();
-    // 4) GP display name from user_profiles (mirror alt-CV path).
-    var gpName = '';
-    if (userId) {
-      var profRes2 = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-      var prof2 = (profRes2.ok && profRes2.data && profRes2.data[0]) ? profRes2.data[0] : {};
-      gpName = ((prof2.first_name || '') + ' ' + (prof2.last_name || '')).trim();
-    }
-    if (!gpName) gpName = String(sMeta.candidate_name || 'the candidate').trim();
-    // 5) Practice contact (same precedence as alt-CV path).
-    var practiceEmail = '';
-    var practiceContactName = 'Practice Contact';
-    if (userId) {
-      var appRow2 = await supabaseDbRequest('gp_applications',
-        'select=practice_contact_email,practice_contact_name,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
-      if (appRow2.ok && appRow2.data && appRow2.data[0]) {
-        practiceEmail = String(appRow2.data[0].practice_contact_email || '').trim();
-        if (appRow2.data[0].practice_contact_name) practiceContactName = String(appRow2.data[0].practice_contact_name).trim();
-        if (!practiceName && appRow2.data[0].practice_name) practiceName = String(appRow2.data[0].practice_name).trim();
+  if (_ahpraConflictLetterInflight[caseId]) {
+    try { return await _ahpraConflictLetterInflight[caseId]; } catch (e) { return null; }
+  }
+  var _clPromise = (async function () {
+    try {
+      // 1) Reuse any existing open task (idempotency guard).
+      var existingTask = await supabaseDbRequest('registration_tasks',
+        'select=id,metadata,status&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.ahpra_conflict_letter&status=neq.completed&limit=1');
+      if (existingTask.ok && Array.isArray(existingTask.data) && existingTask.data[0]) {
+        var existingTask0 = existingTask.data[0];
+        var existingMeta = existingTask0.metadata;
+        if (typeof existingMeta === 'string') { try { existingMeta = JSON.parse(existingMeta); } catch (e) { existingMeta = {}; } }
+        existingMeta = existingMeta || {};
+        if (opts.officerRequestMessageId && !existingMeta.officer_request_message_id) {
+          existingMeta.officer_request_message_id = opts.officerRequestMessageId;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existingTask0.id),
+            { method: 'PATCH', body: { metadata: existingMeta } });
+        }
+        return existingTask0;
       }
-    }
-    if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
-    // 6) RSO CC mailbox + signoff name (same helpers as alt-CV path).
-    var ccEmail = '';
-    try { ccEmail = await resolveCaseSenderEmail(caseId); } catch (e) {}
-    var rsoSignoffName2 = '';
-    try { rsoSignoffName2 = await resolveCaseSenderName(caseId); } catch (e) {}
-    // 7) Build suggested email + create admin task.
-    var officerName = String(opts.officerName || sMeta.ahpra_officer_name || '').trim();
-    var conflictEmail = buildConflictLetterEmail({
-      gpName: gpName, supervisorName: sMeta.supervisor_name || '',
-      practiceName: practiceName, contactName: practiceContactName,
-      officerName: officerName, officerEmail: officerEmail, ccEmail: ccEmail, rsoSignoffName: rsoSignoffName2
-    });
-    var conflictTaskMeta = {
-      suggested_subject: conflictEmail.subject, suggested_body: conflictEmail.bodyHtml,
-      practice_email: practiceEmail, practice_contact_name: practiceContactName,
-      ahpra_officer_name: officerName, ahpra_officer_email: officerEmail,
-      cc_mailbox: ccEmail, gp_name: gpName, supervisor_name: sMeta.supervisor_name || '',
-      practice_name: practiceName
-    };
-    if (opts.officerRequestMessageId) conflictTaskMeta.officer_request_message_id = opts.officerRequestMessageId;
-    var conflictTask = await _createRegTask(caseId, {
-      task_type: 'ahpra_conflict_letter',
-      title: 'Conflict of interest — ask practice to email AHPRA officer',
-      source_trigger: opts.officerRequestMessageId ? 'officer_request' : 'officer_assigned',
-      related_stage: 'ahpra', related_document_key: 'sppa_00', status: 'open', priority: 'high',
-      metadata: conflictTaskMeta, _actor: 'system'
-    });
-    console.log('[ahpra-conflict-letter] Created conflict-letter task for case', caseId);
-    return conflictTask;
-  } catch (e) { console.error('[ahpra-conflict-letter] ensure failed:', e.message); return null; }
+      // 2) Read conflict flag + supervisor name from the SPPA-00 task.
+      var sppaRes = await supabaseDbRequest('registration_tasks',
+        'select=metadata&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.practice_pack_child&related_document_key=eq.sppa_00&limit=1');
+      var sMeta = (sppaRes.ok && sppaRes.data && sppaRes.data[0]) ? sppaRes.data[0].metadata : null;
+      if (typeof sMeta === 'string') { try { sMeta = JSON.parse(sMeta); } catch (e) { sMeta = {}; } }
+      sMeta = sMeta || {};
+      var officerEmail = String(opts.officerEmail || '').trim();
+      if (!shouldEnsureConflictLetter({ hasConflict: sMeta.is_conflict === true, officerEmail: officerEmail })) return null;
+      // 3) Case → user_id + practice_name.
+      var caseRow2 = await supabaseDbRequest('registration_cases',
+        'select=user_id,practice_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var cRow = (caseRow2.ok && caseRow2.data && caseRow2.data[0]) ? caseRow2.data[0] : {};
+      var userId = cRow.user_id || null;
+      var practiceName = String(cRow.practice_name || sMeta.practice_owner_name || '').trim();
+      // 4) GP display name from user_profiles (mirror alt-CV path).
+      var gpName = '';
+      if (userId) {
+        var profRes2 = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+        var prof2 = (profRes2.ok && profRes2.data && profRes2.data[0]) ? profRes2.data[0] : {};
+        gpName = ((prof2.first_name || '') + ' ' + (prof2.last_name || '')).trim();
+      }
+      if (!gpName) gpName = String(sMeta.candidate_name || 'the candidate').trim();
+      // 5) Practice contact (same precedence as alt-CV path).
+      var practiceEmail = '';
+      var practiceContactName = 'Practice Contact';
+      if (userId) {
+        var appRow2 = await supabaseDbRequest('gp_applications',
+          'select=practice_contact_email,practice_contact_name,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+        if (appRow2.ok && appRow2.data && appRow2.data[0]) {
+          practiceEmail = String(appRow2.data[0].practice_contact_email || '').trim();
+          if (appRow2.data[0].practice_contact_name) practiceContactName = String(appRow2.data[0].practice_contact_name).trim();
+          if (!practiceName && appRow2.data[0].practice_name) practiceName = String(appRow2.data[0].practice_name).trim();
+        }
+      }
+      if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
+      // 6) RSO CC mailbox + signoff name (same helpers as alt-CV path).
+      var ccEmail = '';
+      try { ccEmail = await resolveCaseSenderEmail(caseId); } catch (e) {}
+      var rsoSignoffName2 = '';
+      try { rsoSignoffName2 = await resolveCaseSenderName(caseId); } catch (e) {}
+      // 7) Build suggested email + create admin task.
+      var officerName = String(opts.officerName || sMeta.ahpra_officer_name || '').trim();
+      var conflictEmail = buildConflictLetterEmail({
+        gpName: gpName, supervisorName: sMeta.supervisor_name || '',
+        practiceName: practiceName, contactName: practiceContactName,
+        officerName: officerName, officerEmail: officerEmail, ccEmail: ccEmail, rsoSignoffName: rsoSignoffName2
+      });
+      var conflictTaskMeta = {
+        suggested_subject: conflictEmail.subject, suggested_body: conflictEmail.bodyHtml,
+        practice_email: practiceEmail, practice_contact_name: practiceContactName,
+        ahpra_officer_name: officerName, ahpra_officer_email: officerEmail,
+        cc_mailbox: ccEmail, gp_name: gpName, supervisor_name: sMeta.supervisor_name || '',
+        practice_name: practiceName
+      };
+      if (opts.officerRequestMessageId) conflictTaskMeta.officer_request_message_id = opts.officerRequestMessageId;
+      var conflictTask = await _createRegTask(caseId, {
+        task_type: 'ahpra_conflict_letter',
+        title: 'Conflict of interest — ask practice to email AHPRA officer',
+        source_trigger: opts.officerRequestMessageId ? 'officer_request' : 'officer_assigned',
+        related_stage: 'ahpra', related_document_key: 'sppa_00', status: 'open', priority: 'high',
+        metadata: conflictTaskMeta, _actor: 'system'
+      });
+      console.log('[ahpra-conflict-letter] Created conflict-letter task for case', caseId);
+      return conflictTask;
+    } catch (e) { console.error('[ahpra-conflict-letter] ensure failed:', e.message); return null; }
+  })();
+  _ahpraConflictLetterInflight[caseId] = _clPromise;
+  try { return await _clPromise; }
   finally { delete _ahpraConflictLetterInflight[caseId]; }
 }
 
