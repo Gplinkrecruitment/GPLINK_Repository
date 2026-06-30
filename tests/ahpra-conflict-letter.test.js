@@ -1,6 +1,6 @@
 // tests/ahpra-conflict-letter.test.js
 import { describe, it, expect } from 'vitest';
-import { buildConflictLetterEmail, isConflictLetterConfirmation } from '../lib/ahpra-conflict-letter.js';
+import { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter } from '../lib/ahpra-conflict-letter.js';
 
 describe('buildConflictLetterEmail', () => {
   const base = {
@@ -63,5 +63,17 @@ describe('isConflictLetterConfirmation', () => {
 
   it('rejects when context is incomplete', () => {
     expect(isConflictLetterConfirmation({ sender: 'reception@sopclinic.com.au' }, { practiceEmail: '', officerEmail: '' })).toBe(false);
+  });
+});
+
+describe('shouldEnsureConflictLetter', () => {
+  it('true only when conflict AND officer email both present', () => {
+    expect(shouldEnsureConflictLetter({ hasConflict: true, officerEmail: 'o@ahpra.gov.au' })).toBe(true);
+  });
+  it('false when no conflict', () => {
+    expect(shouldEnsureConflictLetter({ hasConflict: false, officerEmail: 'o@ahpra.gov.au' })).toBe(false);
+  });
+  it('false when no officer email', () => {
+    expect(shouldEnsureConflictLetter({ hasConflict: true, officerEmail: '' })).toBe(false);
   });
 });
