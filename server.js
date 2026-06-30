@@ -10377,6 +10377,55 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
 /**
  * Process an inbound AHPRA officer email: classify it and create an admin task.
  */
+// AHPRA triage: only bind an officer email to a GP case on a high-confidence match. True only when
+// the model matched a GP, is confident (>= 0.7), and is not flagging needs_triage. Mirrors the
+// inline triage guard so a low-confidence best-guess never cross-contaminates the wrong GP's record.
+function ahpraConfidentMatch(triage) {
+  if (!triage || !triage.matched_gp_user_id) return false;
+  if (triage.needs_triage) return false;
+  return (Number(triage.confidence) || 0) >= 0.7;
+}
+
+// Build the GP-facing s80 action-item payload from an AHPRA card, for delivery to the GP's own
+// AHPRA page (upload box + deadline + plain-English instruction). Pure: takes the card row, its
+// parsed metadata, and an ISO timestamp; returns the _createRegTask data object (minus _actor).
+function buildAhpraGpDeliveryItem(card, cardMeta, nowIso) {
+  card = card || {};
+  cardMeta = cardMeta || {};
+  var gpInstructions = String(cardMeta.summary || card.description || card.title || 'AHPRA has requested information for your application.').slice(0, 2000);
+  var ahpraDeadline = cardMeta.ahpra_deadline || card.due_date || null;
+  var officer = (cardMeta.ahpra_officer_email || cardMeta.ahpra_officer_name)
+    ? { name: cardMeta.ahpra_officer_name || '', email: cardMeta.ahpra_officer_email || '' } : null;
+  var cleanTitle = String(card.title || 'AHPRA requested item')
+    .replace(/\s*\((direct reply|practice needed|RSO fix|GP correction|practice correction)\)\s*$/i, '').slice(0, 200);
+  return {
+    task_type: 'ahpra_action_item',
+    title: cleanTitle,
+    description: gpInstructions,
+    priority: 'high',
+    status: 'waiting_on_gp',
+    due_date: ahpraDeadline,
+    source_trigger: 'ahpra_card_delivery',
+    related_stage: 'ahpra',
+    ahpra_deadline: ahpraDeadline,
+    metadata: {
+      s80: true,
+      review_status: 'active',
+      released_at: nowIso,
+      owner: 'gp',
+      mode: 'upload',
+      kind: 'ahpra_request',
+      detail: String(card.description || gpInstructions).slice(0, 4000),
+      gp_instructions: gpInstructions,
+      how_to_steps: [],
+      deadline: ahpraDeadline,
+      source_card_task_id: card.id,
+      officer: officer,
+      ingest_source: 'ahpra_card_delivery'
+    }
+  };
+}
+
 async function _processAhpraEmail(emailMeta, sourceMsgId) {
   try {
     var gpRes = await supabaseDbRequest('registration_cases',
@@ -10427,7 +10476,7 @@ async function _processAhpraEmail(emailMeta, sourceMsgId) {
     // those guesses cross-contaminates the wrong GP's record. This mirrors the inline triage guard
     // (require confidence >= 0.7 and not needs_triage). Anything else → an unmatched triage task
     // (case_id null → Support page, no GP case touched).
-    var _confidentMatch = triage.matched_gp_user_id && !triage.needs_triage && (Number(triage.confidence) || 0) >= 0.7;
+    var _confidentMatch = ahpraConfidentMatch(triage);
     var matchedGp = _confidentMatch ? gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; }) : null;
     var caseId = matchedGp ? matchedGp.case_id : null;
 
@@ -38687,40 +38736,10 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const gpInstructions = String(cardMeta.summary || card.description || card.title || 'AHPRA has requested information for your application.').slice(0, 2000);
-    const ahpraDeadline = cardMeta.ahpra_deadline || card.due_date || null;
-    const officer = (cardMeta.ahpra_officer_email || cardMeta.ahpra_officer_name)
-      ? { name: cardMeta.ahpra_officer_name || '', email: cardMeta.ahpra_officer_email || '' } : null;
-    const cleanTitle = String(card.title || 'AHPRA requested item')
-      .replace(/\s*\((direct reply|practice needed|RSO fix|GP correction|practice correction)\)\s*$/i, '').slice(0, 200);
-
-    const gpItem = await _createRegTask(card.case_id, {
-      task_type: 'ahpra_action_item',
-      title: cleanTitle,
-      description: gpInstructions,
-      priority: 'high',
-      status: 'waiting_on_gp',
-      due_date: ahpraDeadline,
-      source_trigger: 'ahpra_card_delivery',
-      related_stage: 'ahpra',
-      ahpra_deadline: ahpraDeadline,
-      metadata: {
-        s80: true,
-        review_status: 'active',
-        released_at: new Date().toISOString(),
-        owner: 'gp',
-        mode: 'upload',
-        kind: 'ahpra_request',
-        detail: String(card.description || gpInstructions).slice(0, 4000),
-        gp_instructions: gpInstructions,
-        how_to_steps: [],
-        deadline: ahpraDeadline,
-        source_card_task_id: cardId,
-        officer: officer,
-        ingest_source: 'ahpra_card_delivery'
-      },
-      _actor: admin.email
-    });
+    const gpItem = await _createRegTask(card.case_id, Object.assign(
+      buildAhpraGpDeliveryItem(card, cardMeta, new Date().toISOString()),
+      { _actor: admin.email }
+    ));
     if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
 
     // Notify the GP in-app + push.
@@ -45974,6 +45993,8 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
+  ahpraConfidentMatch,
+  buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,
   mapPreparedDocumentRow,
   toStatusLabel,
