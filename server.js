@@ -4615,7 +4615,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // AHPRA officer email pipeline — intercept before general triage
         if (isAhpraEmail(emailMeta.sender)) {
           console.log('[Gmail] AHPRA email detected from:', emailMeta.sender);
-          _processAhpraEmail(emailMeta).catch(function (err) {
+          _processAhpraEmail(emailMeta, currentMsgId).catch(function (err) {
             console.error('[Gmail] AHPRA email processing error:', err.message);
           });
         }
@@ -4778,27 +4778,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           }
         }
 
-        // AHPRA action item extraction: if an AHPRA email matched to a GP case, build a
-        // holding-tray bundle the team reviews (and releases) before anything reaches the GP.
+        // AHPRA task creation is owned by the 6-mode classifier (_processAhpraEmail, fired above):
+        // it creates the single RSO-facing ahpra_correspondence card and classifies the response.
+        // The legacy s80 auto-bundle no longer fires on inbound mail (it created a second, competing
+        // task for the same email). The s80 fulfilment machinery — the GP-facing AHPRA page, the
+        // review/release flow, document upload, and the manual "log AHPRA letter" ingest — is
+        // retained, and is now driven by the RSO actioning a request_from_gp / amend card
+        // (deliverAhpraRequestToGp). New officer emails => a new card; replies still attach below
+        // via response-matching. ahpraActionItemsCreated stays false so reply-matching runs.
         var ahpraActionItemsCreated = false;
-        if (isAhpra && gpCase) {
-          try {
-            // The inbound sender IS the assigned officer (only trust a real ahpra.gov.au address).
-            var s80OfficerRaw = extractAhpraOfficerInfo(emailMeta);
-            var s80Officer = (s80OfficerRaw.email && s80OfficerRaw.email.endsWith('@ahpra.gov.au') && s80OfficerRaw.email !== 'officer@ahpra.gov.au')
-              ? { name: s80OfficerRaw.name || '', email: s80OfficerRaw.email } : null;
-            var s80Country = await _resolveGpCountry(gpCase.user_id);
-            var ahpraExtraction = await extractAhpraActionItems(emailMeta, { officer: s80Officer, country: s80Country });
-            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country });
-            // Created items, OR a duplicate we already processed → this email is handled;
-            // don't fall through to response-matching / general triage and double-process it.
-            if (s80Result && (s80Result.created > 0 || s80Result.skipped)) {
-              ahpraActionItemsCreated = true;
-            }
-          } catch (ahpraExtErr) {
-            console.error('[AHPRA] Action item extraction error, falling through to email_triage:', ahpraExtErr.message);
-          }
-        }
 
         // Response matching: try to link incoming message to an existing open task
         var responseMatchedToTask = false;
@@ -4928,7 +4916,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // GP's RSO; unmatched emails (gpCase null, incl. hello@) → case_id null task that
         // surfaces only in the Support page. (Noise/auto-replies are dropped earlier by
         // preFilterEmail, so this does not flood Support.)
-        if (!ahpraActionItemsCreated && !responseMatchedToTask) {
+        // AHPRA officer mail is owned by _processAhpraEmail (the 6-mode card) — never create a
+        // duplicate email_triage task for it here; replies were already attached above.
+        if (!ahpraActionItemsCreated && !responseMatchedToTask && !isAhpra) {
         var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
         var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched \u2014 ';
 
@@ -10387,7 +10377,7 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
 /**
  * Process an inbound AHPRA officer email: classify it and create an admin task.
  */
-async function _processAhpraEmail(emailMeta) {
+async function _processAhpraEmail(emailMeta, sourceMsgId) {
   try {
     var gpRes = await supabaseDbRequest('registration_cases',
       'select=id,user_id,stage,status&status=in.(active,in_progress)&stage=in.(ahpra,career,pbs,commencement)&limit=200');
@@ -10410,8 +10400,39 @@ async function _processAhpraEmail(emailMeta) {
     var triage = await triageAhpraEmail(emailMeta, gpCandidates);
     console.log('[AHPRA Email]', JSON.stringify({ category: triage.category, matched: triage.matched_gp_user_id, confidence: triage.confidence, summary: triage.summary }));
 
-    if (!triage.matched_gp_user_id) {
-      console.log('[AHPRA Email] Could not match to a GP — creating unmatched triage task');
+    // Idempotency: never create a second AHPRA task for the same officer email
+    // (the realtime watch and the hourly cron can both deliver the same message).
+    if (sourceMsgId) {
+      var _existingAhpra = await supabaseDbRequest('registration_tasks',
+        'select=id&task_type=eq.ahpra_correspondence&source_gmail_message_id=eq.' + encodeURIComponent(sourceMsgId) + '&limit=1');
+      if (_existingAhpra.ok && Array.isArray(_existingAhpra.data) && _existingAhpra.data.length) {
+        console.log('[AHPRA Email] Already processed message', sourceMsgId, '— skipping duplicate task');
+        return;
+      }
+    }
+
+    // If this thread already has an AHPRA card, this is a follow-up/reply — don't open a second
+    // card. The inline response-matching path attaches the reply to the existing task instead.
+    if (emailMeta.threadId) {
+      var _threadTask = await supabaseDbRequest('registration_tasks',
+        'select=id&task_type=eq.ahpra_correspondence&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) + '&limit=1');
+      if (_threadTask.ok && Array.isArray(_threadTask.data) && _threadTask.data.length) {
+        console.log('[AHPRA Email] Thread already has an AHPRA card — reply will attach via response-matching; skipping new card');
+        return;
+      }
+    }
+
+    // Only bind to a GP case on a HIGH-CONFIDENCE match. triageAhpraEmail returns a best-guess
+    // user_id even for ambiguous/unrelated mail (flagged via needs_triage / low confidence); binding
+    // those guesses cross-contaminates the wrong GP's record. This mirrors the inline triage guard
+    // (require confidence >= 0.7 and not needs_triage). Anything else → an unmatched triage task
+    // (case_id null → Support page, no GP case touched).
+    var _confidentMatch = triage.matched_gp_user_id && !triage.needs_triage && (Number(triage.confidence) || 0) >= 0.7;
+    var matchedGp = _confidentMatch ? gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; }) : null;
+    var caseId = matchedGp ? matchedGp.case_id : null;
+
+    if (!caseId) {
+      console.log('[AHPRA Email] No confident GP match — creating unmatched triage task');
       await supabaseDbRequest('registration_tasks', '', {
         method: 'POST',
         body: [{
@@ -10421,6 +10442,9 @@ async function _processAhpraEmail(emailMeta) {
           status: 'open',
           source_trigger: 'ahpra_email',
           related_stage: 'ahpra',
+          source_gmail_message_id: sourceMsgId || null,
+          gmail_thread_id: emailMeta.threadId || null,
+          email_sender: triage.officer_email || emailMeta.sender || null,
           metadata: {
             ahpra_officer_name: triage.officer_name,
             ahpra_officer_email: triage.officer_email || emailMeta.sender,
@@ -10434,10 +10458,6 @@ async function _processAhpraEmail(emailMeta) {
       });
       return;
     }
-
-    var matchedGp = gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; });
-    var caseId = matchedGp ? matchedGp.case_id : null;
-    if (!caseId) return;
 
     if (triage.officer_email) {
       try {
@@ -10533,16 +10553,40 @@ async function _processAhpraEmail(emailMeta) {
         case_id: caseId,
         task_type: 'ahpra_correspondence',
         title: taskTitle,
-        detail: taskDetail,
+        description: taskDetail,
         priority: taskPriority,
         status: 'open',
         due_date: ahpraDueDate,
         source_trigger: 'ahpra_email',
         related_stage: 'ahpra',
+        source_gmail_message_id: sourceMsgId || null,
+        gmail_thread_id: emailMeta.threadId || null,
+        email_sender: triage.officer_email || emailMeta.sender || null,
+        email_body_snippet: (emailMeta.bodyText || '').slice(0, 500) || null,
         metadata: taskMeta
       }]
     });
     var newTaskId = (_ahpraTaskRes.ok && _ahpraTaskRes.data && _ahpraTaskRes.data[0]) ? _ahpraTaskRes.data[0].id : null;
+    if (!newTaskId) {
+      console.error('[AHPRA Email] FAILED to create ahpra_correspondence task — DB rejected insert:',
+        _ahpraTaskRes.status, JSON.stringify((_ahpraTaskRes.data && _ahpraTaskRes.data.message) || _ahpraTaskRes.data || ''));
+      return;
+    }
+
+    // Persist the officer's email as an inbound task_message so the card shows the request
+    // ("Open full email") and so reply-matching/threading can find the thread later.
+    try {
+      await supabaseDbRequest('task_messages', '', {
+        method: 'POST',
+        body: [{
+          task_id: newTaskId, case_id: caseId, direction: 'inbound', channel: 'email',
+          sender: triage.officer_email || emailMeta.sender || '',
+          subject: emailMeta.subject || '',
+          body_text: (emailMeta.bodyText || '').substring(0, 50000),
+          gmail_message_id: sourceMsgId || null, gmail_thread_id: emailMeta.threadId || null
+        }]
+      });
+    } catch (mErr) { console.error('[AHPRA Email] inbound task_message insert error:', mErr.message); }
 
     await _logCaseEvent(caseId, null, 'system',
       'AHPRA email received — ' + triage.category,
@@ -10581,7 +10625,7 @@ async function _processAhpraEmail(emailMeta) {
           } else {
             // User documents (qualification docs like primary_medical_degree, mrcgp_certificate, etc.)
             var _userDocRes = await supabaseDbRequest('user_documents',
-              'select=file_name,google_drive_file_id&user_id=eq.' + encodeURIComponent(_gpUserId) +
+              'select=file_name,file_url,google_drive_file_id&user_id=eq.' + encodeURIComponent(_gpUserId) +
               '&document_key=eq.' + encodeURIComponent(_ofk) + '&status=eq.approved&limit=1');
             if (_userDocRes.ok && _userDocRes.data && _userDocRes.data[0]) {
               var _ud = _userDocRes.data[0];
@@ -10592,6 +10636,7 @@ async function _processAhpraEmail(emailMeta) {
                   filename: _ud.file_name || (_ofk + '.pdf'), mime_type: 'application/pdf',
                   google_drive_file_id: _ud.google_drive_file_id || null,
                   google_drive_url: _driveUrl || null,
+                  attachment_url: _ud.file_url || null,
                   version: 1, is_current: true, uploaded_by: 'auto_on_file',
                   category: 'on_file'
                 }]
