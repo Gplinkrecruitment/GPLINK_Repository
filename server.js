@@ -38628,6 +38628,88 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AHPRA: deliver a request_from_gp / amend(gp) card to the GP as an in-app to-do ──
+  // Creates an ACTIVE s80 GP action item (shows on the GP's own AHPRA page with an upload box +
+  // deadline + plain-English instruction) and pushes a notification, then flips the originating
+  // RSO card to waiting_on_gp. Reuses the existing GP-facing s80 fulfilment surface so the doctor
+  // sees what to do in the app — not only an email. Idempotent on the originating card id.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/ahpra-deliver-to-gp')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const cardId = pathname.split('/')[5];
+    const cardRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,title,description,due_date,metadata&id=eq.' + encodeURIComponent(cardId) + '&limit=1');
+    if (!cardRes.ok || !cardRes.data || !cardRes.data[0]) { sendJson(res, 404, { ok: false, error: 'task not found' }); return; }
+    const card = cardRes.data[0];
+    if (!card.case_id) { sendJson(res, 400, { ok: false, error: 'task has no case' }); return; }
+    var cardMeta = card.metadata;
+    if (typeof cardMeta === 'string') try { cardMeta = JSON.parse(cardMeta); } catch (e) { cardMeta = {}; }
+    if (!cardMeta) cardMeta = {};
+
+    // Idempotency: never create a second GP item for the same card.
+    const existingGp = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(card.case_id) + '&task_type=eq.ahpra_action_item&metadata->>source_card_task_id=eq.' + encodeURIComponent(cardId) + '&limit=1');
+    if (existingGp.ok && Array.isArray(existingGp.data) && existingGp.data.length) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cardId), { method: 'PATCH', body: { status: 'waiting_on_gp', updated_at: new Date().toISOString() } });
+      sendJson(res, 200, { ok: true, already: true, gp_task_id: existingGp.data[0].id });
+      return;
+    }
+
+    const gpInstructions = String(cardMeta.summary || card.description || card.title || 'AHPRA has requested information for your application.').slice(0, 2000);
+    const ahpraDeadline = cardMeta.ahpra_deadline || card.due_date || null;
+    const officer = (cardMeta.ahpra_officer_email || cardMeta.ahpra_officer_name)
+      ? { name: cardMeta.ahpra_officer_name || '', email: cardMeta.ahpra_officer_email || '' } : null;
+    const cleanTitle = String(card.title || 'AHPRA requested item')
+      .replace(/\s*\((direct reply|practice needed|RSO fix|GP correction|practice correction)\)\s*$/i, '').slice(0, 200);
+
+    const gpItem = await _createRegTask(card.case_id, {
+      task_type: 'ahpra_action_item',
+      title: cleanTitle,
+      description: gpInstructions,
+      priority: 'high',
+      status: 'waiting_on_gp',
+      due_date: ahpraDeadline,
+      source_trigger: 'ahpra_card_delivery',
+      related_stage: 'ahpra',
+      ahpra_deadline: ahpraDeadline,
+      metadata: {
+        s80: true,
+        review_status: 'active',
+        released_at: new Date().toISOString(),
+        owner: 'gp',
+        mode: 'upload',
+        kind: 'ahpra_request',
+        detail: String(card.description || gpInstructions).slice(0, 4000),
+        gp_instructions: gpInstructions,
+        how_to_steps: [],
+        deadline: ahpraDeadline,
+        source_card_task_id: cardId,
+        officer: officer,
+        ingest_source: 'ahpra_card_delivery'
+      },
+      _actor: admin.email
+    });
+    if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
+
+    // Notify the GP in-app + push.
+    try {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(card.case_id) + '&limit=1');
+      const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
+      if (uid) {
+        await pushDocumentNotificationToUser(uid, {
+          type: 'action_required',
+          title: 'AHPRA has requested more information',
+          detail: 'Please open your AHPRA page to see what is needed and the deadline.'
+        });
+      }
+    } catch (e) { /* non-critical */ }
+
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cardId), { method: 'PATCH', body: { status: 'waiting_on_gp', updated_at: new Date().toISOString() } });
+    await _logCaseEvent(card.case_id, cardId, 'note', 'AHPRA request delivered to GP', 'Created an in-app AHPRA to-do for the GP and notified them.', admin.email);
+    sendJson(res, 200, { ok: true, gp_task_id: gpItem.id });
+    return;
+  }
+
   // ── Amend RSO-owned SPPA field and re-upload ──
   // ── Get SPPA-00 form fields for inline editing ──
   if (req.method === 'GET' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-form-fields')) {

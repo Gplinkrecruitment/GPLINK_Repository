@@ -6182,7 +6182,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           + 'Could you please provide the corrected information as soon as possible?<br><br>'
           + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
           + '</div>';
-        h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send to GP</button></div>';
+        h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp" data-ops-ahpra-gp-deliver="1">Send to GP</button></div>';
         h3 += '</div></div>';
       } else {
         // Practice correction
@@ -6246,7 +6246,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       + 'Could you please send this through as soon as possible?<br><br>'
       + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
       + '</div>';
-    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp">Send to GP</button></div>';
+    h3 += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp" data-ops-ahpra-gp-deliver="1">Send to GP</button></div>';
     h3 += '</div>';
     h3 += '</div>';
     return h3;
@@ -7418,6 +7418,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var tid3=sendGpEmailBtn.getAttribute("data-ops-send-gp-email");
         var caseId3=sendGpEmailBtn.getAttribute("data-ops-case")||'';
         var flipStatus3=sendGpEmailBtn.getAttribute("data-ops-flip-status")||'';
+        var ahpraDeliver3=sendGpEmailBtn.getAttribute("data-ops-ahpra-gp-deliver");
         var toEl3=document.querySelector('[data-gp-email-to="'+tid3+'"]');
         var subEl3=document.querySelector('[data-gp-email-subject="'+tid3+'"]');
         var bodyEl3=document.querySelector('[data-gp-email-body="'+tid3+'"]');
@@ -7434,7 +7435,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             if(flipStatus3){
               await fetch('/api/admin/task?id='+encodeURIComponent(tid3),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus3})});
             }
-            showOpsToast('Email sent to GP');loadOpsQueue();
+            if(ahpraDeliver3){
+              try{await fetch('/api/admin/va/task/'+encodeURIComponent(tid3)+'/ahpra-deliver-to-gp',{method:'POST',credentials:'same-origin'});}catch(_e){}
+              showOpsToast('Sent to GP — emailed + added to their in-app AHPRA to-do');loadOpsQueue();
+            }else{showOpsToast('Email sent to GP');loadOpsQueue();}
           }else{showOpsToast(d3.message||'Email failed','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
         return;
