@@ -24396,6 +24396,32 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: organise every candidate's Drive folder into per-document subfolders (daily, 03:00 UTC)
+  if (req.method === 'GET' && pathname === '/api/cron/organize-drive') {
+    var odCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
+    var odAuth = req.headers['authorization'] || '';
+    if (!odCronSecret || odAuth !== 'Bearer ' + odCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isGoogleDriveConfigured() || !isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: true, organized: 0, errors: 0, message: 'Drive or DB not configured — skipped' });
+      return;
+    }
+    var odCasesRes = await supabaseDbRequest('registration_cases', 'select=id&google_drive_folder_id=not.is.null&limit=500');
+    var odCases = odCasesRes.ok && Array.isArray(odCasesRes.data) ? odCasesRes.data : [];
+    var odOrganized = 0;
+    var odErrors = 0;
+    for (var odi = 0; odi < odCases.length; odi++) {
+      try {
+        await organizeCaseDrive(odCases[odi].id);
+        odOrganized++;
+      } catch (odErr) {
+        console.error('[organize-drive cron] case', odCases[odi].id + ':', odErr.message);
+        odErrors++;
+      }
+    }
+    sendJson(res, 200, { ok: true, organized: odOrganized, errors: odErrors });
+    return;
+  }
+
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
     var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
