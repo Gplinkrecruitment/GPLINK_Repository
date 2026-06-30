@@ -657,18 +657,25 @@ async function reconcileGpDrive(caseId) {
       } catch (e) { console.error('[reconcileGpDrive] doc mirror failed:', d.document_key, e.message); }
     }
 
-    // mirror ID (hello@-only), once — idempotent via folder listing (file named "ID — …")
+    // mirror ID (hello@-only), once — into the per-document "ID" subfolder. Idempotent: check
+    // BOTH the candidate root (legacy location, before organise) AND the ID subfolder, so once
+    // organizeCaseDrive moves the ID into its folder we never re-upload a duplicate. (The previous
+    // root-only check duplicated the ID on every view once the sweep moved it out of root.)
     if (prof.id_copy_data_url) {
       try {
-        const list = await drive.files.list({ q: "'" + folderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
-        const hasId = (list.data.files || []).some(f => /^ID — /.test(f.name || ''));
+        const idFolderId = await ensureDocTypeSubfolder(folderId, driveDocFolders.ID_FOLDER, null);
+        const rootList = await drive.files.list({ q: "'" + folderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+        const idFolderList = idFolderId ? await drive.files.list({ q: "'" + idFolderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 50, supportsAllDrives: true, includeItemsFromAllDrives: true }) : { data: { files: [] } };
+        const allIdCandidates = (rootList.data.files || []).concat(idFolderList.data.files || []);
+        const hasId = allIdCandidates.some(f => /^ID — /.test(f.name || ''));
         if (!hasId) {
           const comma = prof.id_copy_data_url.indexOf(',');
           const head = prof.id_copy_data_url.substring(0, comma);
           const mime = (head.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
           const buf = Buffer.from(prof.id_copy_data_url.substring(comma + 1), 'base64');
           const ext = (mime.split('/')[1] || 'bin').replace('jpeg', 'jpg');
-          await uploadPrivateToGoogleDrive(folderId, 'ID — ' + (prof.id_copy_name || ('identity.' + ext)), buf, mime, 'id_private');
+          // Upload straight into the ID subfolder when available (else root; the sweep relocates it).
+          await uploadPrivateToGoogleDrive(idFolderId || folderId, 'ID — ' + (prof.id_copy_name || ('identity.' + ext)), buf, mime, 'id_private');
         }
       } catch (e) { console.error('[reconcileGpDrive] ID mirror failed:', e.message); }
     }
@@ -682,7 +689,10 @@ async function reconcileGpDrive(caseId) {
 
 // Find-or-create a subfolder named `folderName` under `candidateFolderId`.
 // Uses a Map cache (pass a new Map() per request) to avoid redundant lookups.
-// ownerOnly is reserved for the ID folder; both paths use createPrivateDriveFolder.
+// Folders are created via createPrivateDriveFolder — shared owner-only (GP_OWNER_EMAIL),
+// matching the candidate folder itself. Individual files keep their own sharing on move
+// (team-shared docs stay team-visible; the ID file stays id_private), so this is correct for
+// the ID folder too without a special case.
 async function ensureDocTypeSubfolder(candidateFolderId, folderName, cache) {
   if (cache && cache.has(folderName)) return cache.get(folderName);
   var drive = await getGoogleDriveClient();
@@ -789,24 +799,30 @@ async function organizeCaseDrive(caseId) {
       });
     }
 
-    var taskRes = await supabaseDbRequest('registration_tasks', 'select=related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child&google_drive_file_id=neq.');
+    // One query for every practice-pack task: build id→docKey (for the task_documents join) AND
+    // push the task's own Drive file when it has one.
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=id,related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
     var taskRows = taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [];
+    var taskIdToDocKey = {};
     taskRows.forEach(function(t) {
+      if (t.id && t.related_document_key) taskIdToDocKey[t.id] = t.related_document_key;
       if (t.google_drive_file_id && t.related_document_key) knownFiles.push({ driveFileId: t.google_drive_file_id, docKey: t.related_document_key });
     });
 
     var taskDocRes = await supabaseDbRequest('task_documents', 'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(caseId) + '&is_current=eq.true&google_drive_file_id=neq.');
     var taskDocRows = taskDocRes.ok && Array.isArray(taskDocRes.data) ? taskDocRes.data : [];
-    // Build task_id→related_document_key map from taskRows
-    var taskIdToDocKey = {};
-    taskRows.forEach(function(t) { if (t.id) taskIdToDocKey[t.id] = t.related_document_key; });
-    // Also fetch to get task ids
-    var taskWithIdRes = await supabaseDbRequest('registration_tasks', 'select=id,related_document_key&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
-    var taskWithIdRows = taskWithIdRes.ok && Array.isArray(taskWithIdRes.data) ? taskWithIdRes.data : [];
-    taskWithIdRows.forEach(function(t) { if (t.id && t.related_document_key) taskIdToDocKey[t.id] = t.related_document_key; });
     taskDocRows.forEach(function(td) {
       if (td.google_drive_file_id && td.task_id && taskIdToDocKey[td.task_id]) {
         knownFiles.push({ driveFileId: td.google_drive_file_id, docKey: taskIdToDocKey[td.task_id] });
+      }
+    });
+
+    // The mirrored ID file is named "ID — …" and has NO user_documents row, so it isn't in
+    // knownFiles above. Route it to the "ID" folder explicitly — otherwise the Other Files sweep
+    // would move it out of root, and reconcile's ID check would then re-upload a duplicate forever.
+    topChildren.forEach(function(f) {
+      if (f.mimeType !== topFolderMimeType && /^ID — /.test(f.name || '')) {
+        knownFiles.push({ driveFileId: f.id, docKey: 'id_document' });
       }
     });
 
@@ -814,24 +830,20 @@ async function organizeCaseDrive(caseId) {
     var folderCache = new Map();
     var handledFileIds = new Set();
 
-    // Move each known file into its doc folder (skip if not at root)
+    // Move each known file into its doc folder. Only act on files currently at the candidate-folder
+    // ROOT — a file already inside a subfolder is assumed correctly filed; re-checking it would cost
+    // a Drive get per file on every sweep (including the on-view reconcile) for no gain.
     for (var ki = 0; ki < knownFiles.length; ki++) {
       var kf = knownFiles[ki];
       if (!kf.driveFileId || handledFileIds.has(kf.driveFileId)) continue;
       handledFileIds.add(kf.driveFileId);
+      if (!topFileIds.has(kf.driveFileId)) { skipped++; continue; } // already filed / not at root
       try {
         var folderName = driveDocFolders.folderNameForDoc(kf.docKey);
         var subFolderId = await ensureDocTypeSubfolder(candidateFolderId, folderName, folderCache);
         if (!subFolderId) { skipped++; continue; }
-        // Only move if the file is currently a direct child (at root)
-        if (topFileIds.has(kf.driveFileId)) {
-          var didMove = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
-          if (didMove) moved++; else skipped++;
-        } else {
-          // Already in a subfolder — still ensure it's in the correct subfolder
-          var didMove2 = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
-          if (didMove2) moved++; else skipped++;
-        }
+        var didMove = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
+        if (didMove) moved++; else skipped++;
       } catch (fe) { console.error('[organizeCaseDrive] file move error:', fe.message); skipped++; }
     }
 
@@ -35406,18 +35418,24 @@ Return ONLY valid JSON with no markdown formatting:
         var doc = GP_LINK_DOCUMENT_META[_gpli];
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
         var driveFile = null;
-        // Attempt 1: find file in top-level listing by stored Drive ID
+        var _GD_FOLDER_MIME = 'application/vnd.google-apps.folder';
+        // Attempt 1: find file in top-level listing by stored Drive ID (skip the per-document
+        // subfolders this feature creates — they share the card's label/id space).
         for (var i = 0; i < gdDriveFiles.length; i++) {
+          if (gdDriveFiles[i].mimeType === _GD_FOLDER_MIME) continue;
           if (gdDriveIdToDocKey[gdDriveFiles[i].id] === doc.key) {
             driveFile = gdDriveFiles[i];
             gdMatchedDriveIds.add(gdDriveFiles[i].id);
             break;
           }
         }
-        // Attempt 2: match by filename (legacy fallback; fires when Drive id not stored)
+        // Attempt 2: match by filename (legacy fallback; fires when Drive id not stored). MUST skip
+        // folders — the new per-document subfolders are named exactly after the card labels (e.g.
+        // "SPPA-00"), so a name match here would bind the card to its folder, not its file.
         if (!driveFile) {
           var labelLower = doc.label.toLowerCase().replace(/[^a-z0-9]/g, '');
           for (var j = 0; j < gdDriveFiles.length; j++) {
+            if (gdDriveFiles[j].mimeType === _GD_FOLDER_MIME) continue;
             var nameLower = (gdDriveFiles[j].name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             if (nameLower.indexOf(labelLower) > -1 || (doc.key === 'sppa_00' && nameLower.indexOf('sppa') > -1) || (doc.key === 'offer_contract' && /contract|agreement|offer|employment/.test(nameLower))) {
               driveFile = gdDriveFiles[j];

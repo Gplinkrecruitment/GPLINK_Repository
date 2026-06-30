@@ -32,6 +32,10 @@ describe('driveFolderForDocKey', () => {
     expect(driveFolderForDocKey('')).toBeNull();
     expect(driveFolderForDocKey(null)).toBeNull();
   });
+  it('maps the commencement professional indemnity insurance doc to its own folder', () => {
+    expect(driveFolderForDocKey('professional_indemnity_insurance')).toBe('Professional indemnity insurance');
+    expect(folderNameForDoc('professional_indemnity_insurance')).not.toBe(OTHER_FILES_FOLDER);
+  });
   it('folderNameForDoc falls back to Other Files', () => {
     expect(folderNameForDoc('sppa_00')).toBe('SPPA-00');
     expect(folderNameForDoc('mystery')).toBe(OTHER_FILES_FOLDER);
