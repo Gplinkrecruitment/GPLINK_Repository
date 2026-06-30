@@ -120,6 +120,7 @@ const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
+const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -671,8 +672,193 @@ async function reconcileGpDrive(caseId) {
         }
       } catch (e) { console.error('[reconcileGpDrive] ID mirror failed:', e.message); }
     }
+
+    // Organise all files into per-document subfolders (cheap safety net — idempotent).
+    try { await organizeCaseDrive(caseId); } catch (e) { console.error('[reconcileGpDrive] organize failed:', e.message); }
   } catch (err) { console.error('[reconcileGpDrive] error:', err.message); }
 }
+
+// ── Drive per-document subfolder helpers ──────────────────────────────────────
+
+// Find-or-create a subfolder named `folderName` under `candidateFolderId`.
+// Uses a Map cache (pass a new Map() per request) to avoid redundant lookups.
+// ownerOnly is reserved for the ID folder; both paths use createPrivateDriveFolder.
+async function ensureDocTypeSubfolder(candidateFolderId, folderName, cache) {
+  if (cache && cache.has(folderName)) return cache.get(folderName);
+  var drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  try {
+    var q = "'" + candidateFolderId + "' in parents" +
+      " and name = '" + folderName.replace(/'/g, "\\'") + "'" +
+      " and mimeType = 'application/vnd.google-apps.folder'" +
+      " and trashed = false";
+    var listRes = await drive.files.list({ q: q, fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
+    var existing = listRes.data.files && listRes.data.files[0];
+    var folderId = existing ? existing.id : null;
+    if (!folderId) {
+      var created = await createPrivateDriveFolder(folderName, candidateFolderId);
+      folderId = created ? created.id : null;
+    }
+    if (cache && folderId) cache.set(folderName, folderId);
+    return folderId;
+  } catch (e) {
+    console.error('[ensureDocTypeSubfolder] failed for "' + folderName + '":', e.message);
+    return null;
+  }
+}
+
+// Move driveFileId into targetFolderId. Idempotent: if already there, return false (no-op).
+// Returns true if the file was actually moved, false otherwise.
+async function placeDriveFileInFolder(drive, driveFileId, targetFolderId) {
+  try {
+    var meta = await drive.files.get({ fileId: driveFileId, fields: 'parents', supportsAllDrives: true });
+    var parents = (meta.data && Array.isArray(meta.data.parents)) ? meta.data.parents : [];
+    if (parents.indexOf(targetFolderId) !== -1) return false; // already in target
+    await drive.files.update({
+      fileId: driveFileId,
+      addParents: targetFolderId,
+      removeParents: parents.join(','),
+      supportsAllDrives: true,
+      fields: 'id,parents'
+    });
+    return true;
+  } catch (e) {
+    console.error('[placeDriveFileInFolder] failed for file', driveFileId, '→', targetFolderId + ':', e.message);
+    return false;
+  }
+}
+
+// Move one Drive file into its document-type subfolder under the case's candidate folder.
+// Best-effort: never throws into the caller. Returns true if the move occurred.
+async function fileDocOnDrive(caseId, docKey, driveFileId) {
+  try {
+    if (!isGoogleDriveConfigured() || !caseId || !driveFileId) return false;
+    var candidateFolderId = await ensureGPDriveFolder(caseId, null, null);
+    if (!candidateFolderId) return false;
+    var folderName = driveDocFolders.folderNameForDoc(docKey);
+    var subFolderId = await ensureDocTypeSubfolder(candidateFolderId, folderName, null);
+    if (!subFolderId) return false;
+    var drive = await getGoogleDriveClient();
+    if (!drive) return false;
+    return await placeDriveFileInFolder(drive, driveFileId, subFolderId);
+  } catch (e) {
+    console.error('[fileDocOnDrive] failed for case', caseId, 'docKey', docKey + ':', e.message);
+    return false;
+  }
+}
+
+// Sweep one case's Drive folder and organise all files into per-document subfolders.
+// Idempotent and column-free: derives state from Drive itself + DB doc rows.
+// Files already in a subfolder are skipped; remaining top-level files go to Other Files.
+async function organizeCaseDrive(caseId) {
+  if (!isGoogleDriveConfigured() || !caseId) return { moved: 0, skipped: 0 };
+  var moved = 0;
+  var skipped = 0;
+  try {
+    var candidateFolderId = await ensureGPDriveFolder(caseId, null, null);
+    if (!candidateFolderId) return { moved: 0, skipped: 0 };
+    var drive = await getGoogleDriveClient();
+    if (!drive) return { moved: 0, skipped: 0 };
+
+    // List direct children of the candidate folder
+    var listRes = await drive.files.list({
+      q: "'" + candidateFolderId + "' in parents and trashed = false",
+      fields: 'files(id,name,mimeType)', pageSize: 200,
+      supportsAllDrives: true, includeItemsFromAllDrives: true
+    });
+    var topChildren = listRes.data.files || [];
+    // Build sets of top-level file ids and folder ids
+    var topFileIds = new Set(); // non-folder files at root
+    var topFolderMimeType = 'application/vnd.google-apps.folder';
+    topChildren.forEach(function(f) {
+      if (f.mimeType !== topFolderMimeType) topFileIds.add(f.id);
+    });
+
+    // Collect known file IDs from DB: user_documents + registration_tasks (practice pack)
+    var knownFiles = []; // [{driveFileId, docKey}]
+
+    // Case's user_id
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var userId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].user_id : null;
+
+    if (userId) {
+      var udRes = await supabaseDbRequest('user_documents', 'select=document_key,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId) + '&google_drive_file_id=neq.');
+      var udRows = udRes.ok && Array.isArray(udRes.data) ? udRes.data : [];
+      udRows.forEach(function(d) {
+        if (d.google_drive_file_id && d.document_key) knownFiles.push({ driveFileId: d.google_drive_file_id, docKey: d.document_key });
+      });
+    }
+
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child&google_drive_file_id=neq.');
+    var taskRows = taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [];
+    taskRows.forEach(function(t) {
+      if (t.google_drive_file_id && t.related_document_key) knownFiles.push({ driveFileId: t.google_drive_file_id, docKey: t.related_document_key });
+    });
+
+    var taskDocRes = await supabaseDbRequest('task_documents', 'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(caseId) + '&is_current=eq.true&google_drive_file_id=neq.');
+    var taskDocRows = taskDocRes.ok && Array.isArray(taskDocRes.data) ? taskDocRes.data : [];
+    // Build task_id→related_document_key map from taskRows
+    var taskIdToDocKey = {};
+    taskRows.forEach(function(t) { if (t.id) taskIdToDocKey[t.id] = t.related_document_key; });
+    // Also fetch to get task ids
+    var taskWithIdRes = await supabaseDbRequest('registration_tasks', 'select=id,related_document_key&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
+    var taskWithIdRows = taskWithIdRes.ok && Array.isArray(taskWithIdRes.data) ? taskWithIdRes.data : [];
+    taskWithIdRows.forEach(function(t) { if (t.id && t.related_document_key) taskIdToDocKey[t.id] = t.related_document_key; });
+    taskDocRows.forEach(function(td) {
+      if (td.google_drive_file_id && td.task_id && taskIdToDocKey[td.task_id]) {
+        knownFiles.push({ driveFileId: td.google_drive_file_id, docKey: taskIdToDocKey[td.task_id] });
+      }
+    });
+
+    // Folder cache to avoid duplicate lookups during a single sweep
+    var folderCache = new Map();
+    var handledFileIds = new Set();
+
+    // Move each known file into its doc folder (skip if not at root)
+    for (var ki = 0; ki < knownFiles.length; ki++) {
+      var kf = knownFiles[ki];
+      if (!kf.driveFileId || handledFileIds.has(kf.driveFileId)) continue;
+      handledFileIds.add(kf.driveFileId);
+      try {
+        var folderName = driveDocFolders.folderNameForDoc(kf.docKey);
+        var subFolderId = await ensureDocTypeSubfolder(candidateFolderId, folderName, folderCache);
+        if (!subFolderId) { skipped++; continue; }
+        // Only move if the file is currently a direct child (at root)
+        if (topFileIds.has(kf.driveFileId)) {
+          var didMove = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
+          if (didMove) moved++; else skipped++;
+        } else {
+          // Already in a subfolder — still ensure it's in the correct subfolder
+          var didMove2 = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
+          if (didMove2) moved++; else skipped++;
+        }
+      } catch (fe) { console.error('[organizeCaseDrive] file move error:', fe.message); skipped++; }
+    }
+
+    // Move remaining top-level unmatched files into Other Files
+    var otherFileIds = [];
+    topFileIds.forEach(function(fid) { if (!handledFileIds.has(fid)) otherFileIds.push(fid); });
+    if (otherFileIds.length > 0) {
+      var otherFolderId = await ensureDocTypeSubfolder(candidateFolderId, driveDocFolders.OTHER_FILES_FOLDER, folderCache);
+      if (otherFolderId) {
+        for (var oi = 0; oi < otherFileIds.length; oi++) {
+          try {
+            var didMoveOther = await placeDriveFileInFolder(drive, otherFileIds[oi], otherFolderId);
+            if (didMoveOther) moved++; else skipped++;
+          } catch (oe) { console.error('[organizeCaseDrive] other-file move error:', oe.message); skipped++; }
+        }
+      }
+    }
+
+    console.log('[organizeCaseDrive] case', caseId, '— moved:', moved, 'skipped:', skipped);
+    return { moved: moved, skipped: skipped };
+  } catch (e) {
+    console.error('[organizeCaseDrive] error for case', caseId + ':', e.message);
+    return { moved: 0, skipped: 0 };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function buildMailtoLink(to, subject, body) {
   return 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
