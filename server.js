@@ -1888,16 +1888,28 @@ if (REGISTRATION_HUB_EMAIL) {
 // ADDRESSED to it (its address appears in To/Cc). Archive copies of case mail are addressed to
 // the candidate/practice (not hello@), so they're skipped — that is what prevents the duplicate
 // + orphan rows. TEST_WATCH_INBOXES = which archive inbox(es) to watch this way (default
-// hello@). TEST_WATCH_FROM_SENDERS = optional sender allow-list; EMPTY (default) means accept
-// any sender that wrote directly to the inbox (case-matching/triage routes it downstream).
-// Set TEST_WATCH_FROM_SENDERS via env to restrict to specific senders during testing.
+// hello@). TEST_WATCH_FROM_SENDERS = inbound sender allow-list for the controlled test
+// rollout. It gates BOTH the hello@ archive watch AND the main VA-mailbox triage path, so
+// only mail from these senders reaches the ops queue / task matching. Values:
+//   unset              -> defaults to the two test candidates (gate ON — see below)
+//   "*" or "all"       -> allow EVERY sender (FULL PRODUCTION; gate OFF)
+//   "a@x.com,b@y.com"  -> only those senders
+// IMPORTANT: to open the system to all real candidate mail, set TEST_WATCH_FROM_SENDERS="*"
+// in the deploy env. Leaving it unset keeps the system scoped to the two test candidates so
+// the ops queue is never silently flooded by unrelated inbox mail.
 // See memory: hello-inbox-never-watched, temp-scoped-hello-watch, registration-email-hub-branch.
 const TEST_WATCH_INBOXES = new Set(
   String(process.env.TEST_WATCH_INBOXES || 'hello@mygplink.com.au')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
+const _twSendersRaw = process.env.TEST_WATCH_FROM_SENDERS;
+const TEST_WATCH_ALLOW_ALL_SENDERS = _twSendersRaw != null
+  && (_twSendersRaw.trim() === '*' || _twSendersRaw.trim().toLowerCase() === 'all');
 const TEST_WATCH_FROM_SENDERS = new Set(
-  String(process.env.TEST_WATCH_FROM_SENDERS || '')
+  TEST_WATCH_ALLOW_ALL_SENDERS ? [] :
+  String(_twSendersRaw == null
+    ? 'smithmiller1234@gmail.com,khaleedmahmoud1211@gmail.com'
+    : _twSendersRaw)
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
 // TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
@@ -3654,6 +3666,32 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           }
         }
         console.log('[Gmail Labels] Auto-filed message', currentMsgId, 'into', caseMatches.length, 'case label(s)');
+      }
+
+      // ── Test-phase inbound sender allow-list (main VA-mailbox triage path) ──
+      // The hello@ archive watch above is sender-gated, but the main VA mailbox (e.g. hazel@)
+      // had no such gate — so every non-internal/non-marketing email it received was triaged
+      // into the ops queue, flooding "Unknown" with unrelated inbox mail. Gate it the same way:
+      // when TEST_WATCH_FROM_SENDERS is populated, only triage mail from those senders. An empty
+      // set (TEST_WATCH_FROM_SENDERS="*"/"all") disables the gate for full production.
+      if (TEST_WATCH_FROM_SENDERS.size > 0) {
+        var _triageFrom = (String(emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+        if (!TEST_WATCH_FROM_SENDERS.has(_triageFrom)) {
+          console.log('[Gmail] Sender not in TEST_WATCH_FROM_SENDERS — skipping triage for', currentMsgId, 'from', _triageFrom || '(unknown)');
+          await supabaseDbRequest('processed_gmail_messages', '', {
+            method: 'POST',
+            body: [{
+              gmail_message_id: currentMsgId,
+              email_address: emailAddress,
+              sender: emailMeta.sender,
+              subject: emailMeta.subject,
+              result: 'filtered',
+              ai_summary: 'sender not in TEST_WATCH_FROM_SENDERS allow-list',
+              processed_at: new Date().toISOString()
+            }]
+          });
+          continue;
+        }
       }
 
       // Run pre-filter

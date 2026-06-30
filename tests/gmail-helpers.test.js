@@ -386,6 +386,77 @@ describe('preFilterEmail', function () {
   });
 });
 
+// ── TEST_WATCH_FROM_SENDERS gate (inline copy of server.js decision logic) ──
+// Mirrors the const definition (default = two test candidates, "*"/"all" = allow all) and the
+// main-path gate (skip triage unless sender is allow-listed). Empty set = allow all.
+function buildSenderAllowlist(raw) {
+  var allowAll = raw != null && (String(raw).trim() === '*' || String(raw).trim().toLowerCase() === 'all');
+  return new Set(
+    allowAll ? [] :
+    String(raw == null ? 'smithmiller1234@gmail.com,khaleedmahmoud1211@gmail.com' : raw)
+      .split(',').map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean)
+  );
+}
+function triageSenderAllowed(allowSet, rawSender) {
+  if (allowSet.size === 0) return true; // empty set / allow-all -> no gating
+  var addr = (String(rawSender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
+  return allowSet.has(addr);
+}
+
+describe('TEST_WATCH_FROM_SENDERS sender gate', function () {
+  it('defaults (env unset) to ONLY the two test candidates', function () {
+    var set = buildSenderAllowlist(undefined);
+    expect(set.size).toBe(2);
+    expect(triageSenderAllowed(set, 'smithmiller1234@gmail.com')).toBe(true);
+    expect(triageSenderAllowed(set, 'khaleedmahmoud1211@gmail.com')).toBe(true);
+  });
+
+  it('blocks all non-test senders under the default', function () {
+    var set = buildSenderAllowlist(undefined);
+    var blocked = ['doctordashti@yahoo.co.uk', 'kiran.george@ahpra.gov.au',
+      'sonia@halekulanimedical.com.au', 'mini@valantisadvisors.com.au',
+      'workspace-noreply@google.com', 'management@ausgp.com.au'];
+    for (var i = 0; i < blocked.length; i++) {
+      expect(triageSenderAllowed(set, blocked[i])).toBe(false);
+    }
+  });
+
+  it('extracts the bare address from a display-name sender', function () {
+    var set = buildSenderAllowlist(undefined);
+    expect(triageSenderAllowed(set, 'Smith Miller <smithmiller1234@gmail.com>')).toBe(true);
+    expect(triageSenderAllowed(set, 'Dr Dashti <doctordashti@yahoo.co.uk>')).toBe(false);
+  });
+
+  it('is case-insensitive on the sender address', function () {
+    var set = buildSenderAllowlist(undefined);
+    expect(triageSenderAllowed(set, 'SmithMiller1234@Gmail.com')).toBe(true);
+  });
+
+  it('"*" allows every sender (full production)', function () {
+    var set = buildSenderAllowlist('*');
+    expect(set.size).toBe(0);
+    expect(triageSenderAllowed(set, 'anyone@anywhere.com')).toBe(true);
+    expect(triageSenderAllowed(set, 'doctordashti@yahoo.co.uk')).toBe(true);
+  });
+
+  it('"all" (any case) allows every sender', function () {
+    expect(triageSenderAllowed(buildSenderAllowlist('ALL'), 'anyone@anywhere.com')).toBe(true);
+  });
+
+  it('an explicit comma list restricts to exactly those senders', function () {
+    var set = buildSenderAllowlist('alice@example.com, BOB@example.com');
+    expect(triageSenderAllowed(set, 'alice@example.com')).toBe(true);
+    expect(triageSenderAllowed(set, 'bob@example.com')).toBe(true);
+    expect(triageSenderAllowed(set, 'smithmiller1234@gmail.com')).toBe(false);
+  });
+
+  it('explicit empty string allows all (legacy semantics)', function () {
+    var set = buildSenderAllowlist('');
+    expect(set.size).toBe(0);
+    expect(triageSenderAllowed(set, 'anyone@anywhere.com')).toBe(true);
+  });
+});
+
 
 describe('buildAIMatchPrompt', function () {
   var emailMeta = {
