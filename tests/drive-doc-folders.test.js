@@ -46,6 +46,12 @@ describe('docKeyForFilename (filename → docKey, mirrors gp-documents Attempt 2
   it('matcher key order matches the GP-Link card order', () => {
     expect(GP_LINK_FILENAME_MATCHERS.map((m) => m.key)).toEqual(['sppa_00', 'section_g', 'position_description', 'offer_contract', 'supervisor_cv']);
   });
+  it('offer_contract regex is intentionally loose (documents the server-side corroboration/ambiguity guard)', () => {
+    // These resolve to offer_contract by the legacy regex; the server only FILES/BINDS them when the
+    // case expects offer_contract AND the match is unambiguous (see organizeCaseDrive weakKeyCount).
+    expect(docKeyForFilename('INDEPENDENT AGREEMENT (1).pdf')).toBe('offer_contract'); // Smith's real offer
+    expect(docKeyForFilename('Lease Agreement.pdf')).toBe('offer_contract'); // a potential decoy
+  });
 });
 
 describe('driveFolderForDocKey', () => {

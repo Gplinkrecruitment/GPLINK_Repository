@@ -789,6 +789,7 @@ async function buildCaseDriveIdMap(caseId, userId) {
 // case actually expects (practice_doc_ops/task row) are filed/bound by name — never a stray file.
 function resolveDriveFileDocKey(file, idMap, opts) {
   opts = opts || {};
+  if (file && file.mimeType === 'application/vnd.google-apps.folder') return null; // never resolve a folder
   if (idMap && idMap.idToDocKey && file && file.id && idMap.idToDocKey[file.id]) return idMap.idToDocKey[file.id];
   var name = (file && file.name) || '';
   if (/^ID — /.test(name)) return 'id_document';
@@ -796,6 +797,11 @@ function resolveDriveFileDocKey(file, idMap, opts) {
   if (!fk) return null;
   if (opts.requireCorroboration && idMap && idMap.expected && !idMap.expected.has(fk)) return null;
   return fk;
+}
+// True when the file's docKey came from a stored id / the ID-name rule (NOT a filename guess).
+function isStrongDriveDocMatch(file, idMap) {
+  if (idMap && idMap.idToDocKey && file && file.id && idMap.idToDocKey[file.id]) return true;
+  return /^ID — /.test((file && file.name) || '');
 }
 
 // Sweep one case's Drive folder and organise files into per-document subfolders. Idempotent and
@@ -845,10 +851,23 @@ async function organizeCaseDrive(caseId) {
     var userId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].user_id : null;
     var idMap = await buildCaseDriveIdMap(caseId, userId);
 
-    for (var ci = 0; ci < candidates.length; ci++) {
-      var cf = candidates[ci];
+    // Resolve every candidate up-front. A file matched ONLY by filename (no stored id / not an ID
+    // file) is a WEAK match — count weak matches per docKey so we never physically file an AMBIGUOUS
+    // one into a doc folder (two id-less files claiming the same key → we can't tell which is real,
+    // so leave both unmatched/visible in Other Files rather than guess + misplace a decoy).
+    var resolvedCandidates = candidates.map(function (cf) {
+      var dk = resolveDriveFileDocKey(cf, idMap, { requireCorroboration: true });
+      return { cf: cf, docKey: dk, strong: isStrongDriveDocMatch(cf, idMap) };
+    });
+    var weakKeyCount = {};
+    resolvedCandidates.forEach(function (r) { if (r.docKey && !r.strong) weakKeyCount[r.docKey] = (weakKeyCount[r.docKey] || 0) + 1; });
+
+    for (var ci = 0; ci < resolvedCandidates.length; ci++) {
+      var cf = resolvedCandidates[ci].cf;
+      var docKey = resolvedCandidates[ci].docKey;
+      var strong = resolvedCandidates[ci].strong;
       try {
-        var docKey = resolveDriveFileDocKey(cf, idMap, { requireCorroboration: true });
+        if (docKey && !strong && weakKeyCount[docKey] > 1) docKey = null; // ambiguous filename match → don't file by name
         var targetName = docKey ? driveDocFolders.folderNameForDoc(docKey) : driveDocFolders.OTHER_FILES_FOLDER;
         if (cf.currentFolderName === targetName) { skipped++; continue; } // already in the right folder
         var targetId = await ensureDocTypeSubfolder(candidateFolderId, targetName, folderCache);
@@ -35347,6 +35366,14 @@ Return ONLY valid JSON with no markdown formatting:
       var _gdIdMap = await buildCaseDriveIdMap(gdCaseId, gdUserId);
       var gdDriveIdToDocKey = _gdIdMap.idToDocKey;
       var gdDocKeyToDriveId = _gdIdMap.docKeyToId;
+
+      // Deterministic, id-backed-first binding: a file with a stored id wins over a filename-only
+      // match for the same card, and same-key duplicates resolve in a stable order across views.
+      gdScanFiles.sort(function (a, b) {
+        var ai = (a && gdDriveIdToDocKey[a.id]) ? 0 : 1, bi = (b && gdDriveIdToDocKey[b.id]) ? 0 : 1;
+        if (ai !== bi) return ai - bi;
+        return String((a && a.name) || '').localeCompare(String((b && b.name) || ''));
+      });
 
       // Helper: resolve a Drive file by its stored id. Checks the listing pool first (fast, no API
       // call), then falls back to drive.files.get (works for files in any subfolder).
