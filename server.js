@@ -35211,11 +35211,27 @@ Return ONLY valid JSON with no markdown formatting:
           if (_altReqRes.ok && Array.isArray(_altReqRes.data) && _altReqRes.data[0]) _altReqStatus = _altReqRes.data[0].status || '';
         } catch (_altReqErr) { console.error('[gp-documents] alt request task lookup failed (non-fatal):', _altReqErr.message); }
         var _altCardStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
-        _altCvUserDocs.forEach(function(aDoc) {
+        for (var _aci = 0; _aci < _altCvUserDocs.length; _aci++) {
+          var aDoc = _altCvUserDocs[_aci];
           var driveFile = null;
           if (aDoc.google_drive_file_id) {
             driveFile = gdDriveFiles.find(function(f) { return f.id === aDoc.google_drive_file_id; });
-            if (driveFile) gdMatchedDriveIds.add(driveFile.id);
+            if (driveFile) {
+              gdMatchedDriveIds.add(driveFile.id);
+            } else if (isGoogleDriveConfigured()) {
+              // The delivered alt-CV lives in the "Alternative Supervisor CVs" SUBFOLDER (see
+              // /alt-cv-submit), so it is NOT a direct child of the case folder and never appears
+              // in gdDriveFiles — the card then rendered as an empty "Upload" placeholder even
+              // though the file was on Drive. Fetch it directly by id so the saved file shows
+              // (thumbnail + preview), matching every other delivered document.
+              try {
+                var _altDrive = await getGoogleDriveClient();
+                if (_altDrive) {
+                  var _altFileRes = await _altDrive.files.get({ fileId: aDoc.google_drive_file_id, fields: 'id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink' });
+                  if (_altFileRes && _altFileRes.data && _altFileRes.data.id) driveFile = _altFileRes.data;
+                }
+              } catch (_altDriveErr) { console.error('[gp-documents] alt CV drive fetch failed (non-fatal):', _altDriveErr.message); }
+            }
           }
           // Placeholder rows carry the supervisor's name as file_name (no file
           // extension); a real uploaded CV carries the document filename.
@@ -35230,7 +35246,7 @@ Return ONLY valid JSON with no markdown formatting:
             ops_status: _altCardStatus(aDoc.status, _altReqStatus),
             drive_file: driveFile
           });
-        });
+        }
       }
 
       // Other unmatched Drive files
