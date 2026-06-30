@@ -4612,12 +4612,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           continue;
         }
 
-        // AHPRA officer email pipeline — intercept before general triage
+        // AHPRA officer email detection — the 6-mode classifier runs further down (after the strong
+        // inline GP-match signals are computed) so it can bind to the best match. See _processAhpraEmail.
         if (isAhpraEmail(emailMeta.sender)) {
           console.log('[Gmail] AHPRA email detected from:', emailMeta.sender);
-          _processAhpraEmail(emailMeta, currentMsgId).catch(function (err) {
-            console.error('[Gmail] AHPRA email processing error:', err.message);
-          });
         }
 
         var placedGPs = await getPlacedGPsForTriage();
@@ -4778,14 +4776,22 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           }
         }
 
-        // AHPRA task creation is owned by the 6-mode classifier (_processAhpraEmail, fired above):
-        // it creates the single RSO-facing ahpra_correspondence card and classifies the response.
+        // AHPRA: now that the strong inline GP-match signals (CC / application number / thread /
+        // officer-email) have run, classify + create the single RSO-facing ahpra_correspondence card.
+        // AWAITED so the card (and its inbound task_message) exist before the message is marked
+        // processed — a fire-and-forget call can be killed when the serverless instance freezes after
+        // the webhook ack, silently losing a regulator email with no retry. Pass the inline-resolved
+        // gpCase so a definite match isn't downgraded to "unmatched" by a cautious LLM.
+        if (isAhpra) {
+          try { await _processAhpraEmail(emailMeta, currentMsgId, gpCase); }
+          catch (ahErr) { console.error('[Gmail] AHPRA email processing error:', ahErr.message); }
+        }
+
         // The legacy s80 auto-bundle no longer fires on inbound mail (it created a second, competing
         // task for the same email). The s80 fulfilment machinery — the GP-facing AHPRA page, the
-        // review/release flow, document upload, and the manual "log AHPRA letter" ingest — is
-        // retained, and is now driven by the RSO actioning a request_from_gp / amend card
-        // (deliverAhpraRequestToGp). New officer emails => a new card; replies still attach below
-        // via response-matching. ahpraActionItemsCreated stays false so reply-matching runs.
+        // review/release flow, document upload, and the manual "log AHPRA letter" ingest — is retained,
+        // and is now driven by the RSO actioning a request_from_gp / amend card (ahpra-deliver-to-gp).
+        // Replies still attach below via response-matching; ahpraActionItemsCreated stays false so it runs.
         var ahpraActionItemsCreated = false;
 
         // Response matching: try to link incoming message to an existing open task
@@ -10426,7 +10432,7 @@ function buildAhpraGpDeliveryItem(card, cardMeta, nowIso) {
   };
 }
 
-async function _processAhpraEmail(emailMeta, sourceMsgId) {
+async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
   try {
     var gpRes = await supabaseDbRequest('registration_cases',
       'select=id,user_id,stage,status&status=in.(active,in_progress)&stage=in.(ahpra,career,pbs,commencement)&limit=200');
@@ -10476,9 +10482,19 @@ async function _processAhpraEmail(emailMeta, sourceMsgId) {
     // those guesses cross-contaminates the wrong GP's record. This mirrors the inline triage guard
     // (require confidence >= 0.7 and not needs_triage). Anything else → an unmatched triage task
     // (case_id null → Support page, no GP case touched).
-    var _confidentMatch = ahpraConfidentMatch(triage);
-    var matchedGp = _confidentMatch ? gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; }) : null;
-    var caseId = matchedGp ? matchedGp.case_id : null;
+    // Prefer the strong inline match (CC / application number / thread / officer-email) that the
+    // caller already computed; fall back to the LLM triage match only when it is confident (>= 0.7
+    // and not needs_triage). This stops a definite match being downgraded to "unmatched" by a
+    // cautious model, while still gating the LLM-only path against cross-contamination.
+    var matchedGp = null;
+    var caseId = null;
+    if (preMatchedCase && preMatchedCase.id) {
+      caseId = preMatchedCase.id;
+      matchedGp = { user_id: preMatchedCase.user_id, case_id: preMatchedCase.id };
+    } else if (ahpraConfidentMatch(triage)) {
+      matchedGp = gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; }) || null;
+      caseId = matchedGp ? matchedGp.case_id : null;
+    }
 
     if (!caseId) {
       console.log('[AHPRA Email] No confident GP match — creating unmatched triage task');
@@ -10630,9 +10646,12 @@ async function _processAhpraEmail(emailMeta, sourceMsgId) {
         body: [{
           task_id: newTaskId, case_id: caseId, direction: 'inbound', channel: 'email',
           sender: triage.officer_email || emailMeta.sender || '',
+          recipient: emailMeta.to || null,
           subject: emailMeta.subject || '',
           body_text: (emailMeta.bodyText || '').substring(0, 50000),
-          gmail_message_id: sourceMsgId || null, gmail_thread_id: emailMeta.threadId || null
+          gmail_message_id: sourceMsgId || null, gmail_thread_id: emailMeta.threadId || null,
+          rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null,
+          cc: emailMeta.cc || null
         }]
       });
     } catch (mErr) { console.error('[AHPRA Email] inbound task_message insert error:', mErr.message); }
@@ -38719,10 +38738,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (!admin) return;
     const cardId = pathname.split('/')[5];
     const cardRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,title,description,due_date,metadata&id=eq.' + encodeURIComponent(cardId) + '&limit=1');
+      'select=id,case_id,task_type,title,description,due_date,metadata&id=eq.' + encodeURIComponent(cardId) + '&limit=1');
     if (!cardRes.ok || !cardRes.data || !cardRes.data[0]) { sendJson(res, 404, { ok: false, error: 'task not found' }); return; }
     const card = cardRes.data[0];
     if (!card.case_id) { sendJson(res, 400, { ok: false, error: 'task has no case' }); return; }
+    // Only a 6-mode correspondence card can be delivered to the GP. The GP item this creates is
+    // itself an ahpra_action_item that renders a "Send to GP" button — reject it so clicking that
+    // never spawns a second GP item / re-emails the doctor.
+    if (card.task_type !== 'ahpra_correspondence') { sendJson(res, 400, { ok: false, error: 'only AHPRA correspondence cards can be delivered to the GP' }); return; }
     var cardMeta = card.metadata;
     if (typeof cardMeta === 'string') try { cardMeta = JSON.parse(cardMeta); } catch (e) { cardMeta = {}; }
     if (!cardMeta) cardMeta = {};
