@@ -2766,11 +2766,56 @@ async function resolveCaseSenderName(caseId, knownAssignedVa) {
   } catch (e) { return ''; }
 }
 
+// ANOM-00 Task 8 (Component E): pure decision for which mailbox sends an
+// email. Almost always today's existing hub/RSO choice (untouched) — the ONE
+// additive exception is AHPRA-officer correspondence on a case that already
+// has a pinned authorised-rep mailbox (registration_cases.ahpra_auth_rep_email,
+// set by the rep-change confirm endpoint), which must keep coming from THAT
+// mailbox so AHPRA keeps recognising the sender on the already-established
+// rep-change thread. Pure + null-safe — no I/O, so it's cheap to unit test in
+// isolation from resolveCaseSenderInfo's DB/roster lookups.
+function pickSenderMailbox(opts) {
+  if (!opts) return undefined;
+  if (opts.purpose === 'ahpra_officer' && opts.pinnedRepEmail) return opts.pinnedRepEmail;
+  return opts.hubOn ? opts.hubEmail : opts.rsoEmail;
+}
+
 // Single source of truth for the From address + display name of a case email.
 // Hub OFF → per-RSO mailbox + generic name (unchanged). Hub ON → hub mailbox + RSO name.
-async function resolveCaseSenderInfo(caseId, knownAssignedVa) {
+// opts.purpose === 'ahpra_officer' is the ONE additive exception (ANOM-00 Task 8):
+// when the case already has a pinned AHPRA authorised-rep mailbox, officer-directed
+// correspondence is sent from THAT mailbox instead of the hub/RSO — see
+// pickSenderMailbox above. Every other caller (the vast majority — no opts, or a
+// different purpose) falls straight through to today's unchanged behavior.
+async function resolveCaseSenderInfo(caseId, knownAssignedVa, opts) {
+  opts = opts || {};
   var rsoEmail = await resolveCaseSenderEmail(caseId, knownAssignedVa);
   var rsoName = await resolveCaseSenderName(caseId, knownAssignedVa);
+
+  if (opts.purpose === 'ahpra_officer' && caseId) {
+    var pinnedRepEmail = null;
+    try {
+      var pinnedRes = await supabaseDbRequest('registration_cases',
+        'select=ahpra_auth_rep_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var pinnedRow = (pinnedRes.ok && Array.isArray(pinnedRes.data) && pinnedRes.data[0]) ? pinnedRes.data[0] : null;
+      pinnedRepEmail = (pinnedRow && pinnedRow.ahpra_auth_rep_email) ? String(pinnedRow.ahpra_auth_rep_email).trim() : null;
+    } catch (e) {
+      console.error('[resolveCaseSenderInfo] pinned-rep lookup error:', e.message);
+      pinnedRepEmail = null;
+    }
+    var hubOn = !!(REGISTRATION_HUB_EMAIL && /@mygplink\.com\.au$/.test(REGISTRATION_HUB_EMAIL));
+    var picked = pickSenderMailbox({
+      purpose: opts.purpose,
+      pinnedRepEmail: pinnedRepEmail,
+      hubEmail: REGISTRATION_HUB_EMAIL,
+      rsoEmail: rsoEmail,
+      hubOn: hubOn
+    });
+    if (picked && picked === pinnedRepEmail) {
+      return { from: pinnedRepEmail, fromName: rsoName };
+    }
+  }
+
   return registrationHub.resolveSender({
     hubEmail: REGISTRATION_HUB_EMAIL,
     rsoEmail: rsoEmail,
@@ -28374,7 +28419,12 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    // Determine sender — the case's assigned RSO mailbox, fallback to the default team mailbox
+    // Determine sender — the case's assigned RSO mailbox, fallback to the default team mailbox.
+    // ANOM-00 Task 8: when this reply is addressed to the AHPRA officer (@ahpra.gov.au), route it
+    // through the case's pinned rep mailbox if one is on file, so AHPRA keeps recognising the
+    // sender on an already-established rep-change thread — see resolveCaseSenderInfo/
+    // pickSenderMailbox. Any other recipient keeps today's unchanged hub/RSO resolution. Other
+    // officer-directed send paths can adopt purpose:'ahpra_officer' the same way later.
     var senderCaseId = emailCaseId;
     if (!senderCaseId && emailTaskId) {
       try {
@@ -28382,7 +28432,8 @@ async function handleApi(req, res, pathname) {
         senderCaseId = (_tcr.ok && Array.isArray(_tcr.data) && _tcr.data[0]) ? _tcr.data[0].case_id : null;
       } catch (e) {}
     }
-    var senderInfo = await resolveCaseSenderInfo(senderCaseId);
+    var isAhpraOfficerRecipient = /@ahpra\.gov\.au$/i.test(emailTo);
+    var senderInfo = await resolveCaseSenderInfo(senderCaseId, undefined, isAhpraOfficerRecipient ? { purpose: 'ahpra_officer' } : undefined);
     if (!senderInfo || !senderInfo.from) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
 
     // Send via Gmail
@@ -47150,6 +47201,7 @@ module.exports.rsoCanBeAhpraRep = rsoCanBeAhpraRep;
 module.exports.buildRepSectionData = buildRepSectionData;
 module.exports.shouldTriggerRepChange = shouldTriggerRepChange;
 module.exports.resolveAhpraSubmissionRecipient = resolveAhpraSubmissionRecipient;
+module.exports.pickSenderMailbox = pickSenderMailbox;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
@@ -47159,6 +47211,7 @@ module.exports.__testUtils = {
   shouldTriggerRepChange,
   _ensureRepChangeTask,
   resolveAhpraSubmissionRecipient,
+  pickSenderMailbox,
   ahpraConfidentMatch,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,

@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import signaturePad from '../js/signature-pad.js';
 import * as server from '../server.js';
-import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData, shouldTriggerRepChange, resolveAhpraSubmissionRecipient } from '../server.js';
+import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData, shouldTriggerRepChange, resolveAhpraSubmissionRecipient, pickSenderMailbox } from '../server.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -366,5 +366,51 @@ describe('resolveAhpraSubmissionRecipient', () => {
 
   it('trims stray whitespace around a real officer email', () => {
     expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: '  j.whitfield@ahpra.gov.au  ' })).toBe('j.whitfield@ahpra.gov.au');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 8 (Component E): pickSenderMailbox — pure decision extracted out of
+// resolveCaseSenderInfo for routing AHPRA-officer correspondence through the
+// case's pinned rep mailbox (registration_cases.ahpra_auth_rep_email, set by
+// Task 5's rep-change confirm endpoint). This is the ONE additive exception —
+// every non-officer purpose (i.e. every existing caller, which never passes
+// opts.purpose) keeps today's hub/RSO behavior byte-for-byte. Exported both as
+// a named export and via __testUtils, matching this file's existing dual-export
+// convention (see resolveAhpraSubmissionRecipient above).
+// ---------------------------------------------------------------------------
+describe('pickSenderMailbox', () => {
+  it('officer correspondence uses the pinned rep mailbox when set', () => {
+    expect(pickSenderMailbox({ purpose: 'ahpra_officer', pinnedRepEmail: 'ben@mygplink.com.au', hubOn: true, hubEmail: 'registration@mygplink.com.au' })).toBe('ben@mygplink.com.au');
+  });
+
+  it('non-officer purpose is unchanged (hub when on)', () => {
+    expect(pickSenderMailbox({ purpose: 'default', pinnedRepEmail: 'ben@mygplink.com.au', hubOn: true, hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au' })).toBe('registration@mygplink.com.au');
+  });
+
+  it('officer correspondence falls back to normal when no pin', () => {
+    expect(pickSenderMailbox({ purpose: 'ahpra_officer', pinnedRepEmail: null, hubOn: true, hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au' })).toBe('registration@mygplink.com.au');
+  });
+
+  it('non-officer purpose falls back to the RSO mailbox when the hub is off', () => {
+    expect(pickSenderMailbox({ purpose: 'default', pinnedRepEmail: 'ben@mygplink.com.au', hubOn: false, hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au' })).toBe('hazel@mygplink.com.au');
+  });
+
+  it('officer correspondence with no pin falls back to the RSO mailbox when the hub is off', () => {
+    expect(pickSenderMailbox({ purpose: 'ahpra_officer', pinnedRepEmail: null, hubOn: false, hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au' })).toBe('hazel@mygplink.com.au');
+  });
+
+  it('is reachable via server.__testUtils as well as the named export', () => {
+    expect(server.__testUtils.pickSenderMailbox({ purpose: 'ahpra_officer', pinnedRepEmail: 'ben@mygplink.com.au', hubOn: true, hubEmail: 'registration@mygplink.com.au' })).toBe('ben@mygplink.com.au');
+  });
+
+  it('is null-safe against a missing/empty opts object', () => {
+    expect(pickSenderMailbox(undefined)).toBeUndefined();
+    expect(pickSenderMailbox(null)).toBeUndefined();
+    expect(pickSenderMailbox({})).toBeUndefined();
+  });
+
+  it('an empty-string pinnedRepEmail is treated as "no pin" (falls back to normal)', () => {
+    expect(pickSenderMailbox({ purpose: 'ahpra_officer', pinnedRepEmail: '', hubOn: true, hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au' })).toBe('registration@mygplink.com.au');
   });
 });
