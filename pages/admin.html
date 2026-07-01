@@ -6712,6 +6712,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await loadAll(true);
     });
     document.getElementById("detailContent").addEventListener("click",async e=>{
+      /* AHPRA "Send to GP" — the same 6-card action as the Ops Queue, but this pane (the GP
+         profile Tasks view) previously had no handler for it, so the button did nothing here. */
+      var _sgpBtn=e.target.closest("[data-ops-send-gp-email]");
+      if(_sgpBtn){ await _opsSendToGp(_sgpBtn); return; }
       /* AHPRA s80 actions */
       var s80Rel=e.target.closest("[data-s80-release]");
       if(s80Rel){ e.preventDefault();
@@ -7337,6 +7341,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else{S._opsStatFilter=S._opsStatFilter===key?null:key;}
       loadOpsQueue();
     });
+    // Shared "Send to GP" action for AHPRA cards. Wired into BOTH the Ops Queue table
+    // (#opsTableBody) AND the GP-profile Tasks pane (#detailContent) so the button works
+    // wherever the card renders — it was previously only handled in the Ops Queue. The in-app
+    // AHPRA to-do (the per-document s80 fan-out) is the primary deliverable, so it is created
+    // even if the notification email fails.
+    async function _opsSendToGp(sendGpEmailBtn){
+      var tid3=sendGpEmailBtn.getAttribute("data-ops-send-gp-email");
+      var caseId3=sendGpEmailBtn.getAttribute("data-ops-case")||'';
+      var flipStatus3=sendGpEmailBtn.getAttribute("data-ops-flip-status")||'';
+      var ahpraDeliver3=sendGpEmailBtn.getAttribute("data-ops-ahpra-gp-deliver");
+      var toEl3=document.querySelector('[data-gp-email-to="'+tid3+'"]');
+      var subEl3=document.querySelector('[data-gp-email-subject="'+tid3+'"]');
+      var bodyEl3=document.querySelector('[data-gp-email-body="'+tid3+'"]');
+      var toVal3=toEl3?toEl3.value.trim():'';
+      var subVal3=subEl3?subEl3.value.trim():'';
+      var bodyHtml3=bodyEl3?bodyEl3.innerHTML:'';
+      if(!toVal3){showOpsToast('GP email required','red');return;}
+      sendGpEmailBtn.disabled=true;sendGpEmailBtn.textContent='Sending…';
+      var emailOk=false,emailMsg='';
+      try{
+        var r3=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({to:toVal3,subject:subVal3,bodyHtml:bodyHtml3,taskId:tid3,caseId:caseId3})});
+        var d3=await r3.json().catch(()=>({}));
+        emailOk=!!d3.ok;emailMsg=d3.message||'';
+      }catch(err){emailMsg=(err&&err.message)||'Network error';}
+      if(ahpraDeliver3){
+        // Create the in-app to-do regardless of the email result. This can take a few seconds —
+        // the server AI-splits the officer request into the per-document items.
+        try{await fetch('/api/admin/va/task/'+encodeURIComponent(tid3)+'/ahpra-deliver-to-gp',{method:'POST',credentials:'same-origin'});}catch(_e){}
+        showOpsToast(emailOk?'Sent to GP — emailed + added to their in-app AHPRA to-do':'Added to GP’s AHPRA to-do (email not sent)',emailOk?'':'red');
+      }else if(emailOk){
+        if(flipStatus3){try{await fetch('/api/admin/task?id='+encodeURIComponent(tid3),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus3})});}catch(_e){}}
+        showOpsToast('Email sent to GP');
+      }else{
+        showOpsToast(emailMsg||'Email failed','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send to GP';return;
+      }
+      if(typeof loadOpsQueue==='function')loadOpsQueue();
+      if(typeof loadAll==='function')loadAll(true);
+    }
     document.getElementById("opsTableBody").addEventListener("click",async e=>{
       // Download document from data: URI
       var dlBtn=e.target.closest("[data-preview-doc]");
