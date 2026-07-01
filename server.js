@@ -215,6 +215,12 @@ const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
+// Fast model for the AHPRA s80 document-request extraction (parsing an officer letter into a list of
+// requested documents). This runs synchronously inside the "Send to GP" click, so speed matters —
+// Opus-4-6 was taking >45s and hitting the extraction timeout, falling back to a single lumped item.
+// Sonnet 5 completes in a few seconds. NOTE: Sonnet 5 (like Opus 4.7/4.8) rejects `temperature`/`top_p`
+// with a 400, so the extraction request must NOT send sampling params (see extractAhpraActionItems).
+const AHPRA_S80_EXTRACT_MODEL = String(process.env.AHPRA_S80_EXTRACT_MODEL || 'claude-sonnet-5').trim() || 'claude-sonnet-5';
 // Document scanning/verification always uses the most current Claude model.
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
@@ -3294,9 +3300,11 @@ async function extractAhpraActionItems(emailMeta, ctx) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: AHPRA_S80_EXTRACT_MODEL,
         max_tokens: 4000,
-        temperature: 0,
+        // Sonnet 5 (and Opus 4.7/4.8) reject temperature/top_p with a 400, so no sampling params here.
+        // Disable thinking so this synchronous "Send to GP" extraction returns in a few seconds.
+        thinking: { type: 'disabled' },
         system: ahpraS80.EXTRACTION_SYSTEM,
         messages: [{ role: 'user', content: prompt }]
       })
