@@ -2,10 +2,36 @@ import { createRequire } from 'module';
 import { describe, expect, it } from 'vitest';
 
 process.env.NODE_ENV = 'test';
+// Controlled-test allow-list: this Gmail address should be treated as an AHPRA officer even though
+// it is not @ahpra.gov.au. Must be set BEFORE requiring server.js (the Set is built at module load).
+process.env.AHPRA_TEST_OFFICER_SENDERS = 'helenwazalski@gmail.com';
 
 const require = createRequire(import.meta.url);
 const { __testUtils } = require('../server.js');
-const { ahpraConfidentMatch, buildAhpraGpDeliveryItem } = __testUtils;
+const { ahpraConfidentMatch, buildAhpraGpDeliveryItem, isAhpraSender } = __testUtils;
+
+// ── AHPRA sender classification: real @ahpra.gov.au OR an AHPRA_TEST_OFFICER_SENDERS allow-list ──
+// entry (the controlled-test harness that lets a Gmail address play the officer end-to-end).
+describe('isAhpraSender', () => {
+  it('treats a real @ahpra.gov.au sender as AHPRA', () => {
+    expect(isAhpraSender('officer@ahpra.gov.au')).toBe(true);
+  });
+  it('treats an @ahpra.gov.au sender in angle-bracket form as AHPRA', () => {
+    expect(isAhpraSender('Jane Officer <Jane.Officer@ahpra.gov.au>')).toBe(true);
+  });
+  it('treats an allow-listed test-officer Gmail address as AHPRA', () => {
+    expect(isAhpraSender('helenwazalski@gmail.com')).toBe(true);
+    expect(isAhpraSender('Helen W <helenwazalski@gmail.com>')).toBe(true);
+  });
+  it('does NOT treat an arbitrary Gmail sender as AHPRA', () => {
+    expect(isAhpraSender('someone@gmail.com')).toBe(false);
+  });
+  it('is safe on empty/null input', () => {
+    expect(isAhpraSender('')).toBe(false);
+    expect(isAhpraSender(null)).toBe(false);
+    expect(isAhpraSender(undefined)).toBe(false);
+  });
+});
 
 // ── Confidence gate: only bind an officer email to a GP case on a high-confidence match. ──
 // This guards the cross-contamination bug the audit found (the 6-card pipeline used to bind

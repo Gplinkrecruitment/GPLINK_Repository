@@ -2318,6 +2318,25 @@ const TEST_WATCH_FROM_SENDERS = new Set(
     : _twSendersRaw)
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 );
+// AHPRA_TEST_OFFICER_SENDERS: controlled-test allow-list of (usually Gmail) addresses that should be
+// treated as an AHPRA officer, so the live 6-card ahpra_correspondence flow can be exercised end-to-end
+// without a real @ahpra.gov.au mailbox. Empty/unset -> only genuine @ahpra.gov.au senders count (prod
+// default). Mirrors the TEST_WATCH_FROM_SENDERS pattern. NOTE: this affects only AHPRA *classification*
+// (whether _processAhpraEmail runs); it does NOT persist a non-AHPRA address as the case's
+// ahpra_officer_email, so the officer-assigned conflict-letter trigger stays gated to @ahpra.gov.au.
+const AHPRA_TEST_OFFICER_SENDERS = new Set(
+  String(process.env.AHPRA_TEST_OFFICER_SENDERS || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
+function isAhpraSender(sender) {
+  var s = String(sender || '').toLowerCase();
+  var m = s.match(/<([^>]+)>/);
+  if (m) s = m[1];
+  s = s.trim();
+  if (!s) return false;
+  if (s.endsWith('@ahpra.gov.au')) return true;
+  return AHPRA_TEST_OFFICER_SENDERS.has(s);
+}
 // TEMPORARY TEST diagnostic: trace of the last manual scan per inbox (surfaced in the CEO Gmail card).
 var _lastGmailScanTrace = {};
 
@@ -4841,7 +4860,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
 
         // AHPRA officer email detection — the 6-mode classifier runs further down (after the strong
         // inline GP-match signals are computed) so it can bind to the best match. See _processAhpraEmail.
-        if (isAhpraEmail(emailMeta.sender)) {
+        if (isAhpraSender(emailMeta.sender)) {
           console.log('[Gmail] AHPRA email detected from:', emailMeta.sender);
         }
 
@@ -4849,7 +4868,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         var triageResult = await triageEmailWithSonnet(emailMeta, placedGPs);
 
         // AHPRA officer emails are always highest priority
-        if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au')) {
+        if (isAhpraSender(emailMeta.sender)) {
           triageResult.urgency = 'urgent';
           triageResult.ai_category = triageResult.category || 'ahpra_correspondence';
           if (!triageResult.summary) triageResult.summary = 'Email from AHPRA officer regarding GP registration.';
@@ -4867,7 +4886,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // Create a registration_task so it shows up in the VA's Support tab
         // If AI matched a GP, link to their case. Otherwise try any active case. If none, still create task with null case_id.
         var gpCase = null;
-        var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
+        var isAhpra = isAhpraSender(emailMeta.sender);
         var ahpraMatchMethod = null;
 
         // Enhanced AHPRA matching: multi-signal GP matching before falling back to AI triage
@@ -46271,6 +46290,7 @@ module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
   ahpraConfidentMatch,
+  isAhpraSender,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,
   mapPreparedDocumentRow,
