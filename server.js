@@ -1062,6 +1062,32 @@ function buildRsoWritePayload(input = {}, opts = {}) {
   return { valid: errors.length === 0, errors, payload: out };
 }
 
+// ── ANOM-00 Task 4: RSO first-run onboarding — pure predicates ──────────────
+// rsoNeedsOnboarding: true until the RSO has completed the one-time onboarding
+// modal (first + last name captured AND onboarding_completed_at stamped).
+// Deliberately does NOT depend on ahpra_account_confirmed — that's a separate,
+// later gate (see rsoCanBeAhpraRep) checked at AHPRA-rep nomination/send time,
+// not at onboarding time.
+function rsoNeedsOnboarding(rsoRow) {
+  const row = rsoRow || {};
+  if (!row.onboarding_completed_at) return true;
+  const firstName = String(row.first_name == null ? '' : row.first_name).trim();
+  const lastName = String(row.last_name == null ? '' : row.last_name).trim();
+  if (!firstName || !lastName) return true;
+  return false;
+}
+
+// rsoCanBeAhpraRep: gates whether this RSO can be nominated/act as a doctor's
+// AHPRA authorised representative. Requires BOTH the RSO's own confirmation
+// that they hold an AHPRA portal account, AND a GP-LINK-provisioned
+// @mygplink.com.au company email (never a personal address).
+function rsoCanBeAhpraRep(rsoRow) {
+  const row = rsoRow || {};
+  if (row.ahpra_account_confirmed !== true) return false;
+  const companyEmail = String(row.company_email == null ? '' : row.company_email).trim().toLowerCase();
+  return /@mygplink\.com\.au$/.test(companyEmail);
+}
+
 function getScheduledCallRegistrationTaskId(callRecord) {
   if (!callRecord || typeof callRecord !== 'object') return null;
   return callRecord.registration_task_id || callRecord.task_id || null;
@@ -30204,6 +30230,147 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── ANOM-00 Task 4: RSO first-run onboarding ────────────────────────────
+
+  // GET /api/admin/rso/onboarding-status — has the current admin (as an RSO)
+  // completed the one-time first-run onboarding? Also reports whether they
+  // currently satisfy the SEPARATE AHPRA-representative gate (rsoCanBeAhpraRep).
+  if (req.method === 'GET' && pathname === '/api/admin/rso/onboarding-status') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: true, needed: false, rso: null, canBeAhpraRep: false });
+      return;
+    }
+    const r = await supabaseDbRequest('rso_team',
+      'select=user_id,first_name,last_name,company_email,ahpra_account_confirmed,ahpra_account_confirmed_at,onboarding_completed_at' +
+      '&email=eq.' + encodeURIComponent(adminCtx.email) + '&limit=1',
+      { method: 'GET' });
+    const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+    if (!row) {
+      // No roster row for this admin — nothing to onboard (e.g. a super-admin
+      // who isn't a registration officer on the rso_team roster).
+      sendJson(res, 200, { ok: true, needed: false, rso: null, canBeAhpraRep: false });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      needed: rsoNeedsOnboarding(row),
+      canBeAhpraRep: rsoCanBeAhpraRep(row),
+      rso: {
+        firstName: row.first_name || '',
+        lastName: row.last_name || '',
+        companyEmail: row.company_email || '',
+        ahpraAccountConfirmed: row.ahpra_account_confirmed === true,
+        onboardingCompletedAt: row.onboarding_completed_at || null
+      }
+    });
+    return;
+  }
+
+  // POST /api/admin/rso/onboarding — save the one-time first-run onboarding
+  // (first/last name + the AHPRA-account confirmation) for the current admin's
+  // rso_team row. Company email is provisioned separately (see
+  // /api/admin/rso/company-email, super-admin only) and is never editable here.
+  if (req.method === 'POST' && pathname === '/api/admin/rso/onboarding') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    body = body && typeof body === 'object' ? body : {};
+    const firstName = String(body.firstName == null ? '' : body.firstName).trim();
+    const lastName = String(body.lastName == null ? '' : body.lastName).trim();
+    if (!firstName || !lastName) {
+      sendJson(res, 400, { ok: false, message: 'First and last name are required.' });
+      return;
+    }
+    const lookup = await supabaseDbRequest('rso_team',
+      'select=user_id&email=eq.' + encodeURIComponent(adminCtx.email) + '&limit=1',
+      { method: 'GET' });
+    const existing = lookup.ok && Array.isArray(lookup.data) ? lookup.data[0] : null;
+    if (!existing || !existing.user_id) {
+      sendJson(res, 404, { ok: false, message: 'No registration-officer profile found for this account.' });
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const ahpraAccountConfirmed = !!body.ahpraAccountConfirmed;
+    const patch = {
+      first_name: firstName,
+      last_name: lastName,
+      ahpra_account_confirmed: ahpraAccountConfirmed,
+      ahpra_account_confirmed_at: ahpraAccountConfirmed ? nowIso : null,
+      onboarding_completed_at: nowIso,
+      updated_at: nowIso
+    };
+    const upd = await supabaseDbRequest('rso_team', 'user_id=eq.' + encodeURIComponent(existing.user_id), {
+      method: 'PATCH',
+      body: patch,
+      headers: { Prefer: 'return=representation' }
+    });
+    if (!upd.ok) {
+      sendJson(res, upd.status && upd.status >= 400 ? upd.status : 502, { ok: false, message: 'Failed to save onboarding.' });
+      return;
+    }
+    const updatedRow = Array.isArray(upd.data) ? upd.data[0] : upd.data;
+    sendJson(res, 200, {
+      ok: true,
+      rso: updatedRow ? {
+        firstName: updatedRow.first_name || '',
+        lastName: updatedRow.last_name || '',
+        companyEmail: updatedRow.company_email || '',
+        ahpraAccountConfirmed: updatedRow.ahpra_account_confirmed === true,
+        onboardingCompletedAt: updatedRow.onboarding_completed_at || null
+      } : null
+    });
+    return;
+  }
+
+  // POST /api/admin/rso/company-email — super-admin only: provision/update the
+  // GP-LINK company email shown as a LOCKED/read-only field in an RSO's own
+  // onboarding modal. Must be an @mygplink.com.au address.
+  if (req.method === 'POST' && pathname === '/api/admin/rso/company-email') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    body = body && typeof body === 'object' ? body : {};
+    const userId = String(body.userId || body.user_id || '').trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      sendJson(res, 400, { ok: false, message: 'A valid userId is required.' });
+      return;
+    }
+    const companyEmail = String(body.companyEmail == null ? '' : body.companyEmail).trim().toLowerCase();
+    if (!/^[^\s@]+@mygplink\.com\.au$/.test(companyEmail)) {
+      sendJson(res, 400, { ok: false, message: 'Company email must be a valid @mygplink.com.au address.' });
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const upd = await supabaseDbRequest('rso_team', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH',
+      body: { company_email: companyEmail, updated_at: nowIso },
+      headers: { Prefer: 'return=representation' }
+    });
+    if (!upd.ok) {
+      sendJson(res, upd.status && upd.status >= 400 ? upd.status : 502, { ok: false, message: 'Failed to save company email.' });
+      return;
+    }
+    const updatedRow = Array.isArray(upd.data) ? upd.data[0] : upd.data;
+    if (!updatedRow) {
+      sendJson(res, 404, { ok: false, message: 'RSO not found.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, userId, companyEmail: updatedRow.company_email || companyEmail });
+    return;
+  }
+
   // POST /api/admin/calls/schedule
   if (req.method === 'POST' && pathname === '/api/admin/calls/schedule') {
     const admin = requireAdminSession(req, res);
@@ -46267,9 +46434,13 @@ module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
+module.exports.rsoNeedsOnboarding = rsoNeedsOnboarding;
+module.exports.rsoCanBeAhpraRep = rsoCanBeAhpraRep;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
+  rsoNeedsOnboarding,
+  rsoCanBeAhpraRep,
   ahpraConfidentMatch,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,

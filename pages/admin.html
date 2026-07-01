@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- build: 20260513-technical-hub -->
+<!-- build: 20260702a-rso-onboarding -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -182,6 +182,36 @@
     .modal h3{font-size:16px;font-weight:800;margin-bottom:12px}
     .textarea{width:100%;min-height:60px;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;margin:8px 0}
     .textarea:focus{border-color:var(--blue);outline:none}
+    /* ANOM-00 Task 4: RSO first-run onboarding modal (one-time, mandatory gate) */
+    .rso-ob-overlay{position:fixed;inset:0;background:rgba(11,19,34,.55);z-index:10050;display:none;align-items:center;justify-content:center;padding:20px}
+    .rso-ob-overlay.open{display:flex}
+    .rso-ob-card{width:480px;max-width:100%;max-height:90vh;overflow-y:auto;background:#fff;border-radius:20px;box-shadow:0 30px 70px -20px rgba(0,0,0,.5)}
+    .rso-ob-hero{background:linear-gradient(160deg,#0b1322 0%,#14203a 55%,#0e1a30 100%);padding:22px 22px 18px;color:#fff}
+    .rso-ob-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.6)}
+    .rso-ob-title{font-family:"Source Serif 4",Georgia,"Times New Roman",serif;font-size:21px;font-weight:700;margin-top:6px}
+    .rso-ob-lead{font-size:12.5px;color:rgba(255,255,255,.6);margin-top:6px;line-height:1.5}
+    .rso-ob-body{padding:20px 22px 22px}
+    .rso-ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .rso-ob-field{margin-bottom:11px}
+    .rso-ob-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+    .rso-ob-field input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #cbd7ea;font-size:14px;font-family:inherit;color:var(--text);background:#fff}
+    .rso-ob-field input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+    .rso-ob-pill{display:inline-block;font-size:10px;font-weight:700;color:var(--muted);background:#eef2f8;border:1px solid var(--line);padding:1px 7px;border-radius:999px;margin-left:6px;text-transform:none;letter-spacing:0}
+    .rso-ob-locked{display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#f8fafd;font-size:14px;font-weight:600;color:var(--text)}
+    .rso-ob-lock{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#94a3b8}
+    .rso-ob-hint{font-size:11px;color:var(--muted);margin-top:4px}
+    .rso-ob-check{display:flex;gap:11px;padding:12px;border:1px solid var(--line);border-radius:12px;margin:6px 0 4px;background:#fff;cursor:pointer;transition:all .13s}
+    .rso-ob-check.on{border-color:#d6e2fb;background:#eff4ff}
+    .rso-ob-check .rso-ob-box{flex:0 0 22px;height:22px;border-radius:7px;border:2px solid #cbd7ea;display:grid;place-items:center;margin-top:1px;transition:all .13s}
+    .rso-ob-check.on .rso-ob-box{background:var(--blue);border-color:var(--blue)}
+    .rso-ob-check .rso-ob-box svg{opacity:0}
+    .rso-ob-check.on .rso-ob-box svg{opacity:1}
+    .rso-ob-txt{font-size:13px;color:var(--text);line-height:1.5}
+    .rso-ob-txt b{font-weight:700}
+    .rso-ob-muted{color:var(--muted)}
+    .rso-ob-error{font-size:12px;font-weight:600;color:var(--red);margin:8px 0 0}
+    .rso-ob-save{width:100%;justify-content:center;margin-top:14px;padding:11px 16px;font-size:13px}
+    .rso-ob-save:disabled{opacity:.6;cursor:not-allowed}
     .empty{text-align:center;padding:30px;color:var(--muted);font-size:13px;font-weight:600}
     .ticket-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}
     .ticket-row:last-child{border-bottom:0}
@@ -1574,7 +1604,36 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <h3 id="modalTitle"></h3>
       <div id="modalBody"></div>
     </div>
-  </div><div id="technicalPanel" style="display:none">
+  </div>
+
+  <!-- ANOM-00 Task 4: RSO first-run onboarding (one-time, mandatory gate) -->
+  <div class="rso-ob-overlay" id="rsoOnboardingOverlay">
+    <div class="rso-ob-card">
+      <div class="rso-ob-hero">
+        <div class="rso-ob-eyebrow">Welcome to GP LINK</div>
+        <div class="rso-ob-title">Let&rsquo;s set up your officer profile</div>
+        <div class="rso-ob-lead">These details identify you to doctors and to AHPRA. We only ask once.</div>
+      </div>
+      <div class="rso-ob-body">
+        <div class="rso-ob-grid">
+          <div class="rso-ob-field"><label>First name</label><input id="rsoObFirstName" autocomplete="given-name" /></div>
+          <div class="rso-ob-field"><label>Last name</label><input id="rsoObLastName" autocomplete="family-name" /></div>
+        </div>
+        <div class="rso-ob-field">
+          <label>Company email <span class="rso-ob-pill">Provided by GP LINK</span></label>
+          <div class="rso-ob-locked"><span id="rsoObCompanyEmail"></span><span class="rso-ob-lock"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked</span></div>
+          <div class="rso-ob-hint">GP LINK set this up for you. It&rsquo;s your &ldquo;from&rdquo; address for AHPRA and auto-fills Section B &mdash; it can&rsquo;t be changed here.</div>
+        </div>
+        <div class="rso-ob-check on" id="rsoObAhpraChk" onclick="toggleRsoObAhpraChk()">
+          <span class="rso-ob-box"><svg viewBox="0 0 24 24" width="13" height="13" stroke="#fff" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+          <span class="rso-ob-txt"><b>I have created my AHPRA portal account</b> using the company email above. <span class="rso-ob-muted">Required before you can be nominated as a doctor's representative.</span></span>
+        </div>
+        <div class="rso-ob-error" id="rsoObError" style="display:none"></div>
+        <button class="btn primary rso-ob-save" id="rsoObSaveBtn" onclick="saveRsoOnboarding()">Save &amp; enter dashboard</button>
+      </div>
+    </div>
+  </div>
+  <div id="technicalPanel" style="display:none">
   <div class="tech-subnav">
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
@@ -2156,6 +2215,61 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
   function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
+
+  /* ══ ANOM-00 Task 4: RSO first-run onboarding ══ */
+  async function checkRsoOnboarding(){
+    try{
+      const r=await fetch("/api/admin/rso/onboarding-status",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok&&d.needed)openRsoOnboardingModal(d.rso||{});
+    }catch(e){}
+  }
+  function openRsoOnboardingModal(rso){
+    var ov=document.getElementById("rsoOnboardingOverlay");
+    if(!ov)return;
+    var fn=document.getElementById("rsoObFirstName"),ln=document.getElementById("rsoObLastName"),em=document.getElementById("rsoObCompanyEmail");
+    if(fn)fn.value=rso.firstName||"";
+    if(ln)ln.value=rso.lastName||"";
+    if(em)em.textContent=rso.companyEmail||"Not yet provisioned — ask a super admin";
+    var chk=document.getElementById("rsoObAhpraChk");
+    if(chk)chk.classList.toggle("on",!!rso.ahpraAccountConfirmed);
+    var err=document.getElementById("rsoObError");
+    if(err){err.style.display="none";err.textContent="";}
+    ov.classList.add("open");
+  }
+  function toggleRsoObAhpraChk(){
+    var chk=document.getElementById("rsoObAhpraChk");
+    if(chk)chk.classList.toggle("on");
+  }
+  async function saveRsoOnboarding(){
+    var fn=document.getElementById("rsoObFirstName"),ln=document.getElementById("rsoObLastName");
+    var firstName=fn?fn.value.trim():"",lastName=ln?ln.value.trim():"";
+    var err=document.getElementById("rsoObError");
+    if(!firstName||!lastName){
+      if(err){err.textContent="First and last name are required.";err.style.display="block";}
+      return;
+    }
+    var chk=document.getElementById("rsoObAhpraChk");
+    var ahpraAccountConfirmed=!!(chk&&chk.classList.contains("on"));
+    var btn=document.getElementById("rsoObSaveBtn");
+    if(err){err.style.display="none";err.textContent="";}
+    if(btn){btn.disabled=true;btn.textContent="Saving…";}
+    try{
+      const r=await fetch("/api/admin/rso/onboarding",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({firstName,lastName,ahpraAccountConfirmed})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok){
+        if(err){err.textContent=(d&&d.message)||"Couldn't save. Please try again.";err.style.display="block";}
+        if(btn){btn.disabled=false;btn.textContent="Save & enter dashboard";}
+        return;
+      }
+      var ov=document.getElementById("rsoOnboardingOverlay");
+      if(ov)ov.classList.remove("open");
+      if(btn){btn.disabled=false;btn.textContent="Save & enter dashboard";}
+    }catch(e){
+      if(err){err.textContent="Couldn't reach the server. Please try again.";err.style.display="block";}
+      if(btn){btn.disabled=false;btn.textContent="Save & enter dashboard";}
+    }
+  }
 
   /* ══ Data Loading ══ */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
@@ -9688,6 +9802,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     }catch(e){}
     loadAll();
+    checkRsoOnboarding();
     S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll(false,true);},15000);
   }).catch(err=>{
     document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
@@ -10776,6 +10891,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.closePdfEditor = closePdfEditor;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
+  // ANOM-00 Task 4 — RSO first-run onboarding modal
+  window.toggleRsoObAhpraChk = toggleRsoObAhpraChk;
+  window.saveRsoOnboarding = saveRsoOnboarding;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
   window.assignIncomingQuestion = assignIncomingQuestion;

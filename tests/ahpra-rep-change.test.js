@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import signaturePad from '../js/signature-pad.js';
+import { rsoNeedsOnboarding, rsoCanBeAhpraRep } from '../server.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -139,5 +140,61 @@ describe('signature-pad trimBounds helper', () => {
     data[i + 3] = 1; // barely-visible anti-aliased edge pixel
     const bounds = trimBounds({ width: 4, height: 4, data });
     expect(bounds).toEqual({ minX: 2, minY: 1, maxX: 2, maxY: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4: RSO first-run onboarding — pure predicates.
+//
+// rsoNeedsOnboarding gates the one-time first-run onboarding modal on the
+// admin dashboard. rsoCanBeAhpraRep is a SEPARATE, later gate (checked at
+// AHPRA-representative nomination/send time, outside this task's scope) that
+// requires BOTH the RSO's own confirmation that they hold an AHPRA portal
+// account AND a GP-LINK-provisioned @mygplink.com.au company email. Both are
+// pure functions of a plain rso_team row object — no DB required.
+// ---------------------------------------------------------------------------
+describe('RSO first-run onboarding predicates', () => {
+  it('rso needs onboarding when name missing', () => {
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: null })).toBe(true);
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: '2026-07-02', first_name: 'Ben', last_name: 'Carter' })).toBe(false);
+  });
+
+  it('rso needs onboarding when onboarding_completed_at is missing even if name is present', () => {
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: null, first_name: 'Ben', last_name: 'Carter' })).toBe(true);
+  });
+
+  it('rso needs onboarding when only one of first/last name is present (or blank)', () => {
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: '2026-07-02', first_name: 'Ben', last_name: '' })).toBe(true);
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: '2026-07-02', last_name: 'Carter' })).toBe(true);
+    expect(rsoNeedsOnboarding({ onboarding_completed_at: '2026-07-02', first_name: '  ', last_name: 'Carter' })).toBe(true);
+  });
+
+  it('treats a missing/empty row as needing onboarding', () => {
+    expect(rsoNeedsOnboarding(undefined)).toBe(true);
+    expect(rsoNeedsOnboarding({})).toBe(true);
+  });
+
+  it('rso can be AHPRA rep only when confirmed + mygplink email', () => {
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: true, company_email: 'ben@mygplink.com.au' })).toBe(true);
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: true, company_email: 'ben@gmail.com' })).toBe(false);
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: false, company_email: 'ben@mygplink.com.au' })).toBe(false);
+  });
+
+  it('is case-insensitive on the company email domain', () => {
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: true, company_email: 'Ben@MyGPLink.Com.Au' })).toBe(true);
+  });
+
+  it('rejects a company email that merely contains mygplink.com.au without ending there', () => {
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: true, company_email: 'ben@mygplink.com.au.evil.com' })).toBe(false);
+  });
+
+  it('rejects ahpra_account_confirmed truthy-but-not-strictly-true values', () => {
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: 'true', company_email: 'ben@mygplink.com.au' })).toBe(false);
+    expect(rsoCanBeAhpraRep({ ahpra_account_confirmed: 1, company_email: 'ben@mygplink.com.au' })).toBe(false);
+  });
+
+  it('treats a missing/empty row as not being AHPRA-rep eligible', () => {
+    expect(rsoCanBeAhpraRep(undefined)).toBe(false);
+    expect(rsoCanBeAhpraRep({})).toBe(false);
   });
 });
