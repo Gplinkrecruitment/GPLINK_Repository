@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ANOM-00 rep-change · GP LINK prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --gp-blue:#2563eb;--gp-blue-deep:#1d4ed8;--gp-blue-soft:#eff4ff;--gp-blue-border:#d6e2fb;
+  --gp-grad-brand:linear-gradient(135deg,#2e6bf0 0%,#1d4ed8 100%);
+  --gp-ink:#0f172a;--gp-text:#1f2b43;--gp-muted:#64748b;--gp-faint:#94a3b8;
+  --gp-border:#e3e9f4;--gp-border-strong:#cbd7ea;--gp-canvas:#f4f6fb;--gp-surface:#fff;--gp-surface-sunken:#f8fafd;
+  --gp-grad-hero:linear-gradient(160deg,#0b1322 0%,#14203a 55%,#0e1a30 100%);
+  --gp-green:#16a34a;--gp-green-soft:#eafaf0;--gp-green-border:#c5ecd4;--gp-green-ink:#166534;
+  --gp-amber:#d97706;--gp-amber-soft:#fdf3e1;--gp-amber-border:#f4ddb0;--gp-amber-ink:#92400e;
+  --gp-red:#dc2626;--gp-red-soft:#fdf0f0;--gp-red-border:#f5cfcf;--gp-red-ink:#991b1b;
+  --font-body:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-display:"Source Serif 4",Georgia,"Times New Roman",serif;
+  /* admin theme */
+  --purple-1:#7c3aed;--purple-2:#6366f1;--line:#dfe6f2;--panel:#fff;
+  --shadow-sm:0 1px 2px rgba(15,23,42,.05),0 2px 10px -4px rgba(15,23,42,.08);
+  --shadow-md:0 10px 30px -18px rgba(15,23,42,.28);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-body);color:var(--gp-text);background:#0b1020;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+
+/* ---------- prototype shell ---------- */
+.proto-top{display:flex;align-items:center;gap:12px;padding:10px 18px;background:#0b1020;color:#e2e8f0;border-bottom:1px solid #1e293b;position:sticky;top:0;z-index:50}
+.proto-top .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+.proto-top b{font-weight:700;color:#fff;letter-spacing:-.01em}
+.proto-top .tag{font-size:11px;font-weight:700;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);padding:3px 9px;border-radius:999px}
+.proto-top .hint{margin-left:auto;font-size:12px;color:#94a3b8}
+.proto-wrap{display:grid;grid-template-columns:264px 1fr;min-height:calc(100vh - 43px)}
+.proto-nav{background:#0f172a;border-right:1px solid #1e293b;padding:14px 12px;overflow-y:auto}
+.proto-nav .grp{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#64748b;margin:16px 8px 6px}
+.proto-nav .grp:first-child{margin-top:2px}
+.proto-nav button{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;line-height:1.3;transition:all .12s}
+.proto-nav button:hover{background:#1e293b}
+.proto-nav button.active{background:var(--gp-blue);color:#fff;border-color:var(--gp-blue)}
+.proto-nav button .n{flex:0 0 20px;height:20px;border-radius:6px;background:rgba(148,163,184,.16);color:#cbd5e1;font-size:11px;font-weight:800;display:grid;place-items:center}
+.proto-nav button.active .n{background:rgba(255,255,255,.22);color:#fff}
+.proto-stage{padding:26px;overflow:auto;background:radial-gradient(120% 80% at 50% -10%,#141c30,#0b1020 60%)}
+.screen{display:none;animation:fade .3s ease both}
+.screen.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.screen-cap{max-width:1120px;margin:0 auto 14px;color:#cbd5e1}
+.screen-cap h2{color:#fff;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.screen-cap p{font-size:13px;color:#94a3b8;margin-top:3px;line-height:1.5}
+.screen-cap .where{display:inline-block;font-size:11px;font-weight:700;color:#a5b4fc;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);padding:2px 8px;border-radius:6px;margin-bottom:7px}
+
+/* ---------- device frames ---------- */
+.frame-admin{max-width:1120px;margin:0 auto;background:var(--gp-canvas);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-md),0 0 0 1px #0b1020;position:relative}
+.phone{width:390px;margin:0 auto;background:#fff;border-radius:30px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.7),0 0 0 9px #10192e,0 0 0 10px #1e293b;position:relative;min-height:720px}
+.phone .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#10192e;border-radius:999px;z-index:30}
+
+/* ---------- admin chrome ---------- */
+.a-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 18px;background:linear-gradient(120deg,var(--purple-1),var(--purple-2));color:#fff}
+.a-top h1{font-size:15px;font-weight:760;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+.a-top .logo{width:24px;height:24px;border-radius:7px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-size:12px;font-weight:900}
+.a-chips{display:flex;gap:6px}
+.a-chip{font-size:11px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);padding:3px 10px;border-radius:999px}
+.a-chip.urgent{background:rgba(239,68,68,.34);border-color:rgba(239,68,68,.5)}
+.a-body{display:grid;grid-template-columns:300px 1fr;min-height:560px}
+.a-list{background:#fff;border-right:1px solid var(--line);padding:10px}
+.a-search{width:100%;padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;background:#f8fafc;color:var(--gp-text)}
+.a-tabs{display:flex;gap:2px;margin:10px 0 6px}
+.a-tab{flex:1;text-align:center;padding:7px 0;font-size:11px;font-weight:700;color:var(--gp-muted);border-bottom:2px solid transparent}
+.a-tab.active{color:var(--gp-blue);border-bottom-color:var(--gp-blue)}
+.case-card{padding:10px;border-radius:12px;border:1px solid transparent;margin-bottom:3px}
+.case-card:hover{background:#f8fafc;border-color:var(--line)}
+.case-card.sel{background:#eff6ff;border-color:#bfdbfe}
+.cc-top{display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gp-blue),var(--purple-1));display:grid;place-items:center;color:#fff;font-size:12px;font-weight:800;flex-shrink:0}
+.cc-name{font-size:13px;font-weight:700;color:var(--gp-ink)}
+.cc-sub{font-size:11px;color:var(--gp-muted);margin-top:1px}
+.stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;background:#ecfdf5;color:#166534}
+.cc-tasks{display:flex;gap:6px;margin-top:7px}
+.tbadge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px}
+.tbadge.new{background:#faf5ff;color:#7c3aed}
+.tbadge.open{background:#eff6ff;color:#2563eb}
+.a-detail{padding:16px 18px;overflow:auto}
+
+/* generic admin card */
+.section{background:#fff;border-radius:12px;border:1px solid var(--line);padding:15px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+.section-title{font-size:13.5px;font-weight:800;color:var(--gp-ink);margin-bottom:11px;display:flex;align-items:center;gap:8px}
+.section-title .cnt{font-size:11px;font-weight:700;color:var(--gp-muted);background:#f1f5f9;padding:2px 8px;border-radius:6px}
+.d-header{background:#fff;border-radius:12px;border:1px solid var(--line);padding:15px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+.d-name{font-size:18px;font-weight:800;letter-spacing:-.02em;color:var(--gp-ink)}
+.d-meta{font-size:12px;color:var(--gp-muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:10px}
+
+/* task card (rep change) */
+.taskcard{border:1px solid var(--gp-blue-border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-sm)}
+.taskcard-head{display:flex;align-items:flex-start;gap:11px;padding:14px;background:linear-gradient(180deg,#f7faff,#fff)}
+.tc-icon{width:38px;height:38px;border-radius:11px;background:var(--gp-grad-brand);display:grid;place-items:center;color:#fff;flex-shrink:0}
+.tc-icon svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tc-h{font-size:14px;font-weight:800;color:var(--gp-ink)}
+.tc-sub{font-size:12px;color:var(--gp-muted);margin-top:2px;line-height:1.45}
+.tc-pill{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.tc-pill.amber{background:var(--gp-amber-soft);color:var(--gp-amber-ink);border:1px solid var(--gp-amber-border)}
+.tc-pill.blue{background:var(--gp-blue-soft);color:var(--gp-blue-deep);border:1px solid var(--gp-blue-border)}
+.tc-pill.green{background:var(--gp-green-soft);color:var(--gp-green-ink);border:1px solid var(--gp-green-border)}
+.taskcard-body{padding:14px;border-top:1px solid var(--gp-border)}
+
+/* form bits */
+.field{margin-bottom:11px}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--gp-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.field .val{font-size:14px;font-weight:600;color:var(--gp-ink)}
+.field input,.field textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--gp-border-strong);font-size:14px;font-family:inherit;color:var(--gp-ink);background:#fff}
+.field input:focus,.field textarea:focus{outline:none;border-color:var(--gp-blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.locked-field{display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--gp-border);background:var(--gp-surface-sunken);font-size:14px;font-weight:600;color:var(--gp-ink)}
+.locked-field .lock{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--gp-faint)}
+.locked-field .lock svg{width:13px;height:13px;stroke:var(--gp-faint);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pill-note{display:inline-block;font-size:10px;font-weight:700;color:var(--gp-muted);background:#eef2f8;border:1px solid var(--gp-border);padding:1px 7px;border-radius:999px;margin-left:6px;text-transform:none;letter-spacing:0}
+.prefill-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;background:var(--gp-surface-sunken);border:1px solid var(--gp-border);border-radius:12px;padding:13px}
+.prefill-grid .field{margin:0}
+.prefill-tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--gp-green-ink);background:var(--gp-green-soft);border:1px solid var(--gp-green-border);padding:2px 8px;border-radius:999px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px 16px;border-radius:11px;font-size:13px;font-weight:700;border:1px solid var(--gp-border-strong);background:#fff;color:var(--gp-text);transition:all .13s}
+.btn:hover{background:#f8fafc;border-color:#b9c6dd}
+.btn.primary{background:var(--gp-blue);color:#fff;border-color:var(--gp-blue)}
+.btn.primary:hover{background:var(--gp-blue-deep)}
+.btn.primary:disabled{background:#c7d2e6;border-color:#c7d2e6;cursor:not-allowed}
+.btn.green{background:var(--gp-green);color:#fff;border-color:var(--gp-green)}
+.btn.green:hover{filter:brightness(.95)}
+.btn.wide{width:100%}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* signature pad */
+.sig-wrap{border:1.5px dashed var(--gp-border-strong);border-radius:12px;background:#fff;position:relative;overflow:hidden}
+.sig-wrap.signed{border-style:solid;border-color:var(--gp-green-border);background:var(--gp-green-soft)}
+.sig-canvas{display:block;width:100%;height:150px;touch-action:none;cursor:crosshair}
+.sig-base{position:absolute;left:16px;right:16px;bottom:34px;border-bottom:1px solid var(--gp-border-strong);pointer-events:none}
+.sig-hint{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:11px;color:var(--gp-faint);pointer-events:none}
+.sig-x{position:absolute;left:16px;bottom:36px;font-size:16px;color:var(--gp-faint);pointer-events:none}
+.sig-tools{display:flex;justify-content:space-between;align-items:center;margin-top:7px}
+.sig-clear{font-size:12px;font-weight:700;color:var(--gp-muted);background:none;border:none}
+.sig-clear:hover{color:var(--gp-red)}
+.sig-status{font-size:12px;font-weight:700;color:var(--gp-green-ink);display:none;align-items:center;gap:5px}
+.sig-wrap.signed ~ .sig-tools .sig-status{display:inline-flex}
+
+/* banners */
+.banner{display:flex;gap:10px;padding:12px 13px;border-radius:12px;font-size:12.5px;line-height:1.5;margin-bottom:13px}
+.banner svg{width:18px;height:18px;flex-shrink:0;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.banner.amber{background:var(--gp-amber-soft);border:1px solid var(--gp-amber-border);color:var(--gp-amber-ink)}
+.banner.amber svg{stroke:var(--gp-amber)}
+.banner.blue{background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);color:var(--gp-blue-deep)}
+.banner.blue svg{stroke:var(--gp-blue)}
+.banner.green{background:var(--gp-green-soft);border:1px solid var(--gp-green-border);color:var(--gp-green-ink)}
+.banner.green svg{stroke:var(--gp-green)}
+.banner b{font-weight:800}
+
+/* checklist / auth boxes */
+.check{display:flex;gap:11px;padding:12px;border:1px solid var(--gp-border);border-radius:12px;margin-bottom:9px;background:#fff;transition:all .13s}
+.check.on{border-color:var(--gp-blue-border);background:var(--gp-blue-soft)}
+.check .box{flex:0 0 22px;height:22px;border-radius:7px;border:2px solid var(--gp-border-strong);display:grid;place-items:center;margin-top:1px;transition:all .13s}
+.check.on .box{background:var(--gp-blue);border-color:var(--gp-blue)}
+.check .box svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.check.on .box svg{opacity:1}
+.check .txt{font-size:13px;color:var(--gp-text);line-height:1.5}
+.check .txt b{color:var(--gp-ink);font-weight:700}
+
+/* ---------- phone / doctor ---------- */
+.hero{background:radial-gradient(120% 100% at 88% -20%,rgba(46,107,240,.28),transparent 55%),var(--gp-grad-hero);padding:40px 20px 18px;color:#fff;position:relative}
+.hero-row{display:flex;align-items:center;gap:11px}
+.hero-avatar{width:40px;height:40px;border-radius:50%;background:var(--gp-grad-brand);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px}
+.hero-name{font-family:var(--font-display);font-size:15px;font-weight:600}
+.hero-sub{font-size:12px;color:rgba(255,255,255,.4);margin-top:1px}
+.eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.6);margin:16px 0 6px}
+.hero-title{font-family:var(--font-display);font-size:22px;font-weight:700;line-height:1.2}
+.hero-lead{font-size:13px;color:rgba(255,255,255,.66);margin-top:7px;line-height:1.5}
+.p-body{padding:16px}
+.p-card{background:#fff;border:1px solid var(--gp-border);border-radius:16px;padding:15px;box-shadow:var(--shadow-sm);margin-bottom:13px}
+.p-card h3{font-size:14px;font-weight:800;color:var(--gp-ink);margin-bottom:4px;display:flex;align-items:center;gap:7px}
+.p-card p{font-size:12.5px;color:var(--gp-muted);line-height:1.55}
+.mini-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
+.mini-row:last-child{border-bottom:0}
+.mini-row .k{color:var(--gp-muted)}
+.mini-row .v{font-weight:700;color:var(--gp-ink);text-align:right}
+.progress-dots{display:flex;gap:5px;margin-top:12px}
+.progress-dots i{height:4px;flex:1;border-radius:99px;background:rgba(255,255,255,.18)}
+.progress-dots i.on{background:#4ade80}
+
+/* ---------- email ---------- */
+.email{max-width:680px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:var(--shadow-md)}
+.email-top{padding:14px 18px;border-bottom:1px solid var(--gp-border);background:#f8fafc}
+.email-subj{font-size:16px;font-weight:800;color:var(--gp-ink)}
+.email-meta{display:flex;align-items:center;gap:10px;margin-top:9px}
+.email-meta .av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gp-blue),var(--purple-1));color:#fff;display:grid;place-items:center;font-weight:800;font-size:12px}
+.email-from{font-size:13px;font-weight:700;color:var(--gp-ink)}
+.email-addr{font-size:12px;color:var(--gp-muted)}
+.email-to{margin-left:auto;font-size:11px;color:var(--gp-faint);text-align:right}
+.email-body{padding:20px 22px;font-size:14px;line-height:1.65;color:var(--gp-text)}
+.email-body p{margin-bottom:13px}
+.email-cta{display:inline-block;background:var(--gp-blue);color:#fff;font-weight:700;font-size:14px;padding:12px 22px;border-radius:11px;text-decoration:none;margin:4px 0 8px}
+.email-sig{margin-top:18px;padding-top:14px;border-top:1px solid var(--gp-border);font-size:13px;color:var(--gp-muted)}
+.email-sig b{color:var(--gp-ink)}
+
+/* ---------- document (filled PDF) ---------- */
+.doc-scroll{max-width:660px;margin:0 auto}
+.doc-page{background:#fff;box-shadow:var(--shadow-md);margin-bottom:22px;border-radius:4px;overflow:hidden;position:relative}
+.doc-hdr{background:#0e2c4d;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+.doc-hdr .t{font-size:14px;font-weight:700}
+.doc-hdr .code{font-size:16px;font-weight:800;letter-spacing:.05em;background:#123a63;padding:3px 10px;border-radius:6px}
+.doc-in{padding:20px 24px 26px;font-size:12.5px;color:#1f2b43}
+.doc-band{background:#c62828;color:#fff;font-weight:700;font-size:12px;padding:6px 12px;border-radius:4px;margin:14px 0 12px}
+.doc-band.teal{background:#0b6b6b}
+.doc-band.grey{background:#455a64}
+.doc-q{font-weight:700;color:#0f172a;margin:12px 0 6px;font-size:12.5px}
+.doc-fill{border:1px solid #b9c6dd;border-radius:4px;padding:7px 10px;background:#f3f7ff;font-weight:700;color:#0f2c63;letter-spacing:.02em;display:inline-block;min-width:60px}
+.doc-line{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:5px 0}
+.doc-lbl{color:#64748b;font-size:11.5px;min-width:150px}
+.doc-x{width:16px;height:16px;border:1.5px solid #0f172a;border-radius:2px;display:inline-grid;place-items:center;font-weight:900;font-size:12px;color:#c62828}
+.doc-sigbox{border:1px solid #b9c6dd;border-radius:6px;padding:10px;background:#fbfdff;margin-top:6px}
+.doc-sig-cap{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:4px}
+.doc-sig-img{height:46px}
+.doc-note{font-size:11px;color:#94a3b8;text-align:center;margin:-8px 0 16px}
+
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(40px);background:#0f172a;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 20px 40px -12px rgba(0,0,0,.5);opacity:0;transition:all .3s var(--gp-ease,ease);z-index:100;display:flex;align-items:center;gap:10px}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast .ic{width:22px;height:22px;border-radius:50%;background:var(--gp-green);display:grid;place-items:center}
+.toast .ic svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.flowbar{max-width:1120px;margin:16px auto 0;display:flex;justify-content:space-between;gap:10px;color:#64748b;font-size:12px}
+.flowbar button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;padding:8px 15px;border-radius:10px;font-weight:600;font-size:12.5px}
+.flowbar button:hover{background:#334155;color:#fff}
+.flowbar button.next{background:var(--gp-blue);border-color:var(--gp-blue);color:#fff}
+</style>
+</head>
+<body>
+<div class="proto-top">
+  <span class="dot"></span>
+  <b>ANOM-00 · Change-of-Representative flow</b>
+  <span class="tag">MOCKUP — not the real app</span>
+  <span class="hint">Draw in the signature boxes · click the blue flow buttons to move through the journey</span>
+</div>
+<div class="proto-wrap">
+  <nav class="proto-nav" id="nav">
+    <div class="grp">Admin · new RSO (Ben)</div>
+    <button data-s="s1" class="active"><span class="n">1</span><span>First-run RSO onboarding</span></button>
+    <button data-s="s2"><span class="n">2</span><span>Ops queue — new task appears</span></button>
+    <button data-s="s3"><span class="n">3</span><span>Task expanded — sign &amp; send</span></button>
+    <button data-s="s3b"><span class="n">3b</span><span>Gate — no AHPRA account yet</span></button>
+    <button data-s="s4"><span class="n">4</span><span>After send — “Confirmed by AHPRA”</span></button>
+    <div class="grp">Doctor (Dr Smith Miller)</div>
+    <button data-s="s5"><span class="n">5</span><span>The email they receive</span></button>
+    <button data-s="s6"><span class="n">6</span><span>In-app: complete &amp; sign</span></button>
+    <button data-s="s7"><span class="n">7</span><span>Review &amp; send to AHPRA</span></button>
+    <button data-s="s8"><span class="n">8</span><span>Done — sent to AHPRA</span></button>
+    <div class="grp">The generated form</div>
+    <button data-s="s9"><span class="n">9</span><span>Filled ANOM-00 PDF</span></button>
+  </nav>
+  <main class="proto-stage" id="stage">
+
+    <!-- 1 · RSO ONBOARDING -->
+    <section class="screen active" id="s1">
+      <div class="screen-cap"><span class="where">Admin dashboard · first login</span><h2>1 · First-run RSO onboarding</h2><p>Shown once, the first time a registration officer opens the dashboard. Captures the exact details that go onto every ANOM-00 (Section B), and the AHPRA-account confirmation that gates sending. Saved to their staff profile — set once, reused for every doctor.</p></div>
+      <div class="frame-admin">
+        <div class="a-top"><h1><span class="logo">GP</span> RSO Command Centre</h1><div class="a-chips"><span class="a-chip">Ben Carter</span></div></div>
+        <div style="position:relative;min-height:520px;background:var(--gp-canvas)">
+          <div style="filter:blur(3px);opacity:.5;padding:18px"><div class="section" style="height:80px"></div><div class="section" style="height:120px"></div><div class="section" style="height:120px"></div></div>
+          <div style="position:absolute;inset:0;background:rgba(11,19,34,.5);display:grid;place-items:center;padding:20px">
+            <div style="width:480px;max-width:100%;background:#fff;border-radius:20px;box-shadow:0 30px 70px -20px rgba(0,0,0,.5);overflow:hidden">
+              <div style="background:var(--gp-grad-hero);padding:22px 22px 18px;color:#fff">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.6)">Welcome to GP LINK</div>
+                <div style="font-family:var(--font-display);font-size:21px;font-weight:700;margin-top:6px">Let’s set up your officer profile</div>
+                <div style="font-size:12.5px;color:rgba(255,255,255,.6);margin-top:6px;line-height:1.5">These details identify you to doctors and to AHPRA. We only ask once.</div>
+              </div>
+              <div style="padding:20px 22px 22px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div class="field"><label>First name</label><input value="Ben"></div>
+                  <div class="field"><label>Last name</label><input value="Carter"></div>
+                </div>
+                <div class="field"><label>Company email <span class="pill-note">provided by GP LINK</span></label><div class="locked-field">ben@mygplink.com.au <span class="lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Locked</span></div><div style="font-size:11px;color:var(--gp-muted);margin-top:4px">GP LINK set this up for you. It’s your “from” address for AHPRA and auto-fills Section B — it can’t be changed here.</div></div>
+                <div class="check on" id="obChk" onclick="this.classList.toggle('on')" style="margin-top:6px">
+                  <span class="box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+                  <span class="txt"><b>I have created my AHPRA portal account</b> using the company email above. <span style="color:var(--gp-muted)">Required before you can be nominated as a doctor’s representative.</span></span>
+                </div>
+                <button class="btn primary wide" style="margin-top:14px" onclick="show('s2')">Save &amp; enter dashboard</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><span>Component A — stored on the <code>rso_team</code> profile</span><button class="next" onclick="show('s2')">Next → Ops queue</button></div>
+    </section>
+
+    <!-- 2 · OPS QUEUE -->
+    <section class="screen" id="s2">
+      <div class="screen-cap"><span class="where">Admin dashboard · ops queue</span><h2>2 · The new task appears automatically</h2><p>The instant Dr Smith Miller (already mid-AHPRA) was reassigned from Hazel to Ben, the app auto-created a “Change of AHPRA representative” task. No one has to remember it.</p></div>
+      <div class="frame-admin">
+        <div class="a-top"><h1><span class="logo">GP</span> RSO Command Centre</h1><div class="a-chips"><span class="a-chip urgent">1 needs action</span><span class="a-chip">Ben Carter</span></div></div>
+        <div class="a-body">
+          <div class="a-list">
+            <input class="a-search" placeholder="Search doctors…">
+            <div class="a-tabs"><div class="a-tab active">My doctors</div><div class="a-tab">All</div><div class="a-tab">Unassigned</div></div>
+            <div class="case-card sel">
+              <div class="cc-top"><div class="avatar">SM</div><div><div class="cc-name">Dr Smith Miller</div><div class="cc-sub">Reassigned to you · 2h ago</div></div></div>
+              <div style="margin-top:7px"><span class="stage-pill">AHPRA</span></div>
+              <div class="cc-tasks"><span class="tbadge new">● New: Rep change</span></div>
+            </div>
+            <div class="case-card"><div class="cc-top"><div class="avatar">PA</div><div><div class="cc-name">Dr Priya Anand</div><div class="cc-sub">AMC · on track</div></div></div></div>
+            <div class="case-card"><div class="cc-top"><div class="avatar">JO</div><div><div class="cc-name">Dr James Osei</div><div class="cc-sub">MyIntealth</div></div></div></div>
+          </div>
+          <div class="a-detail">
+            <div class="d-header"><div class="d-name">Dr Smith Miller</div><div class="d-meta"><span>AHPRA stage</span><span>·</span><span>Officer: J. Whitfield (AHPRA)</span><span>·</span><span>Was: Hazel Thompson</span></div></div>
+            <div class="section-title" style="margin:4px 2px 10px">Tasks <span class="cnt">1 open</span></div>
+            <div class="taskcard">
+              <div class="taskcard-head">
+                <div class="tc-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                <div style="flex:1"><div class="tc-h">Become Dr Smith Miller’s AHPRA representative</div><div class="tc-sub">You’ve taken over from Hazel Thompson. Complete &amp; sign the AHPRA change-of-representative form (ANOM-00), then send it to the doctor.</div></div>
+                <span class="tc-pill amber">Action needed</span>
+              </div>
+            </div>
+            <div style="text-align:center;margin-top:10px"><button class="btn primary" onclick="show('s3')">Open task →</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s1')">← Onboarding</button><button class="next" onclick="show('s3')">Next → Open the task</button></div>
+    </section>
+
+    <!-- 3 · TASK EXPANDED -->
+    <section class="screen" id="s3">
+      <div class="screen-cap"><span class="where">Admin dashboard · task open</span><h2>3 · Complete, sign, and send to the doctor</h2><p>Ben’s half of the form (Section B) is already filled from his profile + our company details. He just signs the “consent to act” box and clicks <b>Send to GP</b>.</p></div>
+      <div class="frame-admin" style="padding:18px;background:var(--gp-canvas)">
+        <div class="taskcard" style="max-width:720px;margin:0 auto;background:#fff">
+          <div class="taskcard-head">
+            <div class="tc-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+            <div style="flex:1"><div class="tc-h">AHPRA representative nomination (ANOM-00)</div><div class="tc-sub">For <b>Dr Smith Miller</b> · replaces Hazel Thompson</div></div>
+            <span class="tc-pill blue">Your section</span>
+          </div>
+          <div class="taskcard-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px"><span style="font-size:12px;font-weight:800;color:var(--gp-ink);text-transform:uppercase;letter-spacing:.05em">Section B — pre-filled from your profile</span><span class="prefill-tag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> auto-filled</span></div>
+            <div class="prefill-grid">
+              <div class="field"><label>Authorised rep</label><div class="val">Ben Carter</div></div>
+              <div class="field"><label>Company email</label><div class="val">ben@mygplink.com.au</div></div>
+              <div class="field"><label>Organisation</label><div class="val">GP LINK Recruitment Australia</div></div>
+              <div class="field"><label>Has AHPRA account</label><div class="val">Yes ✓</div></div>
+              <div class="field" style="grid-column:1/3"><label>Applicant (doctor)</label><div class="val">Dr Smith Miller</div></div>
+            </div>
+            <div style="margin-top:15px;font-size:12px;font-weight:800;color:var(--gp-ink);text-transform:uppercase;letter-spacing:.05em">Your signature — “I consent to act as the authorised representative”</div>
+            <div class="sig-wrap" data-sig="rso" style="margin-top:7px">
+              <canvas class="sig-canvas"></canvas>
+              <div class="sig-x">✕</div><div class="sig-base"></div><div class="sig-hint">Draw your signature here</div>
+            </div>
+            <div class="sig-tools"><button class="sig-clear" data-clear="rso">Clear</button><span class="sig-status"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Signed</span></div>
+            <div class="banner blue" style="margin-top:14px"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span>The email to Dr Smith Miller will be sent from the shared registration mailbox with your name. The AHPRA “from” address won’t switch to you until AHPRA confirms the change (step 4).</span></div>
+            <button class="btn primary wide" style="margin-top:6px" onclick="show('s5')"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send to GP</button>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s2')">← Ops queue</button><button class="next" onclick="show('s5')">Next → The doctor’s email</button></div>
+    </section>
+
+    <!-- 3b · GATE -->
+    <section class="screen" id="s3b">
+      <div class="screen-cap"><span class="where">Admin dashboard · task open (blocked)</span><h2>3b · Safeguard — RSO hasn’t confirmed an AHPRA account</h2><p>If Ben never ticked the AHPRA-account confirmation (step 1), the task blocks sending — because AHPRA rejects the form if the representative has no account. He’s pointed to fix it first.</p></div>
+      <div class="frame-admin" style="padding:18px;background:var(--gp-canvas)">
+        <div class="taskcard" style="max-width:720px;margin:0 auto;background:#fff">
+          <div class="taskcard-head">
+            <div class="tc-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div style="flex:1"><div class="tc-h">AHPRA representative nomination (ANOM-00)</div><div class="tc-sub">For <b>Dr Smith Miller</b> · replaces Hazel Thompson</div></div>
+            <span class="tc-pill amber">Set-up needed</span>
+          </div>
+          <div class="taskcard-body">
+            <div class="banner amber"><svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span><b>You need an AHPRA portal account first.</b> AHPRA won’t link you as Dr Smith Miller’s representative until you’ve created a portal account under <b>ben@mygplink.com.au</b>. The form can’t be sent until this is confirmed.</span></div>
+            <ol style="font-size:13px;color:var(--gp-text);line-height:1.7;padding-left:20px;margin:4px 0 14px"><li>Create your AHPRA portal account (opens ahpra.gov.au).</li><li>Come back and confirm below.</li></ol>
+            <div class="check" onclick="this.classList.toggle('on');document.getElementById('gateBtn').disabled=!this.classList.contains('on')">
+              <span class="box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+              <span class="txt"><b>I’ve created my AHPRA portal account</b> under ben@mygplink.com.au</span>
+            </div>
+            <button id="gateBtn" class="btn primary wide" disabled onclick="show('s3')">Continue to the form</button>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s3')">← Back to task</button><span>Component A gate — reuses the onboarding confirmation</span></div>
+    </section>
+
+    <!-- 4 · AFTER SEND -->
+    <section class="screen" id="s4">
+      <div class="screen-cap"><span class="where">Admin dashboard · task after sending</span><h2>4 · Waiting on the doctor — then the pin switch</h2><p>After sending, the task tracks the doctor’s progress. When AHPRA confirms Ben as the new representative, he clicks <b>Confirmed by AHPRA</b> — and only <i>then</i> does the app switch this doctor’s AHPRA “from” mailbox to Ben.</p></div>
+      <div class="frame-admin" style="padding:18px;background:var(--gp-canvas)">
+        <div class="taskcard" style="max-width:720px;margin:0 auto;background:#fff">
+          <div class="taskcard-head">
+            <div class="tc-icon" style="background:linear-gradient(135deg,#16a34a,#15803d)"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+            <div style="flex:1"><div class="tc-h">ANOM-00 sent to Dr Smith Miller</div><div class="tc-sub">Sent 2 min ago · awaiting the doctor to sign &amp; email AHPRA</div></div>
+            <span class="tc-pill blue">Waiting on doctor</span>
+          </div>
+          <div class="taskcard-body">
+            <div style="display:flex;flex-direction:column;gap:0">
+              <div class="mini-row" style="border-color:#eef2f8"><span class="k">① You signed &amp; sent</span><span class="v" style="color:var(--gp-green-ink)">Done · 2 min ago</span></div>
+              <div class="mini-row" style="border-color:#eef2f8"><span class="k">② Doctor completes &amp; emails AHPRA</span><span class="v" style="color:var(--gp-amber-ink)">In progress</span></div>
+              <div class="mini-row" style="border:0"><span class="k">③ AHPRA confirms the change</span><span class="v" style="color:var(--gp-faint)">Not yet</span></div>
+            </div>
+            <div class="banner amber" style="margin-top:14px"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg><span>Until AHPRA confirms, AHPRA emails for this doctor still go <b>from Hazel’s (kept-alive) mailbox</b> — matching who AHPRA currently has on file.</span></div>
+            <button class="btn green wide" onclick="pinSwitch()"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> AHPRA confirmed me as the representative</button>
+            <div style="font-size:11px;color:var(--gp-muted);text-align:center;margin-top:8px">Clicking this switches the AHPRA “from” mailbox for Dr Smith Miller to <b>ben@mygplink.com.au</b>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s3')">← The task</button><span>Component E — the pinned rep mailbox flips here</span></div>
+    </section>
+
+    <!-- 5 · EMAIL -->
+    <section class="screen" id="s5">
+      <div class="screen-cap"><span class="where">Doctor’s inbox</span><h2>5 · The email the doctor receives</h2><p>Explains that their previous officer has moved on, introduces Ben, and links them straight to their part of the form.</p></div>
+      <div class="email">
+        <div class="email-top">
+          <div class="email-subj">Action needed: confirm your GP LINK representative with AHPRA</div>
+          <div class="email-meta"><div class="av">GP</div><div><div class="email-from">Ben Carter · GP LINK</div><div class="email-addr">registration@mygplink.com.au</div></div><div class="email-to">to: dr.smith.miller@…<br>1 attachment · ANOM-00</div></div>
+        </div>
+        <div class="email-body">
+          <p>Dear Dr Miller,</p>
+          <p>I’m <b>Ben Carter</b>, and I’ll be looking after your AHPRA registration from here on. Your previous registration officer, Hazel, has moved on from the team — everything is in hand and nothing you’ve done so far is affected.</p>
+          <p>Because AHPRA links a specific person as your authorised representative, we need to update their records to show me instead of Hazel. I’ve completed and signed my half of the AHPRA form (ANOM-00). <b>There are just two quick things left for you:</b></p>
+          <p style="padding-left:6px;border-left:3px solid var(--gp-blue-border);color:var(--gp-text)">1&nbsp; Tick the authorisation boxes and add your signature (I’ve pre-filled your details).<br>2&nbsp; Send the finished form to AHPRA — one tap, we’ve pre-addressed it for you.</p>
+          <a class="email-cta" href="#" onclick="show('s6');return false">Complete &amp; sign your section →</a>
+          <p style="font-size:12.5px;color:var(--gp-muted)">This takes about a minute. If you’d rather I walk you through it, just reply to this email.</p>
+          <div class="email-sig">Warm regards,<br><b>Ben Carter</b> — Registration Officer<br>GP LINK Recruitment Australia</div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s3')">← RSO task</button><button class="next" onclick="show('s6')">Next → Doctor taps the link</button></div>
+    </section>
+
+    <!-- 6 · DOCTOR COMPLETE -->
+    <section class="screen" id="s6">
+      <div class="screen-cap"><span class="where">Doctor app · in-app completion page</span><h2>6 · The doctor completes &amp; signs — in the app</h2><p>Their Section A is pre-filled from their profile. They tick the three authorisation boxes and sign. No PDF wrangling.</p></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="hero">
+          <div class="hero-row"><div class="hero-avatar">SM</div><div><div class="hero-name">Dr Smith Miller</div><div class="hero-sub">AHPRA · representative update</div></div></div>
+          <div class="eyebrow">Authorise your representative</div>
+          <div class="hero-title">Confirm Ben as your AHPRA rep</div>
+          <div class="hero-lead">Ben Carter is taking over from Hazel. Confirm the boxes below and add your signature.</div>
+          <div class="progress-dots"><i class="on"></i><i class="on"></i><i></i></div>
+        </div>
+        <div class="p-body">
+          <div class="p-card">
+            <h3>Your details</h3>
+            <div class="mini-row"><span class="k">Name</span><span class="v">Dr Smith Miller</span></div>
+            <div class="mini-row"><span class="k">Date of birth</span><span class="v">14 / 03 / 1989</span></div>
+            <div class="mini-row"><span class="k">AHPRA application</span><span class="v">Linked ✓</span></div>
+            <div style="font-size:11px;color:var(--gp-green-ink);background:var(--gp-green-soft);border:1px solid var(--gp-green-border);padding:6px 9px;border-radius:8px;margin-top:9px;font-weight:600">Pre-filled from your profile — tap any field to edit</div>
+          </div>
+          <div class="p-card">
+            <h3>I authorise Ben Carter to:</h3>
+            <div class="check on" onclick="this.classList.toggle('on')"><span class="box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span><span class="txt">communicate with AHPRA on my behalf about my application</span></div>
+            <div class="check on" onclick="this.classList.toggle('on')"><span class="box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span><span class="txt">act as reasonably necessary to progress my application</span></div>
+            <div class="check on" onclick="this.classList.toggle('on')"><span class="box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span><span class="txt">receive formal correspondence from AHPRA about it</span></div>
+          </div>
+          <div class="p-card">
+            <h3>Your signature</h3>
+            <div class="sig-wrap" data-sig="gp" style="margin-top:8px">
+              <canvas class="sig-canvas"></canvas>
+              <div class="sig-x">✕</div><div class="sig-base"></div><div class="sig-hint">Sign with your finger</div>
+            </div>
+            <div class="sig-tools"><button class="sig-clear" data-clear="gp">Clear</button><span class="sig-status"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Signed</span></div>
+            <button class="btn primary wide" style="margin-top:14px" onclick="show('s7')">Build my form →</button>
+          </div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s5')">← The email</button><button class="next" onclick="show('s7')">Next → Review &amp; send</button></div>
+    </section>
+
+    <!-- 7 · REVIEW & SEND -->
+    <section class="screen" id="s7">
+      <div class="screen-cap"><span class="where">Doctor app · review &amp; submit</span><h2>7 · Review, then one-tap send to AHPRA</h2><p>The app has built the finished, fully-signed PDF. The doctor sends it themselves — their email opens pre-addressed to AHPRA with the form attached.</p></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="hero" style="padding-bottom:16px">
+          <div class="hero-row"><div class="hero-avatar">SM</div><div><div class="hero-name">Dr Smith Miller</div><div class="hero-sub">AHPRA · representative update</div></div></div>
+          <div class="eyebrow">Almost done</div>
+          <div class="hero-title">Send your form to AHPRA</div>
+          <div class="progress-dots"><i class="on"></i><i class="on"></i><i class="on"></i></div>
+        </div>
+        <div class="p-body">
+          <div class="p-card" style="padding:0;overflow:hidden">
+            <div style="background:#0e2c4d;color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700;font-size:13px">ANOM-00 · ready</span><span style="font-size:12px;font-weight:800;background:#123a63;padding:2px 8px;border-radius:5px">PDF</span></div>
+            <div style="padding:14px">
+              <div class="mini-row"><span class="k">Representative</span><span class="v">Ben Carter</span></div>
+              <div class="mini-row"><span class="k">Sends to</span><span class="v">J. Whitfield · AHPRA officer</span></div>
+              <div class="mini-row"><span class="k">Ben’s signature</span><span class="v" style="color:var(--gp-green-ink)">✓ included</span></div>
+              <div class="mini-row"><span class="k">Your signature</span><span class="v" style="color:var(--gp-green-ink)">✓ included</span></div>
+              <div class="mini-row"><span class="k">Pages</span><span class="v">3 of 3 complete</span></div>
+              <button class="btn wide" style="margin-top:10px" onclick="show('s9')"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Preview the finished form</button>
+            </div>
+          </div>
+          <div class="banner blue" style="margin:2px 0 13px"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg><span>Tapping send opens your email, already addressed to your AHPRA officer <b>Jane Whitfield</b> (j.whitfield@ahpra.gov.au) with the form attached. You send it — so AHPRA sees it come straight from you.</span></div>
+          <button class="btn primary wide" onclick="show('s8')"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send to AHPRA</button>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s6')">← Complete &amp; sign</button><button class="next" onclick="show('s8')">Next → Done</button></div>
+    </section>
+
+    <!-- 8 · DONE -->
+    <section class="screen" id="s8">
+      <div class="screen-cap"><span class="where">Doctor app · confirmation</span><h2>8 · Sent — and everyone’s kept in the loop</h2><p>The doctor sees confirmation; Ben’s task moves to “waiting on AHPRA”.</p></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="hero" style="min-height:200px;display:flex;flex-direction:column;justify-content:center;text-align:center;padding-top:52px">
+          <div style="width:66px;height:66px;border-radius:50%;background:var(--gp-green);display:grid;place-items:center;margin:0 auto 14px;box-shadow:0 0 0 8px rgba(22,163,74,.18)"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="hero-title" style="text-align:center">Sent to AHPRA</div>
+          <div class="hero-lead" style="text-align:center;margin:8px auto 0;max-width:280px">Your representative form is on its way. We’ll let you know the moment AHPRA confirms the change.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-card"><h3>What happens next</h3>
+            <div class="mini-row"><span class="k">AHPRA reviews the form</span><span class="v">1–2 weeks</span></div>
+            <div class="mini-row"><span class="k">Ben becomes your rep</span><span class="v">On confirmation</span></div>
+            <div class="mini-row"><span class="k">You need to do</span><span class="v" style="color:var(--gp-green-ink)">Nothing 🎉</span></div>
+          </div>
+          <div class="banner green"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><span>Ben has been notified and is tracking this for you.</span></div>
+        </div>
+      </div>
+      <div class="flowbar"><button onclick="show('s7')">← Review</button><button class="next" onclick="show('s4')">See Ben’s task now → step 4</button></div>
+    </section>
+
+    <!-- 9 · FILLED PDF -->
+    <section class="screen" id="s9">
+      <div class="screen-cap"><span class="where">Generated artifact</span><h2>9 · The filled ANOM-00 that gets generated</h2><p>A faithful representation of the real 3-page AHPRA form, stamped with our data and both signatures. (The real output uses the official government PDF — this is a styled stand-in so you can see what lands in AHPRA’s inbox.)</p></div>
+      <div class="doc-scroll">
+        <div class="doc-page">
+          <div class="doc-hdr"><span class="t">Authorised representative nomination form</span><span class="code">ANOM-00</span></div>
+          <div class="doc-in">
+            <div class="doc-band">PART A — To be completed by the applicant</div>
+            <div class="doc-band grey" style="background:#1e3a5f">SECTION A: Personal details</div>
+            <div class="doc-q">1. Name &amp; date of birth</div>
+            <div class="doc-line"><span class="doc-lbl">Title / Family name</span><span class="doc-fill">DR</span><span class="doc-fill">MILLER</span></div>
+            <div class="doc-line"><span class="doc-lbl">First / Middle name</span><span class="doc-fill">SMITH</span><span class="doc-fill">JOHN</span></div>
+            <div class="doc-line"><span class="doc-lbl">Date of birth</span><span class="doc-fill">14 / 03 / 1989</span></div>
+            <div class="doc-q">2. Registration with the Board?</div>
+            <div class="doc-line"><span class="doc-x">✕</span><span>No — application in progress</span></div>
+            <div class="doc-q">3. Contact details</div>
+            <div class="doc-line"><span class="doc-lbl">Email</span><span class="doc-fill">dr.smith.miller@example.com</span></div>
+          </div>
+        </div>
+        <div class="doc-page">
+          <div class="doc-hdr"><span class="t">Section B — Authorisation</span><span class="code">ANOM-00</span></div>
+          <div class="doc-in">
+            <div class="doc-band teal">SECTION B: Authorisation — completed by the authorised representative</div>
+            <div class="doc-q">4. Do you have an AHPRA account?</div>
+            <div class="doc-line"><span class="doc-x">✕</span><span>Yes</span></div>
+            <div class="doc-q">5. Applicant’s legal name &amp; representative’s contact details</div>
+            <div class="doc-line"><span class="doc-lbl">Legal name of applicant</span><span class="doc-fill">SMITH JOHN MILLER</span></div>
+            <div class="doc-line"><span class="doc-lbl">Authorised representative</span><span class="doc-fill">BEN CARTER</span></div>
+            <div class="doc-line"><span class="doc-lbl">Organisation</span><span class="doc-fill">GP LINK RECRUITMENT AUSTRALIA PTY LTD</span></div>
+            <div class="doc-line"><span class="doc-lbl">Address</span><span class="doc-fill">SUITE 3050, 780 THE ENTRANCE RD, WAMBERAL NSW</span></div>
+            <div class="doc-line"><span class="doc-lbl">Email (must match account)</span><span class="doc-fill">BEN@MYGPLINK.COM.AU</span></div>
+            <div class="doc-q" style="margin-top:14px">Representative’s consent — “I consent to act as the authorised representative”</div>
+            <div class="doc-sigbox"><div class="doc-sig-cap">Signature of authorised representative · Date 01 / 07 / 2026</div><img class="doc-sig-img" data-sigslot="rso" alt="(Ben’s signature appears here)"></div>
+          </div>
+        </div>
+        <div class="doc-page">
+          <div class="doc-hdr"><span class="t">Applicant authorisation</span><span class="code">ANOM-00</span></div>
+          <div class="doc-in">
+            <div class="doc-band grey">Applicant or registrant authorisation — completed by the applicant</div>
+            <div class="doc-q">6. Do you authorise the above person to act as your representative?</div>
+            <div class="doc-line"><span class="doc-x">✕</span><span>Yes</span></div>
+            <div style="margin:8px 0 4px">
+              <div class="doc-line"><span class="doc-x">✕</span><span>communicate with the Board on my behalf</span></div>
+              <div class="doc-line"><span class="doc-x">✕</span><span>undertake any action necessary to process my application</span></div>
+              <div class="doc-line"><span class="doc-x">✕</span><span>receive all formal correspondence from the Board</span></div>
+            </div>
+            <div class="doc-sigbox"><div class="doc-sig-cap">Signature of applicant · Date 01 / 07 / 2026</div><img class="doc-sig-img" data-sigslot="gp" alt="(Doctor’s signature appears here)"></div>
+            <div class="doc-band" style="background:#0b6b6b;margin-top:16px">Emailed to your assigned AHPRA officer — Jane Whitfield &lt;j.whitfield@ahpra.gov.au&gt;</div>
+            <div class="doc-note" style="margin:8px 0 0">GP LINK addresses the doctor’s email to the assigned officer for this GP (dynamic). The government form’s own printed footer still reads “authreps@ahpra.gov.au”.</div>
+          </div>
+        </div>
+        <div class="doc-note">Signatures shown here are the ones you drew in steps 3 &amp; 6 of this prototype.</div>
+      </div>
+      <div class="flowbar"><button onclick="show('s7')">← Review &amp; send</button><span>Component C — built by <code>lib/anom00.js</code> (pdf-lib overlay)</span></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"><span class="ic"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span><span id="toastMsg">Done</span></div>
+
+<script>
+var sigStore={};
+function show(id){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.toggle('active',s.id===id);});
+  document.querySelectorAll('#nav button').forEach(function(b){b.classList.toggle('active',b.dataset.s===id);});
+  document.querySelector('.proto-stage').scrollTop=0;
+  if(id==='s9') paintDocSignatures();
+  if('#'+id!==location.hash){ try{history.replaceState(null,'','#'+id);}catch(e){} }
+}
+document.querySelectorAll('#nav button').forEach(function(b){b.addEventListener('click',function(){show(b.dataset.s);});});
+
+function toast(msg){var t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show');},2600);}
+function pinSwitch(){toast('AHPRA “from” mailbox switched → ben@mygplink.com.au');}
+
+/* signature pads */
+function initPad(wrap){
+  var canvas=wrap.querySelector('.sig-canvas');
+  var key=wrap.dataset.sig;
+  var ctx,drawing=false,dirty=false,last=null;
+  function size(){var r=canvas.getBoundingClientRect();var dpr=window.devicePixelRatio||1;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0f2c63';}
+  size();window.addEventListener('resize',function(){var d=sigStore[key];size();});
+  function pos(e){var r=canvas.getBoundingClientRect();var p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top};}
+  function start(e){drawing=true;last=pos(e);e.preventDefault();}
+  function move(e){if(!drawing)return;var p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;if(!dirty){dirty=true;wrap.classList.add('signed');}e.preventDefault();}
+  function end(){if(drawing&&dirty){sigStore[key]=canvas.toDataURL('image/png');}drawing=false;}
+  canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+  canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
+  wrap._clear=function(){ctx.clearRect(0,0,canvas.width,canvas.height);dirty=false;delete sigStore[key];wrap.classList.remove('signed');};
+}
+document.querySelectorAll('.sig-wrap').forEach(initPad);
+document.querySelectorAll('.sig-clear').forEach(function(btn){btn.addEventListener('click',function(){var w=document.querySelector('.sig-wrap[data-sig="'+btn.dataset.clear+'"]');if(w&&w._clear)w._clear();});});
+
+var _initH=location.hash.replace('#','');
+if(_initH && document.getElementById(_initH)) show(_initH);
+
+function paintDocSignatures(){
+  document.querySelectorAll('.doc-sig-img').forEach(function(img){
+    var slot=img.dataset.sigslot;
+    if(sigStore[slot]){img.src=sigStore[slot];img.style.display='block';}
+    else{img.removeAttribute('src');}
+  });
+}
+</script>
+</body>
+</html>

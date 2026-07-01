@@ -3,7 +3,7 @@
 **Date:** 2026-07-02
 **Branch:** `worktree-ahpra-rep-change-anom00` (base `origin/main` @ `0a5fb5b`)
 **Status:** Approved via clickable prototype (localhost:4820). Ready for implementation planning.
-**Prototype (source of truth for UI):** `$CLAUDE_JOB_DIR/tmp/anom00-proto/index.html` — 9 screens, faithful to app styling.
+**Prototype (source of truth for UI):** `docs/mockups/anom00-rep-change-prototype.html` — 9 screens (open in a browser), faithful to app styling. Deep-links `#s1`…`#s9`.
 
 ---
 
