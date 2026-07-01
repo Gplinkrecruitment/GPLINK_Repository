@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import signaturePad from '../js/signature-pad.js';
-import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData } from '../server.js';
+import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData, shouldTriggerRepChange } from '../server.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -287,5 +287,48 @@ describe('buildRepSectionData', () => {
     expect(rep.fullName).toBe('');
     expect(rep.hasAhpraAccount).toBe(true);
     expect(rep.orgName).toBe('GP LINK RECRUITMENT AUSTRALIA PTY LTD');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 6: auto-trigger the ahpra_rep_change task on RSO reassignment.
+//
+// shouldTriggerRepChange(prevCase, nextAssignedVa) is the pure gate the
+// /api/admin/case (and /api/admin/ops/case) PUT reassignment handlers check
+// AFTER a real assigned_va change has already been detected, and BEFORE
+// calling the idempotent _ensureRepChangeTask DB helper. Pure + null-safe —
+// no DB required to exercise it here.
+// ---------------------------------------------------------------------------
+describe('shouldTriggerRepChange', () => {
+  const base = { stage: 'ahpra', assigned_va: 'old', ahpra_officer_email: 'j@ahpra.gov.au' };
+
+  it('fires only for a real reassignment of a mid-AHPRA case with an officer', () => {
+    expect(shouldTriggerRepChange(base, 'new')).toBe(true);
+    expect(shouldTriggerRepChange(base, 'old')).toBe(false);           // no change
+    expect(shouldTriggerRepChange({ ...base, ahpra_officer_email: null, ahpra_auth_rep_email: null }, 'new')).toBe(false); // no rep yet
+    expect(shouldTriggerRepChange({ ...base, stage: 'amc' }, 'new')).toBe(false); // not mid-AHPRA
+  });
+
+  it('fires for every mid-AHPRA-journey stage (ahpra, career, pbs, commencement)', () => {
+    for (const stage of ['ahpra', 'career', 'pbs', 'commencement']) {
+      expect(shouldTriggerRepChange({ ...base, stage }, 'new')).toBe(true);
+    }
+  });
+
+  it('fires when only the pinned ahpra_auth_rep_email is set (no officer email yet)', () => {
+    const pinnedOnly = { stage: 'career', assigned_va: 'old', ahpra_auth_rep_email: 'rep@mygplink.com.au' };
+    expect(shouldTriggerRepChange(pinnedOnly, 'new')).toBe(true);
+  });
+
+  it('is false when the next assignee is falsy', () => {
+    expect(shouldTriggerRepChange(base, null)).toBe(false);
+    expect(shouldTriggerRepChange(base, undefined)).toBe(false);
+    expect(shouldTriggerRepChange(base, '')).toBe(false);
+  });
+
+  it('is null-safe against a missing/empty prevCase', () => {
+    expect(shouldTriggerRepChange(undefined, 'new')).toBe(false);
+    expect(shouldTriggerRepChange(null, 'new')).toBe(false);
+    expect(shouldTriggerRepChange({}, 'new')).toBe(false);
   });
 });

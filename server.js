@@ -1823,6 +1823,65 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
   finally { delete _ahpraConflictLetterInflight[caseId]; }
 }
 
+// ── AHPRA change-of-representative auto-trigger (ANOM-00, Task 6) ───────────
+// When an RSO reassignment lands on a case that is already mid-AHPRA AND
+// already has an AHPRA officer/representative on file, the newly-assigned RSO
+// must sign + send a fresh ANOM-00 "change of authorised representative" form
+// (Task 5 built the card/endpoints that act on this task once it exists).
+// shouldTriggerRepChange is the pure, DB-free gate the reassignment handlers
+// check; _ensureRepChangeTask is the idempotent task-creation helper they call
+// once that gate passes.
+function shouldTriggerRepChange(prevCase, nextAssignedVa) {
+  if (!nextAssignedVa) return false;
+  var prev = prevCase || {};
+  if (nextAssignedVa === prev.assigned_va) return false; // not a real reassignment
+  var midAhpraStages = ['ahpra', 'career', 'pbs', 'commencement'];
+  if (midAhpraStages.indexOf(prev.stage) === -1) return false; // not mid-AHPRA
+  if (!prev.ahpra_officer_email && !prev.ahpra_auth_rep_email) return false; // no rep on file yet
+  return true;
+}
+
+// Idempotent: reuses any already-open ahpra_rep_change task on the case
+// instead of stacking a second one (mirrors _ensureAhpraConflictLetter's
+// inflight-lock + existing-task-check shape).
+var _repChangeTaskInflight = {};
+async function _ensureRepChangeTask(caseId, prevRsoUserId, newRsoUserId) {
+  if (!caseId || !newRsoUserId) return null;
+  if (_repChangeTaskInflight[caseId]) {
+    try { return await _repChangeTaskInflight[caseId]; } catch (e) { return null; }
+  }
+  var _rcPromise = (async function () {
+    try {
+      var existingRc = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.ahpra_rep_change&status=in.(open,waiting_on_gp,waiting_on_ahpra)&limit=1');
+      if (existingRc.ok && Array.isArray(existingRc.data) && existingRc.data[0]) {
+        return existingRc.data[0];
+      }
+      var rcTask = await _createRegTask(caseId, {
+        task_type: 'ahpra_rep_change',
+        title: 'AHPRA representative change — sign & send ANOM-00',
+        source_trigger: 'reassignment',
+        related_stage: 'ahpra', related_document_key: 'anom_00',
+        status: 'open', priority: 'high',
+        assignee: newRsoUserId,
+        metadata: {
+          rep_change_state: 'awaiting_rso_sign',
+          prev_rso_user_id: prevRsoUserId || null,
+          new_rso_user_id: newRsoUserId,
+          source_reassignment: true
+        },
+        _actor: 'system'
+      });
+      console.log('[ahpra-rep-change] Created rep-change task for case', caseId, '-> new RSO', newRsoUserId);
+      return rcTask;
+    } catch (e) { console.error('[ahpra-rep-change] ensure failed:', e.message); return null; }
+  })();
+  _repChangeTaskInflight[caseId] = _rcPromise;
+  try { return await _rcPromise; }
+  finally { delete _repChangeTaskInflight[caseId]; }
+}
+
 /**
  * Deliver matched alternate-supervisor CV(s) onto the case: create the
  * alt_supervisor_cv_review task + task_documents + inbound task_message + case
@@ -35446,11 +35505,15 @@ Return ONLY valid JSON with no markdown formatting:
       patch.assigned_rso = patch.assigned_va;
     }
 
-    // Fetch old assigned_va before patching (needed for label reassignment)
+    // Fetch old assigned_va + rep-change predicate fields before patching (needed
+    // for label reassignment AND the ahpra_rep_change auto-trigger below, Task 6).
     var oldAssignedVa = null;
+    var prevCaseForRepChange = null;
     if (patch.assigned_va) {
-      var oldCaseRes = await supabaseDbRequest('registration_cases', 'select=assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-      oldAssignedVa = oldCaseRes.ok && oldCaseRes.data && oldCaseRes.data[0] ? oldCaseRes.data[0].assigned_va : null;
+      var oldCaseRes = await supabaseDbRequest('registration_cases',
+        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      prevCaseForRepChange = oldCaseRes.ok && oldCaseRes.data && oldCaseRes.data[0] ? oldCaseRes.data[0] : null;
+      oldAssignedVa = prevCaseForRepChange ? prevCaseForRepChange.assigned_va : null;
     }
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
@@ -35473,6 +35536,19 @@ Return ONLY valid JSON with no markdown formatting:
           }
         }
       } catch (e) { console.error('[doubletick-assign] case PATCH sync (admin) failed:', e && e.message); }
+    }
+
+    // ── Auto-trigger the ahpra_rep_change task (ANOM-00, Task 6) ──
+    // A mid-AHPRA case that already has an AHPRA officer/rep on file needs a
+    // fresh sign-and-send task for the newly-assigned RSO. Best-effort — never
+    // blocks the case-update response. Reuses the exact same real-reassignment
+    // guard as the DoubleTick sync above.
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va && patch.assigned_va !== oldAssignedVa) {
+      try {
+        if (shouldTriggerRepChange(prevCaseForRepChange, patch.assigned_va)) {
+          await _ensureRepChangeTask(caseId, oldAssignedVa, patch.assigned_va);
+        }
+      } catch (e) { console.error('[ahpra-rep-change] auto-trigger on reassignment failed:', e && e.message); }
     }
 
     // ── Gmail Label Management on VA assignment ──
@@ -43811,6 +43887,16 @@ Return ONLY valid JSON with no markdown formatting:
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
     patch.last_va_action_at = new Date().toISOString();
+    // Fetch old assigned_va + rep-change predicate fields before patching (this
+    // ops path has no prior pre-fetch of its own; mirrors /api/admin/case, Task 6).
+    var opsPrevCaseForRepChange = null;
+    var opsOldAssignedVa = null;
+    if (patch.assigned_va) {
+      var opsOldCaseRes = await supabaseDbRequest('registration_cases',
+        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      opsPrevCaseForRepChange = opsOldCaseRes.ok && opsOldCaseRes.data && opsOldCaseRes.data[0] ? opsOldCaseRes.data[0] : null;
+      opsOldAssignedVa = opsPrevCaseForRepChange ? opsPrevCaseForRepChange.assigned_va : null;
+    }
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
     const changes = Object.keys(patch).filter(function (k) { return k !== 'last_va_action_at'; });
@@ -43830,6 +43916,17 @@ Return ONLY valid JSON with no markdown formatting:
           }
         }
       } catch (e) { console.error('[doubletick-assign] case PATCH sync (ceo) failed:', e && e.message); }
+    }
+    // ── Auto-trigger the ahpra_rep_change task (ANOM-00, Task 6) ──
+    // Secondary/minimal mirror of the /api/admin/case hook — kept small since
+    // that primary path is the required one; _ensureRepChangeTask is idempotent
+    // so this can never double-create a task even if both paths fire.
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va && patch.assigned_va !== opsOldAssignedVa) {
+      try {
+        if (shouldTriggerRepChange(opsPrevCaseForRepChange, patch.assigned_va)) {
+          await _ensureRepChangeTask(caseId, opsOldAssignedVa, patch.assigned_va);
+        }
+      } catch (e) { console.error('[ahpra-rep-change] auto-trigger on ops reassignment failed:', e && e.message); }
     }
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
     return;
@@ -46701,12 +46798,15 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.rsoNeedsOnboarding = rsoNeedsOnboarding;
 module.exports.rsoCanBeAhpraRep = rsoCanBeAhpraRep;
 module.exports.buildRepSectionData = buildRepSectionData;
+module.exports.shouldTriggerRepChange = shouldTriggerRepChange;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
   rsoNeedsOnboarding,
   rsoCanBeAhpraRep,
   buildRepSectionData,
+  shouldTriggerRepChange,
+  _ensureRepChangeTask,
   ahpraConfidentMatch,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,
