@@ -149,6 +149,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
+const { buildAnom00 } = require('./lib/anom00.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -325,7 +326,14 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
         email: r.email || '',
         phone: r.phone || '',
         active: (r.active === undefined || r.active === null) ? true : !!r.active,
-        calendly_event_url: r.calendly_event_url || ''
+        calendly_event_url: r.calendly_event_url || '',
+        // ANOM-00 Task 5: the rep-change task card needs to know whether the
+        // assigned RSO has completed onboarding (rsoCanBeAhpraRep gate) —
+        // additive fields, seed rows just come through blank/false.
+        first_name: r.first_name || '',
+        last_name: r.last_name || '',
+        company_email: r.company_email || '',
+        ahpra_account_confirmed: r.ahpra_account_confirmed === true
       };
     })
     .filter(function (r) {
@@ -341,7 +349,9 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
 // in which case we transparently use the seed array.
 async function loadRsoTeam(opts) {
   try {
-    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
+    var res = await supabaseDbRequest('rso_team',
+      'select=user_id,name,email,phone,active,calendly_event_url,first_name,last_name,company_email,ahpra_account_confirmed&order=name.asc',
+      { method: 'GET' });
     var rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
     return mergeRsoRoster(rows, RSO_TEAM, opts);
   } catch (e) {
@@ -1086,6 +1096,74 @@ function rsoCanBeAhpraRep(rsoRow) {
   if (row.ahpra_account_confirmed !== true) return false;
   const companyEmail = String(row.company_email == null ? '' : row.company_email).trim().toLowerCase();
   return /@mygplink\.com\.au$/.test(companyEmail);
+}
+
+// ── ANOM-00 Task 5: RSO task card — pure Section A/B data assembler ─────────
+// GP LINK's standing details as the authorised representative's organisation
+// (from the real filed ANOM-00 sample; spec §2/§4-C). These never vary
+// per-case — only the rep's own name/email (from their rso_team profile) and
+// the applicant's (doctor's) details do.
+const ANOM00_REP_ORG = {
+  orgName: 'GP LINK RECRUITMENT AUSTRALIA PTY LTD',
+  address: 'SUITE 3050, 780 THE ENTRANCE RD',
+  city: 'WAMBERAL',
+  state: 'NSW',
+  postcode: '2260',
+  country: 'AUSTRALIA'
+};
+
+// buildRepSectionData(caseRow, rsoRow) -> { applicant, rep }
+// Pure mapper from a case/GP-profile-like row and an rso_team row to the two
+// data blocks lib/anom00.js's buildAnom00() expects. Accepts either
+// camelCase or snake_case keys on caseRow so callers can pass a raw DB row or
+// an already-adapted object. rep.hasAhpraAccount is always the literal
+// `true`: this is only ever called from /api/admin/va/task/:id/anom00-send-to-gp
+// AFTER that endpoint has already enforced the rsoCanBeAhpraRep gate, so by
+// construction the rep does have a confirmed AHPRA account whenever this runs.
+function buildRepSectionData(caseRow, rsoRow) {
+  const c = caseRow || {};
+  const rso = rsoRow || {};
+
+  const repFullName = [rso.first_name, rso.last_name]
+    .filter(function (s) { return s && String(s).trim(); })
+    .join(' ')
+    .trim() || rso.name || '';
+
+  const rep = {
+    fullName: repFullName,
+    orgName: ANOM00_REP_ORG.orgName,
+    address: ANOM00_REP_ORG.address,
+    city: ANOM00_REP_ORG.city,
+    state: ANOM00_REP_ORG.state,
+    postcode: ANOM00_REP_ORG.postcode,
+    country: ANOM00_REP_ORG.country,
+    phone: '',
+    mobile: '',
+    email: rso.company_email || '',
+    hasAhpraAccount: true
+  };
+
+  const applicant = {
+    title: 'DR',
+    familyName: c.familyName || c.family_name || c.lastName || c.last_name || '',
+    firstName: c.firstName || c.first_name || '',
+    middleName: c.middleName || c.middle_name || '',
+    dob: c.dob || c.dateOfBirth || c.date_of_birth || '',
+    email: c.email || c.gpEmail || c.gp_email || ''
+  };
+
+  return { applicant: applicant, rep: rep };
+}
+
+// Tiny local date formatter — the ANOM-00 date fields are printed DD/MM/YYYY
+// (see lib/anom00.js ANOM00_FIELDS.repDate/gpDate); avoids relying on
+// toLocaleDateString's locale/ICU-dependent formatting for a value that goes
+// on an official government form.
+function _formatDateDDMMYYYY(d) {
+  const dt = (d instanceof Date) ? d : new Date(d || Date.now());
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  return dd + '/' + mm + '/' + dt.getFullYear();
 }
 
 function getScheduledCallRegistrationTaskId(callRecord) {
@@ -39205,6 +39283,192 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── ANOM-00 Task 5 (D2): RSO signs Section B + sends the doctor's half ──────
+  // Builds the phase-1 ("rep_only") PDF from the assigned RSO's profile +
+  // signature, stores it, emails the doctor a deep link into their in-app
+  // completion page (Task 7's pages/ahpra-rep-change.html), and flips the
+  // task to waiting_on_gp. The rsoCanBeAhpraRep gate the card itself renders
+  // (screen 3b) is re-checked here server-side — the client-side gate is
+  // display-only and must never be trusted for a write.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/anom00-send-to-gp')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const taskId = pathname.split('/')[5];
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const repSignaturePng = (body && typeof body.repSignaturePng === 'string') ? body.repSignaturePng.trim() : '';
+    if (!repSignaturePng) { sendJson(res, 400, { ok: false, message: 'A signature is required before sending.' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.ahpra_rep_change&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+    var repTaskMeta = task.metadata;
+    if (typeof repTaskMeta === 'string') try { repTaskMeta = JSON.parse(repTaskMeta); } catch (e) { repTaskMeta = {}; }
+    if (!repTaskMeta) repTaskMeta = {};
+    if (task.status === 'completed' || repTaskMeta.rep_change_state === 'completed') {
+      sendJson(res, 400, { ok: false, message: 'This representative change has already been confirmed.' });
+      return;
+    }
+    if (!task.case_id) { sendJson(res, 400, { ok: false, message: 'Task has no case.' }); return; }
+
+    const repCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,assigned_va&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    const repCaseRow = (repCaseRes.ok && repCaseRes.data && repCaseRes.data[0]) ? repCaseRes.data[0] : null;
+    if (!repCaseRow) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const repAssignedVa = repTaskMeta.new_rso_user_id || repCaseRow.assigned_va;
+    if (!repAssignedVa) { sendJson(res, 400, { ok: false, message: 'This doctor has no assigned registration officer.' }); return; }
+
+    const repRsoRes = await supabaseDbRequest('rso_team',
+      'select=user_id,name,first_name,last_name,company_email,ahpra_account_confirmed&user_id=eq.' + encodeURIComponent(repAssignedVa) + '&limit=1');
+    const repRsoRow = (repRsoRes.ok && repRsoRes.data && repRsoRes.data[0]) ? repRsoRes.data[0] : null;
+    if (!repRsoRow || !rsoCanBeAhpraRep(repRsoRow)) {
+      sendJson(res, 400, { ok: false, message: 'The assigned registration officer needs to confirm their AHPRA portal account before this form can be sent.' });
+      return;
+    }
+
+    const repProfRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(repCaseRow.user_id) + '&limit=1');
+    const repProf = (repProfRes.ok && repProfRes.data && repProfRes.data[0]) ? repProfRes.data[0] : {};
+    if (!repProf.email) { sendJson(res, 400, { ok: false, message: 'Doctor email is missing — cannot send.' }); return; }
+
+    const { applicant: repApplicant, rep: repRep } = buildRepSectionData(
+      { first_name: repProf.first_name, last_name: repProf.last_name, email: repProf.email },
+      repRsoRow
+    );
+
+    const repNowDate = new Date();
+    let repPdfBytes;
+    try {
+      repPdfBytes = await buildAnom00(
+        { mode: 'rep_only', applicant: repApplicant, rep: repRep, dates: { rep: _formatDateDDMMYYYY(repNowDate) } },
+        { repSignaturePng: repSignaturePng }
+      );
+    } catch (e) {
+      console.error('[ANOM-00] send-to-gp build failed:', e.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to build the ANOM-00 form.' });
+      return;
+    }
+    const repPdfDataUrl = 'data:application/pdf;base64,' + Buffer.from(repPdfBytes).toString('base64');
+
+    // Store the generated PDF (mark any prior current doc as superseded first — safe on resend).
+    await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true',
+      { method: 'PATCH', body: { is_current: false } });
+    await supabaseDbRequest('task_documents', '', {
+      method: 'POST',
+      body: [{
+        task_id: taskId, case_id: task.case_id, filename: 'ANOM-00 (Section B).pdf',
+        mime_type: 'application/pdf', size_bytes: repPdfBytes.length, is_current: true,
+        uploaded_by: 'admin_rep_change_send', attachment_url: repPdfDataUrl
+      }]
+    });
+
+    const repNowIso = repNowDate.toISOString();
+    const repDeepLink = APP_BASE_URL + '/pages/ahpra-rep-change.html?token=' + encodeURIComponent(taskId);
+    // Best-effort courtesy notification, same helper the other AHPRA/SPPA doctor
+    // deep-link emails use (notifyGpDocumentDelivered). Awaited (not detached)
+    // because a fire-and-forget promise can be killed by the serverless
+    // function freezing right after res.end() — and this email IS this
+    // endpoint's primary deliverable, not a side effect.
+    await sendGpNotificationEmail(repCaseRow.user_id,
+      'Action needed: confirm your GP LINK representative with AHPRA',
+      'Action needed, {{name}}: confirm your AHPRA representative',
+      'I’m ' + (repRep.fullName || 'your registration officer') + ', and I’ll be looking after your AHPRA registration from here on. ' +
+        'Because AHPRA links a specific person as your authorised representative, we need to update their records to show me instead of your previous officer. ' +
+        'I’ve completed and signed my half of the AHPRA form (ANOM-00) — there are just two quick things left for you: tick the authorisation boxes and add your signature, then send the finished form on to AHPRA (we’ll have it pre-addressed for you).',
+      'Complete & sign your section',
+      repDeepLink,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    );
+
+    // Persist everything Task 7 needs to load the RSO's signature + rep/applicant
+    // snapshot into the full-mode PDF build, without re-deriving any of it.
+    repTaskMeta.rep_change_state = 'waiting_on_gp';
+    repTaskMeta.sent_to_gp_at = repNowIso;
+    repTaskMeta.rep_signature_png = repSignaturePng;
+    repTaskMeta.rep = repRep;
+    repTaskMeta.applicant = repApplicant;
+    repTaskMeta.new_rso_user_id = repAssignedVa;
+    repTaskMeta.doctor_email = repProf.email;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: { status: 'waiting_on_gp', metadata: repTaskMeta, updated_at: repNowIso }
+    });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'ANOM-00 sent to the doctor for signing', 'Sent to ' + repProf.email, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── ANOM-00 Task 5 (D6): RSO confirms AHPRA has processed the change ────────
+  // Pins the case's AHPRA representative mailbox to the new RSO and completes
+  // the task. Manual, RSO-initiated, never automatic — the whole point of the
+  // pinned mailbox is that it only flips once AHPRA has actually confirmed
+  // the new representative (spec §3 decision 3 / §E).
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/anom00-confirmed')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const taskId = pathname.split('/')[5];
+
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.ahpra_rep_change&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+    var confTaskMeta = task.metadata;
+    if (typeof confTaskMeta === 'string') try { confTaskMeta = JSON.parse(confTaskMeta); } catch (e) { confTaskMeta = {}; }
+    if (!confTaskMeta) confTaskMeta = {};
+    if (task.status === 'completed' || confTaskMeta.rep_change_state === 'completed') {
+      sendJson(res, 400, { ok: false, message: 'This representative change has already been confirmed.' });
+      return;
+    }
+    if (!confTaskMeta.rep_change_state || confTaskMeta.rep_change_state === 'awaiting_rso_sign') {
+      sendJson(res, 400, { ok: false, message: 'Send the form to the doctor before confirming with AHPRA.' });
+      return;
+    }
+    if (!task.case_id) { sendJson(res, 400, { ok: false, message: 'Task has no case.' }); return; }
+
+    const confCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,assigned_va&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    const confCaseRow = (confCaseRes.ok && confCaseRes.data && confCaseRes.data[0]) ? confCaseRes.data[0] : null;
+    if (!confCaseRow) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    const newRsoUserId = confTaskMeta.new_rso_user_id || confCaseRow.assigned_va;
+    if (!newRsoUserId) { sendJson(res, 400, { ok: false, message: 'No representative on file for this change.' }); return; }
+
+    const confRsoRes = await supabaseDbRequest('rso_team',
+      'select=user_id,name,first_name,last_name,company_email,ahpra_account_confirmed&user_id=eq.' + encodeURIComponent(newRsoUserId) + '&limit=1');
+    const confRsoRow = (confRsoRes.ok && confRsoRes.data && confRsoRes.data[0]) ? confRsoRes.data[0] : null;
+    if (!confRsoRow || !rsoCanBeAhpraRep(confRsoRow)) {
+      sendJson(res, 400, { ok: false, message: 'This registration officer no longer has a confirmed AHPRA account/company email — cannot pin the mailbox.' });
+      return;
+    }
+
+    const confNowIso = new Date().toISOString();
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), {
+      method: 'PATCH',
+      body: {
+        ahpra_auth_rep_email: confRsoRow.company_email,
+        ahpra_auth_rep_user_id: newRsoUserId,
+        ahpra_auth_rep_confirmed_at: confNowIso
+      }
+    });
+
+    confTaskMeta.rep_change_state = 'completed';
+    confTaskMeta.confirmed_at = confNowIso;
+    confTaskMeta.confirmed_by = admin.email;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: { status: 'completed', metadata: confTaskMeta, updated_at: confNowIso }
+    });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', 'AHPRA confirmed the new representative', 'Pinned the AHPRA mailbox to ' + confRsoRow.company_email, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // ── Amend RSO-owned SPPA field and re-upload ──
   // ── Get SPPA-00 form fields for inline editing ──
   if (req.method === 'GET' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-form-fields')) {
@@ -46436,11 +46700,13 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.rsoNeedsOnboarding = rsoNeedsOnboarding;
 module.exports.rsoCanBeAhpraRep = rsoCanBeAhpraRep;
+module.exports.buildRepSectionData = buildRepSectionData;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
   rsoNeedsOnboarding,
   rsoCanBeAhpraRep,
+  buildRepSectionData,
   ahpraConfidentMatch,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,

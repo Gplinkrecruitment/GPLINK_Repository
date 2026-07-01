@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import signaturePad from '../js/signature-pad.js';
-import { rsoNeedsOnboarding, rsoCanBeAhpraRep } from '../server.js';
+import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData } from '../server.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -196,5 +196,96 @@ describe('RSO first-run onboarding predicates', () => {
   it('treats a missing/empty row as not being AHPRA-rep eligible', () => {
     expect(rsoCanBeAhpraRep(undefined)).toBe(false);
     expect(rsoCanBeAhpraRep({})).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5: RSO ANOM-00 task card — buildRepSectionData pure assembler.
+//
+// buildRepSectionData(caseRow, rsoRow) -> { applicant, rep } maps a case/GP
+// profile row and an rso_team row onto the two data blocks lib/anom00.js's
+// buildAnom00() expects (see tests/anom00.test.js for that shape). It is only
+// ever called by /api/admin/va/task/:id/anom00-send-to-gp AFTER that endpoint
+// has already checked rsoCanBeAhpraRep, so rep.hasAhpraAccount is always the
+// constant `true` here by construction, and the GP LINK org details are fixed
+// company constants (never per-case).
+// ---------------------------------------------------------------------------
+describe('buildRepSectionData', () => {
+  const caseRow = {
+    family_name: 'MILLER', first_name: 'SMITH', middle_name: 'JOHN',
+    dob: '14/03/1989', email: 'dr.smith.miller@example.com',
+  };
+  const rsoRow = {
+    first_name: 'Ben', last_name: 'Carter', company_email: 'ben@mygplink.com.au',
+    ahpra_account_confirmed: true,
+  };
+
+  it('maps the rep block from the rso profile + fixed GP LINK org constants', () => {
+    const { rep } = buildRepSectionData(caseRow, rsoRow);
+    expect(rep.email).toBe('ben@mygplink.com.au');
+    expect(rep.fullName).toBe('Ben Carter');
+    expect(rep.orgName).toBe('GP LINK RECRUITMENT AUSTRALIA PTY LTD');
+    expect(rep.address).toBe('SUITE 3050, 780 THE ENTRANCE RD');
+    expect(rep.city).toBe('WAMBERAL');
+    expect(rep.state).toBe('NSW');
+    expect(rep.country).toBe('AUSTRALIA');
+    expect(rep.hasAhpraAccount).toBe(true);
+  });
+
+  it('maps the applicant block from the case/GP-profile row', () => {
+    const { applicant } = buildRepSectionData(caseRow, rsoRow);
+    expect(applicant.title).toBe('DR');
+    expect(applicant.familyName).toBe('MILLER');
+    expect(applicant.firstName).toBe('SMITH');
+    expect(applicant.middleName).toBe('JOHN');
+    expect(applicant.dob).toBe('14/03/1989');
+    expect(applicant.email).toBe('dr.smith.miller@example.com');
+  });
+
+  it('falls back to the rso "name" field when first_name/last_name are absent', () => {
+    const { rep } = buildRepSectionData(caseRow, { name: 'Hazel', company_email: 'hazel@mygplink.com.au' });
+    expect(rep.fullName).toBe('Hazel');
+    expect(rep.email).toBe('hazel@mygplink.com.au');
+  });
+
+  it('prefers first_name + last_name over "name" when both are present', () => {
+    const { rep } = buildRepSectionData(caseRow, { name: 'Old Display Name', first_name: 'Ben', last_name: 'Carter', company_email: 'ben@mygplink.com.au' });
+    expect(rep.fullName).toBe('Ben Carter');
+  });
+
+  it('accepts camelCase case-row keys as well as snake_case', () => {
+    const { applicant } = buildRepSectionData(
+      { familyName: 'MILLER', firstName: 'SMITH', middleName: 'JOHN', dob: '14/03/1989', email: 'x@example.com' },
+      rsoRow,
+    );
+    expect(applicant.familyName).toBe('MILLER');
+    expect(applicant.firstName).toBe('SMITH');
+    expect(applicant.middleName).toBe('JOHN');
+    expect(applicant.email).toBe('x@example.com');
+  });
+
+  it('falls back to lastName/last_name for familyName when familyName/family_name are absent', () => {
+    const { applicant } = buildRepSectionData({ firstName: 'Smith', lastName: 'Miller', email: 'x@example.com' }, rsoRow);
+    expect(applicant.familyName).toBe('Miller');
+    expect(applicant.firstName).toBe('Smith');
+  });
+
+  it('rep.hasAhpraAccount is always true regardless of the rso row (endpoint gates before calling this)', () => {
+    const { rep } = buildRepSectionData(caseRow, { company_email: 'ben@mygplink.com.au', ahpra_account_confirmed: false });
+    expect(rep.hasAhpraAccount).toBe(true);
+  });
+
+  it('defaults gracefully on missing/empty case or rso rows', () => {
+    const { applicant, rep } = buildRepSectionData(undefined, undefined);
+    expect(applicant.familyName).toBe('');
+    expect(applicant.firstName).toBe('');
+    expect(applicant.middleName).toBe('');
+    expect(applicant.dob).toBe('');
+    expect(applicant.email).toBe('');
+    expect(applicant.title).toBe('DR');
+    expect(rep.email).toBe('');
+    expect(rep.fullName).toBe('');
+    expect(rep.hasAhpraAccount).toBe(true);
+    expect(rep.orgName).toBe('GP LINK RECRUITMENT AUSTRALIA PTY LTD');
   });
 });

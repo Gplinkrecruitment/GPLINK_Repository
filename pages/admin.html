@@ -1429,6 +1429,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
+<script src="/js/signature-pad.js?v=20260702a"></script>
   <div class="top-bar">
     <div class="top-bar-left">
       <h1 id="topTitle">RSO Command Centre</h1>
@@ -3283,7 +3284,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const isNext=isFirstActiveTask;
           if(isNext)isFirstActiveTask=false;
 
-          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter';
+          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||t.task_type==='ahpra_rep_change';
           html+='<div class="stage-task'+(isNext?' active-next':'')+(isUrgencyDriver?' urgency-flag':'')+(t.task_type==='email_triage'?' unlocked-email':'')+(isWaiting?' st-waiting-state':'')+'" data-task-row="'+esc(t.id)+'"'+(_hasDetailPanel?' data-gp-expand-task="'+esc(t.id)+'" style="cursor:pointer"':'')+'>';
           html+='<div class="st-top">';
           html+='<div class="st-body">';
@@ -3329,7 +3330,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           html+='</div>';
           html+='<div class="st-actions">';
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||t.task_type==='ahpra_rep_change'){
             // No button — row click expands (accordion style)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
@@ -3400,7 +3401,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
 
           // Expandable detail panel for tasks with interactive workflows
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||t.task_type==='ahpra_rep_change'){
             html+='<div class="gp-task-detail" id="gpTaskDetail_'+esc(t.id)+'" data-gp-task-detail="'+esc(t.id)+'" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
@@ -4081,7 +4082,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
         (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
-          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter')){
+          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||t.task_type==='ahpra_rep_change')){
             var panel=document.getElementById('gpTaskDetail_'+t.id);
             if(panel){panel.style.display='block';loadGpTaskDetail(t.id);_autoExpanded=true;}
           }
@@ -5143,6 +5144,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(tt==="blocker")return "Support ticket";
     if(tt==="flagged_doc")return "Flagged qualification document";
     if(tt==="chase")return "Follow-up reminder";
+    if(tt==="ahpra_rep_change")return "AHPRA representative change";
     if(t.email_sender)return "from "+t.email_sender;
     return "";
   }
@@ -5341,12 +5343,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsAltSupervisorCvRequest(task);
     }else if(tt==='ahpra_conflict_letter'){
       html=renderOpsAhpraConflictLetter(task);
+    }else if(tt==='ahpra_rep_change'){
+      html=await renderOpsRepChangeItem(task,msgs,docs);
     }else if(tt==='zoom_call'){
       html=await renderOpsZoomCall(task);
     }else{
       html=renderOpsGeneric(task,msgs,docs);
     }
     container.innerHTML=html;
+    if(tt==='ahpra_rep_change')initRepChangeCard(task.id);
   }
 
   // Render a zoom_call task in the Ops Queue as the rich call card (same as the
@@ -5929,6 +5934,163 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div style="font-size:11px;color:#64748b;margin-top:6px">Practice will email: '+esc(meta.ahpra_officer_name||'AHPRA officer')+' ('+esc(meta.ahpra_officer_email||'')+'), CC '+esc(meta.cc_mailbox||'')+'</div>';
     h+='</div>';
     return h;
+  }
+
+  /* ── ANOM-00 Task 5: RSO rep-change task card (sign, send to GP, confirm) ──
+     Mirrors docs/mockups/anom00-rep-change-prototype.html #s3 (sign+send),
+     #s3b (gate: RSO has no AHPRA account) and #s4 (waiting-on-doctor +
+     "Confirmed by AHPRA"). Async — like renderOpsZoomCall — because the gate
+     needs a fresh fetch of the case's assigned RSO's onboarding status; the
+     server independently re-checks the same gate before actually sending. */
+  async function renderOpsRepChangeItem(task,msgs,docs){
+    var meta=task.metadata||{};
+    if(typeof meta==='string')try{meta=JSON.parse(meta);}catch(e){meta={};}
+    var gpName=task.gp_name||((meta.applicant&&(meta.applicant.firstName||meta.applicant.familyName))?((meta.applicant.firstName||'')+' '+(meta.applicant.familyName||'')).trim():'the doctor');
+
+    // Completed: the pin has already flipped.
+    if(task.status==='completed'||meta.rep_change_state==='completed'){
+      var pinnedEmail=(meta.rep&&meta.rep.email)||'';
+      return '<div class="ops-expand-section">'
+        +'<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Confirmed by AHPRA — the representative mailbox is now pinned to '+esc(pinnedEmail||'the new registration officer')+'.</span></div>'
+        +'</div>';
+    }
+
+    // Already sent: waiting-on-doctor tracker + "Confirmed by AHPRA" button (prototype screen 4).
+    if(meta.rep_change_state==='waiting_on_gp'||meta.rep_change_state==='waiting_on_ahpra'){
+      var h4='<div class="ops-expand-section">';
+      h4+='<div class="ops-expand-label">ANOM-00 sent to '+esc(gpName)+'</div>';
+      h4+='<div style="margin-bottom:10px">';
+      h4+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eef2f8;font-size:12px"><span>① You signed &amp; sent</span><span style="color:#15803d;font-weight:700">Done · '+esc(opsRelativeTime(meta.sent_to_gp_at)||'just now')+'</span></div>';
+      h4+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eef2f8;font-size:12px"><span>② Doctor completes &amp; emails AHPRA</span><span style="color:#92400e;font-weight:700">'+(meta.rep_change_state==='waiting_on_ahpra'?'Sent to AHPRA':'In progress')+'</span></div>';
+      h4+='<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>③ AHPRA confirms the change</span><span style="color:#94a3b8;font-weight:700">Not yet</span></div>';
+      h4+='</div>';
+      h4+='<div style="background:#fdf3e1;border:1px solid #f4ddb0;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-bottom:10px">Until AHPRA confirms, AHPRA emails for this doctor still go from the previous representative’s mailbox — matching who AHPRA currently has on file.</div>';
+      h4+='<button class="ops-btn-green" id="repChangeConfirmBtn_'+esc(task.id)+'" onclick="repChangeConfirm(\''+escAttr(task.id)+'\')">AHPRA confirmed me as the representative</button>';
+      h4+='<div id="repChangeMsg_'+esc(task.id)+'" style="font-size:11px;color:#64748b;margin-top:8px"></div>';
+      h4+='</div>';
+      return h4;
+    }
+
+    // Not yet sent: resolve the case's assigned RSO + the AHPRA-account gate.
+    var caseRow=null,rsoRow=null;
+    try{
+      var cRes=await fetch('/api/admin/case?id='+encodeURIComponent(task.case_id||''),{credentials:'same-origin'});
+      var cData=await cRes.json().catch(function(){return {};});
+      if(cData&&cData.ok)caseRow=cData.case;
+    }catch(e){}
+    try{
+      var rRes=await fetch('/api/admin/rsos?include_inactive=1',{credentials:'same-origin'});
+      var rData=await rRes.json().catch(function(){return {};});
+      var assignedVa=meta.new_rso_user_id||(caseRow&&caseRow.assigned_va);
+      if(rData&&rData.ok&&Array.isArray(rData.rsos)&&assignedVa){
+        rsoRow=rData.rsos.find(function(r){return r.user_id===assignedVa;})||null;
+      }
+    }catch(e){}
+
+    var repFullName=rsoRow?(((((rsoRow.first_name||'')+' '+(rsoRow.last_name||'')).trim()))||rsoRow.name||''):'';
+    var repEmail=rsoRow?(rsoRow.company_email||''):'';
+    var gateOk=!!(rsoRow&&rsoRow.ahpra_account_confirmed===true&&/@mygplink\.com\.au$/i.test(String(repEmail).trim()));
+
+    if(!gateOk){
+      // Screen 3b — blocked: the assigned RSO hasn't confirmed an AHPRA account yet.
+      var whoName=repFullName||'The assigned registration officer';
+      var h3b='<div class="ops-expand-section">';
+      h3b+='<div style="background:#fdf3e1;border:1px solid #f4ddb0;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;margin-bottom:10px">'
+        +'<b>'+esc(whoName)+' needs an AHPRA portal account first.</b> AHPRA won’t link them as '+esc(gpName)+'’s representative until they’ve confirmed a portal account'+(repEmail?' under <b>'+esc(repEmail)+'</b>':'')+'. This form can’t be sent until that’s confirmed.'
+        +'</div>';
+      h3b+='<div style="font-size:11px;color:#64748b">Ask '+esc(whoName)+' to open their admin dashboard — the one-time onboarding prompt lets them confirm this (or a super admin can provision their company email under RSO settings).</div>';
+      h3b+='</div>';
+      return h3b;
+    }
+
+    // Screen 3 — pre-filled Section B + signature pad + Send to GP.
+    var h3='<div class="ops-expand-section" data-repchange-card="'+esc(task.id)+'">';
+    h3+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px"><span style="font-size:12px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.05em">Section B — pre-filled from your profile</span><span style="font-size:11px;font-weight:700;color:#166534;background:#eafaf0;border:1px solid #c5ecd4;padding:2px 8px;border-radius:999px">✓ auto-filled</span></div>';
+    h3+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;background:#f8fafd;border:1px solid #e3e9f4;border-radius:12px;padding:13px;margin-bottom:14px">';
+    h3+='<div><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Authorised rep</div><div style="font-size:14px;font-weight:600;color:#0f172a">'+esc(repFullName||'—')+'</div></div>';
+    h3+='<div><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Company email</div><div style="font-size:14px;font-weight:600;color:#0f172a">'+esc(repEmail||'—')+'</div></div>';
+    h3+='<div><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Organisation</div><div style="font-size:14px;font-weight:600;color:#0f172a">GP LINK Recruitment Australia</div></div>';
+    h3+='<div><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Has AHPRA account</div><div style="font-size:14px;font-weight:600;color:#0f172a">Yes ✓</div></div>';
+    h3+='<div style="grid-column:1/3"><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Applicant (doctor)</div><div style="font-size:14px;font-weight:600;color:#0f172a">'+esc(gpName)+'</div></div>';
+    h3+='</div>';
+    h3+='<div style="font-size:12px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px">Your signature — “I consent to act as the authorised representative”</div>';
+    h3+='<div style="border:1.5px dashed #cbd7ea;border-radius:12px;background:#fff;overflow:hidden;margin-bottom:7px"><canvas class="repchange-sig-canvas" id="repChangeSigCanvas_'+esc(task.id)+'" style="display:block;width:100%;height:140px;touch-action:none;cursor:crosshair"></canvas></div>';
+    h3+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><button type="button" class="ops-btn-secondary" onclick="repChangeClearSig(\''+escAttr(task.id)+'\')">Clear</button><span id="repChangeSigStatus_'+esc(task.id)+'" style="font-size:12px;font-weight:700;color:#166534;display:none">✓ Signed</span></div>';
+    h3+='<div style="background:#eff4ff;border:1px solid #d6e2fb;border-radius:12px;padding:10px 12px;font-size:12px;color:#1d4ed8;margin-bottom:12px">The email to '+esc(gpName)+' will be sent from the shared registration mailbox with your name. The AHPRA “from” address won’t switch to you until AHPRA confirms the change.</div>';
+    h3+='<button class="ops-btn-green" id="repChangeSendBtn_'+esc(task.id)+'" disabled onclick="repChangeSendToGp(\''+escAttr(task.id)+'\')">Send to GP</button>';
+    h3+='<div id="repChangeMsg_'+esc(task.id)+'" style="font-size:11px;color:#64748b;margin-top:8px"></div>';
+    h3+='</div>';
+    return h3;
+  }
+
+  // Attaches the live GPSignaturePad to the canvas just injected by
+  // renderOpsRepChangeItem (screen 3 only — the waiting/completed/gated
+  // states render no canvas, so this is a safe no-op for those).
+  function initRepChangeCard(taskId){
+    var wrap=document.querySelector('[data-repchange-card="'+taskId+'"]');
+    if(!wrap||typeof window.GPSignaturePad==='undefined')return;
+    var canvas=document.getElementById('repChangeSigCanvas_'+taskId);
+    if(!canvas)return;
+    if(!S._repChangePads)S._repChangePads={};
+    if(S._repChangePads[taskId]){try{S._repChangePads[taskId].destroy();}catch(e){}}
+    var sendBtn=document.getElementById('repChangeSendBtn_'+taskId);
+    var statusEl=document.getElementById('repChangeSigStatus_'+taskId);
+    var pad=window.GPSignaturePad.attach(canvas,{onChange:function(isEmpty){
+      if(sendBtn)sendBtn.disabled=isEmpty;
+      if(statusEl)statusEl.style.display=isEmpty?'none':'inline';
+    }});
+    S._repChangePads[taskId]=pad;
+  }
+  function repChangeClearSig(taskId){
+    var pad=S._repChangePads&&S._repChangePads[taskId];
+    if(pad)pad.clear();
+  }
+  async function repChangeSendToGp(taskId){
+    var pad=S._repChangePads&&S._repChangePads[taskId];
+    var png=pad?pad.toPNG():'';
+    if(!pad||pad.isEmpty()||!png){showOpsToast('Please draw your signature first','red');return;}
+    var btn=document.getElementById('repChangeSendBtn_'+taskId);
+    var msgEl=document.getElementById('repChangeMsg_'+taskId);
+    if(btn){btn.disabled=true;btn.textContent='Sending…';}
+    if(msgEl)msgEl.textContent='';
+    try{
+      var r=await fetch('/api/admin/va/task/'+encodeURIComponent(taskId)+'/anom00-send-to-gp',{
+        method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({repSignaturePng:png})
+      });
+      var d=await r.json().catch(function(){return {};});
+      if(d&&d.ok){
+        showOpsToast('Sent to the doctor');
+        loadOpsQueue();
+        loadTasks().then(function(){renderDetail();});
+      }else{
+        showOpsToast((d&&d.message)||'Failed to send','red');
+        if(btn){btn.disabled=false;btn.textContent='Send to GP';}
+      }
+    }catch(err){
+      showOpsToast(err.message||'Network error','red');
+      if(btn){btn.disabled=false;btn.textContent='Send to GP';}
+    }
+  }
+  async function repChangeConfirm(taskId){
+    if(!confirm('Confirm that AHPRA has processed the representative change? This will switch the AHPRA mailbox for this doctor to you.'))return;
+    var btn=document.getElementById('repChangeConfirmBtn_'+taskId);
+    if(btn){btn.disabled=true;btn.textContent='Confirming…';}
+    try{
+      var r=await fetch('/api/admin/va/task/'+encodeURIComponent(taskId)+'/anom00-confirmed',{method:'POST',credentials:'same-origin'});
+      var d=await r.json().catch(function(){return {};});
+      if(d&&d.ok){
+        showOpsToast('Confirmed — AHPRA mailbox pinned');
+        loadOpsQueue();
+        loadTasks().then(function(){renderDetail();});
+      }else{
+        showOpsToast((d&&d.message)||'Failed to confirm','red');
+        if(btn){btn.disabled=false;btn.textContent='AHPRA confirmed me as the representative';}
+      }
+    }catch(err){
+      showOpsToast(err.message||'Network error','red');
+      if(btn){btn.disabled=false;btn.textContent='AHPRA confirmed me as the representative';}
+    }
   }
 
   /* ── Practice Pack Child ── */
@@ -6667,6 +6829,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       container.innerHTML=renderOpsAltSupervisorCvRequest(adapted);
     }else if(tt2==='ahpra_conflict_letter'){
       container.innerHTML=renderOpsAhpraConflictLetter(adapted);
+    }else if(tt2==='ahpra_rep_change'){
+      container.innerHTML=await renderOpsRepChangeItem(adapted,msgs,docs);
+      initRepChangeCard(adapted.id);
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }
@@ -10894,6 +11059,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ANOM-00 Task 4 — RSO first-run onboarding modal
   window.toggleRsoObAhpraChk = toggleRsoObAhpraChk;
   window.saveRsoOnboarding = saveRsoOnboarding;
+  // ANOM-00 Task 5 — RSO rep-change task card (sign, send to GP, confirm)
+  window.repChangeClearSig = repChangeClearSig;
+  window.repChangeSendToGp = repChangeSendToGp;
+  window.repChangeConfirm = repChangeConfirm;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
   window.assignIncomingQuestion = assignIncomingQuestion;
