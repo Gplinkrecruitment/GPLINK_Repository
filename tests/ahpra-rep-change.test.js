@@ -9,6 +9,7 @@
 // at apply time).
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import signaturePad from '../js/signature-pad.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -87,5 +88,56 @@ describe('ahpra_rep_change plumbing', () => {
     const sql = readFileSync(MIGRATION_PATH, 'utf8');
     expect(sql).toMatch(/UPDATE rso_team SET company_email = email/);
     expect(sql).toMatch(/mygplink\.com\.au/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3: signature pad component — pure `trimBounds` helper.
+//
+// The interactive canvas drawing itself (pointer/touch capture, DPR-aware
+// backing store, live preview) can't be unit-tested here — Node has no
+// canvas/ImageData implementation and this repo's vitest config runs in the
+// default 'node' environment (no jsdom canvas shim). That part is verified
+// manually against the working prototype
+// (docs/mockups/anom00-rep-change-prototype.html), per the task brief. What
+// IS pure and unit-testable is the ink-bounds trim math that toPNG() uses to
+// crop its output, factored out as `trimBounds({ width, height, data })` and
+// exercised here directly against hand-built mock ImageData-like objects.
+// ---------------------------------------------------------------------------
+const { trimBounds } = signaturePad;
+
+function mockImageData(width, height, inkedPixels) {
+  const data = new Uint8ClampedArray(width * height * 4); // all-zero = fully transparent
+  for (const [x, y] of inkedPixels) {
+    const i = (y * width + x) * 4;
+    data[i] = 15;
+    data[i + 1] = 44;
+    data[i + 2] = 99;
+    data[i + 3] = 255; // opaque ink
+  }
+  return { width, height, data };
+}
+
+describe('signature-pad trimBounds helper', () => {
+  it('returns null for a fully transparent (empty) canvas', () => {
+    expect(trimBounds(mockImageData(5, 5, []))).toBeNull();
+  });
+
+  it('returns a single-point box for one opaque pixel at (2,3)', () => {
+    const bounds = trimBounds(mockImageData(6, 6, [[2, 3]]));
+    expect(bounds).toEqual({ minX: 2, minY: 3, maxX: 2, maxY: 3 });
+  });
+
+  it('spans the bounding box of multiple opaque pixels and ignores transparent ones', () => {
+    const bounds = trimBounds(mockImageData(10, 10, [[1, 1], [4, 2], [3, 7]]));
+    expect(bounds).toEqual({ minX: 1, minY: 1, maxX: 4, maxY: 7 });
+  });
+
+  it('treats any non-zero alpha (anti-aliased edge pixels) as ink, not just fully-opaque pixels', () => {
+    const data = new Uint8ClampedArray(4 * 4 * 4);
+    const i = (1 * 4 + 2) * 4; // (x:2, y:1)
+    data[i + 3] = 1; // barely-visible anti-aliased edge pixel
+    const bounds = trimBounds({ width: 4, height: 4, data });
+    expect(bounds).toEqual({ minX: 2, minY: 1, maxX: 2, maxY: 1 });
   });
 });
