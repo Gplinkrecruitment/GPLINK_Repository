@@ -3169,7 +3169,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const isNext=isFirstActiveTask;
           if(isNext)isFirstActiveTask=false;
 
-          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request';
+          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter';
           html+='<div class="stage-task'+(isNext?' active-next':'')+(isUrgencyDriver?' urgency-flag':'')+(t.task_type==='email_triage'?' unlocked-email':'')+(isWaiting?' st-waiting-state':'')+'" data-task-row="'+esc(t.id)+'"'+(_hasDetailPanel?' data-gp-expand-task="'+esc(t.id)+'" style="cursor:pointer"':'')+'>';
           html+='<div class="st-top">';
           html+='<div class="st-body">';
@@ -3215,7 +3215,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           html+='</div>';
           html+='<div class="st-actions">';
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
             // No button — row click expands (accordion style)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
@@ -3286,7 +3286,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
 
           // Expandable detail panel for tasks with interactive workflows
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
             html+='<div class="gp-task-detail" id="gpTaskDetail_'+esc(t.id)+'" data-gp-task-detail="'+esc(t.id)+'" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
@@ -3967,7 +3967,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
         (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
-          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request')){
+          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter')){
             var panel=document.getElementById('gpTaskDetail_'+t.id);
             if(panel){panel.style.display='block';loadGpTaskDetail(t.id);_autoExpanded=true;}
           }
@@ -5225,6 +5225,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsAltSupervisorCvReview(task,msgs,docs);
     }else if(tt==='alt_supervisor_cv_request'){
       html=renderOpsAltSupervisorCvRequest(task);
+    }else if(tt==='ahpra_conflict_letter'){
+      html=renderOpsAhpraConflictLetter(task);
     }else if(tt==='zoom_call'){
       html=await renderOpsZoomCall(task);
     }else{
@@ -5781,6 +5783,36 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body?meta.suggested_body:fallbackBody)+'</div>';
     h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
     h+='</div>';
+    h+='</div>';
+    return h;
+  }
+
+  /* ── AHPRA Conflict-of-Interest Letter ── */
+  function renderOpsAhpraConflictLetter(task){
+    var meta=task.metadata||{};
+    if(typeof meta==='string')try{meta=JSON.parse(meta);}catch(e){meta={};}
+    var h='<div class="ops-expand-section">';
+    // Completed: confirmation received from the practice.
+    if(task.status==='completed'){
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Confirmation received — on file.</span></div>';
+      h+='</div>';
+      return h;
+    }
+    // Already sent: read-only waiting banner.
+    if(task.status==='waiting_on_practice'||task.status==='waiting_on_external'){
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#1d4ed8">📤 Sent — awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
+      h+='</div>';
+      return h;
+    }
+    // Open: review the suggested email and send it to the practice.
+    // Reuses the shared data-ops-send-email composer + handler (NO auto-send — the RSO clicks Send).
+    h+='<div class="ops-email-composer">';
+    h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(meta.practice_email||'')+'" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'AHPRA Conflict of Interest — Action Required')+'" /></div>';
+    h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body||'')+'</div>';
+    h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send to practice</button></div>';
+    h+='</div>';
+    h+='<div style="font-size:11px;color:#64748b;margin-top:6px">Practice will email: '+esc(meta.ahpra_officer_name||'AHPRA officer')+' ('+esc(meta.ahpra_officer_email||'')+'), CC '+esc(meta.cc_mailbox||'')+'</div>';
     h+='</div>';
     return h;
   }
@@ -6519,6 +6551,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       container.innerHTML=renderOpsAltSupervisorCvReview(adapted,msgs,docs);
     }else if(tt2==='alt_supervisor_cv_request'){
       container.innerHTML=renderOpsAltSupervisorCvRequest(adapted);
+    }else if(tt2==='ahpra_conflict_letter'){
+      container.innerHTML=renderOpsAhpraConflictLetter(adapted);
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }

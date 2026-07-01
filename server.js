@@ -148,6 +148,7 @@ const registrationHub = require('./lib/registration-hub.js');
 const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
+const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -757,109 +758,124 @@ async function fileDocOnDrive(caseId, docKey, driveFileId) {
   }
 }
 
-// Sweep one case's Drive folder and organise all files into per-document subfolders.
-// Idempotent and column-free: derives state from Drive itself + DB doc rows.
-// Files already in a subfolder are skipped; remaining top-level files go to Other Files.
+// Build a case's Drive-file → docKey maps from the DB. idToDocKey/docKeyToId from the UNION of
+// user_documents + practice_pack_child tasks + task_documents + practice_doc_ops; `expected` is the
+// set of GP-Link doc keys the case actually has (a practice_doc_ops/task row), used to corroborate
+// FILENAME matches so an unrelated id-less file is never promoted into a GP-Link doc folder/card.
+async function buildCaseDriveIdMap(caseId, userId) {
+  var idToDocKey = {}, docKeyToId = {}, expected = new Set();
+  function add(id, key) { if (id && key) { idToDocKey[id] = key; if (!docKeyToId[key]) docKeyToId[key] = id; } }
+  try {
+    if (userId) {
+      var ud = await supabaseDbRequest('user_documents', 'select=document_key,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId) + '&google_drive_file_id=neq.');
+      (ud.ok && Array.isArray(ud.data) ? ud.data : []).forEach(function (d) { add(d.google_drive_file_id, d.document_key); });
+    }
+    var t = await supabaseDbRequest('registration_tasks', 'select=id,related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
+    var taskIdToDocKey = {};
+    (t.ok && Array.isArray(t.data) ? t.data : []).forEach(function (x) {
+      if (x.related_document_key) { expected.add(x.related_document_key); if (x.id) taskIdToDocKey[x.id] = x.related_document_key; }
+      add(x.google_drive_file_id, x.related_document_key);
+    });
+    var td = await supabaseDbRequest('task_documents', 'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(caseId) + '&is_current=eq.true&google_drive_file_id=neq.');
+    (td.ok && Array.isArray(td.data) ? td.data : []).forEach(function (x) { if (taskIdToDocKey[x.task_id]) add(x.google_drive_file_id, taskIdToDocKey[x.task_id]); });
+    var ops = await supabaseDbRequest('practice_doc_ops', 'select=document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId));
+    (ops.ok && Array.isArray(ops.data) ? ops.data : []).forEach(function (o) { if (o.document_key) { expected.add(o.document_key); add(o.google_drive_file_id, o.document_key); } });
+  } catch (e) { console.error('[buildCaseDriveIdMap] error:', e.message); }
+  return { idToDocKey: idToDocKey, docKeyToId: docKeyToId, expected: expected };
+}
+
+// Resolve a Drive file → docKey the SAME way for filing (organizeCaseDrive) and display
+// (gp-documents) so they can never disagree: stored id first, then the sensitive "ID — …" name,
+// then the filename heuristic. requireCorroboration gates the filename branch so only docs the
+// case actually expects (practice_doc_ops/task row) are filed/bound by name — never a stray file.
+function resolveDriveFileDocKey(file, idMap, opts) {
+  opts = opts || {};
+  if (file && file.mimeType === 'application/vnd.google-apps.folder') return null; // never resolve a folder
+  if (idMap && idMap.idToDocKey && file && file.id && idMap.idToDocKey[file.id]) return idMap.idToDocKey[file.id];
+  var name = (file && file.name) || '';
+  if (/^ID — /.test(name)) return 'id_document';
+  var fk = driveDocFolders.docKeyForFilename(name);
+  if (!fk) return null;
+  if (opts.requireCorroboration && idMap && idMap.expected && !idMap.expected.has(fk)) return null;
+  return fk;
+}
+// True when the file's docKey came from a stored id / the ID-name rule (NOT a filename guess).
+function isStrongDriveDocMatch(file, idMap) {
+  if (idMap && idMap.idToDocKey && file && file.id && idMap.idToDocKey[file.id]) return true;
+  return /^ID — /.test((file && file.name) || '');
+}
+
+// Sweep one case's Drive folder and organise files into per-document subfolders. Idempotent and
+// column-free: it re-evaluates files at the candidate ROOT and inside the "Other Files" folder (the
+// recovery source — a real doc previously dumped there is moved back into its real folder) and
+// leaves files already in their correct per-document folder untouched. Truly-unmatched files → Other
+// Files. Loop-free: resolveDriveFileDocKey depends only on the file's id/name (not its current
+// folder), so the target is sweep-invariant and a move fires only when current folder != target.
 async function organizeCaseDrive(caseId) {
   if (!isGoogleDriveConfigured() || !caseId) return { moved: 0, skipped: 0 };
-  var moved = 0;
-  var skipped = 0;
+  var moved = 0, skipped = 0;
+  var FOLDER_MIME = 'application/vnd.google-apps.folder';
   try {
     var candidateFolderId = await ensureGPDriveFolder(caseId, null, null);
     if (!candidateFolderId) return { moved: 0, skipped: 0 };
     var drive = await getGoogleDriveClient();
     if (!drive) return { moved: 0, skipped: 0 };
 
-    // List direct children of the candidate folder
-    var listRes = await drive.files.list({
-      q: "'" + candidateFolderId + "' in parents and trashed = false",
-      fields: 'files(id,name,mimeType)', pageSize: 200,
-      supportsAllDrives: true, includeItemsFromAllDrives: true
-    });
-    var topChildren = listRes.data.files || [];
-    // Build sets of top-level file ids and folder ids
-    var topFileIds = new Set(); // non-folder files at root
-    var topFolderMimeType = 'application/vnd.google-apps.folder';
-    topChildren.forEach(function(f) {
-      if (f.mimeType !== topFolderMimeType) topFileIds.add(f.id);
+    // Root children: seed the folder cache from existing subfolders; collect root files as candidates.
+    var rootRes = await drive.files.list({ q: "'" + candidateFolderId + "' in parents and trashed = false", fields: 'files(id,name,mimeType)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+    var rootChildren = rootRes.data.files || [];
+    var folderCache = new Map(); // folderName -> id
+    var candidates = [];         // { id, name, currentFolderName, currentFolderId }
+    var otherFolderId = null;
+    rootChildren.forEach(function (f) {
+      if (f.mimeType === FOLDER_MIME) {
+        folderCache.set(f.name, f.id);
+        if (f.name === driveDocFolders.OTHER_FILES_FOLDER) otherFolderId = f.id;
+      } else {
+        candidates.push({ id: f.id, name: f.name, currentFolderName: '', currentFolderId: candidateFolderId });
+      }
     });
 
-    // Collect known file IDs from DB: user_documents + registration_tasks (practice pack)
-    var knownFiles = []; // [{driveFileId, docKey}]
+    // Recovery source: the "Other Files" subfolder is where the earlier (id-only) sweep dumped real
+    // docs that had no stored Drive id. Re-evaluate its files so any that NOW resolve (by id or a
+    // corroborated filename) get moved back into their proper folder.
+    if (otherFolderId) {
+      try {
+        var ofRes = await drive.files.list({ q: "'" + otherFolderId + "' in parents and trashed = false", fields: 'files(id,name,mimeType)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+        (ofRes.data.files || []).forEach(function (f) {
+          if (f.mimeType !== FOLDER_MIME) candidates.push({ id: f.id, name: f.name, currentFolderName: driveDocFolders.OTHER_FILES_FOLDER, currentFolderId: otherFolderId });
+        });
+      } catch (ofe) { console.error('[organizeCaseDrive] Other Files list error:', ofe.message); }
+    }
 
-    // Case's user_id
     var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     var userId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    var idMap = await buildCaseDriveIdMap(caseId, userId);
 
-    if (userId) {
-      var udRes = await supabaseDbRequest('user_documents', 'select=document_key,google_drive_file_id&user_id=eq.' + encodeURIComponent(userId) + '&google_drive_file_id=neq.');
-      var udRows = udRes.ok && Array.isArray(udRes.data) ? udRes.data : [];
-      udRows.forEach(function(d) {
-        if (d.google_drive_file_id && d.document_key) knownFiles.push({ driveFileId: d.google_drive_file_id, docKey: d.document_key });
-      });
-    }
-
-    // One query for every practice-pack task: build id→docKey (for the task_documents join) AND
-    // push the task's own Drive file when it has one.
-    var taskRes = await supabaseDbRequest('registration_tasks', 'select=id,related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
-    var taskRows = taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [];
-    var taskIdToDocKey = {};
-    taskRows.forEach(function(t) {
-      if (t.id && t.related_document_key) taskIdToDocKey[t.id] = t.related_document_key;
-      if (t.google_drive_file_id && t.related_document_key) knownFiles.push({ driveFileId: t.google_drive_file_id, docKey: t.related_document_key });
+    // Resolve every candidate up-front. A file matched ONLY by filename (no stored id / not an ID
+    // file) is a WEAK match — count weak matches per docKey so we never physically file an AMBIGUOUS
+    // one into a doc folder (two id-less files claiming the same key → we can't tell which is real,
+    // so leave both unmatched/visible in Other Files rather than guess + misplace a decoy).
+    var resolvedCandidates = candidates.map(function (cf) {
+      var dk = resolveDriveFileDocKey(cf, idMap, { requireCorroboration: true });
+      return { cf: cf, docKey: dk, strong: isStrongDriveDocMatch(cf, idMap) };
     });
+    var weakKeyCount = {};
+    resolvedCandidates.forEach(function (r) { if (r.docKey && !r.strong) weakKeyCount[r.docKey] = (weakKeyCount[r.docKey] || 0) + 1; });
 
-    var taskDocRes = await supabaseDbRequest('task_documents', 'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(caseId) + '&is_current=eq.true&google_drive_file_id=neq.');
-    var taskDocRows = taskDocRes.ok && Array.isArray(taskDocRes.data) ? taskDocRes.data : [];
-    taskDocRows.forEach(function(td) {
-      if (td.google_drive_file_id && td.task_id && taskIdToDocKey[td.task_id]) {
-        knownFiles.push({ driveFileId: td.google_drive_file_id, docKey: taskIdToDocKey[td.task_id] });
-      }
-    });
-
-    // The mirrored ID file is named "ID — …" and has NO user_documents row, so it isn't in
-    // knownFiles above. Route it to the "ID" folder explicitly — otherwise the Other Files sweep
-    // would move it out of root, and reconcile's ID check would then re-upload a duplicate forever.
-    topChildren.forEach(function(f) {
-      if (f.mimeType !== topFolderMimeType && /^ID — /.test(f.name || '')) {
-        knownFiles.push({ driveFileId: f.id, docKey: 'id_document' });
-      }
-    });
-
-    // Folder cache to avoid duplicate lookups during a single sweep
-    var folderCache = new Map();
-    var handledFileIds = new Set();
-
-    // Move each known file into its doc folder. Only act on files currently at the candidate-folder
-    // ROOT — a file already inside a subfolder is assumed correctly filed; re-checking it would cost
-    // a Drive get per file on every sweep (including the on-view reconcile) for no gain.
-    for (var ki = 0; ki < knownFiles.length; ki++) {
-      var kf = knownFiles[ki];
-      if (!kf.driveFileId || handledFileIds.has(kf.driveFileId)) continue;
-      handledFileIds.add(kf.driveFileId);
-      if (!topFileIds.has(kf.driveFileId)) { skipped++; continue; } // already filed / not at root
+    for (var ci = 0; ci < resolvedCandidates.length; ci++) {
+      var cf = resolvedCandidates[ci].cf;
+      var docKey = resolvedCandidates[ci].docKey;
+      var strong = resolvedCandidates[ci].strong;
       try {
-        var folderName = driveDocFolders.folderNameForDoc(kf.docKey);
-        var subFolderId = await ensureDocTypeSubfolder(candidateFolderId, folderName, folderCache);
-        if (!subFolderId) { skipped++; continue; }
-        var didMove = await placeDriveFileInFolder(drive, kf.driveFileId, subFolderId);
+        if (docKey && !strong && weakKeyCount[docKey] > 1) docKey = null; // ambiguous filename match → don't file by name
+        var targetName = docKey ? driveDocFolders.folderNameForDoc(docKey) : driveDocFolders.OTHER_FILES_FOLDER;
+        if (cf.currentFolderName === targetName) { skipped++; continue; } // already in the right folder
+        var targetId = await ensureDocTypeSubfolder(candidateFolderId, targetName, folderCache);
+        if (!targetId || targetId === cf.currentFolderId) { skipped++; continue; }
+        var didMove = await placeDriveFileInFolder(drive, cf.id, targetId);
         if (didMove) moved++; else skipped++;
       } catch (fe) { console.error('[organizeCaseDrive] file move error:', fe.message); skipped++; }
-    }
-
-    // Move remaining top-level unmatched files into Other Files
-    var otherFileIds = [];
-    topFileIds.forEach(function(fid) { if (!handledFileIds.has(fid)) otherFileIds.push(fid); });
-    if (otherFileIds.length > 0) {
-      var otherFolderId = await ensureDocTypeSubfolder(candidateFolderId, driveDocFolders.OTHER_FILES_FOLDER, folderCache);
-      if (otherFolderId) {
-        for (var oi = 0; oi < otherFileIds.length; oi++) {
-          try {
-            var didMoveOther = await placeDriveFileInFolder(drive, otherFileIds[oi], otherFolderId);
-            if (didMoveOther) moved++; else skipped++;
-          } catch (oe) { console.error('[organizeCaseDrive] other-file move error:', oe.message); skipped++; }
-        }
-      }
     }
 
     console.log('[organizeCaseDrive] case', caseId, '— moved:', moved, 'skipped:', skipped);
@@ -1598,6 +1614,109 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
   } finally {
     delete _altCvRequestInflight[caseId];
   }
+}
+
+// ── AHPRA conflict-of-interest letter task ──────────────────────────────────
+// Creates a single admin task (ahpra_conflict_letter) pre-filled with a
+// suggested email to the medical practice asking them to send a conflict-
+// management statement directly to the AHPRA officer. Idempotent: always safe
+// to call; the first guard is the inflight lock, then an open-task existence
+// check, then the shouldEnsureConflictLetter gate.
+var _ahpraConflictLetterInflight = {};
+async function _ensureAhpraConflictLetter(caseId, opts) {
+  opts = opts || {};
+  if (!caseId) return null;
+  if (_ahpraConflictLetterInflight[caseId]) {
+    try { return await _ahpraConflictLetterInflight[caseId]; } catch (e) { return null; }
+  }
+  var _clPromise = (async function () {
+    try {
+      // 1) Reuse any existing open task (idempotency guard).
+      var existingTask = await supabaseDbRequest('registration_tasks',
+        'select=id,metadata,status&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.ahpra_conflict_letter&status=neq.completed&limit=1');
+      if (existingTask.ok && Array.isArray(existingTask.data) && existingTask.data[0]) {
+        var existingTask0 = existingTask.data[0];
+        var existingMeta = existingTask0.metadata;
+        if (typeof existingMeta === 'string') { try { existingMeta = JSON.parse(existingMeta); } catch (e) { existingMeta = {}; } }
+        existingMeta = existingMeta || {};
+        if (opts.officerRequestMessageId && !existingMeta.officer_request_message_id) {
+          existingMeta.officer_request_message_id = opts.officerRequestMessageId;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existingTask0.id),
+            { method: 'PATCH', body: { metadata: existingMeta } });
+        }
+        return existingTask0;
+      }
+      // 2) Read conflict flag + supervisor name from the SPPA-00 task.
+      var sppaRes = await supabaseDbRequest('registration_tasks',
+        'select=metadata&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.practice_pack_child&related_document_key=eq.sppa_00&limit=1');
+      var sMeta = (sppaRes.ok && sppaRes.data && sppaRes.data[0]) ? sppaRes.data[0].metadata : null;
+      if (typeof sMeta === 'string') { try { sMeta = JSON.parse(sMeta); } catch (e) { sMeta = {}; } }
+      sMeta = sMeta || {};
+      var officerEmail = String(opts.officerEmail || '').trim();
+      if (!shouldEnsureConflictLetter({ hasConflict: sMeta.is_conflict === true, officerEmail: officerEmail })) return null;
+      // 3) Case → user_id + practice_name.
+      var caseRow2 = await supabaseDbRequest('registration_cases',
+        'select=user_id,practice_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var cRow = (caseRow2.ok && caseRow2.data && caseRow2.data[0]) ? caseRow2.data[0] : {};
+      var userId = cRow.user_id || null;
+      var practiceName = String(cRow.practice_name || sMeta.practice_owner_name || '').trim();
+      // 4) GP display name from user_profiles (mirror alt-CV path).
+      var gpName = '';
+      if (userId) {
+        var profRes2 = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+        var prof2 = (profRes2.ok && profRes2.data && profRes2.data[0]) ? profRes2.data[0] : {};
+        gpName = ((prof2.first_name || '') + ' ' + (prof2.last_name || '')).trim();
+      }
+      if (!gpName) gpName = String(sMeta.candidate_name || 'the candidate').trim();
+      // 5) Practice contact (same precedence as alt-CV path).
+      var practiceEmail = '';
+      var practiceContactName = 'Practice Contact';
+      if (userId) {
+        var appRow2 = await supabaseDbRequest('gp_applications',
+          'select=practice_contact_email,practice_contact_name,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+        if (appRow2.ok && appRow2.data && appRow2.data[0]) {
+          practiceEmail = String(appRow2.data[0].practice_contact_email || '').trim();
+          if (appRow2.data[0].practice_contact_name) practiceContactName = String(appRow2.data[0].practice_contact_name).trim();
+          if (!practiceName && appRow2.data[0].practice_name) practiceName = String(appRow2.data[0].practice_name).trim();
+        }
+      }
+      if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
+      // 6) RSO CC mailbox + signoff name (same helpers as alt-CV path).
+      var ccEmail = '';
+      try { ccEmail = await resolveCaseSenderEmail(caseId); } catch (e) {}
+      var rsoSignoffName2 = '';
+      try { rsoSignoffName2 = await resolveCaseSenderName(caseId); } catch (e) {}
+      // 7) Build suggested email + create admin task.
+      var officerName = String(opts.officerName || sMeta.ahpra_officer_name || '').trim();
+      var conflictEmail = buildConflictLetterEmail({
+        gpName: gpName, supervisorName: sMeta.supervisor_name || '',
+        practiceName: practiceName, contactName: practiceContactName,
+        officerName: officerName, officerEmail: officerEmail, ccEmail: ccEmail, rsoSignoffName: rsoSignoffName2
+      });
+      var conflictTaskMeta = {
+        suggested_subject: conflictEmail.subject, suggested_body: conflictEmail.bodyHtml,
+        practice_email: practiceEmail, practice_contact_name: practiceContactName,
+        ahpra_officer_name: officerName, ahpra_officer_email: officerEmail,
+        cc_mailbox: ccEmail, gp_name: gpName, supervisor_name: sMeta.supervisor_name || '',
+        practice_name: practiceName
+      };
+      if (opts.officerRequestMessageId) conflictTaskMeta.officer_request_message_id = opts.officerRequestMessageId;
+      var conflictTask = await _createRegTask(caseId, {
+        task_type: 'ahpra_conflict_letter',
+        title: 'Conflict of interest — ask practice to email AHPRA officer',
+        source_trigger: opts.officerRequestMessageId ? 'officer_request' : 'officer_assigned',
+        related_stage: 'ahpra', related_document_key: 'sppa_00', status: 'open', priority: 'high',
+        metadata: conflictTaskMeta, _actor: 'system'
+      });
+      console.log('[ahpra-conflict-letter] Created conflict-letter task for case', caseId);
+      return conflictTask;
+    } catch (e) { console.error('[ahpra-conflict-letter] ensure failed:', e.message); return null; }
+  })();
+  _ahpraConflictLetterInflight[caseId] = _clPromise;
+  try { return await _clPromise; }
+  finally { delete _ahpraConflictLetterInflight[caseId]; }
 }
 
 /**
@@ -3234,6 +3353,16 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
 
   var items = Array.isArray(extraction.items) ? extraction.items : [];
 
+  // The conflict-of-interest item (if any) is owned by the ahpra_conflict_letter task,
+  // not the s80 tray. Drop ONLY that item; keep every other requested document.
+  if (opts.skipConflictItems && items.length > 0) {
+    items = items.filter(function (it) { return !isConflictOfInterestItem(it); });
+    if (items.length === 0) {
+      // The notice was purely the conflict ask — fully handled by the conflict letter.
+      return { created: 0, skipped: true, reason: 'conflict_handled_by_letter' };
+    }
+  }
+
   // Fail loud: if reading produced nothing, still create one tray entry from the
   // raw letter so the notice is never silently dropped.
   if (items.length === 0) {
@@ -4407,6 +4536,104 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         continue;
       }
 
+      // ── Task 6: Conflict-letter auto-close (practice → officer CC) ──
+      // When a practice emails an AHPRA officer and CCs our mailbox, that copy lands here.
+      // The email is FROM the practice, with the officer in To/Cc (not as the sender), so the
+      // AHPRA-officer-sender pipeline (line ~4706) will NOT catch it. This is a cheap pre-check:
+      // only fires when at least one @ahpra.gov.au address appears in To/Cc.
+      var _conflictLetterClosed = false;
+      try {
+        var _cloRecipients = (String(emailMeta.to || '') + ',' + String(emailMeta.cc || '')).toLowerCase();
+        var _cloOfficerAddrs = (_cloRecipients.match(/[\w.+\-]+@ahpra\.gov\.au/g) || []);
+        if (_cloOfficerAddrs.length > 0) {
+          // Fetch all active conflict-letter tasks without an officer-email filter.
+          // PostgREST text equality is case-sensitive, so filtering by the lowercased
+          // To/Cc address would miss stored mixed-case values (e.g. Jane.Officer@ahpra.gov.au).
+          // isConflictLetterConfirmation already handles case-insensitive matching on both sides.
+          var _cloTaskRes = await supabaseDbRequest('registration_tasks',
+            'select=id,case_id,metadata&task_type=eq.ahpra_conflict_letter&status=in.(open,waiting_on_practice)&limit=50');
+          if (_cloTaskRes.ok && Array.isArray(_cloTaskRes.data)) {
+            for (var _cloti = 0; _cloti < _cloTaskRes.data.length && !_conflictLetterClosed; _cloti++) {
+              var _cloTask = _cloTaskRes.data[_cloti];
+              var _cloMeta = _cloTask.metadata;
+              if (typeof _cloMeta === 'string') { try { _cloMeta = JSON.parse(_cloMeta); } catch (e) { _cloMeta = {}; } }
+              _cloMeta = _cloMeta || {};
+              if (!isConflictLetterConfirmation(emailMeta, {
+                practiceEmail: _cloMeta.practice_email || '',
+                officerEmail: _cloMeta.ahpra_officer_email || ''
+              })) continue;
+              // Idempotency: skip if this message is already recorded on the task
+              var _cloDup = await supabaseDbRequest('task_messages',
+                'select=id&task_id=eq.' + encodeURIComponent(_cloTask.id) +
+                '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+              if (_cloDup.ok && Array.isArray(_cloDup.data) && _cloDup.data.length > 0) {
+                _conflictLetterClosed = true; break;
+              }
+              // Record the confirming email on the task
+              await supabaseDbRequest('task_messages', '', {
+                method: 'POST',
+                body: [{
+                  task_id: _cloTask.id, case_id: _cloTask.case_id,
+                  direction: 'inbound', channel: 'email',
+                  sender: emailMeta.sender || '', recipient: emailMeta.to || '',
+                  subject: emailMeta.subject || '',
+                  body_text: (emailMeta.bodyText || '').substring(0, 50000),
+                  body_html: emailMeta.bodyHtml || null,
+                  rfc822_message_id: emailMeta.rfc822MessageId || null,
+                  rfc822_references: emailMeta.rfc822References || null,
+                  cc: emailMeta.cc || null,
+                  gmail_message_id: currentMsgId,
+                  gmail_thread_id: emailMeta.threadId || null,
+                  attachments: JSON.stringify((emailMeta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+                  is_document_delivery: false,
+                  created_at: new Date().toISOString()
+                }]
+              }).catch(function (_cloMsgErr) { console.error('[conflict-letter] task_message insert error:', _cloMsgErr.message); });
+              // Stamp confirmed_at + confirmed_via into existing metadata (merge, don't clobber)
+              var _cloNewMeta = Object.assign({}, _cloMeta, {
+                confirmed_at: new Date().toISOString(),
+                confirmed_via: 'practice_cc'
+              });
+              // Complete the task
+              await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(_cloTask.id), {
+                method: 'PATCH',
+                body: {
+                  status: 'completed',
+                  completed_at: new Date().toISOString(),
+                  completed_by: 'system:practice_cc',
+                  metadata: _cloNewMeta,
+                  updated_at: new Date().toISOString()
+                }
+              });
+              await supabaseDbRequest('task_timeline', '', {
+                method: 'POST',
+                body: [{
+                  task_id: _cloTask.id, case_id: _cloTask.case_id,
+                  event_type: 'completed',
+                  title: 'Practice emailed AHPRA officer — conflict letter confirmed',
+                  actor: 'system:practice_cc'
+                }]
+              }).catch(function () {});
+              // Mark as processed so dedup gate catches re-runs
+              await supabaseDbRequest('processed_gmail_messages', '', {
+                method: 'POST',
+                body: [{
+                  gmail_message_id: currentMsgId, email_address: emailAddress,
+                  sender: emailMeta.sender, subject: emailMeta.subject,
+                  result: 'conflict_letter_confirmed',
+                  processed_at: new Date().toISOString()
+                }]
+              }).catch(function () {});
+              console.log('[conflict-letter] Auto-closed task', _cloTask.id, '— practice_cc confirmation from', emailMeta.sender);
+              _conflictLetterClosed = true;
+            }
+          }
+        }
+      } catch (_cloErr) {
+        console.error('[conflict-letter] auto-close check error:', _cloErr.message);
+      }
+      if (_conflictLetterClosed) continue;
+
       // Route by track: attachments (existing AI matching) or triage (email classifier)
       if (filterResult.track === 'attachments') {
       // Run AI matching
@@ -4772,6 +4999,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 method: 'PATCH', body: finalPatch
               });
               console.log('[Gmail] Stored AHPRA metadata on case', gpCase.id, ':', JSON.stringify(finalPatch));
+              // Trigger A: officer just assigned → create conflict-letter task if needed.
+              if (finalPatch.ahpra_officer_email) {
+                _ensureAhpraConflictLetter(gpCase.id, { officerName: finalPatch.ahpra_officer_name || '', officerEmail: finalPatch.ahpra_officer_email }).catch(function(e) { console.error('[ahpra-conflict-letter] trigger A:', e.message); });
+              }
             }
           }
         }
@@ -4782,6 +5013,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // processed — a fire-and-forget call can be killed when the serverless instance freezes after
         // the webhook ack, silently losing a regulator email with no retry. Pass the inline-resolved
         // gpCase so a definite match isn't downgraded to "unmatched" by a cautious LLM.
+        // (The legacy s80 auto-bundle that used to run here is retired — see below. The conflict-of-
+        // interest letter is still ensured proactively by Trigger A (officer assigned) / Trigger B
+        // (conflict scan) and, for a conflict-followup email, by the path-C suppression inside
+        // _processAhpraEmail, which also suppresses the duplicate ahpra_correspondence card.)
         if (isAhpra) {
           try { await _processAhpraEmail(emailMeta, currentMsgId, gpCase); }
           catch (ahErr) { console.error('[Gmail] AHPRA email processing error:', ahErr.message); }
@@ -10117,6 +10352,16 @@ async function _runSppaConflictScanInner(caseId, userId) {
       'system',
       { is_conflict: scanResult.is_conflict, confidence: scanResult.confidence });
 
+    // Trigger B (scan): officer already assigned when scan completes (rare but possible) → wire for completeness.
+    if (scanResult.is_conflict) {
+      var _cflScanCase = await supabaseDbRequest('registration_cases',
+        'select=ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var _cflScanRow = (_cflScanCase.ok && _cflScanCase.data && _cflScanCase.data[0]) ? _cflScanCase.data[0] : {};
+      if (_cflScanRow.ahpra_officer_email) {
+        _ensureAhpraConflictLetter(caseId, { officerEmail: _cflScanRow.ahpra_officer_email, officerName: _cflScanRow.ahpra_officer_name || '' }).catch(function(e) { console.error('[ahpra-conflict-letter] trigger B scan:', e.message); });
+      }
+    }
+
   } catch (err) {
     console.error('[SPPA-00] Conflict scan orchestrator error:', err.message);
   }
@@ -10541,6 +10786,27 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
       }
     }
 
+    // Task 5: Route officer conflict requests to the single ahpra_conflict_letter task.
+    // If the triage flags this as a conflict followup, ensure/return the conflict-letter task
+    // and suppress the generic ahpra_correspondence creation below.
+    var isConflictFollowup = triage.category === 'conflict_followup' || triage.response_type === 'request_from_practice';
+    var suppressedByConflictLetter = false;
+    if (isConflictFollowup) {
+      try {
+        var _clRouteTask = await _ensureAhpraConflictLetter(caseId, {
+          officerName: triage.officer_name || '',
+          officerEmail: triage.officer_email || emailMeta.sender,
+          officerRequestMessageId: sourceMsgId || emailMeta.messageId || null
+        });
+        if (_clRouteTask) {
+          suppressedByConflictLetter = true;
+          console.log('[AHPRA Email] Conflict followup — routed to conflict-letter task', _clRouteTask.id, '(suppressed ahpra_correspondence)');
+        }
+      } catch (_clRouteErr) {
+        console.error('[AHPRA Email] conflict-letter route check error:', _clRouteErr.message);
+      }
+    }
+
     var taskTitle = '';
     var taskDetail = '';
     var taskMeta = {
@@ -10611,6 +10877,7 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
       ahpraDueDate = tenDaysOut.toISOString().slice(0, 10);
     }
 
+    if (!suppressedByConflictLetter) {
     var _ahpraTaskRes = await supabaseDbRequest('registration_tasks', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -10717,6 +10984,14 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
     }
 
     console.log('[AHPRA Email] Created task: ' + taskTitle);
+    } else {
+      // Suppressed: conflict followup is handled by the ahpra_conflict_letter task.
+      // Still log to the case timeline so the email arrival is visible.
+      await _logCaseEvent(caseId, null, 'system',
+        'AHPRA conflict followup — handled via conflict-letter task',
+        triage.summary, 'ahpra_email_pipeline',
+        { officer_email: triage.officer_email || emailMeta.sender });
+    }
   } catch (err) {
     console.error('[AHPRA Email] processing error:', err.message);
   }
@@ -35456,7 +35731,9 @@ Return ONLY valid JSON with no markdown formatting:
           if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
         } catch (_e) {}
       }
-      var gdDriveFiles = [];
+      var gdDriveFiles = [];   // top-level children (files + per-document subfolders)
+      var gdScanFiles = [];    // top-level files + every subfolder's files — the full match pool
+      var _GD_FOLDER = 'application/vnd.google-apps.folder';
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
         try {
           var gdDrive = await getGoogleDriveClient();
@@ -35464,46 +35741,50 @@ Return ONLY valid JSON with no markdown formatting:
             var gdDriveRes = await gdDrive.files.list({
               q: "'" + gdCase.google_drive_folder_id + "' in parents and trashed = false",
               fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
-              orderBy: 'modifiedTime desc', pageSize: 100
+              orderBy: 'modifiedTime desc', pageSize: 200,
+              supportsAllDrives: true, includeItemsFromAllDrives: true
             });
             gdDriveFiles = gdDriveRes.data.files || [];
+            // Files now live in per-document subfolders, so the match pool MUST include subfolder
+            // contents — a filename-only doc moved into "Section G" / "Offer / Contract" is otherwise
+            // unfindable (no stored id to fetch by, no longer at the top level).
+            var _gdPool = [gdDriveFiles];
+            for (var _sfi = 0; _sfi < gdDriveFiles.length; _sfi++) {
+              if (gdDriveFiles[_sfi].mimeType !== _GD_FOLDER) continue;
+              try {
+                var _sfRes = await gdDrive.files.list({
+                  q: "'" + gdDriveFiles[_sfi].id + "' in parents and trashed = false",
+                  fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
+                  pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true
+                });
+                _gdPool.push((_sfRes.data.files || []).filter(function (f) { return f.mimeType !== _GD_FOLDER; }));
+              } catch (_sfErr) { console.error('[gp-documents] subfolder list failed:', _sfErr.message); }
+            }
+            gdScanFiles = Array.prototype.concat.apply([], _gdPool);
           }
         } catch (gdDriveErr) { console.error('[gp-documents] Drive error:', gdDriveErr.message); }
       }
 
-      // 8. Get task_documents with Drive file IDs for practice_pack_child tasks
-      var gdTaskDocsRes = await supabaseDbRequest('registration_tasks',
-        'select=id,related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.practice_pack_child');
-      var gdTaskDocs = gdTaskDocsRes.ok && Array.isArray(gdTaskDocsRes.data) ? gdTaskDocsRes.data : [];
-      var gdDriveIdToDocKey = {};
-      gdTaskDocs.forEach(function(t) {
-        if (t.google_drive_file_id && t.related_document_key) gdDriveIdToDocKey[t.google_drive_file_id] = t.related_document_key;
+      // 8. Shared Drive-id → docKey maps (union of user_documents + practice_pack tasks +
+      // task_documents + practice_doc_ops). SAME source of truth organizeCaseDrive files by, so
+      // filing and display can never disagree. .expected = doc keys the case actually has.
+      var _gdIdMap = await buildCaseDriveIdMap(gdCaseId, gdUserId);
+      var gdDriveIdToDocKey = _gdIdMap.idToDocKey;
+      var gdDocKeyToDriveId = _gdIdMap.docKeyToId;
+
+      // Deterministic, id-backed-first binding: a file with a stored id wins over a filename-only
+      // match for the same card, and same-key duplicates resolve in a stable order across views.
+      gdScanFiles.sort(function (a, b) {
+        var ai = (a && gdDriveIdToDocKey[a.id]) ? 0 : 1, bi = (b && gdDriveIdToDocKey[b.id]) ? 0 : 1;
+        if (ai !== bi) return ai - bi;
+        return String((a && a.name) || '').localeCompare(String((b && b.name) || ''));
       });
 
-      // Also check task_documents table for Drive file IDs
-      var gdTaskDocFilesRes = await supabaseDbRequest('task_documents',
-        'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(gdCaseId) + '&is_current=eq.true&google_drive_file_id=neq.');
-      var gdTaskDocFiles = gdTaskDocFilesRes.ok && Array.isArray(gdTaskDocFilesRes.data) ? gdTaskDocFilesRes.data : [];
-      var gdTaskIdToDocKey = {};
-      gdTaskDocs.forEach(function(t) { if (t.id && t.related_document_key) gdTaskIdToDocKey[t.id] = t.related_document_key; });
-      gdTaskDocFiles.forEach(function(td) {
-        if (td.google_drive_file_id && td.task_id && gdTaskIdToDocKey[td.task_id]) {
-          gdDriveIdToDocKey[td.google_drive_file_id] = gdTaskIdToDocKey[td.task_id];
-        }
-      });
-
-      // Reverse map: docKey → most recent driveFileId (for fallback fetch by id)
-      var gdDocKeyToDriveId = {};
-      Object.keys(gdDriveIdToDocKey).forEach(function(fid) {
-        var dk = gdDriveIdToDocKey[fid];
-        if (dk) gdDocKeyToDriveId[dk] = fid; // last-writer wins; fine for our use
-      });
-
-      // Helper: resolve a Drive file by its stored id. Checks the top-level listing first
-      // (fast, no API call), then falls back to drive.files.get (works for files in any subfolder).
+      // Helper: resolve a Drive file by its stored id. Checks the listing pool first (fast, no API
+      // call), then falls back to drive.files.get (works for files in any subfolder).
       async function gdFetchById(fileId) {
         if (!fileId || !gdCase.google_drive_folder_id || !isGoogleDriveConfigured()) return null;
-        var cached = gdDriveFiles.find(function(f) { return f.id === fileId; });
+        var cached = gdScanFiles.find(function(f) { return f.id === fileId; });
         if (cached) return cached;
         try {
           var _gfDrive = await getGoogleDriveClient();
@@ -35551,43 +35832,29 @@ Return ONLY valid JSON with no markdown formatting:
       // Prepared by GP LINK
       var gdOpsMap = {};
       gdPracticeOps.forEach(function(op) {
-        if (op && op.document_key) {
-          gdOpsMap[op.document_key] = op;
-          // Drive file id recorded at upload time links the file to its placeholder
-          // even when no practice_pack_child task exists for the doc key.
-          if (op.google_drive_file_id) gdDriveIdToDocKey[op.google_drive_file_id] = op.document_key;
-        }
+        if (op && op.document_key) gdOpsMap[op.document_key] = op;
       });
+
+      // Precompute each scan file's docKey via the SHARED resolver (stored id → "ID —" name →
+      // corroborated filename) so cards and the sweep agree, a card binds to its real file wherever
+      // it now lives, and folders (named like the labels) are never bound. One file → one card.
+      var gdFileToDocKey = new Map();
+      for (var _sci = 0; _sci < gdScanFiles.length; _sci++) {
+        var _scf = gdScanFiles[_sci];
+        if (!_scf || _scf.mimeType === _GD_FOLDER) continue;
+        gdFileToDocKey.set(_scf.id, resolveDriveFileDocKey(_scf, _gdIdMap, { requireCorroboration: true }));
+      }
 
       for (var _gpli = 0; _gpli < GP_LINK_DOCUMENT_META.length; _gpli++) {
         var doc = GP_LINK_DOCUMENT_META[_gpli];
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
         var driveFile = null;
-        var _GD_FOLDER_MIME = 'application/vnd.google-apps.folder';
-        // Attempt 1: find file in top-level listing by stored Drive ID (skip the per-document
-        // subfolders this feature creates — they share the card's label/id space).
-        for (var i = 0; i < gdDriveFiles.length; i++) {
-          if (gdDriveFiles[i].mimeType === _GD_FOLDER_MIME) continue;
-          if (gdDriveIdToDocKey[gdDriveFiles[i].id] === doc.key) {
-            driveFile = gdDriveFiles[i];
-            gdMatchedDriveIds.add(gdDriveFiles[i].id);
-            break;
-          }
-        }
-        // Attempt 2: match by filename (legacy fallback; fires when Drive id not stored). MUST skip
-        // folders — the new per-document subfolders are named exactly after the card labels (e.g.
-        // "SPPA-00"), so a name match here would bind the card to its folder, not its file.
-        if (!driveFile) {
-          var labelLower = doc.label.toLowerCase().replace(/[^a-z0-9]/g, '');
-          for (var j = 0; j < gdDriveFiles.length; j++) {
-            if (gdDriveFiles[j].mimeType === _GD_FOLDER_MIME) continue;
-            var nameLower = (gdDriveFiles[j].name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (nameLower.indexOf(labelLower) > -1 || (doc.key === 'sppa_00' && nameLower.indexOf('sppa') > -1) || (doc.key === 'offer_contract' && /contract|agreement|offer|employment/.test(nameLower))) {
-              driveFile = gdDriveFiles[j];
-              gdMatchedDriveIds.add(gdDriveFiles[j].id);
-              break;
-            }
-          }
+        // Bind to the first not-yet-claimed scan file (never a folder) whose resolved docKey is this
+        // card's key. Replaces the old per-card id+filename attempts with one consistent resolution.
+        for (var i = 0; i < gdScanFiles.length; i++) {
+          var _cf = gdScanFiles[i];
+          if (!_cf || _cf.mimeType === _GD_FOLDER || gdMatchedDriveIds.has(_cf.id)) continue;
+          if (gdFileToDocKey.get(_cf.id) === doc.key) { driveFile = _cf; gdMatchedDriveIds.add(_cf.id); break; }
         }
         // Attempt 3: fetch by stored Drive file ID (works when file is in a subfolder).
         if (!driveFile) {
@@ -35656,37 +35923,15 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
-      // Other unmatched Drive files: top-level unmatched + contents of the Other Files subfolder
-      var gdOtherFiles = gdDriveFiles.filter(function(f) {
-        return f.mimeType !== 'application/vnd.google-apps.folder' && !gdMatchedDriveIds.has(f.id);
+      // Other files: any (non-folder) scan-pool file not bound to a card — top-level leftovers,
+      // genuine "Other Files" contents, AND any UNBOUND file inside a per-document subfolder (e.g. a
+      // duplicate of a matched doc, or an id-less alternate-supervisor CV) so nothing silently
+      // vanishes from the app. The sensitive ID document is never surfaced here.
+      var gdOtherFiles = gdScanFiles.filter(function(f) {
+        if (!f || f.mimeType === _GD_FOLDER || gdMatchedDriveIds.has(f.id)) return false;
+        if (/^ID — /.test(f.name || '') || gdFileToDocKey.get(f.id) === 'id_document') return false;
+        return true;
       });
-      // Also list the "Other Files" subfolder (created by organizeCaseDrive for unrecognised docs).
-      if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
-        try {
-          var _ofDrive = await getGoogleDriveClient();
-          if (_ofDrive) {
-            var _ofFolderQ = "'" + gdCase.google_drive_folder_id + "' in parents" +
-              " and name = '" + driveDocFolders.OTHER_FILES_FOLDER.replace(/'/g, "\\'") + "'" +
-              " and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
-            var _ofFolderRes = await _ofDrive.files.list({ q: _ofFolderQ, fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
-            var _ofFolderEntry = _ofFolderRes.data.files && _ofFolderRes.data.files[0];
-            if (_ofFolderEntry) {
-              var _ofFilesRes = await _ofDrive.files.list({
-                q: "'" + _ofFolderEntry.id + "' in parents and trashed = false",
-                fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
-                orderBy: 'modifiedTime desc', pageSize: 100,
-                supportsAllDrives: true, includeItemsFromAllDrives: true
-              });
-              var _ofFiles = _ofFilesRes.data.files || [];
-              _ofFiles.forEach(function(f) {
-                if (f.mimeType !== 'application/vnd.google-apps.folder' && !gdMatchedDriveIds.has(f.id)) {
-                  gdOtherFiles.push(f);
-                }
-              });
-            }
-          }
-        } catch (_ofErr) { console.error('[gp-documents] Other Files subfolder listing failed (non-fatal):', _ofErr.message); }
-      }
 
       sendJson(res, 200, {
         ok: true,
@@ -38383,6 +38628,15 @@ Return ONLY valid JSON with no markdown formatting:
       customDetails || null, admin.email);
 
     sendJson(res, 200, { ok: true, is_conflict: newIsConflict });
+    // Trigger B (Q7 override): if RSO manually sets conflict=true and officer is already known, create task.
+    if (newIsConflict) {
+      supabaseDbRequest('registration_cases', 'select=ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1').then(function(cRes) {
+        var cRow2 = (cRes.ok && cRes.data && cRes.data[0]) ? cRes.data[0] : {};
+        if (cRow2.ahpra_officer_email) {
+          _ensureAhpraConflictLetter(task.case_id, { officerEmail: cRow2.ahpra_officer_email, officerName: cRow2.ahpra_officer_name || '' }).catch(function(e) { console.error('[ahpra-conflict-letter] trigger B override:', e.message); });
+        }
+      }).catch(function(e) { console.error('[ahpra-conflict-letter] trigger B override lookup:', e.message); });
+    }
     return;
   }
 
