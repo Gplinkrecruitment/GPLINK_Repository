@@ -28,6 +28,7 @@
           "css/**",
           "media/**",
           "documents/**",
+          "assets/**",
           "sw.js",
           "data/.gitkeep"
         ],
