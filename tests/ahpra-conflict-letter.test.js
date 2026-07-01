@@ -1,6 +1,6 @@
 // tests/ahpra-conflict-letter.test.js
 import { describe, it, expect } from 'vitest';
-import { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter } from '../lib/ahpra-conflict-letter.js';
+import { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } from '../lib/ahpra-conflict-letter.js';
 
 describe('buildConflictLetterEmail', () => {
   const base = {
@@ -81,5 +81,43 @@ describe('shouldEnsureConflictLetter', () => {
   });
   it('false when no officer email', () => {
     expect(shouldEnsureConflictLetter({ hasConflict: true, officerEmail: '' })).toBe(false);
+  });
+});
+
+describe('isConflictOfInterestItem', () => {
+  it('returns true when title contains "conflict of interest"', () => {
+    expect(isConflictOfInterestItem({ title: 'Conflict of interest statement', detail: '', gp_instructions: '' })).toBe(true);
+  });
+
+  it('returns true when detail contains "conflict of interest" (case-insensitive)', () => {
+    expect(isConflictOfInterestItem({ title: '', detail: 'Please provide a CONFLICT OF INTEREST declaration', gp_instructions: '' })).toBe(true);
+  });
+
+  it('returns true when gp_instructions mentions "conflict of interest"', () => {
+    expect(isConflictOfInterestItem({ title: '', detail: '', gp_instructions: 'You need to address the conflict of interest with your supervisor.' })).toBe(true);
+  });
+
+  it('returns true for hyphenated "conflict-of-interest"', () => {
+    expect(isConflictOfInterestItem({ title: 'conflict-of-interest letter required', detail: '', gp_instructions: '' })).toBe(true);
+  });
+
+  it('returns false for a normal document item (Certificate of Good Standing)', () => {
+    expect(isConflictOfInterestItem({ title: 'Certificate of Good Standing from GMC', detail: 'Obtain a certificate from your registering body.', gp_instructions: 'Download from the GMC portal.' })).toBe(false);
+  });
+
+  it('returns false for a supervisor CV item', () => {
+    expect(isConflictOfInterestItem({ title: 'Supervisor CV', detail: 'Provide a current CV for your supervisor.', gp_instructions: '' })).toBe(false);
+  });
+
+  it('returns false for null', () => {
+    expect(isConflictOfInterestItem(null)).toBe(false);
+  });
+
+  it('returns false for an empty object', () => {
+    expect(isConflictOfInterestItem({})).toBe(false);
+  });
+
+  it('returns false for undefined', () => {
+    expect(isConflictOfInterestItem(undefined)).toBe(false);
   });
 });

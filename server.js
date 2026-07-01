@@ -148,7 +148,7 @@ const registrationHub = require('./lib/registration-hub.js');
 const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
-const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter } = require('./lib/ahpra-conflict-letter.js');
+const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -3353,6 +3353,16 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
 
   var items = Array.isArray(extraction.items) ? extraction.items : [];
 
+  // The conflict-of-interest item (if any) is owned by the ahpra_conflict_letter task,
+  // not the s80 tray. Drop ONLY that item; keep every other requested document.
+  if (opts.skipConflictItems && items.length > 0) {
+    items = items.filter(function (it) { return !isConflictOfInterestItem(it); });
+    if (items.length === 0) {
+      // The notice was purely the conflict ask — fully handled by the conflict letter.
+      return { created: 0, skipped: true, reason: 'conflict_handled_by_letter' };
+    }
+  }
+
   // Fail loud: if reading produced nothing, still create one tray entry from the
   // raw letter so the notice is never silently dropped.
   if (items.length === 0) {
@@ -5010,7 +5020,21 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               ? { name: s80OfficerRaw.name || '', email: s80OfficerRaw.email } : null;
             var s80Country = await _resolveGpCountry(gpCase.user_id);
             var ahpraExtraction = await extractAhpraActionItems(emailMeta, { officer: s80Officer, country: s80Country });
-            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country });
+            // Check whether the SPPA has a conflict-of-interest flag so we can
+            // exclude the conflict item from the s80 tray (it belongs to the
+            // ahpra_conflict_letter task instead) and ensure that task exists.
+            var s80CaseHasConflict = false;
+            try {
+              var s80SppaRes = await supabaseDbRequest('registration_tasks',
+                'select=metadata&case_id=eq.' + encodeURIComponent(gpCase.id) + '&related_document_key=eq.sppa_00&limit=1');
+              var s80SppaMeta = (s80SppaRes.ok && s80SppaRes.data && s80SppaRes.data[0]) ? s80SppaRes.data[0].metadata : null;
+              if (typeof s80SppaMeta === 'string') { try { s80SppaMeta = JSON.parse(s80SppaMeta); } catch (e) { s80SppaMeta = {}; } }
+              s80CaseHasConflict = !!(s80SppaMeta && s80SppaMeta.is_conflict === true);
+            } catch (e) {}
+            if (s80CaseHasConflict && s80Officer) {
+              try { await _ensureAhpraConflictLetter(gpCase.id, { officerName: s80Officer.name, officerEmail: s80Officer.email, officerRequestMessageId: currentMsgId }); } catch (e) {}
+            }
+            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country, skipConflictItems: s80CaseHasConflict });
             // Created items, OR a duplicate we already processed → this email is handled;
             // don't fall through to response-matching / general triage and double-process it.
             if (s80Result && (s80Result.created > 0 || s80Result.skipped)) {
