@@ -5031,10 +5031,20 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               if (typeof s80SppaMeta === 'string') { try { s80SppaMeta = JSON.parse(s80SppaMeta); } catch (e) { s80SppaMeta = {}; } }
               s80CaseHasConflict = !!(s80SppaMeta && s80SppaMeta.is_conflict === true);
             } catch (e) {}
-            if (s80CaseHasConflict && s80Officer) {
-              try { await _ensureAhpraConflictLetter(gpCase.id, { officerName: s80Officer.name, officerEmail: s80Officer.email, officerRequestMessageId: currentMsgId }); } catch (e) {}
+            // Ensure the conflict-letter task and skip the s80 conflict item ONLY if a task
+            // actually exists (created now, or a pre-existing Trigger-A task). If no task can
+            // be made (e.g. no practice email on file), leave the conflict item in the s80 tray
+            // as a failsafe rather than silently dropping the notice.
+            var s80ConflictLetterTask = null;
+            if (s80CaseHasConflict) {
+              try {
+                s80ConflictLetterTask = await _ensureAhpraConflictLetter(gpCase.id,
+                  s80Officer
+                    ? { officerName: s80Officer.name, officerEmail: s80Officer.email, officerRequestMessageId: currentMsgId }
+                    : {});
+              } catch (e) {}
             }
-            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country, skipConflictItems: s80CaseHasConflict });
+            var s80Result = await _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, ahpraExtraction, { sourceTrigger: 'ahpra_officer_email', officer: s80Officer, country: s80Country, skipConflictItems: !!s80ConflictLetterTask });
             // Created items, OR a duplicate we already processed → this email is handled;
             // don't fall through to response-matching / general triage and double-process it.
             if (s80Result && (s80Result.created > 0 || s80Result.skipped)) {
