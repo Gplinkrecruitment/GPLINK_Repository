@@ -5969,8 +5969,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h4+='<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>③ AHPRA confirms the change</span><span style="color:#94a3b8;font-weight:700">Not yet</span></div>';
       h4+='</div>';
       h4+='<div style="background:#fdf3e1;border:1px solid #f4ddb0;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-bottom:10px">Until AHPRA confirms, AHPRA emails for this doctor still go from the previous representative’s mailbox — matching who AHPRA currently has on file.</div>';
-      h4+='<button class="ops-btn-green" id="repChangeConfirmBtn_'+esc(task.id)+'" onclick="repChangeConfirm(\''+escAttr(task.id)+'\')">AHPRA confirmed me as the representative</button>';
-      h4+='<div id="repChangeMsg_'+esc(task.id)+'" style="font-size:11px;color:#64748b;margin-top:8px"></div>';
+      // Only expose the confirm control once the doctor has actually sent the form to
+      // AHPRA (waiting_on_ahpra). Confirming earlier pins the mailbox prematurely and
+      // locks the doctor out of /submit — see the anom00-confirmed endpoint guard.
+      if(meta.rep_change_state==='waiting_on_ahpra'){
+        h4+='<button class="ops-btn-green" id="repChangeConfirmBtn_'+esc(task.id)+'" onclick="repChangeConfirm(\''+escAttr(task.id)+'\')">AHPRA confirmed me as the representative</button>';
+        h4+='<div id="repChangeMsg_'+esc(task.id)+'" style="font-size:11px;color:#64748b;margin-top:8px"></div>';
+      }else{
+        h4+='<div style="font-size:11px;color:#94a3b8">You’ll be able to confirm the change here once the doctor has completed the form and sent it to AHPRA.</div>';
+      }
       h4+='</div>';
       return h4;
     }

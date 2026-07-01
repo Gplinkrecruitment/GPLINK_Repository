@@ -1853,7 +1853,7 @@ async function _ensureRepChangeTask(caseId, prevRsoUserId, newRsoUserId) {
   var _rcPromise = (async function () {
     try {
       var existingRc = await supabaseDbRequest('registration_tasks',
-        'select=id&case_id=eq.' + encodeURIComponent(caseId) +
+        'select=id,assignee,metadata&case_id=eq.' + encodeURIComponent(caseId) +
         // 'ready_to_send' included defensively alongside 'waiting_on_ahpra' —
         // task.status itself never actually becomes either literal value today
         // (see the NOTE in the Task 7 /submit and /send handlers: only
@@ -1862,7 +1862,30 @@ async function _ensureRepChangeTask(caseId, prevRsoUserId, newRsoUserId) {
         // keeps the filter correct rather than silently stale if that ever changes.
         '&task_type=eq.ahpra_rep_change&status=in.(open,waiting_on_gp,waiting_on_ahpra,ready_to_send)&limit=1');
       if (existingRc.ok && Array.isArray(existingRc.data) && existingRc.data[0]) {
-        return existingRc.data[0];
+        var _rcExisting = existingRc.data[0];
+        var _rcMeta = _rcExisting.metadata;
+        if (typeof _rcMeta === 'string') { try { _rcMeta = JSON.parse(_rcMeta); } catch (e) { _rcMeta = {}; } }
+        if (!_rcMeta) _rcMeta = {};
+        var _rcState = _rcMeta.rep_change_state || 'awaiting_rso_sign';
+        // If a NEWER qualifying reassignment names a DIFFERENT RSO while the form has
+        // not been completed+sent yet (still awaiting_rso_sign or waiting_on_gp),
+        // re-point the open task to the latest RSO — otherwise the task stays assigned
+        // to a middle RSO who no longer owns the case and the ANOM-00 nominates them.
+        // Reset to awaiting_rso_sign so the new RSO signs afresh (superseding any
+        // half-done form already sent to the doctor under the prior RSO). Tasks already
+        // past this (ready_to_send/waiting_on_ahpra/completed) are left untouched.
+        if ((_rcState === 'awaiting_rso_sign' || _rcState === 'waiting_on_gp') && _rcMeta.new_rso_user_id !== newRsoUserId) {
+          _rcMeta.prev_rso_user_id = prevRsoUserId || _rcMeta.prev_rso_user_id || null;
+          _rcMeta.new_rso_user_id = newRsoUserId;
+          _rcMeta.rep_change_state = 'awaiting_rso_sign';
+          _rcMeta.repointed_at = new Date().toISOString();
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(_rcExisting.id), {
+            method: 'PATCH',
+            body: { assignee: newRsoUserId, status: 'open', metadata: _rcMeta }
+          });
+          console.log('[ahpra-rep-change] Re-pointed open rep-change task', _rcExisting.id, 'to new RSO', newRsoUserId);
+        }
+        return _rcExisting;
       }
       var rcTask = await _createRegTask(caseId, {
         task_type: 'ahpra_rep_change',
@@ -35582,10 +35605,21 @@ Return ONLY valid JSON with no markdown formatting:
     var oldAssignedVa = null;
     var prevCaseForRepChange = null;
     if (patch.assigned_va) {
+      // oldAssignedVa feeds the Gmail label-archive + email-history transfer and the
+      // DoubleTick sync below — read ONLY columns that exist in prod TODAY so a
+      // not-yet-applied ahpra_rep_change migration can never 42703 this select and
+      // silently null it out (which would skip label/history transfer for EVERY
+      // reassignment, not just rep-change ones).
       var oldCaseRes = await supabaseDbRequest('registration_cases',
-        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-      prevCaseForRepChange = oldCaseRes.ok && oldCaseRes.data && oldCaseRes.data[0] ? oldCaseRes.data[0] : null;
-      oldAssignedVa = prevCaseForRepChange ? prevCaseForRepChange.assigned_va : null;
+        'select=assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      oldAssignedVa = (oldCaseRes.ok && oldCaseRes.data && oldCaseRes.data[0]) ? oldCaseRes.data[0].assigned_va : null;
+      // Separate, failure-tolerant fetch of the rep-change predicate columns (one is
+      // added by the unapplied migration). If it errors pre-DDL, prevCaseForRepChange
+      // stays null → shouldTriggerRepChange returns false (no trigger) WITHOUT
+      // affecting oldAssignedVa above.
+      var repPrevRes = await supabaseDbRequest('registration_cases',
+        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      prevCaseForRepChange = (repPrevRes.ok && repPrevRes.data && repPrevRes.data[0]) ? repPrevRes.data[0] : null;
     }
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
@@ -39576,8 +39610,13 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'This representative change has already been confirmed.' });
       return;
     }
-    if (!confTaskMeta.rep_change_state || confTaskMeta.rep_change_state === 'awaiting_rso_sign') {
-      sendJson(res, 400, { ok: false, message: 'Send the form to the doctor before confirming with AHPRA.' });
+    // Only allow confirmation AFTER the doctor has completed AND sent the form to
+    // AHPRA (rep_change_state === 'waiting_on_ahpra'). Confirming earlier (while the
+    // doctor is still completing) would both pin the mailbox prematurely — violating
+    // spec §3 "flip only on AHPRA confirmation" — and flip the task to 'completed',
+    // after which the doctor's /submit is rejected and they can never finish.
+    if (confTaskMeta.rep_change_state !== 'waiting_on_ahpra') {
+      sendJson(res, 400, { ok: false, message: 'The doctor must complete and send the form to AHPRA before you can confirm the change.' });
       return;
     }
     if (!task.case_id) { sendJson(res, 400, { ok: false, message: 'Task has no case.' }); return; }
@@ -44293,10 +44332,15 @@ Return ONLY valid JSON with no markdown formatting:
     var opsPrevCaseForRepChange = null;
     var opsOldAssignedVa = null;
     if (patch.assigned_va) {
+      // Guaranteed column only (see /api/admin/case above) so a not-yet-applied
+      // migration can't null opsOldAssignedVa; the rep-change predicate columns are
+      // fetched separately and failure-tolerantly (trigger simply won't fire pre-DDL).
       var opsOldCaseRes = await supabaseDbRequest('registration_cases',
-        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-      opsPrevCaseForRepChange = opsOldCaseRes.ok && opsOldCaseRes.data && opsOldCaseRes.data[0] ? opsOldCaseRes.data[0] : null;
-      opsOldAssignedVa = opsPrevCaseForRepChange ? opsPrevCaseForRepChange.assigned_va : null;
+        'select=assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      opsOldAssignedVa = (opsOldCaseRes.ok && opsOldCaseRes.data && opsOldCaseRes.data[0]) ? opsOldCaseRes.data[0].assigned_va : null;
+      var opsRepPrevRes = await supabaseDbRequest('registration_cases',
+        'select=assigned_va,stage,ahpra_officer_email,ahpra_auth_rep_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      opsPrevCaseForRepChange = (opsRepPrevRes.ok && opsRepPrevRes.data && opsRepPrevRes.data[0]) ? opsRepPrevRes.data[0] : null;
     }
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
