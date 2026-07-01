@@ -1854,7 +1854,13 @@ async function _ensureRepChangeTask(caseId, prevRsoUserId, newRsoUserId) {
     try {
       var existingRc = await supabaseDbRequest('registration_tasks',
         'select=id&case_id=eq.' + encodeURIComponent(caseId) +
-        '&task_type=eq.ahpra_rep_change&status=in.(open,waiting_on_gp,waiting_on_ahpra)&limit=1');
+        // 'ready_to_send' included defensively alongside 'waiting_on_ahpra' —
+        // task.status itself never actually becomes either literal value today
+        // (see the NOTE in the Task 7 /submit and /send handlers: only
+        // metadata.rep_change_state carries those states, since neither is in
+        // the live registration_tasks status CHECK constraint yet), but this
+        // keeps the filter correct rather than silently stale if that ever changes.
+        '&task_type=eq.ahpra_rep_change&status=in.(open,waiting_on_gp,waiting_on_ahpra,ready_to_send)&limit=1');
       if (existingRc.ok && Array.isArray(existingRc.data) && existingRc.data[0]) {
         return existingRc.data[0];
       }
@@ -1880,6 +1886,17 @@ async function _ensureRepChangeTask(caseId, prevRsoUserId, newRsoUserId) {
   _repChangeTaskInflight[caseId] = _rcPromise;
   try { return await _rcPromise; }
   finally { delete _repChangeTaskInflight[caseId]; }
+}
+
+// ── ANOM-00 Task 7 (D5): who the finished form gets emailed to ─────────────
+// Pure: the doctor's assigned AHPRA officer email if one is on file for this
+// case (dynamic, per case — registration_cases.ahpra_officer_email), else the
+// AHPRA authorised-representatives team mailbox (spec §3 decision 5 / §4 D5).
+// The government form's own printed footer is unchanged either way — this
+// only controls who GP LINK's email is actually addressed to.
+function resolveAhpraSubmissionRecipient(caseRow) {
+  var raw = (caseRow && caseRow.ahpra_officer_email != null) ? String(caseRow.ahpra_officer_email).trim() : '';
+  return raw || 'authreps@ahpra.gov.au';
 }
 
 /**
@@ -2542,7 +2559,7 @@ async function getGmailClient(userEmail) {
 }
 
 // ── Gmail send helper ──
-async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, references, caseId }) {
+async function sendGmailEmail({ from, fromName, to, cc, replyTo, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, references, caseId }) {
   try {
     var gmail = await getGmailClient(from);
     if (!gmail) {
@@ -2579,7 +2596,11 @@ async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyT
     headers.push('Subject: ' + encodedSubject);
     headers.push('Date: ' + dateStr);
     headers.push('Message-ID: ' + messageId);
-    headers.push('Reply-To: ' + from);
+    // Reply-To defaults to the sending mailbox (unchanged for every existing
+    // caller); an explicit replyTo lets a caller send FROM one mailbox (e.g. an
+    // AHPRA-recognised rep mailbox) while routing replies to a different person
+    // (e.g. the doctor) — see /api/ahpra/rep-change/:token/send.
+    headers.push('Reply-To: ' + String(replyTo || from).replace(/[\r\n]/g, ''));
     headers.push('MIME-Version: 1.0');
     headers.push('X-Mailer: GP-Link-Admin/1.0');
     if (inReplyTo) {
@@ -39384,8 +39405,12 @@ Return ONLY valid JSON with no markdown formatting:
     var repTaskMeta = task.metadata;
     if (typeof repTaskMeta === 'string') try { repTaskMeta = JSON.parse(repTaskMeta); } catch (e) { repTaskMeta = {}; }
     if (!repTaskMeta) repTaskMeta = {};
-    if (task.status === 'completed' || repTaskMeta.rep_change_state === 'completed') {
-      sendJson(res, 400, { ok: false, message: 'This representative change has already been confirmed.' });
+    // Block resend once the doctor's side has progressed past this RSO step —
+    // not just 'completed'. Without this, resending after the doctor has
+    // already built (ready_to_send) or sent (waiting_on_ahpra) their form would
+    // regress the task's state back to waiting_on_gp, discarding their progress.
+    if (task.status === 'completed' || ['completed', 'ready_to_send', 'waiting_on_ahpra'].indexOf(repTaskMeta.rep_change_state) !== -1) {
+      sendJson(res, 400, { ok: false, message: 'This representative change has already progressed past this step and cannot be resent.' });
       return;
     }
     if (!task.case_id) { sendJson(res, 400, { ok: false, message: 'Task has no case.' }); return; }
@@ -39541,6 +39566,331 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'AHPRA confirmed the new representative', 'Pinned the AHPRA mailbox to ' + confRsoRow.company_email, admin.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── ANOM-00 Task 7 (D4): doctor in-app completion page — prefilled data ────
+  // token = the ahpra_rep_change task's id — the same literal value Task 5's
+  // deep-link email already uses (APP_BASE_URL + '/pages/ahpra-rep-change.html
+  // ?token='). It is a plain task id, not a signed/opaque secret, so the real
+  // security boundary is the ownership check below (mirrors /api/ahpra/more-info,
+  // server.js ~33552: requireSession + resolve the session's Supabase user id,
+  // then verify the token's case actually belongs to that user).
+  if (req.method === 'GET' && pathname.startsWith('/api/ahpra/rep-change/') && pathname.split('/').length === 5) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const rcEmail = getSessionEmail(session);
+    const rcUserId = getSessionSupabaseUserId(session) || (rcEmail ? await getSupabaseUserIdByEmail(rcEmail) : null);
+    if (!rcUserId) { sendJson(res, 401, { ok: false, message: 'Sign in required.' }); return; }
+
+    const rcToken = pathname.split('/')[4] || '';
+    if (!rcToken) { sendJson(res, 404, { ok: false, message: 'This link is no longer valid.' }); return; }
+
+    const rcTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(rcToken) + '&task_type=eq.ahpra_rep_change&limit=1');
+    const rcTask = (rcTaskRes.ok && rcTaskRes.data && rcTaskRes.data[0]) ? rcTaskRes.data[0] : null;
+    if (!rcTask) { sendJson(res, 404, { ok: false, message: 'This link is no longer valid.' }); return; }
+
+    const rcCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,assigned_va,ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(rcTask.case_id) + '&limit=1');
+    const rcCaseRow = (rcCaseRes.ok && rcCaseRes.data && rcCaseRes.data[0]) ? rcCaseRes.data[0] : null;
+    if (!rcCaseRow || rcCaseRow.user_id !== rcUserId) { sendJson(res, 403, { ok: false, message: 'Not authorised.' }); return; }
+
+    var rcMeta = rcTask.metadata;
+    if (typeof rcMeta === 'string') try { rcMeta = JSON.parse(rcMeta); } catch (e) { rcMeta = {}; }
+    if (!rcMeta) rcMeta = {};
+
+    var rcApplicant = rcMeta.applicant || null;
+    var rcRep = rcMeta.rep || null;
+    if (!rcApplicant || !rcRep) {
+      // Defensive fallback only — the real flow always has both, snapshotted by
+      // Task 5's anom00-send-to-gp before the doctor's link is ever emailed.
+      const rcProfRes = await supabaseDbRequest('user_profiles',
+        'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(rcCaseRow.user_id) + '&limit=1');
+      const rcProf = (rcProfRes.ok && rcProfRes.data && rcProfRes.data[0]) ? rcProfRes.data[0] : {};
+      const rcRsoUserId = rcMeta.new_rso_user_id || rcCaseRow.assigned_va;
+      var rcRsoRow = null;
+      if (rcRsoUserId) {
+        const rcRsoRes = await supabaseDbRequest('rso_team',
+          'select=user_id,name,first_name,last_name,company_email&user_id=eq.' + encodeURIComponent(rcRsoUserId) + '&limit=1');
+        rcRsoRow = (rcRsoRes.ok && rcRsoRes.data && rcRsoRes.data[0]) ? rcRsoRes.data[0] : null;
+      }
+      const rcRebuilt = buildRepSectionData(
+        { first_name: rcProf.first_name, last_name: rcProf.last_name, email: rcProf.email },
+        rcRsoRow
+      );
+      rcApplicant = rcApplicant || rcRebuilt.applicant;
+      rcRep = rcRep || rcRebuilt.rep;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      repChangeState: rcMeta.rep_change_state || 'awaiting_rso_sign',
+      applicant: rcApplicant,
+      repName: (rcRep && rcRep.fullName) || '',
+      recipientEmail: resolveAhpraSubmissionRecipient(rcCaseRow),
+      recipientName: rcCaseRow.ahpra_officer_name || ''
+    });
+    return;
+  }
+
+  // ── ANOM-00 Task 7 (D4): doctor builds the full, signed ANOM-00 ────────────
+  // Body: { gpSignaturePng, authorisations:{communicate,act,receive,authorises},
+  // applicant? }. repSignaturePng comes from metadata.rep_signature_png (persisted
+  // by Task 5's anom00-send-to-gp); rep/applicant come from the task's metadata
+  // snapshot (or are rebuilt via buildRepSectionData as a defensive fallback).
+  // `applicant` in the body is an OPTIONAL partial override — the doctor's page
+  // presents Section A as pre-filled but editable ("tap any field to edit", per
+  // the prototype), so an edited field must actually reach the printed form
+  // rather than being silently discarded.
+  if (req.method === 'POST' && pathname.startsWith('/api/ahpra/rep-change/') && pathname.endsWith('/submit')) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const subEmail = getSessionEmail(session);
+    const subUserId = getSessionSupabaseUserId(session) || (subEmail ? await getSupabaseUserIdByEmail(subEmail) : null);
+    if (!subUserId) { sendJson(res, 401, { ok: false, message: 'Sign in required.' }); return; }
+
+    const subToken = pathname.split('/')[4] || '';
+    let subBody;
+    try { subBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const gpSignaturePng = (subBody && typeof subBody.gpSignaturePng === 'string') ? subBody.gpSignaturePng.trim() : '';
+    if (!gpSignaturePng) { sendJson(res, 400, { ok: false, message: 'Your signature is required.' }); return; }
+    const subAuthBody = (subBody && typeof subBody.authorisations === 'object' && subBody.authorisations) ? subBody.authorisations : {};
+    const authorisations = {
+      communicate: subAuthBody.communicate === true,
+      act: subAuthBody.act === true,
+      receive: subAuthBody.receive === true,
+      authorises: subAuthBody.authorises === true
+    };
+    if (!authorisations.communicate || !authorisations.act || !authorisations.receive || !authorisations.authorises) {
+      sendJson(res, 400, { ok: false, message: 'Please confirm all of the authorisations before continuing.' });
+      return;
+    }
+
+    const subTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(subToken) + '&task_type=eq.ahpra_rep_change&limit=1');
+    const subTask = (subTaskRes.ok && subTaskRes.data && subTaskRes.data[0]) ? subTaskRes.data[0] : null;
+    if (!subTask) { sendJson(res, 404, { ok: false, message: 'This link is no longer valid.' }); return; }
+
+    const subCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,assigned_va,ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(subTask.case_id) + '&limit=1');
+    const subCaseRow = (subCaseRes.ok && subCaseRes.data && subCaseRes.data[0]) ? subCaseRes.data[0] : null;
+    if (!subCaseRow || subCaseRow.user_id !== subUserId) { sendJson(res, 403, { ok: false, message: 'Not authorised.' }); return; }
+
+    var subMeta = subTask.metadata;
+    if (typeof subMeta === 'string') try { subMeta = JSON.parse(subMeta); } catch (e) { subMeta = {}; }
+    if (!subMeta) subMeta = {};
+
+    if (['ready_to_send', 'waiting_on_ahpra', 'completed'].indexOf(subMeta.rep_change_state) !== -1) {
+      sendJson(res, 400, { ok: false, message: 'You have already completed and submitted this form.' });
+      return;
+    }
+    if (subMeta.rep_change_state !== 'waiting_on_gp') {
+      sendJson(res, 400, { ok: false, message: 'This form is not ready to complete yet.' });
+      return;
+    }
+
+    const repSignaturePng = String(subMeta.rep_signature_png || '').trim();
+    if (!repSignaturePng) { sendJson(res, 500, { ok: false, message: 'The representative signature is missing — contact your registration officer.' }); return; }
+
+    var subApplicant = subMeta.applicant || null;
+    var subRep = subMeta.rep || null;
+    if (!subApplicant || !subRep) {
+      const subProfRes = await supabaseDbRequest('user_profiles',
+        'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(subCaseRow.user_id) + '&limit=1');
+      const subProf = (subProfRes.ok && subProfRes.data && subProfRes.data[0]) ? subProfRes.data[0] : {};
+      const subRsoUserId = subMeta.new_rso_user_id || subCaseRow.assigned_va;
+      var subRsoRow = null;
+      if (subRsoUserId) {
+        const subRsoRes = await supabaseDbRequest('rso_team',
+          'select=user_id,name,first_name,last_name,company_email&user_id=eq.' + encodeURIComponent(subRsoUserId) + '&limit=1');
+        subRsoRow = (subRsoRes.ok && subRsoRes.data && subRsoRes.data[0]) ? subRsoRes.data[0] : null;
+      }
+      const subRebuilt = buildRepSectionData(
+        { first_name: subProf.first_name, last_name: subProf.last_name, email: subProf.email },
+        subRsoRow
+      );
+      subApplicant = subApplicant || subRebuilt.applicant;
+      subRep = subRep || subRebuilt.rep;
+    }
+
+    if (subBody && subBody.applicant && typeof subBody.applicant === 'object') {
+      const editedApplicant = subBody.applicant;
+      subApplicant = Object.assign({}, subApplicant, {
+        familyName: (typeof editedApplicant.familyName === 'string' && editedApplicant.familyName.trim()) || subApplicant.familyName,
+        firstName: (typeof editedApplicant.firstName === 'string' && editedApplicant.firstName.trim()) || subApplicant.firstName,
+        middleName: (typeof editedApplicant.middleName === 'string') ? editedApplicant.middleName.trim() : subApplicant.middleName,
+        dob: (typeof editedApplicant.dob === 'string' && editedApplicant.dob.trim()) || subApplicant.dob,
+        email: (typeof editedApplicant.email === 'string' && editedApplicant.email.trim()) || subApplicant.email
+      });
+    }
+
+    const subNowDate = new Date();
+    const subRepDate = _formatDateDDMMYYYY(subMeta.sent_to_gp_at ? new Date(subMeta.sent_to_gp_at) : subNowDate);
+    const subGpDate = _formatDateDDMMYYYY(subNowDate);
+
+    let subPdfBytes;
+    try {
+      subPdfBytes = await buildAnom00(
+        { mode: 'full', applicant: subApplicant, rep: subRep, authorisations: authorisations, dates: { rep: subRepDate, gp: subGpDate } },
+        { repSignaturePng: repSignaturePng, gpSignaturePng: gpSignaturePng }
+      );
+    } catch (e) {
+      console.error('[ANOM-00] submit build failed:', e.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to build the ANOM-00 form.' });
+      return;
+    }
+    const subPdfDataUrl = 'data:application/pdf;base64,' + Buffer.from(subPdfBytes).toString('base64');
+
+    // Store the generated PDF (mark any prior current doc as superseded first — safe on resubmit).
+    await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(subToken) + '&is_current=eq.true',
+      { method: 'PATCH', body: { is_current: false } });
+    await supabaseDbRequest('task_documents', '', {
+      method: 'POST',
+      body: [{
+        task_id: subToken, case_id: subTask.case_id, filename: 'ANOM-00.pdf',
+        mime_type: 'application/pdf', size_bytes: subPdfBytes.length, is_current: true,
+        uploaded_by: 'gp_rep_change_submit', attachment_url: subPdfDataUrl
+      }]
+    });
+
+    // NOTE: task.status deliberately stays 'waiting_on_gp' here (not mirrored to
+    // 'ready_to_send') — that value is not yet in the live registration_tasks
+    // status CHECK constraint and this task's brief does not include a migration
+    // for it. Only metadata.rep_change_state carries the finer-grained state, the
+    // same pattern already established by this task's own creation (status
+    // stayed 'open' while metadata went to 'awaiting_rso_sign').
+    const subNowIso = subNowDate.toISOString();
+    subMeta.rep_change_state = 'ready_to_send';
+    subMeta.gp_signature_png = gpSignaturePng;
+    subMeta.authorisations = authorisations;
+    subMeta.applicant = subApplicant;
+    subMeta.built_at = subNowIso;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(subToken), {
+      method: 'PATCH',
+      body: { metadata: subMeta, updated_at: subNowIso }
+    });
+
+    await _logCaseEvent(subTask.case_id, subToken, 'system', 'Doctor completed & signed the ANOM-00', 'Ready to send to AHPRA', subEmail);
+    sendJson(res, 200, {
+      ok: true,
+      recipientEmail: resolveAhpraSubmissionRecipient(subCaseRow),
+      recipientName: subCaseRow.ahpra_officer_name || ''
+    });
+    return;
+  }
+
+  // ── ANOM-00 Task 7 (D5): doctor sends the finished ANOM-00 to AHPRA ────────
+  // OWNER-DECISION (spec §3 default — recommended, flagged for the owner to
+  // confirm/veto): a mailto: link cannot pre-attach a PDF, so a literal
+  // "sent from the doctor's own mailbox" flow is not possible. Instead the
+  // SERVER sends this email — from the case's already-pinned AHPRA rep mailbox
+  // if one exists (i.e. AHPRA already recognises it from an earlier confirmed
+  // rep-change on this same case), else this task's own new RSO's company
+  // email — with Reply-To the doctor and CC the doctor + this task's new RSO,
+  // so the officer can reply to the doctor and everyone keeps a copy. Mirrors
+  // the attachment-capable send path used by
+  // /api/admin/va/task/:id/sppa-send-to-practice (sendGmailEmail + a stored
+  // task_documents PDF as a base64 attachment) — sendGpNotificationEmail (used
+  // by Task 5's courtesy email) has no attachment support at all.
+  if (req.method === 'POST' && pathname.startsWith('/api/ahpra/rep-change/') && pathname.endsWith('/send')) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res); if (!session) return;
+    const sndEmail = getSessionEmail(session);
+    const sndUserId = getSessionSupabaseUserId(session) || (sndEmail ? await getSupabaseUserIdByEmail(sndEmail) : null);
+    if (!sndUserId) { sendJson(res, 401, { ok: false, message: 'Sign in required.' }); return; }
+
+    const sndToken = pathname.split('/')[4] || '';
+    const sndTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(sndToken) + '&task_type=eq.ahpra_rep_change&limit=1');
+    const sndTask = (sndTaskRes.ok && sndTaskRes.data && sndTaskRes.data[0]) ? sndTaskRes.data[0] : null;
+    if (!sndTask) { sendJson(res, 404, { ok: false, message: 'This link is no longer valid.' }); return; }
+
+    const sndCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,ahpra_officer_email,ahpra_officer_name,ahpra_auth_rep_email,ahpra_auth_rep_user_id&id=eq.' + encodeURIComponent(sndTask.case_id) + '&limit=1');
+    const sndCaseRow = (sndCaseRes.ok && sndCaseRes.data && sndCaseRes.data[0]) ? sndCaseRes.data[0] : null;
+    if (!sndCaseRow || sndCaseRow.user_id !== sndUserId) { sendJson(res, 403, { ok: false, message: 'Not authorised.' }); return; }
+
+    var sndMeta = sndTask.metadata;
+    if (typeof sndMeta === 'string') try { sndMeta = JSON.parse(sndMeta); } catch (e) { sndMeta = {}; }
+    if (!sndMeta) sndMeta = {};
+
+    if (['waiting_on_ahpra', 'completed'].indexOf(sndMeta.rep_change_state) !== -1) {
+      sendJson(res, 400, { ok: false, message: 'This form has already been sent to AHPRA.' });
+      return;
+    }
+    if (sndMeta.rep_change_state !== 'ready_to_send') {
+      sendJson(res, 400, { ok: false, message: 'Build your form before sending it to AHPRA.' });
+      return;
+    }
+
+    const sndDocRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url&task_id=eq.' + encodeURIComponent(sndToken) + '&is_current=eq.true&limit=1');
+    const sndDoc = (sndDocRes.ok && sndDocRes.data && sndDocRes.data[0]) ? sndDocRes.data[0] : null;
+    if (!sndDoc || !sndDoc.attachment_url) { sendJson(res, 400, { ok: false, message: 'No completed form was found — build your form first.' }); return; }
+    const sndCommaIdx = sndDoc.attachment_url.indexOf(',');
+    const sndPdfBase64 = sndDoc.attachment_url.substring(sndCommaIdx + 1);
+
+    const recipientEmail = resolveAhpraSubmissionRecipient(sndCaseRow);
+    const doctorEmail = sndMeta.doctor_email || sndEmail;
+    const repEmail = (sndMeta.rep && sndMeta.rep.email) || '';
+    const repFullName = (sndMeta.rep && sndMeta.rep.fullName) || '';
+
+    // "From" mailbox: prefer the case's already-pinned rep mailbox (AHPRA
+    // already recognises it), else this task's own new RSO. CC is always the
+    // doctor + THIS task's new RSO regardless of which mailbox actually sends.
+    var fromEmail = sndCaseRow.ahpra_auth_rep_email || repEmail;
+    var fromName = repFullName;
+    if (sndCaseRow.ahpra_auth_rep_email && sndCaseRow.ahpra_auth_rep_user_id) {
+      const pinnedRes = await supabaseDbRequest('rso_team',
+        'select=name,first_name,last_name&user_id=eq.' + encodeURIComponent(sndCaseRow.ahpra_auth_rep_user_id) + '&limit=1');
+      const pinnedRso = (pinnedRes.ok && pinnedRes.data && pinnedRes.data[0]) ? pinnedRes.data[0] : null;
+      if (pinnedRso) {
+        fromName = [pinnedRso.first_name, pinnedRso.last_name].filter(function (s) { return s && String(s).trim(); }).join(' ').trim() || pinnedRso.name || fromName;
+      }
+    }
+    if (!fromEmail) { sendJson(res, 400, { ok: false, message: 'No sending mailbox is configured for this representative — contact your registration officer.' }); return; }
+
+    var ccList = [doctorEmail, repEmail].filter(function (e) { return e && String(e).trim(); });
+    ccList = ccList.filter(function (e, i) { return ccList.indexOf(e) === i; }); // dedupe (defensive)
+
+    const applicantName = (((sndMeta.applicant && sndMeta.applicant.firstName) || '') + ' ' + ((sndMeta.applicant && sndMeta.applicant.familyName) || '')).trim() || 'the applicant';
+    const officerLabel = sndCaseRow.ahpra_officer_name ? sndCaseRow.ahpra_officer_name : 'AHPRA Team';
+
+    const emailResult = await sendGmailEmail({
+      from: fromEmail,
+      fromName: fromName || 'GP Link Registration Team',
+      to: recipientEmail,
+      cc: ccList.join(', '),
+      replyTo: doctorEmail || undefined,
+      subject: 'AHPRA Representative Nomination (ANOM-00) — Dr ' + applicantName,
+      bodyHtml: '<p>Dear ' + officerLabel + ',</p>' +
+        '<p>Please find attached the completed Authorised Representative Nomination Form (ANOM-00) for Dr ' + applicantName + ', nominating ' + (repFullName || 'the new authorised representative') + ' as the authorised representative for this application.</p>' +
+        '<p>The form has been signed by both the applicant and the authorised representative.</p>' +
+        '<p>Kind regards,<br>GP Link Registration Team</p>',
+      attachments: [{
+        filename: 'ANOM-00.pdf',
+        mimeType: 'application/pdf',
+        content: sndPdfBase64
+      }],
+      caseId: sndTask.case_id
+    });
+    if (!emailResult.ok) { sendJson(res, 502, { ok: false, message: 'Failed to send the email: ' + (emailResult.error || '') }); return; }
+
+    // NOTE: task.status deliberately stays 'waiting_on_gp' — see the matching
+    // note in the /submit handler above.
+    const sndNowIso = new Date().toISOString();
+    sndMeta.rep_change_state = 'waiting_on_ahpra';
+    sndMeta.sent_to_ahpra_at = sndNowIso;
+    sndMeta.ahpra_recipient_email = recipientEmail;
+    sndMeta.ahpra_gmail_message_id = emailResult.gmailMessageId || null;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(sndToken), {
+      method: 'PATCH',
+      body: { metadata: sndMeta, updated_at: sndNowIso }
+    });
+
+    await _logCaseEvent(sndTask.case_id, sndToken, 'system', 'ANOM-00 sent to AHPRA', 'Sent to ' + recipientEmail, sndEmail);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -46799,6 +47149,7 @@ module.exports.rsoNeedsOnboarding = rsoNeedsOnboarding;
 module.exports.rsoCanBeAhpraRep = rsoCanBeAhpraRep;
 module.exports.buildRepSectionData = buildRepSectionData;
 module.exports.shouldTriggerRepChange = shouldTriggerRepChange;
+module.exports.resolveAhpraSubmissionRecipient = resolveAhpraSubmissionRecipient;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   buildRsoWritePayload,
@@ -46807,6 +47158,7 @@ module.exports.__testUtils = {
   buildRepSectionData,
   shouldTriggerRepChange,
   _ensureRepChangeTask,
+  resolveAhpraSubmissionRecipient,
   ahpraConfidentMatch,
   buildAhpraGpDeliveryItem,
   selectSppaReplyMessage,

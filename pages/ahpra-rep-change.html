@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Confirm your AHPRA representative — GP Link</title>
+<script src="/js/nav-shell-bridge.js?v=20260608a"></script>
+<script src="/js/auth-guard.js?v=20260614a" defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+<script src="/js/signature-pad.js?v=20260702a"></script>
+<style>
+  /* ANOM-00 change-of-representative — doctor in-app completion page.
+     Mirrors docs/mockups/anom00-rep-change-prototype.html #s6 (complete &
+     sign), #s7 (review & send), #s8 (done). All --gp-* tokens come from
+     gp-tokens.css (loaded above) — this block only adds page-specific
+     layout, not a new token set. */
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:var(--gp-font-body);color:var(--gp-text);background:var(--gp-canvas);-webkit-font-smoothing:antialiased}
+
+  .rc-shell{min-height:100vh;display:flex;justify-content:center}
+  .rc-page{width:100%;max-width:480px;background:var(--gp-surface);min-height:100vh}
+  @media (min-width:640px){
+    .rc-shell{padding:32px 16px;align-items:flex-start}
+    .rc-page{min-height:0;border-radius:var(--gp-r-xl);box-shadow:var(--gp-shadow-md);overflow:hidden}
+  }
+
+  .hero{background:radial-gradient(120% 100% at 88% -20%,rgba(46,107,240,.28),transparent 55%),var(--gp-grad-hero);padding:28px 20px 20px;color:#fff}
+  .rc-brand{font-size:12px;font-weight:800;letter-spacing:.02em;color:rgba(255,255,255,.55);margin-bottom:16px}
+  .rc-brand b{color:#fff}
+  .hero-row{display:flex;align-items:center;gap:11px}
+  .hero-avatar{width:40px;height:40px;border-radius:50%;background:var(--gp-grad-brand);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0}
+  .hero-name{font-family:var(--gp-font-display);font-size:15px;font-weight:600}
+  .hero-sub{font-size:12px;color:rgba(255,255,255,.45);margin-top:1px}
+  .eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.6);margin:18px 0 6px}
+  .hero-title{font-family:var(--gp-font-display);font-size:21px;font-weight:700;line-height:1.25}
+  .hero-lead{font-size:13px;color:rgba(255,255,255,.66);margin-top:7px;line-height:1.55}
+  .progress-dots{display:flex;gap:5px;margin-top:16px}
+  .progress-dots i{height:4px;flex:1;border-radius:99px;background:rgba(255,255,255,.18)}
+  .progress-dots i.on{background:#4ade80}
+
+  .p-body{padding:16px 16px 30px}
+  .p-card{background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);padding:16px;box-shadow:var(--gp-shadow-sm);margin-bottom:13px}
+  .p-card h3{font-size:14px;font-weight:800;color:var(--gp-ink);margin:0 0 10px}
+
+  .field{margin-bottom:11px}
+  .field:last-of-type{margin-bottom:0}
+  .field label{display:block;font-size:11px;font-weight:700;color:var(--gp-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+  .field input{width:100%;padding:10px 12px;border-radius:var(--gp-r-md);border:1px solid var(--gp-border-strong);font-size:14px;font-family:inherit;color:var(--gp-ink);background:#fff}
+  .field input:focus{outline:none;border-color:var(--gp-blue);box-shadow:var(--gp-focus-ring)}
+  .prefill-note{font-size:11px;color:var(--gp-green-ink);background:var(--gp-green-soft);border:1px solid var(--gp-green-border);padding:6px 9px;border-radius:8px;margin-top:10px;font-weight:600}
+
+  .check{display:flex;gap:11px;padding:12px;border:1px solid var(--gp-border);border-radius:var(--gp-r-md);margin-bottom:9px;background:#fff;cursor:pointer;transition:all .13s;user-select:none}
+  .check:last-child{margin-bottom:0}
+  .check.on{border-color:var(--gp-blue-border);background:var(--gp-blue-soft)}
+  .check .box{flex:0 0 22px;height:22px;border-radius:7px;border:2px solid var(--gp-border-strong);display:grid;place-items:center;margin-top:1px;transition:all .13s}
+  .check.on .box{background:var(--gp-blue);border-color:var(--gp-blue);color:#fff}
+  .check .box svg{opacity:0}
+  .check.on .box svg{opacity:1}
+  .check .txt{font-size:13px;color:var(--gp-text);line-height:1.5}
+
+  .sig-wrap{border:1.5px dashed var(--gp-border-strong);border-radius:var(--gp-r-md);background:#fff;position:relative;overflow:hidden}
+  .sig-wrap.signed{border-style:solid;border-color:var(--gp-green-border);background:var(--gp-green-soft)}
+  .sig-canvas{display:block;width:100%;height:150px;touch-action:none;cursor:crosshair}
+  .sig-base{position:absolute;left:16px;right:16px;bottom:34px;border-bottom:1px solid var(--gp-border-strong);pointer-events:none}
+  .sig-hint{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:11px;color:var(--gp-faint);pointer-events:none}
+  .sig-x{position:absolute;left:16px;bottom:36px;font-size:16px;color:var(--gp-faint);pointer-events:none}
+  .sig-tools{display:flex;justify-content:space-between;align-items:center;margin-top:7px}
+  .sig-clear{font-size:12px;font-weight:700;color:var(--gp-muted);background:none;border:none;cursor:pointer;padding:4px;font-family:inherit}
+  .sig-clear:hover{color:var(--gp-red)}
+  .sig-status{font-size:12px;font-weight:700;color:var(--gp-green-ink);display:none;align-items:center;gap:5px}
+
+  .rc-hint{font-size:11px;color:var(--gp-muted);text-align:center;margin-top:9px}
+  .rc-error{font-size:12px;color:var(--gp-red-ink);background:var(--gp-red-soft);border:1px solid var(--gp-red-border);padding:9px 11px;border-radius:9px;margin-top:11px}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 16px;border-radius:var(--gp-r-md);font-size:13.5px;font-weight:700;border:1px solid var(--gp-border-strong);background:#fff;color:var(--gp-text);cursor:pointer;transition:all .13s;font-family:inherit}
+  .btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .btn.primary{background:var(--gp-blue);color:#fff;border-color:var(--gp-blue)}
+  .btn.primary:hover:not(:disabled){background:var(--gp-blue-deep)}
+  .btn.primary:disabled{background:#c7d2e6;border-color:#c7d2e6;cursor:not-allowed}
+  .btn.wide{width:100%;margin-top:2px}
+
+  .mini-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--gp-surface-sunken);font-size:13px}
+  .mini-row:last-child{border-bottom:0}
+  .mini-row .k{color:var(--gp-muted)}
+  .mini-row .v{font-weight:700;color:var(--gp-ink);text-align:right}
+  .mini-row .v.ok{color:var(--gp-green-ink)}
+
+  .doc-strip{background:#0e2c4d;color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px}
+  .doc-tag{font-size:12px;font-weight:800;background:#123a63;padding:2px 8px;border-radius:5px}
+
+  .banner{display:flex;gap:10px;padding:12px 13px;border-radius:var(--gp-r-md);font-size:12.5px;line-height:1.5;margin-bottom:13px}
+  .banner.blue{background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);color:var(--gp-blue-deep)}
+
+  .success-badge{width:60px;height:60px;border-radius:50%;background:var(--gp-green);display:grid;place-items:center;margin:4px auto 14px;color:#fff;box-shadow:0 0 0 8px var(--gp-green-soft)}
+  .success-title{font-family:var(--gp-font-display);font-size:19px;font-weight:700;color:var(--gp-ink);text-align:center}
+  .success-lead{font-size:13px;color:var(--gp-muted);margin:8px auto 0;line-height:1.55;max-width:290px;text-align:center}
+
+  .rc-loading{text-align:center;color:var(--gp-muted);font-size:13px;padding:8px 4px}
+</style>
+</head>
+<body>
+<div class="rc-shell">
+  <div class="rc-page">
+    <div class="hero">
+      <div class="rc-brand">GP <b>LINK</b></div>
+      <div id="rcHero"></div>
+    </div>
+    <div class="p-body" id="rcBody"></div>
+  </div>
+</div>
+
+<script defer>
+(function () {
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+  var TOKEN = params.get("token") || "";
+  var DATA = null;
+  var gpPad = null;
+
+  var heroEl = document.getElementById("rcHero");
+  var bodyEl = document.getElementById("rcBody");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function checkIcon(size) {
+    var s = size || 13;
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  }
+  function sendIcon() {
+    return '<svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+  }
+
+  function initials(applicant) {
+    var f = applicant && applicant.firstName ? String(applicant.firstName).trim().charAt(0) : "";
+    var l = applicant && applicant.familyName ? String(applicant.familyName).trim().charAt(0) : "";
+    var s = (f + l).toUpperCase();
+    return s || "GP";
+  }
+  function fullDoctorName(applicant) {
+    if (!applicant) return "there";
+    var parts = [applicant.firstName, applicant.familyName].filter(function (x) { return x && String(x).trim(); });
+    return parts.length ? ("Dr " + parts.join(" ")) : "there";
+  }
+
+  function isOn(key) {
+    var el = document.querySelector('.check[data-auth="' + key + '"]');
+    return !!(el && el.classList.contains("on"));
+  }
+  function val(id) {
+    var el = document.getElementById(id);
+    return el ? el.value.trim() : "";
+  }
+
+  function setHero(opts) {
+    var dots = "";
+    for (var i = 0; i < 3; i++) dots += '<i class="' + (i < opts.dots ? "on" : "") + '"></i>';
+    heroEl.innerHTML =
+      '<div class="hero-row"><div class="hero-avatar">' + esc(initials(DATA && DATA.applicant)) + '</div>' +
+      '<div><div class="hero-name">' + esc(fullDoctorName(DATA && DATA.applicant)) + '</div>' +
+      '<div class="hero-sub">AHPRA &middot; representative update</div></div></div>' +
+      '<div class="eyebrow">' + esc(opts.eyebrow) + '</div>' +
+      '<div class="hero-title">' + esc(opts.title) + '</div>' +
+      (opts.lead ? '<div class="hero-lead">' + esc(opts.lead) + '</div>' : '') +
+      '<div class="progress-dots">' + dots + '</div>';
+  }
+
+  function showLoading() {
+    heroEl.innerHTML =
+      '<div class="hero-row"><div class="hero-avatar">GP</div><div><div class="hero-name">GP Link</div>' +
+      '<div class="hero-sub">AHPRA &middot; representative update</div></div></div>' +
+      '<div class="eyebrow">One moment</div><div class="hero-title">Loading your form&hellip;</div>' +
+      '<div class="progress-dots"><i></i><i></i><i></i></div>';
+    bodyEl.innerHTML = '<div class="p-card rc-loading">Loading&hellip;</div>';
+  }
+
+  function showError(msg) {
+    heroEl.innerHTML =
+      '<div class="hero-row"><div class="hero-avatar">!</div><div><div class="hero-name">GP Link</div>' +
+      '<div class="hero-sub">AHPRA &middot; representative update</div></div></div>' +
+      '<div class="eyebrow">Something isn&rsquo;t right</div><div class="hero-title">We couldn&rsquo;t open this form</div>';
+    bodyEl.innerHTML = '<div class="p-card"><p style="font-size:13px;color:var(--gp-muted);line-height:1.55;margin:0">' +
+      esc(msg || "This link may have expired. Please contact your registration officer.") + '</p></div>';
+  }
+
+  function renderNotReady() {
+    setHero({ eyebrow: "Almost there", title: "Not quite ready yet", dots: 0,
+      lead: "Your registration officer hasn’t finished sending this form to you yet." });
+    bodyEl.innerHTML = '<div class="p-card"><p style="font-size:13px;color:var(--gp-muted);line-height:1.55;margin:0">' +
+      'Check back again soon, or reply to the email you received for an update.</p></div>';
+  }
+
+  function updateBuildButton() {
+    var btn = document.getElementById("rcBuildBtn");
+    var hint = document.getElementById("rcBuildHint");
+    if (!btn) return;
+    var allChecked = ["communicate", "act", "receive"].every(isOn);
+    var signed = !!(gpPad && !gpPad.isEmpty());
+    btn.disabled = !(allChecked && signed);
+    if (hint) hint.style.display = btn.disabled ? "block" : "none";
+  }
+
+  function initSigPad() {
+    var canvas = document.getElementById("gpSigCanvas");
+    if (!canvas || !window.GPSignaturePad) return;
+    gpPad = window.GPSignaturePad.attach(canvas, {
+      onChange: function (isEmpty) {
+        var wrap = document.getElementById("gpSigWrap");
+        var status = document.getElementById("gpSigStatus");
+        if (wrap) wrap.classList.toggle("signed", !isEmpty);
+        if (status) status.style.display = isEmpty ? "none" : "inline-flex";
+        updateBuildButton();
+      }
+    });
+    var clearBtn = document.getElementById("gpSigClear");
+    if (clearBtn) clearBtn.addEventListener("click", function () { if (gpPad) gpPad.clear(); });
+  }
+
+  function renderStep6() {
+    var a = DATA.applicant || {};
+    var repName = DATA.repName || "your new representative";
+    setHero({
+      eyebrow: "Authorise your representative",
+      title: "Confirm " + repName + " as your AHPRA rep",
+      lead: repName + " is taking over your AHPRA registration. Confirm the details below and add your signature.",
+      dots: 1
+    });
+    bodyEl.innerHTML =
+      '<div class="p-card">' +
+        '<h3>Your details</h3>' +
+        '<div class="field"><label>Family name</label><input id="fFamily" value="' + esc(a.familyName) + '" /></div>' +
+        '<div class="field"><label>First name</label><input id="fFirst" value="' + esc(a.firstName) + '" /></div>' +
+        '<div class="field"><label>Middle name</label><input id="fMiddle" value="' + esc(a.middleName) + '" /></div>' +
+        '<div class="field"><label>Date of birth</label><input id="fDob" value="' + esc(a.dob) + '" placeholder="DD/MM/YYYY" /></div>' +
+        '<div class="prefill-note">Pre-filled from your profile &mdash; tap any field to edit.</div>' +
+      '</div>' +
+      '<div class="p-card">' +
+        '<h3>I authorise ' + esc(repName) + ' to:</h3>' +
+        '<div class="check on" data-auth="communicate"><span class="box">' + checkIcon() + '</span><span class="txt">communicate with AHPRA on my behalf about my application</span></div>' +
+        '<div class="check on" data-auth="act"><span class="box">' + checkIcon() + '</span><span class="txt">act as reasonably necessary to progress my application</span></div>' +
+        '<div class="check on" data-auth="receive"><span class="box">' + checkIcon() + '</span><span class="txt">receive formal correspondence from AHPRA about it</span></div>' +
+      '</div>' +
+      '<div class="p-card">' +
+        '<h3>Your signature</h3>' +
+        '<div class="sig-wrap" id="gpSigWrap"><canvas class="sig-canvas" id="gpSigCanvas"></canvas>' +
+        '<div class="sig-x">&#10005;</div><div class="sig-base"></div><div class="sig-hint">Sign with your finger or mouse</div></div>' +
+        '<div class="sig-tools"><button type="button" class="sig-clear" id="gpSigClear">Clear</button>' +
+        '<span class="sig-status" id="gpSigStatus">' + checkIcon() + ' Signed</span></div>' +
+        '<button class="btn primary wide" id="rcBuildBtn" disabled style="margin-top:14px">Build my form &rarr;</button>' +
+        '<div class="rc-hint" id="rcBuildHint">Tick all three boxes above and sign to continue.</div>' +
+        '<div id="rcSubmitError" class="rc-error" style="display:none"></div>' +
+      '</div>';
+
+    document.querySelectorAll("#rcBody .check").forEach(function (chk) {
+      chk.addEventListener("click", function () {
+        chk.classList.toggle("on");
+        updateBuildButton();
+      });
+    });
+    initSigPad();
+    document.getElementById("rcBuildBtn").addEventListener("click", buildForm);
+    updateBuildButton();
+  }
+
+  function buildForm() {
+    var btn = document.getElementById("rcBuildBtn");
+    var errEl = document.getElementById("rcSubmitError");
+    if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+    var png = gpPad ? gpPad.toPNG() : "";
+    if (!png) {
+      if (errEl) { errEl.style.display = "block"; errEl.textContent = "Please sign before continuing."; }
+      return;
+    }
+    btn.disabled = true;
+    var originalLabel = btn.textContent;
+    btn.textContent = "Building…";
+
+    var payload = {
+      gpSignaturePng: png,
+      authorisations: {
+        communicate: isOn("communicate"),
+        act: isOn("act"),
+        receive: isOn("receive"),
+        authorises: isOn("communicate") && isOn("act") && isOn("receive")
+      },
+      applicant: {
+        familyName: val("fFamily"),
+        firstName: val("fFirst"),
+        middleName: val("fMiddle"),
+        dob: val("fDob")
+      }
+    };
+
+    fetch("/api/ahpra/rep-change/" + encodeURIComponent(TOKEN) + "/submit", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        if (res.status !== 200 || !res.body || !res.body.ok) {
+          throw new Error((res.body && res.body.message) || "Something went wrong — please try again.");
+        }
+        DATA.repChangeState = "ready_to_send";
+        DATA.recipientEmail = res.body.recipientEmail || DATA.recipientEmail;
+        DATA.recipientName = res.body.recipientName || DATA.recipientName;
+        renderStep7();
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        if (errEl) { errEl.style.display = "block"; errEl.textContent = e.message; }
+      });
+  }
+
+  function renderStep7() {
+    setHero({ eyebrow: "Almost done", title: "Send your form to AHPRA", dots: 2 });
+    var recipLabel = DATA.recipientName ? (DATA.recipientName + " · AHPRA officer") : (DATA.recipientEmail || "AHPRA");
+    bodyEl.innerHTML =
+      '<div class="p-card" style="padding:0;overflow:hidden">' +
+        '<div class="doc-strip"><span>ANOM-00 &middot; ready</span><span class="doc-tag">PDF</span></div>' +
+        '<div style="padding:14px">' +
+          '<div class="mini-row"><span class="k">Representative</span><span class="v">' + esc(DATA.repName || "—") + '</span></div>' +
+          '<div class="mini-row"><span class="k">Sends to</span><span class="v">' + esc(recipLabel) + '</span></div>' +
+          '<div class="mini-row"><span class="k">Representative signature</span><span class="v ok">&#10003; included</span></div>' +
+          '<div class="mini-row"><span class="k">Your signature</span><span class="v ok">&#10003; included</span></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="banner blue">Tapping send emails your AHPRA officer directly with the form attached, and copies you and ' +
+        esc(DATA.repName || "your registration officer") + ' so everyone has a record.</div>' +
+      '<button class="btn primary wide" id="rcSendBtn">' + sendIcon() + ' Send to AHPRA</button>' +
+      '<div id="rcSendError" class="rc-error" style="display:none"></div>';
+    document.getElementById("rcSendBtn").addEventListener("click", sendToAhpra);
+  }
+
+  function sendToAhpra() {
+    var btn = document.getElementById("rcSendBtn");
+    var errEl = document.getElementById("rcSendError");
+    if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+    btn.disabled = true;
+    var originalLabel = btn.innerHTML;
+    btn.textContent = "Sending…";
+
+    fetch("/api/ahpra/rep-change/" + encodeURIComponent(TOKEN) + "/send", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        if (res.status !== 200 || !res.body || !res.body.ok) {
+          throw new Error((res.body && res.body.message) || "Something went wrong — please try again.");
+        }
+        DATA.repChangeState = "waiting_on_ahpra";
+        renderStep8();
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
+        if (errEl) { errEl.style.display = "block"; errEl.textContent = e.message; }
+      });
+  }
+
+  function renderStep8() {
+    var confirmed = DATA.repChangeState === "completed";
+    var repName = DATA.repName || "Your registration officer";
+    setHero({ eyebrow: confirmed ? "All done" : "Sent", title: confirmed ? "AHPRA confirmed the change" : "Sent to AHPRA", dots: 3 });
+    bodyEl.innerHTML =
+      '<div class="p-card" style="padding:26px 18px">' +
+        '<div class="success-badge">' + checkIcon(28) + '</div>' +
+        '<div class="success-title">' + (confirmed ? "AHPRA confirmed the change" : "Your form is on its way") + '</div>' +
+        '<div class="success-lead">' + (confirmed
+          ? (esc(repName) + " is now your recognised AHPRA representative.")
+          : "We’ll let you know the moment AHPRA confirms the change.") + '</div>' +
+      '</div>' +
+      '<div class="p-card"><h3>What happens next</h3>' +
+        '<div class="mini-row"><span class="k">AHPRA reviews the form</span><span class="v">1&ndash;2 weeks</span></div>' +
+        '<div class="mini-row"><span class="k">' + esc(repName) + ' becomes your rep</span><span class="v' + (confirmed ? ' ok' : '') + '">' + (confirmed ? "Confirmed" : "On confirmation") + '</span></div>' +
+        '<div class="mini-row"><span class="k">You need to do</span><span class="v ok">Nothing</span></div>' +
+      '</div>';
+  }
+
+  function route() {
+    switch (DATA.repChangeState) {
+      case "waiting_on_gp": renderStep6(); break;
+      case "ready_to_send": renderStep7(); break;
+      case "waiting_on_ahpra":
+      case "completed": renderStep8(); break;
+      default: renderNotReady();
+    }
+  }
+
+  function load() {
+    if (!TOKEN) { showError("This link is missing some information. Please use the link from your email."); return; }
+    showLoading();
+    fetch("/api/ahpra/rep-change/" + encodeURIComponent(TOKEN), { credentials: "same-origin" })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        if (res.status !== 200 || !res.body || !res.body.ok) {
+          throw new Error((res.body && res.body.message) || "This link is no longer valid.");
+        }
+        DATA = res.body;
+        route();
+      })
+      .catch(function (e) { showError(e.message); });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

@@ -10,7 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import signaturePad from '../js/signature-pad.js';
-import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData, shouldTriggerRepChange } from '../server.js';
+import * as server from '../server.js';
+import { rsoNeedsOnboarding, rsoCanBeAhpraRep, buildRepSectionData, shouldTriggerRepChange, resolveAhpraSubmissionRecipient } from '../server.js';
 
 const MIGRATION_PATH = 'supabase/migrations/20260702120000_ahpra_rep_change.sql';
 
@@ -330,5 +331,40 @@ describe('shouldTriggerRepChange', () => {
     expect(shouldTriggerRepChange(undefined, 'new')).toBe(false);
     expect(shouldTriggerRepChange(null, 'new')).toBe(false);
     expect(shouldTriggerRepChange({}, 'new')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 7 (D5): resolveAhpraSubmissionRecipient — pure recipient resolver the
+// /api/ahpra/rep-change/:token/send endpoint uses to address the finished
+// ANOM-00: the doctor's assigned AHPRA officer email when one is on file
+// (dynamic, per case), else the AHPRA authorised-representatives team mailbox
+// (spec §3 decision 5 / §4 D5). Exported both as a named export and via
+// __testUtils, matching the brief's exact interface + this file's existing
+// dual-export convention for the feature's other pure helpers.
+// ---------------------------------------------------------------------------
+describe('resolveAhpraSubmissionRecipient', () => {
+  it('sends to the assigned officer, else authreps fallback', () => {
+    expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: 'j.whitfield@ahpra.gov.au' })).toBe('j.whitfield@ahpra.gov.au');
+    expect(resolveAhpraSubmissionRecipient({})).toBe('authreps@ahpra.gov.au');
+  });
+
+  it('is reachable via server.__testUtils as well as the named export', () => {
+    expect(server.__testUtils.resolveAhpraSubmissionRecipient({ ahpra_officer_email: 'j.whitfield@ahpra.gov.au' })).toBe('j.whitfield@ahpra.gov.au');
+  });
+
+  it('falls back when the officer email is missing, null, or blank/whitespace', () => {
+    expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: null })).toBe('authreps@ahpra.gov.au');
+    expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: '' })).toBe('authreps@ahpra.gov.au');
+    expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: '   ' })).toBe('authreps@ahpra.gov.au');
+  });
+
+  it('is null-safe against a missing/empty caseRow', () => {
+    expect(resolveAhpraSubmissionRecipient(undefined)).toBe('authreps@ahpra.gov.au');
+    expect(resolveAhpraSubmissionRecipient(null)).toBe('authreps@ahpra.gov.au');
+  });
+
+  it('trims stray whitespace around a real officer email', () => {
+    expect(resolveAhpraSubmissionRecipient({ ahpra_officer_email: '  j.whitfield@ahpra.gov.au  ' })).toBe('j.whitfield@ahpra.gov.au');
   });
 });

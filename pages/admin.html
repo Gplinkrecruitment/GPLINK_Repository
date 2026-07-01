@@ -5956,7 +5956,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     // Already sent: waiting-on-doctor tracker + "Confirmed by AHPRA" button (prototype screen 4).
-    if(meta.rep_change_state==='waiting_on_gp'||meta.rep_change_state==='waiting_on_ahpra'){
+    // Includes 'ready_to_send' (Task 7: the doctor has built their half but not
+    // yet tapped "Send to AHPRA" themselves) — without it this state fell
+    // through to the screen-3 "sign & send" UI below, as if the RSO still had
+    // to sign, even though they already have.
+    if(meta.rep_change_state==='waiting_on_gp'||meta.rep_change_state==='waiting_on_ahpra'||meta.rep_change_state==='ready_to_send'){
       var h4='<div class="ops-expand-section">';
       h4+='<div class="ops-expand-label">ANOM-00 sent to '+esc(gpName)+'</div>';
       h4+='<div style="margin-bottom:10px">';
