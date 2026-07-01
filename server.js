@@ -3403,7 +3403,13 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       s80: true,
       bundle_id: bundleId,
       reference: reference || null,
-      review_status: 'pending_review',
+      // opts.release => the RSO already reviewed the officer request on the 6-card front door
+      // (Send to GP), so skip the holding-tray and go straight live to the GP/team.
+      review_status: opts.release ? 'active' : 'pending_review',
+      released_at: opts.release ? (opts.nowIso || new Date().toISOString()) : null,
+      // Link every fanned-out item back to the originating ahpra_correspondence card so the
+      // deliver endpoint's idempotency check (source_card_task_id) catches a re-click.
+      source_card_task_id: opts.sourceCardTaskId || null,
       owner: item.owner,
       mode: item.mode,
       kind: item.kind || '',
@@ -3428,7 +3434,7 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       title: String(item.title || 'AHPRA requested item').slice(0, 200),
       description: ahpraS80.shortDescription(item),
       priority: 'high',
-      status: 'waiting',
+      status: opts.release ? (item.owner === 'gp' ? 'waiting_on_gp' : 'open') : 'waiting',
       due_date: dueDate,
       source_trigger: opts.sourceTrigger || 'ahpra_officer_email',
       related_stage: 'ahpra',
@@ -39011,7 +39017,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!admin) return;
     const cardId = pathname.split('/')[5];
     const cardRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,task_type,title,description,due_date,metadata&id=eq.' + encodeURIComponent(cardId) + '&limit=1');
+      'select=id,case_id,task_type,title,description,due_date,metadata,source_gmail_message_id,gmail_thread_id,email_sender&id=eq.' + encodeURIComponent(cardId) + '&limit=1');
     if (!cardRes.ok || !cardRes.data || !cardRes.data[0]) { sendJson(res, 404, { ok: false, error: 'task not found' }); return; }
     const card = cardRes.data[0];
     if (!card.case_id) { sendJson(res, 400, { ok: false, error: 'task has no case' }); return; }
@@ -39032,28 +39038,80 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const gpItem = await _createRegTask(card.case_id, Object.assign(
-      buildAhpraGpDeliveryItem(card, cardMeta, new Date().toISOString()),
-      { _actor: admin.email }
-    ));
-    if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
+    const nowIso = new Date().toISOString();
+    const cRes0 = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(card.case_id) + '&limit=1');
+    const gpUserId = (cRes0.ok && Array.isArray(cRes0.data) && cRes0.data[0]) ? cRes0.data[0].user_id : null;
+    const officer = (cardMeta.ahpra_officer_email || cardMeta.ahpra_officer_name)
+      ? { name: cardMeta.ahpra_officer_name || '', email: cardMeta.ahpra_officer_email || '' } : null;
+    let fannedOut = false, fanCreated = 0, notifyGp = true, gpTaskId = null;
 
-    // Notify the GP in-app + push.
-    try {
-      const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(card.case_id) + '&limit=1');
-      const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
-      if (uid) {
-        await pushDocumentNotificationToUser(uid, {
+    // For a section-80 "request from GP" notice, fan the officer's request out into the per-document
+    // s80 items — GP-owned upload items (shown on the doctor's AHPRA page) plus team items (SPPA-00
+    // corrector, PSV guidance call, request-from-institution, …). This reconnects the s80 pipeline to
+    // the 6-card front door. The RSO's review of THIS card IS the review step, so the items are
+    // released live (opts.release) rather than parked in the holding tray. Any other card type
+    // (amend_document, direct_reply→GP, …) keeps the single lumped item — it is genuinely one thing.
+    if (cardMeta.response_type === 'request_from_gp') {
+      try {
+        // The card column only stores a 500-char snippet; the officer's FULL email body is on the
+        // card's inbound task_message — pull it so the extraction sees the whole request.
+        const msgRes = await supabaseDbRequest('task_messages',
+          'select=body_text,subject,sender,gmail_message_id,gmail_thread_id&task_id=eq.' + encodeURIComponent(cardId) +
+          '&direction=eq.inbound&order=created_at.asc&limit=1');
+        const msg = (msgRes.ok && Array.isArray(msgRes.data) && msgRes.data[0]) ? msgRes.data[0] : null;
+        const bodyText = (msg && msg.body_text) ? msg.body_text : (card.description || cardMeta.summary || '');
+        if (bodyText && bodyText.trim()) {
+          const deliverEmailMeta = {
+            subject: (msg && msg.subject) || cardMeta.email_subject || card.title || '',
+            sender: (msg && msg.sender) || card.email_sender || (officer && officer.email) || '',
+            bodyText: bodyText,
+            threadId: (msg && msg.gmail_thread_id) || card.gmail_thread_id || ''
+          };
+          const country = gpUserId ? await _resolveGpCountry(gpUserId) : 'uk';
+          const extraction = await extractAhpraActionItems(deliverEmailMeta, { officer: officer, country: country });
+          if (extraction && Array.isArray(extraction.items) && extraction.items.length > 0) {
+            const bundle = await _createAhpraS80Bundle({ id: card.case_id, user_id: gpUserId }, deliverEmailMeta,
+              (msg && msg.gmail_message_id) || card.source_gmail_message_id || cardId, extraction,
+              { sourceTrigger: 'ahpra_card_delivery', release: true, sourceCardTaskId: cardId, nowIso: nowIso,
+                officer: officer, country: country, force: true });
+            if (bundle && bundle.created > 0) {
+              fannedOut = true;
+              fanCreated = bundle.created;
+              notifyGp = extraction.items.some(function (it) { return it && it.owner === 'gp'; });
+            }
+          }
+        }
+      } catch (fanErr) {
+        console.error('[AHPRA deliver] s80 fan-out failed, falling back to single item:', fanErr.message);
+      }
+    }
+
+    // Fallback / non-request_from_gp: the original single lumped GP item so a notice is never lost.
+    if (!fannedOut) {
+      const gpItem = await _createRegTask(card.case_id, Object.assign(
+        buildAhpraGpDeliveryItem(card, cardMeta, nowIso),
+        { _actor: admin.email }
+      ));
+      if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
+      gpTaskId = gpItem.id;
+    }
+
+    // Notify the GP in-app + push (only when they actually have items to action).
+    if (notifyGp && gpUserId) {
+      try {
+        await pushDocumentNotificationToUser(gpUserId, {
           type: 'action_required',
           title: 'AHPRA has requested more information',
           detail: 'Please open your AHPRA page to see what is needed and the deadline.'
         });
-      }
-    } catch (e) { /* non-critical */ }
+      } catch (e) { /* non-critical */ }
+    }
 
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cardId), { method: 'PATCH', body: { status: 'waiting_on_gp', updated_at: new Date().toISOString() } });
-    await _logCaseEvent(card.case_id, cardId, 'note', 'AHPRA request delivered to GP', 'Created an in-app AHPRA to-do for the GP and notified them.', admin.email);
-    sendJson(res, 200, { ok: true, gp_task_id: gpItem.id });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cardId), { method: 'PATCH', body: { status: 'waiting_on_gp', updated_at: nowIso } });
+    await _logCaseEvent(card.case_id, cardId, 'note', 'AHPRA request delivered to GP',
+      fannedOut ? ('Fanned the officer request into ' + fanCreated + ' AHPRA to-do item(s) for the GP/team.')
+                : 'Created an in-app AHPRA to-do for the GP and notified them.', admin.email);
+    sendJson(res, 200, { ok: true, gp_task_id: gpTaskId, fanned_out: fannedOut, items_created: fanCreated || 1 });
     return;
   }
 
