@@ -432,6 +432,23 @@
     font-size: 13px; line-height: 1.5; text-align: center;
   }
 
+  /* Subtle decline affordance under the main CTAs */
+  .decline-link {
+    background: none; border: none; padding: 6px 0 0;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px;
+    cursor: pointer; justify-self: center;
+    transition: color var(--gp-dur-fast) var(--gp-ease);
+  }
+  .decline-link:hover { color: var(--gp-text); }
+
+  .decline-note {
+    padding: 14px 16px; border-radius: var(--gp-r-md);
+    background: var(--gp-surface-sunken); border: 1px solid var(--gp-border-strong);
+    color: var(--gp-text);
+    font-size: 13.5px; line-height: 1.55; text-align: center;
+  }
+
   /* ── Officer ── */
   .officer-row { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
   .officer-avatar {
@@ -728,6 +745,8 @@
           Download Full Contract
         </a>
         <div class="contract-note" id="contractNote" hidden>Your full contract isn't in your documents yet — your GP Link officer will upload it here as soon as it's ready.</div>
+        <button type="button" class="decline-link" id="declineOfferBtn">I need to decline this offer</button>
+        <div class="decline-note" id="declineNote" hidden>Thanks for letting us know — your consultant will be in touch about next steps.</div>
       </div>
     </div>
 
@@ -873,9 +892,24 @@
     if (empty) empty.hidden = false;
   }
 
+  // ── Declined state: keep the offer visible but swap the decision CTAs for a
+  // supportive note (the consultant follows up from here). ──
+  var resolvedApplicationId = applicationId;
+  function showDeclinedState() {
+    var acceptBtn = document.getElementById('acceptOfferBtn');
+    var changesBtn = document.getElementById('requestChangesBtn');
+    var declineBtn = document.getElementById('declineOfferBtn');
+    var note = document.getElementById('declineNote');
+    if (acceptBtn) acceptBtn.hidden = true;
+    if (changesBtn) changesBtn.hidden = true;
+    if (declineBtn) declineBtn.hidden = true;
+    if (note) note.hidden = false;
+  }
+
   // ── Populate the page from the real offer ──
   function renderOffer(data) {
     var offer = data.offer || {};
+    if (data.applicationId) resolvedApplicationId = String(data.applicationId);
     setText('practiceName', data.practiceName || 'Your offer');
     setText('roleLine', data.roleTitle || '');
     if (data.location) {
@@ -917,6 +951,8 @@
       document.getElementById('pageRoot').classList.add('accepted');
       try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
     }
+    // …and a declined offer shows the supportive follow-up note instead of the CTAs.
+    if (offer.status === 'declined') showDeclinedState();
   }
 
   // ── Fetch the real offer (?applicationId= / ?id=; server picks the latest live offer without one) ──
@@ -942,9 +978,43 @@
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ applicationId: applicationId || '' })
+          body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
         }).catch(function () { /* non-blocking */ });
       } catch (err) { /* non-blocking */ }
+    }
+
+    // ── Decline offer (subtle link → confirm → supportive note) ──
+    var declineBtn = e.target.closest('#declineOfferBtn');
+    if (declineBtn) {
+      if (!window.confirm('Decline this offer? Your consultant will be told and can talk through other options with you.')) return;
+      declineBtn.disabled = true;
+      fetch('/api/career/offer/decline', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (data && data.ok) {
+            showDeclinedState();
+          } else {
+            declineBtn.disabled = false;
+            var note = document.getElementById('declineNote');
+            if (note) {
+              note.textContent = "We couldn't record that just now — please try again, or message us on WhatsApp below.";
+              note.hidden = false;
+            }
+          }
+        })
+        .catch(function () {
+          declineBtn.disabled = false;
+          var note = document.getElementById('declineNote');
+          if (note) {
+            note.textContent = "We couldn't record that just now — please try again, or message us on WhatsApp below.";
+            note.hidden = false;
+          }
+        });
     }
   });
 
