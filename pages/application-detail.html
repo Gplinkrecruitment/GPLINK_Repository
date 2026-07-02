@@ -976,12 +976,12 @@
           }
         }
 
-        // Offer card — show when an offer is waiting (server flag for in-app
-        // ATS offers, offer-ish raw status for Zoho apps); deep-link with the
-        // application id so offer-review fetches the right offer.
-        var offerStatuses = ['offer', 'offer_pending', 'offered'];
-        var showOfferCard = app.offerPending === true
-          || offerStatuses.indexOf(normalizeStatusKey(app.rawStatus || app.status)) !== -1;
+        // Offer card — ONLY when the server says a live in-app offer is
+        // waiting (offerPending). An offer-ish raw status alone (Zoho-managed
+        // offer) must NOT link to offer-review.html: /api/career/my-offer has
+        // no record for it and the doctor would land on an empty page — the
+        // server sends "consultant will be in touch" statusLabel copy instead.
+        var showOfferCard = app.offerPending === true;
         var offerCard = document.getElementById('offerCard');
         if (offerCard) {
           offerCard.style.display = showOfferCard ? 'block' : 'none';

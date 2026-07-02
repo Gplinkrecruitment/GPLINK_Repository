@@ -7477,7 +7477,6 @@
     function normalizeCareerApplication(record) {
       const source = record && typeof record === "object" ? record : {};
       const meta = getApplicationStatusMeta(source.rawStatus || source.status);
-      const rawStatusKey = normalizeStatusKey(source.rawStatus || source.status);
       return {
         id: source.id || source.applicationId || "",
         roleId: source.roleId || "",
@@ -7491,8 +7490,10 @@
         statusLabel: source.statusLabel || "",
         tone: source.statusTone || meta.tone,
         statusTone: source.statusTone || "",
-        offerPending: source.offerPending === true
-          || (!source.statusLabel && ["offer", "offer_pending", "offered"].includes(rawStatusKey)),
+        // Server-decided ONLY: offerPending is true just when a live in-app
+        // offer exists (offer-review.html can't render Zoho offers, so an
+        // offer-ish raw status alone must NOT produce a "Review Offer" CTA).
+        offerPending: source.offerPending === true,
         isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
         meta: Array.isArray(source.meta) ? source.meta : [],
         placement: source.placement && typeof source.placement === "object" ? source.placement : null

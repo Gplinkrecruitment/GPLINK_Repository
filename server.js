@@ -13469,6 +13469,13 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
     if (offerStatus === 'sent') {
       return { status: 'offer', statusLabel: 'Offer waiting for you 🎉', statusTone: 'offer', offerPending: true };
     }
+    if (offerStatus === 'declined') {
+      // The doctor said no: the card stays in the Offer lane for consultant
+      // follow-up, but the doctor must not see "preparing an offer" again.
+      // (Withdrawn offers don't need a branch — the withdraw endpoint moves
+      // the stage back to 'reviewing', so they fall through to that copy.)
+      return { status: 'offer_declined', statusLabel: 'You declined this offer', statusTone: 'review', offerPending: false };
+    }
     return { status: 'offer', statusLabel: 'The practice is preparing an offer', statusTone: 'offer', offerPending: false };
   }
   if (stage === 'interview') {
@@ -17628,6 +17635,18 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
       // If newly secured, fetch practice contacts and build placement
       const wasSecured = isCareerPlacementSecuredStatus(localStatus);
       const nowSecured = isCareerPlacementSecuredStatus(liveStatus);
+      // NEVER DOWNGRADE a secured placement. An in-app offer acceptance
+      // (allowed on legacy Zoho apps while Zoho was disconnected) writes
+      // 'placement_secured' + the placement payload; if a reconnected Zoho
+      // still shows the stale pre-offer status, patching it back would strip
+      // the secured status AND rebuild gp_career_state from stale Zoho data,
+      // fighting the in-app placement. Skip the status patch, the placement
+      // rebuild and the gp_career_state write for this row entirely.
+      // Secured→secured updates (e.g. hired → contract_signed) may proceed.
+      if (wasSecured && !nowSecured) {
+        console.log('[ZohoRecruit sync] Skipping app', app.id, '— stored status', localStatus, 'is placement-secured; not downgrading to live Zoho status', liveStatus);
+        continue;
+      }
       if (nowSecured && !wasSecured) {
         // Resolve client ID from job opening
         let clientId = app.zoho_client_id || '';
@@ -24699,11 +24718,15 @@ async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
       body: 'Great news — your application for ' + roleLabel + ' has moved to the interview stage. We\'ll be in touch shortly to arrange a time.'
     };
   } else if (toStage === 'offer') {
+    // Page-agnostic on purpose: this fires for Zoho-lane offers via the
+    // reconciler, where NO in-app offer record exists — so it must not point
+    // the doctor at offer-review (an empty page). The dedicated in-app offer
+    // email (notifyGpOfferSent) is the one that deep-links to the offer.
     copy = {
       type: 'success',
       subject: 'You have an offer — GP Link',
       title: 'You have an offer!',
-      body: 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you ' + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role') + '. Open the app to review the details.'
+      body: 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you ' + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role') + '. Your consultant will walk you through the details.'
     };
   } else if (toStage === 'hired') {
     copy = {
@@ -28799,14 +28822,29 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // The client's "Review Offer" CTA links to offer-review.html, which only
+      // knows about IN-APP offers (/api/career/my-offer) — so offerPending is
+      // true ONLY when a live in-app offer record exists (status 'sent').
+      // A Zoho-offered app without one (offer runs inside Zoho) instead gets
+      // consultant-led copy and NO offer-review CTA, never an empty page.
+      let zohoOfferPending = false;
+      let zohoOfferLabel = '';
+      if (!internalPresentation
+          && (effectiveStatus === 'offer' || effectiveStatus === 'offer_pending' || effectiveStatus === 'offered')) {
+        let zohoLiveOffer = null;
+        if (localApp && localApp.id) {
+          try { zohoLiveOffer = await atsOffersStore.getAtsOfferByApplication(String(localApp.id)); } catch (offerErr) { zohoLiveOffer = null; }
+        }
+        zohoOfferPending = !!(zohoLiveOffer && zohoLiveOffer.status === 'sent');
+        if (!zohoOfferPending) zohoOfferLabel = 'Offer stage — your consultant will be in touch with the details';
+      }
+
       const entryPayload = {
         id: localApp && localApp.id ? localApp.id : (sanitizeZohoText(liveRecord && liveRecord.id) || providerRoleId || crypto.randomUUID()),
         status: effectiveStatus,
-        // The client's "Review Offer" action keys off this flag (works for
-        // both internal offers and Zoho offer-ish statuses).
         offerPending: internalPresentation
           ? internalPresentation.offerPending
-          : (effectiveStatus === 'offer' || effectiveStatus === 'offer_pending' || effectiveStatus === 'offered'),
+          : zohoOfferPending,
         appliedAt: (localApp && localApp.applied_at)
           || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
           || new Date().toISOString(),
@@ -28816,6 +28854,9 @@ async function handleApi(req, res, pathname) {
       if (internalPresentation) {
         entryPayload.statusLabel = internalPresentation.statusLabel;
         entryPayload.statusTone = internalPresentation.statusTone;
+      } else if (zohoOfferLabel) {
+        entryPayload.statusLabel = zohoOfferLabel;
+        entryPayload.statusTone = 'offer';
       }
       enriched.push(entryPayload);
     }
@@ -29037,12 +29078,26 @@ async function handleApi(req, res, pathname) {
       }
     } catch {}
 
+    // Same rule as the list payload: "Review Offer" only ever points at a REAL
+    // in-app offer (offer-review.html knows nothing about Zoho offers), so a
+    // Zoho-offered app without a live in-app offer gets consultant-led copy
+    // and NO offer CTA instead of a deep link to an empty page.
+    let detailZohoOfferPending = false;
+    let detailZohoOfferLabel = '';
+    if (!detailPresentation
+        && (status === 'offer' || status === 'offer_pending' || status === 'offered')) {
+      let detailZohoOffer = null;
+      try { detailZohoOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); } catch (offerErr) { detailZohoOffer = null; }
+      detailZohoOfferPending = !!(detailZohoOffer && detailZohoOffer.status === 'sent');
+      if (!detailZohoOfferPending) detailZohoOfferLabel = 'Offer stage — your consultant will be in touch with the details';
+    }
+
     const enrichedApp = {
       id: appRow.id,
       status,
       offerPending: detailPresentation
         ? detailPresentation.offerPending
-        : (status === 'offer' || status === 'offer_pending' || status === 'offered'),
+        : detailZohoOfferPending,
       appliedAt: appRow.applied_at || new Date().toISOString(),
       role: roleClient,
       placement,
@@ -29051,6 +29106,9 @@ async function handleApi(req, res, pathname) {
     if (detailPresentation) {
       enrichedApp.statusLabel = detailPresentation.statusLabel;
       enrichedApp.statusTone = detailPresentation.statusTone;
+    } else if (detailZohoOfferLabel) {
+      enrichedApp.statusLabel = detailZohoOfferLabel;
+      enrichedApp.statusTone = 'offer';
     }
 
     sendJson(res, 200, { ok: true, application: enrichedApp });
@@ -31382,6 +31440,20 @@ async function handleApi(req, res, pathname) {
             }
           } catch {}
         }
+        // Standalone ATS (Task F6): internal apps' pipeline truth is the
+        // kanban ats_stage — gp_applications.status stays 'applied' until the
+        // endpoints — so the RSO panel needs the same presented status the
+        // doctor sees (career.html). Zoho rows keep their raw status untouched.
+        if (isInternalCareerApplication(app, null)) {
+          let adminOffer = null;
+          if (internalCareerStatusNeedsOffer(app)) {
+            try { adminOffer = await atsOffersStore.getAtsOfferByApplication(String(app.id)); } catch { adminOffer = null; }
+          }
+          const adminPresentation = buildInternalCareerStatusPresentation(app, adminOffer);
+          app.status_key = adminPresentation.status;
+          app.status_label = adminPresentation.statusLabel;
+          app.status_tone = adminPresentation.statusTone;
+        }
         enriched.push(app);
       }
 
@@ -31442,12 +31514,22 @@ async function handleApi(req, res, pathname) {
     const hasZohoIds = !!(appRow.zoho_application_id && appRow.zoho_candidate_id);
     let zohoConnectionExists = false;
     if (hasZohoIds && isZohoRecruitConfigured()) {
-      try {
-        const zohoConn = await getZohoRecruitConnection();
-        zohoConnectionExists = !!(zohoConn && zohoConn.refreshToken);
-      } catch (zcErr) {
-        zohoConnectionExists = false;
+      // Explicit ok-checked read (NOT getZohoRecruitConnection, which returns
+      // null on transient PostgREST read errors too): a momentary DB blip must
+      // NOT be mistaken for "Zoho disconnected" and route a Zoho-managed app
+      // down the in-app email branch. Only a SUCCESSFUL read with no row is a
+      // genuine disconnect; a failed read aborts with a retryable 503 before
+      // any email or write happens.
+      const zohoConnResult = await supabaseDbRequest(
+        'integration_connections',
+        'select=*&provider=eq.zoho_recruit&limit=1'
+      );
+      if (!zohoConnResult.ok || !Array.isArray(zohoConnResult.data)) {
+        sendJson(res, 503, { ok: false, message: "Couldn't confirm the Zoho Recruit connection just now — please try again in a moment." });
+        return;
       }
+      const zohoConn = zohoConnResult.data[0] ? mapZohoConnectionRow(zohoConnResult.data[0]) : null;
+      zohoConnectionExists = !!(zohoConn && zohoConn.refreshToken);
     }
 
     if (hasZohoIds && zohoConnectionExists) {
@@ -47114,7 +47196,12 @@ Return ONLY valid JSON with no markdown formatting:
     }
     // Milestone stages ping the GP — only on a REAL change (fromStage !== toStage;
     // see notifyGpOfAtsStageChange's dedupe invariant). Fire-and-forget.
-    if (updatedAP && newStage && upAP.prevStage !== newStage) {
+    // EXCEPT 'offer': a bare kanban drag into the Offer lane must not promise
+    // the doctor an offer — no offer record exists yet, and the dedicated
+    // offer email from POST /api/ats/offer is the doctor-facing signal (the
+    // generic "You have an offer!" here would fire early AND duplicate it).
+    // Other milestones (interview/hired/not_proceeding) keep notifying.
+    if (updatedAP && newStage && newStage !== 'offer' && upAP.prevStage !== newStage) {
       notifyGpOfAtsStageChange(updatedAP, upAP.prevStage, newStage).catch(function (e) {
         console.error('[ats] stage notify failed for app', apId, ':', e && e.message);
       });
@@ -47173,6 +47260,19 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ofAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
     var ofCtx = await atsGetApplicationContext(ofAppId);
     if (!ofCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    // Zoho-managed apps must not take in-app offers while a Zoho connection
+    // exists: the Zoho status sync owns gp_applications.status for rows with
+    // zoho ids and would fight the in-app placement (see the never-downgrade
+    // guard in syncZohoRecruitApplicationStatuses). Once Zoho is DISCONNECTED
+    // the sync no longer runs, so legacy Zoho-imported apps may receive
+    // in-app offers.
+    if (ofCtx.app && String(ofCtx.app.zoho_application_id || '').trim()) {
+      var ofZohoConn = await getZohoRecruitConnection();
+      if (ofZohoConn) {
+        sendJson(res, 409, { ok: false, code: 'zoho_managed', message: 'This application is managed in Zoho Recruit. Manage the offer there, or disconnect Zoho Recruit to run offers in-app.' });
+        return;
+      }
+    }
     var ofExisting = await atsOffersStore.getAtsOfferByApplication(ofAppId);
     if (ofExisting && ofExisting.status === 'accepted') {
       sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — it can\'t be replaced.' });
@@ -48490,6 +48590,7 @@ module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,
+  syncZohoRecruitApplicationStatuses,
   buildRsoWritePayload,
   ahpraConfidentMatch,
   isAhpraSender,

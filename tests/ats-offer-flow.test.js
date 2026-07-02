@@ -72,11 +72,16 @@ const db = {
   gp_applications: [
     { id: 'app-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
     { id: 'app-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
-    { id: 'app-3', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'interview', applied_at: NOW }
+    { id: 'app-3', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'interview', applied_at: NOW },
+    // Kanban drag target (F1: a bare move into the Offer lane must be silent).
+    { id: 'app-drag-1', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
+    // Zoho-managed app (F4: in-app offers blocked while a connection exists).
+    { id: 'app-z1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'z-job-1', zoho_application_id: 'z-app-1', zoho_candidate_id: 'z-cand-1', status: 'offered', ats_stage: 'interview', applied_at: NOW }
   ],
   ats_offers: [],
   ats_stage_events: [],
   user_documents: [],
+  integration_connections: [],
   runtime_kv: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -333,6 +338,59 @@ describe('POST /api/ats/offer — send (table mode)', () => {
   it('404s an unknown application', async () => {
     const r = await atsPost('/api/ats/offer', { application_id: 'nope-1', billing_split: '60 / 40' });
     expect(r.status).toBe(404);
+  });
+});
+
+describe('PATCH /api/ats/application — dragging into the Offer lane is silent (F1)', () => {
+  it('moves the card but sends NO GP email/push — only POST /api/ats/offer announces an offer', async () => {
+    const beforeEmails = resendCalls.length;
+    const beforeFcm = fcmCalls.length;
+    const r = await atsPatch('/api/ats/application?id=app-drag-1', { stage: 'offer' });
+    expect(r.status).toBe(200);
+    expect(r.body.application.ats_stage).toBe('offer');
+    // The stage move + audit row land; the premature "You have an offer!"
+    // notification must not (no offer record exists yet, and the real send
+    // would email AGAIN → duplicate).
+    const ev = db.ats_stage_events.find((e) => e.application_id === 'app-drag-1' && e.to_stage === 'offer');
+    expect(ev).toBeTruthy();
+    await new Promise((res) => setTimeout(res, 250));
+    expect(resendCalls.length).toBe(beforeEmails);
+    expect(fcmCalls.length).toBe(beforeFcm);
+  });
+});
+
+describe('POST /api/ats/offer — Zoho-managed applications (F4)', () => {
+  it('409s while a Zoho Recruit connection exists (offer must be run in Zoho)', async () => {
+    db.integration_connections.push({
+      id: 'conn-1', provider: 'zoho_recruit', status: 'connected',
+      refresh_token: 'rt-test-1', accounts_server: 'https://accounts.zoho.com',
+      api_domain: 'https://www.zohoapis.com', scopes: [], metadata: {}, updated_at: NOW
+    });
+    const before = resendCalls.length;
+    try {
+      const r = await atsPost('/api/ats/offer', { application_id: 'app-z1', billing_split: '70 / 30' });
+      expect(r.status).toBe(409);
+      expect(r.body.ok).toBe(false);
+      expect(r.body.code).toBe('zoho_managed');
+      expect(String(r.body.message)).toContain('managed in Zoho Recruit');
+      // Nothing saved, nothing sent.
+      expect(db.ats_offers.find((o) => o.application_id === 'app-z1')).toBeUndefined();
+      expect(resendCalls.length).toBe(before);
+    } finally {
+      db.integration_connections.length = 0;
+    }
+  });
+
+  it('with Zoho DISCONNECTED (no connection row), a legacy Zoho app may receive an in-app offer', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/offer', { application_id: 'app-z1', billing_split: '70 / 30', sessions_per_week: '7' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.offer.status).toBe('sent');
+    expect(db.ats_offers.find((o) => o.application_id === 'app-z1')).toBeTruthy();
+    // Still exactly ONE GP email — the dedicated offer email.
+    expect(resendCalls.length - before).toBe(1);
+    expect(String(resendCalls[resendCalls.length - 1].body.html)).toContain('/pages/offer-review?applicationId=app-z1');
   });
 });
 

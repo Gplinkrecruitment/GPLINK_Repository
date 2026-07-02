@@ -68,10 +68,16 @@ const db = {
     { id: 'app-offer', user_id: GP.userId, career_role_id: 'role-int', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
     { id: 'app-offer-quiet', user_id: GP.userId, career_role_id: 'role-int', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
     { id: 'app-np', user_id: GP.userId, career_role_id: 'role-int', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'not_proceeding', applied_at: NOW },
-    { id: 'app-zoho', user_id: GP.userId, career_role_id: 'role-zoho', provider_role_id: 'z_9', zoho_application_id: 'z-app-1', status: 'submitted', ats_stage: 'submitted', applied_at: NOW }
+    { id: 'app-zoho', user_id: GP.userId, career_role_id: 'role-zoho', provider_role_id: 'z_9', zoho_application_id: 'z-app-1', status: 'submitted', ats_stage: 'submitted', applied_at: NOW },
+    // Zoho-managed apps in an OFFERED status (F7): the offer normally lives in
+    // Zoho (no in-app record) → consultant copy + NO offer-review CTA; only a
+    // live in-app offer (legacy app offered post-disconnect) flips offerPending.
+    { id: 'app-zoho-offer', user_id: GP.userId, career_role_id: 'role-zoho', provider_role_id: 'z_9', zoho_application_id: 'z-app-offer', status: 'offered', ats_stage: 'offer', applied_at: NOW },
+    { id: 'app-zoho-offer-live', user_id: GP.userId, career_role_id: 'role-zoho', provider_role_id: 'z_9', zoho_application_id: 'z-app-offer-live', status: 'offered', ats_stage: 'offer', applied_at: NOW }
   ],
   ats_offers: [
-    { id: 'off-1', application_id: 'app-offer', user_id: GP.userId, career_role_id: 'role-int', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+', start_date: '2026-08-03', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'off-1', application_id: 'app-offer', user_id: GP.userId, career_role_id: 'role-int', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+', start_date: '2026-08-03', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'off-2', application_id: 'app-zoho-offer-live', user_id: GP.userId, career_role_id: 'role-zoho', practice_id: null, job_title: 'GP — Coastal Clinic', practice_name: 'Coastal Clinic', billing_split: '68 / 32', sessions_per_week: '7', compensation_range: '$320k+', start_date: '2026-09-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
   user_documents: [],
@@ -326,6 +332,19 @@ describe('GET /api/career/applications — internal apps with Zoho disconnected'
     expect(entries['app-zoho'].statusTone).toBeUndefined();
     expect(entries['app-zoho'].offerPending).toBe(false);
   });
+
+  it('a Zoho-OFFERED app without an in-app offer gets consultant copy and NO offer CTA (F7)', () => {
+    expect(entries['app-zoho-offer'].status).toBe('offered');
+    expect(entries['app-zoho-offer'].offerPending).toBe(false); // offer-review would be empty
+    expect(entries['app-zoho-offer'].statusLabel).toBe('Offer stage — your consultant will be in touch with the details');
+    expect(entries['app-zoho-offer'].statusTone).toBe('offer');
+  });
+
+  it('offerPending is true ONLY when a live in-app offer exists (legacy Zoho app after disconnect)', () => {
+    expect(entries['app-zoho-offer-live'].offerPending).toBe(true);
+    // No override label: the standard "Offer Pending" pill + Review Offer CTA apply.
+    expect(entries['app-zoho-offer-live'].statusLabel).toBeUndefined();
+  });
 });
 
 // ── 2. Application detail — same presentation + role-public-id lookup ──────
@@ -353,6 +372,18 @@ describe('GET /api/career/application — internal detail payload', () => {
     expect(r.status).toBe(200);
     expect(r.body.application.status).toBe('submitted');
     expect(r.body.application.statusLabel).toBeUndefined();
+  });
+
+  it('the detail payload applies the same Zoho-offered rule (F7)', async () => {
+    const quiet = await gpGet('/api/career/application?id=app-zoho-offer');
+    expect(quiet.status).toBe(200);
+    expect(quiet.body.application.offerPending).toBe(false);
+    expect(quiet.body.application.statusLabel).toBe('Offer stage — your consultant will be in touch with the details');
+
+    const live = await gpGet('/api/career/application?id=app-zoho-offer-live');
+    expect(live.status).toBe(200);
+    expect(live.body.application.offerPending).toBe(true);
+    expect(live.body.application.statusLabel).toBeUndefined();
   });
 });
 

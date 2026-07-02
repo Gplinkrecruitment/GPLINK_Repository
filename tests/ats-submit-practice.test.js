@@ -48,6 +48,11 @@ const resendCalls = [];
 const fcmCalls = [];
 const zohoTokenCalls = [];
 
+// When true the emulator answers every integration_connections read with a
+// PostgREST 500 — the transient-DB-blip case the branch decision must treat
+// as "can't confirm" (503), NEVER as "Zoho disconnected" (F5).
+let simulateConnReadFailure = false;
+
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
   user_profiles: [
@@ -90,7 +95,9 @@ const db = {
     // Kanban mapping: previously submitted → not_proceeding flips to client_rejected.
     { id: 'app-5', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'review', ats_stage: 'submitted', practice_submission_status: 'submitted_to_practice', applied_at: NOW },
     // Kanban control: NOT previously submitted → not_proceeding must not touch it.
-    { id: 'app-6', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', practice_submission_status: 'pending_va_submission', applied_at: NOW }
+    { id: 'app-6', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', practice_submission_status: 'pending_va_submission', applied_at: NOW },
+    // Zoho-managed app for the connection-read-failure case (F5).
+    { id: 'app-7', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'z-job-2', zoho_application_id: 'z-app-2', zoho_candidate_id: 'z-cand-2', status: 'applied', ats_stage: 'applied', applied_at: NOW }
   ],
   ats_stage_events: [],
   user_documents: [
@@ -160,6 +167,10 @@ function startSupabaseEmulator() {
       const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
       if (!m) { send(404, { message: 'not found' }); return; }
       const table = decodeURIComponent(m[1]);
+      if (table === 'integration_connections' && simulateConnReadFailure) {
+        send(500, { message: 'internal server error (simulated PostgREST blip)' });
+        return;
+      }
       const rows = tableOf(table);
       const matches = buildMatcher(u.searchParams);
 
@@ -320,6 +331,23 @@ describe('affordance flags (admin panel + CEO drawer payloads)', () => {
     expect(app5.can_submit_to_practice).toBe(false);
   });
 
+  it('internal apps carry the presented status_label/status_key (kanban truth, F6); Zoho rows stay raw', async () => {
+    const r = await adminGet('/api/admin/career/applications');
+    expect(r.status).toBe(200);
+    // Internal app in the 'applied' lane → the presentation, not the raw status.
+    const app1 = r.body.applications.find((a) => a.id === 'app-1');
+    expect(app1.status_key).toBe('applied');
+    expect(app1.status_label).toBe('Application submitted');
+    // Internal app already sent to the practice (ats_stage 'submitted').
+    const app5 = r.body.applications.find((a) => a.id === 'app-5');
+    expect(app5.status_key).toBe('submitted');
+    expect(app5.status_label).toBe('Sent to the practice');
+    // Zoho-managed rows are untouched: no presented fields at all.
+    const app3 = r.body.applications.find((a) => a.id === 'app-3');
+    expect(app3.status_label).toBeUndefined();
+    expect(app3.status_key).toBeUndefined();
+  });
+
   it('exposes practice_submission_status on the CEO candidate drawer apps', async () => {
     const r = await adminGet('/api/ceo/candidate?case_id=case-1');
     expect(r.status).toBe(200);
@@ -405,6 +433,8 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     const app1 = r.body.applications.find((a) => a.id === 'app-1');
     expect(app1.can_submit_to_practice).toBe(false);
     expect(app1.practice_submission_status).toBe('submitted_to_practice');
+    // The presented status follows the kanban (F6): submitted lane now.
+    expect(app1.status_label).toBe('Sent to the practice');
   });
 
   it('sends WITHOUT an attachment (and says the CV follows) when no CV row exists', async () => {
@@ -474,6 +504,36 @@ describe('Zoho branch preserved (ids + connection present)', () => {
     expect(r.body.submission_mode).toBe('in_app_email');
     expect(resendCalls.length - before).toBe(1);
     const app = db.gp_applications.find((a) => a.id === 'app-3');
+    expect(app.practice_submission_status).toBe('submitted_to_practice');
+  });
+});
+
+describe('connection-read failure ≠ disconnected (F5)', () => {
+  it('a transient integration_connections read error → retryable 503, no email, no writes', async () => {
+    simulateConnReadFailure = true;
+    const before = resendCalls.length;
+    try {
+      const r = await submitApp('app-7');
+      expect(r.status).toBe(503);
+      expect(r.body.ok).toBe(false);
+      expect(String(r.body.message)).toContain("Couldn't confirm the Zoho Recruit connection");
+      // Nothing sent, nothing patched — the submit stays fully retryable.
+      expect(resendCalls.length).toBe(before);
+      const app = db.gp_applications.find((a) => a.id === 'app-7');
+      expect(app.practice_submission_status).toBeUndefined();
+      expect(app.ats_stage).toBe('applied');
+    } finally {
+      simulateConnReadFailure = false;
+    }
+  });
+
+  it('once the read succeeds again (genuine no-row disconnect), the same app submits in-app', async () => {
+    const before = resendCalls.length;
+    const r = await submitApp('app-7');
+    expect(r.status).toBe(200);
+    expect(r.body.submission_mode).toBe('in_app_email');
+    expect(resendCalls.length - before).toBe(1);
+    const app = db.gp_applications.find((a) => a.id === 'app-7');
     expect(app.practice_submission_status).toBe('submitted_to_practice');
   });
 });

@@ -7931,8 +7931,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.applications.loading){el.innerHTML='<div class="applications-wrap"><div class="empty">Loading applications...</div></div>';return;}
     const apps=S.applications.list.slice().sort((a,b)=>new Date(b.applied_at||b.created_at||0)-new Date(a.applied_at||a.created_at||0));
     const total=apps.length;
+    // Internal (in-app ATS) apps: gp_applications.status stays 'applied' while
+    // the kanban moves, so the server sends the PRESENTED status_key/status_label
+    // (from ats_stage + offer state). Map the presented key onto the existing
+    // stat buckets; Zoho rows (no status_key) keep the raw-status behaviour.
+    function appStatusBucket(a){
+      const presented=(a.status_key||"").toLowerCase();
+      if(presented){
+        if(presented==="withdrawn"||presented==="not_proceeding")return "withdrawn";
+        if(["hired","secured","placed","placement_secured","offer_accepted","contract_signed","finalising_placement"].indexOf(presented)!==-1)return "secured";
+        if(presented.indexOf("offer")===0)return "offer";
+        if(presented.indexOf("interview")===0)return "interview";
+        if(presented==="reviewing"||presented==="submitted"||presented==="review"||presented==="under_review")return "review";
+        return "applied";
+      }
+      const s=(a.status||"applied").toLowerCase();
+      return ["applied","review","interview","offer","secured","withdrawn"].indexOf(s)!==-1?s:"applied";
+    }
     const counts={applied:0,review:0,interview:0,offer:0,secured:0,withdrawn:0};
-    apps.forEach(a=>{const s=(a.status||"applied").toLowerCase();if(counts[s]!==undefined)counts[s]++;else counts.applied++;});
+    apps.forEach(a=>{counts[appStatusBucket(a)]++;});
 
     let statsHtml='<div class="applications-stats">'+
       '<div class="applications-stat"><span class="stat-num">'+total+'</span><span class="stat-label">Total</span></div>'+
@@ -7950,11 +7967,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else{
       cardsHtml='<div class="applications-grid">';
       apps.forEach(a=>{
-        const status=(a.status||"applied").toLowerCase();
+        // Pill: prefer the server-presented label/bucket (internal ATS apps);
+        // Zoho rows fall back to the raw status exactly as before.
+        const bucket=appStatusBucket(a);
+        const pillText=a.status_label||(a.status||"applied").toLowerCase();
         const submissionStatus=(a.practice_submission_status||"pending_va_submission").toLowerCase();
         const submissionLabel=a.practice_submission_label||"Awaiting VA submission";
         const submissionCls=submissionStatus==="submitted_to_practice"?"submitted":(submissionStatus==="client_approved"||submissionStatus==="interview_ready"?"ready":(submissionStatus==="client_rejected"?"rejected":"pending"));
-        const pillCls=status==="review"?"review":status==="interview"?"interview":status==="offer"?"offer":status==="secured"?"secured":status==="withdrawn"?"withdrawn":"applied";
+        const pillCls=bucket;
         const submitBtn=a.can_submit_to_practice
           ? '<button class="btn sm primary" data-app-submit="'+esc(a.id)+'">Submit to Practice</button>'
           : '<button class="btn sm" disabled title="'+esc(a.submit_disabled_reason||"Already submitted to practice")+'">Submit to Practice</button>';
@@ -7962,7 +7982,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           '<div class="app-admin-card-top">'+
             '<div><div class="app-admin-card-gp">'+esc(a.gp_name||"Unknown GP")+'</div>'+
             '<div class="app-admin-card-email">'+esc(a.gp_email||"")+'</div></div>'+
-            '<span class="app-status-pill '+esc(pillCls)+'">'+esc(status)+'</span>'+
+            '<span class="app-status-pill '+esc(pillCls)+'">'+esc(pillText)+'</span>'+
           '</div>'+
           '<div class="app-admin-card-role">'+esc(a.role_title||"Untitled Role")+'</div>'+
           '<div class="app-admin-card-meta">'+

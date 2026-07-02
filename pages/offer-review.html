@@ -917,7 +917,13 @@
     if (acceptBtn) acceptBtn.hidden = true;
     if (changesBtn) changesBtn.hidden = true;
     if (declineBtn) declineBtn.hidden = true;
-    if (note) note.hidden = false;
+    if (note) {
+      // Set the supportive copy explicitly: a failed decline attempt writes an
+      // error message into this same node, so a later SUCCESSFUL decline must
+      // restore the friendly text rather than unhide the stale error.
+      note.textContent = 'Thanks for letting us know — your consultant will be in touch about next steps.';
+      note.hidden = false;
+    }
   }
 
   // ── Populate the page from the real offer ──

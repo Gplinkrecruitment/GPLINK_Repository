@@ -21,6 +21,7 @@ const SUPER_HOST = 'ats-stage-test.local';
 let server, port;          // app under test
 let sbServer, sbPort;      // Supabase (PostgREST) emulator
 let testUtils;             // server.js __testUtils (reconcile seam)
+let realFetch;             // original fetch (wrapped for the fake Zoho API)
 
 const GP1 = { userId: 'u-gp-1', email: 'gp1@gplink-test.local' };
 const GP2 = { userId: 'u-gp-2', email: 'gp2@gplink-test.local' };
@@ -53,11 +54,27 @@ const db = {
     // Board-only card without a real user (must never notify / crash).
     { id: 'app-nouser-1', user_id: null, career_role_id: 'role-1', provider_role_id: 'ats_r1f', status: 'applied', practice_submission_status: null, ats_stage: 'applied', applied_at: NOW, updated_at: NOW },
     // Offer-accept target.
-    { id: 'app-offer-1', user_id: GP1.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1g', status: 'offered', practice_submission_status: 'client_approved', ats_stage: 'offer', applied_at: NOW, updated_at: NOW }
+    { id: 'app-offer-1', user_id: GP1.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1g', status: 'offered', practice_submission_status: 'client_approved', ats_stage: 'offer', applied_at: NOW, updated_at: NOW },
+    // Zoho-lane offer reconciliation target (F7 notifier copy).
+    { id: 'app-zoffer-1', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1h', status: 'applied', practice_submission_status: null, ats_stage: 'reviewing', applied_at: NOW, updated_at: NOW },
+    // syncZohoRecruitApplicationStatuses targets (F4 never-downgrade guard):
+    // one normal forward sync + one locally-SECURED app Zoho still shows pre-offer.
+    { id: 'app-zsync-ok', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'z-job-ok', zoho_application_id: 'z-sync-ok', status: 'submitted_to_practice', practice_submission_status: 'submitted_to_practice', ats_stage: 'submitted', applied_at: NOW, updated_at: NOW },
+    { id: 'app-zsync-sec', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'z-job-sec', zoho_application_id: 'z-sync-sec', status: 'placement_secured', practice_submission_status: null, ats_stage: 'hired', applied_at: NOW, updated_at: NOW }
   ],
   ats_stage_events: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+// Live Zoho application records served by the wrapped fetch below (keyed by
+// zoho_application_id). The locally secured app deliberately maps to a live
+// status that is NOT placement-secured — the exact downgrade scenario the
+// sync guard must skip.
+const ZOHO_API_BASE = 'https://zoho-sync.gplink-test.local';
+const zohoLiveRecords = {
+  'z-sync-ok': { id: 'z-sync-ok', Application_Status: 'Interview Scheduled' },
+  'z-sync-sec': { id: 'z-sync-sec', Application_Status: 'In Review' }
+};
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
@@ -211,6 +228,23 @@ beforeAll(async () => {
   process.env.ZOHO_RECRUIT_CLIENT_ID = '';
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
 
+  // Serve the fake Zoho Recruit API (Applications/{id}) for the
+  // syncZohoRecruitApplicationStatuses tests; everything else passes through
+  // to the real fetch (the PostgREST emulator).
+  realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => {
+    const u = String(url && url.url ? url.url : url);
+    if (u.startsWith(ZOHO_API_BASE)) {
+      const m = u.match(/\/recruit\/v2\/[Aa]pplications\/([^/?]+)/);
+      const rec = m ? zohoLiveRecords[decodeURIComponent(m[1])] : null;
+      return Promise.resolve(new Response(
+        JSON.stringify({ data: rec ? [rec] : [] }),
+        { status: rec ? 200 : 404, headers: { 'Content-Type': 'application/json' } }
+      ));
+    }
+    return realFetch(url, opts);
+  };
+
   const mod = await import('../server.js');
   testUtils = mod.__testUtils;
   server = mod.createServer();
@@ -218,6 +252,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (realFetch) globalThis.fetch = realFetch;
   if (server) await new Promise((r) => server.close(r));
   if (sbServer) await new Promise((r) => sbServer.close(r));
   try { fs.unlinkSync(DB_FILE); } catch {}
@@ -300,6 +335,57 @@ describe('reconcileAtsStageAfterStatusSync (the per-row step syncZohoRecruitAppl
     expect(appRow('app-hired-1').ats_stage).toBe('hired');
     expect(eventsFor('app-hired-1').length).toBe(0);
   });
+
+  it("a Zoho-lane offer notifies with page-agnostic, consultant-led copy (no in-app offer exists to review)", async () => {
+    const before = updatesFor(GP2.userId).length;
+    const result = await testUtils.reconcileAtsStageAfterStatusSync({ ...appRow('app-zoffer-1') }, 'offered', 'zoho_sync');
+    expect(result).toBe('offer');
+    expect(appRow('app-zoffer-1').ats_stage).toBe('offer');
+
+    await waitFor(() => updatesFor(GP2.userId).length > before);
+    const entry = updatesFor(GP2.userId)[0];
+    expect(entry.title).toMatch(/offer/i);
+    // The copy must NOT send the doctor hunting for an offer page that has
+    // nothing to show (offer-review only renders in-app offers).
+    expect(entry.body).toContain('Your consultant will walk you through the details');
+    expect(entry.body).not.toContain('Open the app');
+  });
+});
+
+// ── Zoho status sync: never downgrade a locally secured placement (F4) ──────
+describe('syncZohoRecruitApplicationStatuses — downgrade guard', () => {
+  it('applies a normal forward status but SKIPS a row whose local status is placement-secured', async () => {
+    const synced = await testUtils.syncZohoRecruitApplicationStatuses({
+      accessToken: 'test-zoho-token',
+      apiDomain: ZOHO_API_BASE,
+      connection: {}
+    });
+
+    // Normal row: live 'Interview Scheduled' lands (status patched + kanban pulled forward).
+    expect(synced).toBe(1);
+    const okApp = appRow('app-zsync-ok');
+    expect(okApp.status).toBe('interview_scheduled');
+    expect(okApp.ats_stage).toBe('interview');
+
+    // Secured row: live Zoho still shows the stale pre-offer status — the sync
+    // must NOT downgrade the status, NOT rebuild the placement, and NOT touch
+    // gp_career_state (the in-app acceptance owns this placement).
+    const secApp = appRow('app-zsync-sec');
+    expect(secApp.status).toBe('placement_secured');
+    expect(secApp.ats_stage).toBe('hired');
+    const stateAfter = db.user_state.find((s) => s.user_id === GP2.userId).state;
+    expect(stateAfter.gp_career_state).toBeUndefined();
+  });
+
+  it('re-running the sync is idempotent for both rows', async () => {
+    const synced = await testUtils.syncZohoRecruitApplicationStatuses({
+      accessToken: 'test-zoho-token',
+      apiDomain: ZOHO_API_BASE,
+      connection: {}
+    });
+    expect(synced).toBe(0); // ok-row now matches live; secured row still skipped
+    expect(appRow('app-zsync-sec').status).toBe('placement_secured');
+  });
 });
 
 // ── Manual kanban moves (PATCH /api/ats/application) ────────────────────────
@@ -315,25 +401,39 @@ describe('PATCH /api/ats/application notifier', () => {
 
   it('notifies the GP when the card moves to a milestone stage', async () => {
     const before = updatesFor(GP2.userId).length;
-    const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'offer' } });
+    const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'interview' } });
     expect(r.status).toBe(200);
-    expect(r.body.application.ats_stage).toBe('offer');
+    expect(r.body.application.ats_stage).toBe('interview');
 
     await waitFor(() => updatesFor(GP2.userId).length > before);
     const entry = updatesFor(GP2.userId)[0];
-    expect(entry.title).toMatch(/offer/i);
+    expect(entry.title).toMatch(/interview/i);
     // Audit row carries the acting CEO.
-    const ev = eventsFor('app-patch-1').find((e) => e.to_stage === 'offer');
+    const ev = eventsFor('app-patch-1').find((e) => e.to_stage === 'interview');
     expect(ev).toBeTruthy();
     expect(ev.actor).toBe('super@gplink-test.local');
   });
 
   it('repeating the same move does not notify again (only fires on a real change)', async () => {
     const count = updatesFor(GP2.userId).length;
-    const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'offer' } });
+    const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'interview' } });
     expect(r.status).toBe(200);
     await new Promise((res) => setTimeout(res, 150));
     expect(updatesFor(GP2.userId).length).toBe(count);
+  });
+
+  it('dragging a card into the Offer lane is SILENT for the GP (no offer exists yet — F1)', async () => {
+    const before = updatesFor(GP2.userId).length;
+    const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'offer' } });
+    expect(r.status).toBe(200);
+    expect(r.body.application.ats_stage).toBe('offer');
+    // The move itself still lands (stage + audit row) — only the premature
+    // "You have an offer!" notification is suppressed: the dedicated email
+    // from POST /api/ats/offer is the doctor-facing signal for a real offer.
+    const ev = eventsFor('app-patch-1').find((e) => e.to_stage === 'offer');
+    expect(ev).toBeTruthy();
+    await new Promise((res) => setTimeout(res, 150));
+    expect(updatesFor(GP2.userId).length).toBe(before);
   });
 
   it('a card without a real user moves quietly (no crash, no notification)', async () => {

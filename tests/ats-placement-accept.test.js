@@ -615,6 +615,19 @@ describe('POST /api/career/offer/decline', () => {
     expect(senderEmails().length).toBe(sendersBefore);
   });
 
+  it('the doctor then sees "You declined this offer" — not "preparing an offer" (F2)', async () => {
+    // Stage stays 'offer' + offer status 'declined' → the declined branch, not
+    // the quiet offer-lane copy, and no Review Offer CTA.
+    const r = await gpGet('/api/career/applications', GP2);
+    expect(r.status).toBe(200);
+    const entry = r.body.applications.find((a) => String(a.id) === 'app-5');
+    expect(entry).toBeTruthy();
+    expect(entry.status).toBe('offer_declined');
+    expect(entry.statusLabel).toBe('You declined this offer');
+    expect(entry.statusTone).toBe('review');
+    expect(entry.offerPending).toBe(false);
+  });
+
   it('404s when there is no offer to decline', async () => {
     const r = await gpPost('/api/career/offer/decline', { applicationId: 'app-4' }, GP2);
     expect(r.status).toBe(404);
