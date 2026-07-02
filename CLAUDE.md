@@ -74,15 +74,15 @@ Single test: `npx vitest run tests/oauth.test.js`
 - `js/auth-guard.js` — Auth enforcement + restricted mode (loaded on every page)
 - `js/state-sync.js` — localStorage <-> Supabase state synchronization
 - `js/updates-sync.js` — Notification/alert panel system
-- `js/onboarding.js` — 8-step onboarding wizard
+- `js/onboarding.js` — 5-step onboarding wizard
 - `js/qualification-scan.js` — Document scan modal (qualification verification)
 - `js/qualification-camera.js` — Camera viewfinder with hologram brackets
 - `js/registration-stepper.js` — Registration progress tracking
 
 ### Registration Flow (v1)
-Secure Placement (non-blocking start) -> MyIntealth -> AMC -> AHPRA (requires placement + AMC) -> PBS & Medicare -> Commencement
+Secure Placement (non-blocking start) -> MyIntealth -> AMC -> AHPRA (requires placement + AMC) -> Visa -> PBS & Medicare -> Commencement
 
-The Visa application step is deferred for the v1 release. The server logic, `pages/visa.html`, and `pages/admin-visa.html` remain in place — only the user-facing journey entry points have been removed. See `docs/deferred-visa-application.md` for details and the steps required to re-enable it.
+The Visa application step was briefly deferred but re-enabled in the user flow on 2026-05-12 (see `docs/deferred-visa-application.md` for history).
 
 ### Database
 - Supabase (PostgreSQL) in production, migrations in `supabase/migrations/`
