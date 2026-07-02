@@ -23622,7 +23622,10 @@ function isEmailConfigured() {
 
 // from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
 // replyTo: optional address (or array) replies should go to. Both default to the GP Link sender.
-async function sendEmail({ to, subject, html, text, from, replyTo }) {
+// attachments (optional): [{ filename, content (base64 string), contentType? }]
+// — forwarded to Resend's native attachments field (used by the in-app
+// submit-to-practice candidate introduction to carry the GP's CV).
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -23637,6 +23640,16 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
       text: text || ''
     };
     if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const cleanAttachments = attachments
+        .filter((a) => a && a.filename && a.content)
+        .map((a) => {
+          const att = { filename: String(a.filename), content: String(a.content) };
+          if (a.contentType || a.mimeType) att.content_type = String(a.contentType || a.mimeType);
+          return att;
+        });
+      if (cleanAttachments.length > 0) emailPayload.attachments = cleanAttachments;
+    }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -24466,7 +24479,7 @@ async function atsInsertApplicationRow(row) {
     var cand = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === String(local.user_id); });
     if (cand) {
       cand.apps = Array.isArray(cand.apps) ? cand.apps : [];
-      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage });
+      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage, practice_submission_status: local.practice_submission_status || 'pending_va_submission' });
     }
   }
   saveDbState();
@@ -24969,6 +24982,9 @@ async function atsProdCandidateFacts(regCase) {
     return {
       id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—',
       practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false),
+      // Drives the drawer's "Submit to practice" affordance (Task D):
+      // '' / null normalises to 'pending_va_submission' = still submittable.
+      practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
@@ -31072,19 +31088,14 @@ async function handleApi(req, res, pathname) {
           client_rejected: 'Client rejected',
           interview_ready: 'Ready for interview'
         })[submissionStatus] || 'Awaiting VA submission';
-        app.can_submit_to_practice = !!app.zoho_application_id
-          && !!app.zoho_candidate_id
-          && !!app.provider_role_id
-          && submissionStatus === 'pending_va_submission';
+        // Zoho ids are no longer required: apps without them (internal ATS
+        // jobs, or Zoho disconnected) go down the in-app email branch of
+        // POST /api/admin/career/application/submit-to-practice (Task D).
+        app.can_submit_to_practice = submissionStatus === 'pending_va_submission'
+          && !app.zoho_submission_id;
         app.submit_disabled_reason = app.can_submit_to_practice
           ? ''
-          : (!app.zoho_application_id
-            ? 'Zoho application is not available yet. Refresh after candidate sync finishes.'
-            : (!app.zoho_candidate_id
-              ? 'Zoho candidate is missing for this application.'
-              : (!app.provider_role_id
-                ? 'The linked job opening is missing for this application.'
-                : 'This application has already been submitted to the practice.')));
+          : 'This application has already been submitted to the practice.';
         try {
           const profileResult = await supabaseDbRequest('user_profiles', `select=email,first_name,last_name&user_id=eq.${encodeURIComponent(app.user_id)}&limit=1`);
           if (profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0]) {
@@ -31151,6 +31162,27 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, message: 'This application has already been submitted to the practice.' });
       return;
     }
+
+    // ── Branch decision (standalone-ATS Task D) ─────────────────────────────
+    // Zoho branch ONLY when the application actually lives in Zoho (both zoho
+    // ids present) AND a Zoho Recruit connection record exists. A connection
+    // that exists but can't refresh its token still routes to Zoho and keeps
+    // the historical 503 (an outage shouldn't silently fork to direct email).
+    // Everything else — internal ATS applications, or Zoho disconnected —
+    // takes the in-app branch below, which emails the practice directly.
+    const hasZohoIds = !!(appRow.zoho_application_id && appRow.zoho_candidate_id);
+    let zohoConnectionExists = false;
+    if (hasZohoIds && isZohoRecruitConfigured()) {
+      try {
+        const zohoConn = await getZohoRecruitConnection();
+        zohoConnectionExists = !!(zohoConn && zohoConn.refreshToken);
+      } catch (zcErr) {
+        zohoConnectionExists = false;
+      }
+    }
+
+    if (hasZohoIds && zohoConnectionExists) {
+      // ── Zoho branch (unchanged behaviour) ────────────────────────────────
     if (!appRow.zoho_application_id) {
       sendJson(res, 400, { ok: false, message: 'Zoho Recruit application is missing for this GP application.' });
       return;
@@ -31287,6 +31319,240 @@ async function handleApi(req, res, pathname) {
 
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, application: updatedApp });
+    return;
+    }
+    // ── End of the Zoho branch ───────────────────────────────────────────────
+
+    // ── In-app branch (standalone-ATS Task D): Zoho not connected, or the
+    // application has no Zoho ids (internal ATS jobs). The RSO/consultant
+    // submits the candidate by emailing the practice a professional
+    // introduction directly, then everything downstream mirrors the Zoho
+    // branch: practice_submission_status, kanban stage, VA task, case event
+    // and the GP push notification.
+
+    // Role + practice rows for labels and the contact lookup.
+    let inAppRole = null;
+    if (appRow.career_role_id) {
+      const inAppRoleRes = await supabaseDbRequest('career_roles', `select=*&id=eq.${encodeURIComponent(appRow.career_role_id)}&limit=1`);
+      inAppRole = inAppRoleRes.ok && Array.isArray(inAppRoleRes.data) && inAppRoleRes.data[0] ? inAppRoleRes.data[0] : null;
+    }
+    let inAppPractice = null;
+    const inAppPracticeId = appRow.practice_id || (inAppRole && inAppRole.practice_id) || null;
+    if (inAppPracticeId) {
+      try { inAppPractice = await atsGetPracticeRow(inAppPracticeId); } catch (prErr) { inAppPractice = null; }
+    }
+
+    // Practice-contact precedence (documented order, plan 2026-07-03 Task D):
+    //   1) practices table via career_roles.practice_id — the ATS-native source,
+    //   2) contact fields carried on the career_roles row / its source payload,
+    //   3) the registration case's practice_contact JSON.
+    let inAppContactEmail = '';
+    let inAppContactName = '';
+    if (inAppPractice) {
+      inAppContactEmail = String(inAppPractice.contact_email || '').trim();
+      inAppContactName = String(inAppPractice.contact_name || '').trim();
+    }
+    if (!inAppContactEmail && inAppRole) {
+      const roleSource = inAppRole.source_payload && typeof inAppRole.source_payload === 'object' ? inAppRole.source_payload : {};
+      inAppContactEmail = String(
+        inAppRole.practice_contact_email || inAppRole.contact_email
+        || roleSource.practice_contact_email || roleSource.contact_email || ''
+      ).trim();
+      if (!inAppContactName) {
+        inAppContactName = String(
+          inAppRole.practice_contact_name || inAppRole.contact_name
+          || roleSource.practice_contact_name || roleSource.contact_name || ''
+        ).trim();
+      }
+    }
+    if (!inAppContactEmail && appRow.user_id) {
+      try {
+        const inAppCaseRes = await supabaseDbRequest('registration_cases', `select=practice_contact&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+        const inAppCaseRow = inAppCaseRes.ok && Array.isArray(inAppCaseRes.data) && inAppCaseRes.data[0] ? inAppCaseRes.data[0] : null;
+        if (inAppCaseRow && inAppCaseRow.practice_contact) {
+          const casePc = typeof inAppCaseRow.practice_contact === 'string' ? JSON.parse(inAppCaseRow.practice_contact) : inAppCaseRow.practice_contact;
+          inAppContactEmail = String((casePc && (casePc.contactEmail || casePc.email)) || '').trim();
+          if (!inAppContactName) inAppContactName = String((casePc && (casePc.contactName || casePc.name)) || '').trim();
+        }
+      } catch (pcErr) { /* tolerated — falls through to the 422 below */ }
+    }
+
+    if (!inAppContactEmail) {
+      sendJson(res, 422, {
+        ok: false,
+        code: 'no_practice_contact',
+        message: 'Add a contact email to this practice first — you can do that in the Practices tab.'
+      });
+      return;
+    }
+
+    // Candidate facts for the introduction. Only fields that actually exist
+    // are included — nothing about the candidate is ever invented.
+    const inAppProfileRes = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+    const inAppProfile = inAppProfileRes.ok && Array.isArray(inAppProfileRes.data) && inAppProfileRes.data[0] ? inAppProfileRes.data[0] : {};
+    const inAppGpName = ((inAppProfile.first_name || '') + ' ' + (inAppProfile.last_name || '')).trim() || inAppProfile.email || 'GP candidate';
+    const inAppRoleLabel = (inAppRole && inAppRole.title) || 'General Practitioner';
+    const inAppPracticeLabel = (inAppPractice && inAppPractice.name) || (inAppRole && inAppRole.practice_name) || 'the practice';
+
+    // Country (user_profiles.registration_country → user_state.gp_selected_country,
+    // the same fallback _resolveGpCountry uses) + qualification summary from the
+    // onboarding answers (same source the candidate drawer shows).
+    let inAppStateVal = {};
+    try {
+      const inAppStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+      inAppStateVal = inAppStateRes.ok && Array.isArray(inAppStateRes.data) && inAppStateRes.data[0] && inAppStateRes.data[0].state
+        ? inAppStateRes.data[0].state : {};
+    } catch (stateErr) { inAppStateVal = {}; }
+    const inAppCountryNames = { uk: 'United Kingdom', gb: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia' };
+    const inAppCountryRaw = String(inAppProfile.registration_country || inAppStateVal.gp_selected_country || '').trim();
+    const inAppCountryLabel = inAppCountryRaw ? (inAppCountryNames[inAppCountryRaw.toLowerCase()] || inAppCountryRaw) : '';
+    let inAppSpecialty = '';
+    try {
+      inAppSpecialty = atsSpecialtyFromOnboarding(_parseStateVal(inAppStateVal.gp_onboarding) || {});
+    } catch (spErr) { inAppSpecialty = ''; }
+
+    // The GP's CV (user_documents key cv_signed_dated) — same storage-path
+    // download the doc pipeline uses (processDocumentUpload). If there's no CV
+    // row or the file can't be fetched, the email still goes out without the
+    // attachment and says the CV will follow.
+    let inAppCvAttachment = null;
+    try {
+      const inAppCvRes = await supabaseDbRequest('user_documents',
+        `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1`);
+      const inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';
+      if (inAppCvPath && !/^https?:/i.test(inAppCvPath)) {
+        const inAppCvDl = await supabaseStorageDownloadObject(inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppCvPath);
+        if (inAppCvDl && inAppCvDl.buffer && inAppCvDl.buffer.length) {
+          inAppCvAttachment = {
+            filename: inAppCvRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-CV.pdf'),
+            content: inAppCvDl.buffer.toString('base64'),
+            contentType: inAppCvRow.mime_type || inAppCvDl.mimeType || 'application/pdf'
+          };
+        }
+      }
+    } catch (cvErr) { inAppCvAttachment = null; }
+
+    // Compose + send the introduction. From/branding matches the other
+    // ATS practice-facing emails (interview confirmations): the registration
+    // hub mailbox as 'GP Link', via the shared sendEmail helper.
+    const escIntro = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const introFacts = [];
+    if (inAppCountryLabel) introFacts.push('Registration country: ' + inAppCountryLabel);
+    if (inAppSpecialty) introFacts.push('Qualification: ' + inAppSpecialty);
+    const introCvLine = inAppCvAttachment
+      ? 'We\'ve attached ' + inAppGpName + '\'s CV to this email for your review.'
+      : 'We\'ll follow up with the candidate\'s CV shortly.';
+    const introSubject = 'Candidate introduction: ' + inAppGpName + ' — ' + inAppRoleLabel;
+    const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
+    const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
+    const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
+    const introBodyHtml =
+      escIntro(introGreeting) + '<br><br>' +
+      'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
+      (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
+      '<br><br>' + escIntro(introCvLine) +
+      '<br><br>' + escIntro(introClose);
+    const introText = [introGreeting, '', introLead]
+      .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
+      .concat(['', introCvLine, '', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
+      .join('\n');
+
+    const introSendResult = await sendEmail({
+      to: inAppContactEmail,
+      subject: introSubject,
+      html: buildCareerEmailHtml({
+        title: 'Candidate introduction',
+        body: introBodyHtml,
+        footer: 'Sent by the GP Link recruitment team on behalf of ' + escIntro(inAppGpName) + '.'
+      }),
+      text: introText,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      attachments: inAppCvAttachment ? [inAppCvAttachment] : undefined
+    });
+    if (!introSendResult || !introSendResult.ok) {
+      console.error('[admin career applications] in-app submit-to-practice email failed:', introSendResult && introSendResult.error);
+      sendJson(res, 502, { ok: false, message: 'Could not send the introduction email to the practice, so nothing was submitted. Please try again.' });
+      return;
+    }
+
+    // Parity with the Zoho branch: mark the application submitted.
+    const inAppNowIso = new Date().toISOString();
+    const inAppNextStatus = isCareerInterviewStatus(appRow.status) ? appRow.status : 'review';
+    const inAppPatch = {
+      status: inAppNextStatus,
+      practice_submission_status: 'submitted_to_practice',
+      practice_contact_name: inAppContactName || null,
+      practice_contact_email: inAppContactEmail,
+      submitted_to_practice_at: inAppNowIso,
+      submitted_to_practice_by: admin.email || '',
+      updated_at: inAppNowIso
+    };
+    const inAppPatchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: inAppPatch
+    });
+    if (!inAppPatchResult.ok) {
+      console.error('[admin career applications] in-app submit-to-practice patch failed:', inAppPatchResult.status, inAppPatchResult.data);
+      sendJson(res, 502, {
+        ok: false,
+        message: 'The introduction email was sent, but GP Link could not save the update locally. Refresh before retrying.'
+      });
+      return;
+    }
+    const inAppUpdatedApp = Array.isArray(inAppPatchResult.data) && inAppPatchResult.data[0]
+      ? inAppPatchResult.data[0]
+      : Object.assign({}, appRow, inAppPatch);
+
+    // Kanban parity: pull the card forward to 'submitted'. Forward-only via
+    // planAtsStageReconciliation — a card already at reviewing/interview/offer
+    // is never yanked backwards. Direct atsUpdateApplicationStageRow call, so
+    // no GP milestone email fires ('submitted' isn't a milestone anyway).
+    try {
+      const inAppStageTarget = atsPracticeUtil.planAtsStageReconciliation(inAppUpdatedApp.ats_stage || appRow.ats_stage || '', 'submitted');
+      if (inAppStageTarget) {
+        const inAppStageUp = await atsUpdateApplicationStageRow(applicationId, inAppStageTarget, undefined, 'submitted_to_practice');
+        if (inAppStageUp && inAppStageUp.row) inAppUpdatedApp.ats_stage = inAppStageUp.row.ats_stage || inAppStageTarget;
+      }
+    } catch (stErr) {
+      console.error('[admin career applications] in-app submit stage advance error:', stErr && stErr.message);
+    }
+
+    // Complete the linked VA reg-task + log the case event (same as Zoho branch).
+    try {
+      const inAppRegCase = await _ensureRegCase(appRow.user_id);
+      if (inAppRegCase && appRow.submission_task_id) {
+        await _completeRegTask(appRow.submission_task_id, inAppRegCase.id, admin.email || 'system');
+      }
+      if (inAppRegCase) {
+        await _logCaseEvent(
+          inAppRegCase.id,
+          appRow.submission_task_id || null,
+          'system',
+          'Candidate submitted to practice',
+          `${inAppGpName} was introduced to ${inAppContactName || inAppPracticeLabel} for ${inAppRoleLabel} by email (${inAppContactEmail}).`,
+          admin.email || 'system'
+        );
+      }
+    } catch (taskErr) {
+      console.error('[admin career applications] in-app submit-to-practice task update error:', taskErr && taskErr.message);
+    }
+
+    // GP notification — identical copy to the Zoho branch.
+    pushCareerNotificationToUser(appRow.user_id, {
+      type: 'info',
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${inAppPracticeLabel} for review.`
+    }).catch(() => {});
+    sendPushNotification(appRow.user_id, {
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${inAppPracticeLabel} for review.`,
+      data: { type: 'career', action: 'submitted_to_practice', url: '/pages/career.html#applications' }
+    }).catch(() => {});
+
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, application: inAppUpdatedApp, submission_mode: 'in_app_email' });
     return;
   }
 
@@ -46432,6 +46698,31 @@ Return ONLY valid JSON with no markdown formatting:
     if (!updatedAP && newStage) {
       // stage required but row missing
       sendJson(res, 404, { ok: false, message: 'Application not found.' }); return;
+    }
+    // Kanban → practice_submission_status mapping (standalone-ATS Task D).
+    // Deliberately CONSERVATIVE — the ONLY automatic sync is:
+    //   not_proceeding, on a card that was previously 'submitted_to_practice'
+    //     ⇒ practice_submission_status = 'client_rejected'
+    // (the practice had received the candidate and the card is now dead, so the
+    // legacy admin Applications panel should read "Client rejected").
+    // NOTHING else is automatic: client_approved / interview_ready / reviewing
+    // etc. stay operator- or Zoho-driven, and moving a card back OUT of
+    // not_proceeding does not restore the previous submission status.
+    if (updatedAP && newStage === 'not_proceeding'
+        && normalizeCareerPracticeSubmissionStatus(updatedAP.practice_submission_status) === 'submitted_to_practice') {
+      try {
+        updatedAP.practice_submission_status = 'client_rejected';
+        if (isSupabaseDbConfigured()) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(apId), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { practice_submission_status: 'client_rejected', updated_at: atsNowIso() }
+          });
+        } else {
+          saveDbState(); // local mode: updatedAP IS the live dbState row
+        }
+      } catch (prSyncErr) {
+        console.error('[ats] client_rejected sync failed for app', apId, ':', prSyncErr && prSyncErr.message);
+      }
     }
     // Milestone stages ping the GP — only on a REAL change (fromStage !== toStage;
     // see notifyGpOfAtsStageChange's dedupe invariant). Fire-and-forget.

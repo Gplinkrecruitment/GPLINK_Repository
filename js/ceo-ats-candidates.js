@@ -423,6 +423,7 @@
             stageSel +
           '</div>' +
         '</div>' +
+        '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + '</div>' +
         '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
@@ -437,6 +438,49 @@
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-add-job">＋ Add to a job</button>' +
       '</div>' +
       appsHtml;
+  }
+
+  /* ---- Submit to practice (Task D) ----
+   * Works for internal (non-Zoho) applications too: the server's
+   * /api/admin/career/application/submit-to-practice now emails the practice a
+   * candidate introduction (with the CV) when Zoho isn't connected or the app
+   * has no Zoho ids. The button shows while the app is still awaiting
+   * submission and hasn't moved past the early pipeline lanes. */
+  var SUBMIT_ELIGIBLE_STAGES = ['applied', 'submitted', 'reviewing'];
+  var SUBMISSION_STATUS_LABELS = {
+    submitted_to_practice: 'Submitted to practice',
+    client_reviewed: 'Reviewed by the practice',
+    client_approved: 'Approved by the practice',
+    client_rejected: 'Practice declined',
+    interview_ready: 'Ready for interview'
+  };
+
+  function submitPracticeLineHtml(a) {
+    var st = a.practice_submission_status || '';
+    if (SUBMISSION_STATUS_LABELS[st]) {
+      return '<span>' + ATS.esc(SUBMISSION_STATUS_LABELS[st]) + '</span>';
+    }
+    // pending_va_submission (or unknown) — offer the action while the card is
+    // still in an early lane; otherwise just show the neutral state.
+    if (st && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1) {
+      return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>';
+    }
+    return '<span class="ats-app-interview-none">Not submitted yet</span>';
+  }
+
+  function submitToPractice(appId, c, btn) {
+    if (!window.confirm('Submit this candidate\'s profile to the practice? They\'ll receive an introduction email with the candidate\'s CV.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Submitted — the practice has been introduced to this candidate.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id); // reload so the practice line + stage refresh
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.');
+        if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; }
+      }
+    });
   }
 
   /* ---- Offer state + inline send-offer form (Task B) ----
@@ -756,6 +800,8 @@
       if (!e.target.closest) return;
       if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
+      var submitPracticeBtn = e.target.closest('.ats-submit-practice');
+      if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
       var sendBtn = e.target.closest('.ats-offer-send');
       if (sendBtn) { openOfferForm(sendBtn.getAttribute('data-app-id')); return; }
       var cancelBtn = e.target.closest('.ats-offer-cancel');

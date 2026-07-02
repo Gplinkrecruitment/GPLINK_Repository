@@ -7888,7 +7888,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   async function submitApplicationToPractice(appId){
     if(!appId)return;
-    if(!confirm("Submit this candidate to the practice via Zoho Recruit?"))return;
+    if(!confirm("Submit this candidate's profile to the practice? The practice will receive an introduction email (or a Zoho submission when Zoho is connected)."))return;
     try{
       const r=await fetch("/api/admin/career/application/submit-to-practice",{
         method:"POST",
