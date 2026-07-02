@@ -421,6 +421,17 @@
   .cta-secondary:hover { background: var(--gp-surface-sunken); color: var(--gp-ink); box-shadow: var(--gp-shadow-sm); }
   .cta-secondary svg { width: 16px; height: 16px; }
 
+  /* .cta-secondary sets display:flex, which would otherwise override the UA
+     stylesheet's [hidden] rule — force hidden to win. */
+  [hidden] { display: none !important; }
+
+  .contract-note {
+    padding: 12px 14px; border-radius: var(--gp-r-md);
+    background: var(--gp-surface-sunken); border: 1px dashed var(--gp-border-strong);
+    color: var(--gp-text-soft, var(--gp-text));
+    font-size: 13px; line-height: 1.5; text-align: center;
+  }
+
   /* ── Officer ── */
   .officer-row { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
   .officer-avatar {
@@ -741,14 +752,15 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Accept Offer
         </button>
-        <a class="cta-secondary" href="#">
+        <a class="cta-secondary" href="#" id="requestChangesBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Request Changes
         </a>
-        <a class="cta-secondary" href="#">
+        <a class="cta-secondary" href="#" id="downloadContractBtn" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download Full Contract
         </a>
+        <div class="contract-note" id="contractNote" hidden>Your full contract isn't in your documents yet — Hazel will upload it here as soon as it's ready.</div>
       </div>
     </div>
 
@@ -860,6 +872,59 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
+
+  // ── Request Changes → Messages (Contract category), shell-aware ──
+  document.getElementById('requestChangesBtn').addEventListener('click', function (e) {
+    e.preventDefault();
+    var href = '/pages/messages?category=Contract#new-ticket';
+    if (window.parent !== window && window.parent && typeof window.parent.postMessage === 'function') {
+      try {
+        window.parent.postMessage({ type: 'gp-shell-route', href: href, title: 'Messages' }, window.location.origin);
+        return;
+      } catch (err) { /* fall through to direct navigation */ }
+    }
+    window.location.href = href;
+  });
+
+  // ── Download Full Contract — same source as the documents pages: the GP's
+  // delivered offer_contract in user_documents, served via /api/prepared-documents. ──
+  function getPageCountry() {
+    var raw = '';
+    try { raw = localStorage.getItem('gp_selected_country') || ''; } catch (err) { raw = ''; }
+    if (!raw) return 'uk';
+    var val = raw;
+    try { val = JSON.parse(raw); } catch (err) { /* use raw */ }
+    if (typeof val !== 'string') return 'uk';
+    var lower = val.toLowerCase().trim();
+    if (lower === 'uk' || lower === 'gb' || lower === 'united kingdom') return 'uk';
+    if (lower === 'ie' || lower === 'ireland') return 'ie';
+    if (lower === 'nz' || lower === 'new zealand') return 'nz';
+    return 'uk';
+  }
+
+  function loadContractLink() {
+    fetch('/api/prepared-documents?country=' + encodeURIComponent(getPageCountry()), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var doc = data && data.ok && data.docs && data.docs.offer_contract ? data.docs.offer_contract : null;
+        var url = doc && typeof doc.downloadUrl === 'string' ? doc.downloadUrl : '';
+        var rejected = doc && String(doc.status || '').toLowerCase() === 'rejected';
+        var btn = document.getElementById('downloadContractBtn');
+        if (url && !rejected && url.indexOf('/api/') === 0) {
+          btn.href = url;
+          btn.target = '_blank';
+          btn.rel = 'noopener';
+          btn.hidden = false;
+        } else {
+          document.getElementById('contractNote').hidden = false;
+        }
+      })
+      .catch(function () {
+        document.getElementById('contractNote').hidden = false;
+      });
+  }
+
+  loadContractLink();
 })();
 </script>
 

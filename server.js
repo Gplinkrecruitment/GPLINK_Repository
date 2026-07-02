@@ -27110,6 +27110,135 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // GET /api/career/my-interviews — the CURRENT user's interviews, merged from BOTH
+  // interview stores: scheduled_calls (newer 3-way CEO flow, meeting_kind='interview')
+  // and career_interviews (older admin-scheduled flow). Consumed by pages/interview-prep.html.
+  // GP-facing payload only: NEVER expose zoom_host_url, zoom_passcode or interviewer_email.
+  if (pathname === '/api/career/my-interviews' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const miEmail = getSessionEmail(session);
+    if (!miEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const miUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(miEmail);
+    if (!miUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let miCallRows = [];
+    let miCiRows = [];
+    if (isSupabaseDbConfigured()) {
+      const [miCallsRes, miCiRes] = await Promise.all([
+        supabaseDbRequest(
+          'scheduled_calls',
+          'select=*&user_id=eq.' + encodeURIComponent(miUserId) + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=50'
+        ),
+        supabaseDbRequest(
+          'career_interviews',
+          'select=*&user_id=eq.' + encodeURIComponent(miUserId) + '&status=neq.cancelled&order=scheduled_at.desc&limit=50'
+        )
+      ]);
+      miCallRows = (miCallsRes.ok && Array.isArray(miCallsRes.data)) ? miCallsRes.data : [];
+      miCiRows = (miCiRes.ok && Array.isArray(miCiRes.data)) ? miCiRes.data : [];
+    } else {
+      miCallRows = (dbState.scheduledCalls || []).filter(function (r) {
+        return r && r.meeting_kind === 'interview' && String(r.user_id) === String(miUserId) && r.status !== 'cancelled';
+      });
+      miCiRows = (dbState.careerInterviews || []).filter(function (r) {
+        return r && String(r.user_id) === String(miUserId) && r.status !== 'cancelled';
+      });
+    }
+
+    // Enrich practice/job context from the linked application → career role.
+    const miAppIds = [];
+    miCallRows.concat(miCiRows).forEach(function (r) {
+      const appId = r && r.application_id ? String(r.application_id) : '';
+      if (appId && miAppIds.indexOf(appId) === -1) miAppIds.push(appId);
+    });
+    const miAppMap = {};  // application_id -> gp_applications row
+    const miRoleMap = {}; // career_role id -> { title, practice_name }
+    if (miAppIds.length) {
+      if (isSupabaseDbConfigured()) {
+        const miAppsRes = await supabaseDbRequest(
+          'gp_applications',
+          'select=id,career_role_id&id=in.(' + encodeURIComponent(miAppIds.join(',')) + ')&limit=100'
+        );
+        ((miAppsRes.ok && Array.isArray(miAppsRes.data)) ? miAppsRes.data : []).forEach(function (a) {
+          miAppMap[String(a.id)] = a;
+        });
+        const miRoleIds = Object.keys(miAppMap)
+          .map(function (k) { return miAppMap[k].career_role_id; })
+          .filter(Boolean)
+          .map(String);
+        if (miRoleIds.length) {
+          const miRolesRes = await supabaseDbRequest(
+            'career_roles',
+            'select=id,title,practice_name&id=in.(' + encodeURIComponent(miRoleIds.join(',')) + ')&limit=100'
+          );
+          ((miRolesRes.ok && Array.isArray(miRolesRes.data)) ? miRolesRes.data : []).forEach(function (roleRow) {
+            miRoleMap[String(roleRow.id)] = roleRow;
+          });
+        }
+      } else {
+        (dbState.atsApplications || []).forEach(function (a) {
+          if (a && miAppIds.indexOf(String(a.id)) !== -1) miAppMap[String(a.id)] = a;
+        });
+        (dbState.atsJobs || []).forEach(function (j) {
+          if (j) miRoleMap[String(j.id)] = j;
+        });
+      }
+    }
+
+    function miContextFor(row) {
+      const app = row && row.application_id ? miAppMap[String(row.application_id)] : null;
+      const roleId = app ? (app.career_role_id || app.job_id) : (row && row.career_role_id);
+      const role = roleId != null && roleId !== '' ? miRoleMap[String(roleId)] : null;
+      return {
+        job_title: (role && role.title) || (app && app.job_title) || '',
+        practice_name: (role && role.practice_name) || (app && app.practice_name) || ''
+      };
+    }
+
+    // Normalize both stores to one GP-safe shape (allowlist — never spread the raw row).
+    function miNormalize(row, source) {
+      const ctx = miContextFor(row);
+      return {
+        id: row.id,
+        source: source,
+        scheduled_at: row.scheduled_at || null,
+        duration_minutes: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 45,
+        timezone: row.timezone || '',
+        format: row.format || 'video',
+        status: row.status || '',
+        zoom_join_url: row.zoom_join_url || '',
+        practice_name: row.practice_name || ctx.practice_name || '',
+        job_title: ctx.job_title || '',
+        interviewer_name: row.interviewer_name || ''
+      };
+    }
+
+    const miInterviews = miCallRows.map(function (r) { return miNormalize(r, 'scheduled_calls'); })
+      .concat(miCiRows.map(function (r) { return miNormalize(r, 'career_interviews'); }));
+
+    // Sort: upcoming soonest-first, then past most-recent-first, unscheduled last.
+    const miNowTs = Date.now();
+    function miTs(x) {
+      const t = Date.parse(x.scheduled_at || '');
+      return Number.isFinite(t) ? t : null;
+    }
+    miInterviews.sort(function (a, b) {
+      const ta = miTs(a);
+      const tb = miTs(b);
+      const aUpcoming = ta !== null && ta >= miNowTs;
+      const bUpcoming = tb !== null && tb >= miNowTs;
+      if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+      if (ta === null && tb === null) return 0;
+      if (ta === null) return 1;
+      if (tb === null) return -1;
+      return aUpcoming ? ta - tb : tb - ta;
+    });
+
+    sendJson(res, 200, { ok: true, interviews: miInterviews }, PRIVATE_METADATA_CACHE_HEADERS);
+    return;
+  }
+
   if (pathname === '/api/career/applications' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
