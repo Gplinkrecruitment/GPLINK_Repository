@@ -23886,6 +23886,54 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
+// Resolve a practices-table row id for a free-text practice name
+// (case-insensitive match, same lower(name) key as the unique index).
+// Creates the row when it doesn't exist yet — source 'backfill', which the
+// practices CHECK constraint allows — so gp_applications can carry a
+// first-class practice_id link. Returns the row id or null. Dual-mode.
+async function atsEnsurePracticeIdByName(name, extras) {
+  var trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  var key = trimmed.toLowerCase();
+  var rows = await atsListPracticeRows();
+  var match = rows.find(function (p) { return String(p.name || '').trim().toLowerCase() === key; });
+  if (match && match.id) return match.id;
+  var created = await atsInsertPracticeRow(Object.assign({ name: trimmed, source: 'backfill' }, extras || {}));
+  if (created && created.id) return created.id;
+  // The insert can lose a race against the lower(name) unique index — re-read.
+  rows = await atsListPracticeRows();
+  match = rows.find(function (p) { return String(p.name || '').trim().toLowerCase() === key; });
+  return (match && match.id) ? match.id : null;
+}
+
+// Practice id for a career_roles row: the explicit practice_id when set
+// (CEO-created ATS jobs), else ensure/lookup by practice_name (Zoho + manual
+// roles, whose practice only exists as denormalised text).
+async function atsResolvePracticeIdForRole(roleRow) {
+  if (!roleRow) return null;
+  if (roleRow.practice_id) return roleRow.practice_id;
+  return atsEnsurePracticeIdByName(roleRow.practice_name, {
+    location_city: roleRow.location_city || '',
+    location_state: roleRow.location_state || '',
+    location_country: roleRow.location_country || 'Australia',
+    created_by: 'system:career_apply'
+  });
+}
+
+// gp_applications.practice_id ships in migration 20260702090000, which may not
+// be applied yet. Detect the missing column ONCE per process and stop sending
+// it, so the apply path never pays for a second failing insert.
+var _gpApplicationsPracticeIdMissing = false;
+function isMissingColumnInsertError(result, column) {
+  var d = result ? result.data : null;
+  if (!d) return false;
+  var code = (typeof d === 'object') ? String(d.code || '') : '';
+  var msg = (typeof d === 'string') ? d : String(d.message || '');
+  if (msg.indexOf(column) === -1) return false;
+  // Postgres 42703 = undefined column; PGRST204 = column missing from schema cache.
+  return code === '42703' || code === 'PGRST204' || /column/i.test(msg);
+}
+
 // A practice is identified either by a real practices-table row id, or — when it
 // only exists as a denormalised name on jobs (like the Medical Centres view) — by
 // a synthetic "name:<encoded>" id.
@@ -27205,6 +27253,20 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // A CEO-closed/filled in-app job can still be reached via a stale link or
+    // an in-flight tab — reject before any insert or side effect.
+    if (String(roleRow.provider || parsedRoleId.provider) === 'internal_ats') {
+      const applyJobStatus = String(roleRow.job_status || '').trim().toLowerCase();
+      if (applyJobStatus === 'filled' || applyJobStatus === 'closed') {
+        sendJson(res, 409, {
+          ok: false,
+          code: 'job_closed',
+          message: "This position is no longer open — but we'll help you find another. Browse the latest openings or talk to your recruitment officer."
+        });
+        return;
+      }
+    }
+
     if (!zohoCandidateId && parsedRoleId.provider === 'zoho_recruit' && isZohoRecruitConfigured()) {
       const ensuredCandidate = await ensureZohoRecruitCandidateIdForUser(userId, email, profile, userState);
       if (ensuredCandidate && ensuredCandidate.ok && ensuredCandidate.zohoId) {
@@ -27233,6 +27295,15 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // First-class practice link: resolve (or create, source 'backfill') the
+    // practices-table row for this role. Best-effort — never blocks the apply.
+    let applyPracticeId = null;
+    try {
+      applyPracticeId = await atsResolvePracticeIdForRole(roleRow);
+    } catch (practiceErr) {
+      console.error('[career apply] practice resolution failed:', practiceErr && practiceErr.message);
+    }
+
     // Save application to DB
     const appRow = {
       user_id: userId,
@@ -27243,11 +27314,28 @@ async function handleApi(req, res, pathname) {
       status: 'applied',
       applied_at: new Date().toISOString()
     };
-    const insertResult = await supabaseDbRequest('gp_applications', '', {
+    if (applyPracticeId && !_gpApplicationsPracticeIdMissing) appRow.practice_id = applyPracticeId;
+    let insertResult = await supabaseDbRequest('gp_applications', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: [appRow]
     });
+
+    // Tolerate the practice_id migration not being applied yet: on an
+    // unknown-column rejection, remember it (module-level) and retry once
+    // without the column so applies keep working at full speed.
+    if (!insertResult.ok && appRow.practice_id && isMissingColumnInsertError(insertResult, 'practice_id')) {
+      if (!_gpApplicationsPracticeIdMissing) {
+        _gpApplicationsPracticeIdMissing = true;
+        console.warn('[career apply] gp_applications.practice_id column missing (migration 20260702090000 not applied) — inserting without it from now on.');
+      }
+      delete appRow.practice_id;
+      insertResult = await supabaseDbRequest('gp_applications', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [appRow]
+      });
+    }
 
     if (!insertResult.ok) {
       sendJson(res, 502, { ok: false, message: 'Failed to save application.' });
@@ -44503,7 +44591,11 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true, refreshed_at: new Date().toISOString(), period: period,
-      kpi: kpi, escalations: escalations, pipeline: pipeline, blockers: blockers, task_health: taskHealth,
+      kpi: kpi, escalations: escalations, pipeline: pipeline,
+      // Live hiring funnel (ATS): all gp_applications counted by ats_stage —
+      // rendered under the registration funnel on the CEO Overview.
+      ats_funnel: atsPracticeUtil.countAtsStages(apps),
+      blockers: blockers, task_health: taskHealth,
       rso_workload: rsoWorkload, va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
     });
@@ -46014,6 +46106,7 @@ Return ONLY valid JSON with no markdown formatting:
     var psCounts = {};
     atsPracticeUtil.PIPELINE_BUCKETS.forEach(function (k) { psCounts[k] = 0; });
     var psTotal = 0;
+    var psAts = null; // live hiring funnel: gp_applications rows counted by ats_stage
     if (!isSupabaseDbConfigured()) {
       var psCands = dbState.atsCandidates || [];
       psCands.forEach(function (c) {
@@ -46021,6 +46114,7 @@ Return ONLY valid JSON with no markdown formatting:
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCands.length;
+      psAts = atsPracticeUtil.countAtsStages(dbState.atsApplications || []);
     } else {
       var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
@@ -46033,11 +46127,13 @@ Return ONLY valid JSON with no markdown formatting:
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCases.length;
+      psAts = atsPracticeUtil.countAtsStages(psApps);
     }
     sendJson(res, 200, {
       ok: true,
       total: psTotal,
-      buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; })
+      buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; }),
+      ats: psAts
     });
     return;
   }
