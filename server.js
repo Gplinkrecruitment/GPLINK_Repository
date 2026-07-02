@@ -16595,6 +16595,27 @@ async function listCareerRoleRows(activeOnly = true, provider = '') {
   return result.data;
 }
 
+// A CEO-created in-app ATS job (provider='internal_ats') is visible to GPs only
+// while it is active AND still open. job_status can't be filtered inside
+// listCareerRoleRows (older rows may have it null, which the ATS dashboard also
+// treats as open — see atsJobCard), so the check lives here in JS.
+function isInternalAtsRoleOpenForGp(row) {
+  if (!row || row.is_active === false) return false;
+  const status = String(row.job_status || 'open').trim().toLowerCase();
+  return status === 'open';
+}
+
+// GP-visible in-app ATS roles. In production these are career_roles rows with
+// provider='internal_ats'; in local-JSON dev mode the ATS stores jobs in
+// dbState.atsJobs (same shape).
+async function listGpVisibleInternalAtsRoles() {
+  if (isSupabaseDbConfigured()) {
+    const rows = await listCareerRoleRows(true, 'internal_ats');
+    return rows.filter(isInternalAtsRoleOpenForGp);
+  }
+  return (dbState.atsJobs || []).filter((row) => row && row.provider === 'internal_ats' && isInternalAtsRoleOpenForGp(row));
+}
+
 async function getCareerRoleRowById(roleId) {
   const value = String(roleId || '').trim();
   if (!value) return null;
@@ -26687,10 +26708,12 @@ async function handleApi(req, res, pathname) {
     const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     if (_zohoRolesCache && _zohoRolesCache.roles && (now - _zohoRolesCache.ts) < CACHE_TTL) {
       const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+      const internalAtsRows = await listGpVisibleInternalAtsRoles();
+      const storedRows = manualRows.concat(internalAtsRows);
       sendJson(res, 200, {
         ok: true,
         source: 'zoho-live',
-        roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
+        roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
@@ -26701,10 +26724,12 @@ async function handleApi(req, res, pathname) {
         const cachedRoles = await _zohoRolesFetchPromise;
         if (cachedRoles) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          const internalAtsRows = await listGpVisibleInternalAtsRoles();
+          const storedRows = manualRows.concat(internalAtsRows);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), cachedRoles)
+            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), cachedRoles)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -26747,10 +26772,12 @@ async function handleApi(req, res, pathname) {
         const allRoles = await _zohoRolesFetchPromise;
         if (allRoles) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          const internalAtsRows = await listGpVisibleInternalAtsRoles();
+          const storedRows = manualRows.concat(internalAtsRows);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), allRoles)
+            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), allRoles)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -26765,17 +26792,23 @@ async function handleApi(req, res, pathname) {
         listCareerRoleRows(true),
         getZohoRecruitConnection()
       ]);
+      // listCareerRoleRows(true) returns every active provider, including
+      // internal_ats rows whose job_status is filled/closed (closing an ATS job
+      // does not flip is_active) — hide those from GPs.
+      const visibleRows = rows.filter((row) => row && (row.provider !== 'internal_ats' || isInternalAtsRoleOpenForGp(row)));
       sendJson(res, 200, {
         ok: true,
-        source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
+        source: visibleRows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
         connected: !!(connection && connection.status === 'active'),
         lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
-        roles: rows.map(mapCareerRoleRowToClient)
+        roles: visibleRows.map(mapCareerRoleRowToClient)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
-    sendJson(res, 200, { ok: true, source: 'fallback', roles: [] }, PRIVATE_METADATA_CACHE_HEADERS);
+    // Local-JSON dev mode: still surface CEO-created in-app ATS jobs.
+    const localInternalRoles = await listGpVisibleInternalAtsRoles();
+    sendJson(res, 200, { ok: true, source: 'fallback', roles: localInternalRoles.map(mapCareerRoleRowToClient) }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -26794,7 +26827,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+    let existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+    if (!existingRow && parsedId.provider === 'internal_ats' && !isSupabaseDbConfigured()) {
+      // Local-JSON dev mode: in-app ATS jobs live in dbState.atsJobs.
+      existingRow = (dbState.atsJobs || []).find((job) => job && job.provider === 'internal_ats' && String(job.provider_role_id || '') === parsedId.providerRoleId) || null;
+    }
     if (!existingRow) {
       sendJson(res, 404, { ok: false, message: 'Career role not found.' });
       return;
@@ -26966,6 +27003,22 @@ async function handleApi(req, res, pathname) {
     );
     if (!cvResult.ok || !Array.isArray(cvResult.data) || cvResult.data.length === 0) {
       sendJson(res, 403, { ok: false, message: 'Please upload your CV before applying.', requiresCv: true });
+      return;
+    }
+
+    // Already-placed guard: a GP whose placement is secured can't start new
+    // applications — their recruitment officer manages any change from here.
+    const priorAppsResult = await supabaseDbRequest(
+      'gp_applications',
+      `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`
+    );
+    const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
+    if (priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status))) {
+      sendJson(res, 409, {
+        ok: false,
+        code: 'already_placed',
+        message: 'You already have a secured placement — contact your recruitment officer if anything needs to change.'
+      });
       return;
     }
 
@@ -27337,7 +27390,10 @@ async function handleApi(req, res, pathname) {
         || ''
       ).trim();
       const roleRow = await getRoleRowForEntry(localApp, liveRecord);
-      const jobOpeningRecord = providerRoleId ? await getJobOpeningRecord(providerRoleId) : null;
+      // In-app ATS roles have no Zoho job opening — don't ask Zoho about their
+      // provider_role_id ('ats_…'); status falls back to the local row below.
+      const isInternalAtsRole = !!(roleRow && roleRow.provider === 'internal_ats');
+      const jobOpeningRecord = (providerRoleId && !isInternalAtsRole) ? await getJobOpeningRecord(providerRoleId) : null;
       const clientId = getZohoApplicationClientId(liveRecord)
         || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
       const practiceContacts = clientId ? await getClientContacts(clientId) : [];

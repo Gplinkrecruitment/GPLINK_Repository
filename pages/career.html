@@ -10140,6 +10140,11 @@
             return;
           }
           if (resp.status === 409) {
+            if (data && data.code === "already_placed") {
+              showToast(data.message || "You already have a secured placement — contact your recruitment officer if anything needs to change.");
+              closeRoleModal();
+              return;
+            }
             showToast("You've already applied for this role");
             setView("applications");
             closeRoleModal();
