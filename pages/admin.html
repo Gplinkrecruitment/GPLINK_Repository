@@ -10286,7 +10286,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('zoomNotifyWhatsapp').checked = true;
     document.getElementById('zoomNotifyEmail').checked = true;
     document.getElementById('zoomScheduleBtn').disabled = false;
-    document.getElementById('zoomScheduleBtn').textContent = 'Send Calendly Invite';
+    document.getElementById('zoomScheduleBtn').textContent = 'Send Zoom Invite';
     overlay.classList.add('open');
   }
   window.openZoomScheduleModal = openZoomScheduleModal;
@@ -10341,17 +10341,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         // If this call was scheduled in response to a GP request task, flip that
         // originating task to "waiting on GP" (awaiting their booking).
         if (_originId) { try { await fetch('/api/admin/task?id=' + encodeURIComponent(_originId), { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ status:'waiting_on_gp' }) }); } catch(e){} }
-        showOpsToast('Calendly invite sent to GP');
+        showOpsToast('Zoom invite sent to GP');
         if (typeof renderDetail === 'function') renderDetail();
       } else {
         alert('Failed: ' + (data.message || 'Unknown error'));
         btn.disabled = false;
-        btn.textContent = 'Send Calendly Invite';
+        btn.textContent = 'Send Zoom Invite';
       }
     } catch (e) {
       alert('Error: ' + e.message);
       btn.disabled = false;
-      btn.textContent = 'Send Calendly Invite';
+      btn.textContent = 'Send Zoom Invite';
     }
   }
   window.submitZoomSchedule = submitZoomSchedule;
@@ -10433,7 +10433,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.refreshAfterCallAction = refreshAfterCallAction;
 
   async function resendZoomInvite(callId) {
-    if (!confirm('Resend the Calendly invite to this GP?')) return;
+    if (!confirm('Resend the Zoom invite to this GP?')) return;
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/resend', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
@@ -10463,7 +10463,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.markZoomNoShow = markZoomNoShow;
 
   async function rescheduleZoomCall(callId) {
-    if (!confirm('Reschedule this call? A new Calendly invite will be sent to the GP.')) return;
+    if (!confirm('Reschedule this call? A new Zoom invite will be sent to the GP.')) return;
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'reschedule' }) });
       var d = await r.json();
@@ -10862,7 +10862,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="zoom-modal-footer">
       <button class="btn" onclick="closeZoomScheduleModal()">Cancel</button>
-      <button class="btn primary" id="zoomScheduleBtn" style="background:#2D8CFF;border-color:#2D8CFF" onclick="submitZoomSchedule()">Send Calendly Invite</button>
+      <button class="btn primary" id="zoomScheduleBtn" style="background:#2D8CFF;border-color:#2D8CFF" onclick="submitZoomSchedule()">Send Zoom Invite</button>
     </div>
   </div>
 </div>
