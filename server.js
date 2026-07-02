@@ -3426,6 +3426,11 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       // "how to get this" steps for documents we already guide. The verbatim
       // officer text stays in `detail` for the team to check against.
       gp_instructions: item.gp_instructions || '',
+      // RSO-facing plain rewrite (what AHPRA is asking + what the team does) — shown in the review
+      // tray instead of the officer's confusing verbatim wording. needs_call flags PSV/MyIntealth/AMC
+      // items where the team must book a Zoom call with the doctor to debug.
+      team_instructions: item.team_instructions || '',
+      needs_call: !!item.needs_call,
       how_to_steps: Array.isArray(item.how_to_steps) ? item.how_to_steps : [],
       doc_guide_key: item.doc_guide_key || '',
       guide_reminder: item.guide_reminder || '',

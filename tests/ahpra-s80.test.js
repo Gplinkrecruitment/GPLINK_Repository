@@ -315,3 +315,60 @@ describe('ahpra-s80 reuse of the app\'s "Show me how" steps', () => {
     expect(item.how_to_steps.length).toBe(0);
   });
 });
+
+describe('RSO refinements: team_instructions, PSV/MyIntealth/AMC → Zoom call, drop submission-info', () => {
+  it('keeps a model-supplied team_instructions rewrite', () => {
+    const item = s80.normalizeItem({ title: 'Reference letters', owner: 'gp', mode: 'upload', team_instructions: 'Ask the doctor to upload two recent employer reference letters.' }, {});
+    expect(item.team_instructions).toBe('Ask the doctor to upload two recent employer reference letters.');
+    expect(item.needs_call).toBe(false);
+  });
+
+  it('falls back to a team_instructions for a plain upload item', () => {
+    const item = s80.normalizeItem({ title: 'Curriculum Vitae', owner: 'gp', mode: 'upload' }, {});
+    expect(item.team_instructions).toMatch(/upload/i);
+    expect(item.team_instructions).toContain('Curriculum Vitae');
+  });
+
+  it('routes a MyIntealth item to team + a book-a-Zoom-call flag', () => {
+    const item = s80.normalizeItem({ title: 'MyIntealth submission still pending', detail: 'The MyIntealth portal shows no submission.' }, {});
+    expect(item.owner).toBe('team');
+    expect(item.mode).toBe('team');
+    expect(item.kind).toBe('qualification_check');
+    expect(item.needs_call).toBe(true);
+    expect(item.team_instructions).toMatch(/zoom call/i);
+  });
+
+  it('routes AMC and PSV items to team + the book-a-call flag', () => {
+    const amc = s80.normalizeItem({ title: 'AMC portfolio assessment outstanding' }, {});
+    expect(amc.kind).toBe('qualification_check');
+    expect(amc.needs_call).toBe(true);
+    const psv = s80.normalizeItem({ title: 'Primary source verification via ECFMG' }, {});
+    expect(psv.needs_call).toBe(true);
+    expect(psv.owner).toBe('team');
+  });
+
+  it('flags a normal document upload as NOT needing a call', () => {
+    const item = s80.normalizeItem({ title: 'Signed CV', owner: 'gp', mode: 'upload' }, {});
+    expect(item.needs_call).toBe(false);
+  });
+
+  it('isSubmissionInfoItem detects a "how to submit" process line, not real documents', () => {
+    expect(s80.isSubmissionInfoItem({ title: 'How to submit documents to Ahpra' })).toBe(true);
+    expect(s80.isSubmissionInfoItem({ title: 'Submitting your documents' })).toBe(true);
+    expect(s80.isSubmissionInfoItem({ title: 'Curriculum Vitae (CV)' })).toBe(false);
+    expect(s80.isSubmissionInfoItem({ title: 'Certificate of Good Standing from GMC' })).toBe(false);
+  });
+
+  it('normalizeExtraction drops a "how to submit" item but keeps real documents', () => {
+    const out = s80.normalizeExtraction({ items: [
+      { title: 'How to submit documents to Ahpra', detail: 'Send everything through the portal.' },
+      { title: 'Curriculum Vitae (CV)', owner: 'gp', mode: 'upload' },
+      { title: 'Primary source verification (PSV)' }
+    ] }, {});
+    const titles = out.items.map(i => i.title);
+    expect(titles).not.toContain('How to submit documents to Ahpra');
+    expect(titles).toContain('Curriculum Vitae (CV)');
+    expect(out.items.length).toBe(2);
+    expect(out.items.every(i => (i.team_instructions || '').length > 0)).toBe(true);
+  });
+});
