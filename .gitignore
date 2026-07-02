@@ -1,6 +1,8 @@
 .DS_Store
 .env
 .env.local
+.env.prod
+.env.production
 .env.*.local
 .env.vercel
 .env.vercel-prod

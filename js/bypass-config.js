@@ -2,25 +2,23 @@
  * Shared bypass-lock email list — single source of truth for client-side.
  * Server-side reads from process.env.BYPASS_LOCK_EMAILS plus matching temporary
  * entries in server.js.
+ *
+ * Temporary personal-email bypasses are keyed by the SHA-256 hex digest of the
+ * lowercase email (no plaintext personal emails are shipped to clients). The
+ * current user's email is hashed at load time; on a match the plaintext key is
+ * defined on BYPASS_LOCK_EMAILS from the user's own session data and the match
+ * is cached in localStorage so later page loads can activate synchronously.
  */
 var BYPASS_LOCK_EMAILS = {
   "hello@mygplink.com.au": true
 };
 
 (function () {
-  var TEMPORARY_BYPASS_LOCK_EMAILS = {
-    "smithmiller1234@gmail.com": "2026-09-30T23:59:59.000Z"
+  // { "<sha256 hex of lowercase email>": "<expiry ISO timestamp>" }
+  var TEMPORARY_BYPASS_LOCK_DIGESTS = {
+    "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59.000Z"
   };
-
-  Object.keys(TEMPORARY_BYPASS_LOCK_EMAILS).forEach(function (email) {
-    Object.defineProperty(BYPASS_LOCK_EMAILS, email, {
-      configurable: true,
-      enumerable: true,
-      get: function () {
-        return Date.now() < Date.parse(TEMPORARY_BYPASS_LOCK_EMAILS[email]);
-      }
-    });
-  });
+  var DIGEST_MATCH_CACHE_KEY = "gp_bypass_digest_match";
 
   function getCurrentBypassEmail() {
     try { if (window.gpSessionProfile && window.gpSessionProfile.email) return String(window.gpSessionProfile.email).trim().toLowerCase(); } catch (e) {}
@@ -42,17 +40,41 @@ var BYPASS_LOCK_EMAILS = {
     return "";
   }
 
-  function applyTemporaryAhpraIntroBypass() {
-    var email = getCurrentBypassEmail();
-    if (!email || !Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_EMAILS, email)) return;
+  function sha256Hex(text) {
+    try {
+      if (!(window.crypto && window.crypto.subtle && window.crypto.subtle.digest && typeof TextEncoder !== "undefined")) {
+        return Promise.resolve("");
+      }
+      return window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text))).then(function (buffer) {
+        var bytes = new Uint8Array(buffer);
+        var hex = "";
+        for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+        return hex;
+      });
+    } catch (e) {
+      return Promise.resolve("");
+    }
+  }
 
+  function activateTemporaryBypass(email, expiresAt) {
+    Object.defineProperty(BYPASS_LOCK_EMAILS, email, {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return Date.now() < Date.parse(expiresAt);
+      }
+    });
+    applyTemporaryAhpraIntroBypass(email, expiresAt);
+  }
+
+  function applyTemporaryAhpraIntroBypass(email, expiresAt) {
     var introSeenKey = "gp_ahpra_progress__intro_seen";
     var markerKey = introSeenKey + "_temporary_bypass";
     var bypassActive = !!BYPASS_LOCK_EMAILS[email];
     try {
       if (bypassActive) {
         var previous = localStorage.getItem(introSeenKey);
-        localStorage.setItem(markerKey, JSON.stringify({ email: email, previous: previous, expiresAt: TEMPORARY_BYPASS_LOCK_EMAILS[email] }));
+        localStorage.setItem(markerKey, JSON.stringify({ email: email, previous: previous, expiresAt: expiresAt }));
         localStorage.setItem(introSeenKey, "1");
         return;
       }
@@ -67,5 +89,27 @@ var BYPASS_LOCK_EMAILS = {
     } catch (e) {}
   }
 
-  applyTemporaryAhpraIntroBypass();
+  var currentEmail = getCurrentBypassEmail();
+  if (!currentEmail) return;
+
+  // Sync fast-path: a previous load on this device already matched the digest.
+  try {
+    var cachedRaw = localStorage.getItem(DIGEST_MATCH_CACHE_KEY);
+    if (cachedRaw) {
+      var cached = JSON.parse(cachedRaw);
+      if (cached && cached.email === currentEmail &&
+          Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, cached.digest)) {
+        activateTemporaryBypass(currentEmail, TEMPORARY_BYPASS_LOCK_DIGESTS[cached.digest]);
+        return;
+      }
+    }
+  } catch (e) {}
+
+  // Async path: hash the current email and compare against the digest map.
+  sha256Hex(currentEmail).then(function (digest) {
+    if (!digest || !Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, digest)) return;
+    var expiresAt = TEMPORARY_BYPASS_LOCK_DIGESTS[digest];
+    try { localStorage.setItem(DIGEST_MATCH_CACHE_KEY, JSON.stringify({ email: currentEmail, digest: digest, expiresAt: expiresAt })); } catch (e) {}
+    activateTemporaryBypass(currentEmail, expiresAt);
+  }).catch(function () {});
 })();

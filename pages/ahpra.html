@@ -13,14 +13,19 @@
       try { if (!bypassEmail) { var lp = localStorage.getItem("gp_session_profile_cache"); if (lp) bypassEmail = String((JSON.parse(lp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) { var sp = sessionStorage.getItem("gp_session_profile_cache"); if (sp) bypassEmail = String((JSON.parse(sp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) bypassEmail = String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase(); } catch (e) {}
-      var tempBypassActive = bypassEmail === "smithmiller1234@gmail.com" && Date.now() < Date.parse("2026-09-30T23:59:59.000Z");
+      // Temporary bypass match is cached by /js/bypass-config.js (hashed allowlist — no plaintext personal email shipped here).
+      var tempBypassActive = false;
+      try {
+        var bypassMatch = JSON.parse(localStorage.getItem("gp_bypass_digest_match") || "null");
+        tempBypassActive = !!(bypassMatch && bypassMatch.email && bypassMatch.email === bypassEmail && bypassMatch.expiresAt && Date.now() < Date.parse(bypassMatch.expiresAt));
+      } catch (e) {}
       if(!tempBypassActive && localStorage.getItem("gp_ahpra_progress__intro_seen")!=="1"){
       var s=document.createElement("style");s.id="ahpra-intro-hide";
       s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
       document.head.appendChild(s);
     }}catch(e){}})();
   </script>
-  <script src="/js/bypass-config.js?v=20260620a"></script>
+  <script src="/js/bypass-config.js?v=20260702a"></script>
   <script src="/js/auth-guard.js?v=20260614a" defer></script>
   <script src="/js/state-sync.js?v=20260607a" defer></script>
   <script src="/js/updates-sync.js?v=20260612a" defer></script>

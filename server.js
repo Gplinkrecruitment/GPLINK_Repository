@@ -24586,9 +24586,7 @@ async function handleApi(req, res, pathname) {
 
   // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
   if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
-    var gdCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var gdAuth = req.headers['authorization'] || '';
-    if (!gdCronSecret || gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var diag = { steps: [] };
     try {
       // Step 1: Check env vars
@@ -24746,9 +24744,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: poll Gmail for new emails (fallback when Pub/Sub push doesn't fire)
   if (req.method === 'GET' && pathname === '/api/cron/process-gmail') {
-    var pgCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var pgAuth = req.headers['authorization'] || '';
-    if (!pgCronSecret || pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
@@ -24895,9 +24891,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: organise every candidate's Drive folder into per-document subfolders (daily, 03:00 UTC)
   if (req.method === 'GET' && pathname === '/api/cron/organize-drive') {
-    var odCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var odAuth = req.headers['authorization'] || '';
-    if (!odCronSecret || odAuth !== 'Bearer ' + odCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     if (!isGoogleDriveConfigured() || !isSupabaseDbConfigured()) {
       sendJson(res, 200, { ok: true, organized: 0, errors: 0, message: 'Drive or DB not configured — skipped' });
       return;
@@ -24921,9 +24915,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
-    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var authHeader = req.headers['authorization'] || '';
-    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) {
+    if (!isValidCronSecret(getBearerToken(req))) {
       sendJson(res, 401, { error: 'Unauthorized' });
       return;
     }
@@ -36087,9 +36079,7 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/cron/check-contract-signatures' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var csCronSecret = url.searchParams.get('secret') || '';
-    var validSecret = (process.env.CRON_SECRET && csCronSecret === process.env.CRON_SECRET) ||
-      (process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET && csCronSecret === process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET);
-    if (!validSecret) {
+    if (!isValidCronSecret(csCronSecret)) {
       sendJson(res, 401, { ok: false, message: 'Invalid secret.' }); return;
     }
     let csBody; try { csBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
@@ -44942,9 +44932,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   if (pathname === '/api/ceo/technical/system-bugs/ingest' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var authHeader = req.headers['authorization'] || '';
-    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
     var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
     if (!body || !body.scan_id || !Array.isArray(body.findings)) { sendJson(res, 400, { ok: false, message: 'scan_id and findings array required.' }); return; }
     var inserted = 0; var skipped = 0;
