@@ -681,10 +681,11 @@
 
       var STATUS_ORDER = {
         applied: 0, review: 0,
-        under_review: 1, submitted: 1,
+        under_review: 1, submitted: 1, reviewing: 1,
         interview: 2, interview_scheduled: 2, shortlisted: 2,
         offer: 3, offer_pending: 3, offered: 3,
-        hired: 4, secured: 4, placed: 4, placement_secured: 4, offer_accepted: 4, contract_signed: 4
+        hired: 4, secured: 4, placed: 4, placement_secured: 4, offer_accepted: 4, contract_signed: 4,
+        finalising_placement: 4
       };
 
       function normalizeStatusKey(val) {
@@ -725,12 +726,18 @@
         renderApplication(appData);
       }
 
-      // Fetch fresh data from API
+      // Fetch fresh data from API. Merge OVER the cached preview: the API is
+      // the source of truth for status/role/interview, while the preview keeps
+      // display-only extras (e.g. the meta rows) the API doesn't return.
       fetch("/api/career/application?id=" + encodeURIComponent(appId || roleId), { credentials: "same-origin" })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function (data) {
           if (data && data.ok && data.application) {
-            appData = data.application;
+            appData = Object.assign({}, appData || {}, data.application);
+            // The fresh status wins outright — drop stale preview presentation.
+            appData.rawStatus = data.application.status;
+            if (!data.application.statusLabel) delete appData.statusLabel;
+            if (!data.application.statusTone) delete appData.statusTone;
             renderApplication(appData);
           } else if (!appData) {
             document.getElementById("loadingState").innerHTML = '<p>Application not found.</p>';
@@ -742,19 +749,63 @@
           }
         });
 
+      // Friendly pill copy: the server supplies statusLabel for in-app (ATS)
+      // applications; other apps map their raw status key to the same wording
+      // career.html uses (the raw API key would otherwise render lowercase).
+      var STATUS_LABELS = {
+        applied: "Applied", review: "Under Review", under_review: "Under Review",
+        submitted: "Under Review", reviewing: "Under Review",
+        interview: "Interview Scheduled", interview_scheduled: "Interview Scheduled", shortlisted: "Interview Scheduled",
+        offer: "Offer Pending", offer_pending: "Offer Pending", offered: "Offer Pending",
+        hired: "Practice Secured", secured: "Practice Secured", placed: "Practice Secured",
+        placement_secured: "Practice Secured", offer_accepted: "Practice Secured", contract_signed: "Practice Secured",
+        finalising_placement: "Offer Accepted",
+        withdrawn: "Withdrawn", not_proceeding: "Not Proceeding"
+      };
+
+      function labelForStatus(app) {
+        if (app.statusLabel) return app.statusLabel;
+        var key = normalizeStatusKey(app.rawStatus || app.status);
+        if (STATUS_LABELS[key]) return STATUS_LABELS[key];
+        return app.status || "Applied";
+      }
+
+      function toneForStatus(app) {
+        if (app.statusTone) return app.statusTone;
+        if (app.tone) return app.tone;
+        var key = normalizeStatusKey(app.rawStatus || app.status);
+        if (key === "withdrawn" || key === "not_proceeding") return "withdrawn";
+        if (["hired", "secured", "placed", "placement_secured", "offer_accepted", "contract_signed"].indexOf(key) !== -1) return "secured";
+        if (key.indexOf("offer") !== -1) return "offer";
+        if (key.indexOf("interview") !== -1) return "interview";
+        return "review";
+      }
+
+      // Latest rendered data — renderApplication can run twice (cached preview,
+      // then the fresh fetch); buttons are wired ONCE and read these refs so
+      // they always act on the freshest data.
+      var latestApp = null;
+      var latestInterview = null;
+
       function renderApplication(app) {
+        latestApp = app;
         document.getElementById("loadingState").hidden = true;
         document.getElementById("appContent").hidden = false;
 
-        // Header
-        document.getElementById("practiceName").textContent = app.practiceName || "Medical Centre";
-        document.getElementById("appLocation").textContent = app.location || "";
+        // Header — the API nests the role details under app.role; the cached
+        // preview keeps them at the top level. Support both so internal (ATS)
+        // apps never render placeholder text after the fresh fetch lands.
+        var role = app.role || {};
+        var practiceName = app.practiceName || role.practiceName || "Medical Centre";
+        var locationText = app.location || role.location || "";
+        document.getElementById("practiceName").textContent = practiceName;
+        document.getElementById("appLocation").textContent = locationText;
         var pillEl = document.getElementById("statusPill");
-        pillEl.textContent = app.status || "Applied";
-        pillEl.className = "status-pill " + (app.tone || "review");
+        pillEl.textContent = labelForStatus(app);
+        pillEl.className = "status-pill " + toneForStatus(app);
 
         // Back bar title
-        document.getElementById("backBarTitle").textContent = app.practiceName || "Application";
+        document.getElementById("backBarTitle").textContent = practiceName;
 
         // Timeline
         var statusIdx = getStatusIndex(app.rawStatus || app.status);
@@ -777,6 +828,7 @@
         var isInterview = normalizeStatusKey(app.rawStatus || app.status).indexOf("interview") !== -1;
         var interviewCard = document.getElementById("interviewCard");
         var interviewObj = app.interview || null;
+        latestInterview = interviewObj;
         if (isInterview || interviewObj) {
           interviewCard.hidden = false;
           var interviewRows = [];
@@ -815,12 +867,15 @@
             joinBtn.hidden = true;
           }
 
-          // Interview Strategy link
-          var strategyLink = document.createElement('a');
-          strategyLink.href = 'interview-prep.html?id=' + encodeURIComponent(appId);
-          strategyLink.className = 'interview-strategy-btn';
-          strategyLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg> Interview Strategy';
-          interviewCard.appendChild(strategyLink);
+          // Interview Strategy link (renderApplication may run twice — cached
+          // preview then fresh fetch — so never append a duplicate).
+          if (!interviewCard.querySelector('.interview-strategy-btn')) {
+            var strategyLink = document.createElement('a');
+            strategyLink.href = 'interview-prep.html?id=' + encodeURIComponent(app.id || appId);
+            strategyLink.className = 'interview-strategy-btn';
+            strategyLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg> Interview Strategy';
+            interviewCard.appendChild(strategyLink);
+          }
         }
 
         // Meta cards (exclude interview-specific labels)
@@ -833,34 +888,44 @@
         }).join("");
 
         // Role preview
-        document.getElementById("roleTitle").textContent = app.roleTitle || "General Practitioner";
-        document.getElementById("roleLocation").textContent = app.location || "";
+        document.getElementById("roleTitle").textContent = app.roleTitle || role.roleType || "General Practitioner";
+        document.getElementById("roleLocation").textContent = locationText;
 
         // Action links
         if (app.roleId) {
           document.getElementById("viewRoleBtn").href = "career.html";
         }
 
-        // Join interview button — validate URL scheme before opening
-        document.getElementById("joinInterviewBtn").addEventListener("click", function () {
-          var joinUrl = (interviewObj && interviewObj.zoom_join_url) || app.interviewJoinUrl || "";
-          var validUrl = safeUrl(joinUrl);
-          if (validUrl) {
-            if (window.gpOpenExternal) {
-              window.gpOpenExternal(validUrl);
+        // Join interview button — validate URL scheme before opening. Wired
+        // ONCE (renders can repeat: cached preview then fresh fetch); the
+        // handler reads the latest data through the refs above.
+        var joinBtnEl = document.getElementById("joinInterviewBtn");
+        if (joinBtnEl.dataset.wired !== "1") {
+          joinBtnEl.dataset.wired = "1";
+          joinBtnEl.addEventListener("click", function () {
+            var joinUrl = (latestInterview && latestInterview.zoom_join_url) || (latestApp && latestApp.interviewJoinUrl) || "";
+            var validUrl = safeUrl(joinUrl);
+            if (validUrl) {
+              if (window.gpOpenExternal) {
+                window.gpOpenExternal(validUrl);
+              } else {
+                window.open(validUrl, "_blank", "noopener");
+              }
             } else {
-              window.open(validUrl, "_blank", "noopener");
+              alert("Interview link not yet available. GP Link will send you the link before your interview.");
             }
-          } else {
-            alert("Interview link not yet available. GP Link will send you the link before your interview.");
-          }
-        });
+          });
+        }
 
-        // Add to Calendar
+        // Add to Calendar (also wired once; reads the latest refs)
         var calendarBtn = document.getElementById("addCalendarBtn");
         if (interviewObj && interviewObj.scheduled_at) {
           calendarBtn.hidden = false;
+          if (calendarBtn.dataset.wired !== "1") {
+          calendarBtn.dataset.wired = "1";
           calendarBtn.addEventListener("click", function () {
+            var interviewObj = latestInterview || {};
+            var app = latestApp || {};
             var start = new Date(interviewObj.scheduled_at);
             var durationMin = interviewObj.duration_minutes || 30;
             var end = new Date(start.getTime() + durationMin * 60000);
@@ -908,29 +973,37 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           });
+          }
         }
 
-        // Offer card — show when status is offer-related
+        // Offer card — show when an offer is waiting (server flag for in-app
+        // ATS offers, offer-ish raw status for Zoho apps); deep-link with the
+        // application id so offer-review fetches the right offer.
         var offerStatuses = ['offer', 'offer_pending', 'offered'];
-        if (offerStatuses.indexOf(normalizeStatusKey(app.rawStatus || app.status)) !== -1) {
-          var offerCard = document.getElementById('offerCard');
-          if (offerCard) {
-            offerCard.style.display = 'block';
+        var showOfferCard = app.offerPending === true
+          || offerStatuses.indexOf(normalizeStatusKey(app.rawStatus || app.status)) !== -1;
+        var offerCard = document.getElementById('offerCard');
+        if (offerCard) {
+          offerCard.style.display = showOfferCard ? 'block' : 'none';
+          if (showOfferCard) {
             var offerLink = document.getElementById('offerReviewLink');
             if (offerLink) {
-              offerLink.href = 'offer-review.html?id=' + encodeURIComponent(appId);
+              offerLink.href = 'offer-review.html?applicationId=' + encodeURIComponent(app.id || appId);
             }
           }
         }
 
-        // Withdrawal
+        // Withdrawal (wired once; renders can repeat)
         var withdrawBtn = document.getElementById("withdrawBtn");
         var statusKey = normalizeStatusKey(app.rawStatus || app.status);
         var isSecured = ["hired", "secured", "placed", "placement_secured", "offer_accepted", "contract_signed"].indexOf(statusKey) !== -1;
         var isWithdrawn = statusKey === "withdrawn";
+        var isClosed = statusKey === "not_proceeding";
 
-        if (!isSecured && !isWithdrawn) {
+        if (!isSecured && !isWithdrawn && !isClosed) {
           withdrawBtn.hidden = false;
+          if (withdrawBtn.dataset.wired !== "1") {
+          withdrawBtn.dataset.wired = "1";
           withdrawBtn.addEventListener("click", function () {
             if (!confirm("Are you sure you want to withdraw this application? This cannot be undone.")) return;
             withdrawBtn.disabled = true;
@@ -939,7 +1012,7 @@
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "same-origin",
-              body: JSON.stringify({ applicationId: app.id || appId })
+              body: JSON.stringify({ applicationId: (latestApp && latestApp.id) || appId })
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -961,12 +1034,15 @@
               alert("Network error. Please try again.");
             });
           });
+          }
         } else if (isWithdrawn) {
           withdrawBtn.hidden = false;
           withdrawBtn.disabled = true;
           withdrawBtn.textContent = "Application Withdrawn";
           withdrawBtn.style.borderColor = "var(--line)";
           withdrawBtn.style.color = "var(--muted)";
+        } else {
+          withdrawBtn.hidden = true;
         }
       }
     })();

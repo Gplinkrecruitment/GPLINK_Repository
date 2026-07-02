@@ -13426,6 +13426,71 @@ function isCareerPlacementSecuredStatus(value) {
   return SECURED_CAREER_APPLICATION_STATUS_KEYS.has(normalizeCareerApplicationStatusKey(value));
 }
 
+// ── Standalone ATS (Task F): status presentation for INTERNAL applications ──
+// For in-app (non-Zoho) applications the kanban `ats_stage` is the pipeline
+// source of truth — gp_applications.status only moves at the endpoints
+// ('applied' → 'placement_secured'/'withdrawn') — so the label the doctor sees
+// on career.html / application-detail.html must derive from the stage plus the
+// live in-app offer state. Zoho-managed applications keep their existing
+// labels (career.html's own status map) completely untouched.
+function isInternalCareerApplication(appRow, roleRow) {
+  if (roleRow && String(roleRow.provider || '') === 'internal_ats') return true;
+  if (appRow && String(appRow.zoho_application_id || '').trim()) return false;
+  return String((appRow && appRow.provider_role_id) || '').trim().startsWith('ats_');
+}
+
+// Returns { status, statusLabel, statusTone, offerPending } for an internal
+// application. `status` stays a machine key (timeline/tone logic), while
+// `statusLabel` is the friendly copy the pages render. `statusTone` matches
+// career.html's status-pill tone classes (review/interview/offer/secured).
+function buildInternalCareerStatusPresentation(appRow, offerRow) {
+  const row = appRow || {};
+  const storedStatus = normalizeCareerApplicationStatusKey(row.status);
+  const offerStatus = offerRow ? String(offerRow.status || '') : '';
+  const stage = String(row.ats_stage || '').trim().toLowerCase()
+    || atsPracticeUtil.deriveAtsStage(row, false);
+
+  if (isCareerPlacementSecuredStatus(storedStatus)) {
+    return { status: storedStatus, statusLabel: 'Practice secured', statusTone: 'secured', offerPending: false };
+  }
+  if (storedStatus === 'withdrawn') {
+    return { status: 'withdrawn', statusLabel: 'Application withdrawn', statusTone: 'review', offerPending: false };
+  }
+  if (storedStatus === 'rejected' || stage === 'not_proceeding') {
+    return { status: 'not_proceeding', statusLabel: 'Not proceeding this time', statusTone: 'review', offerPending: false };
+  }
+  if (offerStatus === 'accepted' || stage === 'hired') {
+    // Offer accepted (or the card was dragged to Hired) but the secured status
+    // hasn't landed yet — celebrate WITHOUT flipping the secured view, because
+    // no placement payload exists until the acceptance completes.
+    return { status: 'finalising_placement', statusLabel: 'Offer accepted — finalising your placement', statusTone: 'offer', offerPending: false };
+  }
+  if (stage === 'offer') {
+    if (offerStatus === 'sent') {
+      return { status: 'offer', statusLabel: 'Offer waiting for you 🎉', statusTone: 'offer', offerPending: true };
+    }
+    return { status: 'offer', statusLabel: 'The practice is preparing an offer', statusTone: 'offer', offerPending: false };
+  }
+  if (stage === 'interview') {
+    return { status: 'interview', statusLabel: 'Interview stage', statusTone: 'interview', offerPending: false };
+  }
+  if (stage === 'reviewing') {
+    return { status: 'reviewing', statusLabel: 'The practice is reviewing your profile', statusTone: 'review', offerPending: false };
+  }
+  if (stage === 'submitted') {
+    return { status: 'submitted', statusLabel: 'Sent to the practice', statusTone: 'review', offerPending: false };
+  }
+  return { status: 'applied', statusLabel: 'Application submitted', statusTone: 'review', offerPending: false };
+}
+
+// The in-app offer record only affects the label at these points — skip the
+// (kv/table) offer lookup everywhere else.
+function internalCareerStatusNeedsOffer(appRow) {
+  const row = appRow || {};
+  const stage = String(row.ats_stage || '').trim().toLowerCase();
+  return stage === 'offer' || stage === 'hired' || isCareerPlacementSecuredStatus(row.status);
+}
+
 function normalizePlacementStartDate(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -17075,7 +17140,12 @@ function mapCareerRoleRowToClient(row) {
     location: location || 'Australia',
     locationLine: gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb),
     proximityNote: gpLinkMeta.publicLocationProximity || buildCareerPublicProximityNote(row, gpLinkMeta.suburb),
-    summary: gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.'),
+    // In-app ATS jobs: the "About the role" text the CEO/consultant writes IS
+    // the doctor-facing copy — it wins over the derived anonymised intro.
+    // Zoho roles keep the redacted publicIntro (confidential listings).
+    summary: (row && row.provider === 'internal_ats' && row.summary && String(row.summary).trim())
+      ? String(row.summary).trim()
+      : (gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.')),
     billing: billingLabel,
     geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
@@ -17086,7 +17156,9 @@ function mapCareerRoleRowToClient(row) {
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
     roleType: row && row.title ? String(row.title) : 'General Practitioner',
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
-    footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit',
+    footnote: row && row.employment_type
+      ? String(row.employment_type)
+      : (row && row.provider === 'internal_ats' ? 'Live opening via GP Link' : 'Live opening via Zoho Recruit'),
     locationSummary: gpLinkMeta.locationSummary || '',
     heroImageUrl: gpLinkMeta.heroImageUrl || '',
     heroImageSourceUrl: gpLinkMeta.heroImageSourceUrl || '',
@@ -24979,7 +25051,13 @@ function atsLocalCandidateFacts(row) {
       intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null };
     }
     var offerRow = (dbState.atsOffers || []).find(function (o) { return String(o.application_id) === String(a.id); }) || null;
-    return Object.assign({}, a, { interview: intRow, offer: atsOfferCardState(offerRow) });
+    return Object.assign({}, a, {
+      interview: intRow,
+      offer: atsOfferCardState(offerRow),
+      // Drawer source chip (Task F) — local-mode apps are in-app by definition
+      // unless the seed row carries a Zoho id.
+      source: a.source || (a.zoho_application_id ? 'zoho' : 'in_app')
+    });
   });
   return {
     case_id: row.id, user_id: row.user_id || row.id,
@@ -25055,6 +25133,8 @@ async function atsProdCandidateFacts(regCase) {
       // Drives the drawer's "Submit to practice" affordance (Task D):
       // '' / null normalises to 'pending_va_submission' = still submittable.
       practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
+      // Drawer source chip (Task F): Zoho-managed vs in-app application.
+      source: a.zoho_application_id ? 'zoho' : 'in_app',
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
@@ -25155,6 +25235,7 @@ function atsJobCard(job, practicesById, appsByJob) {
     practice_id: job.practice_id || '', practice_name: p ? p.name : (job.practice_name || ''),
     city: job.location_city || '', state: job.location_state || '',
     type: job.employment_type || '', billing: job.billing_model || '',
+    summary: job.summary || '',
     status: job.job_status || (job.is_active === false ? 'closed' : 'open'),
     posted: job.published_at || job.created_at || '', ats_created: !!job.ats_created,
     active_count: active, stage_counts: counts
@@ -28520,6 +28601,19 @@ async function handleApi(req, res, pathname) {
       // In-app ATS roles have no Zoho job opening — don't ask Zoho about their
       // provider_role_id ('ats_…'); status falls back to the local row below.
       const isInternalAtsRole = !!(roleRow && roleRow.provider === 'internal_ats');
+      // Standalone ATS: internal apps derive their user-facing status from the
+      // kanban ats_stage + the in-app offer state (gp_applications.status only
+      // moves at the endpoints). Zoho apps keep their labels untouched.
+      const isInternalApp = !!localApp && !liveRecord && isInternalCareerApplication(localApp, roleRow);
+      let internalOffer = null;
+      let internalPresentation = null;
+      if (isInternalApp) {
+        if (internalCareerStatusNeedsOffer(localApp)) {
+          try { internalOffer = await atsOffersStore.getAtsOfferByApplication(String(localApp.id)); } catch (offerErr) { internalOffer = null; }
+        }
+        internalPresentation = buildInternalCareerStatusPresentation(localApp, internalOffer);
+      }
+      const effectiveStatus = internalPresentation ? internalPresentation.status : status;
       const jobOpeningRecord = (providerRoleId && !isInternalAtsRole) ? await getJobOpeningRecord(providerRoleId) : null;
       const clientId = getZohoApplicationClientId(liveRecord)
         || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
@@ -28534,13 +28628,13 @@ async function handleApi(req, res, pathname) {
           roleType: getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']) || 'General Practitioner'
         };
       let placement = null;
-      if (isCareerPlacementSecuredStatus(status) && (liveRecord || localApp)) {
+      if (isCareerPlacementSecuredStatus(effectiveStatus) && (liveRecord || localApp)) {
         // In-app offers (standalone ATS): the accepted offer's terms are the
         // placement source of truth — there's no Zoho record to enrich from,
         // so build the local payload the accept endpoint writes.
         if (localApp && !liveRecord) {
           try {
-            const inAppOffer = await atsOffersStore.getAtsOfferByApplication(String(localApp.id));
+            const inAppOffer = internalOffer || await atsOffersStore.getAtsOfferByApplication(String(localApp.id));
             if (inAppOffer && inAppOffer.status === 'accepted') {
               placement = await resolveInAppPlacementForApplication(localApp, inAppOffer, profile, { roleRow });
             }
@@ -28669,15 +28763,25 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      enriched.push({
+      const entryPayload = {
         id: localApp && localApp.id ? localApp.id : (sanitizeZohoText(liveRecord && liveRecord.id) || providerRoleId || crypto.randomUUID()),
-        status,
+        status: effectiveStatus,
+        // The client's "Review Offer" action keys off this flag (works for
+        // both internal offers and Zoho offer-ish statuses).
+        offerPending: internalPresentation
+          ? internalPresentation.offerPending
+          : (effectiveStatus === 'offer' || effectiveStatus === 'offer_pending' || effectiveStatus === 'offered'),
         appliedAt: (localApp && localApp.applied_at)
           || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
           || new Date().toISOString(),
         role: roleClient,
         placement
-      });
+      };
+      if (internalPresentation) {
+        entryPayload.statusLabel = internalPresentation.statusLabel;
+        entryPayload.statusTone = internalPresentation.statusTone;
+      }
+      enriched.push(entryPayload);
     }
 
     sendJson(res, 200, { ok: true, applications: enriched }, PRIVATE_METADATA_CACHE_HEADERS);
@@ -28737,12 +28841,34 @@ async function handleApi(req, res, pathname) {
     const id = String(params.get('id') || '').trim();
     if (!id) { sendJson(res, 400, { ok: false, message: 'Missing id parameter.' }); return; }
 
-    // Query by id (UUID) or provider_role_id
-    const appResult = await supabaseDbRequest(
-      'gp_applications',
-      `select=*&user_id=eq.${encodeURIComponent(userId)}&or=(id.eq.${encodeURIComponent(id)},provider_role_id.eq.${encodeURIComponent(id)})&limit=1`
-    );
-    const appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+    // Query by id (UUID) or provider_role_id. career.html may pass the ROLE's
+    // public id ('internal_ats:ats_…' / 'zoho_recruit:…') when the app id is
+    // unknown — comparing that against the uuid `id` column errors the whole
+    // PostgREST query, so strip the provider prefix and match provider_role_id
+    // directly, and fall back to a provider_role_id-only match when the
+    // combined or= filter fails (non-uuid value → 22P02 cast error in prod).
+    const parsedPublicRoleId = parseCareerRolePublicId(id);
+    let appRow = null;
+    if (parsedPublicRoleId) {
+      const byRoleResult = await supabaseDbRequest(
+        'gp_applications',
+        `select=*&user_id=eq.${encodeURIComponent(userId)}&provider_role_id=eq.${encodeURIComponent(parsedPublicRoleId.providerRoleId)}&limit=1`
+      );
+      appRow = byRoleResult.ok && Array.isArray(byRoleResult.data) && byRoleResult.data[0] ? byRoleResult.data[0] : null;
+    } else {
+      const appResult = await supabaseDbRequest(
+        'gp_applications',
+        `select=*&user_id=eq.${encodeURIComponent(userId)}&or=(id.eq.${encodeURIComponent(id)},provider_role_id.eq.${encodeURIComponent(id)})&limit=1`
+      );
+      appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+      if (!appResult.ok) {
+        const retryResult = await supabaseDbRequest(
+          'gp_applications',
+          `select=*&user_id=eq.${encodeURIComponent(userId)}&provider_role_id=eq.${encodeURIComponent(id)}&limit=1`
+        );
+        appRow = retryResult.ok && Array.isArray(retryResult.data) && retryResult.data[0] ? retryResult.data[0] : null;
+      }
+    }
     if (!appRow) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
       return;
@@ -28770,9 +28896,21 @@ async function handleApi(req, res, pathname) {
         }
       } catch {}
     }
-    const status = normalizeCareerApplicationStatusKey(liveStatus)
+    let status = normalizeCareerApplicationStatusKey(liveStatus)
       || normalizeCareerApplicationStatusKey(appRow.status)
       || 'applied';
+
+    // Standalone ATS: internal apps derive their user-facing status from the
+    // kanban ats_stage + the in-app offer state. Zoho apps keep their labels.
+    let detailPresentation = null;
+    let detailOffer = null;
+    if (!liveRecord && isInternalCareerApplication(appRow, roleRow)) {
+      if (internalCareerStatusNeedsOffer(appRow)) {
+        try { detailOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); } catch (offerErr) { detailOffer = null; }
+      }
+      detailPresentation = buildInternalCareerStatusPresentation(appRow, detailOffer);
+      status = detailPresentation.status;
+    }
 
     const providerRoleId = String(appRow.provider_role_id || '').trim();
     const roleClient = roleRow
@@ -28790,6 +28928,13 @@ async function handleApi(req, res, pathname) {
     if (isCareerPlacementSecuredStatus(status)) {
       try {
         const profile = await getSupabaseUserProfile(email, userId);
+        // Internal apps: the accepted in-app offer's terms are the placement
+        // source of truth (same payload the accept endpoint + list build).
+        if (detailPresentation && detailOffer && detailOffer.status === 'accepted') {
+          try {
+            placement = await resolveInAppPlacementForApplication(appRow, detailOffer, profile, { roleRow });
+          } catch (inAppErr) { placement = null; }
+        }
         const startDateIso = normalizePlacementStartDate(profile && profile.target_arrival_date);
         let jobOpeningRecord = null;
         if (zoho && providerRoleId) {
@@ -28801,7 +28946,7 @@ async function handleApi(req, res, pathname) {
         if (zoho && clientId) {
           try { practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId); } catch {}
         }
-        placement = await buildCareerPlacementPayload({
+        if (!placement) placement = await buildCareerPlacementPayload({
           zoho,
           applicationRecord: liveRecord,
           roleRow,
@@ -28859,11 +29004,18 @@ async function handleApi(req, res, pathname) {
     const enrichedApp = {
       id: appRow.id,
       status,
+      offerPending: detailPresentation
+        ? detailPresentation.offerPending
+        : (status === 'offer' || status === 'offer_pending' || status === 'offered'),
       appliedAt: appRow.applied_at || new Date().toISOString(),
       role: roleClient,
       placement,
       interview
     };
+    if (detailPresentation) {
+      enrichedApp.statusLabel = detailPresentation.statusLabel;
+      enrichedApp.statusTone = detailPresentation.statusTone;
+    }
 
     sendJson(res, 200, { ok: true, application: enrichedApp });
     return;
@@ -28935,7 +29087,7 @@ async function handleApi(req, res, pathname) {
     if (!applicationId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
 
     // Verify application belongs to user
-    const appResult = await supabaseDbRequest('gp_applications', `select=id,status&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const appResult = await supabaseDbRequest('gp_applications', `select=id,status,ats_stage&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
       return;
@@ -28957,6 +29109,20 @@ async function handleApi(req, res, pathname) {
     if (!patchResult.ok) {
       sendJson(res, 502, { ok: false, message: 'Failed to withdraw application.' });
       return;
+    }
+
+    // Kanban: a withdrawn application leaves the active pipeline, so move the
+    // card to the terminal 'not_proceeding' lane (audit actor 'gp_withdrew').
+    // planAtsStageReconciliation keeps terminal lanes (hired/not_proceeding)
+    // untouched. Quiet move — the GP withdrew it themselves, no milestone
+    // notification fires (atsUpdateApplicationStageRow never notifies).
+    try {
+      const withdrawNextStage = atsPracticeUtil.planAtsStageReconciliation(app.ats_stage || '', atsPracticeUtil.ATS_REJECT_STAGE);
+      if (withdrawNextStage) {
+        await atsUpdateApplicationStageRow(applicationId, withdrawNextStage, undefined, 'gp_withdrew');
+      }
+    } catch (stageErr) {
+      console.error('[career withdraw] kanban stage move failed for app', applicationId, ':', stageErr && stageErr.message);
     }
 
     // Cancel any scheduled interviews
@@ -29022,33 +29188,28 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
-    if (!candidate.ok || !candidate.zohoId) {
-      sendJson(res, 502, {
-        ok: false,
-        savedLocally: true,
-        document: saved,
-        message: candidate.message || 'CV saved in GP Link, but could not resolve the Zoho Recruit candidate.'
-      });
-      return;
-    }
-
-    const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, 'cv');
-    if (!synced.ok) {
-      sendJson(res, 502, {
-        ok: false,
-        savedLocally: true,
-        document: saved,
-        message: synced.message || 'CV saved in GP Link, but failed to sync to Zoho Recruit.'
-      });
-      return;
+    // Zoho mirror is BEST-EFFORT (standalone ATS): the CV lives in GP Link and
+    // everything downstream (apply guard, ATS submit-to-practice) reads it from
+    // user_documents — a missing/disconnected Zoho must never block the doctor.
+    let zohoSync = { ok: false, skipped: true, message: 'Zoho Recruit is not connected.' };
+    if (isZohoRecruitConfigured()) {
+      const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+      if (candidate.ok && candidate.zohoId) {
+        const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, 'cv');
+        zohoSync = synced.ok
+          ? { ok: true, candidateId: candidate.zohoId }
+          : { ok: false, message: synced.message || 'CV saved in GP Link, but failed to sync to Zoho Recruit.' };
+      } else {
+        zohoSync = { ok: false, message: candidate.message || 'CV saved in GP Link, but could not resolve the Zoho Recruit candidate.' };
+      }
+      if (!zohoSync.ok) console.warn('[career upload-cv] Zoho mirror skipped for', email, ':', zohoSync.message);
     }
 
     // Reliably create the RSO review task now (awaited); the AI pipeline below is
     // best-effort and may not complete on serverless.
     await ensureDocReviewOnUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', undefined);
 
-    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync });
 
     // Background: best-effort AI auto-check (may auto-approve and close the task).
     processDocumentUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', 'AU', 'application/pdf').catch(function (err) {
@@ -34812,26 +34973,20 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 502, { ok: false, message: 'Failed to save career document.' });
         return;
       }
-      const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
-      if (!candidate.ok || !candidate.zohoId) {
-        sendJson(res, 502, {
-          ok: false,
-          savedLocally: true,
-          document: saved,
-          message: candidate.message || 'Saved in GP Link, but could not resolve the Zoho Recruit candidate.'
-        });
-        return;
-      }
-
-      const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, payload.type);
-      if (!synced.ok) {
-        sendJson(res, 502, {
-          ok: false,
-          savedLocally: true,
-          document: saved,
-          message: synced.message || 'Saved in GP Link, but failed to sync to Zoho Recruit.'
-        });
-        return;
+      // Zoho mirror is BEST-EFFORT (standalone ATS): the document lives in GP
+      // Link — a missing/disconnected Zoho must never block the doctor's upload.
+      let accountDocZohoSync = { ok: false, skipped: true, message: 'Zoho Recruit is not connected.' };
+      if (isZohoRecruitConfigured()) {
+        const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+        if (candidate.ok && candidate.zohoId) {
+          const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, payload.type);
+          accountDocZohoSync = synced.ok
+            ? { ok: true, candidateId: candidate.zohoId }
+            : { ok: false, message: synced.message || 'Saved in GP Link, but failed to sync to Zoho Recruit.' };
+        } else {
+          accountDocZohoSync = { ok: false, message: candidate.message || 'Saved in GP Link, but could not resolve the Zoho Recruit candidate.' };
+        }
+        if (!accountDocZohoSync.ok) console.warn('[account career-documents] Zoho mirror skipped for', email, ':', accountDocZohoSync.message);
       }
 
       var careerDocMeta = ACCOUNT_CAREER_DOCUMENT_TYPES[payload.type];
@@ -34841,7 +34996,7 @@ Return ONLY valid JSON with no markdown formatting:
         await ensureDocReviewOnUpload(userId, careerDocMeta.key, careerDocMeta.label, undefined);
       }
 
-      sendJson(res, 200, { ok: true, document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+      sendJson(res, 200, { ok: true, document: saved, zohoSync: accountDocZohoSync });
 
       // Background: best-effort AI auto-check (may auto-approve and close the task).
       if (careerDocMeta) {
@@ -46845,6 +47000,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof bodyJP.state === 'string') patchJ.location_state = bodyJP.state;
     if (typeof bodyJP.type === 'string') patchJ.employment_type = bodyJP.type;
     if (typeof bodyJP.billing === 'string') patchJ.billing_model = bodyJP.billing;
+    if (typeof bodyJP.summary === 'string') patchJ.summary = bodyJP.summary.trim();
     if (bodyJP.practice_id !== undefined) {
       if (!bodyJP.practice_id) { patchJ.practice_name = ''; }
       else {

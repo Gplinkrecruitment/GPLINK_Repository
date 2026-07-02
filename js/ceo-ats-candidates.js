@@ -416,6 +416,9 @@
         interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
       }
 
+      // Source chip: Zoho-managed application vs in-app (standalone ATS).
+      var sourceChip = '<span class="ats-pill muted" style="font-size:10.5px">' + (a.source === 'zoho' ? 'Zoho' : 'In-app') + '</span>';
+
       return '<div class="ats-app-card">' +
         '<div class="ats-app-card-top">' +
           '<div>' +
@@ -423,6 +426,7 @@
             '<div class="ats-app-practice">' + ATS.esc(a.practice_name || '') + '</div>' +
           '</div>' +
           '<div class="ats-app-right">' +
+            sourceChip +
             '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
             stageSel +
           '</div>' +

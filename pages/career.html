@@ -7477,13 +7477,22 @@
     function normalizeCareerApplication(record) {
       const source = record && typeof record === "object" ? record : {};
       const meta = getApplicationStatusMeta(source.rawStatus || source.status);
+      const rawStatusKey = normalizeStatusKey(source.rawStatus || source.status);
       return {
+        id: source.id || source.applicationId || "",
         roleId: source.roleId || "",
         practiceName: source.practiceName || "",
         location: source.location || "",
         rawStatus: source.rawStatus || source.status || meta.label,
-        status: meta.label,
-        tone: meta.tone,
+        // In-app (standalone ATS) applications carry a server-built friendly
+        // label + tone derived from the pipeline stage; Zoho apps fall back to
+        // the local status map exactly as before.
+        status: source.statusLabel || meta.label,
+        statusLabel: source.statusLabel || "",
+        tone: source.statusTone || meta.tone,
+        statusTone: source.statusTone || "",
+        offerPending: source.offerPending === true
+          || (!source.statusLabel && ["offer", "offer_pending", "offered"].includes(rawStatusKey)),
         isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
         meta: Array.isArray(source.meta) ? source.meta : [],
         placement: source.placement && typeof source.placement === "object" ? source.placement : null
@@ -10282,10 +10291,14 @@
     function mergeRemoteApplications(payload, shouldRender) {
       if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
       const remote = payload.applications.map((app) => normalizeCareerApplication({
+        id: app.id || "",
         roleId: app.role && app.role.id ? app.role.id : app.id,
         practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
         location: app.role && app.role.location ? app.role.location : "",
         rawStatus: app.status,
+        statusLabel: app.statusLabel || "",
+        statusTone: app.statusTone || "",
+        offerPending: app.offerPending === true,
         placement: app.placement,
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
@@ -10366,10 +10379,12 @@
           .join('<span class="app-meta-dot">&middot;</span>');
 
         var statusAction = '';
-        if (application.status === 'interview' || application.status === 'interview_scheduled') {
-          statusAction = '<a href="interview-prep?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
-        } else if (application.status === 'offer' || application.status === 'offer_pending' || application.status === 'offered') {
-          statusAction = '<a href="offer-review?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
+        var actionAppId = application.id || application.applicationId || '';
+        var actionStatusKey = normalizeStatusKey(application.rawStatus);
+        if (application.offerPending) {
+          statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
+        } else if (actionStatusKey === 'interview' || actionStatusKey === 'interview_scheduled') {
+          statusAction = '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
         }
 
         return `<article class="application-card">
