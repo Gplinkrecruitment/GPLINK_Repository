@@ -312,9 +312,13 @@
           '<div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
           '<div><h2>' + ATS.esc(c.name) + '</h2><div class="ph-sub">' + subHtml + '</div></div>' +
         '</div>' +
+        // Consultants are ATS-only: the RSO file lives on admin.html (closed to
+        // them) and "Schedule call" posts to /api/admin/calls/schedule (a
+        // registration-side RSO route we deliberately did NOT open) — hide both.
         '<div style="display:flex;gap:9px">' +
-          '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-rsofile">Open RSO file</button>' +
-          '<button class="ats-btn ats-btn-primary ats-btn-sm" id="ats-cand-schedule">＋ Schedule call</button>' +
+          (ATS.isConsultant && ATS.isConsultant() ? '' :
+            '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-rsofile">Open RSO file</button>' +
+            '<button class="ats-btn ats-btn-primary ats-btn-sm" id="ats-cand-schedule">＋ Schedule call</button>') +
         '</div>' +
       '</div>' +
       '<div class="ats-cand-profile-grid">' +

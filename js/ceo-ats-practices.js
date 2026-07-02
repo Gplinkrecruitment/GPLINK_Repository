@@ -100,8 +100,101 @@
           '<input type="text" id="atsPracSearch" placeholder="Search practices…" value="' + ATS.escAttr(currentQuery) + '" />' +
         '</div>' +
       '</div>' +
-      '<div class="ats-practice-list" id="atsPracticeList">' + practiceCardsHtml(practices) + '</div>';
+      '<div class="ats-practice-list" id="atsPracticeList">' + practiceCardsHtml(practices) + '</div>' +
+      '<div id="atsTeamSection" style="margin-top:26px"></div>';
     updateCount(d);
+    loadTeamSection();
+  }
+
+  // ==================== TEAM ACCESS (super-admin only) ====================
+  // Rendered below the practice directory. The server is the gate: GET
+  // /api/ats/consultants is requireCeoSession, so a consultant's fetch comes
+  // back !ok and the section simply never appears (client role check is only
+  // a shortcut to avoid the doomed request).
+  function loadTeamSection() {
+    var host = document.getElementById('atsTeamSection');
+    if (!host) return;
+    if (ATS.isConsultant && ATS.isConsultant()) return;
+    ATS.api('/api/ats/consultants').then(function (d) {
+      var section = document.getElementById('atsTeamSection');
+      if (!section) return; // panel re-rendered while fetching
+      if (!d || !d.ok || !Array.isArray(d.consultants)) return; // 403 (not CEO) → stay hidden
+      renderTeamSection(section, d.consultants);
+    });
+  }
+
+  function teamRowHtml(c) {
+    var display = c.name || c.email || '—';
+    var sourceChip = c.source === 'env'
+      ? '<span class="ats-pill muted" title="Set in the CONSULTANT_EMAILS environment variable — remove it there">Server config</span>'
+      : '<span class="ats-pill blue">Invited</span>';
+    var removeBtn = c.source === 'kv'
+      ? '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="remove-consultant" data-email="' + ATS.escAttr(c.email) + '">Remove</button>'
+      : '';
+    return '<div class="ats-mini-job">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div class="ats-avatar" style="background:' + ATS.avatarColor(display) + '">' + ATS.esc(ATS.initials(display)) + '</div>' +
+        '<div><div class="mj-title">' + ATS.esc(display) + '</div>' +
+        '<div class="mj-sub">' + ATS.esc(c.email || '') + '</div></div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' + sourceChip + removeBtn + '</div>' +
+    '</div>';
+  }
+
+  function renderTeamSection(host, consultants) {
+    var rows = (consultants && consultants.length)
+      ? consultants.map(teamRowHtml).join('')
+      : '<div class="ats-empty">No consultants yet — invite your first team member below.</div>';
+    host.innerHTML =
+      '<div class="ats-card">' +
+        '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Team access</div>' +
+        '<p style="font-size:12px;color:var(--ats-dim);margin:0 0 12px">Consultants can sign in to this dashboard and run the ATS — candidates, jobs, practices and meetings. They can\'t see the Registration side or manage the team.</p>' +
+        rows +
+        '<div class="ats-form-row" style="margin-top:14px">' +
+          '<div><label>Name</label><input type="text" id="atsTeamName" placeholder="e.g. Sam Recruiter" /></div>' +
+          '<div><label>Email</label><input type="text" id="atsTeamEmail" placeholder="sam@mygplink.com.au" /></div>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:10px">' +
+          '<span id="atsTeamMsg" style="font-size:12px;color:var(--ats-dim)"></span>' +
+          '<button class="ats-btn ats-btn-primary ats-btn-sm" data-ats="invite-consultant">Send invite</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function teamMsg(text) {
+    var el = document.getElementById('atsTeamMsg');
+    if (el) el.textContent = text || '';
+  }
+
+  function inviteConsultant(btn) {
+    var name = (document.getElementById('atsTeamName') || {}).value || '';
+    var email = ((document.getElementById('atsTeamEmail') || {}).value || '').trim();
+    if (!email) { teamMsg('Enter an email address.'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    teamMsg('');
+    ATS.api('/api/ats/consultants', { method: 'POST', body: { name: name.trim(), email: email } }).then(function (d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Send invite'; }
+      if (!d || !d.ok) { teamMsg((d && d.message) || 'Could not add the consultant.'); return; }
+      if (d.already) { ATS.toast('Already a consultant — nothing to do.'); }
+      else if (d.invite_sent) { ATS.toast('Invite sent to ' + email); }
+      else { ATS.toast('Consultant added. Invite email could not be sent — ask them to use "Forgot password" on the sign-in page.'); }
+      loadTeamSection();
+    });
+  }
+
+  function removeConsultant(email, btn) {
+    if (!email) return;
+    if (!window.confirm('Remove ' + email + ' from the ATS team? They\'ll lose access to this dashboard (their sign-in account is kept).')) return;
+    if (btn) btn.disabled = true;
+    ATS.api('/api/ats/consultants?email=' + encodeURIComponent(email), { method: 'DELETE' }).then(function (d) {
+      if (!d || !d.ok) {
+        if (btn) btn.disabled = false;
+        teamMsg((d && d.message) || 'Could not remove the consultant.');
+        return;
+      }
+      ATS.toast('Consultant removed');
+      loadTeamSection();
+    });
   }
 
   // Search re-fetches with ?q= and updates ONLY the list (keeps input focus).
@@ -326,6 +419,8 @@
     else if (action === 'add-practice') openAddModal();
     else if (action === 'back-list') loadPracticesTab();
     else if (action === 'edit-practice') openEditModal();
+    else if (action === 'invite-consultant') inviteConsultant(t);
+    else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'open-job') {
       ATS.showMaster('jobs');
       if (typeof window.atsOpenJobBoard === 'function') window.atsOpenJobBoard(id);

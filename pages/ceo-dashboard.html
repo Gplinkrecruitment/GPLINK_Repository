@@ -119,6 +119,16 @@
     }
     .escalation-badge.visible { display: inline-flex; }
     .escalation-badge:hover { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
+    /* Role chip shown to consultants (ATS-only mode) — matches the header badge shape */
+    .role-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(96,165,250,0.12);
+      border: 1px solid rgba(96,165,250,0.35);
+      font-size: 11px; font-weight: 700; color: #60a5fa;
+      letter-spacing: 0.02em;
+    }
     @keyframes pulse-red {
       0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
       50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
@@ -1474,15 +1484,58 @@
           return false;
         }
         var role = (d.profile && (d.profile.role || d.profile.adminRole)) || '';
-        if (role !== 'super_admin') {
+        // super_admin gets the full dashboard; consultant gets the ATS-only view.
+        if (role !== 'super_admin' && role !== 'consultant') {
           if (!isEmbedded) window.location.href = '/pages/admin-signin';
           return false;
         }
+        window.__gpAdminRole = role;
         return true;
       }).catch(function() {
         if (!isEmbedded) window.location.href = '/pages/admin-signin';
         return false;
       });
+    }
+
+    /* ── Consultant (ATS-only) mode ──
+       Consultants share the four ATS master tabs (Candidates / Jobs / Practices /
+       Meetings) but must never see the Registration side or team management.
+       The server 403s every Registration/CEO endpoint for them anyway — this
+       just makes the page honest about what they can use. */
+    function applyConsultantMode() {
+      document.body.classList.add('gp-consultant');
+      // Hide the Registration master tab + its panel (its data is never loaded).
+      var regTab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="registration"]');
+      if (regTab) regTab.style.display = 'none';
+      var regPanel = document.getElementById('panel-registration');
+      if (regPanel) regPanel.style.display = 'none';
+      // Registration-only header widgets are meaningless without the CEO feed.
+      var escBadge = document.getElementById('headerEscBadge');
+      if (escBadge) escBadge.style.display = 'none';
+      var refreshMeta = document.querySelector('.header-right .refresh-meta');
+      if (refreshMeta) refreshMeta.style.display = 'none';
+      var autoLabel = document.querySelector('.header-right label[title="Auto-refresh"]');
+      if (autoLabel) autoLabel.style.display = 'none';
+      // Small role chip where the header controls live.
+      var headerRight = document.querySelector('.header-right');
+      if (headerRight && !document.getElementById('roleChipConsultant')) {
+        var chip = document.createElement('div');
+        chip.id = 'roleChipConsultant';
+        chip.className = 'role-chip';
+        chip.textContent = 'Consultant';
+        headerRight.appendChild(chip);
+      }
+      // Land on Candidates (the ATS home). ceo-ats-shared.js may still be
+      // initialising when the session check resolves, so retry briefly. An ATS
+      // deep-link hash (#jobs, #candidate=…) has already moved activeTab off
+      // 'registration' — honour it.
+      (function goAts(tries) {
+        if (window.ATS && typeof window.ATS.showMaster === 'function') {
+          if (window.ATS.activeTab === 'registration') window.ATS.showMaster('candidates');
+          return;
+        }
+        if (tries > 0) setTimeout(function() { goAts(tries - 1); }, 50);
+      })(40);
     }
 
     /* ── Load failure / recovery (no eternal spinner) + service-worker self-heal ── */
@@ -6452,6 +6505,13 @@
           if (isEmbedded) renderLoadError('Your admin session has expired. Please sign in again.');
           return;
         }
+        if (window.__gpAdminRole === 'consultant') {
+          // ATS-only: skip the Registration dashboard feed + refresh loop
+          // entirely (those endpoints are CEO-only and would 403).
+          clearTimeout(loadWatchdog);
+          applyConsultantMode();
+          return;
+        }
         // Load dashboard + trends in parallel. loadRsoRoster is guarded so a roster
         // hiccup can never block the loop from starting.
         Promise.all([
@@ -6466,10 +6526,10 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
-  <script src="/js/ceo-ats-shared.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260703b"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260703c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260703c"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260630b"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260703c"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260630b"></script>
 </body>
 </html>

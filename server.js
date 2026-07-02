@@ -8884,6 +8884,69 @@ const ATS_CONSULTANTS_KV_KEY = 'ats_consultants';
 const ATS_CONSULTANTS_KV_CACHE_MS = 60 * 1000;
 let atsConsultantsKvCache = { emails: null, fetchedAt: 0 };
 
+// Normalize every historical kv value shape into rich entries
+// [{email, name, added_at, added_by}]. Tolerated shapes:
+//   ['a@b.c', ...]                          (Task A write shape)
+//   { emails: ['a@b.c', ...] }              (Task A also tolerated this)
+//   { consultants: [{email, name, ...}] }   (Task E standardized write shape)
+function normalizeConsultantKvValue(value) {
+  const out = [];
+  const seen = new Set();
+  const push = (email, entry) => {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push({
+      email: normalized,
+      name: entry && typeof entry === 'object' ? String(entry.name || '').trim() : '',
+      added_at: entry && typeof entry === 'object' ? (entry.added_at || entry.created_at || null) : null,
+      added_by: entry && typeof entry === 'object' ? String(entry.added_by || '').trim() : ''
+    });
+  };
+  if (Array.isArray(value)) {
+    value.forEach((item) => (item && typeof item === 'object') ? push(item.email, item) : push(item, null));
+  } else if (value && typeof value === 'object') {
+    if (Array.isArray(value.consultants)) {
+      value.consultants.forEach((item) => (item && typeof item === 'object') ? push(item.email, item) : push(item, null));
+    }
+    if (Array.isArray(value.emails)) value.emails.forEach((item) => push(item, null));
+  }
+  return out;
+}
+
+// Full (uncached) read of the consultant list as rich entries. Local-JSON mode
+// (no Supabase) keeps the list in dbState.atsConsultants instead of runtime_kv.
+async function loadKvConsultantEntries() {
+  if (!isSupabaseDbConfigured()) {
+    return normalizeConsultantKvValue({ consultants: dbState.atsConsultants || [] });
+  }
+  try {
+    const row = await getRuntimeKv(ATS_CONSULTANTS_KV_KEY);
+    return normalizeConsultantKvValue(row ? row.value : null);
+  } catch (err) {
+    return [];
+  }
+}
+
+// Persist the consultant list. Writes the Task E standardized richer shape
+// { consultants: [{email,name,added_at,added_by}] } — normalizeConsultantKvValue
+// keeps reads compatible with the older array shapes already in prod.
+async function saveKvConsultantEntries(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  let saved;
+  if (!isSupabaseDbConfigured()) {
+    dbState.atsConsultants = list;
+    saveDbState();
+    saved = true;
+  } else {
+    saved = await setRuntimeKv(ATS_CONSULTANTS_KV_KEY, { consultants: list }, null);
+  }
+  // Invalidate the ~60s login/reset cache so a just-added consultant can sign
+  // in (and a just-removed one is refused) immediately.
+  atsConsultantsKvCache = { emails: null, fetchedAt: 0 };
+  return saved;
+}
+
 async function loadKvConsultantEmails() {
   const nowMs = Date.now();
   if (Array.isArray(atsConsultantsKvCache.emails)
@@ -8892,11 +8955,8 @@ async function loadKvConsultantEmails() {
   }
   let emails = [];
   try {
-    const row = await getRuntimeKv(ATS_CONSULTANTS_KV_KEY);
-    const value = row ? row.value : null;
-    // Stored shape is a JSON array of emails; tolerate {emails:[...]} too.
-    const list = Array.isArray(value) ? value : (value && Array.isArray(value.emails) ? value.emails : []);
-    emails = list.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean);
+    const entries = await loadKvConsultantEntries();
+    emails = entries.map((entry) => entry.email).filter(Boolean);
   } catch (err) {
     emails = [];
   }
@@ -9033,6 +9093,16 @@ function requireAtsSession(req, res) {
     return null;
   }
   return adminCtx;
+}
+
+// Routes that are BOTH admin-ops tooling and ATS-functional (currently only
+// submit-to-practice) accept every requireAdminSession-passing role AND the
+// consultant role. resolveAdminRequestContext already enforces the host↔role
+// match (consultants only ever match the super-admin host; RSO admins keep
+// their employee-host access unchanged), so this union is exactly that check
+// without requireAdminSession's explicit consultant rejection.
+function requireAdminOrAtsSession(req, res) {
+  return resolveAdminRequestContext(req, res);
 }
 
 function ensureAgentOutputRoot() {
@@ -31131,7 +31201,9 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
       return;
     }
-    const admin = requireAdminSession(req, res);
+    // ATS-functional route: consultants submit candidates to practices from the
+    // CEO-dashboard drawer, RSO admins keep using it from admin.html (Task E 3c).
+    const admin = requireAdminOrAtsSession(req, res);
     if (!admin) return;
 
     let body;
@@ -46585,6 +46657,130 @@ Return ONLY valid JSON with no markdown formatting:
   // IN-APP ATS ENDPOINTS (CEO / super-admin). Dual-mode Supabase | local-JSON.
   // ==========================================================================
 
+  // ---- Consultant team management (CEO only — requireCeoSession) -----------
+  // Consultants themselves are ATS-only and must NOT manage the team.
+  if (pathname === '/api/ats/consultants' && req.method === 'GET') {
+    var ctxTL = requireCeoSession(req, res); if (!ctxTL) return;
+    var tlEntries = await loadKvConsultantEntries();
+    var tlSeen = {};
+    var tlOut = [];
+    // Env entries first (read-only) — if an email is in both, env wins so the
+    // UI shows it as environment-managed.
+    CONSULTANT_EMAILS.forEach(function (em) {
+      tlSeen[em] = true;
+      tlOut.push({ email: em, name: '', source: 'env' });
+    });
+    tlEntries.forEach(function (entry) {
+      if (tlSeen[entry.email]) return;
+      tlSeen[entry.email] = true;
+      tlOut.push({ email: entry.email, name: entry.name || '', source: 'kv', created_at: entry.added_at || null });
+    });
+    sendJson(res, 200, { ok: true, consultants: tlOut });
+    return;
+  }
+
+  if (pathname === '/api/ats/consultants' && req.method === 'POST') {
+    var ctxTA = requireCeoSession(req, res); if (!ctxTA) return;
+    var bodyTA; try { bodyTA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var taName = sanitizeUserString(bodyTA && bodyTA.name, 120);
+    var taEmail = String((bodyTA && bodyTA.email) || '').trim().toLowerCase();
+    if (!isValidEmail(taEmail)) { sendJson(res, 400, { ok: false, message: 'Please provide a valid email address.' }); return; }
+    // Don't shadow an existing admin/super-admin — their env role always wins
+    // over the consultant list, so adding them here would only mislead.
+    var taExistingRole = getConfiguredAdminRoleForEmail(taEmail);
+    if (taExistingRole && taExistingRole !== 'consultant') {
+      sendJson(res, 400, { ok: false, message: 'That email already has ' + getAdminRoleLabel(taExistingRole) + ' access — it can\'t also be added as a consultant.' });
+      return;
+    }
+    // Idempotent: already a consultant (env or kv) → 200, no duplicate work.
+    if (CONSULTANT_EMAILS.has(taEmail)) {
+      sendJson(res, 200, { ok: true, already: true, consultant: { email: taEmail, name: taName, source: 'env' } });
+      return;
+    }
+    var taEntries = await loadKvConsultantEntries();
+    var taExisting = null;
+    taEntries.forEach(function (entry) { if (entry.email === taEmail) taExisting = entry; });
+    if (taExisting) {
+      sendJson(res, 200, { ok: true, already: true, consultant: { email: taExisting.email, name: taExisting.name || '', source: 'kv', created_at: taExisting.added_at || null } });
+      return;
+    }
+    // Ensure a Supabase Auth account exists (admin login is a password grant),
+    // then send a branded set-password invite via the recovery generate_link
+    // flow (same pattern as the admin password reset).
+    var taInviteSent = false;
+    if (isSupabaseDbConfigured()) {
+      var taCreate = await supabaseAuthAdminRequest('admin/users', {
+        method: 'POST',
+        body: { email: taEmail, email_confirm: true, user_metadata: { firstName: taName } }
+      });
+      if (!taCreate.ok) {
+        var taCreateMsg = String((taCreate.data && (taCreate.data.msg || taCreate.data.message)) || '');
+        var taAlreadyExists = taCreate.status === 422 || /already (registered|exists)|duplicate/i.test(taCreateMsg);
+        if (!taAlreadyExists) {
+          sendJson(res, 502, { ok: false, message: 'Could not create the sign-in account: ' + (taCreateMsg || ('status ' + taCreate.status)) });
+          return;
+        }
+      }
+      try {
+        var taLinkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'recovery', email: taEmail, options: { redirect_to: APP_BASE_URL + '/pages/admin-signin?reset=true' } })
+        });
+        var taLinkData = await taLinkRes.json().catch(function () { return {}; });
+        var taInviteLink = taLinkData.action_link || (taLinkData.properties && taLinkData.properties.action_link) || '';
+        if (taInviteLink && isEmailConfigured()) {
+          var taEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+          var taSigninUrl = APP_BASE_URL + '/pages/admin-signin';
+          var taSend = await sendEmail({
+            to: taEmail,
+            subject: "You've been invited to the GP Link ATS",
+            html: buildCareerEmailHtml({
+              title: "You've been invited to the GP Link ATS",
+              body: 'Hi ' + taEsc(taName || 'there') + ', you\'ve been given consultant access to the GP Link recruitment dashboard — candidates, jobs, practices and interviews in one place. Click the button below to set your password and get started.',
+              ctaText: 'Set your password',
+              ctaUrl: taInviteLink,
+              footer: 'After setting your password, sign in any time at ' + taEsc(taSigninUrl) + '. This link expires in 1 hour — if it does, use "Forgot password" on the sign-in page.'
+            })
+          });
+          taInviteSent = !!(taSend && taSend.ok);
+        }
+      } catch (taInviteErr) {
+        console.error('[ats consultants] invite email failed:', taInviteErr && taInviteErr.message);
+      }
+    }
+    var taEntry = { email: taEmail, name: taName, added_at: new Date().toISOString(), added_by: String(ctxTA.email || '') };
+    taEntries.push(taEntry);
+    var taSaved = await saveKvConsultantEntries(taEntries);
+    if (!taSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      consultant: { email: taEntry.email, name: taEntry.name, source: 'kv', created_at: taEntry.added_at },
+      invite_sent: taInviteSent
+    });
+    return;
+  }
+
+  if (pathname === '/api/ats/consultants' && req.method === 'DELETE') {
+    var ctxTD = requireCeoSession(req, res); if (!ctxTD) return;
+    var tdEmail = String(url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!isValidEmail(tdEmail)) { sendJson(res, 400, { ok: false, message: 'Please provide a valid email address.' }); return; }
+    if (CONSULTANT_EMAILS.has(tdEmail)) {
+      sendJson(res, 400, { ok: false, message: 'This consultant is set in the CONSULTANT_EMAILS environment variable, so they can\'t be removed from here — remove the email from that variable in your hosting settings instead.' });
+      return;
+    }
+    var tdEntries = await loadKvConsultantEntries();
+    var tdNext = tdEntries.filter(function (entry) { return entry.email !== tdEmail; });
+    var tdRemoved = tdNext.length !== tdEntries.length;
+    if (tdRemoved) {
+      var tdSaved = await saveKvConsultantEntries(tdNext);
+      if (!tdSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+    }
+    // Note: this only revokes ATS access — the Supabase Auth user is kept.
+    sendJson(res, 200, { ok: true, removed: tdRemoved });
+    return;
+  }
+
   // ---- Jobs ----------------------------------------------------------------
   if (pathname === '/api/ats/jobs' && req.method === 'GET') {
     var ctxJ = requireAtsSession(req, res); if (!ctxJ) return;
@@ -46926,6 +47122,11 @@ Return ONLY valid JSON with no markdown formatting:
       createdBy: ctxIR.email || '',
       nowIso: new Date().toISOString()
     });
+    // Attribute the interview to the ATS operator who requested it (consultant
+    // or CEO) so the /api/ceo/meetings "assigned_rso_email = me" branch surfaces
+    // their bookings. host_kind stays 'ceo' on purpose: the Meetings tab is a
+    // team-shared view for everyone with ATS access.
+    if (!irRow.assigned_rso_email) irRow.assigned_rso_email = String(ctxIR.email || '').trim().toLowerCase();
     // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default, so every
     // interview row must carry a freshly-generated unique token (same generator the
     // consultation path uses in buildScheduledCallInsertPayload). Without it the prod
@@ -47771,8 +47972,11 @@ async function handleRequest(req, res) {
     }
     const ceoRole = getAdminRoleFromSession(adminSession);
     const ceoHostScope = getAdminHostScope(req);
-    // Must be on the super-admin host scope AND hold a super-admin role.
-    if (ceoHostScope !== 'super_admin' || !doesAdminRoleMatchHost(ceoRole, ceoHostScope) || !isSuperAdminRole(ceoRole)) {
+    // Must be on the super-admin host scope AND hold a super-admin OR consultant
+    // role (page serve only — consultants get the ATS-only view; every API stays
+    // guarded by requireCeoSession / requireAtsSession).
+    if (ceoHostScope !== 'super_admin' || !doesAdminRoleMatchHost(ceoRole, ceoHostScope)
+      || !(isSuperAdminRole(ceoRole) || normalizeAdminRole(ceoRole) === 'consultant')) {
       clearAdminSession(res);
       res.writeHead(302, { Location: '/pages/admin-signin' });
       res.end();
