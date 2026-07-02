@@ -407,6 +407,19 @@
   .cta-accept:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(29, 78, 216, 0.65); }
   .cta-accept:active { transform: scale(0.98); }
   .cta-accept svg { width: 18px; height: 18px; }
+  /* In-flight "Confirming…" state while the server records the acceptance */
+  .cta-accept:disabled {
+    opacity: 0.65; cursor: default;
+    transform: none; box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.35);
+  }
+
+  /* Inline error shown when the accept call fails (network / server) */
+  .accept-error {
+    padding: 12px 14px; border-radius: var(--gp-r-md);
+    background: var(--gp-red-soft); border: 1px solid var(--gp-red-border);
+    color: var(--gp-red-ink);
+    font-size: 13px; font-weight: 600; line-height: 1.5; text-align: center;
+  }
 
   .cta-secondary {
     display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -736,6 +749,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Accept Offer
         </button>
+        <div class="accept-error" id="acceptError" role="alert" hidden>That didn't go through — please check your connection and tap Accept again.</div>
         <a class="cta-secondary" href="#" id="requestChangesBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Request Changes
@@ -950,6 +964,15 @@
     if (offer.status === 'accepted') {
       document.getElementById('pageRoot').classList.add('accepted');
       try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
+    } else {
+      // Self-heal: the server says this offer is NOT accepted (e.g. a past
+      // Accept tap latched locally but the request never landed) — drop the
+      // stale celebration state so the doctor can actually accept.
+      document.getElementById('pageRoot').classList.remove('accepted');
+      try {
+        localStorage.removeItem(acceptKey);
+        if (resolvedApplicationId) localStorage.removeItem('gp_offer_accepted_' + resolvedApplicationId);
+      } catch (err) { /* non-blocking */ }
     }
     // …and a declined offer shows the supportive follow-up note instead of the CTAs.
     if (offer.status === 'declined') showDeclinedState();
@@ -968,19 +991,51 @@
   document.addEventListener('click', function(e) {
     var acceptBtn = e.target.closest('#acceptOfferBtn');
     if (acceptBtn) {
-      document.getElementById('pageRoot').classList.add('accepted');
-      localStorage.setItem(acceptKey, '1');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      // Tell the server so the hiring pipeline moves to Hired (best-effort —
-      // the accepted state above is already shown either way).
-      try {
-        fetch('/api/career/offer/accept', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
-        }).catch(function () { /* non-blocking */ });
-      } catch (err) { /* non-blocking */ }
+      if (acceptBtn.disabled) return; // a confirm is already in flight
+      var acceptErr = document.getElementById('acceptError');
+      if (acceptErr) acceptErr.hidden = true;
+      // Subtle in-flight state so a double-tap can't double-fire.
+      var acceptBtnHtml = acceptBtn.innerHTML;
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Confirming…';
+      var restoreAcceptBtn = function () {
+        acceptBtn.disabled = false;
+        acceptBtn.innerHTML = acceptBtnHtml; // the button's own static markup
+      };
+      var showAcceptError = function (message) {
+        restoreAcceptBtn();
+        if (acceptErr) {
+          acceptErr.textContent = (message && typeof message === 'string')
+            ? message
+            : "That didn't go through — please check your connection and tap Accept again.";
+          acceptErr.hidden = false;
+        }
+      };
+      // The celebration state is only shown once the server has really
+      // recorded the acceptance — a failed call re-enables the button instead
+      // of stranding the doctor on a false "Placement Secured" screen.
+      fetch('/api/career/offer/accept', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
+      })
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (data) {
+            return { httpOk: r.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.httpOk && result.data && result.data.ok) {
+            try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
+            restoreAcceptBtn(); // hidden by the accepted state, but left sane
+            document.getElementById('pageRoot').classList.add('accepted');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else {
+            showAcceptError(result.data && result.data.message);
+          }
+        })
+        .catch(function () { showAcceptError(null); });
     }
 
     // ── Decline offer (subtle link → confirm → supportive note) ──

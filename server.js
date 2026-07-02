@@ -27771,19 +27771,48 @@ async function handleApi(req, res, pathname) {
     let acceptOffer = null;
     try { acceptOffer = await atsOffersStore.getAtsOfferByApplication(String(acceptTargetApp.id)); }
     catch (e) { acceptOffer = null; }
+    const acceptOfferStatus = acceptOffer ? String(acceptOffer.status || '').trim().toLowerCase() : '';
 
-    // Repeat click on an already-accepted offer: everything below already ran —
-    // answer idempotently without re-writing state or re-emailing anyone.
-    if (acceptOffer && acceptOffer.status === 'accepted') {
+    // An in-app offer record that is not acceptable (withdrawn / declined /
+    // still a draft): refuse WITHOUT touching the stage. Falling through to
+    // the legacy branch here is exactly the exploit that let a withdrawn
+    // offer still be "accepted" into a terminal 'hired' card.
+    if (acceptOffer && acceptOfferStatus !== 'sent' && acceptOfferStatus !== 'accepted') {
+      sendJson(res, 409, { ok: false, code: 'offer_not_available', message: 'This offer is no longer available — your consultant will be in touch.' });
+      return;
+    }
+
+    // Repeat click on an already-accepted offer. When the placement finished
+    // (gp_applications.status made it to placement_secured) answer idempotently
+    // without re-writing state or re-emailing anyone. When it did NOT finish
+    // (a crash / network flake between the offer flipping 'accepted' and the
+    // downstream writes), fall through and RESUME the remaining steps — each
+    // is individually idempotent — but never re-notify the consultant: that
+    // email belongs to the sent→accepted transition only.
+    const acceptIsResume = !!(acceptOffer && acceptOfferStatus === 'accepted');
+    const acceptAppStatus = String(acceptTargetApp.status || '').trim().toLowerCase();
+    if (acceptIsResume && acceptAppStatus === 'placement_secured') {
       sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: acceptStoredStage || 'hired', advanced: false, placement_secured: true });
       return;
     }
 
-    const acceptHasLiveOffer = !!(acceptOffer && acceptOffer.status === 'sent');
-
-    if (!acceptHasLiveOffer) {
+    if (!acceptOffer) {
       // Legacy behaviour (no in-app offer record — Zoho-managed application):
-      // stage advance only, so Zoho placements aren't double-written.
+      // stage advance only, so Zoho placements aren't double-written. Only
+      // applications with REAL offer evidence may advance: the card is in the
+      // kanban offer lane, or its Zoho-ish status derives to offer/hired
+      // ('offer', 'offered', client_approved, offer_accepted, …). Anything
+      // else (e.g. a fresh 'applied' row) has no offer to accept → 404 and
+      // no writes, closing the applied→hired self-service exploit.
+      const acceptDerivedStage = atsPracticeUtil.deriveAtsStage(acceptTargetApp, false);
+      const acceptHasOfferEvidence = acceptStoredStage === 'offer'
+        || acceptStoredStage === 'hired' // already-hired repeat → quiet no-op below
+        || acceptDerivedStage === 'offer'
+        || acceptDerivedStage === 'hired';
+      if (!acceptHasOfferEvidence) {
+        sendJson(res, 404, { ok: false, code: 'no_offer', message: 'No offer found for this application.' });
+        return;
+      }
       if (!acceptNextStage) {
         sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: acceptStoredStage || 'hired', advanced: false });
         return;
@@ -27795,11 +27824,14 @@ async function handleApi(req, res, pathname) {
     }
 
     // ── In-app offer: accepting completes the placement ──
+    // ('sent' → fresh acceptance; 'accepted' with an unfinished placement → resume)
     const acceptNowIso = new Date().toISOString();
 
-    // (1) Offer record → accepted.
-    const acceptedOffer = (await atsOffersStore.updateAtsOfferStatus(String(acceptTargetApp.id), 'accepted', { responded_at: acceptNowIso }))
-      || Object.assign({}, acceptOffer, { status: 'accepted', responded_at: acceptNowIso });
+    // (1) Offer record → accepted (skipped on resume — it already is).
+    const acceptedOffer = acceptIsResume
+      ? acceptOffer
+      : ((await atsOffersStore.updateAtsOfferStatus(String(acceptTargetApp.id), 'accepted', { responded_at: acceptNowIso }))
+        || Object.assign({}, acceptOffer, { status: 'accepted', responded_at: acceptNowIso }));
 
     // (2) Kanban → hired (forward-only; quiet no-op when already there).
     if (acceptNextStage) {
@@ -27914,18 +27946,22 @@ async function handleApi(req, res, pathname) {
       console.error('[offer-accept] job fill update failed for role', acceptTargetApp.career_role_id, ':', jobErr && jobErr.message);
     }
 
-    // (8) Tell the consultant who sent the offer + audit the case timeline.
-    try {
-      await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: acceptCtx && acceptCtx.gpName });
-    } catch (senderErr) {
-      console.error('[offer-accept] sender notify failed for app', acceptTargetApp.id, ':', senderErr && senderErr.message);
-    }
-    if (acceptCtx && acceptCtx.caseId) {
+    // (8) Tell the consultant who sent the offer + audit the case timeline —
+    // ONLY on the sent→accepted transition. A resume re-runs the placement
+    // writes above but must never re-email or double-log.
+    if (!acceptIsResume) {
       try {
-        await _logCaseEvent(acceptCtx.caseId, null, 'system',
-          'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
-          null, 'system');
-      } catch (evErr) { /* timeline is best-effort */ }
+        await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: acceptCtx && acceptCtx.gpName });
+      } catch (senderErr) {
+        console.error('[offer-accept] sender notify failed for app', acceptTargetApp.id, ':', senderErr && senderErr.message);
+      }
+      if (acceptCtx && acceptCtx.caseId) {
+        try {
+          await _logCaseEvent(acceptCtx.caseId, null, 'system',
+            'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
+            null, 'system');
+        } catch (evErr) { /* timeline is best-effort */ }
+      }
     }
 
     sendJson(res, 200, {

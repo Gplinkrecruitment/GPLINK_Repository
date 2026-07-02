@@ -26,6 +26,13 @@
 //  3. Accept WITHOUT an offer record → legacy behaviour (stage advance only).
 //  4. Decline → offer declined, stage stays 'offer', sender emailed, kind
 //     idempotent repeat, 404 for non-owners.
+//  4b. Guardrails: withdrawn/declined offers 409 (offer_not_available) with no
+//      stage change; an 'applied' app with no offer record 404s (no_offer) —
+//      the applied→hired self-service exploit is closed.
+//  4c. Resume: offer already 'accepted' but the placement writes never landed
+//      → a repeat accept finishes them idempotently (incl. the placements
+//      dedupe guard) WITHOUT re-emailing the consultant.
+//  4d. No-applicationId fallback still picks the GP's offer-lane application.
 //  5. placements table missing (migration un-applied) → tolerant skip, accept
 //     still completes. Runs LAST — the store caches the determination.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -44,6 +51,8 @@ const SUPER_EMAIL = 'super@gplink-test.local';
 const GP = { userId: 'u-gp-1', email: 'gp@gplink-test.local' };
 const GP2 = { userId: 'u-gp-2', email: 'other@gplink-test.local' };
 const GP3 = { userId: 'u-gp-3', email: 'third@gplink-test.local' };
+const GP4 = { userId: 'u-gp-4', email: 'fourth@gplink-test.local' };
+const GP5 = { userId: 'u-gp-5', email: 'fifth@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 // When true the emulator answers every /rest/v1/placements request with the
@@ -59,7 +68,9 @@ const db = {
   user_profiles: [
     { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', registration_country: 'uk' },
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
-    { user_id: GP3.userId, email: GP3.email, first_name: 'Third', last_name: 'Doctor', registration_country: 'uk' }
+    { user_id: GP3.userId, email: GP3.email, first_name: 'Third', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: GP4.userId, email: GP4.email, first_name: 'Fourth', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: GP5.userId, email: GP5.email, first_name: 'Fifth', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [
     // Real GP states always carry the progress keys (the app writes them from
@@ -76,13 +87,17 @@ const db = {
       },
       updated_at: NOW
     },
-    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_epic_progress: { completed: {} }, gp_amc_progress: { completed: {} }, gp_ahpra_progress: {}, gp_documents_prep: {} }, updated_at: NOW }
+    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_epic_progress: { completed: {} }, gp_amc_progress: { completed: {} }, gp_ahpra_progress: {}, gp_documents_prep: {} }, updated_at: NOW },
+    { user_id: GP4.userId, state: { gp_onboarding_complete: true, gp_epic_progress: { completed: {} }, gp_amc_progress: { completed: {} }, gp_ahpra_progress: {}, gp_documents_prep: {} }, updated_at: NOW },
+    { user_id: GP5.userId, state: { gp_onboarding_complete: true, gp_epic_progress: { completed: {} }, gp_amc_progress: { completed: {} }, gp_ahpra_progress: {}, gp_documents_prep: {} }, updated_at: NOW }
   ],
   registration_cases: [
     // Case practice contact takes PRECEDENCE over the practice record's contact.
     { id: 'case-1', user_id: GP.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null, practice_contact: { name: 'Casey Contact', email: 'casey@case-contact.local', phone: '+61 400 111 222' } },
     { id: 'case-2', user_id: GP2.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null },
-    { id: 'case-3', user_id: GP3.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null }
+    { id: 'case-3', user_id: GP3.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null },
+    { id: 'case-4', user_id: GP4.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null },
+    { id: 'case-5', user_id: GP5.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null }
   ],
   rso_team: [],
   user_roles: [],
@@ -96,7 +111,17 @@ const db = {
     { id: 'app-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
     { id: 'app-4', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
     { id: 'app-5', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
-    { id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW }
+    { id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
+    // Guardrail fixtures: withdrawn offer (app-7) and no offer at all (app-8).
+    { id: 'app-7', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
+    { id: 'app-8', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'applied', applied_at: NOW },
+    // Resume fixtures: offer already 'accepted' but the placement writes never
+    // landed (app-9), and the same with the placements row ALREADY inserted
+    // by the partial first run (app-11).
+    { id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
+    { id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
+    // Fallback fixture: GP5's single offer-lane application (no applicationId in the POST).
+    { id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW }
   ],
   user_documents: [
     // CVs so /api/career/apply reaches the already-placed guard.
@@ -107,12 +132,24 @@ const db = {
   ats_offers: [
     // Live offers for the decline flow (app-5) and the tolerant-skip flow (app-6).
     { id: 'offer-app5', application_id: 'app-5', user_id: GP2.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    { id: 'offer-app6', application_id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '75 / 25', sessions_per_week: '7', compensation_range: '$320k+ estimated', start_date: '2026-11-02', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'offer-app6', application_id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '75 / 25', sessions_per_week: '7', compensation_range: '$320k+ estimated', start_date: '2026-11-02', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    // Withdrawn offer — accepting it must 409 without moving the card.
+    { id: 'offer-app7', application_id: 'app-7', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'withdrawn', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    // Already-accepted offers whose downstream placement writes never landed
+    // (status still 'applied') — the resume path must finish them.
+    { id: 'offer-app9', application_id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$290k+ estimated', start_date: '2026-09-07', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
+    { id: 'offer-app11', application_id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '66 / 34', sessions_per_week: '6', compensation_range: '$305k+ estimated', start_date: '2026-09-14', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
+    // Live offer for the no-applicationId fallback accept.
+    { id: 'offer-app10', application_id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$340k+ estimated', start_date: '2026-10-05', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
   registration_tasks: [],
   task_timeline: [],
-  placements: [],
+  placements: [
+    // Partial first accept for app-11 got as far as the placements insert
+    // before dying — the resume's dedupe guard must not add a second row.
+    { id: 'pl-app11', user_id: GP4.userId, application_id: 'app-11', career_role_id: 'role-1', practice_id: 'p1', practice_name: 'Greenslopes Family Medical', job_title: 'General Practitioner — VR', billing_split: '66 / 34', status: 'active', placed_by: SUPER_EMAIL, placed_at: NOW, created_at: NOW }
+  ],
   runtime_kv: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -581,6 +618,113 @@ describe('POST /api/career/offer/decline', () => {
   it('404s when there is no offer to decline', async () => {
     const r = await gpPost('/api/career/offer/decline', { applicationId: 'app-4' }, GP2);
     expect(r.status).toBe(404);
+  });
+});
+
+// ── 4b. Accept guardrails: dead offers + no offer evidence ─────────────────
+describe('POST /api/career/offer/accept — guardrails', () => {
+  it('a WITHDRAWN in-app offer cannot be accepted (409, stage unchanged)', async () => {
+    const sendersBefore = senderEmails().length;
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-7' }, GP4);
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('offer_not_available');
+
+    const app = db.gp_applications.find((a) => a.id === 'app-7');
+    expect(app.ats_stage).toBe('offer');   // NOT hired
+    expect(app.status).toBe('applied');    // NOT placement_secured
+    expect(db.ats_stage_events.find((e) => e.application_id === 'app-7')).toBeUndefined();
+    expect(db.placements.find((p) => p.application_id === 'app-7')).toBeUndefined();
+    expect(senderEmails().length).toBe(sendersBefore);
+  });
+
+  it('a DECLINED in-app offer cannot be re-accepted (409, stage unchanged)', async () => {
+    // app-5's offer was declined in the decline suite above.
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-5' }, GP2);
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('offer_not_available');
+    const app = db.gp_applications.find((a) => a.id === 'app-5');
+    expect(app.ats_stage).toBe('offer');
+    expect(app.status).toBe('applied');
+  });
+
+  it("an 'applied' application with NO offer cannot be self-hired (404, no writes)", async () => {
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-8' }, GP4);
+    expect(r.status).toBe(404);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('no_offer');
+    const app = db.gp_applications.find((a) => a.id === 'app-8');
+    expect(app.ats_stage).toBe('applied'); // the applied→hired exploit is closed
+    expect(app.status).toBe('applied');
+    expect(db.ats_stage_events.find((e) => e.application_id === 'app-8')).toBeUndefined();
+  });
+});
+
+// ── 4c. Resume: offer already 'accepted' but the placement never finished ──
+describe('POST /api/career/offer/accept — resume after a partial first accept', () => {
+  it('completes the remaining placement steps WITHOUT re-emailing the consultant', async () => {
+    const sendersBefore = senderEmails().length;
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-9' }, GP4);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.placement_secured).toBe(true);
+
+    const app = db.gp_applications.find((a) => a.id === 'app-9');
+    expect(app.status).toBe('placement_secured');
+    expect(app.ats_stage).toBe('hired');
+
+    const state = db.user_state.find((s) => s.user_id === GP4.userId).state;
+    expect(state.gp_career_state.career_secured).toBe(true);
+    const entry = state.gp_career_state.applications.find((a) => a.id === 'app-9');
+    expect(entry.isPlacementSecured).toBe(true);
+    expect(entry.placement.practiceName).toBe('Greenslopes Family Medical');
+
+    // The missing placements row is backfilled — exactly one.
+    expect(db.placements.filter((p) => p.application_id === 'app-9').length).toBe(1);
+
+    // The consultant email belongs to the sent→accepted transition (which
+    // already happened before the crash) — the resume must NOT email again.
+    expect(senderEmails().length).toBe(sendersBefore);
+  });
+
+  it('a further repeat accept is the plain idempotent early-return', async () => {
+    const sendersBefore = senderEmails().length;
+    const placementsBefore = db.placements.length;
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-9' }, GP4);
+    expect(r.status).toBe(200);
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.advanced).toBe(false);
+    expect(senderEmails().length).toBe(sendersBefore);
+    expect(db.placements.length).toBe(placementsBefore);
+  });
+
+  it('the placements dedupe guard keeps ONE row when the partial run already inserted it', async () => {
+    // app-11: offer 'accepted' + a placements row already on file, but the
+    // status patch never landed. Resume finishes the placement with no dupe.
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-11' }, GP4);
+    expect(r.status).toBe(200);
+    expect(r.body.placement_secured).toBe(true);
+    expect(db.gp_applications.find((a) => a.id === 'app-11').status).toBe('placement_secured');
+    expect(db.placements.filter((p) => p.application_id === 'app-11').length).toBe(1);
+  });
+});
+
+// ── 4d. No-applicationId fallback still picks the offer-lane application ───
+describe('POST /api/career/offer/accept — no applicationId in the body', () => {
+  it('accepts the (single) offer-lane application end-to-end', async () => {
+    const sendersBefore = senderEmails().length;
+    const r = await gpPost('/api/career/offer/accept', {}, GP5);
+    expect(r.status).toBe(200);
+    expect(r.body.applicationId).toBe('app-10');
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.ats_stage).toBe('hired');
+
+    const app = db.gp_applications.find((a) => a.id === 'app-10');
+    expect(app.status).toBe('placement_secured');
+    expect(app.ats_stage).toBe('hired');
+    expect(db.ats_offers.find((o) => o.application_id === 'app-10').status).toBe('accepted');
+    // Fresh sent→accepted transition → exactly one consultant email.
+    expect(senderEmails().length).toBe(sendersBefore + 1);
   });
 });
 
