@@ -304,6 +304,18 @@ const SUPER_ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+// Recruitment consultants: ATS-only access (jobs/candidates/pipeline/interviews)
+// on the CEO / super-admin host via requireAtsSession. They are NOT general
+// admins — every other admin/CEO route rejects them. Additional consultants can
+// be granted at runtime (no deploy) through the runtime_kv 'ats_consultants'
+// list — see isConsultantEmail().
+const CONSULTANT_EMAILS = new Set(
+  String(process.env.CONSULTANT_EMAILS || '')
+    .replace(/\\n/g, '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 const CEO_EMAIL = String(process.env.CEO_EMAIL || '').trim().toLowerCase();
 const RSO_TEAM = [
   { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243', user_id: '2f94f870-7ab2-4f71-98ad-bf3756ed88db' },
@@ -7409,7 +7421,7 @@ function isLoopbackHostname(hostname) {
 
 function normalizeAdminRole(value) {
   const role = String(value || '').trim().toLowerCase().replace(/-/g, '_');
-  if (role === 'staff' || role === 'admin' || role === 'super_admin') return role;
+  if (role === 'staff' || role === 'admin' || role === 'super_admin' || role === 'consultant') return role;
   return '';
 }
 
@@ -7425,6 +7437,7 @@ function getAdminRoleLabel(role) {
   const normalized = normalizeAdminRole(role);
   if (normalized === 'super_admin') return 'Super Admin';
   if (normalized === 'staff') return 'Staff Admin';
+  if (normalized === 'consultant') return 'Consultant';
   if (normalized === 'admin') return 'Admin';
   return 'Admin';
 }
@@ -7434,6 +7447,8 @@ function getConfiguredAdminRoleForEmail(email) {
   if (!normalizedEmail) return '';
   if (SUPER_ADMIN_EMAILS.has(normalizedEmail)) return 'super_admin';
   if (ADMIN_EMAILS.has(normalizedEmail)) return 'admin';
+  // Checked AFTER the super/admin lists so those always win for a shared email.
+  if (CONSULTANT_EMAILS.has(normalizedEmail)) return 'consultant';
   return '';
 }
 
@@ -7457,8 +7472,14 @@ function getAdminHostLabel(scope) {
 function doesAdminRoleMatchHost(role, hostScope) {
   const normalizedRole = normalizeAdminRole(role);
   if (!normalizedRole) return false;
-  if (hostScope === 'super_admin') return normalizedRole === 'super_admin';
-  return hostScope === 'admin' || hostScope === 'local';
+  // The CEO / super-admin host admits super admins AND consultants (the ATS
+  // surface lives there). Consultants are still fenced to the ATS routes by
+  // requireAdminSession/requireAtsSession — matching the host is necessary
+  // but not sufficient.
+  if (hostScope === 'super_admin') return normalizedRole === 'super_admin' || normalizedRole === 'consultant';
+  // The employee admin host never serves consultants (they get ATS only).
+  if (hostScope === 'admin') return normalizedRole !== 'consultant';
+  return hostScope === 'local';
 }
 
 function getAdminRoleFromSession(session) {
@@ -8764,12 +8785,58 @@ async function getAdminRoleFromSupabaseUserId(userId) {
   return normalizeAdminRole(result.data[0] && result.data[0].role);
 }
 
+// ── Consultant allow-list (env + runtime_kv) ────────────────────────────────
+// Consultants can be granted/revoked WITHOUT a deploy: the runtime_kv key
+// 'ats_consultants' holds a JSON array of lowercase emails (managed from the
+// CEO dashboard Team card). The kv read is cached in a module var for ~60s so
+// login/reset flows don't hit the DB on every call. Env CONSULTANT_EMAILS
+// entries are merged in (and also resolve synchronously via
+// getConfiguredAdminRoleForEmail).
+const ATS_CONSULTANTS_KV_KEY = 'ats_consultants';
+const ATS_CONSULTANTS_KV_CACHE_MS = 60 * 1000;
+let atsConsultantsKvCache = { emails: null, fetchedAt: 0 };
+
+async function loadKvConsultantEmails() {
+  const nowMs = Date.now();
+  if (Array.isArray(atsConsultantsKvCache.emails)
+    && (nowMs - atsConsultantsKvCache.fetchedAt) < ATS_CONSULTANTS_KV_CACHE_MS) {
+    return atsConsultantsKvCache.emails;
+  }
+  let emails = [];
+  try {
+    const row = await getRuntimeKv(ATS_CONSULTANTS_KV_KEY);
+    const value = row ? row.value : null;
+    // Stored shape is a JSON array of emails; tolerate {emails:[...]} too.
+    const list = Array.isArray(value) ? value : (value && Array.isArray(value.emails) ? value.emails : []);
+    emails = list.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean);
+  } catch (err) {
+    emails = [];
+  }
+  atsConsultantsKvCache = { emails, fetchedAt: nowMs };
+  return emails;
+}
+
+// Async because the runtime_kv list requires a DB read (cached ~60s). Sync
+// call sites (session-cookie role checks) rely on the adminRole stamped into
+// the session at login instead of calling this.
+async function isConsultantEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return false;
+  if (CONSULTANT_EMAILS.has(normalizedEmail)) return true;
+  const kvEmails = await loadKvConsultantEmails();
+  return kvEmails.includes(normalizedEmail);
+}
+
 async function resolveAdminRoleForSupabaseUser(supaUser, fallbackEmail = '') {
   const userId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
   const email = String((supaUser && supaUser.email) || fallbackEmail || '').trim().toLowerCase();
   const dbRole = await getAdminRoleFromSupabaseUserId(userId);
   if (dbRole) return dbRole;
-  return getConfiguredAdminRoleForEmail(email);
+  const configuredRole = getConfiguredAdminRoleForEmail(email);
+  if (configuredRole) return configuredRole;
+  // Runtime-granted consultants (runtime_kv 'ats_consultants') resolve last.
+  if (await isConsultantEmail(email)) return 'consultant';
+  return '';
 }
 
 function buildAdminSessionProfile(userProfile, adminRole) {
@@ -8783,7 +8850,11 @@ function isAdminEmail(email) {
   return hasAdminPortalAccess(getConfiguredAdminRoleForEmail(email));
 }
 
-function requireAdminSession(req, res) {
+// Shared host + session + role-vs-host resolution for admin-cookie guards.
+// Returns the admin context or writes the 404/401/403 response and returns null.
+// NOTE: this admits consultants on the super-admin host — the role fencing
+// (consultant = ATS only) happens in requireAdminSession / requireAtsSession.
+function resolveAdminRequestContext(req, res) {
   const hostScope = getAdminHostScope(req);
   if (!hostScope) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
@@ -8815,12 +8886,26 @@ function requireAdminSession(req, res) {
   };
 }
 
+function requireAdminSession(req, res) {
+  const adminCtx = resolveAdminRequestContext(req, res);
+  if (!adminCtx) return null;
+  // Consultants are ATS-only: they authenticate like admins on the super-admin
+  // host, but every generic admin route stays closed to them. Only
+  // requireAtsSession admits the consultant role.
+  if (normalizeAdminRole(adminCtx.role) === 'consultant') {
+    sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+    return null;
+  }
+  return adminCtx;
+}
+
 function requireIntegrationAdminSession(req, res) {
   const session = requireSession(req, res);
   if (!session) return null;
   const email = getSessionEmail(session);
   const role = getConfiguredAdminRoleForEmail(email);
-  if (!hasAdminPortalAccess(role)) {
+  // Consultants are ATS-only — integration management stays admin/super-admin.
+  if (!hasAdminPortalAccess(role) || normalizeAdminRole(role) === 'consultant') {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
     return null;
   }
@@ -8843,6 +8928,23 @@ function requireSuperAdminSession(req, res) {
 // roles there) and contradictory on the employee host, so it is removed (#70).
 function requireCeoSession(req, res) {
   return requireSuperAdminSession(req, res);
+}
+
+// ATS access: the ATS surface (jobs, candidates, pipeline, interviews,
+// practices) is shared by the CEO (super_admin) and recruitment consultants.
+// Uses resolveAdminRequestContext directly (NOT requireAdminSession, which
+// deliberately rejects consultants) so consultants pass ONLY the routes that
+// opt into this guard. Everything else on the CEO dashboard stays
+// super-admin-only via requireCeoSession.
+function requireAtsSession(req, res) {
+  const adminCtx = resolveAdminRequestContext(req, res);
+  if (!adminCtx) return null;
+  const role = normalizeAdminRole(adminCtx.role);
+  if (role !== 'super_admin' && role !== 'consultant') {
+    sendJson(res, 403, { ok: false, message: 'ATS access required.' });
+    return null;
+  }
+  return adminCtx;
 }
 
 function ensureAgentOutputRoot() {
@@ -33337,12 +33439,15 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Please provide a valid email.' });
       return;
     }
-    // Only send reset if email belongs to an admin/VA
+    // Only send reset if email belongs to an admin/VA/consultant
     var isAdmin = ADMIN_EMAILS.has(resetEmail) || SUPER_ADMIN_EMAILS.has(resetEmail) || MONITORED_VA_EMAILS.includes(resetEmail);
     if (!isAdmin && isSupabaseDbConfigured()) {
-      var roleCheck = await supabaseDbRequest('user_roles', 'select=role&user_id=eq.' + encodeURIComponent(resetEmail) + '&role=in.(admin,super_admin)&limit=1');
+      var roleCheck = await supabaseDbRequest('user_roles', 'select=role&user_id=eq.' + encodeURIComponent(resetEmail) + '&role=in.(admin,super_admin,consultant)&limit=1');
       if (roleCheck.ok && Array.isArray(roleCheck.data) && roleCheck.data.length > 0) isAdmin = true;
     }
+    // Consultants (env CONSULTANT_EMAILS or the runtime_kv 'ats_consultants'
+    // list) must also be able to reset their password (async: kv read).
+    if (!isAdmin && await isConsultantEmail(resetEmail)) isAdmin = true;
     if (isAdmin && isSupabaseConfigured()) {
       var resetRedirectTo = APP_BASE_URL + '/pages/admin-signin?reset=true';
       try {
@@ -45492,7 +45597,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Jobs ----------------------------------------------------------------
   if (pathname === '/api/ats/jobs' && req.method === 'GET') {
-    var ctxJ = requireCeoSession(req, res); if (!ctxJ) return;
+    var ctxJ = requireAtsSession(req, res); if (!ctxJ) return;
     var jobs = await atsListJobRows();
     var pracs = await atsListPracticeRows();
     var pById = {}; pracs.forEach(function (p) { pById[p.id] = p; });
@@ -45510,7 +45615,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/jobs' && req.method === 'POST') {
-    var ctxJC = requireCeoSession(req, res); if (!ctxJC) return;
+    var ctxJC = requireAtsSession(req, res); if (!ctxJC) return;
     var bodyJ; try { bodyJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyJ || !String(bodyJ.title || '').trim()) { sendJson(res, 400, { ok: false, message: 'Job title is required.' }); return; }
     var practiceName = String(bodyJ.practice_name || '');
@@ -45536,7 +45641,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job' && req.method === 'GET') {
-    var ctxJG = requireCeoSession(req, res); if (!ctxJG) return;
+    var ctxJG = requireAtsSession(req, res); if (!ctxJG) return;
     var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
@@ -45545,7 +45650,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job' && req.method === 'PATCH') {
-    var ctxJP = requireCeoSession(req, res); if (!ctxJP) return;
+    var ctxJP = requireAtsSession(req, res); if (!ctxJP) return;
     var jpId = url.searchParams.get('id'); if (!jpId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyJP; try { bodyJP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var patchJ = {};
@@ -45570,7 +45675,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job/pipeline' && req.method === 'GET') {
-    var ctxPP = requireCeoSession(req, res); if (!ctxPP) return;
+    var ctxPP = requireAtsSession(req, res); if (!ctxPP) return;
     var ppId = url.searchParams.get('id'); if (!ppId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var ppJob = await atsGetJobRow(ppId); if (!ppJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var ppPr = ppJob.practice_id ? await atsGetPracticeRow(ppJob.practice_id) : null;
@@ -45591,7 +45696,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/application' && req.method === 'PATCH') {
-    var ctxAP = requireCeoSession(req, res); if (!ctxAP) return;
+    var ctxAP = requireAtsSession(req, res); if (!ctxAP) return;
     var apId = url.searchParams.get('id'); if (!apId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyAP; try { bodyAP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
@@ -45616,7 +45721,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/application' && req.method === 'POST') {
-    var ctxAA = requireCeoSession(req, res); if (!ctxAA) return;
+    var ctxAA = requireAtsSession(req, res); if (!ctxAA) return;
     var bodyAA; try { bodyAA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var aaUserId = (bodyAA && bodyAA.user_id != null) ? String(bodyAA.user_id) : '';
     var aaJobId = (bodyAA && bodyAA.career_role_id != null) ? bodyAA.career_role_id : (bodyAA ? bodyAA.job_id : undefined);
@@ -45649,7 +45754,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview request ---------------------------------------------------
   if (pathname === '/api/ats/interview/request' && req.method === 'POST') {
-    var ctxIR = requireCeoSession(req, res); if (!ctxIR) return;
+    var ctxIR = requireAtsSession(req, res); if (!ctxIR) return;
     var bodyIR; try { bodyIR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var irAppId = (bodyIR && bodyIR.application_id != null) ? String(bodyIR.application_id) : '';
     if (!irAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
@@ -45683,7 +45788,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview slots (GET) -----------------------------------------------
   if (pathname === '/api/ats/interview/slots' && req.method === 'GET') {
-    var ctxSL = requireCeoSession(req, res); if (!ctxSL) return;
+    var ctxSL = requireAtsSession(req, res); if (!ctxSL) return;
     var slAppId = url.searchParams.get('application_id');
     if (!slAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
     var slNowParam = url.searchParams.get('now');
@@ -45759,7 +45864,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview book (POST) -----------------------------------------------
   if (pathname === '/api/ats/interview/book' && req.method === 'POST') {
-    var ctxBK = requireCeoSession(req, res); if (!ctxBK) return;
+    var ctxBK = requireAtsSession(req, res); if (!ctxBK) return;
     var bodyBK; try { bodyBK = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var bkAppId = (bodyBK && bodyBK.application_id != null) ? String(bodyBK.application_id) : '';
     var bkSlotStart = (bodyBK && bodyBK.slot_start_utc) ? String(bodyBK.slot_start_utc) : '';
@@ -45924,7 +46029,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview ingest-reply (POST) ---------------------------------------
   if (pathname === '/api/ats/interview/ingest-reply' && req.method === 'POST') {
-    var ctxIngR = requireCeoSession(req, res); if (!ctxIngR) return;
+    var ctxIngR = requireAtsSession(req, res); if (!ctxIngR) return;
     var bodyIngR; try { bodyIngR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var ingAppId = (bodyIngR && bodyIngR.application_id != null) ? String(bodyIngR.application_id) : '';
     var ingReplyText = (bodyIngR && bodyIngR.reply_text != null) ? String(bodyIngR.reply_text) : '';
@@ -45948,7 +46053,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
-    var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;
+    var ctxPL = requireAtsSession(req, res); if (!ctxPL) return;
     var derived = await atsListPracticesDerived();
     var plApps = await atsListApplicationRows({});
     var appsByJobP = {};
@@ -45966,7 +46071,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practices' && req.method === 'POST') {
-    var ctxPC = requireCeoSession(req, res); if (!ctxPC) return;
+    var ctxPC = requireAtsSession(req, res); if (!ctxPC) return;
     var bodyP; try { bodyP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyP || !String(bodyP.name || '').trim()) { sendJson(res, 400, { ok: false, message: 'Practice name is required.' }); return; }
     var pracRow = {
@@ -45982,7 +46087,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practice' && req.method === 'GET') {
-    var ctxPG = requireCeoSession(req, res); if (!ctxPG) return;
+    var ctxPG = requireAtsSession(req, res); if (!ctxPG) return;
     var pgId = url.searchParams.get('id'); if (!pgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var pg = await atsResolvePractice(pgId); if (!pg) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
     var pgJobs = pg.jobs || [];
@@ -46008,7 +46113,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practice' && req.method === 'PATCH') {
-    var ctxPPatch = requireCeoSession(req, res); if (!ctxPPatch) return;
+    var ctxPPatch = requireAtsSession(req, res); if (!ctxPPatch) return;
     var ppgId = url.searchParams.get('id'); if (!ppgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyPP; try { bodyPP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var patchP = {};
@@ -46039,7 +46144,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Candidates ----------------------------------------------------------
   if (pathname === '/api/ceo/candidates' && req.method === 'GET') {
-    var ctxCL = requireCeoSession(req, res); if (!ctxCL) return;
+    var ctxCL = requireAtsSession(req, res); if (!ctxCL) return;
     var clQ = (url.searchParams.get('q') || '').toLowerCase();
     var clStage = (url.searchParams.get('stage') || '').toLowerCase();
     var clBand = (url.searchParams.get('band') || '').toLowerCase();
@@ -46102,7 +46207,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ceo/pipeline-summary' && req.method === 'GET') {
-    var ctxPS = requireCeoSession(req, res); if (!ctxPS) return;
+    var ctxPS = requireAtsSession(req, res); if (!ctxPS) return;
     var psCounts = {};
     atsPracticeUtil.PIPELINE_BUCKETS.forEach(function (k) { psCounts[k] = 0; });
     var psTotal = 0;
@@ -46139,7 +46244,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ceo/candidate' && req.method === 'GET') {
-    var ctxCP = requireCeoSession(req, res); if (!ctxCP) return;
+    var ctxCP = requireAtsSession(req, res); if (!ctxCP) return;
     var cpCaseId = url.searchParams.get('case_id');
     var cpUserId = url.searchParams.get('user_id');
     if (!cpCaseId && !cpUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
@@ -46195,7 +46300,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ceo/candidate/comms-scan' && req.method === 'POST') {
-    var ctxCS = requireCeoSession(req, res); if (!ctxCS) return;
+    var ctxCS = requireAtsSession(req, res); if (!ctxCS) return;
     var csCaseId = url.searchParams.get('case_id');
     if (!csCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
     if (!isSupabaseDbConfigured()) {
@@ -46277,7 +46382,7 @@ Return ONLY valid JSON with no markdown formatting:
   // never show the CEO's own standard consultations. Excludes abandoned drafts
   // (status='cancelled' with no scheduled_at and no booked_at). Dual-mode.
   if (pathname === '/api/ceo/meetings' && req.method === 'GET') {
-    var ctxMtg = requireCeoSession(req, res); if (!ctxMtg) return;
+    var ctxMtg = requireAtsSession(req, res); if (!ctxMtg) return;
     var mtgKind = url.searchParams.get('kind') || 'all';
     var mtgSessEmail = String(ctxMtg.email || '').trim().toLowerCase();
     if (!isSupabaseDbConfigured()) {
