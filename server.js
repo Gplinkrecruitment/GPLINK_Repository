@@ -137,6 +137,17 @@ var ceoActions = require('./lib/ceo-actions');
 var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
 var atsComms = require('./lib/ats-comms');
+// Offers storage adapter (Task B). lib modules never import server internals, so
+// the store RECEIVES the db/kv capabilities as lazy accessors — the closures run
+// at request time, after dbState & co. are initialised below.
+var atsOffersStore = require('./lib/ats-offers').createAtsOffersStore({
+  isSupabaseDbConfigured: function () { return isSupabaseDbConfigured(); },
+  supabaseDbRequest: function (table, query, opts) { return supabaseDbRequest(table, query, opts); },
+  getRuntimeKv: function (key) { return getRuntimeKv(key); },
+  setRuntimeKv: function (key, value, expiresAtMs) { return setRuntimeKv(key, value, expiresAtMs); },
+  getDbState: function () { return dbState; },
+  saveDbState: function () { return saveDbState(); }
+});
 var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
@@ -24342,6 +24353,42 @@ async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
   ]);
 }
 
+// Dedicated "offer sent" notification (standalone-ATS Task B). This REPLACES the
+// generic Task-5 'offer' milestone email for in-app offers, so the GP gets
+// exactly ONE email per offer: POST /api/ats/offer advances the stage by calling
+// atsUpdateApplicationStageRow directly, and the generic notifier
+// (notifyGpOfAtsStageChange) only ever fires from the call sites that opt in
+// (the PATCH /api/ats/application kanban move + the Zoho reconciler) — so the
+// direct call IS the suppression. The deep link lands on the real offer page and
+// survives the sign-in bounce the same way the doc-delivery email does
+// (buildSigninRedirect + auth-guard carry the full path+query through ?next).
+// Awaited (not fire-and-forget) so serverless freeze after res.end can't drop it.
+async function notifyGpOfferSent(userId, applicationId, jobLabel, practiceLabel) {
+  if (!userId) return;
+  var offerPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(applicationId || ''));
+  var offerTitle = 'You have an offer to review 🎉';
+  var offerBody = 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you '
+    + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role')
+    + '. Open your offer to see the billing split, sessions and start date, and accept when you\'re ready.';
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: 'success', title: offerTitle, body: offerBody })
+      .catch(function (e) { console.error('[ats offer] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: offerTitle,
+      body: offerBody,
+      data: { type: 'career', action: 'offer_sent', url: offerPath }
+    }).catch(function (e) { console.error('[ats offer] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId,
+      'You have an offer to review 🎉 — GP Link',
+      'You have an offer, {{name}}!',
+      offerBody,
+      'Review Your Offer',
+      APP_BASE_URL + offerPath,
+      'Questions about the offer? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    ).catch(function (e) { console.error('[ats offer] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
 // Zoho → kanban reconciliation (Task 5). After a Zoho status lands on a
 // gp_applications row, pull the CEO kanban stage forward to match.
 // Forward-only via planAtsStageReconciliation: a manually advanced card is
@@ -24560,6 +24607,20 @@ function atsOnboardingFractionFilled(ob) {
   return checks.filter(Boolean).length / checks.length;
 }
 
+// Map a stored ats_offers record onto the drawer's per-application offer state
+// (Task B). No record (or an unsent draft) → 'not_started', matching the old
+// placeholder. Shared by the prod + local facts builders.
+function atsOfferCardState(offerRow) {
+  var status = offerRow ? String(offerRow.status || '') : '';
+  if (!status || status === 'draft') return { status: 'not_started', label: '—' };
+  var labels = { sent: 'Offer sent', accepted: 'Offer accepted', declined: 'Offer declined', withdrawn: 'Offer withdrawn' };
+  return {
+    status: status,
+    label: labels[status] || status,
+    sent_at: offerRow.sent_at || null
+  };
+}
+
 // Build the normalized candidate "facts" bundle from a local seed row.
 function atsLocalCandidateFacts(row) {
   // Enrich each seeded app with interview (most-recent non-cancelled interview from
@@ -24576,7 +24637,8 @@ function atsLocalCandidateFacts(row) {
       var m = matches[0];
       intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null };
     }
-    return Object.assign({}, a, { interview: intRow, offer: { status: 'not_started', label: '—' } });
+    var offerRow = (dbState.atsOffers || []).find(function (o) { return String(o.application_id) === String(a.id); }) || null;
+    return Object.assign({}, a, { interview: intRow, offer: atsOfferCardState(offerRow) });
   });
   return {
     case_id: row.id, user_id: row.user_id || row.id,
@@ -24634,6 +24696,15 @@ async function atsProdCandidateFacts(regCase) {
       }
     });
   }
+  // Real offer state per application (Task B) — one batched lookup, drives the
+  // drawer's Send offer / Offer sent / Accepted UI. Best-effort decoration.
+  var appOfferMap = {};
+  if (prodAppIds.length) {
+    try {
+      var offerRows = await atsOffersStore.listAtsOffers(prodAppIds.map(String));
+      offerRows.forEach(function (o) { if (o && o.application_id) appOfferMap[String(o.application_id)] = o; });
+    } catch (e) { /* offers are optional decoration on the drawer */ }
+  }
   var apps = appRows.map(function (a) {
     var role = roleMap[a.career_role_id] || {};
     var intRow = appInterviewMap[a.id] || null;
@@ -24641,7 +24712,7 @@ async function atsProdCandidateFacts(regCase) {
       id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—',
       practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false),
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
-      offer: { status: 'not_started', label: '—' }
+      offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
   });
 
@@ -27264,6 +27335,123 @@ async function handleApi(req, res, pathname) {
     const acceptUpdated = await atsUpdateApplicationStageRow(acceptTargetApp.id, 'hired', undefined, 'gp_accept_offer');
     if (!acceptUpdated || !acceptUpdated.row) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
     sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: 'hired', advanced: true });
+    return;
+  }
+
+  // GET /api/career/my-offer?applicationId= — the CURRENT user's in-app offer
+  // for one application (pages/offer-review.html). Ownership enforced: an
+  // application id belonging to someone else answers 404 (no existence leak).
+  // Without an id, the user's most recent live offer is picked (old links).
+  // `notes` ARE returned — they're the offer-terms notes the consultant writes
+  // FOR the doctor. NEVER exposed: sent_by (consultant email) or internal ids.
+  if (pathname === '/api/career/my-offer' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const moEmail = getSessionEmail(session);
+    if (!moEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const moUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(moEmail);
+    if (!moUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const moAppIdParam = String(url.searchParams.get('applicationId') || url.searchParams.get('application_id') || url.searchParams.get('id') || '').trim();
+
+    let moApp = null;
+    if (moAppIdParam) {
+      if (isSupabaseDbConfigured()) {
+        const moAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(moAppIdParam) + '&limit=1');
+        moApp = (moAppRes.ok && Array.isArray(moAppRes.data) && moAppRes.data[0]) ? moAppRes.data[0] : null;
+      } else {
+        moApp = (dbState.atsApplications || []).find((a) => String(a.id) === moAppIdParam) || null;
+      }
+      if (!moApp || String(moApp.user_id || '') !== String(moUserId)) {
+        sendJson(res, 404, { ok: false, message: 'Application not found.' });
+        return;
+      }
+    } else {
+      // No id → the user's most recent application with a live offer.
+      let moApps = [];
+      if (isSupabaseDbConfigured()) {
+        const moAppsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(moUserId) + '&limit=200');
+        moApps = (moAppsRes.ok && Array.isArray(moAppsRes.data)) ? moAppsRes.data : [];
+      } else {
+        moApps = (dbState.atsApplications || []).filter((a) => String(a.user_id) === String(moUserId));
+      }
+      const moOffers = await atsOffersStore.listAtsOffers(moApps.map((a) => String(a.id)));
+      const moLive = moOffers.filter((o) => o && (o.status === 'sent' || o.status === 'accepted'));
+      moLive.sort((a, b) => String(b.sent_at || '').localeCompare(String(a.sent_at || '')));
+      const moPick = moLive[0] || null;
+      moApp = moPick ? (moApps.find((a) => String(a.id) === String(moPick.application_id)) || null) : null;
+      if (!moApp) { sendJson(res, 200, { ok: true, offer: null }); return; }
+    }
+
+    const moOffer = await atsOffersStore.getAtsOfferByApplication(String(moApp.id));
+    // Withdrawn/unsent offers are no longer (or not yet) reviewable.
+    if (!moOffer || moOffer.status === 'withdrawn' || moOffer.status === 'draft') {
+      sendJson(res, 200, { ok: true, offer: null });
+      return;
+    }
+
+    // Role / practice context (dual-mode).
+    let moRole = null;
+    if (moApp.career_role_id) {
+      moRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(moApp.career_role_id)
+        : ((dbState.atsJobs || []).find((j) => String(j.id) === String(moApp.career_role_id)) || null);
+    }
+    let moPractice = null;
+    if (moRole && moRole.practice_id) {
+      try { moPractice = await atsGetPracticeRow(moRole.practice_id); } catch (e) { moPractice = null; }
+    }
+    const moPracticeName = moOffer.practice_name || (moRole && moRole.practice_name) || '';
+    const moLocation = moRole ? [moRole.location_city, moRole.location_state].filter(Boolean).join(', ') : '';
+
+    // Contract availability: the offer recorded a delivered contract, or an
+    // offer_contract document already sits in the GP's documents.
+    let moContractAvailable = !!moOffer.contract_document_key;
+    if (!moContractAvailable && isSupabaseDbConfigured()) {
+      const moDocRes = await supabaseDbRequest('user_documents',
+        'select=id&user_id=eq.' + encodeURIComponent(moUserId) + '&document_key=eq.offer_contract&status=in.(approved,uploaded,received)&limit=1');
+      moContractAvailable = !!(moDocRes.ok && Array.isArray(moDocRes.data) && moDocRes.data[0]);
+    }
+
+    // Guidance officer = the case's assigned RSO (registration_cases.assigned_rso,
+    // falling back to assigned_va), resolved to a name via the rso_team roster.
+    let moOfficer = '';
+    try {
+      let moAssigned = null;
+      if (isSupabaseDbConfigured()) {
+        const moCaseRes = await supabaseDbRequest('registration_cases',
+          'select=assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(moUserId) + '&limit=1');
+        const moCase = (moCaseRes.ok && Array.isArray(moCaseRes.data) && moCaseRes.data[0]) ? moCaseRes.data[0] : null;
+        moAssigned = moCase ? (moCase.assigned_rso || moCase.assigned_va || null) : null;
+      }
+      if (moAssigned) {
+        const moRoster = await loadRsoTeam({ includeInactive: true });
+        const moRso = moRoster.find((r) => String(r.user_id) === String(moAssigned));
+        if (moRso && moRso.name) moOfficer = moRso.name;
+      }
+    } catch (e) { /* fall through to the team default */ }
+
+    sendJson(res, 200, {
+      ok: true,
+      offer: {
+        billing_split: moOffer.billing_split || '',
+        sessions_per_week: moOffer.sessions_per_week || '',
+        compensation_range: moOffer.compensation_range || '',
+        start_date: moOffer.start_date || '',
+        notes: moOffer.notes || '',
+        sent_at: moOffer.sent_at || '',
+        status: moOffer.status || 'sent'
+      },
+      applicationId: String(moApp.id),
+      practiceName: moPracticeName,
+      roleTitle: moOffer.job_title || (moRole && moRole.title) || '',
+      location: moLocation,
+      practiceContact: {
+        name: (moPractice && moPractice.contact_name) || ((moPracticeName ? moPracticeName + ' ' : '') + 'Team'),
+        role: 'Medical centre contact'
+      },
+      contractAvailable: moContractAvailable,
+      guidanceOfficer: moOfficer || 'GP Link team'
+    });
     return;
   }
 
@@ -45749,6 +45937,124 @@ Return ONLY valid JSON with no markdown formatting:
     if (!aaCreated) { sendJson(res, 502, { ok: false, message: 'Could not add candidate to this job.' }); return; }
     await atsRecordStageEvent(aaCreated.id, '', 'applied', ctxAA.email || '');
     sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false });
+    return;
+  }
+
+  // ---- Offers (Task B: in-app offer flow) ----------------------------------
+  // POST sends (or re-sends/updates) the offer for an application: saves the
+  // record, optionally delivers the contract into the GP's documents, advances
+  // the kanban to 'offer' and sends the ONE dedicated GP notification
+  // (see notifyGpOfferSent — the generic Task-5 stage email is not triggered
+  // because the stage move below calls atsUpdateApplicationStageRow directly).
+  if (pathname === '/api/ats/offer' && req.method === 'POST') {
+    var ctxOF = requireAtsSession(req, res); if (!ctxOF) return;
+    var bodyOF;
+    try { bodyOF = await readJsonBody(req); } catch (e) {
+      var ofTooBig = /too large/i.test(String(e && e.message || ''));
+      sendJson(res, 400, { ok: false, message: ofTooBig ? 'That contract file is too large — please attach one under 8 MB.' : 'Invalid body.' });
+      return;
+    }
+    var ofAppId = (bodyOF && bodyOF.application_id != null) ? String(bodyOF.application_id) : '';
+    if (!ofAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ofCtx = await atsGetApplicationContext(ofAppId);
+    if (!ofCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    var ofExisting = await atsOffersStore.getAtsOfferByApplication(ofAppId);
+    if (ofExisting && ofExisting.status === 'accepted') {
+      sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — it can\'t be replaced.' });
+      return;
+    }
+    // Job/practice labels for the record + notification (dual-mode role lookup).
+    var ofRole = null;
+    if (ofCtx.careerRoleId) {
+      ofRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(ofCtx.careerRoleId)
+        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(ofCtx.careerRoleId); }) || null);
+    }
+    var ofJobTitle = (ofRole && ofRole.title) || ofCtx.app.job_title || '';
+    var ofPracticeName = ofCtx.practiceName || (ofRole && ofRole.practice_name) || '';
+    // Optional contract: decode the data URL (decoded cap 10MB; the 12MB JSON
+    // body cap upstream already bounds the raw payload) and deliver it into the
+    // GP's documents WITHOUT the per-document delivery email — the offer email
+    // below is the single notification and deep-links to the offer instead.
+    var ofContractDelivered = false;
+    var ofContractUrl = typeof bodyOF.contract_data_url === 'string' ? bodyOF.contract_data_url.trim() : '';
+    if (ofContractUrl) {
+      var ofParsed = parseDataUrlPayload(ofContractUrl);
+      if (!ofParsed) { sendJson(res, 400, { ok: false, message: 'The contract file could not be read — please attach it again.' }); return; }
+      if (ofParsed.buffer.length > 10 * 1024 * 1024) { sendJson(res, 400, { ok: false, message: 'The contract file is too large (10 MB max).' }); return; }
+      if (ofCtx.userId) {
+        var ofFileName = sanitizeUserString(String(bodyOF.contract_file_name || ''), 240) || 'Offer-Contract.pdf';
+        try {
+          await deliverToMyDocuments(ofCtx.userId, ofCtx.caseId, 'offer_contract', ofFileName, ofParsed.buffer, ofParsed.mimeType, { notifyGp: false });
+          ofContractDelivered = true;
+        } catch (e) { console.error('[ats offer] contract delivery failed for app', ofAppId, ':', e && e.message); }
+      }
+    }
+    // start_date feeds a DATE column once the migration lands — only accept the
+    // <input type="date"> shape so a bad value can't start failing inserts later.
+    var ofStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(bodyOF.start_date || '').trim()) ? String(bodyOF.start_date).trim() : null;
+    var ofSaved = await atsOffersStore.saveAtsOffer({
+      application_id: ofAppId,
+      user_id: ofCtx.userId || null,
+      career_role_id: ofCtx.careerRoleId || null,
+      practice_id: (ofRole && ofRole.practice_id) || null,
+      job_title: ofJobTitle,
+      practice_name: ofPracticeName,
+      billing_split: sanitizeUserString(String(bodyOF.billing_split || ''), 120),
+      sessions_per_week: sanitizeUserString(String(bodyOF.sessions_per_week || ''), 120),
+      compensation_range: sanitizeUserString(String(bodyOF.compensation_range || ''), 160),
+      start_date: ofStartDate,
+      notes: sanitizeUserString(String(bodyOF.notes || ''), 4000),
+      contract_document_key: ofContractDelivered ? 'offer_contract' : ((ofExisting && ofExisting.contract_document_key) || null),
+      status: 'sent',
+      sent_by: ctxOF.email || '',
+      sent_at: atsNowIso(),
+      responded_at: null
+    });
+    if (!ofSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+    // Kanban → 'offer' via the forward-only rule (no-op when already at offer,
+    // never yanks a terminal lane). Direct atsUpdateApplicationStageRow call =
+    // the generic milestone notifier stays silent for this transition.
+    var ofTarget = atsPracticeUtil.planAtsStageReconciliation(ofCtx.app.ats_stage || '', 'offer');
+    if (ofTarget) await atsUpdateApplicationStageRow(ofAppId, ofTarget, undefined, 'offer_sent');
+    if (ofCtx.userId) {
+      await notifyGpOfferSent(ofCtx.userId, ofAppId, ofJobTitle, ofPracticeName)
+        .catch(function (e) { console.error('[ats offer] notify failed for app', ofAppId, ':', e && e.message); });
+    }
+    sendJson(res, 200, { ok: true, offer: ofSaved, contract_delivered: ofContractDelivered });
+    return;
+  }
+
+  if (pathname === '/api/ats/offer' && req.method === 'GET') {
+    var ctxOG = requireAtsSession(req, res); if (!ctxOG) return;
+    var ogAppId = url.searchParams.get('application_id');
+    if (!ogAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ogOffer = await atsOffersStore.getAtsOfferByApplication(ogAppId);
+    sendJson(res, 200, { ok: true, offer: ogOffer || null });
+    return;
+  }
+
+  // Withdraw quietly retracts the offer: status → withdrawn, kanban back to
+  // 'reviewing' (only when the card actually sits in the offer lane), and NO
+  // GP notification — the consultant is retracting, not announcing.
+  if (pathname === '/api/ats/offer' && req.method === 'PATCH') {
+    var ctxOW = requireAtsSession(req, res); if (!ctxOW) return;
+    var bodyOW; try { bodyOW = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var owAppId = (bodyOW && bodyOW.application_id != null) ? String(bodyOW.application_id) : '';
+    if (!owAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    if (String(bodyOW.action || '') !== 'withdraw') { sendJson(res, 400, { ok: false, message: 'Unsupported action.' }); return; }
+    var owOffer = await atsOffersStore.getAtsOfferByApplication(owAppId);
+    if (!owOffer) { sendJson(res, 404, { ok: false, message: 'No offer found for this application.' }); return; }
+    if (owOffer.status === 'accepted') {
+      sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — talk to the doctor before changing anything.' });
+      return;
+    }
+    var owUpdated = await atsOffersStore.updateAtsOfferStatus(owAppId, 'withdrawn');
+    var owCtx = await atsGetApplicationContext(owAppId);
+    if (owCtx && (owCtx.app.ats_stage || '') === 'offer') {
+      await atsUpdateApplicationStageRow(owAppId, 'reviewing', undefined, 'offer_withdrawn');
+    }
+    sendJson(res, 200, { ok: true, offer: owUpdated || Object.assign({}, owOffer, { status: 'withdrawn' }) });
     return;
   }
 
