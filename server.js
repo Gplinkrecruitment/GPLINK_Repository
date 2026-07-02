@@ -10840,6 +10840,33 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
       }
     }
 
+    // ── Option A: an AHPRA "provide documents / further information" notice (request_from_gp) is
+    // AI-split into the editable Who/How review tray (s80 pending_review, renderS80Tray) — NOT a
+    // single lumped correspondence card. The RSO edits Who (GP/Team) + How (upload/request/team) per
+    // box, removes any, then "Release to GP & team". The other 5 response types keep their card below.
+    // extractAhpraActionItems now runs on the fast model, so this is safe to do synchronously at
+    // inbound. _createAhpraS80Bundle's fail-loud path always leaves at least one tray entry, so a
+    // notice is never lost; we only fall through to a card if the bundle genuinely created nothing.
+    if (!suppressedByConflictLetter && triage.response_type === 'request_from_gp') {
+      try {
+        var _s80Country = await _resolveGpCountry(matchedGp.user_id);
+        var _s80Officer = (triage.officer_name || triage.officer_email || emailMeta.sender)
+          ? { name: triage.officer_name || '', email: triage.officer_email || emailMeta.sender || '' } : null;
+        var _s80Extraction = await extractAhpraActionItems(emailMeta, { officer: _s80Officer, country: _s80Country });
+        var _s80Bundle = await _createAhpraS80Bundle({ id: caseId, user_id: matchedGp.user_id }, emailMeta, sourceMsgId, _s80Extraction,
+          { sourceTrigger: 'ahpra_officer_email', officer: _s80Officer, country: _s80Country });
+        if (_s80Bundle && (_s80Bundle.created > 0 || _s80Bundle.skipped)) {
+          console.log('[AHPRA Email] request_from_gp -> s80 Who/How review tray:', JSON.stringify(_s80Bundle));
+          await _logCaseEvent(caseId, null, 'system', 'AHPRA email received — documents requested',
+            triage.summary, 'ahpra_email_pipeline', { officer_email: triage.officer_email || emailMeta.sender });
+          return; // tray created — do NOT also create the lumped ahpra_correspondence card
+        }
+        console.warn('[AHPRA Email] request_from_gp s80 bundle created nothing — falling back to a correspondence card');
+      } catch (_s80Err) {
+        console.error('[AHPRA Email] request_from_gp s80-tray creation failed, falling back to a correspondence card:', _s80Err.message);
+      }
+    }
+
     var taskTitle = '';
     var taskDetail = '';
     var taskMeta = {
