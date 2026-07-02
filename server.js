@@ -17262,7 +17262,7 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
   // Fetch all applications that have a zoho_application_id
   const appsResult = await supabaseDbRequest(
     'gp_applications',
-    'select=id,user_id,career_role_id,provider_role_id,status,zoho_application_id,zoho_candidate_id,zoho_client_id,practice_contact_name,practice_contact_email&zoho_application_id=not.is.null&limit=500'
+    'select=id,user_id,career_role_id,provider_role_id,status,practice_submission_status,ats_stage,zoho_application_id,zoho_candidate_id,zoho_client_id,practice_contact_name,practice_contact_email&zoho_application_id=not.is.null&limit=500'
   );
   const localApps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
   if (!localApps.length) return 0;
@@ -17419,6 +17419,16 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
         headers: { Prefer: 'return=minimal' },
         body: patch
       });
+
+      // Pull the CEO kanban stage forward to match the new Zoho status.
+      // Forward-only (never regresses a manually advanced card); writes its own
+      // ats_stage_events audit row + GP milestone notification.
+      try {
+        const reconciledStage = await reconcileAtsStageAfterStatusSync(app, liveStatus, 'zoho_sync');
+        if (reconciledStage) app.ats_stage = reconciledStage;
+      } catch (stageErr) {
+        console.error('[ZohoRecruit sync] ats_stage reconcile failed for app', app.id, ':', stageErr && stageErr.message);
+      }
 
       // Mark the career role as filled when an application is hired
       if (nowSecured && !wasSecured && app.career_role_id) {
@@ -24089,7 +24099,7 @@ async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
     if (a) { prevStage = a.ats_stage || ''; Object.assign(a, patch); updated = a; }
   }
   if (updated) await atsRecordStageEvent(appId, prevStage, stage, actor);
-  return updated;
+  return updated ? { row: updated, prevStage: prevStage } : null;
 }
 async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
   var ev = { application_id: appId, from_stage: fromStage || '', to_stage: toStage || '', actor: actor || '', created_at: atsNowIso() };
@@ -24100,6 +24110,112 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
     dbState.atsStageAudit.push(Object.assign({ id: atsLocalId('aud_') }, ev));
     saveDbState();
   }
+}
+
+// ---- GP-facing stage notifications (Task 5) --------------------------------
+
+// Stage moves that matter to the GP. Everything else is internal shuffling.
+var ATS_GP_NOTIFY_STAGES = ['interview', 'offer', 'hired', 'not_proceeding'];
+
+// Tell the GP their application reached a milestone stage: in-app update +
+// push + branded email. Every leg is best-effort (individually caught), and
+// call sites fire-and-forget with a .catch log.
+//
+// Dedupe invariant: this is ONLY called on a real stage CHANGE
+// (fromStage !== toStage). The Zoho reconciliation below is forward-only, so a
+// repeated sync re-derives the same stage, writes nothing, and never calls
+// this again — each real transition notifies the GP exactly once.
+async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
+  var row = appRow || {};
+  var userId = row.user_id ? String(row.user_id) : '';
+  if (!userId) return; // board-only/legacy cards without a real user
+  if (!toStage || fromStage === toStage) return;
+  if (ATS_GP_NOTIFY_STAGES.indexOf(toStage) === -1) return;
+
+  // Best-effort labels: prod gp_applications has no job_title/practice_name
+  // columns, so look the role up; local-mode rows may carry them directly.
+  var jobLabel = String(row.job_title || '').trim();
+  var practiceLabel = String(row.practice_name || '').trim();
+  if ((!jobLabel || !practiceLabel) && row.career_role_id) {
+    try {
+      var notifyRole = await getCareerRoleRowById(row.career_role_id);
+      if (notifyRole) {
+        if (!jobLabel) jobLabel = String(notifyRole.title || '').trim();
+        if (!practiceLabel) practiceLabel = String(notifyRole.practice_name || '').trim();
+      }
+    } catch (e) { /* labels are optional */ }
+  }
+  var roleLabel = jobLabel && practiceLabel ? (jobLabel + ' at ' + practiceLabel)
+    : (jobLabel || (practiceLabel ? 'the role at ' + practiceLabel : 'the role'));
+
+  var copy;
+  if (toStage === 'interview') {
+    copy = {
+      type: 'success',
+      subject: 'Interview stage — GP Link',
+      title: 'You\'re through to interview!',
+      body: 'Great news — your application for ' + roleLabel + ' has moved to the interview stage. We\'ll be in touch shortly to arrange a time.'
+    };
+  } else if (toStage === 'offer') {
+    copy = {
+      type: 'success',
+      subject: 'You have an offer — GP Link',
+      title: 'You have an offer!',
+      body: 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you ' + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role') + '. Open the app to review the details.'
+    };
+  } else if (toStage === 'hired') {
+    copy = {
+      type: 'success',
+      subject: 'Congratulations — you\'re hired! — GP Link',
+      title: 'Congratulations!',
+      body: 'You\'ve been hired for ' + roleLabel + '. We\'re thrilled for you — we\'ll guide you through everything that happens next.'
+    };
+  } else {
+    copy = {
+      type: 'info',
+      subject: 'An update on your application — GP Link',
+      title: 'An update on your application',
+      body: 'This one didn\'t work out — we\'re already looking at other options for you. Your application for ' + roleLabel + ' won\'t be moving forward, but new roles come up all the time and we\'ll keep you posted.'
+    };
+  }
+
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: copy.type, title: copy.title, body: copy.body })
+      .catch(function (e) { console.error('[ats-notify] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: copy.title,
+      body: copy.body,
+      data: { type: 'career', action: 'ats_stage_' + toStage, url: '/pages/career.html#applications' }
+    }).catch(function (e) { console.error('[ats-notify] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId, copy.subject, copy.title, copy.body, 'View Your Applications', APP_BASE_URL + '/pages/career.html#applications', '')
+      .catch(function (e) { console.error('[ats-notify] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
+// Zoho → kanban reconciliation (Task 5). After a Zoho status lands on a
+// gp_applications row, pull the CEO kanban stage forward to match.
+// Forward-only via planAtsStageReconciliation: a manually advanced card is
+// never pulled backwards and terminal lanes never move automatically.
+// atsUpdateApplicationStageRow writes the ats_stage_events audit row itself —
+// no separate audit write here. Returns the new stage, or null when unchanged.
+async function reconcileAtsStageAfterStatusSync(app, liveStatus, actor) {
+  var row = app || {};
+  var storedStage = row.ats_stage || '';
+  // Evidence of a booked interview without an extra query: the interview-book
+  // flow already advances ats_stage to 'interview', so a stored stage at
+  // interview-or-later is the marker.
+  var hasInterview = storedStage === 'interview' || storedStage === 'offer' || storedStage === 'hired';
+  var derived = atsPracticeUtil.deriveAtsStage({ status: liveStatus, practice_submission_status: row.practice_submission_status }, hasInterview);
+  var target = atsPracticeUtil.planAtsStageReconciliation(storedStage, derived);
+  if (!target) return null;
+  var updated = await atsUpdateApplicationStageRow(row.id, target, undefined, actor || 'zoho_sync');
+  if (!updated || !updated.row) return null;
+  // storedStage !== target is guaranteed by planAtsStageReconciliation, so this
+  // fires exactly once per real transition (see the notifier's dedupe note).
+  notifyGpOfAtsStageChange(updated.row, storedStage, target).catch(function (e) {
+    console.error('[ZohoRecruit sync] ATS stage notify failed for app', row.id, ':', e && e.message);
+  });
+  return target;
 }
 
 // ---- Interview request helpers (Task 4) ------------------------------------
@@ -26948,6 +27064,56 @@ async function handleApi(req, res, pathname) {
       source,
       listings
     });
+    return;
+  }
+
+  // GP accepts their offer (offer-review.html Accept Offer button). Advances
+  // the application's kanban stage to 'hired' (forward-only, never backwards).
+  // Deliberately NO notifyGpOfAtsStageChange here: the page shows its own
+  // celebration/confirmation state the moment the GP clicks Accept, so a
+  // "congratulations" email about their own click would be a duplicate.
+  if (pathname === '/api/career/offer/accept' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const acceptEmail = getSessionEmail(session);
+    if (!acceptEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const acceptUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(acceptEmail);
+    if (!acceptUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let acceptBody = {};
+    try { acceptBody = await readJsonBody(req) || {}; } catch { acceptBody = {}; }
+    const requestedAppId = acceptBody.applicationId != null ? String(acceptBody.applicationId).trim() : '';
+
+    // The GP's applications (dual-mode).
+    let acceptApps = [];
+    if (isSupabaseDbConfigured()) {
+      const acceptAppsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(acceptUserId) + '&limit=200');
+      acceptApps = acceptAppsRes.ok && Array.isArray(acceptAppsRes.data) ? acceptAppsRes.data : [];
+    } else {
+      acceptApps = (dbState.atsApplications || []).filter((a) => String(a.user_id) === String(acceptUserId));
+    }
+
+    let acceptTargetApp = null;
+    if (requestedAppId) {
+      acceptTargetApp = acceptApps.find((a) => String(a.id) === requestedAppId) || null;
+    } else {
+      // The application whose offer is on the table: prefer the kanban 'offer'
+      // lane, else a Zoho status that derives to 'offer'; most recent first.
+      const offerApps = acceptApps.filter((a) => (a.ats_stage || '') === 'offer' || atsPracticeUtil.deriveAtsStage(a, false) === 'offer');
+      offerApps.sort((a, b) => String(b.updated_at || b.applied_at || '').localeCompare(String(a.updated_at || a.applied_at || '')));
+      acceptTargetApp = offerApps[0] || null;
+    }
+    if (!acceptTargetApp) { sendJson(res, 404, { ok: false, message: 'No offer-stage application found to accept.' }); return; }
+
+    const acceptStoredStage = acceptTargetApp.ats_stage || '';
+    // Reuse the forward-only rule: already 'hired' (or terminal) → quiet no-op.
+    const acceptNextStage = atsPracticeUtil.planAtsStageReconciliation(acceptStoredStage, 'hired');
+    if (!acceptNextStage) {
+      sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: acceptStoredStage || 'hired', advanced: false });
+      return;
+    }
+    const acceptUpdated = await atsUpdateApplicationStageRow(acceptTargetApp.id, 'hired', undefined, 'gp_accept_offer');
+    if (!acceptUpdated || !acceptUpdated.row) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+    sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: 'hired', advanced: true });
     return;
   }
 
@@ -45340,10 +45506,18 @@ Return ONLY valid JSON with no markdown formatting:
     var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
     if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
     if (!newStage && typeof bodyAP.notes !== 'string') { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
-    var updatedAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    var updatedAP = upAP ? upAP.row : null;
     if (!updatedAP && newStage) {
       // stage required but row missing
       sendJson(res, 404, { ok: false, message: 'Application not found.' }); return;
+    }
+    // Milestone stages ping the GP — only on a REAL change (fromStage !== toStage;
+    // see notifyGpOfAtsStageChange's dedupe invariant). Fire-and-forget.
+    if (updatedAP && newStage && upAP.prevStage !== newStage) {
+      notifyGpOfAtsStageChange(updatedAP, upAP.prevStage, newStage).catch(function (e) {
+        console.error('[ats] stage notify failed for app', apId, ':', e && e.message);
+      });
     }
     sendJson(res, 200, { ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null });
     return;
@@ -45620,7 +45794,10 @@ Return ONLY valid JSON with no markdown formatting:
       saveDbState();
     }
 
-    // Move application stage to 'interview'.
+    // Move application stage to 'interview'. Deliberately NO
+    // notifyGpOfAtsStageChange here: the block right below already emails the
+    // GP their interview confirmation (with the Zoom link), so a second
+    // "you're through to interview" ping would be a duplicate.
     await atsUpdateApplicationStageRow(bkAppId, 'interview', '', ctxBK.email || '');
 
     // Notify GP + practice — best-effort, must not throw past the response.
@@ -46559,6 +46736,8 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
+  reconcileAtsStageAfterStatusSync,
+  notifyGpOfAtsStageChange,
   buildRsoWritePayload,
   ahpraConfidentMatch,
   isAhpraSender,

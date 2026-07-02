@@ -870,6 +870,16 @@
       document.getElementById('pageRoot').classList.add('accepted');
       localStorage.setItem(acceptKey, '1');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Tell the server so the hiring pipeline moves to Hired (best-effort —
+      // the accepted state above is already shown either way).
+      try {
+        fetch('/api/career/offer/accept', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applicationId: applicationId || '' })
+        }).catch(function () { /* non-blocking */ });
+      } catch (err) { /* non-blocking */ }
     }
   });
 
