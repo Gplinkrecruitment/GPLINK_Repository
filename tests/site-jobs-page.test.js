@@ -111,6 +111,88 @@ describe('GET /jobs (Task 8 job board page)', () => {
   });
 });
 
+// Coverage for Task 17: the filtered-search "top match + locked teasers"
+// conversion flow. This is client-side behavior that only activates when
+// the visitor's URL has q/state/type params — an HTTP-only harness that
+// requests /jobs with no query string can't exercise that branch (the
+// server always returns the same static HTML/JS regardless of query
+// params; filters are read from window.location.search in the browser).
+// So this suite only asserts what's statically true of the shipped page
+// source: the new DOM-building helpers, copy strings and CSS markers
+// exist, the old unfiltered-mode code paths are untouched, and no numeric
+// hidden-roles claim is printed anywhere on the page.
+describe('GET /jobs — filtered-search conversion flow (Task 17, static source coverage)', () => {
+  it('defines a locked teaser-card builder that is aria-hidden/presentation and not a link', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('skeleton-teaser');
+    expect(res.raw).toMatch(/function buildTeaserCard/);
+    expect(res.raw).toContain('d.setAttribute("aria-hidden", "true")');
+    expect(res.raw).toContain('d.setAttribute("role", "presentation")');
+    // the teaser card is a <div>, never an <a href>
+    expect(res.raw).toMatch(/var d = document\.createElement\("div"\);\s*\n\s*d\.className = "job-card skeleton-teaser";/);
+  });
+
+  it('labels the single real match with a "Top match" badge', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function buildTopMatchCard/);
+    expect(res.raw).toContain('badge.textContent = "Top match"');
+  });
+
+  it('renders the "unlock the rest" CTA panel with the exact required copy', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('Your other matches are waiting in the app');
+    expect(res.raw).toContain(
+      'Create a free account and we&rsquo;ll match you to the roles that fit your visa, skills and the life '
+    );
+    expect(res.raw).toContain('you want &mdash; most doctors see their personalised matches within minutes.');
+    expect(res.raw).toContain('Free forever for doctors &middot; takes 2 minutes');
+    expect(res.raw).toMatch(/filtered-cta-panel/);
+  });
+
+  it('the filtered results-count header replaces the numeric count with the unlock message', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('Top match shown — create a free account to unlock the rest');
+  });
+
+  it('never prints a specific numeric claim about hidden/matching roles', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).not.toContain('100+');
+  });
+
+  it('the filtered "Load more" flow appends more teasers then swaps to a signup CTA after 2 uses (no extra API calls)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function renderFilteredLoadMore/);
+    expect(res.raw).toContain('appendTeaserBatch(TEASER_BATCH);');
+    expect(res.raw).toContain('filteredLoadMoreCount++;');
+    expect(res.raw).toContain('filteredLoadMoreCount >= FILTERED_LOAD_MORE_MAX');
+    expect(res.raw).toContain('cta.textContent = "Create my free account";');
+    expect(res.raw).toContain('cta.href = "/pages/signin?signup=1";');
+  });
+
+  it('gates the whole flow on hasFilters, and unfiltered mode still calls the original loadPage(0)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/if \(hasFilters\) \{\s*\n\s*initFilteredResults\(\);\s*\n\s*\} else \{\s*\n\s*loadPage\(0\);\s*\n\s*\}/);
+  });
+
+  it('zero real matches keeps the existing empty state (no fabricated top match)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/var job = data\.jobs\[0\] \|\| null;\s*\n\s*if \(!job\) \{/);
+    expect(res.raw).toContain('renderEmpty();');
+  });
+
+  it('respects prefers-reduced-motion for the teaser shimmer (static grey cards)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/@media \(prefers-reduced-motion: reduce\)\{[\s\S]*?\.job-card\.skeleton,\.job-card\.skeleton-teaser\{animation:none;\}/);
+  });
+
+  it('unfiltered-mode markers (real pagination, interstitials, real count) are still present unchanged', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function renderPagination/);
+    expect(res.raw).toMatch(/function buildSignupInterstitial/);
+    expect(res.raw).toContain('label + " match your filters" : label + " available right now"');
+  });
+});
+
 describe('GET /jobs/view (Task 9 job detail page)', () => {
   it('is 200 text/html containing the data-job-detail marker', async () => {
     const res = await get('/jobs/view?id=anything');

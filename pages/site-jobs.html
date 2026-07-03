@@ -73,6 +73,25 @@
     animation:jc-shimmer 1.5s ease-in-out infinite;}
   @keyframes jc-shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
 
+  /* ---------- filtered-search "top match + locked teasers" conversion flow ---------- */
+  .jc-badge-top{align-self:flex-start;background:var(--teal-soft);color:var(--teal);font-size:11px;
+    font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;}
+
+  .job-card.skeleton-teaser{min-height:198px;border-color:var(--line);pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(100deg,#eef4fa 20%,#f7fafd 40%,#eef4fa 60%);background-size:200% 100%;
+    animation:jc-shimmer 1.5s ease-in-out infinite;}
+  .job-card.skeleton-teaser .teaser-lock{color:var(--mut);opacity:.5;}
+
+  .filtered-cta-panel{grid-column:1/-1;padding:0;border:0;}
+  .fcp-inner{background:linear-gradient(120deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);color:#fff;
+    border-radius:var(--r);padding:clamp(30px,4.5vw,44px) clamp(24px,4vw,36px);text-align:center;
+    display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .fcp-inner h4{margin:0;font-size:clamp(20px,2.4vw,26px);font-weight:730;letter-spacing:-.01em;}
+  .fcp-inner p{margin:0;font-size:14.5px;line-height:1.55;color:#d6e7ff;max-width:56ch;}
+  .fcp-inner .btn{margin-top:2px;}
+  .fcp-subtext{font-size:12.5px;color:#b9d6ff;}
+
   .job-card.signup-interstitial{grid-column:1/-1;padding:0;border:0;cursor:default;}
   .job-card.signup-interstitial:hover{transform:none;box-shadow:none;}
   .si-inner{background:linear-gradient(120deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);color:#fff;
@@ -94,7 +113,7 @@
   .pagination-showing{font-size:13.5px;color:var(--mut-2);}
 
   @media (prefers-reduced-motion: reduce){
-    .job-card.skeleton{animation:none;}
+    .job-card.skeleton,.job-card.skeleton-teaser{animation:none;}
   }
 </style>
 </head>
@@ -179,6 +198,12 @@
 
   var PAGE_SIZE = 24;
   var SKELETON_COUNT = 6;
+  var TEASER_BATCH = 24;
+  var TEASER_CTA_AFTER = 4;
+  var FILTERED_LOAD_MORE_MAX = 2;
+  var LOCK_ICON_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 
   var form = document.getElementById("jobSearch");
   var grid = document.getElementById("jobsGrid");
@@ -241,12 +266,12 @@
   var total = 0;
   var isLoadingMore = false;
 
-  function buildApiUrl(offset) {
+  function buildApiUrl(offset, limit) {
     var params = new URLSearchParams();
     if (filters.q) params.set("q", filters.q);
     if (filters.state) params.set("state", filters.state);
     if (filters.type) params.set("type", filters.type);
-    params.set("limit", String(PAGE_SIZE));
+    params.set("limit", String(limit || PAGE_SIZE));
     params.set("offset", String(offset));
     return "/api/public/jobs?" + params.toString();
   }
@@ -297,6 +322,52 @@
       '<a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>';
     wrap.appendChild(inner);
     return wrap;
+  }
+
+  function buildTopMatchCard(job) {
+    var card = buildJobCard(job);
+    var badge = document.createElement("span");
+    badge.className = "jc-badge-top";
+    badge.textContent = "Top match";
+    card.insertBefore(badge, card.firstChild);
+    return card;
+  }
+
+  function buildTeaserCard() {
+    var d = document.createElement("div");
+    d.className = "job-card skeleton-teaser";
+    d.setAttribute("aria-hidden", "true");
+    d.setAttribute("role", "presentation");
+    var lock = document.createElement("span");
+    lock.className = "teaser-lock";
+    lock.innerHTML = LOCK_ICON_SVG;
+    d.appendChild(lock);
+    return d;
+  }
+
+  function buildFilteredCtaPanel() {
+    var wrap = document.createElement("div");
+    wrap.className = "job-card filtered-cta-panel";
+    var inner = document.createElement("div");
+    inner.className = "fcp-inner";
+    inner.innerHTML =
+      "<h4>Your other matches are waiting in the app</h4>" +
+      "<p>Create a free account and we&rsquo;ll match you to the roles that fit your visa, skills and the life " +
+      "you want &mdash; most doctors see their personalised matches within minutes.</p>" +
+      '<a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>' +
+      '<div class="fcp-subtext">Free forever for doctors &middot; takes 2 minutes</div>';
+    wrap.appendChild(inner);
+    return wrap;
+  }
+
+  // Appends `count` locked teaser cards to the grid. When `ctaAfter` is a
+  // number, the CTA panel is inserted into the grid right before that many
+  // teaser cards have been appended (used for the first batch only).
+  function appendTeaserBatch(count, ctaAfter) {
+    for (var i = 0; i < count; i++) {
+      if (ctaAfter != null && i === ctaAfter) grid.appendChild(buildFilteredCtaPanel());
+      grid.appendChild(buildTeaserCard());
+    }
   }
 
   function renderSkeletons() {
@@ -410,7 +481,77 @@
     });
   }
 
-  loadPage(0);
+  // ---------- filtered-search conversion flow ----------
+  // When the visitor has active filters (q/state/type in the URL — they
+  // searched), only the first real matching job is shown as a clickable
+  // card. Everything else is a locked visual teaser plus a signup CTA —
+  // the "unlock the rest" pattern lives entirely client-side and never
+  // fabricates job data or a hidden-roles count.
+  var filteredLoadMoreCount = 0;
+
+  function renderFilteredLoadMore() {
+    paginationEl.innerHTML = "";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn primary";
+    btn.textContent = "Load more roles";
+    btn.addEventListener("click", function () {
+      appendTeaserBatch(TEASER_BATCH);
+      filteredLoadMoreCount++;
+      if (filteredLoadMoreCount >= FILTERED_LOAD_MORE_MAX) {
+        var cta = document.createElement("a");
+        cta.className = "btn primary";
+        cta.href = "/pages/signin?signup=1";
+        cta.textContent = "Create my free account";
+        paginationEl.innerHTML = "";
+        paginationEl.appendChild(cta);
+      }
+    });
+    paginationEl.appendChild(btn);
+  }
+
+  function renderFilteredMatch(job) {
+    if (resultsCountEl) resultsCountEl.textContent = "Top match shown — create a free account to unlock the rest";
+    grid.innerHTML = "";
+    grid.appendChild(buildTopMatchCard(job));
+    appendTeaserBatch(TEASER_BATCH, TEASER_CTA_AFTER);
+    filteredLoadMoreCount = 0;
+    renderFilteredLoadMore();
+  }
+
+  function initFilteredResults() {
+    renderSkeletons();
+    if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
+    paginationEl.innerHTML = "";
+
+    fetch(buildApiUrl(0, 1)).then(function (res) {
+      if (!res.ok) throw new Error("bad status");
+      return res.json();
+    }).then(function (data) {
+      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
+
+      var job = data.jobs[0] || null;
+      if (!job) {
+        total = Number(data.total) || 0;
+        jobs = [];
+        updateResultsCount();
+        renderEmpty();
+        paginationEl.innerHTML = "";
+        return;
+      }
+      renderFilteredMatch(job);
+    }).catch(function () {
+      if (resultsCountEl) resultsCountEl.textContent = "Could not load roles";
+      renderError(function () { initFilteredResults(); });
+      paginationEl.innerHTML = "";
+    });
+  }
+
+  if (hasFilters) {
+    initFilteredResults();
+  } else {
+    loadPage(0);
+  }
 })();
 </script>
 </body>
