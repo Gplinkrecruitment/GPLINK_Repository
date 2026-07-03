@@ -2,9 +2,397 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GP Link</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GP Job Details | GP Link</title>
+<meta name="description" content="View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<link rel="canonical" href="https://www.mygplink.com.au/jobs/view">
+<meta property="og:title" content="GP Job Details | GP Link">
+<meta property="og:description" content="View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mygplink.com.au/jobs/view">
+<link rel="stylesheet" href="/css/site.css?v=20260703">
+<style>
+  /* ---------- breadcrumb ---------- */
+  .job-breadcrumb-bar{background:var(--card);border-bottom:1px solid var(--line);padding:16px 0;}
+  .job-breadcrumb-bar a{font-size:13.5px;font-weight:650;color:var(--teal);text-decoration:none;}
+  .job-breadcrumb-bar a:hover{text-decoration:underline;}
+
+  /* ---------- layout ---------- */
+  .job-detail-block{padding:clamp(28px,5vw,48px) 0 clamp(60px,8vw,96px);}
+  .job-detail-layout{display:grid;grid-template-columns:1fr 320px;gap:36px;align-items:start;}
+  @media(max-width:860px){.job-detail-layout{grid-template-columns:1fr;}}
+
+  .job-sidebar{position:sticky;top:20px;}
+  @media(max-width:860px){.job-sidebar{position:static;}}
+
+  /* ---------- skeleton ---------- */
+  .job-skeleton{display:grid;gap:14px;}
+  .job-skeleton .sk-line{border-radius:8px;height:18px;
+    background:linear-gradient(100deg,#eef4fa 20%,#f7fafd 40%,#eef4fa 60%);background-size:200% 100%;
+    animation:job-sk-shimmer 1.5s ease-in-out infinite;}
+  .job-skeleton .sk-line.title{height:34px;width:70%;}
+  .job-skeleton .sk-line.meta{width:40%;}
+  .job-skeleton .sk-line.chip{height:26px;width:110px;display:inline-block;margin-right:8px;border-radius:999px;}
+  .job-skeleton .sk-line.body{width:100%;}
+  @keyframes job-sk-shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+  @media(prefers-reduced-motion:reduce){.job-skeleton .sk-line{animation:none;}}
+
+  /* ---------- job content ---------- */
+  .job-content h1{font-size:clamp(26px,3.4vw,38px);line-height:1.1;letter-spacing:-.02em;font-weight:730;
+    color:var(--ink-2);margin:0 0 10px;}
+  .job-meta-line{font-size:15px;color:var(--mut);margin:0 0 18px;}
+  .job-meta-line .practice{font-weight:650;color:var(--ink-2);}
+  .job-meta-line .sep{opacity:.6;margin:0 .5em;}
+
+  .job-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px;}
+  .job-chips .chip{background:#f0f5fa;border:1px solid var(--line);color:var(--mut);font-size:12.5px;font-weight:650;
+    padding:5px 12px;border-radius:999px;}
+  .job-chips .chip.dpa{background:#e8f7ee;border-color:#c5ecd4;color:#0e7a45;}
+  .job-chips .chip.state{background:var(--teal-soft);border-color:transparent;color:var(--teal);font-weight:700;}
+
+  .job-earnings{display:flex;align-items:center;gap:10px;background:linear-gradient(120deg,var(--teal-soft),#eaf9fb);
+    border:1px solid #cfe6f5;border-radius:14px;padding:16px 20px;margin-bottom:26px;}
+  .job-earnings .je-label{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut-2);}
+  .job-earnings .je-value{font-size:19px;font-weight:760;color:var(--teal);letter-spacing:-.01em;}
+
+  .job-summary{font-size:15.5px;line-height:1.7;color:var(--ink);margin-bottom:32px;}
+  .job-summary p{margin:0 0 1em;}
+  .job-summary p:last-child{margin-bottom:0;}
+
+  .job-handles{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
+  .job-handles h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
+  .job-handles ul{margin:0;padding:0;list-style:none;display:grid;gap:12px;}
+  .job-handles li{display:flex;gap:12px;font-size:14px;color:var(--mut);line-height:1.5;}
+  .job-handles li .jh-dot{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--teal-soft);
+    color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-top:1px;}
+  .job-handles li b{color:var(--ink-2);}
+
+  .job-related h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
+  .job-related-grid{display:grid;grid-template-columns:1fr;gap:14px;}
+  .job-related-card{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;text-decoration:none;color:inherit;transition:transform .2s ease, border-color .2s ease;}
+  .job-related-card:hover{transform:translateY(-3px);border-color:var(--teal);}
+  .job-related-card:focus-visible{outline:2px solid var(--teal);outline-offset:2px;}
+  .jrc-title{font-size:15px;font-weight:700;color:var(--ink-2);margin-bottom:3px;}
+  .jrc-meta{font-size:12.5px;color:var(--mut-2);}
+
+  /* ---------- sidebar apply card ---------- */
+  .job-apply-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px;
+    box-shadow:0 20px 44px -30px rgba(13,58,79,.5);display:grid;gap:12px;}
+  .job-apply-card h3{margin:0;font-size:17px;font-weight:730;color:var(--ink-2);}
+  .job-apply-card .btn{width:100%;justify-content:center;text-align:center;}
+  .job-apply-sub{margin:0;font-size:12.5px;color:var(--mut-2);line-height:1.5;}
+  .job-apply-card .btn.ghost.dark{background:#fff;color:var(--teal);border:1px solid var(--line);box-shadow:none;}
+  .job-apply-card .btn.ghost.dark:hover{background:var(--teal-soft);}
+
+  /* ---------- not found / error ---------- */
+  .job-not-found{grid-column:1/-1;text-align:center;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--r);padding:clamp(40px,6vw,64px) 24px;}
+  .job-not-found h1{margin:0 0 8px;font-size:22px;font-weight:730;color:var(--ink-2);}
+  .job-not-found p{margin:0 0 20px;font-size:14.5px;color:var(--mut);}
+</style>
 </head>
 <body>
-<h1>site-job placeholder</h1>
+
+<header class="site-header" id="siteHeader">
+  <div class="nav-in container">
+    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
+    <nav class="nav-links">
+      <a href="/#help">How it works</a><a href="/jobs" aria-current="page">Jobs</a><a href="/the-app">The app</a>
+      <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="nav-signin" href="/pages/signin">Sign in</a>
+      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+  <nav class="site-mobile-menu" id="siteMobileMenu">
+    <a href="/#help">How it works</a><a href="/jobs" aria-current="page">Jobs</a><a href="/the-app">The app</a>
+    <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    <a class="nav-signin" href="/pages/signin">Sign in</a>
+    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+  </nav>
+</header>
+
+<div class="job-breadcrumb-bar">
+  <div class="container"><a id="breadcrumbBack" href="/jobs">&larr; All jobs</a></div>
+</div>
+
+<section class="job-detail-block">
+  <div class="container">
+    <div class="job-detail-layout" id="jobDetailRoot" data-job-detail>
+
+      <div class="job-main">
+        <div class="job-skeleton" id="jobSkeleton">
+          <div class="sk-line title"></div>
+          <div class="sk-line meta"></div>
+          <div><span class="sk-line chip"></span><span class="sk-line chip"></span><span class="sk-line chip"></span></div>
+          <div class="sk-line body"></div>
+          <div class="sk-line body"></div>
+          <div class="sk-line body"></div>
+        </div>
+
+        <div class="job-content" id="jobContent" hidden>
+          <h1 id="jobTitle"></h1>
+          <p class="job-meta-line" id="jobMeta"></p>
+          <div class="job-chips" id="jobChips"></div>
+          <div class="job-earnings" id="jobEarnings" hidden>
+            <span class="je-label">Earnings</span>
+            <span class="je-value" id="jobEarningsValue"></span>
+          </div>
+          <div class="job-summary" id="jobSummary"></div>
+
+          <div class="job-handles">
+            <h2>What GP Link handles for you</h2>
+            <ul>
+              <li><span class="jh-dot">✓</span><span><b>Registration &amp; AHPRA paperwork</b> — we prepare and lodge it with you, so nothing gets missed.</span></li>
+              <li><span class="jh-dot">✓</span><span><b>Visa &amp; relocation</b> — we help you understand your visa options and support your move to Australia.</span></li>
+              <li><span class="jh-dot">✓</span><span><b>Contract &amp; onboarding support</b> — we help you review your contract and settle in at the practice.</span></li>
+            </ul>
+          </div>
+
+          <div class="job-related" id="jobRelated" hidden>
+            <h2>Other roles you might like</h2>
+            <div class="job-related-grid" id="jobRelatedGrid"></div>
+          </div>
+        </div>
+
+        <div class="job-not-found" id="jobNotFound" hidden>
+          <h1>This role is no longer available</h1>
+          <p>It may have been filled or taken down. Have a look at our other open roles instead.</p>
+          <a class="btn primary" href="/jobs">Browse all jobs</a>
+        </div>
+      </div>
+
+      <aside class="job-sidebar" id="jobSidebar">
+        <div class="job-apply-card">
+          <h3>Apply with a free account</h3>
+          <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Apply now <span class="arr">→</span></a>
+          <p class="job-apply-sub">Takes 2 minutes — then apply directly in the GP Link app.</p>
+          <a class="btn ghost dark" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Ask us about this role</a>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="foot-in container">
+    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
+      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
+    <div class="foot-col"><b>Doctors</b><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
+    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+  </div>
+  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
+</footer>
+<script src="/js/site.js?v=20260703"></script>
+<script>
+(function () {
+  "use strict";
+
+  // Task 3's /api/public/jobs endpoint has no server-side ?id= filter (checked
+  // server.js — buildPublicJobsResponse only supports q/state/type/limit/offset).
+  // So this page fetches pages of up to the API's max limit (100) and follows
+  // offset-based pagination client-side until the id is found, bounded at
+  // MAX_PAGES so a very large board can never turn into an unbounded fetch loop.
+  var PAGE_LIMIT = 100;
+  var MAX_PAGES = 5;
+
+  var skeletonEl = document.getElementById("jobSkeleton");
+  var contentEl = document.getElementById("jobContent");
+  var notFoundEl = document.getElementById("jobNotFound");
+  var sidebarEl = document.getElementById("jobSidebar");
+  var titleEl = document.getElementById("jobTitle");
+  var metaEl = document.getElementById("jobMeta");
+  var chipsEl = document.getElementById("jobChips");
+  var earningsWrap = document.getElementById("jobEarnings");
+  var earningsValueEl = document.getElementById("jobEarningsValue");
+  var summaryEl = document.getElementById("jobSummary");
+  var relatedWrap = document.getElementById("jobRelated");
+  var relatedGrid = document.getElementById("jobRelatedGrid");
+  var breadcrumbBack = document.getElementById("breadcrumbBack");
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch];
+    });
+  }
+
+  // Optional nicety: if we arrived from the job board on this same origin,
+  // send "All jobs" back to that exact filtered URL instead of a bare /jobs.
+  (function restoreBreadcrumb() {
+    try {
+      if (!document.referrer) return;
+      var ref = new URL(document.referrer);
+      if (ref.origin === window.location.origin && ref.pathname === "/jobs") {
+        breadcrumbBack.href = ref.pathname + ref.search;
+      }
+    } catch (e) { /* keep the plain /jobs default */ }
+  })();
+
+  function chipHtml(label, extraClass) {
+    return '<span class="chip' + (extraClass ? " " + extraClass : "") + '">' + escapeHtml(label) + "</span>";
+  }
+
+  function mmmChipLabel(mmm) {
+    var text = String(mmm || "").trim();
+    return /^mmm\b/i.test(text) ? text : ("MMM " + text);
+  }
+
+  function buildChips(job) {
+    var chips = [];
+    if (job.location_state) chips.push(chipHtml(job.location_state, "state"));
+    if (job.dpa) chips.push(chipHtml("DPA", "dpa"));
+    if (job.mmm) chips.push(chipHtml(mmmChipLabel(job.mmm)));
+    if (job.billing_model) chips.push(chipHtml(job.billing_model));
+    if (job.employment_type) chips.push(chipHtml(job.employment_type));
+    return chips.join("");
+  }
+
+  // Escape the raw summary FIRST (as one string), then split the already-safe
+  // string on blank lines — every character that reaches innerHTML has been
+  // through escapeHtml, since /api/public/jobs data is untrusted.
+  function renderSummaryHtml(summaryRaw) {
+    var escaped = escapeHtml(summaryRaw || "");
+    var paras = escaped.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+    if (!paras.length) return "";
+    return paras.map(function (p) { return "<p>" + p + "</p>"; }).join("");
+  }
+
+  function buildRelatedCard(job) {
+    var id = encodeURIComponent(job && job.id != null ? String(job.id) : "");
+    var a = document.createElement("a");
+    a.className = "job-related-card";
+    a.href = "/jobs/view?id=" + id;
+    a.innerHTML =
+      '<div class="jrc-title">' + escapeHtml(job.title || "GP role") + "</div>" +
+      '<div class="jrc-meta">' + escapeHtml(job.practice_name || "") +
+      (job.practice_name && job.location_label ? " &middot; " : "") +
+      escapeHtml(job.location_label || "") + "</div>";
+    return a;
+  }
+
+  function pickRelated(allJobs, current) {
+    var others = (allJobs || []).filter(function (j) {
+      return j && String(j.id) !== String(current.id);
+    });
+    var sameState = [];
+    var rest = [];
+    others.forEach(function (j) {
+      if (current.location_state && j.location_state === current.location_state) sameState.push(j);
+      else rest.push(j);
+    });
+    function byNewest(a, b) {
+      return new Date(b.published_at || 0).getTime() - new Date(a.published_at || 0).getTime();
+    }
+    sameState.sort(byNewest);
+    rest.sort(byNewest);
+    return sameState.concat(rest).slice(0, 3);
+  }
+
+  function renderJob(job, allJobs) {
+    document.title = (job.title || "GP role") + " — " + (job.location_label || "Australia") + " | GP Link";
+
+    titleEl.textContent = job.title || "GP role";
+
+    var metaParts = [];
+    if (job.practice_name) metaParts.push('<span class="practice">' + escapeHtml(job.practice_name) + "</span>");
+    if (job.location_label) metaParts.push(escapeHtml(job.location_label));
+    metaEl.innerHTML = metaParts.join('<span class="sep">&middot;</span>');
+
+    chipsEl.innerHTML = buildChips(job);
+
+    if (job.earnings_text) {
+      earningsValueEl.textContent = job.earnings_text;
+      earningsWrap.hidden = false;
+    } else {
+      earningsWrap.hidden = true;
+    }
+
+    var summaryHtml = renderSummaryHtml(job.summary);
+    summaryEl.innerHTML = summaryHtml;
+
+    var related = pickRelated(allJobs, job);
+    if (related.length) {
+      relatedGrid.innerHTML = "";
+      related.forEach(function (r) { relatedGrid.appendChild(buildRelatedCard(r)); });
+      relatedWrap.hidden = false;
+    } else {
+      relatedWrap.hidden = true;
+    }
+
+    skeletonEl.hidden = true;
+    notFoundEl.hidden = true;
+    contentEl.hidden = false;
+    sidebarEl.hidden = false;
+  }
+
+  function renderNotFound() {
+    skeletonEl.hidden = true;
+    contentEl.hidden = true;
+    sidebarEl.hidden = true;
+    notFoundEl.hidden = false;
+  }
+
+  function fetchPage(offset) {
+    var params = new URLSearchParams();
+    params.set("limit", String(PAGE_LIMIT));
+    params.set("offset", String(offset));
+    return fetch("/api/public/jobs?" + params.toString()).then(function (res) {
+      if (!res.ok) throw new Error("bad status");
+      return res.json();
+    }).then(function (data) {
+      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
+      return data;
+    });
+  }
+
+  function findJobById(targetId) {
+    var allJobs = [];
+    var offset = 0;
+    var page = 0;
+
+    function step() {
+      page += 1;
+      return fetchPage(offset).then(function (data) {
+        allJobs = allJobs.concat(data.jobs);
+        var match = allJobs.filter(function (j) { return j && String(j.id) === targetId; })[0] || null;
+        var total = Number(data.total) || 0;
+        offset += data.jobs.length;
+        var exhausted = data.jobs.length === 0 || offset >= total;
+
+        if (match || exhausted || page >= MAX_PAGES) {
+          return { match: match, allJobs: allJobs };
+        }
+        return step();
+      });
+    }
+
+    return step();
+  }
+
+  var idParam = new URLSearchParams(window.location.search).get("id");
+  var targetId = idParam ? String(idParam).trim() : "";
+
+  if (!targetId) {
+    renderNotFound();
+  } else {
+    findJobById(targetId).then(function (result) {
+      if (!result.match) {
+        renderNotFound();
+        return;
+      }
+      renderJob(result.match, result.allJobs);
+    }).catch(function () {
+      renderNotFound();
+    });
+  }
+})();
+</script>
 </body>
 </html>
