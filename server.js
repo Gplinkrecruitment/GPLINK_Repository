@@ -36611,6 +36611,11 @@ Return ONLY valid JSON with no markdown formatting:
     const orTask = (orRes.ok && Array.isArray(orRes.data) && orRes.data[0]) ? orRes.data[0] : null;
     if (!orTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
     var orMeta = (orTask.metadata && typeof orTask.metadata === 'object') ? orTask.metadata : {};
+    // Idempotency: never re-send to the regulator. A retry / second tab / direct re-POST after a
+    // successful send would otherwise email AHPRA a duplicate of the same document.
+    if (orTask.status === 'completed' || (orMeta.upload && orMeta.upload.status === 'approved')) {
+      sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This item was already sent to the AHPRA officer.' }); return;
+    }
     var orUp = orMeta.upload || null;
     if (!orUp || !orUp.storage_path) { sendJson(res, 400, { ok: false, message: 'No uploaded file to attach.' }); return; }
     // Attachment bytes. supabaseStorageDownloadObject returns { buffer, mimeType }; sendGmailEmail wants base64.
@@ -36622,11 +36627,20 @@ Return ONLY valid JSON with no markdown formatting:
     var orThreadId = orTask.gmail_thread_id || orMsg.gmail_thread_id || '';
     var orInReplyTo = orMsg.rfc822_message_id || '';
     var orReferences = orMsg.rfc822_references || orMsg.rfc822_message_id || '';
+    // Items delivered via the 6-card "Send to GP" path carry no thread of their own — thread the
+    // reply onto the SOURCE card's original officer email so it still lands in the AHPRA thread.
+    if ((!orThreadId || !orInReplyTo) && orMeta.source_card_task_id) {
+      var orCardMsgRes = await supabaseDbRequest('task_messages', 'select=rfc822_message_id,rfc822_references,gmail_thread_id&task_id=eq.' + encodeURIComponent(orMeta.source_card_task_id) + '&direction=eq.inbound&order=created_at.asc&limit=1');
+      var orCardMsg = (orCardMsgRes.ok && Array.isArray(orCardMsgRes.data) && orCardMsgRes.data[0]) ? orCardMsgRes.data[0] : {};
+      if (!orThreadId && orCardMsg.gmail_thread_id) orThreadId = orCardMsg.gmail_thread_id;
+      if (!orInReplyTo && orCardMsg.rfc822_message_id) { orInReplyTo = orCardMsg.rfc822_message_id; orReferences = orCardMsg.rfc822_references || orCardMsg.rfc822_message_id; }
+    }
     // From mailbox for this case (rep/hub mailbox), same resolver the SPPA send-to-candidate flow uses (returns {from, fromName}).
     var orSender = await resolveCaseSenderInfo(orTask.case_id);
+    var orSentSubject = orSubject || 'Re: Notice to provide further information under section 80(1)(b)';
     var sendResult = await sendGmailEmail({
       from: orSender.from, fromName: orSender.fromName, to: orTo, cc: orCc || undefined,
-      subject: orSubject || 'Re: Notice to provide further information under section 80(1)(b)',
+      subject: orSentSubject,
       bodyHtml: orBodyHtml, threadId: orThreadId || undefined, inReplyTo: orInReplyTo || undefined, references: orReferences || undefined,
       attachments: [{ filename: orUp.file_name || 'document', mimeType: orUp.mime_type || orDl.mimeType || 'application/octet-stream', content: orDl.buffer.toString('base64') }],
       caseId: orTask.case_id
@@ -36637,7 +36651,7 @@ Return ONLY valid JSON with no markdown formatting:
     orMeta.upload = orUp;
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(orTaskId), { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, metadata: orMeta, updated_at: new Date().toISOString() } });
     try {
-      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: orSender.from, recipient: orTo, cc: orCc || null, subject: orSubject, body_text: orBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), gmail_thread_id: sendResult.threadId || orThreadId || null, rfc822_message_id: sendResult.rfc822MessageId || null, created_at: new Date().toISOString() }] });
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: orSender.from, recipient: orTo, cc: orCc || null, subject: orSentSubject, body_text: orBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), gmail_thread_id: sendResult.threadId || orThreadId || null, rfc822_message_id: sendResult.rfc822MessageId || null, created_at: new Date().toISOString() }] });
     } catch (e) { /* non-critical */ }
     await _logCaseEvent(orTask.case_id, orTaskId, 'completed', 'AHPRA item sent to officer', (orUp.file_name || 'document') + ' emailed to ' + orTo, adminCtx.email);
     sendJson(res, 200, { ok: true, sent: true });
