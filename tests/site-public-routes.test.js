@@ -267,3 +267,62 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
     expect(res.raw).toContain('href="/employers"');
   });
 });
+
+// Task 12: dedicated app marketing page (pages/site-app.html), served at
+// GET /the-app. Expanded version of the homepage's app-push section — phone
+// mockup, feature grid, the 6 real product stages, 4-step flow, trust note
+// and a big "create free account" push. No auth-guard.js, no dead href="#".
+describe('marketing site app page (Task 12)', () => {
+  it('GET /the-app is 200, marked data-page="the-app", no auth-guard.js, no dead href="#" links', async () => {
+    const res = await get('/the-app');
+    expect(res.status).toBe(200);
+    expect(res.raw).toContain('data-page="the-app"');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET /the-app lists all 6 real product stages by name', async () => {
+    const res = await get('/the-app');
+    const stageNames = ['Secure Placement', 'MyIntealth', 'AMC', 'AHPRA', 'PBS', 'Commencement'];
+    for (const name of stageNames) {
+      expect(res.raw).toContain(name);
+    }
+  });
+
+  it('GET /the-app has the ported phone mockup and 4-step flow markup', async () => {
+    const res = await get('/the-app');
+    expect(res.raw).toContain('class="phone"');
+    expect(res.raw).toContain('class="screen"');
+    expect(res.raw).toContain('class="pbar"');
+    expect(res.raw).toContain('class="flow');
+  });
+
+  it('GET /the-app has the shared site chrome and SEO head tags', async () => {
+    const res = await get('/the-app');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('<title>The GP Link App — Track Your Move to Australia | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/the-app">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+    expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg"');
+  });
+
+  it('GET /the-app marks "The app" current in both navs', async () => {
+    const res = await get('/the-app');
+    const currentMatches = res.raw.match(/href="\/the-app" aria-current="page"/g) || [];
+    expect(currentMatches.length).toBe(2);
+  });
+
+  it('GET /the-app CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+    const res = await get('/the-app');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+    expect(res.raw).toContain('href="/jobs"');
+    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+  });
+
+  it('GET /the-app has no app-shell/nav-shell-bridge chrome (marketing pages are standalone)', async () => {
+    const res = await get('/the-app');
+    expect(res.raw).not.toMatch(/app-shell/);
+    expect(res.raw).not.toMatch(/nav-shell-bridge/);
+  });
+});
