@@ -105,11 +105,14 @@
         if (!entry.isIntersecting) return;
         cio.unobserve(entry.target);
         var el = entry.target;
-        var target = Number(el.getAttribute("data-count")) || 0;
         var dur = 1600;
         var t0 = null;
 
         function step(ts) {
+          // Re-read the target from the attribute on every frame so a
+          // mid-animation update (e.g. live stats arriving from the API)
+          // retargets smoothly instead of being stomped by a stale closure.
+          var target = Number(el.getAttribute("data-count")) || 0;
           if (!t0) t0 = ts;
           var p = Math.min((ts - t0) / dur, 1);
           p = 1 - Math.pow(1 - p, 3);

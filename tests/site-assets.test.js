@@ -71,4 +71,36 @@ describe('shared marketing-site chrome assets', () => {
     expect(res.raw).toContain('initJobSearch');
     expect(res.raw).toContain('bindEnquiryForm');
   });
+
+  // Regression guard for the count-up "stale closure" bug: the rAF step()
+  // function used to capture `target` once from the IntersectionObserver
+  // callback and never re-read it, so a later live-stats update to the
+  // data-count attribute (see pages/site-home.html applyCount()) was
+  // silently stomped by the still-running animation's final frame. This is
+  // a static source assertion, not a DOM/rAF simulation — it proves the fix
+  // (re-reading the attribute inside step()) is present in the shipped
+  // file, not that the animation renders correctly frame-by-frame.
+  it('count-up step() re-reads data-count from the element on every frame (no stale target closure)', async () => {
+    const res = await get('/js/site.js');
+    expect(res.status).toBe(200);
+
+    const stepMatch = res.raw.match(/function step\(ts\) \{[\s\S]*?\n\s*\}\n/);
+    expect(stepMatch, 'expected to find the count-up step() function body in js/site.js').toBeTruthy();
+    const stepBody = stepMatch[0];
+
+    // The target must be read from the live attribute inside step(), not
+    // from a variable declared outside/before step() (a stale closure).
+    expect(stepBody).toContain('el.getAttribute("data-count")');
+
+    // And it must NOT be declared once outside step() and reused - i.e.
+    // there should be no `var target =` assignment between the count-up
+    // IntersectionObserver callback and `function step`, which would mean
+    // step() is closing over a stale value instead of re-reading it.
+    const cioStart = res.raw.indexOf('var cio = new IntersectionObserver(function (entries) {');
+    const stepStart = res.raw.indexOf('function step(ts)');
+    expect(cioStart, 'expected to find the count-up IntersectionObserver callback in js/site.js').toBeGreaterThan(-1);
+    expect(stepStart, 'expected to find function step(ts) after the count-up IntersectionObserver callback').toBeGreaterThan(cioStart);
+    const beforeStep = res.raw.slice(cioStart, stepStart);
+    expect(beforeStep).not.toMatch(/var target = /);
+  });
 });
