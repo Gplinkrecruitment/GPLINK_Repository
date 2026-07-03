@@ -16896,6 +16896,7 @@ const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
 const PUBLIC_JOBS_COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 let _publicJobsCountCache = null; // { value, at }
+let _publicJobsRowsCache = null; // { rows, at }
 
 function mapCareerRoleRowToPublicJob(row) {
   const locationLabel = buildLocationLabel([
@@ -16991,6 +16992,13 @@ async function getActiveCareerRoleCountForStats() {
 
 async function getPublicJobsCount() {
   const now = Date.now();
+  // Reuse the rows cache (below) when it's fresh — same underlying data, one
+  // fewer Supabase round trip. Falls through to the dedicated count query
+  // (and its own fallback semantics) whenever the rows cache is cold/stale,
+  // so a rows-cache miss never changes what a stats-only caller sees.
+  if (_publicJobsRowsCache && (now - _publicJobsRowsCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsRowsCache.rows.length;
+  }
   if (_publicJobsCountCache && (now - _publicJobsCountCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
     return _publicJobsCountCache.value;
   }
@@ -16999,6 +17007,48 @@ async function getPublicJobsCount() {
   _publicJobsCountCache = { value: liveCount, at: now };
   return liveCount;
 }
+
+// Live (uncached) read of all active career_roles rows for the public jobs
+// listing. Queries directly (rather than via listCareerRoleRows) so it can
+// distinguish a real "zero active roles" result ([]) from a failed/
+// unconfigured read (null) — mirrors getActiveCareerRoleCountForStats above.
+async function getActivePublicJobRowsLive() {
+  if (!isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc');
+  if (!result.ok || !Array.isArray(result.data)) return null;
+  return result.data;
+}
+
+// Cached read for GET /api/public/jobs — same 5-min-TTL style as
+// getPublicJobsCount()/_publicJobsCountCache above, so an anonymous, no-auth
+// endpoint can't be hammered into issuing a full career_roles select on every
+// request. `fetcher` defaults to the real live read and is only ever
+// overridden by tests (to exercise the caching/TTL/fallback logic without a
+// live Supabase connection).
+async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
+  const now = Date.now();
+  if (_publicJobsRowsCache && (now - _publicJobsRowsCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsRowsCache.rows;
+  }
+  const liveRows = await fetcher();
+  if (liveRows === null) {
+    // Fetch failed (or Supabase is unconfigured) — prefer a stale-good cache
+    // over caching an empty result, which would otherwise wipe the public
+    // jobs list for a full TTL window on a transient Supabase blip. Leave
+    // the cache's `at` untouched so the next call retries live again.
+    return _publicJobsRowsCache ? _publicJobsRowsCache.rows : [];
+  }
+  _publicJobsRowsCache = { rows: liveRows, at: now };
+  return liveRows;
+}
+
+// Test-only cache accessors — Supabase is never configured in unit tests, so
+// getActivePublicJobRowsLive() always returns null there. These let tests
+// seed/inspect _publicJobsRowsCache directly (e.g. to simulate an expired
+// entry) while exercising the real getPublicJobsRows() caching/TTL logic via
+// an injected `fetcher` instead of a live Supabase connection.
+function __getPublicJobsRowsCacheForTest() { return _publicJobsRowsCache; }
+function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; }
 
 async function syncZohoRecruitRoles() {
   if (!isZohoRecruitConfigured()) {
@@ -26843,7 +26893,7 @@ async function handleApi(req, res, pathname) {
   // ── Public marketing-site jobs + stats (no session) ──────────────────────
   if (pathname === '/api/public/jobs' && req.method === 'GET') {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const rows = isSupabaseDbConfigured() ? await listCareerRoleRows(true) : [];
+    const rows = await getPublicJobsRows();
     sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
     return;
   }
@@ -46718,6 +46768,10 @@ module.exports.__testUtils = {
   classifyPublicJobType,
   buildPublicJobsResponse,
   getPublicJobsCount,
+  getPublicJobsRows,
+  __getPublicJobsRowsCacheForTest,
+  __setPublicJobsRowsCacheForTest,
+  PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
   SITE_STATS
 };
 // cache-bust 1778597236

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 
@@ -268,5 +268,87 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     const page2 = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ limit: '2', offset: '2' }));
     expect(page1.jobs.map((j) => j.id)).not.toEqual(page2.jobs.map((j) => j.id));
     expect(page2.offset).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPublicJobsRows() — in-memory 5-min-TTL rows cache (anonymous-abuse fix).
+// Supabase is never configured in this test boot (SUPABASE_URL=''), so the
+// real live fetch (getActivePublicJobRowsLive) always returns null here — the
+// caching/TTL/stale-good-fallback logic in getPublicJobsRows() is exercised
+// instead by injecting a fake `fetcher` (its documented test seam) and by
+// seeding/inspecting the module-level cache via the __*ForTest helpers.
+// ---------------------------------------------------------------------------
+describe('getPublicJobsRows — in-memory cache (no live Supabase needed)', () => {
+  const ROWS_A = [makeRawRow({ id: 101, provider_role_id: 'CACHE-A' })];
+  const ROWS_B = [makeRawRow({ id: 102, provider_role_id: 'CACHE-B' })];
+
+  beforeEach(() => {
+    testUtils.__setPublicJobsRowsCacheForTest(null);
+  });
+
+  afterAll(() => {
+    testUtils.__setPublicJobsRowsCacheForTest(null);
+  });
+
+  it('within the TTL, two consecutive calls return the cached rows and the fetcher is only invoked once', async () => {
+    const fetcher = vi.fn(async () => ROWS_A);
+
+    const first = await testUtils.getPublicJobsRows(fetcher);
+    expect(first).toBe(ROWS_A);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    const second = await testUtils.getPublicJobsRows(fetcher);
+    expect(second).toBe(first); // same cached reference — no refetch
+    expect(fetcher).toHaveBeenCalledTimes(1); // still only called once
+  });
+
+  it('an expired TTL entry triggers a live refetch and replaces the cache', async () => {
+    const staleFetcher = vi.fn(async () => ROWS_A);
+    await testUtils.getPublicJobsRows(staleFetcher);
+    expect(staleFetcher).toHaveBeenCalledTimes(1);
+
+    // Force the cached entry to look expired.
+    const cached = testUtils.__getPublicJobsRowsCacheForTest();
+    testUtils.__setPublicJobsRowsCacheForTest({
+      rows: cached.rows,
+      at: Date.now() - testUtils.PUBLIC_JOBS_COUNT_CACHE_TTL_MS - 1000
+    });
+
+    const freshFetcher = vi.fn(async () => ROWS_B);
+    const refetched = await testUtils.getPublicJobsRows(freshFetcher);
+    expect(freshFetcher).toHaveBeenCalledTimes(1); // expiry forced a real refetch
+    expect(refetched).toBe(ROWS_B);
+
+    // Cache now holds the fresh result, so an immediate follow-up call
+    // returns it without calling the fetcher again.
+    const anotherFetcher = vi.fn(async () => ROWS_A);
+    const third = await testUtils.getPublicJobsRows(anotherFetcher);
+    expect(third).toBe(ROWS_B);
+    expect(anotherFetcher).not.toHaveBeenCalled();
+  });
+
+  it('a failed/unconfigured fetch (fetcher returns null) falls back to the stale-good cache instead of caching empty', async () => {
+    const goodFetcher = vi.fn(async () => ROWS_A);
+    await testUtils.getPublicJobsRows(goodFetcher);
+
+    // Expire it, then simulate a fetch failure (null, matching
+    // getActivePublicJobRowsLive()'s failure/unconfigured contract).
+    const cached = testUtils.__getPublicJobsRowsCacheForTest();
+    testUtils.__setPublicJobsRowsCacheForTest({
+      rows: cached.rows,
+      at: Date.now() - testUtils.PUBLIC_JOBS_COUNT_CACHE_TTL_MS - 1000
+    });
+    const failingFetcher = vi.fn(async () => null);
+    const result = await testUtils.getPublicJobsRows(failingFetcher);
+
+    expect(failingFetcher).toHaveBeenCalledTimes(1);
+    expect(result).toBe(ROWS_A); // stale-good, not []
+  });
+
+  it('with no prior cache at all, a failed fetch returns [] (not null/undefined)', async () => {
+    const failingFetcher = vi.fn(async () => null);
+    const result = await testUtils.getPublicJobsRows(failingFetcher);
+    expect(result).toEqual([]);
   });
 });
