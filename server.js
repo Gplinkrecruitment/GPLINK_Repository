@@ -16882,6 +16882,124 @@ function parseCareerRolePublicId(publicId) {
   return { provider, providerRoleId };
 }
 
+// ── Public marketing-site jobs + stats (no session; sanitized career_roles read) ──
+// Separate from mapCareerRoleRowToClient/career.html's richer, AI-enriched shape —
+// the public marketing site only ever sees the raw whitelisted columns below and
+// must never see source_payload or any other GP-Link-internal metadata.
+const SITE_STATS = { locations: 830, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100, jobsFallback: 1470 };
+const PUBLIC_JOB_FIELDS = [
+  'id', 'title', 'practice_name', 'location_label', 'location_state',
+  'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
+  'employment_type', 'tags', 'published_at'
+];
+const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
+const PUBLIC_JOBS_MAX_LIMIT = 100;
+const PUBLIC_JOBS_COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let _publicJobsCountCache = null; // { value, at }
+
+function mapCareerRoleRowToPublicJob(row) {
+  const locationLabel = buildLocationLabel([
+    row && row.location_label,
+    !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
+    !row || row.location_label ? '' : row.location_country
+  ]);
+  return {
+    id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
+    title: row && row.title ? String(row.title) : '',
+    practice_name: row && row.practice_name ? String(row.practice_name) : '',
+    location_label: locationLabel || 'Australia',
+    location_state: row && row.location_state ? String(row.location_state).trim().toUpperCase() : '',
+    billing_model: row && row.billing_model ? String(row.billing_model) : '',
+    dpa: !!(row && row.dpa),
+    mmm: row && row.mmm ? String(row.mmm) : '',
+    earnings_text: row && row.earnings_text ? String(row.earnings_text) : '',
+    summary: row && row.summary ? String(row.summary) : '',
+    employment_type: row && row.employment_type ? String(row.employment_type) : '',
+    tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
+    published_at: row && row.published_at ? row.published_at : null
+  };
+}
+
+// Defensive whitelist — applied right before the HTTP response so a future edit to
+// the mapper above (or ever passing a raw DB row straight through) can never leak
+// source_payload or any other internal column to the public site.
+function sanitizePublicJob(role) {
+  const out = {};
+  for (const key of PUBLIC_JOB_FIELDS) out[key] = (role && role[key] !== undefined) ? role[key] : null;
+  return out;
+}
+
+function publicJobSearchText(job) {
+  return [job.title, job.practice_name, job.location_label, ...(Array.isArray(job.tags) ? job.tags : [])]
+    .map((value) => String(value || ''))
+    .join(' ')
+    .toLowerCase();
+}
+
+// vr-gp | non-vr-gp | locum classification, derived only from the mapped
+// (whitelisted) object's own text fields — never from source_payload.
+function classifyPublicJobType(job) {
+  const text = [job.title, job.summary, job.employment_type, ...(Array.isArray(job.tags) ? job.tags : [])]
+    .map((value) => String(value || ''))
+    .join(' ')
+    .toLowerCase();
+  if (/\blocum\b/i.test(text)) return 'locum';
+  if (/\bnon[\s-]?vr\b/i.test(text)) return 'non-vr-gp';
+  if (/\bvr\b/i.test(text)) return 'vr-gp';
+  return '';
+}
+
+// Filters + paginates + sanitizes raw career_roles rows into the public API
+// response shape. This is the exact function GET /api/public/jobs calls, so it
+// is unit-testable directly with seeded fixture rows (no Supabase/HTTP needed).
+function buildPublicJobsResponse(rows, searchParams) {
+  const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
+  let jobs = (Array.isArray(rows) ? rows : []).map(mapCareerRoleRowToPublicJob);
+
+  const q = String(getParam('q') || '').trim().toLowerCase();
+  if (q) jobs = jobs.filter((job) => publicJobSearchText(job).includes(q));
+
+  const state = String(getParam('state') || '').trim().toUpperCase();
+  if (state) jobs = jobs.filter((job) => job.location_state === state);
+
+  const type = String(getParam('type') || '').trim().toLowerCase();
+  if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
+    jobs = jobs.filter((job) => classifyPublicJobType(job) === type);
+  }
+
+  const total = jobs.length;
+  let limit = parseInt(getParam('limit'), 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = PUBLIC_JOBS_DEFAULT_LIMIT;
+  limit = Math.min(limit, PUBLIC_JOBS_MAX_LIMIT);
+  let offset = parseInt(getParam('offset'), 10);
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+  const paged = jobs.slice(offset, offset + limit).map(sanitizePublicJob);
+  return { ok: true, total, limit, offset, jobs: paged };
+}
+
+// Live count of active career_roles for /api/public/stats.jobsCount. Queries
+// directly (rather than via listCareerRoleRows) so it can distinguish a real
+// "zero active roles" result (data.length === 0) from a failed/unconfigured
+// read (null) — listCareerRoleRows collapses both cases to [].
+async function getActiveCareerRoleCountForStats() {
+  if (!isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest('career_roles', 'select=id&is_active=eq.true');
+  if (!result.ok || !Array.isArray(result.data)) return null;
+  return result.data.length;
+}
+
+async function getPublicJobsCount() {
+  const now = Date.now();
+  if (_publicJobsCountCache && (now - _publicJobsCountCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsCountCache.value;
+  }
+  const liveCount = await getActiveCareerRoleCountForStats();
+  if (liveCount === null) return SITE_STATS.jobsFallback; // data failure — don't cache, retry live next call
+  _publicJobsCountCache = { value: liveCount, at: now };
+  return liveCount;
+}
+
 async function syncZohoRecruitRoles() {
   if (!isZohoRecruitConfigured()) {
     return { ok: false, status: 503, message: 'Zoho Recruit integration is not configured.' };
@@ -26719,6 +26837,27 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Public marketing-site jobs + stats (no session) ──────────────────────
+  if (pathname === '/api/public/jobs' && req.method === 'GET') {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const rows = isSupabaseDbConfigured() ? await listCareerRoleRows(true) : [];
+    sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
+    return;
+  }
+
+  if (pathname === '/api/public/stats' && req.method === 'GET') {
+    const jobsCount = await getPublicJobsCount();
+    sendJson(res, 200, {
+      ok: true,
+      jobsCount,
+      locations: SITE_STATS.locations,
+      avgPlacementDays: SITE_STATS.avgPlacementDays,
+      gpsPlaced: SITE_STATS.gpsPlaced,
+      satisfaction: SITE_STATS.satisfaction
+    });
     return;
   }
 
@@ -46573,6 +46712,12 @@ module.exports.__testUtils = {
   parseLifestylePriceValue,
   parseVaSearchScope,
   resizeDomainImageUrl,
-  sanitizeVaSearchQuery
+  sanitizeVaSearchQuery,
+  mapCareerRoleRowToPublicJob,
+  sanitizePublicJob,
+  classifyPublicJobType,
+  buildPublicJobsResponse,
+  getPublicJobsCount,
+  SITE_STATS
 };
 // cache-bust 1778597236
