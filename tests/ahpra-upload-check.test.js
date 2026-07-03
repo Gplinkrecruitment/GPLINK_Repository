@@ -7,6 +7,12 @@ describe('ahpra-upload-check', () => {
     expect(p).toContain('Signed CV');
     expect(p).toContain('signed and dated CV');
   });
+  it('prompt is lenient: it tells the model not to nitpick optional checklist details', () => {
+    const p = chk.buildUploadCheckPrompt({ title: 'Curriculum Vitae (CV)', detail: 'CV with dates, responsibilities and full-time/part-time hours', sub_items: [] });
+    expect(p).toMatch(/lenient/i);
+    expect(p).toMatch(/do NOT flag missing optional details/i);
+    expect(p).toMatch(/full-time\/part-time hours/i); // the exact example an officer would not enforce
+  });
   it('parses a clean verdict', () => {
     const r = chk.parseUploadCheck('{"verdict":"match","summary":"A signed, dated CV in the right format."}');
     expect(r.verdict).toBe('match');
