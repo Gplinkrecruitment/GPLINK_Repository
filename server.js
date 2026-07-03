@@ -3443,6 +3443,7 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
   }
 
   var created = 0;
+  var createdGpTasks = []; // released GP-owned items → one staggered email each
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     var meta = {
@@ -3499,6 +3500,9 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     });
     if (actionTask && actionTask.id) {
       created++;
+      if (item.owner === 'gp') {
+        createdGpTasks.push({ id: actionTask.id, title: actionTask.title || item.title, metadata: meta, ahpra_deadline: dueDate });
+      }
       // Link the original officer email to the task so reply-threading works.
       try {
         await supabaseDbRequest('task_messages', '', {
@@ -3526,8 +3530,95 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     }
   }
 
+  // Released-live bundles (the RSO's "Send to GP" review IS the release step) email the GP
+  // one action per message, a minute apart. Holding-tray bundles email at /api/admin/ahpra/release.
+  var emailsQueued = 0;
+  if (opts.release && createdGpTasks.length > 0 && gpCase.user_id) {
+    try {
+      emailsQueued = await sendAhpraGpTaskEmails(gpCase.id, gpCase.user_id, createdGpTasks, { reference: reference });
+    } catch (e) { console.error('[AHPRA] s80 task emails failed (non-critical):', e && e.message); }
+  }
+
   console.log('[AHPRA] Created s80 holding-tray bundle ' + bundleId + ' with ' + created + ' item(s) for case ' + gpCase.id);
-  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false };
+  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false, emailsQueued: emailsQueued };
+}
+
+// ── s80: one email per GP-owned action item, staggered 1 minute apart ──
+// Each email mirrors the card on pages/ahpra.html — a single "Upload document" or
+// "Mark as requested" button deep-linking to /pages/ahpra.html?task=<id> (the signin
+// bounce preserves the query, and the page scrolls to + flashes that exact card).
+// Sends FROM the GP's assigned RSO mailbox when it's @mygplink.com.au (Reply-To
+// always points at the RSO). Tasks that already queued an email are skipped, and a
+// gp_email marker is stamped on metadata so a re-release can never double-send.
+async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
+  opts = opts || {};
+  if (!isEmailConfigured() || !Array.isArray(gpTasks) || gpTasks.length === 0) return 0;
+  var gp = await getGpEmailContext(userId);
+  if (!gp || !gp.email) return 0;
+
+  var pending = gpTasks.filter(function (t) {
+    var m = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return t && t.id && !(m.gp_email && m.gp_email.queued_at);
+  });
+  if (pending.length === 0) return 0;
+
+  // Send "from" the assigned RSO (From when @mygplink, else Reply-To only).
+  var fromOpts = {};
+  try {
+    var rsoId = await resolveCaseRsoAssignee(caseId);
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = roster.find(function (r) { return r.user_id === rsoId; });
+    fromOpts = buildRsoEmailFromOpts(rso || null);
+  } catch (e) { /* default sender is fine */ }
+
+  var plan = ahpraTaskEmails.buildAhpraTaskEmailPlan(pending.map(function (t) {
+    var m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return {
+      id: t.id,
+      title: t.title,
+      mode: m.mode,
+      gp_instructions: m.gp_instructions,
+      detail: m.detail,
+      how_to_steps: m.how_to_steps,
+      sub_items: m.sub_items,
+      institution: m.institution,
+      deadline: t.ahpra_deadline || t.due_date || null
+    };
+  }), { appBaseUrl: APP_BASE_URL, startAtMs: Date.now(), reference: opts.reference || null });
+
+  var nameVal = gp.firstName || 'there';
+  var queued = 0;
+  for (var i = 0; i < plan.length; i++) {
+    var e = plan[i];
+    var result = await sendEmail(Object.assign({
+      to: gp.email,
+      subject: e.subject,
+      html: buildCareerEmailHtml({
+        title: e.title,
+        body: e.bodyHtml.replace(/\{\{name\}\}/g, nameVal),
+        ctaText: e.ctaText,
+        ctaUrl: e.ctaUrl,
+        footer: 'Questions? Reply to this email and your registration support officer will help.'
+      }),
+      text: e.text,
+      scheduledAt: e.scheduledAt
+    }, fromOpts));
+    if (result && result.ok) {
+      queued++;
+      try {
+        var task = pending[i];
+        var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+        meta.gp_email = { queued_at: new Date().toISOString(), scheduled_at: e.scheduledAt || null };
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+          method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() }
+        });
+      } catch (markErr) { /* marker is best-effort */ }
+    } else {
+      console.error('[AHPRA] task email failed for', pending[i].id, result && result.error);
+    }
+  }
+  console.log('[AHPRA] Queued ' + queued + '/' + plan.length + ' per-task GP email(s) for case ' + caseId);
+  return queued;
 }
 
 // ── Response matching: link incoming messages to open tasks ──
@@ -3712,6 +3803,7 @@ function preFilterEmail(emailMeta) {
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
+var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
 var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
@@ -23657,7 +23749,7 @@ function isEmailConfigured() {
 
 // from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
 // replyTo: optional address (or array) replies should go to. Both default to the GP Link sender.
-async function sendEmail({ to, subject, html, text, from, replyTo }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, scheduledAt }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -23672,6 +23764,9 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
       text: text || ''
     };
     if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+    // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
+    // per-task sequences without a queue table or cron on serverless.
+    if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -36949,6 +37044,7 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
     let releasedGp = 0, releasedTeam = 0;
+    const releasedGpTasks = [];
     for (const t of bundleTasks) {
       var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
       meta.review_status = 'active';
@@ -36957,9 +37053,13 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
         method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
       });
-      if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
+      if (meta.owner === 'gp') {
+        releasedGp++;
+        releasedGpTasks.push({ id: t.id, title: t.title, metadata: meta, ahpra_deadline: t.ahpra_deadline, due_date: t.due_date });
+      } else releasedTeam++;
     }
     // Notify the GP only if they now have items to action.
+    let emailsQueued = 0;
     if (releasedGp > 0) {
       try {
         const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
@@ -36970,11 +37070,14 @@ Return ONLY valid JSON with no markdown formatting:
             title: 'AHPRA has requested more information',
             detail: 'Please open your AHPRA page to see what is needed and the deadline.'
           });
+          // One email per GP task, 1 minute apart, each with its single action button.
+          const relMeta0 = releasedGpTasks[0].metadata || {};
+          emailsQueued = await sendAhpraGpTaskEmails(caseId, uid, releasedGpTasks, { reference: relMeta0.reference || null });
         }
       } catch (e) { /* non-critical */ }
     }
-    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', adminCtx.email);
-    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam });
+    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).' + (emailsQueued ? ' Queued ' + emailsQueued + ' per-task email(s) to the GP, 1 minute apart.' : ''), adminCtx.email);
+    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam, emails_queued: emailsQueued });
     return;
   }
 
