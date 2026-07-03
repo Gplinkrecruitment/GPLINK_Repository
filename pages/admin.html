@@ -3038,6 +3038,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       m.how_to_steps.map(s=>'<li>'+esc(String(s||''))+'</li>').join('')+'</ol>'+
       (m.guide_reminder?'<div style="font-size:11px;color:#92400e;margin-top:4px;">⚠️ '+esc(m.guide_reminder)+'</div>':'');
   }
+  function s80VerdictChip(m){
+    var ac=(m&&m.upload&&m.upload.ai_check)||null; if(!ac||!ac.verdict) return '';
+    var map={match:['#065f46','#d1fae5','✓ Looks right'],possible_issue:['#9a3412','#ffedd5','⚠ Possible issue'],unclear:['#475569','#f1f5f9','— Not verified'],unchecked:['#475569','#f1f5f9','— Not verified']};
+    var v=map[ac.verdict]||map.unclear;
+    var h='<div style="margin-top:6px;"><span style="display:inline-block;font-size:11px;font-weight:700;color:'+v[0]+';background:'+v[1]+';border-radius:999px;padding:2px 8px;">AI check: '+v[2]+'</span>';
+    if(ac.summary) h+='<div style="font-size:12px;color:var(--muted);margin-top:3px;">'+esc(ac.summary)+'</div>';
+    h+='</div>'; return h;
+  }
   // The exact text the doctor will see — so the team can sanity-check it before Release.
   function renderS80GpPreview(m){
     if(m.owner!=='gp') return '';
@@ -3109,7 +3117,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
-          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Approve</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+          html+=s80VerdictChip(m);
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+          html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(up&&up.status==='rejected'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
         } else {
@@ -6034,6 +6044,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-expand-label">What AHPRA is asking</div>';
     h+='<div class="ops-expand-desc">'+esc(ti)+'</div>';
     h+='<div style="font-size:12px;color:var(--muted);margin:2px 0 8px;">'+esc(ownerLabel)+' · '+esc(modeLabel)+' · '+esc(statusLabel)+'</div>';
+    h+=(function(){var ac=m.upload&&m.upload.ai_check;if(!ac||!ac.verdict||ac.verdict==='unchecked')return '';var lab=ac.verdict==='match'?'✓ Looks right':ac.verdict==='possible_issue'?'⚠ Possible issue':'— Not verified';return '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">AI check: '+esc(lab)+(ac.summary?' — '+esc(ac.summary):'')+'</div>';})();
     if(m.needs_call||m.kind==='qualification_check'){
       h+='<div style="font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;margin-bottom:8px;">📞 Book a Zoom call with the doctor to debug this (PSV / MyIntealth / AMC).</div>';
     }
@@ -6802,6 +6813,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(dec==='reject'){ reason=prompt('Reason for rejecting (the GP will see this):')||''; if(!reason.trim())return; }
         try{ var r=await fetch('/api/admin/ahpra/item/review',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:vid,decision:dec,reason:reason})}); var d=await r.json().catch(()=>({})); if(!d.ok){alert(d.message||'Failed.');return;} }catch(err){alert('Failed.');return;}
         await loadAll(true); return;
+      }
+      var s80Acc=e.target.closest("[data-s80-officer-accept]");
+      if(s80Acc){ e.preventDefault();
+        var atid=s80Acc.getAttribute("data-s80-officer-accept");
+        var box=document.getElementById('s80OfficerComposer_'+atid);
+        if(!box) return;
+        if(box.style.display!=='none'){ box.style.display='none'; return; }
+        box.style.display='block'; box.innerHTML='<div style="font-size:12px;color:var(--muted);">Preparing email…</div>';
+        s80Acc.disabled=true;
+        try{
+          var dr=await fetch('/api/admin/ahpra/item/officer-reply-draft?task_id='+encodeURIComponent(atid),{credentials:'same-origin'}).then(r=>r.json());
+          if(!dr.ok){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Could not prepare the email.</div>'; s80Acc.disabled=false; return; }
+          box.innerHTML=''
+            +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-oreply-to="'+esc(atid)+'" value="'+esc(dr.to||'')+'" style="width:100%"/></div>'
+            +'<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-oreply-cc="'+esc(atid)+'" value="'+esc(dr.cc||'')+'" style="width:100%"/></div>'
+            +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-oreply-subject="'+esc(atid)+'" value="'+esc(dr.subject||'')+'" style="width:100%"/></div>'
+            +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">📎 '+esc(dr.file_name||'the uploaded document')+' will be attached · sent as a reply on the AHPRA thread</div>'
+            +'<div data-oreply-body="'+esc(atid)+'" contenteditable="true" style="min-height:120px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;font-size:13px;">'+(dr.bodyHtml||'')+'</div>'
+            +'<div style="margin-top:8px;text-align:right;"><button type="button" data-oreply-send="'+esc(atid)+'" style="background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Send to AHPRA officer</button></div>';
+          s80Acc.disabled=false;
+        }catch(err){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Error preparing email.</div>'; s80Acc.disabled=false; }
+        return;
+      }
+      var s80Snd=e.target.closest("[data-oreply-send]");
+      if(s80Snd){ e.preventDefault();
+        var stid=s80Snd.getAttribute("data-oreply-send");
+        var to=(document.querySelector('[data-oreply-to="'+stid+'"]')||{}).value||'';
+        var cc=(document.querySelector('[data-oreply-cc="'+stid+'"]')||{}).value||'';
+        var subj=(document.querySelector('[data-oreply-subject="'+stid+'"]')||{}).value||'';
+        var bEl=document.querySelector('[data-oreply-body="'+stid+'"]');
+        var bodyHtml=bEl?bEl.innerHTML:'';
+        if(!to.trim()){ showOpsToast('Officer email required','red'); return; }
+        s80Snd.disabled=true; s80Snd.textContent='Sending…';
+        try{
+          var sr=await fetch('/api/admin/ahpra/item/officer-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:stid,to:to.trim(),cc:cc.trim(),subject:subj.trim(),bodyHtml:bodyHtml})}).then(r=>r.json());
+          if(sr.ok){ showOpsToast('Sent to AHPRA officer — replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
+          else { showOpsToast(sr.message||'Send failed','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+        }catch(err){ showOpsToast(err.message||'Network error','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+        return;
       }
       var s80Copy=e.target.closest("[data-s80-copy]");
       if(s80Copy){ e.preventDefault();
