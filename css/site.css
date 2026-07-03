@@ -173,7 +173,7 @@ img { max-width: 100%; display: block; }
 
 @media (max-width: 860px) {
   .nav-links { display: none; }
-  .nav-signin { display: none; }
+  .nav-right > .nav-signin { display: none; }
   .nav-right { margin-left: auto; }
   .site-menu-btn { display: flex; }
 }

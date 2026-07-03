@@ -66,6 +66,7 @@ describe('shared marketing-site chrome assets', () => {
     const res = await get('/js/site.js');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/javascript/);
+    expect(res.headers['cache-control']).toBe('public, max-age=3600, must-revalidate');
     expect(res.raw).toContain('GPSite');
     expect(res.raw).toContain('initJobSearch');
     expect(res.raw).toContain('bindEnquiryForm');

@@ -215,7 +215,6 @@
         if (key === "kind") return;
         payload[key] = typeof value === "string" ? value : "";
       });
-      if (honeypotInput) payload.website = honeypotInput.value || "";
 
       var originalLabel = submitBtn ? submitBtn.textContent : "";
       if (submitBtn) {
