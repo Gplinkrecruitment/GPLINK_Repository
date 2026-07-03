@@ -11,7 +11,11 @@ import fs from 'fs';
 //
 // Validates: required fields (kind/name/email), kind enum, email format,
 // message length cap, the `website` honeypot (200 ok, but stores nothing),
-// and the in-memory per-IP rate limit (max 5 stored submissions/hour).
+// and the in-memory per-client rate limit (max 5 stored submissions/hour),
+// keyed the same way the production getClientIp() helper keys it: by the
+// first X-Forwarded-For entry when present, else the raw socket address —
+// so two different XFF values get independent budgets and the same XFF
+// value shares one, matching how requests arrive behind Vercel's proxy.
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = `/tmp/gplink-site-enquiry-${RUN_ID}.json`;
@@ -19,7 +23,7 @@ let server;
 let addrPort;
 let testUtils;
 
-function post(path, body) {
+function post(path, body, extraHeaders) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body || {});
     const req = http.request({
@@ -27,7 +31,11 @@ function post(path, body) {
       port: addrPort,
       path,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        ...(extraHeaders || {})
+      }
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -190,16 +198,17 @@ describe('POST /api/public/enquiry — honeypot', () => {
   });
 });
 
-describe('POST /api/public/enquiry — rate limit (5/hour/IP)', () => {
-  it('allows 5 stored submissions from the same IP within the hour, then 429s the 6th', async () => {
+describe('POST /api/public/enquiry — rate limit (5/hour/client)', () => {
+  it('allows 5 stored submissions from the same X-Forwarded-For value within the hour, then 429s the 6th', async () => {
+    const xff = { 'x-forwarded-for': `203.0.113.10-${RUN_ID}` };
     for (let i = 0; i < 5; i++) {
-      const res = await post('/api/public/enquiry', validPracticePayload({ email: `rate-${i}-${RUN_ID}@example.com` }));
+      const res = await post('/api/public/enquiry', validPracticePayload({ email: `rate-${i}-${RUN_ID}@example.com` }), xff);
       expect(res.status).toBe(200);
       expect(res.json.ok).toBe(true);
     }
     expect(readDb().siteEnquiries.length).toBe(5);
 
-    const sixth = await post('/api/public/enquiry', validPracticePayload({ email: `rate-5-${RUN_ID}@example.com` }));
+    const sixth = await post('/api/public/enquiry', validPracticePayload({ email: `rate-5-${RUN_ID}@example.com` }), xff);
     expect(sixth.status).toBe(429);
     expect(sixth.json.ok).toBe(false);
     // The 6th (rejected) request must not have been stored.
@@ -207,16 +216,51 @@ describe('POST /api/public/enquiry — rate limit (5/hour/IP)', () => {
   });
 
   it('an honeypot-triggered submission does not consume the rate-limit budget', async () => {
+    const xff = { 'x-forwarded-for': `203.0.113.11-${RUN_ID}` };
     for (let i = 0; i < 5; i++) {
-      const res = await post('/api/public/enquiry', validPracticePayload({ email: `budget-${i}-${RUN_ID}@example.com` }));
+      const res = await post('/api/public/enquiry', validPracticePayload({ email: `budget-${i}-${RUN_ID}@example.com` }), xff);
       expect(res.status).toBe(200);
     }
-    // Budget for this IP is now exhausted for real submissions...
-    const blocked = await post('/api/public/enquiry', validPracticePayload({ email: `blocked-${RUN_ID}@example.com` }));
+    // Budget for this client is now exhausted for real submissions...
+    const blocked = await post('/api/public/enquiry', validPracticePayload({ email: `blocked-${RUN_ID}@example.com` }), xff);
     expect(blocked.status).toBe(429);
     // ...but a honeypot hit still returns 200 (bots never learn they were blocked).
-    const honeypot = await post('/api/public/enquiry', validPracticePayload({ email: `hp-${RUN_ID}@example.com`, website: 'spam' }));
+    const honeypot = await post('/api/public/enquiry', validPracticePayload({ email: `hp-${RUN_ID}@example.com`, website: 'spam' }), xff);
     expect(honeypot.status).toBe(200);
     expect(honeypot.json.ok).toBe(true);
+  });
+
+  it('two different X-Forwarded-For values get independent rate-limit budgets', async () => {
+    const clientA = { 'x-forwarded-for': `198.51.100.20-${RUN_ID}` };
+    const clientB = { 'x-forwarded-for': `198.51.100.21-${RUN_ID}` };
+
+    // Exhaust client A's budget.
+    for (let i = 0; i < 5; i++) {
+      const res = await post('/api/public/enquiry', validPracticePayload({ email: `a-${i}-${RUN_ID}@example.com` }), clientA);
+      expect(res.status).toBe(200);
+    }
+    const aSixth = await post('/api/public/enquiry', validPracticePayload({ email: `a-5-${RUN_ID}@example.com` }), clientA);
+    expect(aSixth.status).toBe(429);
+
+    // Client B has its own, untouched budget.
+    const bFirst = await post('/api/public/enquiry', validPracticePayload({ email: `b-0-${RUN_ID}@example.com` }), clientB);
+    expect(bFirst.status).toBe(200);
+    expect(bFirst.json.ok).toBe(true);
+
+    expect(readDb().siteEnquiries.length).toBe(6);
+  });
+
+  it('keys on the first entry of a multi-hop X-Forwarded-For header (matches getClientIp semantics)', async () => {
+    // Same leading (client) IP, different proxy-appended hops — must share one budget.
+    const hopA = { 'x-forwarded-for': `192.0.2.30-${RUN_ID}, 10.0.0.1` };
+    const hopB = { 'x-forwarded-for': `192.0.2.30-${RUN_ID}, 10.0.0.2` };
+
+    for (let i = 0; i < 5; i++) {
+      const res = await post('/api/public/enquiry', validPracticePayload({ email: `hop-${i}-${RUN_ID}@example.com` }), hopA);
+      expect(res.status).toBe(200);
+    }
+    // Different second hop, same first (client) IP -> shares the exhausted budget.
+    const sixth = await post('/api/public/enquiry', validPracticePayload({ email: `hop-5-${RUN_ID}@example.com` }), hopB);
+    expect(sixth.status).toBe(429);
   });
 });

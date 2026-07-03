@@ -17108,16 +17108,22 @@ function validateSiteEnquiryPayload(body) {
 }
 
 // In-memory per-IP rate limit: max SITE_ENQUIRY_RATE_MAX *stored* submissions
-// per SITE_ENQUIRY_RATE_WINDOW_MS. Keyed by req.socket.remoteAddress (not the
-// X-Forwarded-For-aware getClientIp helper — this is a best-effort anti-spam
-// throttle on a public, unauthenticated endpoint, not a security boundary).
-// Only requests that actually pass validation and get stored consume budget —
-// honeypot hits and 400s never call recordSiteEnquiryRateLimitHit.
+// per SITE_ENQUIRY_RATE_WINDOW_MS. Keyed by the X-Forwarded-For-aware
+// getClientIp helper (this app deploys behind Vercel's proxy, so
+// req.socket.remoteAddress is the proxy's IP, not the client's) — this is a
+// best-effort anti-spam throttle on a public, unauthenticated endpoint, not a
+// security boundary. Only requests that actually pass validation and get
+// stored consume budget — honeypot hits and 400s never call
+// recordSiteEnquiryRateLimitHit.
 function checkSiteEnquiryRateLimit(ip) {
   const now = Date.now();
   const key = String(ip || 'unknown');
   const timestamps = (_siteEnquiryRateLimitStore.get(key) || []).filter((ts) => now - ts < SITE_ENQUIRY_RATE_WINDOW_MS);
-  _siteEnquiryRateLimitStore.set(key, timestamps);
+  if (timestamps.length === 0) {
+    _siteEnquiryRateLimitStore.delete(key);
+  } else {
+    _siteEnquiryRateLimitStore.set(key, timestamps);
+  }
   return timestamps.length < SITE_ENQUIRY_RATE_MAX;
 }
 
@@ -17159,17 +17165,26 @@ async function maybeNotifySiteEnquiry(row) {
   const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim();
   if (!notifyTo) return;
   try {
-    const safeMessage = String(row.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escapeHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeKind = escapeHtml(row.kind);
+    const safeName = escapeHtml(row.name);
+    const safeEmail = escapeHtml(row.email);
+    const safePracticeName = escapeHtml(row.practice_name);
+    const safePhone = escapeHtml(row.phone);
+    const safeState = escapeHtml(row.state);
+    const safeMessage = escapeHtml(row.message);
     await sendEmail({
       to: notifyTo,
       subject: `New ${row.kind} enquiry — ${row.name}`,
-      html: `<p>New website enquiry (<strong>${row.kind}</strong>) from ${row.name} &lt;${row.email}&gt;.</p>` +
-        (row.practice_name ? `<p>Practice: ${row.practice_name}</p>` : '') +
-        (row.phone ? `<p>Phone: ${row.phone}</p>` : '') +
+      html: `<p>New website enquiry (<strong>${safeKind}</strong>) from ${safeName} &lt;${safeEmail}&gt;.</p>` +
+        (row.practice_name ? `<p>Practice: ${safePracticeName}</p>` : '') +
+        (row.phone ? `<p>Phone: ${safePhone}</p>` : '') +
+        (row.state ? `<p>State: ${safeState}</p>` : '') +
         (safeMessage ? `<p>${safeMessage}</p>` : ''),
       text: `New ${row.kind} enquiry from ${row.name} (${row.email}).\n` +
         (row.practice_name ? `Practice: ${row.practice_name}\n` : '') +
         (row.phone ? `Phone: ${row.phone}\n` : '') +
+        (row.state ? `State: ${row.state}\n` : '') +
         (row.message ? `\n${row.message}` : '')
     });
   } catch (err) {
@@ -27061,7 +27076,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const ip = req.socket && req.socket.remoteAddress;
+    const ip = getClientIp(req);
     if (!checkSiteEnquiryRateLimit(ip)) {
       sendJson(res, 429, { ok: false, error: 'Too many enquiries from this address. Please try again later.' });
       return;
