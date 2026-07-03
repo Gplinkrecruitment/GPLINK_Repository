@@ -3080,7 +3080,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-book-call="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">📞 Book guidance call</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark done</button></div>';
       } else if(m.mode==='upload'){
         var up=m.upload||null;
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Approve</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
@@ -3090,12 +3090,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to upload.</div>';
         }
       } else if(m.mode==='request_institution'){
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+='<div style="font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>';
         html+=renderS80HowTo(m);
         if(m.gp_marked_complete_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">✓ GP marked as requested'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
         else { html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to request'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
       } else {
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(m.kind==='needs_split'&&m.original_email&&m.original_email.body){
           html+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">View original letter</summary><pre style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:240px;overflow:auto;">'+esc(m.original_email.body)+'</pre></details>';
         }
@@ -5994,7 +5994,38 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ── AHPRA Action Item ── */
+  // Compact Ops-Queue view for an s80 review-tray / doctor-facing item: lead with the plain-English
+  // "what AHPRA is asking" rewrite, not the officer's raw email. The officer's exact words are kept
+  // available but collapsed. Used at every status (in review, waiting on GP/team, done).
+  function renderOpsS80Item(task){
+    var m=s80Meta(task);
+    var ownerLabel=m.owner==='gp'?'GP':'Team';
+    var modeLabel=m.mode==='upload'?'GP uploads':m.mode==='request_institution'?('GP requests'+(m.institution?(' from '+m.institution):'')):'Team handles';
+    var stMap={open:'To do',waiting:'In review',waiting_on_gp:'Waiting on GP',waiting_on_practice:'Waiting on practice',in_progress:'In progress',completed:'Done'};
+    var statusLabel=stMap[task.status||'open']||(task.status||'open');
+    var ti=m.team_instructions||m.detail||task.description||'';
+    var h='<div class="ops-expand-section">';
+    h+='<div class="ops-expand-label">What AHPRA is asking</div>';
+    h+='<div class="ops-expand-desc">'+esc(ti)+'</div>';
+    h+='<div style="font-size:12px;color:var(--muted);margin:2px 0 8px;">'+esc(ownerLabel)+' · '+esc(modeLabel)+' · '+esc(statusLabel)+'</div>';
+    if(m.needs_call||m.kind==='qualification_check'){
+      h+='<div style="font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;margin-bottom:8px;">📞 Book a Zoom call with the doctor to debug this (PSV / MyIntealth / AMC).</div>';
+    }
+    if(Array.isArray(m.sub_items)&&m.sub_items.length){
+      h+='<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Attachments needed</div><ul style="margin:0 0 8px 18px;font-size:12px;color:var(--ink);line-height:1.5;">';
+      m.sub_items.forEach(function(s){ h+='<li>'+esc((s&&s.label)||s||'')+'</li>'; });
+      h+='</ul>';
+    }
+    if(m.detail){
+      h+='<details style="margin-top:2px;"><summary style="cursor:pointer;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Officer’s exact words</summary><div class="ops-expand-desc" style="color:var(--muted);margin-top:4px;">'+esc(m.detail)+'</div></details>';
+    }
+    h+='</div>';
+    return h;
+  }
   function renderOpsAhpraActionItem(task,msgs,docs){
+    // An s80 review-tray / doctor-facing item shows the plain-English rewrite, not the officer's raw
+    // email (the 6-card email view below is only for ahpra_correspondence cards).
+    if(isS80Task(task)){ return renderOpsS80Item(task); }
     var st=task.status||'open';
     var gpName=task.gp_name||'the GP';
     var gpEmail=task.gp_email||'';
