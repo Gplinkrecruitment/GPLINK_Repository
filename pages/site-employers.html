@@ -2,9 +2,303 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GP Link</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hire Overseas-Trained GPs for Your Practice | GP Link</title>
+<meta name="description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices — AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today.">
+<link rel="canonical" href="https://www.mygplink.com.au/employers">
+<meta property="og:title" content="Hire Overseas-Trained GPs for Your Practice | GP Link">
+<meta property="og:description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices — AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today.">
+<meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mygplink.com.au/employers">
+<link rel="stylesheet" href="/css/site.css?v=20260703">
+<style>
+  /* ---------- practice hero (navy) ---------- */
+  .emp-hero{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;
+    padding:clamp(128px,15vw,168px) 0 clamp(52px,7vw,76px);position:relative;overflow:hidden;}
+  .emp-hero::before{content:"";position:absolute;width:520px;height:520px;border-radius:50%;
+    background:radial-gradient(circle,rgba(78,183,245,.22),transparent 68%);top:-200px;right:-140px;}
+  .emp-hero .container{position:relative;z-index:1;}
+  .emp-hero .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;
+    text-transform:uppercase;font-weight:700;color:#9fd1ff;margin-bottom:16px;}
+  .emp-hero .eyebrow::before{content:"";width:26px;height:2px;background:var(--sky);display:block;}
+  .emp-hero h1{font-size:clamp(32px,5.4vw,58px);line-height:1.06;letter-spacing:-.02em;font-weight:730;
+    margin:0 0 .32em;max-width:16ch;text-wrap:balance;}
+  .emp-hero .sub{font-size:clamp(15.5px,1.8vw,19px);color:#c2dbff;max-width:52ch;margin:0 0 28px;}
+
+  /* ---------- value trio ---------- */
+  .emp-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px;}
+  .emp-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 24px;
+    transition:transform .3s ease, box-shadow .3s ease;}
+  .emp-card:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
+  .emp-card .ic{width:44px;height:44px;border-radius:12px;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+  .emp-card h3{margin:0 0 8px;font-size:17.5px;font-weight:720;color:var(--ink-2);}
+  .emp-card p{margin:0;font-size:14.5px;color:var(--mut);line-height:1.6;}
+  @media(max-width:880px){.emp-cards{grid-template-columns:1fr}}
+
+  /* ---------- how it works for practices ---------- */
+  .emp-steps{background:#fbfcfd;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px;counter-reset:step;}
+  .step-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 24px;position:relative;}
+  .step-card .num{width:34px;height:34px;border-radius:50%;background:var(--teal);color:#fff;font-weight:800;
+    font-size:14.5px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+  .step-card h3{margin:0 0 8px;font-size:16.5px;font-weight:720;color:var(--ink-2);}
+  .step-card p{margin:0;font-size:14px;color:var(--mut);line-height:1.6;}
+  @media(max-width:880px){.steps-grid{grid-template-columns:1fr}}
+
+  /* ---------- trust band ---------- */
+  .trust-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(22px,3.5vw,44px);margin-top:26px;align-items:center;}
+  .emp-metrics{display:grid;gap:14px;}
+  .emp-metric{display:flex;align-items:baseline;gap:18px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:20px 24px;}
+  .emp-metric .n{font-size:clamp(28px,3.2vw,40px);font-weight:770;color:var(--ink);letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;min-width:3.4ch;}
+  .emp-metric .t{font-size:14.5px;color:var(--mut);}
+  .emp-quote{background:var(--ink-2);color:#e6f0f8;border-radius:22px;padding:clamp(26px,3.4vw,42px);
+    position:relative;box-shadow:0 34px 70px -36px rgba(20,50,76,.75);}
+  .emp-quote .qmark{font-size:70px;line-height:0;font-family:Georgia,serif;color:var(--sky);
+    position:absolute;top:36px;left:28px;opacity:.85;}
+  .emp-quote blockquote{margin:32px 0 20px;font-size:clamp(16px,1.85vw,19px);line-height:1.55;font-weight:480;}
+  .emp-quote .who{font-size:14px;color:#a8c4dc;}
+  .emp-quote .who b{color:#fff;font-weight:700;}
+  @media(max-width:880px){.trust-grid{grid-template-columns:1fr}}
+
+  /* ---------- FAQ subset ---------- */
+  .emp-faq-wrap{max-width:760px;margin:30px auto 0;}
+
+  /* ---------- enquiry form ---------- */
+  .emp-enquire{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;}
+  .emp-enquire .sec-eyebrow{color:var(--sky);}
+  .emp-enquire h2.sec-title{color:#fff;}
+  .emp-enquire .sec-sub{color:#a8c4dc;}
+  .emp-form-card{background:#fff;border-radius:22px;padding:clamp(24px,3.4vw,38px);margin-top:28px;
+    box-shadow:0 40px 80px -40px rgba(0,0,0,.6);}
+  .emp-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .emp-form-grid .full{grid-column:1/-1;}
+  .emp-form-submit{margin-top:22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .emp-form-note{font-size:13px;color:var(--mut);margin:0;}
+  .emp-form-note a{color:var(--teal);font-weight:650;}
+  .hp-field{position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;}
+  @media(max-width:640px){.emp-form-grid{grid-template-columns:1fr}}
+
+  /* ---------- final cta ---------- */
+  .emp-final{position:relative;color:#fff;overflow:hidden;}
+  .emp-final .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
+  .emp-final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
+  .emp-final .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
+  .emp-final h2{font-size:clamp(26px,4.2vw,46px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
+  .emp-final p{color:#d3e4f6;max-width:54ch;margin:0 auto 26px;font-size:clamp(15px,1.8vw,18px);}
+</style>
 </head>
 <body>
-<h1>site-employers placeholder</h1>
+
+<header class="site-header" id="siteHeader">
+  <div class="nav-in container">
+    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
+    <nav class="nav-links">
+      <a href="/#help">How it works</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+      <a href="/employers" aria-current="page">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="nav-signin" href="/pages/signin">Sign in</a>
+      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+  <nav class="site-mobile-menu" id="siteMobileMenu">
+    <a href="/#help">How it works</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+    <a href="/employers" aria-current="page">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    <a class="nav-signin" href="/pages/signin">Sign in</a>
+    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+  </nav>
+</header>
+
+<section class="emp-hero">
+  <div class="container">
+    <div class="eyebrow reveal">For practices</div>
+    <h1 class="reveal">Hire overseas-trained GPs, without the paperwork mountain</h1>
+    <p class="sub reveal">GP Link finds, vets and registers international GPs for practices like yours — end to end.</p>
+    <div class="cta-row reveal">
+      <a class="btn primary" href="#enquire">Request doctors</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="how">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Why practices choose GP Link</div>
+      <h2 class="sec-title">Three things that make hiring overseas GPs simple</h2>
+      <p class="sec-sub">We take on the sourcing, the vetting and the regulatory maze — so your practice ends up with a doctor who's actually ready to work.</p>
+    </div>
+    <div class="emp-cards">
+      <div class="emp-card reveal dl1">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+        <h3>Vetted international GPs</h3>
+        <p>We source and screen doctors who are ready to commit to Australia — qualifications, references and intent to relocate, checked before they ever reach your shortlist.</p>
+      </div>
+      <div class="emp-card reveal dl2">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
+        <h3>Registration handled end-to-end</h3>
+        <p>AHPRA, AMC, visa — our team runs the whole pathway so your doctor actually arrives, not just accepts an offer on paper.</p>
+      </div>
+      <div class="emp-card reveal dl3">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="10" r="3"/><path d="M12 21s7-6.5 7-11.5A7 7 0 105 9.5C5 14.5 12 21 12 21z"/></svg></div>
+        <h3>DPA &amp; 19AB navigation</h3>
+        <p>We know where Distribution Priority Area and Section 19AB exemptions apply, and we match doctors to locations where they can genuinely bill Medicare.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block emp-steps">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">How it works for practices</div>
+      <h2 class="sec-title">Three steps from vacancy to your GP starting</h2>
+    </div>
+    <div class="steps-grid">
+      <div class="step-card reveal dl1">
+        <div class="num">1</div>
+        <h3>Tell us your need</h3>
+        <p>Location, billing model, hours — a short conversation is all it takes for us to understand your vacancy.</p>
+      </div>
+      <div class="step-card reveal dl2">
+        <div class="num">2</div>
+        <h3>We shortlist &amp; handle registration</h3>
+        <p>You interview and choose your doctor — we run AHPRA, AMC and visa registration in the background.</p>
+      </div>
+      <div class="step-card reveal dl3">
+        <div class="num">3</div>
+        <h3>Your doctor starts</h3>
+        <p>Average placement is 22 days once your doctor is fully registered — you get a heads-up before day one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Track record</div>
+      <h2 class="sec-title">Numbers practices can check</h2>
+    </div>
+    <div class="trust-grid">
+      <div class="emp-metrics">
+        <div class="emp-metric reveal dl1"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed with Australian practices</div></div>
+        <div class="emp-metric reveal dl2"><div class="n"><span data-count="22">0</span></div><div class="t">days — average placement once a doctor is registered</div></div>
+        <div class="emp-metric reveal dl3"><div class="n"><span data-count="830">0</span>+</div><div class="t">locations across Australia we place into</div></div>
+      </div>
+      <div class="emp-quote reveal dl2">
+        <div class="qmark">&ldquo;</div>
+        <blockquote>GP Link handled everything — registration, visa, all of it. Our doctor arrived ready to work from day one; we didn't have to chase a single form.</blockquote>
+        <div class="who"><b>Practice Manager</b>, NSW</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Common questions</div>
+      <h2 class="sec-title">Practice FAQs</h2>
+    </div>
+    <div class="emp-faq-wrap reveal">
+      <div class="faq-item">
+        <button class="faq-q">What does it cost?</button>
+        <div class="faq-a"><div><p>Costs vary depending on the role and the level of support your practice needs. There's no cost to make an enquiry — we'll give you a clear, no-obligation quote once we understand your vacancy.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">How long does it take?</button>
+        <div class="faq-a"><div><p>Once a doctor is fully registered, placements average around 22 days. Overall timelines vary, because AHPRA, AMC and visa pathways depend on each doctor's individual circumstances — we'll give you a realistic timeframe once we've matched candidates to your vacancy.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">What about DPA and 19AB?</button>
+        <div class="faq-a"><div><p>Many overseas-trained doctors are subject to Distribution Priority Area (DPA) and Section 19AB Medicare restrictions, which limit where they can access Medicare benefits for a set period. We check each doctor's eligibility against your location before we put them forward, so you only see candidates who can genuinely work — and bill Medicare — at your practice.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block emp-enquire" id="enquire">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Request doctors</div>
+      <h2 class="sec-title">Tell us what your practice needs</h2>
+      <p class="sec-sub">Share a few details and one of our team will be in touch to scope your vacancy.</p>
+    </div>
+    <div class="emp-form-card reveal dl2">
+      <form id="practiceEnquiry" data-enquiry-form data-kind="practice">
+        <div class="emp-form-grid">
+          <label class="site-field">Full name
+            <input type="text" name="name" required autocomplete="name">
+          </label>
+          <label class="site-field">Practice name
+            <input type="text" name="practice_name" autocomplete="organization">
+          </label>
+          <label class="site-field">Email
+            <input type="email" name="email" required autocomplete="email">
+          </label>
+          <label class="site-field">Phone
+            <input type="tel" name="phone" autocomplete="tel">
+          </label>
+          <label class="site-field">State / Territory
+            <select name="state">
+              <option value="">Select a state</option>
+              <option>NSW</option><option>VIC</option><option>QLD</option><option>WA</option>
+              <option>SA</option><option>TAS</option><option>ACT</option><option>NT</option>
+            </select>
+          </label>
+          <label class="site-field full">Tell us about the role
+            <textarea name="message" maxlength="4000" placeholder="Location, billing model, hours, start date…"></textarea>
+          </label>
+          <input class="hp-field" type="text" name="website" autocomplete="off" tabindex="-1" aria-hidden="true">
+        </div>
+        <div class="emp-form-submit">
+          <button class="site-submit" type="submit">Send enquiry</button>
+          <p class="emp-form-note">We'll be in touch within one business day. Prefer to talk? <a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a>.</p>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="emp-final">
+  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <div class="shade"></div>
+  <div class="container reveal">
+    <h2>Ready to bring your next GP on board?</h2>
+    <p>Tell us what you need and we'll do the legwork — sourcing, vetting and registration — so you can focus on running your practice.</p>
+    <div class="cta-row" style="justify-content:center">
+      <a class="btn white" href="mailto:hello@mygplink.com.au">Email us</a>
+      <a class="btn ghost" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="foot-in container">
+    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
+      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
+    <div class="foot-col"><b>Doctors</b><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
+    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+  </div>
+  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
+</footer>
+<script src="/js/site.js?v=20260703"></script>
+<script>
+(function () {
+  "use strict";
+  var form = document.getElementById("practiceEnquiry");
+  if (window.GPSite && typeof window.GPSite.bindEnquiryForm === "function") {
+    window.GPSite.bindEnquiryForm(form);
+  }
+})();
+</script>
 </body>
 </html>

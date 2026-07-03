@@ -50,6 +50,22 @@ function post(path, body, extraHeaders) {
   });
 }
 
+function get(path) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: addrPort, path, method: 'GET' }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        raw: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 function readDb() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch { return {}; }
 }
@@ -262,5 +278,50 @@ describe('POST /api/public/enquiry — rate limit (5/hour/client)', () => {
     // Different second hop, same first (client) IP -> shares the exhausted budget.
     const sixth = await post('/api/public/enquiry', validPracticePayload({ email: `hop-5-${RUN_ID}@example.com` }), hopB);
     expect(sixth.status).toBe(429);
+  });
+});
+
+// Task 10: real employers page (pages/site-employers.html), served at
+// GET /employers. Consumes the same GPSite.bindEnquiryForm() helper and
+// POST /api/public/enquiry endpoint covered above, with data-kind="practice".
+describe('GET /employers (Task 10 employers page)', () => {
+  it('is 200 text/html with no session', async () => {
+    const res = await get('/employers');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+  });
+
+  it('contains the practice enquiry form wired for the shared helper', async () => {
+    const res = await get('/employers');
+    expect(res.raw).toContain('data-enquiry-form');
+    expect(res.raw).toContain('data-kind="practice"');
+    expect(res.raw).toContain('id="practiceEnquiry"');
+  });
+
+  it('has the website honeypot field', async () => {
+    const res = await get('/employers');
+    expect(res.raw).toMatch(/<input[^>]*name="website"[^>]*>/);
+  });
+
+  it('has no auth-guard.js, no app-shell chrome, and no dead href="#" links', async () => {
+    const res = await get('/employers');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/app-shell/);
+    expect(res.raw).not.toMatch(/nav-shell-bridge/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('links the shared site chrome css/js and has SEO head tags', async () => {
+    const res = await get('/employers');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/employers">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,200}">/);
+  });
+
+  it('marks Employers as the current nav item in both desktop and mobile navs', async () => {
+    const res = await get('/employers');
+    const matches = res.raw.match(/<a href="\/employers" aria-current="page">Employers<\/a>/g) || [];
+    expect(matches.length).toBe(2);
   });
 });
