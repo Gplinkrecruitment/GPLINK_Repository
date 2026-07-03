@@ -167,6 +167,9 @@ let _homelyBuildIdCache = { value: '', expiresAt: 0 };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
+const _siteEnquiryRateLimitStore = new Map(); // ip → [timestamps] for POST /api/public/enquiry
+const SITE_ENQUIRY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const SITE_ENQUIRY_RATE_MAX = 5; // max 5 stored submissions per hour per IP
 const GOOGLE_PLACES_API_KEY = String(process.env.GOOGLE_PLACES_API_KEY || '').trim();
 const _schoolsSearchCache = new Map(); // cacheKey -> { ts, value }
 const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -6558,7 +6561,9 @@ function createEmptyState() {
     atsJobs: [],
     atsApplications: [],
     atsCandidates: [],
-    atsStageAudit: []
+    atsStageAudit: [],
+    // Public marketing-site enquiries (dev / local-JSON mode). In prod: site_enquiries table.
+    siteEnquiries: []
   };
 }
 
@@ -6595,7 +6600,8 @@ function loadDbState() {
       atsJobs: Array.isArray(parsed && parsed.atsJobs) ? parsed.atsJobs : [],
       atsApplications: Array.isArray(parsed && parsed.atsApplications) ? parsed.atsApplications : [],
       atsCandidates: Array.isArray(parsed && parsed.atsCandidates) ? parsed.atsCandidates : [],
-      atsStageAudit: Array.isArray(parsed && parsed.atsStageAudit) ? parsed.atsStageAudit : []
+      atsStageAudit: Array.isArray(parsed && parsed.atsStageAudit) ? parsed.atsStageAudit : [],
+      siteEnquiries: Array.isArray(parsed && parsed.siteEnquiries) ? parsed.siteEnquiries : []
     };
   } catch (err) {
     console.error('[DB] Failed to parse DB file. Starting with empty state.', err);
@@ -17050,6 +17056,127 @@ async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
 function __getPublicJobsRowsCacheForTest() { return _publicJobsRowsCache; }
 function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; }
 
+// ── Public marketing-site enquiry intake (no session) ─────────────────────
+// POST /api/public/enquiry — practice/GP/general leads from the marketing
+// site. Stored in Supabase `site_enquiries` (prod) or dbState.siteEnquiries
+// (local JSON-db dev fallback); consumed by the admin Website tab (task 13).
+const SITE_ENQUIRY_KINDS = ['practice', 'gp', 'general'];
+const SITE_ENQUIRY_MESSAGE_MAX = 4000;
+const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
+
+function _siteEnquiryCap(value, max) {
+  const str = String(value == null ? '' : value).trim();
+  return str.length > max ? str.slice(0, max) : str;
+}
+
+// Honeypot: a real visitor never sees/fills the `website` field (hidden via
+// CSS on the marketing form). Any non-empty value means a bot filled every
+// field it could find — respond success but store nothing, so the bot never
+// learns it was caught.
+function isSiteEnquiryHoneypotFilled(body) {
+  return String((body && body.website) || '').trim().length > 0;
+}
+
+// Pure validation, exported for direct unit testing (same convention as
+// buildPublicJobsResponse above). Returns { ok:true, value } or
+// { ok:false, error }. Never touches the network/DB/rate limiter.
+function validateSiteEnquiryPayload(body) {
+  const raw = (body && typeof body === 'object') ? body : {};
+
+  const kind = String(raw.kind || '').trim().toLowerCase();
+  if (!SITE_ENQUIRY_KINDS.includes(kind)) {
+    return { ok: false, error: 'kind must be one of: practice, gp, general.' };
+  }
+
+  const name = _siteEnquiryCap(raw.name, SITE_ENQUIRY_FIELD_CAPS.name);
+  if (!name) return { ok: false, error: 'name is required.' };
+
+  const email = _siteEnquiryCap(raw.email, SITE_ENQUIRY_FIELD_CAPS.email);
+  if (!email) return { ok: false, error: 'email is required.' };
+  if (!isValidEmail(email)) return { ok: false, error: 'email is not a valid email address.' };
+
+  const message = raw.message == null ? '' : String(raw.message).trim();
+  if (message.length > SITE_ENQUIRY_MESSAGE_MAX) {
+    return { ok: false, error: `message must be ${SITE_ENQUIRY_MESSAGE_MAX} characters or fewer.` };
+  }
+
+  const phone = _siteEnquiryCap(raw.phone, SITE_ENQUIRY_FIELD_CAPS.phone);
+  const practice_name = _siteEnquiryCap(raw.practice_name, SITE_ENQUIRY_FIELD_CAPS.practice_name);
+  const state = _siteEnquiryCap(raw.state, SITE_ENQUIRY_FIELD_CAPS.state);
+
+  return { ok: true, value: { kind, name, email, phone, practice_name, state, message } };
+}
+
+// In-memory per-IP rate limit: max SITE_ENQUIRY_RATE_MAX *stored* submissions
+// per SITE_ENQUIRY_RATE_WINDOW_MS. Keyed by req.socket.remoteAddress (not the
+// X-Forwarded-For-aware getClientIp helper — this is a best-effort anti-spam
+// throttle on a public, unauthenticated endpoint, not a security boundary).
+// Only requests that actually pass validation and get stored consume budget —
+// honeypot hits and 400s never call recordSiteEnquiryRateLimitHit.
+function checkSiteEnquiryRateLimit(ip) {
+  const now = Date.now();
+  const key = String(ip || 'unknown');
+  const timestamps = (_siteEnquiryRateLimitStore.get(key) || []).filter((ts) => now - ts < SITE_ENQUIRY_RATE_WINDOW_MS);
+  _siteEnquiryRateLimitStore.set(key, timestamps);
+  return timestamps.length < SITE_ENQUIRY_RATE_MAX;
+}
+
+function recordSiteEnquiryRateLimitHit(ip) {
+  const key = String(ip || 'unknown');
+  const timestamps = _siteEnquiryRateLimitStore.get(key) || [];
+  timestamps.push(Date.now());
+  _siteEnquiryRateLimitStore.set(key, timestamps);
+}
+
+function __resetSiteEnquiryRateLimitForTest() { _siteEnquiryRateLimitStore.clear(); }
+// Test-only: dbState is loaded into memory once at module init and only ever
+// flushed to disk (never re-read) by saveDbState(), so resetting the on-disk
+// JSON file between tests does not reset the live in-memory collection —
+// this clears it directly.
+function __resetSiteEnquiriesForTest() { dbState.siteEnquiries = []; saveDbState(); }
+
+// Inserts the already-validated row. We generate id/created_at ourselves so
+// both the Supabase and local-JSON-db paths return an identical shape without
+// depending on Prefer: return=representation (mirrors the registration_tasks
+// insert idiom used elsewhere in this file). Returns true/false.
+async function insertSiteEnquiryRow(row) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' }, body: [row]
+    });
+    return !!r.ok;
+  }
+  dbState.siteEnquiries = dbState.siteEnquiries || [];
+  dbState.siteEnquiries.push(row);
+  saveDbState();
+  return true;
+}
+
+// Optional admin notification — env-gated, best-effort. The enquiry API must
+// never fail (or slow down materially) because of an email problem, so every
+// failure mode here is caught and logged, never thrown.
+async function maybeNotifySiteEnquiry(row) {
+  const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim();
+  if (!notifyTo) return;
+  try {
+    const safeMessage = String(row.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await sendEmail({
+      to: notifyTo,
+      subject: `New ${row.kind} enquiry — ${row.name}`,
+      html: `<p>New website enquiry (<strong>${row.kind}</strong>) from ${row.name} &lt;${row.email}&gt;.</p>` +
+        (row.practice_name ? `<p>Practice: ${row.practice_name}</p>` : '') +
+        (row.phone ? `<p>Phone: ${row.phone}</p>` : '') +
+        (safeMessage ? `<p>${safeMessage}</p>` : ''),
+      text: `New ${row.kind} enquiry from ${row.name} (${row.email}).\n` +
+        (row.practice_name ? `Practice: ${row.practice_name}\n` : '') +
+        (row.phone ? `Phone: ${row.phone}\n` : '') +
+        (row.message ? `\n${row.message}` : '')
+    });
+  } catch (err) {
+    console.error('[site-enquiry] notification email failed:', err && err.message);
+  }
+}
+
 async function syncZohoRecruitRoles() {
   if (!isZohoRecruitConfigured()) {
     return { ok: false, status: 503, message: 'Zoho Recruit integration is not configured.' };
@@ -26908,6 +27035,62 @@ async function handleApi(req, res, pathname) {
       gpsPlaced: SITE_STATS.gpsPlaced,
       satisfaction: SITE_STATS.satisfaction
     });
+    return;
+  }
+
+  if (pathname === '/api/public/enquiry' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    // Honeypot first — a bot that fills every field (including the hidden
+    // `website` field) gets a success response but nothing is stored, and it
+    // never touches validation or the rate limiter.
+    if (isSiteEnquiryHoneypotFilled(body)) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const validated = validateSiteEnquiryPayload(body);
+    if (!validated.ok) {
+      sendJson(res, 400, { ok: false, error: validated.error });
+      return;
+    }
+
+    const ip = req.socket && req.socket.remoteAddress;
+    if (!checkSiteEnquiryRateLimit(ip)) {
+      sendJson(res, 429, { ok: false, error: 'Too many enquiries from this address. Please try again later.' });
+      return;
+    }
+
+    const row = {
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      kind: validated.value.kind,
+      name: validated.value.name,
+      email: validated.value.email,
+      phone: validated.value.phone || null,
+      practice_name: validated.value.practice_name || null,
+      state: validated.value.state || null,
+      message: validated.value.message || null,
+      status: 'new',
+      metadata: { source: 'marketing-site', ip: ip || null, user_agent: String(req.headers['user-agent'] || '').slice(0, 300) }
+    };
+
+    const stored = await insertSiteEnquiryRow(row);
+    if (!stored) {
+      sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' });
+      return;
+    }
+    recordSiteEnquiryRateLimitHit(ip);
+
+    await maybeNotifySiteEnquiry(row);
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -46772,6 +46955,13 @@ module.exports.__testUtils = {
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
-  SITE_STATS
+  SITE_STATS,
+  validateSiteEnquiryPayload,
+  isSiteEnquiryHoneypotFilled,
+  checkSiteEnquiryRateLimit,
+  recordSiteEnquiryRateLimitHit,
+  __resetSiteEnquiryRateLimitForTest,
+  __resetSiteEnquiriesForTest,
+  insertSiteEnquiryRow
 };
 // cache-bust 1778597236
