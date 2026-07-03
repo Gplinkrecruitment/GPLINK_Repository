@@ -80,7 +80,7 @@ RSO reviews + Send ► POST /api/admin/ahpra/item/officer-reply {task_id, to, cc
 - `to` = item `metadata.officer.email` || case `ahpra_officer_email` (editable; blank if unknown).
 - `cc` = the GP candidate email (`gp_applications`/profile lookup by case).
 - `subject` = `"Re: " + original notice subject` (from the item's inbound `task_message.subject` / `metadata.original_email.subject`).
-- `bodyHtml` = **`buildOfficerReplyDraft({ gpName, itemTitle, reference, officerName })`** — new **pure** helper in `lib/ahpra-s80.js` (unit-tested), e.g. *"Dear [Officer], Please find attached the [item title] for Dr [name] in relation to your notice[ (ref …)]. Kind regards, GP Link Registration Team."* (Template, not an AI call — deterministic + fast; admin edits freely.)
+- `bodyHtml` = **AI-drafted**, matching the app's existing "✦ Suggest a reply" pattern (`/api/admin/email-triage/suggest-reply`, model **`SUGGEST_REPLY_MODEL` = `claude-opus-4-6`**, `lib/suggest-reply-prompt.js`). New **pure** prompt builder `buildOfficerReplyMessages({ gpName, itemTitle, requirement, reference, officerName })` in `lib/ahpra-s80.js` (unit-tested); the draft endpoint makes the `SUGGEST_REPLY_MODEL` call with it and returns the suggested body. Grounded with: this is a reply to the AHPRA officer's notice, attaching the requested item, on behalf of Dr [name], ref [X]; short, professional. **Fail-open:** no key / AI error ⇒ fall back to a simple deterministic template `buildOfficerReplyDraft(...)` (also pure/tested) so the composer always opens with an editable draft. The RSO edits freely before sending.
 
 **Send** — new `POST /api/admin/ahpra/item/officer-reply {task_id, to, cc, subject, bodyHtml}`:
 - Load the item + its current uploaded document (via the same storage the file-view endpoint uses) → attachment `{ filename, mimeType, contentBase64 }`.
@@ -89,16 +89,21 @@ RSO reviews + Send ► POST /api/admin/ahpra/item/officer-reply {task_id, to, cc
 - `sendGmailEmail({ from, to, cc, subject, bodyHtml, attachments:[doc], threadId, inReplyTo, references, caseId })` — all already supported.
 - On success: set the item `status='completed'`, `metadata.upload.status='approved'`, record an **outbound** `task_message` on the thread (so the exchange shows in the thread and reply-matching stays intact). Notify the GP (optional, reuse existing push).
 
+## Models
+
+- **Document scan** (Part 1): **`claude-sonnet-5`** via `AHPRA_S80_EXTRACT_MODEL` — fast, runs at upload; env-overridable.
+- **Email draft** (Part 3): **`claude-opus-4-6`** via `SUGGEST_REPLY_MODEL` — the app's standard "suggest an email" model; quality over speed, generated when the composer opens.
+
 ## Reused vs new
 
-**Reused:** `sendGmailEmail` (cc/attachments/threadId/inReplyTo/references already supported); `/api/admin/ahpra/item/review`; `/api/admin/ahpra/item/file` storage access; the `document` base64 vision-block pattern; `AHPRA_S80_EXTRACT_MODEL`; the officer-composer UI pattern; the item's stored inbound `task_message` for threading.
+**Reused:** `sendGmailEmail` (cc/attachments/threadId/inReplyTo/references already supported); `/api/admin/ahpra/item/review`; `/api/admin/ahpra/item/file` storage access; the `document` base64 vision-block pattern; `AHPRA_S80_EXTRACT_MODEL` (scan); the AI email-suggestion pattern (`SUGGEST_REPLY_MODEL`, `/api/admin/email-triage/suggest-reply`, `lib/suggest-reply-prompt.js`); the officer-composer UI pattern; the item's stored inbound `task_message` for threading.
 
-**New:** `lib/ahpra-upload-check.js` (pure) + `runUploadCheck` (server); `buildOfficerReplyDraft` in `lib/ahpra-s80.js` (pure); `metadata.upload.ai_check`; `GET …/item/officer-reply-draft`; `POST …/item/officer-reply`; verdict UI in `renderS80Active` + `renderOpsS80Item`; the Accept-opens-composer client handler.
+**New:** `lib/ahpra-upload-check.js` (pure) + `runUploadCheck` (server); `buildOfficerReplyMessages` (AI prompt builder) **and** `buildOfficerReplyDraft` (deterministic fail-open template) in `lib/ahpra-s80.js` (both pure); `metadata.upload.ai_check`; `GET …/item/officer-reply-draft` (makes the `SUGGEST_REPLY_MODEL` call, falls back to the template); `POST …/item/officer-reply` (threaded send); verdict UI in `renderS80Active` + `renderOpsS80Item`; the Accept-opens-composer client handler.
 
 ## Testing
 
-- **Unit (offline):** `buildUploadCheckPrompt` includes the requirement fields; `parseUploadCheck` coerces verdicts + is safe on garbage; `buildOfficerReplyDraft` renders name/title/reference and a `Re:` subject; verdict-chip helper maps enum→label.
-- **No local AI/DB:** the vision check + send run only in prod (no key/creds locally) — verified live: upload a doc as the GP → RSO sees the verdict → Accept → composer pre-filled as a thread reply with attachment + GP CC → Send lands in the original AHPRA thread.
+- **Unit (offline):** `buildUploadCheckPrompt` includes the requirement fields; `parseUploadCheck` coerces verdicts + is safe on garbage; `buildOfficerReplyMessages` grounds the prompt with item/GP/officer/ref; `buildOfficerReplyDraft` (fallback) renders name/title/reference + a `Re:` subject; verdict-chip helper maps enum→label.
+- **No local AI/DB:** the vision scan (Sonnet 5), the email draft (Opus 4.6), and the send run only in prod (no key/creds locally) — verified live: upload a doc as the GP → RSO sees the verdict → Accept → composer pre-filled with an AI-drafted body as a thread reply with attachment + GP CC → Send lands in the original AHPRA thread.
 - Full suite stays green.
 
 ## Open items to confirm during implementation
