@@ -39876,12 +39876,18 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Fallback / non-request_from_gp: the original single lumped GP item so a notice is never lost.
     if (!fannedOut) {
-      const gpItem = await _createRegTask(card.case_id, Object.assign(
-        buildAhpraGpDeliveryItem(card, cardMeta, nowIso),
-        { _actor: admin.email }
-      ));
+      const gpItemSpec = buildAhpraGpDeliveryItem(card, cardMeta, nowIso);
+      const gpItem = await _createRegTask(card.case_id, Object.assign(gpItemSpec, { _actor: admin.email }));
       if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
       gpTaskId = gpItem.id;
+      // Same one-action email as the fanned-out items (single task → sends immediately).
+      if (gpUserId) {
+        try {
+          await sendAhpraGpTaskEmails(card.case_id, gpUserId, [{
+            id: gpItem.id, title: gpItemSpec.title, metadata: gpItemSpec.metadata, ahpra_deadline: gpItemSpec.ahpra_deadline
+          }]);
+        } catch (e) { console.error('[AHPRA deliver] GP item email failed (non-critical):', e && e.message); }
+      }
     }
 
     // Notify the GP in-app + push (only when they actually have items to action).
