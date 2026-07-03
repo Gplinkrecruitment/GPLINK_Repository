@@ -194,9 +194,30 @@
   .partners .container{padding-top:30px;padding-bottom:30px;}
   .partners .lbl{text-align:center;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
     color:var(--mut-2);font-weight:700;margin-bottom:26px;}
-  .logo-row{display:flex;justify-content:center;align-items:center;gap:clamp(26px,6vw,72px);flex-wrap:wrap;}
-  .logo-row img{height:52px;width:auto;filter:grayscale(1);opacity:.6;transition:filter .3s, opacity .3s, transform .3s;}
-  .logo-row img:hover{filter:none;opacity:1;transform:translateY(-3px);}
+  .logo-marquee{position:relative;width:100%;overflow:hidden;
+    -webkit-mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);
+    mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);}
+  .logo-track{display:flex;align-items:center;width:max-content;
+    animation:logoMarqueeLtr 24s linear infinite;}
+  .logo-marquee:hover .logo-track{animation-play-state:paused;}
+  .logo-seq{display:flex;align-items:center;flex-shrink:0;
+    gap:clamp(26px,6vw,72px);padding-right:clamp(26px,6vw,72px);}
+  .logo-seq img{height:52px;width:auto;filter:grayscale(1);opacity:.6;transition:filter .3s, opacity .3s, transform .3s;}
+  .logo-seq img:hover{filter:none;opacity:1;transform:translateY(-3px);}
+  /* Animate rightward (owner-requested): start shifted left by exactly one
+     sequence width, end at rest — content appears to flow toward the right.
+     3 identical .logo-seq copies of equal width make -33.3334% == -1 sequence,
+     so the loop restarts with zero visible seam. */
+  @keyframes logoMarqueeLtr{
+    from{transform:translateX(-33.3334%);}
+    to{transform:translateX(0);}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .logo-marquee{-webkit-mask-image:none;mask-image:none;}
+    .logo-track{animation:none;transform:none;width:auto;flex-wrap:wrap;justify-content:center;}
+    .logo-seq[aria-hidden="true"]{display:none;}
+    .logo-seq{padding-right:0;}
+  }
 
   /* ---------- final cta ---------- */
   .final{position:relative;color:#fff;overflow:hidden;}
@@ -330,7 +351,7 @@
           <li class="reveal dl3"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
             <div><b>Job matches made for you</b><span class="d">Real vacancies matched to your skills, visa situation and the life you want.</span></div></li>
           <li class="reveal dl4"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-            <div><b>A real human in your corner</b><span class="d">Your own support officer answers questions and chases paperwork for you.</span></div></li>
+            <div><b>Your own Registration Support Officer — free</b><span class="d">A dedicated RSO guides you step by step, answers your questions and chases the paperwork — at no cost to you.</span></div></li>
         </ul>
         <div class="app-cta-row reveal dl4">
           <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
@@ -366,7 +387,7 @@
       </div>
     </div>
     <div class="flow reveal">
-      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes, no documents needed to start.</span></div>
+      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
       <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
       <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration and visa step for your exact situation.</span></div>
       <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
@@ -418,11 +439,27 @@
 <div class="partners">
   <div class="container reveal">
     <div class="lbl">Working within Australia's medical framework</div>
-    <div class="logo-row">
-      <img src="/media/images/site/partner-ahpra.png" alt="Ahpra &amp; National Boards">
-      <img src="/media/images/site/partner-amc.png" alt="Australian Medical Council">
-      <img src="/media/images/site/partner-ama.png" alt="Australian Medical Association">
-      <img src="/media/images/site/partner-ecfmg.png" alt="ECFMG">
+    <div class="logo-marquee">
+      <div class="logo-track">
+        <div class="logo-seq">
+          <img src="/media/images/site/partner-ahpra.png" alt="Ahpra &amp; National Boards">
+          <img src="/media/images/site/partner-amc.png" alt="Australian Medical Council">
+          <img src="/media/images/site/partner-ama.png" alt="Australian Medical Association">
+          <img src="/media/images/site/partner-ecfmg.png" alt="ECFMG">
+        </div>
+        <div class="logo-seq" aria-hidden="true">
+          <img src="/media/images/site/partner-ahpra.png" alt="">
+          <img src="/media/images/site/partner-amc.png" alt="">
+          <img src="/media/images/site/partner-ama.png" alt="">
+          <img src="/media/images/site/partner-ecfmg.png" alt="">
+        </div>
+        <div class="logo-seq" aria-hidden="true">
+          <img src="/media/images/site/partner-ahpra.png" alt="">
+          <img src="/media/images/site/partner-amc.png" alt="">
+          <img src="/media/images/site/partner-ama.png" alt="">
+          <img src="/media/images/site/partner-ecfmg.png" alt="">
+        </div>
+      </div>
     </div>
   </div>
 </div>

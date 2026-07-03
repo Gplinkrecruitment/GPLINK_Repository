@@ -198,6 +198,12 @@ describe('marketing site homepage (Task 7)', () => {
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
   });
+
+  it('GET / calls out the free Registration Support Officer and has the partner-logo marquee carousel', async () => {
+    const res = await get('/');
+    expect(res.raw).toContain('Registration Support Officer');
+    expect(res.raw).toContain('logo-marquee');
+  });
 });
 
 // Task 11: About (pages/site-about.html) and FAQ (pages/site-faq.html) pages,
@@ -325,6 +331,13 @@ describe('marketing site app page (Task 12)', () => {
     expect(res.raw).not.toMatch(/app-shell/);
     expect(res.raw).not.toMatch(/nav-shell-bridge/);
   });
+
+  it('GET /the-app calls out the free Registration Support Officer with visual emphasis', async () => {
+    const res = await get('/the-app');
+    expect(res.raw).toContain('Registration Support Officer');
+    expect(res.raw).toContain('Included free');
+    expect(res.raw).toContain('is-highlight');
+  });
 });
 
 // Task 15: "For GPs" doctor-journey pitch page (pages/site-gp-jobs.html),
@@ -373,4 +386,18 @@ describe('marketing site "For GPs" page (Task 15)', () => {
     const res = await get('/');
     expect(res.raw).toContain('href="/gp-jobs">For GPs</a>');
   });
+});
+
+// Task 16, Change 2: the old "no documents needed to start" copy was flagged
+// by the owner as false — GP Link does ask candidates to upload documents.
+// Regression guard: loop every public marketing route (including /gp-jobs,
+// which isn't in PUBLIC_ROUTES) and assert the claim never comes back.
+describe('marketing site never claims "no documents" (Task 16, Change 2 regression guard)', () => {
+  const ALL_PUBLIC_ROUTES = [...PUBLIC_ROUTES, '/gp-jobs'];
+  for (const route of ALL_PUBLIC_ROUTES) {
+    it(`GET ${route} does not contain the false "no documents" claim`, async () => {
+      const res = await get(route);
+      expect(res.raw).not.toMatch(/no documents/i);
+    });
+  }
 });

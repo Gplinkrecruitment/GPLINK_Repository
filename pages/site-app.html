@@ -37,6 +37,11 @@
     display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
   .apppage-fcard h3{margin:0 0 6px;font-size:16.5px;font-weight:720;color:var(--ink-2);}
   .apppage-fcard p{margin:0;font-size:14px;color:var(--mut);line-height:1.55;}
+  .apppage-fcard.is-highlight{border-color:var(--teal);
+    background:linear-gradient(180deg,var(--teal-soft) 0%,var(--card) 52%);}
+  .apppage-fcard h3 .badge-free{display:inline-block;margin-left:7px;padding:2px 9px;border-radius:999px;
+    background:var(--teal);color:#fff;font-size:10.5px;font-weight:750;letter-spacing:.02em;
+    vertical-align:middle;white-space:nowrap;}
   @media(max-width:980px){.apppage-fgrid{grid-template-columns:1fr 1fr;}}
   @media(max-width:560px){.apppage-fgrid{grid-template-columns:1fr;}}
 
@@ -227,10 +232,10 @@
         <h3>Matched jobs</h3>
         <p>Roles filtered to your visa situation and the life you want — apply straight from the app.</p>
       </div>
-      <div class="apppage-fcard reveal dl1">
+      <div class="apppage-fcard reveal dl1 is-highlight">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
-        <h3>A real human</h3>
-        <p>Your own Registration Support Officer answers your questions and chases paperwork for you.</p>
+        <h3>Your Registration Support Officer<span class="badge-free">Included free</span></h3>
+        <p>A dedicated RSO guides you step by step, answers your questions and chases the paperwork — at no cost to you.</p>
       </div>
       <div class="apppage-fcard reveal dl2">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
@@ -288,10 +293,10 @@
     <div class="reveal">
       <div class="sec-eyebrow">Getting started</div>
       <h2 class="sec-title">Four steps to your personal pathway</h2>
-      <p class="sec-sub">No documents, no commitment — just two minutes to see exactly where you stand.</p>
+      <p class="sec-sub">No commitment, no guesswork — just two minutes to see exactly where you stand.</p>
     </div>
     <div class="flow reveal">
-      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes, no documents needed to start.</span></div>
+      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
       <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
       <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration step for your exact situation.</span></div>
       <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
