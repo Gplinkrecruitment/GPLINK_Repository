@@ -3336,6 +3336,41 @@ async function extractAhpraActionItems(emailMeta, ctx) {
   }
 }
 
+// Advisory AI check of a GP's uploaded s80 document against the item requirement. FAIL-OPEN:
+// any missing key / budget / timeout / parse / unsupported type => {verdict:'unchecked', summary:''}.
+async function runUploadCheck(fileBuffer, mimeType, requirement) {
+  var fail = { verdict: 'unchecked', summary: '' };
+  try {
+    if (!process.env.ANTHROPIC_API_KEY || !fileBuffer || !fileBuffer.length) return fail;
+    var mt = String(mimeType || '').toLowerCase();
+    var block;
+    if (mt.indexOf('pdf') >= 0) block = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') } };
+    else if (mt.indexOf('image/') === 0) block = { type: 'image', source: { type: 'base64', media_type: mt, data: fileBuffer.toString('base64') } };
+    else return fail; // unsupported (e.g. docx) — advisory only, skip rather than error
+    if (!(await checkAnthropicBudget())) return fail;
+    var controller = new AbortController();
+    var t = setTimeout(function () { controller.abort(); }, 30000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: AHPRA_S80_EXTRACT_MODEL, max_tokens: 600, thinking: { type: 'disabled' },
+        system: ahpraUploadCheck.UPLOAD_CHECK_SYSTEM,
+        messages: [{ role: 'user', content: [block, { type: 'text', text: ahpraUploadCheck.buildUploadCheckPrompt(requirement) }] }]
+      })
+    });
+    clearTimeout(t);
+    var data = await res.json();
+    if (data && data.usage) recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    var text = (data && data.content && data.content[0] && data.content[0].text) || '';
+    var parsed = ahpraUploadCheck.parseUploadCheck(text);
+    return { verdict: parsed.verdict || 'unclear', summary: parsed.summary || '' };
+  } catch (e) {
+    console.error('[AHPRA upload check] failed (fail-open):', e && e.message);
+    return fail;
+  }
+}
+
 // Create the holding-tray bundle of tasks for one AHPRA s80 notice. Tasks start in
 // review_status 'pending_review' (status 'waiting') so the team checks them before
 // anything reaches the GP. Shared by the live Gmail pipeline and the manual-ingest
@@ -3674,6 +3709,7 @@ function preFilterEmail(emailMeta) {
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
+var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -33510,6 +33546,11 @@ Return ONLY valid JSON with no markdown formatting:
       uploaded_at: new Date().toISOString(),
       country: upCountry
     };
+    // Advisory AI check vs the item requirement (fail-open — never blocks the upload).
+    try {
+      var _uc = await runUploadCheck(upBuffer, upMime, { title: upTask.title, detail: upMeta.detail, team_instructions: upMeta.team_instructions, sub_items: upMeta.sub_items });
+      upMeta.upload.ai_check = { verdict: _uc.verdict, summary: _uc.summary, model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
+    } catch (_ucErr) { upMeta.upload.ai_check = { verdict: 'unchecked', summary: '', checked_at: new Date().toISOString() }; }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(upTaskId), {
       method: 'PATCH', body: { status: 'waiting', metadata: upMeta, updated_at: new Date().toISOString() }
     });
