@@ -1,0 +1,155 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import http from 'http';
+import crypto from 'crypto';
+import fs from 'fs';
+
+// Coverage for the new public marketing-site routing foundation: 7 anonymous
+// marketing routes (/, /jobs, /jobs/view, /employers, /about, /faq, /the-app)
+// served without any auth check, while the existing app-shell auth wall stays
+// intact for every currently-protected page. Mirrors the http-harness idiom
+// used by tests/signin-deep-link.test.js and tests/ceo-preview-host.test.js.
+
+const RUN_ID = crypto.randomBytes(4).toString('hex');
+const ADMIN_TEST_HOST = 'admin-site-test-' + RUN_ID + '.local';
+let server;
+let addrPort;
+
+function get(path, { host, cookie } = {}) {
+  return new Promise((resolve, reject) => {
+    const headers = {};
+    if (host) headers.Host = host;
+    if (cookie) headers.Cookie = cookie;
+    const req = http.request({ host: '127.0.0.1', port: addrPort, path, method: 'GET', headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        raw: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(String(input), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+// Builds a valid signed gp_session cookie the same way server.js does
+// (createSignedSessionToken: base64url(JSON) + '.' + HMAC-SHA512 with AUTH_SECRET).
+function gpSessionCookie() {
+  const payload = base64UrlEncode(JSON.stringify({
+    userProfile: { email: 'gp-site-test@example.com' },
+    expiresAt: Date.now() + 3600000,
+  }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return `gp_session=${encodeURIComponent(payload + '.' + sig)}`;
+}
+
+beforeAll(async () => {
+  process.env.AGENT_SKIP_DOTENV = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AUTH_DISABLED = 'false'; // auth ENABLED so the protected-page gate + public routes are both exercised
+  process.env.AUTH_SECRET = 'test-site-public-routes-' + RUN_ID;
+  process.env.REQUIRE_SUPABASE_DB = 'false';
+  process.env.SUPABASE_URL = '';
+  process.env.SUPABASE_PUBLISHABLE_KEY = '';
+  process.env.ENFORCE_SAME_ORIGIN = 'false';
+  process.env.DB_FILE_PATH = `/tmp/gplink-site-public-routes-${RUN_ID}.json`;
+  process.env.ADMIN_ALLOWED_HOSTS = ADMIN_TEST_HOST;
+
+  const { createServer } = await import('../server.js');
+  server = createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', () => { addrPort = server.address().port; resolve(); }));
+});
+
+afterAll(async () => {
+  if (server) await new Promise((resolve) => server.close(resolve));
+  try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
+});
+
+const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app'];
+
+describe('marketing site public routes', () => {
+  for (const route of PUBLIC_ROUTES) {
+    it(`GET ${route} is 200 text/html with no session and has no auth-guard.js`, async () => {
+      const res = await get(route);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/text\/html/);
+      expect(res.raw).not.toMatch(/auth-guard\.js/);
+    });
+  }
+
+  it('/ with a valid gp session still 302s to /pages/index (existing behaviour preserved)', async () => {
+    const res = await get('/', { cookie: gpSessionCookie() });
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/pages/index');
+  });
+
+  it('/ on an admin host still 302s to /pages/admin, session or not (existing behaviour preserved)', async () => {
+    const res = await get('/', { host: ADMIN_TEST_HOST });
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/pages/admin');
+  });
+
+  it('/ on an admin host with a gp session still 302s to /pages/admin (host wins)', async () => {
+    const res = await get('/', { host: ADMIN_TEST_HOST, cookie: gpSessionCookie() });
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/pages/admin');
+  });
+
+  it('/pages/site-home.html 302s to the clean marketing URL /', async () => {
+    const res = await get('/pages/site-home.html');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+  });
+
+  it('/pages/site-jobs.html 302s to /jobs', async () => {
+    const res = await get('/pages/site-jobs.html');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/jobs');
+  });
+
+  it('/pages/site-job.html 302s to /jobs/view (nested clean URL)', async () => {
+    const res = await get('/pages/site-job.html');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/jobs/view');
+  });
+
+  it('/pages/index.html (no session) still 302s to the clean URL (unchanged hop 1 of 2)', async () => {
+    const res = await get('/pages/index.html');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/pages/index');
+  });
+
+  it('/pages/index (no session) still 302s to signin — the auth wall stays intact', async () => {
+    const res = await get('/pages/index');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/pages/signin');
+  });
+
+  it('/pages/account (no session) still redirects to signin — protected pages stay protected', async () => {
+    const res = await get('/pages/account');
+    expect(res.status).toBe(302);
+    expect(String(res.headers.location)).toMatch(/^\/pages\/signin/);
+  });
+
+  it('/robots.txt is 200 text/plain and points at the sitemap', async () => {
+    const res = await get('/robots.txt');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/plain/);
+    expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);
+  });
+
+  it('/sitemap.xml is 200 application/xml and lists all 7 canonical URLs', async () => {
+    const res = await get('/sitemap.xml');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/xml/);
+    const expectedPaths = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app'];
+    for (const p of expectedPaths) {
+      expect(res.raw).toContain(`<loc>https://www.mygplink.com.au${p}</loc>`);
+    }
+  });
+});

@@ -45992,10 +45992,46 @@ Return ONLY valid JSON with no markdown formatting:
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
+// ── Public marketing site routing config ──────────────────────────────────
+// The 7 anonymous-accessible marketing routes and the placeholder page files
+// backing them (later tasks replace the file contents; this task only wires
+// the routing). Never add these paths to APP_SHELL_SUPPORTED_PATHS or to
+// js/nav-shell-bridge.js's PAGE_PATHS — marketing pages are standalone HTML,
+// not embedded app-shell pages, and must not load js/auth-guard.js.
+const SITE_PUBLIC_ROUTES = {
+  '/': 'pages/site-home.html',
+  '/jobs': 'pages/site-jobs.html',
+  '/jobs/view': 'pages/site-job.html',
+  '/employers': 'pages/site-employers.html',
+  '/about': 'pages/site-about.html',
+  '/faq': 'pages/site-faq.html',
+  '/the-app': 'pages/site-app.html',
+};
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
+// Reverse map so a direct hit on the backing file (e.g. /pages/site-home.html)
+// 302s to its clean marketing URL instead of the generic /pages/* clean-URL rule.
+const SITE_PAGE_FILE_TO_ROUTE = Object.fromEntries(
+  Object.entries(SITE_PUBLIC_ROUTES).map(([route, file]) => ['/' + file, route])
+);
+
 async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // ── Public marketing site clean-URL redirect ───────────────────────
+  // /pages/site-home.html etc are internal placeholder files backing the
+  // marketing routes below; visitors should only ever see the clean marketing
+  // URL (e.g. '/', '/jobs/view'), never the /pages/site-*.html file path. This
+  // must run BEFORE the generic /pages/*.html → /pages/* clean-URL rule below,
+  // which would otherwise rewrite it to the wrong (non-existent) clean URL.
+  if (SITE_PAGE_FILE_TO_ROUTE[url.pathname] &&
+      !url.searchParams.has('gp_shell') && !url.searchParams.has('gp_shell_static')) {
+    const clean = SITE_PAGE_FILE_TO_ROUTE[url.pathname] + (url.search || '');
+    res.writeHead(302, { Location: clean });
+    res.end();
+    return;
+  }
 
   // ── Clean URL support ──────────────────────────────────────────────
   // Redirect /pages/foo.html → /pages/foo so browsers see clean URLs.
@@ -46018,6 +46054,29 @@ async function handleRequest(req, res) {
     pathname += '.html';
   }
 
+  // ── Public marketing site routes (no auth required) ────────────────
+  // robots.txt / sitemap.xml, and the 7 marketing pages other than '/' (which
+  // is handled below alongside the existing host/session-aware root redirect).
+  if (pathname === '/robots.txt') {
+    const body = `User-agent: *\nAllow: /\nSitemap: ${PUBLIC_BASE_URL}/sitemap.xml\n`;
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(body);
+    return;
+  }
+  if (pathname === '/sitemap.xml') {
+    const urls = Object.keys(SITE_PUBLIC_ROUTES)
+      .map((route) => `  <url><loc>${PUBLIC_BASE_URL}${route === '/' ? '/' : route}</loc></url>`)
+      .join('\n');
+    const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end(body);
+    return;
+  }
+  if (pathname !== '/' && Object.prototype.hasOwnProperty.call(SITE_PUBLIC_ROUTES, pathname)) {
+    serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES[pathname]);
+    return;
+  }
+
   if (pathname === '/') {
     // Host-aware root: real admin hosts go to the admin dashboard (which itself routes
     // to /pages/admin-signin when there's no admin session). Without this, the admin host
@@ -46026,8 +46085,23 @@ async function handleRequest(req, res) {
     // 'local' dev/test scope (loopback) — keep the GP app home as the default.
     const rootHostScope = getAdminHostScope(req);
     const rootIsAdminHost = rootHostScope === 'admin' || rootHostScope === 'super_admin';
-    res.writeHead(302, { Location: rootIsAdminHost ? '/pages/admin' : '/pages/index' });
-    res.end();
+    if (rootIsAdminHost) {
+      res.writeHead(302, { Location: '/pages/admin' });
+      res.end();
+      return;
+    }
+    // Signed-in visitors (GP or admin session) on a non-admin host keep the
+    // existing behaviour of landing on the app home. Anonymous visitors see
+    // the public marketing homepage instead of bouncing through /pages/index
+    // → signin.
+    const rootSession = getSession(req);
+    const rootAdminSession = getAdminSession(req);
+    if (rootSession || rootAdminSession) {
+      res.writeHead(302, { Location: '/pages/index' });
+      res.end();
+      return;
+    }
+    serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES['/']);
     return;
   }
 
