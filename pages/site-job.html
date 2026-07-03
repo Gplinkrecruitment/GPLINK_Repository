@@ -195,13 +195,14 @@
 (function () {
   "use strict";
 
-  // Task 3's /api/public/jobs endpoint has no server-side ?id= filter (checked
-  // server.js — buildPublicJobsResponse only supports q/state/type/limit/offset).
-  // So this page fetches pages of up to the API's max limit (100) and follows
-  // offset-based pagination client-side until the id is found, bounded at
-  // MAX_PAGES so a very large board can never turn into an unbounded fetch loop.
+  // /api/public/jobs supports a server-side ?id= exact-match lookup (see
+  // buildPublicJobsResponse in server.js), so this page resolves the target
+  // job with a single request instead of paging the whole board client-side —
+  // that keeps job permalinks working no matter how large the live board gets.
+  // The "related roles" rail is a secondary nicety, not a correctness
+  // requirement, so it still draws from just the first page (up to the API's
+  // max limit of 100) of the board rather than the full active list.
   var PAGE_LIMIT = 100;
-  var MAX_PAGES = 5;
 
   var skeletonEl = document.getElementById("jobSkeleton");
   var contentEl = document.getElementById("jobContent");
@@ -339,41 +340,31 @@
     notFoundEl.hidden = false;
   }
 
-  function fetchPage(offset) {
+  function fetchJobById(targetId) {
     var params = new URLSearchParams();
-    params.set("limit", String(PAGE_LIMIT));
-    params.set("offset", String(offset));
+    params.set("id", targetId);
     return fetch("/api/public/jobs?" + params.toString()).then(function (res) {
       if (!res.ok) throw new Error("bad status");
       return res.json();
     }).then(function (data) {
       if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
-      return data;
+      return data.jobs[0] || null;
     });
   }
 
-  function findJobById(targetId) {
-    var allJobs = [];
-    var offset = 0;
-    var page = 0;
-
-    function step() {
-      page += 1;
-      return fetchPage(offset).then(function (data) {
-        allJobs = allJobs.concat(data.jobs);
-        var match = allJobs.filter(function (j) { return j && String(j.id) === targetId; })[0] || null;
-        var total = Number(data.total) || 0;
-        offset += data.jobs.length;
-        var exhausted = data.jobs.length === 0 || offset >= total;
-
-        if (match || exhausted || page >= MAX_PAGES) {
-          return { match: match, allJobs: allJobs };
-        }
-        return step();
-      });
-    }
-
-    return step();
+  // Best-effort pool for the "related roles" rail — never blocks or fails the
+  // main job render; an empty pool just means no related-roles rail shows.
+  function fetchRelatedPool() {
+    var params = new URLSearchParams();
+    params.set("limit", String(PAGE_LIMIT));
+    return fetch("/api/public/jobs?" + params.toString()).then(function (res) {
+      if (!res.ok) throw new Error("bad status");
+      return res.json();
+    }).then(function (data) {
+      return (data && data.ok === true && Array.isArray(data.jobs)) ? data.jobs : [];
+    }).catch(function () {
+      return [];
+    });
   }
 
   var idParam = new URLSearchParams(window.location.search).get("id");
@@ -382,12 +373,14 @@
   if (!targetId) {
     renderNotFound();
   } else {
-    findJobById(targetId).then(function (result) {
-      if (!result.match) {
+    fetchJobById(targetId).then(function (job) {
+      if (!job) {
         renderNotFound();
-        return;
+        return null;
       }
-      renderJob(result.match, result.allJobs);
+      return fetchRelatedPool().then(function (pool) {
+        renderJob(job, pool);
+      });
     }).catch(function () {
       renderNotFound();
     });

@@ -85,6 +85,12 @@ describe('GET /api/public/jobs (HTTP)', () => {
     const negative = await get('/api/public/jobs?limit=-5');
     expect(negative.json.limit).toBe(24);
   });
+
+  it('?id= round-trips through the real route (empty-safe with no database configured)', async () => {
+    const res = await get('/api/public/jobs?id=' + encodeURIComponent('zoho_recruit:ZR-001'));
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ ok: true, total: 0, offset: 0, jobs: [] });
+  });
 });
 
 describe('GET /api/public/stats (HTTP)', () => {
@@ -268,6 +274,41 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     const page2 = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ limit: '2', offset: '2' }));
     expect(page1.jobs.map((j) => j.id)).not.toEqual(page2.jobs.map((j) => j.id));
     expect(page2.offset).toBe(2);
+  });
+
+  it('id returns exactly the matching job, sanitized to the whitelist', () => {
+    const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ id: 'zoho_recruit:ZR-003' }));
+    expect(result.ok).toBe(true);
+    expect(result.total).toBe(1);
+    expect(result.jobs.length).toBe(1);
+    expect(result.jobs[0].id).toBe('zoho_recruit:ZR-003');
+    expect(result.jobs[0].practice_name).toBe('Melbourne Central Clinic');
+    expect(Object.keys(result.jobs[0]).sort()).toEqual([...PUBLIC_JOB_FIELDS].sort());
+  });
+
+  it('an unknown id returns jobs:[] and total:0 (not an error)', () => {
+    const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ id: 'zoho_recruit:DOES-NOT-EXIST' }));
+    expect(result.ok).toBe(true);
+    expect(result.total).toBe(0);
+    expect(result.jobs).toEqual([]);
+  });
+
+  it('id short-circuits every other filter/pagination param (id wins, the rest are ignored)', () => {
+    // state=NSW and type=locum would each individually exclude ZR-003 (a VIC,
+    // Non-VR role), q is nonsense, and limit/offset would otherwise page past
+    // it. Combined with id, the id match still wins outright.
+    const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({
+      id: 'zoho_recruit:ZR-003',
+      state: 'NSW',
+      type: 'locum',
+      q: 'nonsense-that-matches-nothing',
+      limit: '1',
+      offset: '4'
+    }));
+    expect(result.total).toBe(1);
+    expect(result.jobs.length).toBe(1);
+    expect(result.jobs[0].id).toBe('zoho_recruit:ZR-003');
+    expect(result.offset).toBe(0);
   });
 });
 

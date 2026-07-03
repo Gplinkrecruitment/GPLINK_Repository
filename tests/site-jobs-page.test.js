@@ -188,8 +188,9 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
     expect(res.raw).not.toMatch(/document\.write/);
   });
 
-  it('client-side fetches /api/public/jobs (no server-side ?id filter exists, so it paginates and matches client-side)', async () => {
+  it('client-side resolves the job via the server-side /api/public/jobs?id= exact-match lookup', async () => {
     const res = await get('/jobs/view?id=anything');
     expect(res.raw).toContain('/api/public/jobs?');
+    expect(res.raw).toMatch(/params\.set\("id",\s*targetId\)/);
   });
 });

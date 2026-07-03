@@ -16963,6 +16963,19 @@ function buildPublicJobsResponse(rows, searchParams) {
   const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
   let jobs = (Array.isArray(rows) ? rows : []).map(mapCareerRoleRowToPublicJob);
 
+  // `id` is an exact-match single-job lookup (used by the job detail page to
+  // resolve a permalink without paging the whole board). It short-circuits
+  // every other filter/pagination param — a caller asking for a specific job
+  // id always gets exactly that job (or none), regardless of q/state/type/
+  // limit/offset. Exact string match against the mapped job's id only — no
+  // substring/regex matching.
+  const id = String(getParam('id') || '').trim();
+  if (id) {
+    const match = jobs.find((job) => job.id === id) || null;
+    const paged = match ? [sanitizePublicJob(match)] : [];
+    return { ok: true, total: paged.length, limit: PUBLIC_JOBS_DEFAULT_LIMIT, offset: 0, jobs: paged };
+  }
+
   const q = String(getParam('q') || '').trim().toLowerCase();
   if (q) jobs = jobs.filter((job) => publicJobSearchText(job).includes(q));
 
