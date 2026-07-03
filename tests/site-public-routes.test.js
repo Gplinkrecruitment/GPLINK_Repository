@@ -199,3 +199,71 @@ describe('marketing site homepage (Task 7)', () => {
     expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
   });
 });
+
+// Task 11: About (pages/site-about.html) and FAQ (pages/site-faq.html) pages,
+// served at GET /about and GET /faq. Same standalone marketing chrome as the
+// rest of the site — no auth-guard.js, no dead href="#" links.
+describe('marketing site about + FAQ pages (Task 11)', () => {
+  it('GET /about is 200, marked data-page="about", no auth-guard.js, no dead href="#" links', async () => {
+    const res = await get('/about');
+    expect(res.status).toBe(200);
+    expect(res.raw).toContain('data-page="about"');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET /about has the numbers strip (data-count) and the shared site chrome', async () => {
+    const res = await get('/about');
+    expect(res.raw).toContain('data-count');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+  });
+
+  it('GET /about has SEO head tags and marks About current in both navs', async () => {
+    const res = await get('/about');
+    expect(res.raw).toContain('<title>About GP Link — GP Recruitment & Registration for Australia | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/about">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+    const currentMatches = res.raw.match(/href="\/about" aria-current="page"/g) || [];
+    expect(currentMatches.length).toBe(2);
+  });
+
+  it('GET /about has Talk to us CTAs (mailto, Calendly, ACN, signup)', async () => {
+    const res = await get('/about');
+    expect(res.raw).toContain('href="mailto:hello@mygplink.com.au"');
+    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+    expect(res.raw).toContain('ACN 693 259 737');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+  });
+
+  it('GET /faq is 200, marked data-page="faq", no auth-guard.js, no dead href="#" links', async () => {
+    const res = await get('/faq');
+    expect(res.status).toBe(200);
+    expect(res.raw).toContain('data-page="faq"');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET /faq has faq-item accordion markup for both doctor and practice groups', async () => {
+    const res = await get('/faq');
+    const itemMatches = res.raw.match(/class="faq-item"/g) || [];
+    expect(itemMatches.length).toBe(10); // 6 doctor + 4 practice questions
+    expect(res.raw).toContain('class="faq-q"');
+    expect(res.raw).toContain('class="faq-a"');
+  });
+
+  it('GET /faq has SEO head tags and marks FAQ current in both navs', async () => {
+    const res = await get('/faq');
+    expect(res.raw).toContain('<title>FAQ — Moving to Australia as a GP | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/faq">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+    const currentMatches = res.raw.match(/href="\/faq" aria-current="page"/g) || [];
+    expect(currentMatches.length).toBe(2);
+  });
+
+  it('GET /faq final CTA band links to signup and employers', async () => {
+    const res = await get('/faq');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+    expect(res.raw).toContain('href="/employers"');
+  });
+});
