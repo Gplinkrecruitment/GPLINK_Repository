@@ -112,6 +112,12 @@
   .jobs-pagination{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:34px;}
   .pagination-showing{font-size:13.5px;color:var(--mut-2);}
 
+  /* ---------- single real match (total<=1): honest, no fake teasers ---------- */
+  .single-match-panel{grid-column:1/-1;text-align:center;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--r);padding:clamp(28px,4vw,40px) 24px;}
+  .single-match-panel h4{margin:0 0 8px;font-size:19px;font-weight:730;color:var(--ink-2);}
+  .single-match-panel p{margin:0 auto 18px;font-size:14.5px;line-height:1.55;color:var(--mut);max-width:56ch;}
+
   @media (prefers-reduced-motion: reduce){
     .job-card.skeleton,.job-card.skeleton-teaser{animation:none;}
   }
@@ -519,6 +525,28 @@
     renderFilteredLoadMore();
   }
 
+  // total<=1: there is nothing hidden to unlock, so no locked teaser cards
+  // and no "unlock the rest" claim — just the one real match plus an honest
+  // invitation to widen the search to roles that aren't live/public yet.
+  function buildSingleMatchPanel() {
+    var wrap = document.createElement("div");
+    wrap.className = "job-card single-match-panel";
+    wrap.innerHTML =
+      "<h4>Want us to widen the search?</h4>" +
+      "<p>Create a free account and we&rsquo;ll match you to roles as they open &mdash; including ones never " +
+      "advertised publicly.</p>" +
+      '<a class="btn primary" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>';
+    return wrap;
+  }
+
+  function renderSingleMatch(job) {
+    if (resultsCountEl) resultsCountEl.textContent = "1 matching role found";
+    grid.innerHTML = "";
+    grid.appendChild(buildTopMatchCard(job));
+    grid.appendChild(buildSingleMatchPanel());
+    paginationEl.innerHTML = "";
+  }
+
   function initFilteredResults() {
     renderSkeletons();
     if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
@@ -539,7 +567,12 @@
         paginationEl.innerHTML = "";
         return;
       }
-      renderFilteredMatch(job);
+      total = Number(data.total) || 0;
+      if (total > 1) {
+        renderFilteredMatch(job);
+      } else {
+        renderSingleMatch(job);
+      }
     }).catch(function () {
       if (resultsCountEl) resultsCountEl.textContent = "Could not load roles";
       renderError(function () { initFilteredResults(); });

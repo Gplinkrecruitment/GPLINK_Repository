@@ -191,6 +191,39 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
     expect(res.raw).toMatch(/function buildSignupInterstitial/);
     expect(res.raw).toContain('label + " match your filters" : label + " available right now"');
   });
+
+  // Review fix: when a filtered search's total is <= 1, there is nothing
+  // hidden to unlock — so no locked teaser cards, no "unlock the rest"
+  // panel/header, just the one real match plus an honest, modest signup
+  // panel about widening the search to future/unadvertised roles.
+  it('renders a single-match panel with the exact required honest copy (no fake teasers)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function buildSingleMatchPanel/);
+    expect(res.raw).toContain('single-match-panel');
+    expect(res.raw).toContain('Want us to widen the search?');
+    expect(res.raw).toContain(
+      'Create a free account and we&rsquo;ll match you to roles as they open &mdash; including ones never '
+    );
+    expect(res.raw).toContain('advertised publicly.');
+  });
+
+  it('the single-match header reports an honest "1 matching role found" count', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function renderSingleMatch/);
+    expect(res.raw).toContain('"1 matching role found"');
+  });
+
+  it('branches on total>1 vs total<=1 instead of always rendering teasers', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/if \(total > 1\) \{\s*\n\s*renderFilteredMatch\(job\);\s*\n\s*\} else \{\s*\n\s*renderSingleMatch\(job\);\s*\n\s*\}/);
+  });
+
+  it('the single-match path renders no locked teaser cards and no teaser load-more pagination', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(
+      /function renderSingleMatch\(job\) \{[\s\S]*?grid\.appendChild\(buildSingleMatchPanel\(\)\);\s*\n\s*paginationEl\.innerHTML = "";\s*\n\s*\}/
+    );
+  });
 });
 
 describe('GET /jobs/view (Task 9 job detail page)', () => {

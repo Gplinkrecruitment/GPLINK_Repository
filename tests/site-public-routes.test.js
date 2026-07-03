@@ -143,11 +143,11 @@ describe('marketing site public routes', () => {
     expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);
   });
 
-  it('/sitemap.xml is 200 application/xml and lists all 7 canonical URLs', async () => {
+  it('/sitemap.xml is 200 application/xml and lists all 8 canonical URLs', async () => {
     const res = await get('/sitemap.xml');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/xml/);
-    const expectedPaths = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app'];
+    const expectedPaths = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs'];
     for (const p of expectedPaths) {
       expect(res.raw).toContain(`<loc>https://www.mygplink.com.au${p}</loc>`);
     }
