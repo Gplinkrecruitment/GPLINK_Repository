@@ -372,3 +372,25 @@ describe('RSO refinements: team_instructions, PSV/MyIntealth/AMC → Zoom call, 
     expect(out.items.every(i => (i.team_instructions || '').length > 0)).toBe(true);
   });
 });
+
+describe('officer-reply draft + prompt', () => {
+  it('template renders name/title/reference and a Re: subject', () => {
+    const d = s80.buildOfficerReplyDraft({ gpName: 'Smith Miller', itemTitle: 'Curriculum Vitae', reference: '1460970', officerName: 'Helen' });
+    expect(d.subject).toMatch(/^Re:/);
+    expect(d.body).toContain('Curriculum Vitae');
+    expect(d.body).toContain('Smith Miller');
+    expect(d.body).toContain('1460970');
+  });
+  it('template is safe with missing fields', () => {
+    const d = s80.buildOfficerReplyDraft({});
+    expect(typeof d.subject).toBe('string');
+    expect(d.body.length).toBeGreaterThan(0);
+  });
+  it('AI prompt grounds with item + gp + reference', () => {
+    const m = s80.buildOfficerReplyMessages({ gpName: 'Smith Miller', itemTitle: 'Signed CV', requirement: 'A signed, dated CV', reference: '1460970', officerName: 'Helen' });
+    expect(m.system).toMatch(/AHPRA/i);
+    expect(m.userText).toContain('Signed CV');
+    expect(m.userText).toContain('Smith Miller');
+    expect(m.userText).toContain('1460970');
+  });
+});
