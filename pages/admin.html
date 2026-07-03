@@ -10835,9 +10835,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           renderSiteEnquiriesPanelBody();
         } else {
           actionBtn.disabled = false;
+          toast('Could not update enquiry', 'red');
         }
       } catch (err) {
         actionBtn.disabled = false;
+        toast('Could not update enquiry', 'red');
       }
     }
   });
