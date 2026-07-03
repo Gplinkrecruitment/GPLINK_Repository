@@ -46551,9 +46551,8 @@ Return ONLY valid JSON with no markdown formatting:
 }
 
 // ── Public marketing site routing config ──────────────────────────────────
-// The 7 anonymous-accessible marketing routes and the placeholder page files
-// backing them (later tasks replace the file contents; this task only wires
-// the routing). Never add these paths to APP_SHELL_SUPPORTED_PATHS or to
+// The anonymous-accessible marketing routes and the page files backing them.
+// Never add these paths to APP_SHELL_SUPPORTED_PATHS or to
 // js/nav-shell-bridge.js's PAGE_PATHS — marketing pages are standalone HTML,
 // not embedded app-shell pages, and must not load js/auth-guard.js.
 const SITE_PUBLIC_ROUTES = {
@@ -46564,6 +46563,9 @@ const SITE_PUBLIC_ROUTES = {
   '/about': 'pages/site-about.html',
   '/faq': 'pages/site-faq.html',
   '/the-app': 'pages/site-app.html',
+  // Matches the owner's old Wix page (www.mygplink.com.au/gp-jobs) so
+  // existing inbound links keep working after the DNS cutover.
+  '/gp-jobs': 'pages/site-gp-jobs.html',
 };
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
 // Reverse map so a direct hit on the backing file (e.g. /pages/site-home.html)
@@ -46613,7 +46615,7 @@ async function handleRequest(req, res) {
   }
 
   // ── Public marketing site routes (no auth required) ────────────────
-  // robots.txt / sitemap.xml, and the 7 marketing pages other than '/' (which
+  // robots.txt / sitemap.xml, and the marketing pages other than '/' (which
   // is handled below alongside the existing host/session-aware root redirect).
   if (pathname === '/robots.txt') {
     const body = `User-agent: *\nAllow: /\nSitemap: ${PUBLIC_BASE_URL}/sitemap.xml\n`;

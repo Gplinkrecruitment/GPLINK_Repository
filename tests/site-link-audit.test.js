@@ -3,12 +3,12 @@ import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 
-// Task 14: full verification sweep + automated link audit across the 7
-// public marketing pages. Mirrors the http-harness idiom used by
-// tests/site-public-routes.test.js (boot a real server, no Supabase
-// configured, no session) but instead of asserting individual known-good
-// links, this crawls every href/src/action attribute actually rendered on
-// each page and classifies it:
+// Task 14: full verification sweep + automated link audit across the
+// public marketing pages (Task 15 added /gp-jobs to the set). Mirrors the
+// http-harness idiom used by tests/site-public-routes.test.js (boot a real
+// server, no Supabase configured, no session) but instead of asserting
+// individual known-good links, this crawls every href/src/action attribute
+// actually rendered on each page and classifies it:
 //   (a) an internal path that 200s directly, OR an auth-guarded path that
 //       302s to /pages/signin (which itself must then 200) — /pages/signin*
 //       links are asserted to 200 directly, since they ARE the sign-in page;
@@ -20,14 +20,14 @@ import fs from 'fs';
 //       content-type matching its extension.
 // It also asserts zero dead href="#" links, exactly one <title>/meta
 // description/canonical per page, no auth-guard.js/nav-shell-bridge.js on
-// any of the 7 pages, and that /sitemap.xml lists exactly the 7 public
-// routes.
+// any of the public pages, and that /sitemap.xml lists exactly the public
+// routes below (no more, no less).
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server;
 let addrPort;
 
-const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app'];
+const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs'];
 const PUBLIC_BASE_URL = 'https://www.mygplink.com.au';
 
 const ALLOWED_EXTERNAL = [

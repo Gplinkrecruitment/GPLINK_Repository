@@ -326,3 +326,51 @@ describe('marketing site app page (Task 12)', () => {
     expect(res.raw).not.toMatch(/nav-shell-bridge/);
   });
 });
+
+// Task 15: "For GPs" doctor-journey pitch page (pages/site-gp-jobs.html),
+// served at GET /gp-jobs — matches the owner's old Wix page URL so existing
+// inbound links keep working after the DNS cutover. Same standalone
+// marketing chrome as the rest of the site, plus the owner-requested RSO
+// (Registration Support Officer) highlight band.
+describe('marketing site "For GPs" page (Task 15)', () => {
+  it('GET /gp-jobs is 200, marked data-page="gp-jobs", no auth-guard.js, no dead href="#" links', async () => {
+    const res = await get('/gp-jobs');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.raw).toContain('data-page="gp-jobs"');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET /gp-jobs mentions the Registration Support Officer highlight band', async () => {
+    const res = await get('/gp-jobs');
+    expect(res.raw).toContain('Registration Support Officer');
+  });
+
+  it('GET /gp-jobs has the shared site chrome and SEO head tags', async () => {
+    const res = await get('/gp-jobs');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('<title>GP Jobs &amp; Careers in Australia for Overseas Doctors | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/gp-jobs">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+  });
+
+  it('GET /gp-jobs CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+    const res = await get('/gp-jobs');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+    expect(res.raw).toContain('href="/jobs"');
+    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+  });
+
+  it('GET /gp-jobs has no app-shell/nav-shell-bridge chrome (marketing pages are standalone)', async () => {
+    const res = await get('/gp-jobs');
+    expect(res.raw).not.toMatch(/app-shell/);
+    expect(res.raw).not.toMatch(/nav-shell-bridge/);
+  });
+
+  it('GET / (homepage) nav links to /gp-jobs', async () => {
+    const res = await get('/');
+    expect(res.raw).toContain('href="/gp-jobs">For GPs</a>');
+  });
+});
