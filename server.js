@@ -17061,6 +17061,7 @@ function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; 
 // site. Stored in Supabase `site_enquiries` (prod) or dbState.siteEnquiries
 // (local JSON-db dev fallback); consumed by the admin Website tab (task 13).
 const SITE_ENQUIRY_KINDS = ['practice', 'gp', 'general'];
+const SITE_ENQUIRY_STATUSES = ['new', 'contacted', 'closed'];
 const SITE_ENQUIRY_MESSAGE_MAX = 4000;
 const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
 
@@ -17156,6 +17157,51 @@ async function insertSiteEnquiryRow(row) {
   dbState.siteEnquiries.push(row);
   saveDbState();
   return true;
+}
+
+// Test-only: seeds rows directly into the in-memory local-JSON-db collection
+// (see __resetSiteEnquiriesForTest for why this is needed instead of writing
+// the on-disk file directly).
+function __seedSiteEnquiriesForTest(rows) {
+  dbState.siteEnquiries = Array.isArray(rows) ? rows.slice() : [];
+  saveDbState();
+}
+
+// Admin list — consumed by GET /api/admin/site-enquiries (task 13). Same
+// dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
+// in local-JSON-db dev/test mode. Always returns newest-first.
+async function listSiteEnquiryRows(status) {
+  if (isSupabaseDbConfigured()) {
+    let query = 'select=*&order=created_at.desc';
+    if (status) query += '&status=eq.' + encodeURIComponent(status);
+    const r = await supabaseDbRequest('site_enquiries', query, { method: 'GET' });
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries.slice() : [];
+  const filtered = status ? rows.filter((r) => r.status === status) : rows;
+  return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+// Admin status update — consumed by POST /api/admin/site-enquiries/update
+// (task 13). Returns { ok, notFound } so the route can distinguish a missing
+// row (404) from a genuine write failure (500).
+async function updateSiteEnquiryStatus(id, status) {
+  if (isSupabaseDbConfigured()) {
+    const existing = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id) + '&select=id', { method: 'GET' });
+    if (!existing.ok || !Array.isArray(existing.data) || existing.data.length === 0) {
+      return { ok: false, notFound: true };
+    }
+    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status }
+    });
+    return { ok: !!r.ok, notFound: false };
+  }
+  dbState.siteEnquiries = dbState.siteEnquiries || [];
+  const row = dbState.siteEnquiries.find((r) => r.id === id);
+  if (!row) return { ok: false, notFound: true };
+  row.status = status;
+  saveDbState();
+  return { ok: true, notFound: false };
 }
 
 // Optional admin notification — env-gated, best-effort. The enquiry API must
@@ -27105,6 +27151,56 @@ async function handleApi(req, res, pathname) {
 
     await maybeNotifySiteEnquiry(row);
 
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // GET /api/admin/site-enquiries — list marketing-site enquiries for the
+  // admin "Website" tab (task 13), newest-first, optional ?status= filter.
+  if (pathname === '/api/admin/site-enquiries' && req.method === 'GET') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const statusFilter = String(url.searchParams.get('status') || '').trim();
+    if (statusFilter && !SITE_ENQUIRY_STATUSES.includes(statusFilter)) {
+      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
+      return;
+    }
+    const enquiries = await listSiteEnquiryRows(statusFilter);
+    sendJson(res, 200, { ok: true, enquiries });
+    return;
+  }
+
+  // POST /api/admin/site-enquiries/update — change an enquiry's status
+  // (task 13 admin workflow: new -> contacted -> closed).
+  if (pathname === '/api/admin/site-enquiries/update' && req.method === 'POST') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+    const id = String((body && body.id) || '').trim();
+    const status = String((body && body.status) || '').trim();
+    if (!id) {
+      sendJson(res, 400, { ok: false, error: 'id is required.' });
+      return;
+    }
+    if (!SITE_ENQUIRY_STATUSES.includes(status)) {
+      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
+      return;
+    }
+    const result = await updateSiteEnquiryStatus(id, status);
+    if (result.notFound) {
+      sendJson(res, 404, { ok: false, error: 'Enquiry not found.' });
+      return;
+    }
+    if (!result.ok) {
+      sendJson(res, 500, { ok: false, error: 'Failed to update enquiry.' });
+      return;
+    }
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -46977,6 +47073,9 @@ module.exports.__testUtils = {
   recordSiteEnquiryRateLimitHit,
   __resetSiteEnquiryRateLimitForTest,
   __resetSiteEnquiriesForTest,
-  insertSiteEnquiryRow
+  __seedSiteEnquiriesForTest,
+  insertSiteEnquiryRow,
+  listSiteEnquiryRows,
+  updateSiteEnquiryStatus
 };
 // cache-bust 1778597236

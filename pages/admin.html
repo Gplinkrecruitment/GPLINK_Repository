@@ -1271,6 +1271,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .calls-status-badge.completed{background:#f0fdf4;color:#16a34a}
 .calls-status-badge.cancelled{background:#f8fafc;color:#94a3b8}
 .calls-status-badge.no_show{background:#fef2f2;color:#dc2626}
+/* Website enquiries (Task 13) */
+.site-enq-nav-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;vertical-align:middle}
+.site-enq-panel{padding:16px 20px;max-width:1000px;margin:0 auto}
+.site-enq-panel h2{font-size:18px;font-weight:800;margin:0 0 12px}
+.site-enq-filters{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.site-enq-row{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:8px}
+.site-enq-row-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.site-enq-when{font-size:11px;color:var(--muted);white-space:nowrap}
+.site-enq-kind{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase}
+.site-enq-kind-practice{background:#eff6ff;color:#2563eb}
+.site-enq-kind-gp{background:#f0fdf4;color:#16a34a}
+.site-enq-kind-general{background:#f8fafc;color:#64748b}
+.site-enq-name{font-size:13px;font-weight:700}
+.site-enq-contact{font-size:11px;color:var(--muted)}
+.site-enq-meta{font-size:11px;color:var(--muted)}
+.site-enq-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase}
+.site-enq-status-new{background:#eff6ff;color:#2563eb}
+.site-enq-status-contacted{background:#ecfdf5;color:#059669}
+.site-enq-status-closed{background:#f8fafc;color:#94a3b8}
+.site-enq-message{font-size:12px;color:var(--text);margin-top:8px;line-height:1.5;white-space:pre-wrap}
+.site-enq-actions{display:flex;gap:6px;margin-left:auto}
 /* Call history pane */
 .call-history-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}
 .call-history-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -1437,6 +1458,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="scheduled_calls">Calls</div>
+    <div class="view-tab" data-view="website">Website<span id="websiteEnqBadge" class="site-enq-nav-badge" style="display:none"></span></div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -1588,6 +1610,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 </div>
 <div id="guidePanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
+<div id="siteEnquiriesPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
@@ -1657,6 +1680,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
+    siteEnq:{items:[],loading:false,filter:"",expandedIds:{}},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
@@ -2249,6 +2273,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       support:"supportPanel",
       guide:"guidePanel",
       scheduled_calls:"scheduledCallsPanel",
+      website:"siteEnquiriesPanel",
       technical:"technicalPanel"
     };
     var key=normalizeAdminView(S.view);
@@ -2268,6 +2293,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
+    if(S.view==="website"){vaShowPanel("website");renderSiteEnquiriesPanel();return;}
     if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
     S.view="tools";
     setActiveViewTab("tools");
@@ -6663,6 +6689,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderGuidePanel();
       }else if(view==="scheduled_calls"){
         renderScheduledCallsPanel();
+      }else if(view==="website"){
+        renderSiteEnquiriesPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -8204,7 +8232,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -9758,7 +9786,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
        (used by the CEO Command Centre menu items). Defaults to Ops Queue when absent. */
     try{
       var viewParam=new URLSearchParams(location.search).get("view");
-      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","technical"];
+      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","website","technical"];
       if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !((viewParam==="medicalcentres"||viewParam==="technical")&&!isSA())){
         S.view=viewParam;
       }
@@ -10669,6 +10697,150 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">Error loading calls: ' + esc(e.message) + '</div></div>';
     }
   }
+
+  // ── Website enquiries (Task 13) ─────────────────────────────────
+  // Marketing-site leads captured by POST /api/public/enquiry (site_enquiries
+  // table / dbState.siteEnquiries fallback). Loaded once per tab-open into
+  // S.siteEnq.items, then filtered/rendered client-side (no re-fetch per pill).
+  var SITE_ENQ_KIND_LABEL = { practice: 'Practice', gp: 'GP', general: 'General' };
+  var SITE_ENQ_STATUS_LABEL = { new: 'New', contacted: 'Contacted', closed: 'Closed' };
+  var SITE_ENQ_MESSAGE_TRUNCATE = 160;
+
+  function updateWebsiteEnqBadge() {
+    var badge = document.getElementById('websiteEnqBadge');
+    if (!badge) return;
+    var newCount = (S.siteEnq.items || []).filter(function(en) { return en.status === 'new'; }).length;
+    if (newCount > 0) { badge.textContent = String(newCount); badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
+
+  async function loadSiteEnquiries() {
+    S.siteEnq.loading = true;
+    S.siteEnq.loadError = false;
+    try {
+      var r = await fetch('/api/admin/site-enquiries', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (d && d.ok && Array.isArray(d.enquiries)) {
+        S.siteEnq.items = d.enquiries;
+      } else {
+        S.siteEnq.items = [];
+        S.siteEnq.loadError = true;
+      }
+    } catch (e) {
+      S.siteEnq.items = [];
+      S.siteEnq.loadError = true;
+    }
+    S.siteEnq.loading = false;
+  }
+
+  async function renderSiteEnquiriesPanel() {
+    var panel = document.getElementById('siteEnquiriesPanel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="site-enq-panel"><h2>Website enquiries</h2><div style="color:var(--muted);font-size:13px">Loading...</div></div>';
+    await loadSiteEnquiries();
+    updateWebsiteEnqBadge();
+    renderSiteEnquiriesPanelBody();
+  }
+
+  function siteEnqKindBadge(kind) {
+    var label = SITE_ENQ_KIND_LABEL[kind] || kind || 'Unknown';
+    var cls = (kind === 'practice' || kind === 'gp' || kind === 'general') ? kind : 'general';
+    return '<span class="site-enq-kind site-enq-kind-' + cls + '">' + esc(label) + '</span>';
+  }
+
+  function renderSiteEnquiriesPanelBody() {
+    var panel = document.getElementById('siteEnquiriesPanel');
+    if (!panel) return;
+    var items = S.siteEnq.items || [];
+    var filter = S.siteEnq.filter || '';
+    var filtered = filter ? items.filter(function(en) { return en.status === filter; }) : items;
+
+    var html = '<div class="site-enq-panel"><h2>Website enquiries</h2>';
+    html += '<div class="site-enq-filters">';
+    [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['closed', 'Closed']].forEach(function(p) {
+      html += '<button class="hub-filt ' + (filter === p[0] ? 'active' : '') + '" data-site-enq-filter="' + esc(p[0]) + '">' + esc(p[1]) + '</button>';
+    });
+    html += '</div>';
+
+    if (S.siteEnq.loadError) {
+      html += '<div class="empty">Could not load website enquiries. Try again.</div>';
+    } else if (!filtered.length) {
+      html += '<div class="empty">' + (filter ? 'No ' + esc((SITE_ENQ_STATUS_LABEL[filter] || filter).toLowerCase()) + ' enquiries.' : 'No website enquiries yet.') + '</div>';
+    } else {
+      filtered.forEach(function(en) {
+        var expanded = !!S.siteEnq.expandedIds[en.id];
+        var msg = en.message || '';
+        var isLong = msg.length > SITE_ENQ_MESSAGE_TRUNCATE;
+        var shown = (expanded || !isLong) ? msg : (msg.slice(0, SITE_ENQ_MESSAGE_TRUNCATE) + '…');
+        html += '<div class="site-enq-row" data-site-enq-id="' + esc(en.id) + '">';
+        html += '<div class="site-enq-row-top">';
+        html += '<span class="site-enq-when">' + esc(iqTimeAgo(en.created_at)) + '</span>';
+        html += siteEnqKindBadge(en.kind);
+        html += '<span class="site-enq-name">' + esc(en.name || '') + '</span>';
+        html += '<span class="site-enq-contact">' + esc(en.email || '') + (en.phone ? ' · ' + esc(en.phone) : '') + '</span>';
+        if (en.practice_name) html += '<span class="site-enq-meta">' + esc(en.practice_name) + '</span>';
+        if (en.state) html += '<span class="site-enq-meta">' + esc(en.state) + '</span>';
+        html += '<span class="site-enq-status site-enq-status-' + esc(en.status || '') + '">' + esc(SITE_ENQ_STATUS_LABEL[en.status] || en.status) + '</span>';
+        html += '<span class="site-enq-actions">';
+        if (en.status === 'new') html += '<button class="btn sm" data-site-enq-action="contacted" data-site-enq-id="' + esc(en.id) + '">Mark contacted</button>';
+        if (en.status !== 'closed') html += '<button class="btn sm ghost" data-site-enq-action="closed" data-site-enq-id="' + esc(en.id) + '">Close</button>';
+        html += '</span>';
+        html += '</div>';
+        if (msg) {
+          html += '<div class="site-enq-message">' + esc(shown);
+          if (isLong) html += ' <a href="#" data-site-enq-toggle="' + esc(en.id) + '">' + (expanded ? 'Show less' : 'Show more') + '</a>';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
+  // Delegated click handling for the Website enquiries panel: filter pills,
+  // message expand/collapse, and the two status-workflow action buttons.
+  document.addEventListener('click', async function(e) {
+    var filterBtn = e.target.closest('[data-site-enq-filter]');
+    if (filterBtn) {
+      S.siteEnq.filter = filterBtn.getAttribute('data-site-enq-filter');
+      renderSiteEnquiriesPanelBody();
+      return;
+    }
+    var toggleBtn = e.target.closest('[data-site-enq-toggle]');
+    if (toggleBtn) {
+      e.preventDefault();
+      var toggleId = toggleBtn.getAttribute('data-site-enq-toggle');
+      S.siteEnq.expandedIds[toggleId] = !S.siteEnq.expandedIds[toggleId];
+      renderSiteEnquiriesPanelBody();
+      return;
+    }
+    var actionBtn = e.target.closest('[data-site-enq-action]');
+    if (actionBtn) {
+      var enqId = actionBtn.getAttribute('data-site-enq-id');
+      var newStatus = actionBtn.getAttribute('data-site-enq-action');
+      actionBtn.disabled = true;
+      try {
+        var r = await fetch('/api/admin/site-enquiries/update', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: enqId, status: newStatus })
+        });
+        var d = await r.json();
+        if (d && d.ok) {
+          var row = (S.siteEnq.items || []).find(function(en) { return en.id === enqId; });
+          if (row) row.status = newStatus;
+          updateWebsiteEnqBadge();
+          renderSiteEnquiriesPanelBody();
+        } else {
+          actionBtn.disabled = false;
+        }
+      } catch (err) {
+        actionBtn.disabled = false;
+      }
+    }
+  });
 
   // ── Call History Sub-Tab (Task 15) ────────────────────────────
   function renderGpCallHistoryPane(c) {
