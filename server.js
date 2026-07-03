@@ -36550,6 +36550,52 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AHPRA s80: pre-filled, AI-drafted reply to the officer for one uploaded item ──
+  if (pathname === '/api/admin/ahpra/item/officer-reply-draft' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    const drTaskId = url.searchParams.get('task_id');
+    if (!drTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    const drRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,title,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(drTaskId) + '&limit=1');
+    const drTask = (drRes.ok && Array.isArray(drRes.data) && drRes.data[0]) ? drRes.data[0] : null;
+    if (!drTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var drMeta = (drTask.metadata && typeof drTask.metadata === 'object') ? drTask.metadata : {};
+    // GP name + email (CC) from the case's profile.
+    var drGpName = 'the applicant', drGpEmail = '';
+    const drCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(drTask.case_id) + '&limit=1');
+    const drCase = (drCaseRes.ok && Array.isArray(drCaseRes.data) && drCaseRes.data[0]) ? drCaseRes.data[0] : {};
+    if (drCase.user_id) {
+      const drProf = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(drCase.user_id) + '&limit=1');
+      const p = (drProf.ok && Array.isArray(drProf.data) && drProf.data[0]) ? drProf.data[0] : {};
+      drGpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || drGpName;
+      drGpEmail = p.email || '';
+    }
+    var drOfficer = (drMeta.officer && drMeta.officer.email) || drCase.ahpra_officer_email || '';
+    var drOfficerName = (drMeta.officer && drMeta.officer.name) || drCase.ahpra_officer_name || '';
+    var drReference = drMeta.reference || '';
+    var drSubject = drMeta.thread_subject || (drMeta.original_email && drMeta.original_email.subject) || '';
+    drSubject = drSubject ? (/^re:/i.test(drSubject) ? drSubject : 'Re: ' + drSubject) : 'Re: Notice to provide further information under section 80(1)(b)' + (drReference ? ' — ' + drReference : '');
+    // AI draft (fail-open to the deterministic template).
+    var drBody = '';
+    try {
+      if (process.env.ANTHROPIC_API_KEY && await checkAnthropicBudget()) {
+        var drMsgs = ahpraS80.buildOfficerReplyMessages({ gpName: drGpName, itemTitle: drTask.title, requirement: drMeta.detail || drMeta.team_instructions || '', reference: drReference, officerName: drOfficerName });
+        var drCtl = new AbortController(); var drT = setTimeout(function () { drCtl.abort(); }, 30000);
+        var drAi = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: drCtl.signal, headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 700, system: drMsgs.system, messages: [{ role: 'user', content: drMsgs.userText }] }) });
+        clearTimeout(drT);
+        var drData = await drAi.json();
+        if (drData && drData.usage) recordAnthropicSpend(drData.usage.input_tokens || 0, drData.usage.output_tokens || 0, drData.usage.cache_read_input_tokens || 0, drData.usage.cache_creation_input_tokens || 0);
+        drBody = (drData && drData.content && drData.content[0] && drData.content[0].text) || '';
+      }
+    } catch (drErr) { console.error('[AHPRA officer-reply-draft] AI failed (fallback to template):', drErr && drErr.message); }
+    if (!drBody.trim()) { drBody = ahpraS80.buildOfficerReplyDraft({ gpName: drGpName, itemTitle: drTask.title, reference: drReference, officerName: drOfficerName }).body; }
+    // escapeHtml doesn't exist in this file — inline escape for the plain-text-to-HTML body conversion.
+    var _drEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var drBodyHtml = drBody.split('\n').map(function (ln) { return _drEsc(ln); }).join('<br>');
+    sendJson(res, 200, { ok: true, to: drOfficer, cc: drGpEmail, subject: drSubject, bodyHtml: drBodyHtml, file_name: (drMeta.upload && drMeta.upload.file_name) || '' });
+    return;
+  }
+
   // ── AHPRA s80: manually log a forwarded/pasted AHPRA letter for a GP ──
   if (pathname === '/api/admin/ahpra/ingest-manual' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
