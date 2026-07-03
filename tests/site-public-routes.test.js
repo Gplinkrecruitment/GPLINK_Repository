@@ -153,3 +153,49 @@ describe('marketing site public routes', () => {
     }
   });
 });
+
+// Task 7: real homepage (pages/site-home.html), served at GET /. Ported from
+// the approved prototype docs/mockups/marketing-homepage-prototype.html with
+// production wiring: real job-search navigation, live stats, real CTAs, no
+// dead `href="#"` links, and none of the logged-in app's chrome.
+describe('marketing site homepage (Task 7)', () => {
+  it('GET / serves the ported homepage with the job search form and hero video', async () => {
+    const res = await get('/');
+    expect(res.status).toBe(200);
+    expect(res.raw).toContain('id="jobSearch"');
+    expect(res.raw).toContain('/media/videos/site-hero-beach.mp4');
+    expect(res.raw).toContain('data-count');
+  });
+
+  it('GET / has no auth-guard.js and no dead href="#" links', async () => {
+    const res = await get('/');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET / has no app-shell/nav-shell-bridge chrome (marketing pages are standalone)', async () => {
+    const res = await get('/');
+    expect(res.raw).not.toMatch(/app-shell/);
+    expect(res.raw).not.toMatch(/nav-shell-bridge/);
+  });
+
+  it('GET / links the shared site chrome css/js', async () => {
+    const res = await get('/');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+  });
+
+  it('GET / has SEO head tags (title, canonical, description, OG)', async () => {
+    const res = await get('/');
+    expect(res.raw).toContain('<title>GP Jobs in Australia for Overseas Doctors | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+    expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg"');
+  });
+
+  it('GET / CTAs point at real destinations, not in-page-only placeholders', async () => {
+    const res = await get('/');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+  });
+});
