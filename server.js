@@ -8568,6 +8568,40 @@ async function sendPracticeIntakeEmail(practice) {
   return result;
 }
 
+/**
+ * Looks up a practice row by its intake token (used by the token-authed
+ * GET/POST /api/practice-intake routes and reused by later pipeline tasks).
+ * Tokens live either in the dedicated `intake_token` column (new pipeline
+ * migration 20260705100000) or, when that migration isn't applied yet,
+ * inside `metadata.intake_token` — same dual-location convention the FB
+ * webhook's `sendPracticeIntakeEmail` already reads. Returns the row or null;
+ * never throws.
+ */
+async function findPracticeByIntakeToken(token) {
+  if (!token) return null;
+
+  if (isSupabaseDbConfigured()) {
+    var byColumn = await supabaseDbRequest('practices', 'select=*&intake_token=eq.' + encodeURIComponent(token) + '&limit=1');
+    if (byColumn.ok && Array.isArray(byColumn.data) && byColumn.data[0]) {
+      return byColumn.data[0];
+    }
+    // The intake_token column may not exist yet (migration not applied) —
+    // fall back to filtering on the metadata JSON column, which has existed
+    // since the original practices table.
+    var byMetadata = await supabaseDbRequest('practices', 'select=*&metadata->>intake_token=eq.' + encodeURIComponent(token) + '&limit=1');
+    if (byMetadata.ok && Array.isArray(byMetadata.data) && byMetadata.data[0]) {
+      return byMetadata.data[0];
+    }
+    return null;
+  }
+
+  var rows = dbState.atsPractices || [];
+  return rows.find(function (p) {
+    var t = p.intake_token || (p.metadata && p.metadata.intake_token);
+    return t && t === token;
+  }) || null;
+}
+
 function joinDialPhone(countryDial, phoneNumber) {
   const digits = String(phoneNumber || '').replace(/\D/g, '');
   return `${String(countryDial || '').trim()}${digits}`;
@@ -28197,6 +28231,129 @@ async function handleApi(req, res, pathname) {
       gpsPlaced: SITE_STATS.gpsPlaced,
       satisfaction: SITE_STATS.satisfaction
     });
+    return;
+  }
+
+  // ── Token-authed practice intake (no session) ────────────────────────────
+  // A practice contact reaches this via the themed intake email's deep link
+  // (?token=…) with no account/login. GET loads whatever they've saved so
+  // far (resumable form); POST validates + saves. Never returns internal ids
+  // or any other practice's data — only the four whitelisted display fields.
+  if (pathname === '/api/practice-intake' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests' });
+      return;
+    }
+
+    const token = String(url.searchParams.get('token') || '').trim();
+    if (token.length < 16) {
+      // Don't leak whether a short/malformed token "almost" matched anything.
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    const practice = await findPracticeByIntakeToken(token);
+    if (!practice) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    const intake = (practice.metadata && practice.metadata.intake) || null;
+    sendJson(res, 200, {
+      ok: true,
+      practice: {
+        name: practice.name || '',
+        contact_name: practice.contact_name || '',
+        agreement_status: practice.agreement_status || 'unsigned',
+        stage: practice.stage || 'prospective',
+        intake: intake,
+        submitted: !!intake
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/practice-intake' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    // Honeypot: hidden `website_hp` field a real practice contact never sees
+    // or fills (mirrors the `/api/public/enquiry` honeypot). A bot that fills
+    // it gets a fake success and nothing is stored or rate-limited further.
+    if (String((body && body.website_hp) || '').trim().length > 0) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const token = String((body && body.token) || '').trim();
+    if (token.length < 16) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    const practice = await findPracticeByIntakeToken(token);
+    if (!practice) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    const validated = practicePipeline.validatePracticeIntakePayload(body);
+    if (!validated.ok) {
+      sendJson(res, 400, { ok: false, error: validated.error });
+      return;
+    }
+    const value = validated.value;
+
+    // Map the validated intake value onto real `practices` columns (added by
+    // migration 20260705100000) AND stash the full object under
+    // metadata.intake (merging — never clobbering fb_lead/fb_raw/intake_token
+    // that the Facebook webhook already stored there).
+    const fullPatch = {
+      billing_style: value.billing_style,
+      dpa: value.dpa,
+      nearest_city: value.nearest_city,
+      suburb: value.suburb,
+      address: value.address,
+      intro_text: value.intro_text,
+      intro_video_url: value.intro_video_url,
+      location_state: value.state,
+      location_city: value.nearest_city,
+      metadata: Object.assign({}, practice.metadata || {}, { intake: value })
+    };
+
+    let saved = await atsUpdatePracticeRow(practice.id, fullPatch);
+    if (!saved && isSupabaseDbConfigured()) {
+      // Missing-column tolerance: migration 20260705100000 may not be applied
+      // yet, so the pipeline columns (and the new `metadata` column) don't
+      // exist. Retry with only the pre-existing legacy columns so the intake
+      // form never hard-fails a practice contact on lagging DDL.
+      console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
+      const legacyPatch = { location_city: value.nearest_city, location_state: value.state };
+      saved = await atsUpdatePracticeRow(practice.id, legacyPatch);
+    }
+
+    if (!saved) {
+      sendJson(res, 500, { ok: false, message: 'Failed to save intake details.' });
+      return;
+    }
+
+    const response = { ok: true };
+    if (practice.agreement_status === 'signed') response.already_signed = true;
+    sendJson(res, 200, response);
     return;
   }
 
