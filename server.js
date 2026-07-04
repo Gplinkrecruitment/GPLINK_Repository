@@ -28449,7 +28449,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    if (practice.agreement_status === 'signed') {
+    // Signed either via the real columns, or via the metadata stash the
+    // degraded persist path below writes when migration 20260705100000
+    // isn't applied yet — both must block a re-sign.
+    const metaAgreement = (practice.metadata && practice.metadata.pipeline_agreement) || null;
+    if (practice.agreement_status === 'signed' || (metaAgreement && metaAgreement.agreement_status === 'signed')) {
       sendJson(res, 409, { ok: false, error: 'already_signed' });
       return;
     }
@@ -28499,15 +28503,29 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // The signed PDF must actually exist in storage before we record a key
+    // pointing at it (or promote the practice / create the job / email a
+    // copy) — a failed upload aborts the whole sign with NO side effects.
     let signedKey;
     if (isSupabaseDbConfigured()) {
       signedKey = 'practices/' + practice.id + '/agreement-signed.pdf';
-      await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, signedKey, 'data:application/pdf;base64,' + stamped.toString('base64'), 'application/pdf');
+      const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, signedKey, 'data:application/pdf;base64,' + stamped.toString('base64'), 'application/pdf');
+      if (!uploaded) {
+        console.error('[practice-intake/sign] signed-agreement upload failed:', signedKey);
+        sendJson(res, 502, { ok: false, error: 'storage_failed' });
+        return;
+      }
     } else {
-      const localDir = path.join(process.cwd(), 'data', 'practice-agreements');
-      fs.mkdirSync(localDir, { recursive: true });
-      fs.writeFileSync(path.join(localDir, practice.id + '.pdf'), stamped);
-      signedKey = 'local:data/practice-agreements/' + practice.id + '.pdf';
+      try {
+        const localDir = path.join(process.cwd(), 'data', 'practice-agreements');
+        fs.mkdirSync(localDir, { recursive: true });
+        fs.writeFileSync(path.join(localDir, practice.id + '.pdf'), stamped);
+        signedKey = 'local:data/practice-agreements/' + practice.id + '.pdf';
+      } catch (err) {
+        console.error('[practice-intake/sign] local signed-agreement write failed:', err && err.message);
+        sendJson(res, 502, { ok: false, error: 'storage_failed' });
+        return;
+      }
     }
 
     const practicePatch = {
@@ -28520,11 +28538,23 @@ async function handleApi(req, res, pathname) {
     let savedPractice = await atsUpdatePracticeRow(practice.id, practicePatch);
     if (!savedPractice && isSupabaseDbConfigured()) {
       // Missing-column tolerance: agreement_status/agreement_signed_* columns
-      // may not exist yet (migration 20260705100000 not applied). Log and
-      // continue rather than fail the practice's signature — local mode
-      // (used in dev/tests) always has these columns and never hits this path.
+      // may not exist yet (migration 20260705100000 not applied). Fall back
+      // to stashing the same agreement fields under metadata (which the
+      // already_signed 409 gate above also checks) so the signed state is
+      // still durably persisted. Local mode (dev/tests) never hits this path.
       console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
-      savedPractice = await atsUpdatePracticeRow(practice.id, {});
+      savedPractice = await atsUpdatePracticeRow(practice.id, {
+        metadata: Object.assign({}, practice.metadata || {}, { pipeline_agreement: practicePatch })
+      });
+    }
+    if (!savedPractice) {
+      // Nothing persisted (pre-migration schema without even a metadata
+      // column, or a hard DB failure). Fail loud with NO side effects — do
+      // NOT create the job or send emails, otherwise every retry duplicates
+      // both while falsely reporting success.
+      console.error('[practice-intake] cannot persist signed agreement — run migration 20260705100000');
+      sendJson(res, 503, { ok: false, error: 'pipeline_migration_required' });
+      return;
     }
 
     const createdJob = await createPendingJobFromIntake(practice, intake);
