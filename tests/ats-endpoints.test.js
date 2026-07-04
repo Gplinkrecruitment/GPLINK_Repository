@@ -52,6 +52,18 @@ beforeAll(async () => {
   process.env.ADMIN_EMAILS = '';
   // Seed the local-JSON DB before the server loads it.
   execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'seed-ats-dev.js')], { env: { ...process.env, DB_FILE_PATH: DB_FILE } });
+  // Task 9 (practice-client pipeline): inject two pending-approval jobs (the
+  // shape createPendingJobFromIntake writes — is_active:false until approved)
+  // plus one job that already carries an https header image, so the approval
+  // gate + reuse_url validation can be exercised hermetically.
+  const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  seeded.atsJobs = seeded.atsJobs || [];
+  seeded.atsJobs.push(
+    { id: 'jp1', provider: 'internal_ats', title: 'GP — Rangeville', masked_title: 'GP | Suburb of Toowoomba | Mixed billing', practice_name: 'Pipeline Practice One', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Rangeville', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jp2', provider: 'internal_ats', title: 'GP — Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jh1', provider: 'internal_ats', title: 'GP — Kearneys Spring', masked_title: '', practice_name: 'Pipeline Practice Three', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Kearneys Spring', is_active: true, job_status: 'open', approval_status: 'approved', header_image_url: 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+  );
+  fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
   const { createServer } = await import('../server.js');
   server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
@@ -68,7 +80,7 @@ describe('ATS jobs', () => {
     expect(r.status).toBe(200);
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.jobs.length).toBe(5);
+    expect(b.jobs.length).toBe(8); // 5 seeded + 3 pipeline-approval rows injected in beforeAll (pending jobs are merged into the list for admins)
     const j1 = b.jobs.find((j) => j.id === 'j1');
     expect(j1.practice_name).toBe('Greenslopes Family Medical');
     expect(j1.active_count).toBeGreaterThan(0);
@@ -247,6 +259,115 @@ describe('pipeline summary + movement', () => {
     const r = await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST });
     expect([401, 403, 302]).toContain(r.status);
     expect(r.status).not.toBe(200);
+  });
+});
+
+describe('Job approval — mandatory suburb header photo (Task 9)', () => {
+  const ONE_PX_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const SVG_DATA_URL = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString('base64');
+  const EXISTING_HTTPS = 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png'; // jh1's header, injected in beforeAll
+
+  it('pending jobs surface in /api/ats/jobs with approval_status pending', async () => {
+    const r = await req('GET', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie() });
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    const jp1 = b.jobs.find((j) => j.id === 'jp1');
+    expect(jp1).toBeTruthy();
+    expect(jp1.approval_status).toBe('pending');
+    expect(jp1.header_image_url).toBe('');
+    expect(jp1.suburb).toBe('Rangeville');
+    expect(b.jobs.find((j) => j.id === 'jp2').approval_status).toBe('pending');
+  });
+
+  it('approve without a header photo → 400 with the exact gate message', async () => {
+    const r = await req('POST', '/api/ats/job/approve?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'approve' } });
+    expect(r.status).toBe(400);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(false);
+    expect(b.message).toBe('Upload a suburb header photo before approving');
+  });
+
+  it('rejects a non-image upload (svg data URL) on the upload path', async () => {
+    const r = await req('POST', '/api/ats/job/header-image?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { file_data: SVG_DATA_URL, file_name: 'sneaky.svg' } });
+    expect(r.status).toBe(400);
+    expect(parse(r.raw).ok).toBe(false);
+  });
+
+  it('uploads a PNG header image, then approve → approved + is_active + published_at', async () => {
+    const up = await req('POST', '/api/ats/job/header-image?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { file_data: ONE_PX_PNG, file_name: 'suburb.png' } });
+    expect(up.status).toBe(200);
+    const ub = parse(up.raw);
+    expect(ub.ok).toBe(true);
+    expect(ub.url).toBe(ONE_PX_PNG); // local mode stores the data URL itself
+
+    const ap = await req('POST', '/api/ats/job/approve?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'approve' } });
+    expect(ap.status).toBe(200);
+    const ab = parse(ap.raw);
+    expect(ab.ok).toBe(true);
+    expect(ab.job.approval_status).toBe('approved');
+
+    const raw = parse((await req('GET', '/api/ats/job?id=jp1', { host: SUPER_HOST, cookie: superCookie() })).raw).raw;
+    expect(raw.is_active).toBe(true);
+    expect(raw.approval_status).toBe('approved');
+    expect(typeof raw.published_at).toBe('string');
+    expect(raw.published_at.length).toBeGreaterThan(0);
+  });
+
+  it('approve on a non-pending job → 409', async () => {
+    const r = await req('POST', '/api/ats/job/approve?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'approve' } });
+    expect(r.status).toBe(409);
+    expect(parse(r.raw).ok).toBe(false);
+  });
+
+  it('suburb-images lists existing header images, deduped, with suburb labels', async () => {
+    const r = await req('GET', '/api/ats/suburb-images', { host: SUPER_HOST, cookie: superCookie() });
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    const urls = b.images.map((im) => im.url);
+    expect(urls).toContain(EXISTING_HTTPS);
+    expect(urls).toContain(ONE_PX_PNG); // jp1's fresh upload
+    expect(new Set(urls).size).toBe(urls.length); // unique by url
+    expect(b.images.find((im) => im.url === EXISTING_HTTPS).suburb).toBe('Kearneys Spring');
+  });
+
+  it('reuse_url rejects an svg data URL (not on the image mime whitelist)', async () => {
+    const r = await req('POST', '/api/ats/job/header-image?id=jp2', { host: SUPER_HOST, cookie: superCookie(), body: { reuse_url: SVG_DATA_URL } });
+    expect(r.status).toBe(400);
+    expect(parse(r.raw).ok).toBe(false);
+  });
+
+  it('reuse_url rejects an arbitrary https URL that is no job\'s header image', async () => {
+    const r = await req('POST', '/api/ats/job/header-image?id=jp2', { host: SUPER_HOST, cookie: superCookie(), body: { reuse_url: 'https://evil.example.com/not-ours.png' } });
+    expect(r.status).toBe(400);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(false);
+    expect(b.message).toBe('reuse_url must be an existing header image');
+  });
+
+  it('reuse_url accepts an https URL that IS an existing header image', async () => {
+    const r = await req('POST', '/api/ats/job/header-image?id=jp2', { host: SUPER_HOST, cookie: superCookie(), body: { reuse_url: EXISTING_HTTPS } });
+    expect(r.status).toBe(200);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.url).toBe(EXISTING_HTTPS);
+  });
+
+  it('reject → approval_status rejected + is_active false', async () => {
+    const r = await req('POST', '/api/ats/job/approve?id=jp2', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'reject' } });
+    expect(r.status).toBe(200);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.job.approval_status).toBe('rejected');
+    const raw = parse((await req('GET', '/api/ats/job?id=jp2', { host: SUPER_HOST, cookie: superCookie() })).raw).raw;
+    expect(raw.is_active).toBe(false);
+    expect(raw.approval_status).toBe('rejected');
+  });
+
+  it('blocks the approval endpoints without a session', async () => {
+    const r = await req('POST', '/api/ats/job/approve?id=jp1', { host: SUPER_HOST, body: { action: 'approve' } });
+    expect([401, 403, 302]).toContain(r.status);
+    const r2 = await req('POST', '/api/ats/job/header-image?id=jp1', { host: SUPER_HOST, body: { file_data: ONE_PX_PNG } });
+    expect([401, 403, 302]).toContain(r2.status);
   });
 });
 

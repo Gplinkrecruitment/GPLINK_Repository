@@ -25314,6 +25314,16 @@ async function atsInsertJobRow(row) {
   var local = Object.assign({ id: atsLocalId('job_'), created_at: atsNowIso(), synced_at: atsNowIso() }, row, { updated_at: atsNowIso() });
   dbState.atsJobs = dbState.atsJobs || []; dbState.atsJobs.push(local); saveDbState(); return local;
 }
+// Rows that already carry a header image — shared by GET /api/ats/suburb-images
+// (the reuse picker) and the reuse_url existence check in
+// POST /api/ats/job/header-image, so both always see the same set.
+async function atsListHeaderImageRows() {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', 'select=suburb,location_city,header_image_url&header_image_url=neq.&limit=500');
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  return (dbState.atsJobs || []).filter(function (j) { return j.header_image_url; });
+}
 async function atsUpdateJobRow(id, patch) {
   patch.updated_at = atsNowIso();
   if (isSupabaseDbConfigured()) {
@@ -48532,12 +48542,24 @@ Return ONLY valid JSON with no markdown formatting:
     var hiUrl = '';
     if (bodyHI.reuse_url !== undefined) {
       var hiReuse = typeof bodyHI.reuse_url === 'string' ? bodyHI.reuse_url.trim() : '';
-      // Reusing an existing header image (from the per-suburb picker) — just
-      // point this job's header_image_url at it, no re-upload. Must look like an
-      // actual image URL (https:// or a data: URL) rather than arbitrary text.
-      if (!hiReuse || !/^(https:\/\/|data:image\/)/i.test(hiReuse)) {
+      // header_image_url is publicly rendered, so reuse_url is locked down:
+      // either an inline image data URL on the SAME mime whitelist as the
+      // upload path (svg explicitly excluded — scriptable), or an https URL
+      // that is ALREADY some job's header_image_url (same data source as
+      // /api/ats/suburb-images). Arbitrary https URLs are rejected.
+      var hiReuseIsDataImage = /^data:image\/(png|jpe?g|webp);base64,/i.test(hiReuse);
+      var hiReuseIsHttps = /^https:\/\//i.test(hiReuse);
+      if (!hiReuse || (!hiReuseIsDataImage && !hiReuseIsHttps)) {
         sendJson(res, 400, { ok: false, message: 'Invalid reuse_url.' });
         return;
+      }
+      if (hiReuseIsHttps) {
+        var hiExistingRows = await atsListHeaderImageRows();
+        var hiReuseExists = hiExistingRows.some(function (r2) { return r2.header_image_url === hiReuse; });
+        if (!hiReuseExists) {
+          sendJson(res, 400, { ok: false, message: 'reuse_url must be an existing header image' });
+          return;
+        }
       }
       hiUrl = hiReuse;
     } else {
@@ -48582,13 +48604,7 @@ Return ONLY valid JSON with no markdown formatting:
   // instead of uploading a duplicate.
   if (pathname === '/api/ats/suburb-images' && req.method === 'GET') {
     var ctxSI = requireAtsSession(req, res); if (!ctxSI) return;
-    var siRows = [];
-    if (isSupabaseDbConfigured()) {
-      var siR = await supabaseDbRequest('career_roles', 'select=suburb,location_city,header_image_url&header_image_url=neq.&limit=500');
-      if (siR.ok && Array.isArray(siR.data)) siRows = siR.data;
-    } else {
-      siRows = (dbState.atsJobs || []).filter(function (j) { return j.header_image_url; });
-    }
+    var siRows = await atsListHeaderImageRows();
     var siSeenUrls = {}; var siImages = [];
     siRows.forEach(function (j) {
       var u = j.header_image_url;
