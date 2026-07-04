@@ -3341,18 +3341,36 @@ async function _resolveGpJobsProfile(userId, email) {
 // `dpa`, `state`, `nearest_city`). Non-qualifying roles are replaced with
 // redacted stubs (no identifying fields) and appended after the qualifying,
 // ranked list. Single chokepoint called from every /api/career/roles response path.
+//
+// FAILS CLOSED: if anything in here throws unexpectedly, the caller gets every
+// role as a redacted blurred stub (or an empty list if even stubbing throws) —
+// never the raw ungated list, which could hand an overseas-trained GP the
+// identifying details of roles they legally can't be placed into.
+//
+// Never mutates the input roles — some callers pass objects that live in the
+// module-level _zohoRolesCache, which is shared across users.
 async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
   var list = Array.isArray(clientRoles) ? clientRoles : [];
   try {
     var gpProfile = await _resolveGpJobsProfile(userId, email);
     var gated = list.map(function (r) {
-      return Object.assign(r, practicePipeline.gpQualifiesForRole({ dpa: r.dpa }, { australiaTrained: gpProfile.australiaTrained }));
+      var verdict = practicePipeline.gpQualifiesForRole({ dpa: r.dpa }, { australiaTrained: gpProfile.australiaTrained });
+      return Object.assign({}, r, {
+        qualifies: verdict.qualifies === true,
+        qualifyReason: verdict.reason || ''
+      });
     });
     var qualifying = practicePipeline.rankRolesForGp(gated.filter(function (r) { return r.qualifies; }), { preferredCity: gpProfile.preferredCity });
     var blurred = gated.filter(function (r) { return !r.qualifies; }).map(function (r) { return practicePipeline.buildRedactedRoleStub(r); });
     return qualifying.concat(blurred);
   } catch (e) {
-    return list;
+    console.error('[dpa-gate] visibility gate failed — failing closed', e);
+    try {
+      return list.map(function (r) { return practicePipeline.buildRedactedRoleStub(r); });
+    } catch (stubErr) {
+      console.error('[dpa-gate] fail-closed stubbing also failed — returning empty roles list', stubErr);
+      return [];
+    }
   }
 }
 
@@ -50579,6 +50597,7 @@ module.exports.__testUtils = {
   mapCareerRoleDetailToClient,
   isInternalAtsRoleOpenForGp,
   canRevealPracticeIdentity,
+  _applyGpRoleVisibilityGate,
   getPublicJobsCount,
   getPublicJobsRows,
   __getPublicJobsRowsCacheForTest,

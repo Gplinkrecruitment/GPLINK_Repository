@@ -9,7 +9,7 @@
 // Boots the real server against a tiny in-memory PostgREST emulator (same
 // pattern as tests/career-internal-apply.test.js), so the FULL Supabase-mode
 // /api/career/roles + /api/career/apply pipelines run for real.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -18,6 +18,7 @@ import path from 'path';
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-career-dpa-${RUN_ID}.json`);
 let server, port;
+let testUtils;             // server.js __testUtils (fail-closed gate seam)
 let sbServer, sbPort;
 
 const OVERSEAS_GP = { userId: 'u-overseas-1', email: 'overseas-gp@gplink-test.local' };
@@ -206,8 +207,9 @@ beforeAll(async () => {
   process.env.ADMIN_EMAILS = '';
   process.env.SUPER_ADMIN_EMAILS = '';
 
-  const { createServer } = await import('../server.js');
-  server = createServer();
+  const mod = await import('../server.js');
+  testUtils = mod.__testUtils;
+  server = mod.createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
 });
 
@@ -327,5 +329,70 @@ describe('POST /api/career/apply — server-side DPA enforcement', () => {
     const saved = db.gp_applications.find((a) => a.user_id === AU_TRAINED_GP.userId && a.career_role_id === 'role-nondpa-1');
     expect(saved).toBeTruthy();
     expect(saved.origin).toBe('gp_applied');
+  });
+});
+
+// Unit tests against the gate helper itself (exported via __testUtils) —
+// covers behavior that is hard to reach through the HTTP endpoint: the
+// fail-closed error path and the no-mutation guarantee for cached role objects.
+describe('_applyGpRoleVisibilityGate — fail-closed + no cache mutation (unit)', () => {
+  it('FAILS CLOSED: an unexpected throw mid-gate returns every role as a redacted stub, never the raw list', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const poisoned = [
+        { id: 'r-ok', practiceName: 'SECRET Practice A', state: 'QLD', dpa: true },
+        // Reading .dpa on this role throws — simulates any unexpected runtime
+        // fault inside the gate's main path.
+        Object.defineProperty({ id: 'r-boom', practiceName: 'SECRET Practice B', state: 'VIC' }, 'dpa', {
+          get() { throw new Error('simulated gate fault'); },
+          enumerable: true
+        })
+      ];
+      const out = await testUtils._applyGpRoleVisibilityGate(poisoned, OVERSEAS_GP.userId, OVERSEAS_GP.email);
+      expect(out).toHaveLength(2);
+      // EVERY role comes back blurred/redacted — including the DPA one that
+      // would have qualified had the gate not faulted.
+      out.forEach((r) => {
+        expect(r.blurred).toBe(true);
+        expect(r.qualifies).toBe(false);
+        expect(r.practiceName).toBe('Confidential practice');
+      });
+      expect(JSON.stringify(out)).not.toContain('SECRET');
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[dpa-gate] visibility gate failed — failing closed'),
+        expect.any(Error)
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('never mutates the input role objects (shared _zohoRolesCache safety) and writes qualifyReason, not reason', async () => {
+    const cachedRole = { id: 'r-cached', practiceName: 'Masked Cached Role', state: 'VIC', nearest_city: 'Melbourne', dpa: false, qualifies: true };
+    const frozenSnapshot = JSON.stringify(cachedRole);
+
+    const out = await testUtils._applyGpRoleVisibilityGate([cachedRole], OVERSEAS_GP.userId, OVERSEAS_GP.email);
+
+    // The cached object is byte-for-byte untouched: no qualifies flip, no
+    // reason/qualifyReason keys stamped onto it.
+    expect(JSON.stringify(cachedRole)).toBe(frozenSnapshot);
+
+    // The returned stub carries the aligned qualifyReason key (what
+    // buildRedactedRoleStub reads), and no stray `reason` key anywhere.
+    expect(out).toHaveLength(1);
+    expect(out[0].blurred).toBe(true);
+    expect(out[0].qualifyReason).toBe('dpa_restricted');
+    expect(out[0].reason).toBeUndefined();
+  });
+
+  it('qualifying roles come back as copies too, with qualifies true and empty qualifyReason', async () => {
+    const cachedRole = { id: 'r-cached-dpa', practiceName: 'Masked DPA Role', state: 'QLD', nearest_city: 'Toowoomba', dpa: true, qualifies: true };
+    const out = await testUtils._applyGpRoleVisibilityGate([cachedRole], OVERSEAS_GP.userId, OVERSEAS_GP.email);
+    expect(out).toHaveLength(1);
+    expect(out[0]).not.toBe(cachedRole); // copy, not the cached object itself
+    expect(out[0].qualifies).toBe(true);
+    expect(out[0].qualifyReason).toBe('');
+    expect(out[0].practiceName).toBe('Masked DPA Role');
+    expect(cachedRole.qualifyReason).toBeUndefined();
   });
 });
