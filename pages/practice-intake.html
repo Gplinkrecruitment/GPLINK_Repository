@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Intake — GP Link</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root{
+    --blue:#2563eb;
+    --blue-dark:#1d4ed8;
+    --ink:#0f172a;
+    --mut:#5b6b82;
+    --line:#e2e8f0;
+    --bg:#f0f4fa;
+    --card:#ffffff;
+    --green:#0e9f6e;
+    --red:#dc2626;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:20px 16px 64px;}
+  .brand{display:flex;align-items:center;gap:10px;padding:18px 2px 8px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:9px;background:var(--blue);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;
+    flex:none;
+  }
+  .brand .name{font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:26px 22px;margin-top:12px;box-shadow:0 12px 32px -20px rgba(15,23,42,.25);
+  }
+  h1{font-size:21px;font-weight:800;letter-spacing:-.01em;margin:0 0 6px;color:var(--ink);}
+  h2{font-size:17px;font-weight:750;margin:0 0 4px;color:var(--ink);}
+  p{margin:0 0 14px;color:var(--mut);font-size:14.5px;}
+  .lede{color:var(--mut);font-size:14.5px;margin-bottom:18px;}
+
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:13px;font-weight:650;color:var(--ink);margin-bottom:6px;}
+  .field .hint{font-size:12.5px;color:var(--mut);font-weight:400;margin-top:4px;}
+  .field input[type="text"],
+  .field input[type="url"],
+  .field select,
+  .field textarea{
+    width:100%;font:inherit;font-size:14.5px;color:var(--ink);
+    border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{
+    outline:2px solid var(--blue);outline-offset:1px;border-color:var(--blue);
+  }
+  .field textarea{resize:vertical;min-height:88px;}
+  .req-star{color:var(--red);margin-left:2px;}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+  @media (max-width:480px){.grid-2{grid-template-columns:1fr;}}
+
+  .hp-field{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}
+
+  .section-div{border-top:1px solid var(--line);margin:22px 0 18px;padding-top:18px;}
+  .nudge{
+    background:#eef4ff;border:1px solid #c9dcfb;color:var(--blue-dark);
+    border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;margin-bottom:16px;
+  }
+
+  .actions{margin-top:6px;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    background:var(--blue);color:#fff;border:0;border-radius:10px;
+    font:inherit;font-size:15px;font-weight:700;padding:13px 22px;cursor:pointer;
+    width:100%;transition:background .15s ease,transform .15s ease,opacity .15s ease;
+  }
+  .btn:hover:not(:disabled){background:var(--blue-dark);}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-secondary{
+    background:transparent;color:var(--blue);border:1px solid var(--line);
+  }
+  .btn-secondary:hover{background:#f5f8ff;}
+  .link-row{margin-top:14px;text-align:center;}
+  .link-row a{color:var(--blue);font-size:13.5px;font-weight:650;text-decoration:none;}
+  .link-row a:hover{text-decoration:underline;}
+
+  .error-box{
+    background:#fef2f2;border:1px solid #fecaca;color:var(--red);
+    border-radius:10px;padding:11px 13px;font-size:13.5px;font-weight:600;margin:14px 0 0;
+    display:none;
+  }
+  .error-box.show{display:block;}
+
+  .state-panel{text-align:center;padding:36px 10px;}
+  .state-panel .icon{font-size:44px;line-height:1;margin-bottom:14px;}
+  .spinner{
+    width:28px;height:28px;border-radius:50%;border:3px solid #dbe6fb;border-top-color:var(--blue);
+    margin:0 auto 16px;animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .pdf-frame{width:100%;height:480px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;}
+  .pdf-fallback{margin:10px 0 20px;font-size:13.5px;}
+  .pdf-fallback a{color:var(--blue);font-weight:650;text-decoration:none;}
+  .pdf-fallback a:hover{text-decoration:underline;}
+
+  .sig-wrap{
+    border:1px solid var(--line);border-radius:12px;padding:12px;background:#fbfcfe;margin-bottom:14px;
+  }
+  canvas#sigPad{
+    width:100%;height:140px;display:block;border:1px dashed #c7d2e4;border-radius:8px;
+    background:#fff;touch-action:none;cursor:crosshair;
+  }
+  .sig-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;}
+  .sig-row .muted{font-size:12.5px;color:var(--mut);}
+  .btn-clear{
+    background:transparent;border:1px solid var(--line);color:var(--mut);
+    font:inherit;font-size:13px;font-weight:650;padding:8px 14px;border-radius:8px;cursor:pointer;width:auto;
+  }
+  .btn-clear:hover{background:#f5f8ff;color:var(--blue-dark);border-color:var(--blue);}
+
+  .type-sig-row{display:flex;gap:8px;margin:10px 0 16px;}
+  .type-sig-row input{flex:1;}
+  .type-sig-row button{
+    flex:none;width:auto;padding:11px 16px;font-size:13.5px;background:var(--ink);
+  }
+  .type-sig-row button:hover:not(:disabled){background:#000;}
+
+  .checkbox-row{display:flex;align-items:flex-start;gap:10px;margin:16px 0 18px;}
+  .checkbox-row input[type="checkbox"]{width:19px;height:19px;flex:none;margin-top:1px;accent-color:var(--blue);}
+  .checkbox-row label{font-size:14px;color:var(--ink);font-weight:600;cursor:pointer;}
+
+  .date-line{font-size:13.5px;color:var(--mut);margin:0 0 14px;}
+
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="mark">GP</span><span class="name">GP Link</span></div>
+
+  <!-- Loading -->
+  <div id="loadingPanel" class="card state-panel">
+    <div class="spinner"></div>
+    <p style="margin:0;">Loading your form…</p>
+  </div>
+
+  <!-- Expired / unknown token -->
+  <div id="expiredPanel" class="card state-panel hidden">
+    <div class="icon">⚠️</div>
+    <h1>This link has expired</h1>
+    <p>We couldn't find an active form for this link. If you think this is a mistake, contact us and we'll sort it out.</p>
+    <p style="margin-bottom:0;"><a href="mailto:hello@mygplink.com.au" style="color:var(--blue);font-weight:650;">hello@mygplink.com.au</a></p>
+  </div>
+
+  <!-- Step A: intake form -->
+  <div id="stepAPanel" class="card hidden">
+    <h1>Tell us about your practice</h1>
+    <p class="lede">A few quick details help us match the right GP to your practice. You can come back and finish this later using the same link.</p>
+
+    <form id="intakeForm" novalidate>
+      <input class="hp-field" type="text" id="website_hp" name="website_hp" tabindex="-1" autocomplete="off">
+
+      <div class="field">
+        <label for="billing_style">Billing style<span class="req-star">*</span></label>
+        <select id="billing_style" required>
+          <option value="" disabled selected>Select billing style…</option>
+          <option value="mixed">Mixed Billing</option>
+          <option value="bulk">Bulk Billing</option>
+          <option value="private">Private Billing</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="dpa">DPA (District of Priority Area)<span class="req-star">*</span></label>
+        <select id="dpa" required>
+          <option value="" disabled selected>Select…</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="mmm">Modified Monash Model (MMM)</label>
+        <select id="mmm">
+          <option value="">Unsure / not sure</option>
+          <option value="MM1">MM1</option>
+          <option value="MM2">MM2</option>
+          <option value="MM3">MM3</option>
+          <option value="MM4">MM4</option>
+          <option value="MM5">MM5</option>
+          <option value="MM6">MM6</option>
+          <option value="MM7">MM7</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="visa_sponsorship">Visa sponsorship offered</label>
+        <select id="visa_sponsorship">
+          <option value="">Not sure</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="ownership">Ownership</label>
+          <input type="text" id="ownership" maxlength="200">
+        </div>
+        <div class="field">
+          <label for="years_operating">Years operating</label>
+          <input type="text" id="years_operating" maxlength="50">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="nursing_on_site">Nursing on site</label>
+        <select id="nursing_on_site">
+          <option value="">Not sure</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="gp_count">Number of GPs at practice</label>
+          <input type="text" id="gp_count" maxlength="20">
+        </div>
+        <div class="field">
+          <label for="percentage_split">Percentage split<span class="req-star">*</span></label>
+          <input type="text" id="percentage_split" required maxlength="100" placeholder="e.g. 70/30">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="incentives">Additional incentives</label>
+        <textarea id="incentives" maxlength="2000" placeholder="Relocation support, signing bonus, CPD allowance, etc."></textarea>
+      </div>
+
+      <div class="field">
+        <label for="earnings_text">Estimated earnings guide</label>
+        <input type="text" id="earnings_text" maxlength="300" placeholder="e.g. $250,000–$350,000 p.a.">
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="suburb">Suburb<span class="req-star">*</span></label>
+          <input type="text" id="suburb" required maxlength="120">
+        </div>
+        <div class="field">
+          <label for="nearest_city">Nearest city<span class="req-star">*</span></label>
+          <input type="text" id="nearest_city" required maxlength="120">
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="state">State<span class="req-star">*</span></label>
+          <select id="state" required>
+            <option value="" disabled selected>Select…</option>
+            <option value="NSW">NSW</option>
+            <option value="QLD">QLD</option>
+            <option value="VIC">VIC</option>
+            <option value="SA">SA</option>
+            <option value="WA">WA</option>
+            <option value="TAS">TAS</option>
+            <option value="NT">NT</option>
+            <option value="ACT">ACT</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="general_location">General location</label>
+          <input type="text" id="general_location" maxlength="200" placeholder="e.g. Northern Rivers, NSW">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="address">Street address<span class="req-star">*</span></label>
+        <input type="text" id="address" required maxlength="300">
+      </div>
+
+      <div class="field">
+        <label for="role_title">Role title</label>
+        <input type="text" id="role_title" maxlength="200" placeholder="e.g. VR General Practitioner">
+      </div>
+
+      <div class="field">
+        <label for="role_summary">Role summary</label>
+        <textarea id="role_summary" maxlength="4000" placeholder="What the role involves day to day."></textarea>
+      </div>
+
+      <div class="section-div">
+        <div class="nudge">Practices that add a personal introduction see a 150% higher match rate.</div>
+        <div class="field">
+          <label for="intro_text">Personal introduction (optional)</label>
+          <textarea id="intro_text" maxlength="4000" placeholder="A short note from the practice — what makes it a great place to work?"></textarea>
+        </div>
+        <div class="field">
+          <label for="intro_video_url">Intro video link (optional)</label>
+          <input type="url" id="intro_video_url" placeholder="link to a short video — Loom, YouTube unlisted, etc.">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn" id="stepASubmitBtn">Continue to agreement</button>
+      </div>
+      <div class="error-box" id="stepAError"></div>
+    </form>
+  </div>
+
+  <!-- Step B: agreement + signature -->
+  <div id="stepBPanel" class="card hidden">
+    <h1>Sign your recruitment agreement</h1>
+    <p class="lede">Please review the agreement below, then sign to confirm you'd like GP Link to start sourcing candidates for you.</p>
+
+    <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf" title="GP Link Recruitment Services Agreement"></iframe>
+    <div class="pdf-fallback">
+      Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf" target="_blank" rel="noopener">Download the agreement (PDF)</a>
+    </div>
+
+    <h2>Your signature</h2>
+    <p style="margin-bottom:10px;">Draw your signature below, or type it instead.</p>
+    <div class="sig-wrap">
+      <canvas id="sigPad"></canvas>
+      <div class="sig-row">
+        <span class="muted" id="sigStatus">Not signed yet</span>
+        <button type="button" class="btn-clear" id="clearSigBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="type-sig-row">
+      <input type="text" id="typedSignatureInput" placeholder="Type your signature instead" maxlength="200">
+      <button type="button" class="btn" id="useTypedSigBtn">Use typed signature</button>
+    </div>
+
+    <div class="field">
+      <label for="signedName">Printed name<span class="req-star">*</span></label>
+      <input type="text" id="signedName" maxlength="200" placeholder="Full name of signatory">
+    </div>
+
+    <p class="date-line">Date: <span id="todayDateLabel"></span></p>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="authorisedCheckbox">
+      <label for="authorisedCheckbox">I am authorised to sign on behalf of the practice</label>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="signBtn" disabled>Sign agreement</button>
+    </div>
+    <div class="error-box" id="stepBError"></div>
+
+    <div class="link-row" id="editAnswersRow"><a href="#" id="editAnswersLink">← Edit your answers</a></div>
+  </div>
+
+  <!-- Success -->
+  <div id="successPanel" class="card state-panel hidden">
+    <div class="icon">✅</div>
+    <h1>Agreement signed</h1>
+    <p style="margin-bottom:0;">Agreement signed — your job listing is with our team for approval. Watch your inbox.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var token = (params.get('token') || '').trim();
+
+  var loadingPanel = document.getElementById('loadingPanel');
+  var expiredPanel = document.getElementById('expiredPanel');
+  var stepAPanel = document.getElementById('stepAPanel');
+  var stepBPanel = document.getElementById('stepBPanel');
+  var successPanel = document.getElementById('successPanel');
+
+  function showOnly(panel) {
+    [loadingPanel, expiredPanel, stepAPanel, stepBPanel, successPanel].forEach(function (p) {
+      if (p === panel) p.classList.remove('hidden');
+      else p.classList.add('hidden');
+    });
+  }
+
+  function showSuccess() {
+    showOnly(successPanel);
+  }
+
+  // ---------------------------------------------------------------------
+  // Load
+  // ---------------------------------------------------------------------
+  var currentPractice = null;
+
+  function loadPractice() {
+    if (!token || token.length < 16) {
+      showOnly(expiredPanel);
+      return;
+    }
+    fetch('/api/practice-intake?token=' + encodeURIComponent(token))
+      .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
+      .then(function (res) {
+        if (res.status !== 200 || !res.data || !res.data.ok) {
+          showOnly(expiredPanel);
+          return;
+        }
+        currentPractice = res.data.practice;
+        if (currentPractice.agreement_status === 'signed') {
+          showSuccess();
+          return;
+        }
+        if (currentPractice.submitted) {
+          prefillForm(currentPractice.intake);
+          showStepB();
+        } else {
+          showOnly(stepAPanel);
+        }
+      })
+      .catch(function () {
+        showOnly(expiredPanel);
+      });
+  }
+
+  // ---------------------------------------------------------------------
+  // Step A: intake form
+  // ---------------------------------------------------------------------
+  var boolFieldIds = ['dpa', 'visa_sponsorship', 'nursing_on_site'];
+  var textFieldIds = [
+    'ownership', 'years_operating', 'gp_count', 'percentage_split', 'incentives',
+    'earnings_text', 'suburb', 'nearest_city', 'address', 'general_location',
+    'role_title', 'role_summary', 'intro_text', 'intro_video_url'
+  ];
+  var selectFieldIds = ['billing_style', 'mmm', 'state'];
+
+  function prefillForm(intake) {
+    if (!intake) return;
+    selectFieldIds.forEach(function (id) {
+      if (intake[id] !== undefined && intake[id] !== null) {
+        document.getElementById(id).value = intake[id];
+      }
+    });
+    boolFieldIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (intake[id] === true) el.value = 'yes';
+      else if (intake[id] === false) el.value = 'no';
+    });
+    textFieldIds.forEach(function (id) {
+      if (intake[id] !== undefined && intake[id] !== null) {
+        document.getElementById(id).value = intake[id];
+      }
+    });
+  }
+
+  function boolFromSelect(value) {
+    if (value === 'yes') return true;
+    if (value === 'no') return false;
+    return '';
+  }
+
+  var stepAError = document.getElementById('stepAError');
+  var stepASubmitBtn = document.getElementById('stepASubmitBtn');
+
+  function showStepAError(msg) {
+    stepAError.textContent = msg;
+    stepAError.classList.add('show');
+  }
+  function clearStepAError() {
+    stepAError.textContent = '';
+    stepAError.classList.remove('show');
+  }
+
+  document.getElementById('intakeForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    clearStepAError();
+
+    var form = ev.target;
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    var payload = { token: token, website_hp: document.getElementById('website_hp').value };
+    selectFieldIds.forEach(function (id) { payload[id] = document.getElementById(id).value; });
+    boolFieldIds.forEach(function (id) { payload[id] = boolFromSelect(document.getElementById(id).value); });
+    textFieldIds.forEach(function (id) { payload[id] = document.getElementById(id).value; });
+
+    stepASubmitBtn.disabled = true;
+    stepASubmitBtn.textContent = 'Saving…';
+
+    fetch('/api/practice-intake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
+      .then(function (res) {
+        stepASubmitBtn.disabled = false;
+        stepASubmitBtn.textContent = 'Continue to agreement';
+        if (res.status === 200 && res.data && res.data.ok) {
+          currentPractice = currentPractice || {};
+          currentPractice.intake = payload;
+          document.getElementById('signedName').value = document.getElementById('signedName').value || '';
+          showStepB();
+        } else if (res.status === 404) {
+          showOnly(expiredPanel);
+        } else {
+          showStepAError((res.data && res.data.error) || 'Something went wrong saving your answers. Please check the form and try again.');
+        }
+      })
+      .catch(function () {
+        stepASubmitBtn.disabled = false;
+        stepASubmitBtn.textContent = 'Continue to agreement';
+        showStepAError('Network error — please check your connection and try again.');
+      });
+  });
+
+  // ---------------------------------------------------------------------
+  // Step B: agreement + signature
+  // ---------------------------------------------------------------------
+  var canvas = document.getElementById('sigPad');
+  var ctx = canvas.getContext('2d');
+  var hasInk = false;
+  var drawing = false;
+  var lastX = 0, lastY = 0;
+  var canvasReady = false;
+
+  function setupCanvas() {
+    var rect = canvas.getBoundingClientRect();
+    var ratio = window.devicePixelRatio || 1;
+    var cssWidth = rect.width || 300;
+    var cssHeight = 140;
+    canvas.width = cssWidth * ratio;
+    canvas.height = cssHeight * ratio;
+    canvas.style.width = cssWidth + 'px';
+    canvas.style.height = cssHeight + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1e293b';
+    canvasReady = true;
+  }
+
+  function clearCanvas() {
+    var rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width || canvas.width, 140);
+  }
+
+  function pointFromEvent(ev) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  }
+
+  function updateSigStatus() {
+    var sigStatus = document.getElementById('sigStatus');
+    sigStatus.textContent = hasInk ? 'Signature captured' : 'Not signed yet';
+    updateSignEnabled();
+  }
+
+  canvas.addEventListener('pointerdown', function (ev) {
+    drawing = true;
+    var pt = pointFromEvent(ev);
+    lastX = pt.x; lastY = pt.y;
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y);
+    canvas.setPointerCapture && canvas.setPointerCapture(ev.pointerId);
+  });
+  canvas.addEventListener('pointermove', function (ev) {
+    if (!drawing) return;
+    var pt = pointFromEvent(ev);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+    lastX = pt.x; lastY = pt.y;
+    if (!hasInk) { hasInk = true; updateSigStatus(); }
+  });
+  function endStroke() { drawing = false; }
+  canvas.addEventListener('pointerup', endStroke);
+  canvas.addEventListener('pointercancel', endStroke);
+  canvas.addEventListener('pointerleave', endStroke);
+
+  document.getElementById('clearSigBtn').addEventListener('click', function () {
+    clearCanvas();
+    hasInk = false;
+    document.getElementById('typedSignatureInput').value = '';
+    updateSigStatus();
+  });
+
+  document.getElementById('useTypedSigBtn').addEventListener('click', function () {
+    var text = document.getElementById('typedSignatureInput').value.trim();
+    if (!text) return;
+    clearCanvas();
+    ctx.font = "italic 42px Georgia, 'Times New Roman', serif";
+    ctx.fillStyle = '#1e293b';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 16, 78);
+    hasInk = true;
+    updateSigStatus();
+  });
+
+  var signedNameInput = document.getElementById('signedName');
+  var authorisedCheckbox = document.getElementById('authorisedCheckbox');
+  var signBtn = document.getElementById('signBtn');
+
+  function updateSignEnabled() {
+    var nameFilled = signedNameInput.value.trim().length > 0;
+    signBtn.disabled = !(hasInk && nameFilled && authorisedCheckbox.checked);
+  }
+  signedNameInput.addEventListener('input', updateSignEnabled);
+  authorisedCheckbox.addEventListener('change', updateSignEnabled);
+
+  function todayLabel() {
+    try {
+      return new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' });
+    } catch (e) {
+      return new Date().toLocaleDateString('en-AU');
+    }
+  }
+
+  function showStepB() {
+    document.getElementById('todayDateLabel').textContent = todayLabel();
+    showOnly(stepBPanel);
+    if (!canvasReady) setupCanvas();
+    updateSignEnabled();
+  }
+
+  document.getElementById('editAnswersLink').addEventListener('click', function (ev) {
+    ev.preventDefault();
+    showOnly(stepAPanel);
+  });
+
+  var stepBError = document.getElementById('stepBError');
+  function showStepBError(msg) {
+    stepBError.textContent = msg;
+    stepBError.classList.add('show');
+  }
+  function clearStepBError() {
+    stepBError.textContent = '';
+    stepBError.classList.remove('show');
+  }
+
+  signBtn.addEventListener('click', function () {
+    clearStepBError();
+    if (signBtn.disabled) return;
+
+    var signatureDataUrl = canvas.toDataURL('image/png');
+    var payload = {
+      token: token,
+      signature_data_url: signatureDataUrl,
+      signed_name: signedNameInput.value.trim(),
+      authorised: authorisedCheckbox.checked === true
+    };
+
+    signBtn.disabled = true;
+    signBtn.textContent = 'Signing…';
+
+    fetch('/api/practice-intake/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
+      .then(function (res) {
+        if (res.status === 200 && res.data && res.data.ok) {
+          showSuccess();
+          return;
+        }
+        if (res.status === 409 && res.data && res.data.error === 'already_signed') {
+          showSuccess();
+          return;
+        }
+        signBtn.disabled = false;
+        signBtn.textContent = 'Sign agreement';
+        if (res.status === 409 && res.data && res.data.error === 'intake_incomplete') {
+          showStepBError('Please finish the form first.');
+          showOnly(stepAPanel);
+          return;
+        }
+        if (res.status === 404) {
+          showOnly(expiredPanel);
+          return;
+        }
+        showStepBError((res.data && res.data.error) || 'Something went wrong while signing. Please try again.');
+        updateSignEnabled();
+      })
+      .catch(function () {
+        signBtn.disabled = false;
+        signBtn.textContent = 'Sign agreement';
+        showStepBError('Network error — please check your connection and try again.');
+      });
+  });
+
+  loadPractice();
+})();
+</script>
+</body>
+</html>
