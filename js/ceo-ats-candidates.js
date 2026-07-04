@@ -995,6 +995,7 @@
     if (confirmBtn) confirmBtn.addEventListener('click', function () {
       var jobId = (document.getElementById('ats-addjob-select') || {}).value || '';
       if (!jobId) { ATS.toast('Pick a job first.'); return; }
+      if (!window.confirm('This immediately reveals the practice to the GP and sends them a congratulations email with an interview booking link. Continue?')) return;
       confirmBtn.disabled = true;
       confirmBtn.textContent = 'Adding…';
       ATS.api('/api/ats/application', { method: 'POST', body: { user_id: c.user_id, career_role_id: jobId } }).then(function (res) {

@@ -10286,12 +10286,13 @@
     function getFilteredRoles() {
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
       const filterBilling = careerState.filterBilling.trim().toLowerCase();
+      const filterSearch = (careerState.filterSearch || "").trim().toLowerCase();
       // Task 11: blurred (non-qualifying) filler roles carry no searchable/
-      // filterable data by design (buildRedactedRoleStub strips it all) — they
-      // sit out of every filter and just get appended at the end, always.
+      // filterable data by design (buildRedactedRoleStub strips it all), so
+      // they can never truthfully match a filter or a Saved Jobs view.
       const blurredRoles = roleData.filter((role) => role && role.blurred);
       const qualifying = roleData.filter((role) => !(role && role.blurred));
-      return qualifying.filter((role) => {
+      const filteredQualifying = qualifying.filter((role) => {
         const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
         if (!matchesSaved) return false;
         const matchesLocation = !filterLocation || String(role.majorCity || role.location || "").trim().toLowerCase() === filterLocation;
@@ -10299,18 +10300,29 @@
         const matchesBilling = !filterBilling || String(role.billing || "").trim().toLowerCase() === filterBilling;
         if (!matchesBilling) return false;
 
-        const searchTerm = (careerState.filterSearch || "").trim().toLowerCase();
-        if (searchTerm) {
+        if (filterSearch) {
           const searchFields = [
             role.practiceName, role.location, role.billing, role.summary,
             ...(Array.isArray(role.tags) ? role.tags : []),
             ...(Array.isArray(role.filterTokens) ? role.filterTokens : [])
           ].filter(Boolean).join(" ").toLowerCase();
-          if (!searchFields.includes(searchTerm)) return false;
+          if (!searchFields.includes(filterSearch)) return false;
         }
 
         return true;
-      }).concat(blurredRoles);
+      });
+
+      // Stubs only ever appear in the plain, unfiltered, non-Saved-Jobs browse
+      // view — never in Saved Jobs and never once a location/billing/search
+      // filter is active (a stub couldn't have matched that filter anyway, so
+      // appending it there would just be padding a filtered view with noise).
+      const isDefaultBrowseView = !careerState.showSavedOnly && !filterLocation && !filterBilling && !filterSearch;
+      const list = isDefaultBrowseView ? filteredQualifying.concat(blurredRoles) : filteredQualifying.slice();
+      // Empty-state visibility must key off the REAL (qualifying) match count,
+      // never the stub-padded count — otherwise blurred filler could mask a
+      // genuinely empty "no saved jobs" / "no matches" state.
+      list.qualifyingCount = filteredQualifying.length;
+      return list;
     }
 
     async function loadRemoteRoles(options = {}) {
@@ -10447,7 +10459,7 @@
       rolesEmptyStateEl.innerHTML = careerState.showSavedOnly
         ? '<h3 class="empty-state-title">No saved jobs yet</h3><p class="empty-state-copy">Save a role from the list and it will appear here when Saved Jobs is active.</p>'
         : '<h3 class="empty-state-title">No roles match your current filters</h3><p class="empty-state-copy">Try a different filter or clear your search.</p>';
-      rolesEmptyStateEl.classList.toggle("is-visible", roles.length === 0);
+      rolesEmptyStateEl.classList.toggle("is-visible", (roles.qualifyingCount != null ? roles.qualifyingCount : roles.length) === 0);
       recommendedRolesEl.innerHTML = roles.map((role) => buildRoleCardHtml(role)).join("");
     }
 

@@ -60,4 +60,17 @@ describe('stampAgreementExecutionPage', function () {
 
     await expect(stampAgreementExecutionPage(params)).rejects.toThrow('invalid_signature_image');
   });
+
+  it('does not throw for a practice/signed name with emoji + Vietnamese diacritics, and still stamps a 12-page PDF', async function () {
+    var params = baseParams({
+      practiceName: 'Phòng khám Nguyễn 🏥✨',
+      signedName: 'Bác sĩ Nguyễn Thị Hương 😀'
+    });
+
+    var result = await stampAgreementExecutionPage(params);
+
+    expect(Buffer.isBuffer(result)).toBe(true);
+    var stamped = await PDFDocument.load(result);
+    expect(stamped.getPageCount()).toBe(12);
+  });
 });

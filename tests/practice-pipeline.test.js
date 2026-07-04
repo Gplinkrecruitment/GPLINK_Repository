@@ -148,6 +148,31 @@ describe('validatePracticeIntakePayload', () => {
     expect(result.value.nursing_on_site).toBe(false);
   });
 
+  it('coerces a blank optional boolean (visa_sponsorship) to null, not false — "unknown" is not "no"', () => {
+    const result = validatePracticeIntakePayload(validPayload({ visa_sponsorship: '' }));
+    expect(result.ok).toBe(true);
+    expect(result.value.visa_sponsorship).toBeNull();
+  });
+
+  it('coerces a blank optional boolean (nursing_on_site) to null, not false', () => {
+    const result = validatePracticeIntakePayload(validPayload({ nursing_on_site: '' }));
+    expect(result.ok).toBe(true);
+    expect(result.value.nursing_on_site).toBeNull();
+  });
+
+  it('leaves an omitted optional boolean as null (never false)', () => {
+    const result = validatePracticeIntakePayload(validPayload());
+    expect(result.ok).toBe(true);
+    expect(result.value.visa_sponsorship).toBeNull();
+    expect(result.value.nursing_on_site).toBeNull();
+  });
+
+  it('still rejects a blank required boolean (dpa) rather than defaulting it', () => {
+    const result = validatePracticeIntakePayload(validPayload({ dpa: '' }));
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+  });
+
   it('trims whitespace on string fields', () => {
     const result = validatePracticeIntakePayload(validPayload({ suburb: '  Fitzroy  ' }));
     expect(result.ok).toBe(true);
@@ -178,6 +203,26 @@ describe('buildMaskedTitle', () => {
       dpa: true,
       visaSponsorship: false,
       earningsText: '$8k/wk',
+    });
+    expect(title).toBe('GP Job near Melbourne | Mixed Billing | DPA Approved | Earnings ~$8k/wk');
+  });
+
+  it('treats a null visaSponsorship (unknown) as no segment, not as a "no"', () => {
+    const title = buildMaskedTitle({
+      nearestCity: 'Melbourne',
+      billingStyle: 'mixed',
+      dpa: false,
+      visaSponsorship: null,
+    });
+    expect(title).toBe('GP Job near Melbourne | Mixed Billing');
+  });
+
+  it('does not double the ~ when earningsText already starts with one', () => {
+    const title = buildMaskedTitle({
+      nearestCity: 'Melbourne',
+      billingStyle: 'mixed',
+      dpa: true,
+      earningsText: '~$8k/wk',
     });
     expect(title).toBe('GP Job near Melbourne | Mixed Billing | DPA Approved | Earnings ~$8k/wk');
   });

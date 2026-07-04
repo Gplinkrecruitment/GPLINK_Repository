@@ -181,23 +181,71 @@ to `practices` and `career_roles`, plus `gp_applications.revealed` and
 
 **This migration has NOT been applied to production as part of this task.**
 Apply it via `rpc/exec_sql` with the Supabase service-role key (the parameter
-name is `query`; schema-qualify table names). Every write path in this
-pipeline has a "missing-column tolerance" fallback (it degrades to storing
-data in the `metadata` JSON column and logs `run migration 20260705100000`
-to the server console) so **nothing 500s or silently drops data** if the
-migration lags behind a deploy — but the pipeline runs in a degraded state
-until it's applied. Watch the logs for that message after deploying; if you
-see it, apply the migration.
+name is `query`; schema-qualify table names).
+
+The real pre-migration story is **not** "nothing 500s or silently drops
+data" — that's not accurate, and the degraded-mode behaviour is deliberately
+*not* uniform. It splits into two rules:
+
+- **Reads mask/degrade safely.** `findPracticeByIntakeToken` falls back from
+  the `intake_token` column to `metadata->>intake_token` when the column is
+  missing, so a token that was written before the migration can still be
+  found. `/api/career/my-offer` and friends just show masked defaults.
+- **Writes that can't persist fail loud, or skip the side effect they can't
+  safely do.** `POST /api/practice-intake` (saving the intake form answers)
+  now responds `503 {ok:false, error:'pipeline_migration_required'}` if the
+  full patch fails and only the pre-migration schema is available — it does
+  **not** silently retry with a partial patch that would drop most of the
+  practice's answers while reporting success. The Facebook lead webhook's
+  degraded fallback (legacy `practices` row, no `metadata`/`intake_token`
+  column to persist a token into) **skips sending the intake email
+  entirely** rather than emailing a link that can never resolve to anything
+  — it logs `intake token not persistable — run migration 20260705100000`
+  and responds `{ok:true, degraded:true}`; use the admin dashboard's "Resend
+  intake email" button once the migration is applied.
+- The one exception that keeps working end-to-end even in degraded mode is
+  `/api/practice-intake/sign` — it stashes the signed-agreement fields under
+  `metadata.pipeline_agreement` as a durable fallback (checked by the
+  already-signed 409 gate too), and only 503s if even `metadata` doesn't
+  exist yet.
+
+Bottom line: **intake links only work end-to-end once the migration is
+applied.** Watch the server logs for `run migration 20260705100000` after
+deploying; if you see it, apply the migration.
 
 ---
 
 ## Deploy checklist
 
-- [ ] Apply migration `20260705100000_practice_client_pipeline.sql` (service-role key, `rpc/exec_sql`, param `query`).
+- [ ] **Read the LIVE `practices_source_check` constraint name before applying
+      the migration.** Production constraint names have drifted from the
+      migration file before (see the SPPA `task_type` CHECK-constraint
+      incident) — query `pg_constraint`/`information_schema` for the actual
+      name in prod and adjust the migration's `DROP CONSTRAINT IF EXISTS`
+      line if it's been renamed, otherwise the `ADD CONSTRAINT` can collide
+      or the old constraint can linger unnoticed.
+- [ ] Apply migration `20260705100000_practice_client_pipeline.sql` (service-role key, `rpc/exec_sql`, param `query`) **BEFORE** setting `FB_LEAD_WEBHOOK_SECRET` — enabling the webhook first means any lead that lands before the migration is applied gets created in degraded mode (no intake email sent, logged instead).
 - [ ] Set `FB_LEAD_WEBHOOK_SECRET` and `FB_LEAD_VERIFY_TOKEN` in Vercel, redeploy.
 - [ ] Point the Facebook Lead Ads webhook (or your Zapier/Make Zap) at
       `https://app.mygplink.com.au/api/webhooks/facebook-lead?secret=YOUR_SECRET`
       and complete the Facebook subscription handshake using the verify token above.
+- [ ] **Verify Zoom (`ZOOM_CLIENT_ID`/`ZOOM_CLIENT_SECRET`/`ZOOM_ACCOUNT_ID`) and
+      Google Calendar (`GOOGLE_CALENDAR_ID` etc.) envs BEFORE enabling
+      accepts.** The GP interview-booking email sent on Accept links to a real
+      meeting URL — without these creds configured, that link falls back to
+      `zoom.local`, a dead link the GP can't join.
+- [ ] **In-flight offers regression:** applications where an offer was sent
+      *before* this branch shipped won't have `gp_applications.revealed` set,
+      so the offer-review page will keep showing "Confidential practice"
+      until the admin explicitly clicks Accept again (which sets `revealed`)
+      — or backfills `revealed = true` directly for offers that were already
+      accepted pre-branch. Check for any offers in `sent`/`accepted` status
+      with `revealed` false/null right after deploying and backfill as needed.
+- [ ] **After applying the migration**, reconcile any `career_roles` rows
+      whose `source_payload->>'pipeline'` (or similarly-tagged degraded-mode
+      metadata) shows they were created via the degraded Facebook-lead path —
+      these were auto-created as `inactive`/`approved` stubs and are stranded
+      until someone reviews and either activates or archives them.
 - [ ] Confirm `RESEND_API_KEY` is set — without it, every email in this
       pipeline (intake invite, signed-agreement copy, congrats email) silently
       returns `{ok:false, error:'Email not configured'}` and nothing is sent.

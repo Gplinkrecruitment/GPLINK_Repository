@@ -8578,15 +8578,22 @@ async function handleFacebookLeadWebhook(req, res) {
       return;
     }
 
-    // Await the send BEFORE responding: on Vercel the function can be killed
-    // right after res.end(), so a fire-and-forget Resend call may silently
-    // never complete (same constraint the Gmail webhook documents). Still
-    // best-effort — the .catch means a failed email never fails the webhook.
-    // This single call covers both the normal and degraded-fallback paths,
-    // since `created` is reassigned to the legacy row in the fallback.
-    await sendPracticeIntakeEmail(created).catch(function (e) {
-      console.error('[fb-lead] intake email send failed:', e && e.message);
-    });
+    if (degraded) {
+      // The legacy row has no intake_token column and no metadata column to
+      // fall back to, so any token we generate here can't be persisted —
+      // sending the intake email would hand the practice a dead link. Skip
+      // the send entirely until the migration is applied and the practice
+      // can be re-sent a working intake email from the admin dashboard.
+      console.error('[fb-lead] intake token not persistable — run migration 20260705100000, then use Resend intake email');
+    } else {
+      // Await the send BEFORE responding: on Vercel the function can be killed
+      // right after res.end(), so a fire-and-forget Resend call may silently
+      // never complete (same constraint the Gmail webhook documents). Still
+      // best-effort — the .catch means a failed email never fails the webhook.
+      await sendPracticeIntakeEmail(created).catch(function (e) {
+        console.error('[fb-lead] intake email send failed:', e && e.message);
+      });
+    }
 
     var response = { ok: true, practice_id: created.id };
     if (degraded) response.degraded = true;
@@ -8660,8 +8667,11 @@ async function findPracticeByIntakeToken(token) {
       return byColumn.data[0];
     }
     // The intake_token column may not exist yet (migration not applied) —
-    // fall back to filtering on the metadata JSON column, which has existed
-    // since the original practices table.
+    // fall back to filtering on the metadata JSON column. Note metadata is
+    // ALSO added by migration 20260705100000 (it is not on the original
+    // practices table), so this fallback only helps when that migration
+    // partially applied (e.g. metadata landed before intake_token, or a
+    // stale row was written directly to metadata by older code).
     var byMetadata = await supabaseDbRequest('practices', 'select=*&metadata->>intake_token=eq.' + encodeURIComponent(token) + '&limit=1');
     if (byMetadata.ok && Array.isArray(byMetadata.data) && byMetadata.data[0]) {
       return byMetadata.data[0];
@@ -28647,11 +28657,14 @@ async function handleApi(req, res, pathname) {
     if (!saved && isSupabaseDbConfigured()) {
       // Missing-column tolerance: migration 20260705100000 may not be applied
       // yet, so the pipeline columns (and the new `metadata` column) don't
-      // exist. Retry with only the pre-existing legacy columns so the intake
-      // form never hard-fails a practice contact on lagging DDL.
-      console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
-      const legacyPatch = { location_city: value.nearest_city, location_state: value.state };
-      saved = await atsUpdatePracticeRow(practice.id, legacyPatch);
+      // exist. Do NOT silently retry with only location_city/location_state —
+      // that would drop every other intake answer (billing style, DPA, intro
+      // text/video, address) while still reporting success. Fail loud instead,
+      // mirroring the /api/practice-intake/sign 503 below, so the practice
+      // contact isn't told their form saved when almost none of it did.
+      console.error('[practice-intake] cannot persist intake answers — run migration 20260705100000');
+      sendJson(res, 503, { ok: false, error: 'pipeline_migration_required' });
+      return;
     }
 
     if (!saved) {
@@ -29709,7 +29722,12 @@ async function handleApi(req, res, pathname) {
       },
       applicationId: String(moApp.id),
       practiceName: moPracticeName,
-      roleTitle: moOffer.job_title || (moRole && moRole.title) || '',
+      // Masked branch must prefer the pre-vetted masked_title over the raw
+      // (potentially identifying) offer/job title — same reveal-safety rule
+      // moPracticeName already follows above.
+      roleTitle: moRevealed
+        ? (moOffer.job_title || (moRole && moRole.title) || '')
+        : ((moRole && moRole.masked_title) || moOffer.job_title || (moRole && moRole.title) || ''),
       location: moLocation,
       practiceContact: {
         name: moRevealed
@@ -49839,7 +49857,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (parsedRI.name) { sendJson(res, 400, { ok: false, message: 'This practice has no stored record yet.' }); return; }
     var riRow = await atsGetPracticeRow(parsedRI.rowId);
     if (!riRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
-    await sendPracticeIntakeEmail(riRow);
+    var riResult = await sendPracticeIntakeEmail(riRow).catch(function (e) {
+      console.error('[resend-intake] send failed:', e && e.message);
+      return { ok: false };
+    });
+    if (!riResult || !riResult.ok) {
+      sendJson(res, 200, { ok: false, message: 'Email not configured or send failed' });
+      return;
+    }
     sendJson(res, 200, { ok: true });
     return;
   }
