@@ -17538,7 +17538,11 @@ function mapCareerRoleRowToClient(row) {
     filterTokens,
     support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
-    roleType: row && row.title ? String(row.title) : 'General Practitioner',
+    // masked_title wins over the raw title (same rule as the public mapper) —
+    // pipeline jobs' raw title is practice-typed free text that may embed the
+    // real practice name. This also feeds mapCareerRoleDetailToClient's
+    // detail-card "Role" value.
+    roleType: (row && (row.masked_title || row.title)) ? String(row.masked_title || row.title) : 'General Practitioner',
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
     footnote: row && row.employment_type
       ? String(row.employment_type)
@@ -29854,13 +29858,16 @@ async function handleApi(req, res, pathname) {
       const appId = r && r.application_id ? String(r.application_id) : '';
       if (appId && miAppIds.indexOf(appId) === -1) miAppIds.push(appId);
     });
-    const miAppMap = {};  // application_id -> gp_applications row
-    const miRoleMap = {}; // career_role id -> { title, practice_name }
+    const miAppMap = {};  // application_id -> gp_applications row (full row — the reveal rule needs origin/revealed/status)
+    const miRoleMap = {}; // career_role id -> row (title/practice_name/masked_title)
     if (miAppIds.length) {
       if (isSupabaseDbConfigured()) {
+        // select=* on purpose: the reveal rule reads origin/revealed, and
+        // masked_title on career_roles — all migration-added columns.
+        // Enumerating them would 400 on a pre-migration database; * is tolerant.
         const miAppsRes = await supabaseDbRequest(
           'gp_applications',
-          'select=id,career_role_id&id=in.(' + encodeURIComponent(miAppIds.join(',')) + ')&limit=100'
+          'select=*&id=in.(' + encodeURIComponent(miAppIds.join(',')) + ')&limit=100'
         );
         ((miAppsRes.ok && Array.isArray(miAppsRes.data)) ? miAppsRes.data : []).forEach(function (a) {
           miAppMap[String(a.id)] = a;
@@ -29872,7 +29879,7 @@ async function handleApi(req, res, pathname) {
         if (miRoleIds.length) {
           const miRolesRes = await supabaseDbRequest(
             'career_roles',
-            'select=id,title,practice_name&id=in.(' + encodeURIComponent(miRoleIds.join(',')) + ')&limit=100'
+            'select=*&id=in.(' + encodeURIComponent(miRoleIds.join(',')) + ')&limit=100'
           );
           ((miRolesRes.ok && Array.isArray(miRolesRes.data)) ? miRolesRes.data : []).forEach(function (roleRow) {
             miRoleMap[String(roleRow.id)] = roleRow;
@@ -29888,13 +29895,44 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // Identity reveal (Task 10): batch-load the linked applications' offers so
+    // the per-interview reveal decision below is a map lookup, not an N+1.
+    // Failure → empty map → masked by default.
+    const miOfferMap = {};
+    if (miAppIds.length) {
+      try {
+        const miOffers = await atsOffersStore.listAtsOffers(miAppIds);
+        (Array.isArray(miOffers) ? miOffers : []).forEach(function (offerRow) {
+          if (offerRow && offerRow.application_id !== undefined && offerRow.application_id !== null) {
+            miOfferMap[String(offerRow.application_id)] = offerRow;
+          }
+        });
+      } catch (miOfferErr) { /* masked by default */ }
+    }
+
     function miContextFor(row) {
       const app = row && row.application_id ? miAppMap[String(row.application_id)] : null;
       const roleId = app ? (app.career_role_id || app.job_id) : (row && row.career_role_id);
       const role = roleId != null && roleId !== '' ? miRoleMap[String(roleId)] : null;
+      // Same core reveal rule as /api/career/role and /api/career/my-offer —
+      // an interview only names the real practice once its application passes
+      // it (accepted offer / admin-applied origin / explicit reveal / secured).
+      const offer = app ? (miOfferMap[String(app.id)] || null) : null;
+      const revealed = !!app && (
+        practicePipeline.canRevealPracticeIdentityCore({ application: app, offer: offer })
+        || isCareerPlacementSecuredStatus(app.status)
+      );
+      const realName = (role && role.practice_name) || (app && app.practice_name) || '';
+      const maskedName = (role && role.masked_title) || 'Confidential practice';
+      // Job title: prefer the masked title until revealed — pipeline jobs'
+      // raw title is practice-typed free text that may embed the real name.
+      const roleTitle = role
+        ? String((revealed ? (role.title || role.masked_title) : (role.masked_title || role.title)) || '')
+        : '';
       return {
-        job_title: (role && role.title) || (app && app.job_title) || '',
-        practice_name: (role && role.practice_name) || (app && app.practice_name) || ''
+        revealed: revealed,
+        job_title: roleTitle || (app && app.job_title) || '',
+        practice_name: revealed ? (realName || maskedName) : maskedName
       };
     }
 
@@ -29910,7 +29948,9 @@ async function handleApi(req, res, pathname) {
         format: row.format || 'video',
         status: row.status || '',
         zoom_join_url: row.zoom_join_url || '',
-        practice_name: row.practice_name || ctx.practice_name || '',
+        // The stored row's own practice_name (real) is only used once revealed;
+        // otherwise the context value is already the masked label.
+        practice_name: (ctx.revealed && row.practice_name) ? row.practice_name : (ctx.practice_name || ''),
         job_title: ctx.job_title || '',
         interviewer_name: row.interviewer_name || ''
       };
@@ -30025,6 +30065,25 @@ async function handleApi(req, res, pathname) {
       return contactsCache.get(key) || [];
     }
 
+    // Identity reveal (Task 10): batch-load every application's offer ONCE so
+    // the per-application reveal decision below never becomes an N+1 on the
+    // offers store. Failure → empty map → masked by default (never revealed
+    // by accident).
+    const revealOfferMap = {};
+    try {
+      const revealAppIds = mergedApplications
+        .map((entry) => (entry && entry.localApp && entry.localApp.id !== undefined && entry.localApp.id !== null) ? String(entry.localApp.id) : '')
+        .filter(Boolean);
+      if (revealAppIds.length) {
+        const revealOffers = await atsOffersStore.listAtsOffers(revealAppIds);
+        (Array.isArray(revealOffers) ? revealOffers : []).forEach((offerRow) => {
+          if (offerRow && offerRow.application_id !== undefined && offerRow.application_id !== null) {
+            revealOfferMap[String(offerRow.application_id)] = offerRow;
+          }
+        });
+      }
+    } catch (revealErr) { /* masked by default */ }
+
     const enriched = [];
     for (const entry of mergedApplications) {
       const localApp = entry && entry.localApp ? entry.localApp : null;
@@ -30055,6 +30114,16 @@ async function handleApi(req, res, pathname) {
         internalPresentation = buildInternalCareerStatusPresentation(localApp, internalOffer);
       }
       const effectiveStatus = internalPresentation ? internalPresentation.status : status;
+
+      // Identity reveal (Task 10) — same core rule as /api/career/role and
+      // /api/career/my-offer, evaluated per application. A secured placement
+      // is by definition post-acceptance, so it also reveals (keeps the
+      // existing placement payloads — which carry the real name — coherent).
+      const revealOffer = internalOffer
+        || ((localApp && localApp.id !== undefined && localApp.id !== null) ? (revealOfferMap[String(localApp.id)] || null) : null);
+      const appRevealed = (!!localApp && practicePipeline.canRevealPracticeIdentityCore({ application: localApp, offer: revealOffer }))
+        || isCareerPlacementSecuredStatus(effectiveStatus);
+
       const jobOpeningRecord = (providerRoleId && !isInternalAtsRole) ? await getJobOpeningRecord(providerRoleId) : null;
       const clientId = getZohoApplicationClientId(liveRecord)
         || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
@@ -30063,11 +30132,23 @@ async function handleApi(req, res, pathname) {
         ? mapCareerRoleRowToClient(roleRow)
         : {
           id: providerRoleId ? makeCareerRoleId('zoho_recruit', providerRoleId) : `zoho_application:${sanitizeZohoText(liveRecord && liveRecord.id) || localApp && localApp.id || ''}`,
-          practiceName: getZohoApplicationPracticeName(liveRecord) || 'Medical Centre',
+          // Masked by default — the real Zoho practice name is only surfaced
+          // below once this application passes the reveal rule.
+          practiceName: 'Confidential practice',
           location: getZohoPlacementLocation(jobOpeningRecord, null),
           billing: normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing'])) || 'Billing pending',
           roleType: getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']) || 'General Practitioner'
         };
+      // mapCareerRoleRowToClient (and the fallback above) are masked-by-default;
+      // once THIS application has earned the reveal, its list entry carries the
+      // real practice name.
+      if (appRevealed) {
+        const revealName = (roleRow && roleRow.practice_name)
+          || getZohoApplicationPracticeName(liveRecord)
+          || '';
+        if (revealName) roleClient.practiceName = String(revealName);
+        roleClient.revealed = true;
+      }
       let placement = null;
       if (isCareerPlacementSecuredStatus(effectiveStatus) && (liveRecord || localApp)) {
         // In-app offers (standalone ATS): the accepted offer's terms are the
@@ -30121,7 +30202,9 @@ async function handleApi(req, res, pathname) {
           // Push notification on status change (non-blocking)
           if (patch.status) {
             const statusLabel = normalizeCareerApplicationStatusKey(status);
-            const practiceLabel = roleRow && roleRow.practice_name ? roleRow.practice_name : 'your application';
+            // Reveal-gated: GP-facing notification copy only names the practice
+            // once this application passes the reveal rule.
+            const practiceLabel = (appRevealed && roleRow && roleRow.practice_name) ? roleRow.practice_name : 'your application';
             let notifTitle = 'Application Update';
             let notifBody = `Your application status has been updated to: ${status}`;
             let notifType = 'info';
@@ -30148,7 +30231,7 @@ async function handleApi(req, res, pathname) {
             // Send email on status change (non-blocking)
             if (isEmailConfigured()) {
               const gpEmail = email; // already available in scope
-              const practiceLabel2 = roleRow && roleRow.practice_name ? roleRow.practice_name : 'your application';
+              const practiceLabel2 = (appRevealed && roleRow && roleRow.practice_name) ? roleRow.practice_name : 'your application';
               let emailSubject = 'Application Update — GP Link';
               let emailTitle = 'Application Update';
               let emailBody = 'Your application status has been updated.';

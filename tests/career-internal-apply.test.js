@@ -315,3 +315,49 @@ describe('POST /api/career/apply — Zoho path unchanged', () => {
     expect(saved).toBeTruthy();
   });
 });
+
+// Task 10 follow-up — identity masking in the applications feed. The GP now
+// has two live applications (role-int-open 'Greenslopes Family Medical' and
+// role-zoho 'Zoho Practice'); neither has passed the reveal rule yet, so the
+// real practice names must not appear ANYWHERE in the response. Seeding an
+// ACCEPTED offer for the internal application must then reveal that entry
+// (and only that entry).
+describe('GET /api/career/applications — identity reveal gate', () => {
+  it("a non-revealed application's entry never carries the real practice name anywhere in the response", async () => {
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(GP.email, GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const entry = res.body.applications.find((a) => a.role && a.role.id === 'internal_ats:ats_open1');
+    expect(entry).toBeTruthy();
+    // Masked value (no masked_title on this role → the serializer's generic
+    // masked fallback, e.g. 'Australian GP practice' / 'Confidential GP
+    // practice') — the exact copy doesn't matter, the real name must be gone.
+    expect(entry.role.practiceName).toBeTruthy();
+    expect(entry.role.practiceName).not.toContain('Greenslopes');
+    expect(entry.role.revealed).toBeUndefined();
+    expect(res.raw).not.toContain('Greenslopes Family Medical');
+    expect(res.raw).not.toContain('Zoho Practice');
+  });
+
+  it('an accepted-offer application DOES reveal the real practice name — and only that one', async () => {
+    const app = db.gp_applications.find((a) => a.user_id === GP.userId && a.career_role_id === 'role-int-open');
+    expect(app).toBeTruthy();
+    tableOf('ats_offers').push({
+      id: 'offer-reveal-1', application_id: String(app.id), status: 'accepted',
+      sent_at: NOW, created_at: NOW, updated_at: NOW
+    });
+
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(GP.email, GP.userId) });
+    expect(res.status).toBe(200);
+    const revealedEntry = res.body.applications.find((a) => a.role && a.role.id === 'internal_ats:ats_open1');
+    expect(revealedEntry).toBeTruthy();
+    expect(revealedEntry.role.practiceName).toBe('Greenslopes Family Medical');
+    expect(revealedEntry.role.revealed).toBe(true);
+
+    // The GP's OTHER application (no offer) stays masked in the same response.
+    const maskedEntry = res.body.applications.find((a) => a.role && a.role.id === 'zoho_recruit:z_123');
+    expect(maskedEntry).toBeTruthy();
+    expect(maskedEntry.role.practiceName).not.toBe('Zoho Practice');
+    expect(res.raw).not.toContain('Zoho Practice');
+  });
+});

@@ -57,10 +57,19 @@ beforeAll(async () => {
   fs.writeFileSync(DB_FILE, JSON.stringify({
     version: 1,
     atsJobs: [
-      { id: 'job1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
+      { id: 'job1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', provider: 'internal_ats', is_active: true, job_status: 'open' },
+      // Masked pipeline job — its application below has NO accepted offer, so
+      // its interview must never surface the real practice name.
+      { id: 'job2', title: 'GP — Hidden Hills flagship role', masked_title: 'GP Job near Brisbane | Bulk Billing', practice_name: 'Hidden Hills Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
     ],
     atsApplications: [
-      { id: 'appA', user_id: ME.userId, career_role_id: 'job1', status: 'applied', ats_stage: 'interview' }
+      { id: 'appA', user_id: ME.userId, career_role_id: 'job1', status: 'applied', ats_stage: 'interview' },
+      { id: 'appM', user_id: ME.userId, career_role_id: 'job2', status: 'applied', ats_stage: 'interview' }
+    ],
+    // appA has an ACCEPTED in-app offer → its interviews pass the identity
+    // reveal rule (canRevealPracticeIdentityCore) and show the real name.
+    atsOffers: [
+      { id: 'off-appA', application_id: 'appA', status: 'accepted', sent_at: PAST, created_at: PAST, updated_at: PAST }
     ],
     scheduledCalls: [
       // Mine — upcoming booked interview (must come FIRST in the sorted response).
@@ -69,6 +78,13 @@ beforeAll(async () => {
         status: 'booked', scheduled_at: FUTURE,
         zoom_join_url: 'https://zoom.us/j/111111', zoom_host_url: 'https://zoom.us/s/HOSTSECRET1', zoom_passcode: 'pc-1',
         practice_name: '', created_at: PAST
+      },
+      // Mine — upcoming interview on the NON-revealed application. The stored
+      // row itself carries the real practice name, which must stay masked.
+      {
+        id: 'sc2', user_id: ME.userId, application_id: 'appM', meeting_kind: 'interview',
+        status: 'booked', scheduled_at: FUTURE_LATER,
+        zoom_join_url: 'https://zoom.us/j/333333', practice_name: 'Hidden Hills Medical', created_at: PAST
       },
       // Another user's interview — must NEVER appear.
       {
@@ -130,21 +146,23 @@ describe('GET /api/career/my-interviews', () => {
     expect(sources).toContain('career_interviews');
   });
 
-  it('sorts the upcoming interview first, then past ones', async () => {
+  it('sorts the upcoming interviews first (soonest first), then past ones', async () => {
     const res = await asMe();
-    expect(res.body.interviews.length).toBe(2);
-    expect(res.body.interviews[0].id).toBe('sc1'); // upcoming
-    expect(res.body.interviews[1].id).toBe('ci1'); // past
+    expect(res.body.interviews.length).toBe(3);
+    expect(res.body.interviews[0].id).toBe('sc1'); // upcoming (sooner)
+    expect(res.body.interviews[1].id).toBe('sc2'); // upcoming (later)
+    expect(res.body.interviews[2].id).toBe('ci1'); // past
   });
 
-  it('normalizes the shape and enriches practice/job from the linked application', async () => {
+  it('normalizes the shape and enriches practice/job from the linked (revealed) application', async () => {
     const res = await asMe();
     const upcoming = res.body.interviews.find((iv) => iv.id === 'sc1');
     expect(upcoming.source).toBe('scheduled_calls');
     expect(upcoming.scheduled_at).toBe(FUTURE);
     expect(upcoming.zoom_join_url).toBe('https://zoom.us/j/111111');
     expect(upcoming.duration_minutes).toBe(45); // scheduled_calls interviews are 45 min
-    // Enriched via gp_applications(appA) → career_roles(job1).
+    // Enriched via gp_applications(appA) → career_roles(job1); appA holds an
+    // ACCEPTED offer → the reveal rule passes → the real practice name shows.
     expect(upcoming.practice_name).toBe('Greenslopes Family Medical');
     expect(upcoming.job_title).toBe('General Practitioner — VR');
 
@@ -154,6 +172,19 @@ describe('GET /api/career/my-interviews', () => {
     expect(past.timezone).toBe('Australia/Sydney');
     expect(past.format).toBe('video');
     expect(past.interviewer_name).toBe('Dr Rachel Thompson');
+  });
+
+  it('masks the practice identity for an interview whose application has NOT passed the reveal rule', async () => {
+    const res = await asMe();
+    const masked = res.body.interviews.find((iv) => iv.id === 'sc2');
+    expect(masked).toBeTruthy();
+    // appM has no offer at all → masked: role's masked_title, never the real
+    // name — even though the stored interview row AND the career_roles row
+    // both carry it.
+    expect(masked.practice_name).toBe('GP Job near Brisbane | Bulk Billing');
+    expect(masked.job_title).toBe('GP Job near Brisbane | Bulk Billing'); // raw title embeds the name → masked title wins
+    expect(res.raw).not.toContain('Hidden Hills Medical');
+    expect(res.raw).not.toContain('Hidden Hills'); // also embedded in the raw job title
   });
 
   it('NEVER leaks the host Zoom link, passcode or interviewer email', async () => {
