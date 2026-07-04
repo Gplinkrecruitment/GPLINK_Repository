@@ -26070,7 +26070,15 @@ function atsJobCard(job, practicesById, appsByJob) {
     summary: job.summary || '',
     status: job.job_status || (job.is_active === false ? 'closed' : 'open'),
     posted: job.published_at || job.created_at || '', ats_created: !!job.ats_created,
-    active_count: active, stage_counts: counts
+    active_count: active, stage_counts: counts,
+    // Practice-client pipeline (Task 9): pending jobs surface with these fields so
+    // the Jobs tab can gate approval on a suburb header photo. `approval_status`
+    // defaults to 'approved' when the column is absent (pre-migration rows / jobs
+    // created directly via POST /api/ats/jobs) so existing jobs are unaffected.
+    approval_status: job.approval_status || 'approved',
+    header_image_url: job.header_image_url || '',
+    suburb: job.suburb || '',
+    masked_title: job.masked_title || ''
   };
 }
 
@@ -48421,6 +48429,18 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/ats/jobs' && req.method === 'GET') {
     var ctxJ = requireAtsSession(req, res); if (!ctxJ) return;
     var jobs = await atsListJobRows();
+    // atsListJobRows() only returns is_active=true rows — pending jobs created by
+    // the practice-client pipeline (Task 6) are is_active:false, so they'd never
+    // reach the CEO/admin Jobs tab for approval. Merge them in here, deduped by id.
+    var pendingJobs = [];
+    if (isSupabaseDbConfigured()) {
+      var pendingR = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&order=updated_at.desc&limit=1000');
+      if (pendingR.ok && Array.isArray(pendingR.data)) pendingJobs = pendingR.data;
+    } else {
+      pendingJobs = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+    }
+    var seenJobIds = {}; jobs.forEach(function (j) { seenJobIds[String(j.id)] = true; });
+    pendingJobs.forEach(function (j) { if (!seenJobIds[String(j.id)]) { seenJobIds[String(j.id)] = true; jobs.push(j); } });
     var pracs = await atsListPracticeRows();
     var pById = {}; pracs.forEach(function (p) { pById[p.id] = p; });
     var allApps = await atsListApplicationRows({});
@@ -48494,6 +48514,117 @@ Return ONLY valid JSON with no markdown formatting:
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
     if (!updatedJ) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     sendJson(res, 200, { ok: true, job: atsJobCard(updatedJ, {}, {}) });
+    return;
+  }
+
+  // Practice-client pipeline (Task 9): upload (or reuse) the mandatory suburb
+  // header photo for a job before it can be approved. body { file_data, file_name }
+  // for a fresh upload, OR { reuse_url } to reuse an existing header image from
+  // another job in the same (or any) suburb — see the reuse picker in
+  // js/ceo-ats-jobs.js.
+  if (pathname === '/api/ats/job/header-image' && req.method === 'POST') {
+    var ctxHI = requireAtsSession(req, res); if (!ctxHI) return;
+    var hiId = url.searchParams.get('id'); if (!hiId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var hiJob = await atsGetJobRow(hiId); if (!hiJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var bodyHI; try { bodyHI = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyHI = bodyHI || {};
+
+    var hiUrl = '';
+    if (bodyHI.reuse_url !== undefined) {
+      var hiReuse = typeof bodyHI.reuse_url === 'string' ? bodyHI.reuse_url.trim() : '';
+      // Reusing an existing header image (from the per-suburb picker) — just
+      // point this job's header_image_url at it, no re-upload. Must look like an
+      // actual image URL (https:// or a data: URL) rather than arbitrary text.
+      if (!hiReuse || !/^(https:\/\/|data:image\/)/i.test(hiReuse)) {
+        sendJson(res, 400, { ok: false, message: 'Invalid reuse_url.' });
+        return;
+      }
+      hiUrl = hiReuse;
+    } else {
+      var hiDataUrl = typeof bodyHI.file_data === 'string' ? bodyHI.file_data.trim() : '';
+      var hiMimeMatch = hiDataUrl.match(/^data:([^;]+);base64,/i);
+      var hiMime = hiMimeMatch ? hiMimeMatch[1].toLowerCase() : '';
+      if (!hiDataUrl || !/^image\/(png|jpe?g|webp)$/i.test(hiMime)) {
+        sendJson(res, 400, { ok: false, message: 'Upload a PNG, JPEG, or WEBP image.' });
+        return;
+      }
+      var hiParsed = parseDataUrlPayload(hiDataUrl);
+      if (!hiParsed || !hiParsed.buffer || !hiParsed.buffer.length) {
+        sendJson(res, 400, { ok: false, message: 'Could not read the uploaded image.' });
+        return;
+      }
+      if (hiParsed.buffer.length > 8 * 1024 * 1024) {
+        sendJson(res, 400, { ok: false, message: 'Image must be 8MB or smaller.' });
+        return;
+      }
+      if (isSupabaseDbConfigured()) {
+        var hiExt = hiMime === 'image/png' ? 'png' : (hiMime === 'image/webp' ? 'webp' : 'jpg');
+        var hiSlugSrc = String(hiJob.suburb || hiJob.location_city || 'general');
+        var hiSlug = hiSlugSrc.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'general';
+        var hiKey = 'suburbs/' + hiSlug + '/' + Date.now() + '.' + hiExt;
+        var hiUploaded = await supabaseStorageUploadObject(CAREER_HERO_IMAGE_BUCKET, hiKey, hiDataUrl, hiMime);
+        if (!hiUploaded) { sendJson(res, 502, { ok: false, message: 'Could not upload image.' }); return; }
+        hiUrl = buildSupabaseStoragePublicUrl(CAREER_HERO_IMAGE_BUCKET, hiKey);
+      } else {
+        hiUrl = hiDataUrl;
+      }
+    }
+
+    var hiUpdated = await atsUpdateJobRow(hiId, { header_image_url: hiUrl });
+    if (!hiUpdated) { sendJson(res, 502, { ok: false, message: 'Could not save header image.' }); return; }
+    sendJson(res, 200, { ok: true, url: hiUrl });
+    return;
+  }
+
+  // Practice-client pipeline (Task 9): per-suburb header image reuse picker —
+  // every distinct header image already uploaded across all jobs, so an admin
+  // approving a new job for a suburb that already has a photo can reuse it
+  // instead of uploading a duplicate.
+  if (pathname === '/api/ats/suburb-images' && req.method === 'GET') {
+    var ctxSI = requireAtsSession(req, res); if (!ctxSI) return;
+    var siRows = [];
+    if (isSupabaseDbConfigured()) {
+      var siR = await supabaseDbRequest('career_roles', 'select=suburb,location_city,header_image_url&header_image_url=neq.&limit=500');
+      if (siR.ok && Array.isArray(siR.data)) siRows = siR.data;
+    } else {
+      siRows = (dbState.atsJobs || []).filter(function (j) { return j.header_image_url; });
+    }
+    var siSeenUrls = {}; var siImages = [];
+    siRows.forEach(function (j) {
+      var u = j.header_image_url;
+      if (!u || typeof u !== 'string') return;
+      if (u.length > 100000) return; // skip absurdly long data: URLs
+      if (siSeenUrls[u]) return;
+      siSeenUrls[u] = true;
+      siImages.push({ suburb: j.suburb || j.location_city || '', url: u });
+    });
+    sendJson(res, 200, { ok: true, images: siImages });
+    return;
+  }
+
+  // Practice-client pipeline (Task 9): approve/reject a pending job. Approval is
+  // hard-gated server-side on a suburb header photo being present — the client
+  // mirrors this (disabled Approve button) but this is the authoritative check.
+  if (pathname === '/api/ats/job/approve' && req.method === 'POST') {
+    var ctxAJ = requireAtsSession(req, res); if (!ctxAJ) return;
+    var ajId = url.searchParams.get('id'); if (!ajId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var ajJob = await atsGetJobRow(ajId); if (!ajJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var bodyAJ; try { bodyAJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var ajAction = bodyAJ && bodyAJ.action;
+    if (ajAction !== 'approve' && ajAction !== 'reject') { sendJson(res, 400, { ok: false, message: 'action must be approve or reject.' }); return; }
+    var ajStatus = ajJob.approval_status || 'approved';
+    if (ajStatus !== 'pending') { sendJson(res, 409, { ok: false, message: 'This job is not pending approval.' }); return; }
+
+    var ajPatch;
+    if (ajAction === 'approve') {
+      if (!ajJob.header_image_url) { sendJson(res, 400, { ok: false, message: 'Upload a suburb header photo before approving' }); return; }
+      ajPatch = { approval_status: 'approved', is_active: true, published_at: atsNowIso() };
+    } else {
+      ajPatch = { approval_status: 'rejected', is_active: false };
+    }
+    var ajUpdated = await atsUpdateJobRow(ajId, ajPatch);
+    if (!ajUpdated) { sendJson(res, 502, { ok: false, message: 'Could not update job.' }); return; }
+    sendJson(res, 200, { ok: true, job: atsJobCard(ajUpdated, {}, {}) });
     return;
   }
 
