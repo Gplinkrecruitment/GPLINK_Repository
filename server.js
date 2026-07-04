@@ -151,6 +151,7 @@ var atsOffersStore = require('./lib/ats-offers').createAtsOffersStore({
 var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 const practicePipeline = require('./lib/practice-pipeline');
+const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
   normalizeIchcReference, isValidIchcReference,
@@ -165,6 +166,9 @@ const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
 let _lifecycleFolderCache = null;
+// Cached bytes of the base (unsigned) practice agreement PDF template, lazily
+// read once per process — see POST /api/practice-intake/sign.
+let _agreementPdfBytes = null;
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
 const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
@@ -25295,6 +25299,62 @@ async function atsUpdateJobRow(id, patch) {
   Object.assign(j, patch); saveDbState(); return j;
 }
 
+// Build + insert the career_roles row auto-created when a practice signs the
+// agreement (Task 6 of the practice-client pipeline). Kept `is_active:false`
+// + `approval_status:'pending'` so it never surfaces publicly until an
+// admin/CEO approves it — see docs/superpowers/sdd/task-6-brief.md.
+async function createPendingJobFromIntake(practice, intake) {
+  var maskedTitleArgs = {
+    nearestCity: intake.nearest_city, suburb: intake.suburb, billingStyle: intake.billing_style,
+    dpa: intake.dpa === true, visaSponsorship: intake.visa_sponsorship === true, earningsText: intake.earnings_text
+  };
+  var intakeJobRow = {
+    provider: 'internal_ats', provider_role_id: 'ats_' + atsLocalId(''),
+    title: intake.role_title || practicePipeline.buildMaskedTitle(maskedTitleArgs),
+    masked_title: practicePipeline.buildMaskedTitle(maskedTitleArgs),
+    practice_name: practice.name, practice_id: practice.id,
+    location_city: intake.nearest_city || '', location_state: intake.state || '', location_country: 'Australia',
+    suburb: intake.suburb || '', nearest_city: intake.nearest_city || '',
+    billing_model: intake.billing_style || '', dpa: intake.dpa === true, mmm: intake.mmm || '',
+    earnings_text: intake.earnings_text || '',
+    summary: [intake.role_summary, intake.incentives ? 'Additional incentives: ' + intake.incentives : '', intake.percentage_split ? 'Percentage split: ' + intake.percentage_split : ''].filter(Boolean).join('\n\n'),
+    employment_type: '', practice_type: intake.ownership || '',
+    mixed_billing: intake.billing_style === 'mixed', private_billing: intake.billing_style === 'private',
+    visa_pathway_aligned: intake.visa_sponsorship === true,
+    is_active: false, job_status: 'open', approval_status: 'pending',
+    ats_created: true, posted_by: 'practice_intake',
+    source_payload: { intake: intake, practice_intro: { text: practice.intro_text || intake.intro_text || '', video_url: practice.intro_video_url || intake.intro_video_url || '' } },
+    synced_at: atsNowIso()
+  };
+
+  var created = await atsInsertJobRow(intakeJobRow);
+  if (!created && isSupabaseDbConfigured()) {
+    // Missing-column tolerance: migration 20260705100000 (masked_title,
+    // header_image_url, nearest_city, suburb, approval_status) may not be
+    // applied yet. Retry without those columns but KEEP is_active:false —
+    // that alone hides the job from public listings — and stash the
+    // dropped fields under source_payload.pipeline so nothing is lost.
+    console.error('[practice-intake] career_roles pipeline columns missing — run migration 20260705100000');
+    var legacyRow = Object.assign({}, intakeJobRow);
+    var droppedFields = {
+      masked_title: legacyRow.masked_title,
+      header_image_url: legacyRow.header_image_url,
+      nearest_city: legacyRow.nearest_city,
+      suburb: legacyRow.suburb,
+      approval_status: legacyRow.approval_status
+    };
+    delete legacyRow.masked_title;
+    delete legacyRow.header_image_url;
+    delete legacyRow.nearest_city;
+    delete legacyRow.suburb;
+    delete legacyRow.approval_status;
+    legacyRow.is_active = false;
+    legacyRow.source_payload = Object.assign({}, legacyRow.source_payload, { pipeline: droppedFields });
+    created = await atsInsertJobRow(legacyRow);
+  }
+  return created;
+}
+
 // ---- Applications (gp_applications) + pipeline -----------------------------
 async function atsListApplicationRows(filter) {
   // filter: { jobId } | {} (all)
@@ -28354,6 +28414,147 @@ async function handleApi(req, res, pathname) {
     const response = { ok: true };
     if (practice.agreement_status === 'signed') response.already_signed = true;
     sendJson(res, 200, response);
+    return;
+  }
+
+  // In-app agreement signing: stamps a signature onto the execution page of
+  // the practice agreement PDF, stores the signed copy, promotes the
+  // practice to 'active', auto-creates a pending job listing from the
+  // intake data, and emails both the practice and the GP Link team.
+  if (pathname === '/api/practice-intake/sign' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    const token = String((body && body.token) || '').trim();
+    if (token.length < 16) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    const practice = await findPracticeByIntakeToken(token);
+    if (!practice) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+
+    if (practice.agreement_status === 'signed') {
+      sendJson(res, 409, { ok: false, error: 'already_signed' });
+      return;
+    }
+
+    const intake = (practice.metadata && practice.metadata.intake) || null;
+    if (!intake) {
+      sendJson(res, 409, { ok: false, error: 'intake_incomplete' });
+      return;
+    }
+
+    const authorised = body && body.authorised === true;
+    const signedName = String((body && body.signed_name) || '').trim();
+    const signaturePngDataUrl = String((body && body.signature_data_url) || '');
+    const validSignaturePrefix = signaturePngDataUrl.indexOf('data:image/png;base64,') === 0;
+    if (!authorised || !signedName || signedName.length > 200 || !validSignaturePrefix || signaturePngDataUrl.length > 2 * 1024 * 1024) {
+      sendJson(res, 400, { ok: false, error: 'invalid_signature_payload' });
+      return;
+    }
+
+    if (!_agreementPdfBytes) {
+      try {
+        _agreementPdfBytes = fs.readFileSync(path.join(process.cwd(), 'assets/legal/gp-link-practice-agreement-2026.pdf'));
+      } catch (err) {
+        console.error('[practice-intake/sign] failed to load agreement PDF template:', err && err.message);
+        sendJson(res, 500, { ok: false, message: 'Agreement template unavailable.' });
+        return;
+      }
+    }
+
+    const dateLabel = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' });
+    const clientIp = getClientIp(req);
+
+    let stamped;
+    try {
+      stamped = await stampAgreementExecutionPage({
+        agreementBytes: _agreementPdfBytes,
+        signaturePngDataUrl: signaturePngDataUrl,
+        signedName: signedName,
+        practiceName: practice.name || '',
+        dateLabel: dateLabel,
+        ipAddress: clientIp,
+        token: token
+      });
+    } catch (err) {
+      console.error('[practice-intake/sign] failed to stamp agreement PDF:', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to prepare signed agreement.' });
+      return;
+    }
+
+    let signedKey;
+    if (isSupabaseDbConfigured()) {
+      signedKey = 'practices/' + practice.id + '/agreement-signed.pdf';
+      await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, signedKey, 'data:application/pdf;base64,' + stamped.toString('base64'), 'application/pdf');
+    } else {
+      const localDir = path.join(process.cwd(), 'data', 'practice-agreements');
+      fs.mkdirSync(localDir, { recursive: true });
+      fs.writeFileSync(path.join(localDir, practice.id + '.pdf'), stamped);
+      signedKey = 'local:data/practice-agreements/' + practice.id + '.pdf';
+    }
+
+    const practicePatch = {
+      stage: 'active',
+      agreement_status: 'signed',
+      agreement_signed_at: new Date().toISOString(),
+      agreement_signed_by: signedName,
+      agreement_signed_pdf_key: signedKey
+    };
+    let savedPractice = await atsUpdatePracticeRow(practice.id, practicePatch);
+    if (!savedPractice && isSupabaseDbConfigured()) {
+      // Missing-column tolerance: agreement_status/agreement_signed_* columns
+      // may not exist yet (migration 20260705100000 not applied). Log and
+      // continue rather than fail the practice's signature — local mode
+      // (used in dev/tests) always has these columns and never hits this path.
+      console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
+      savedPractice = await atsUpdatePracticeRow(practice.id, {});
+    }
+
+    const createdJob = await createPendingJobFromIntake(practice, intake);
+
+    const stampedBase64 = stamped.toString('base64');
+    await sendEmail({
+      to: practice.contact_email,
+      from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
+      subject: 'Your signed GP Link agreement — welcome aboard',
+      html: buildCareerEmailHtml({
+        title: 'Agreement signed ✔',
+        body: 'Thanks for signing — here’s what happens next: our team reviews your job listing and it goes live to matched GPs. Your GP search has started — remember our 30-day sourcing promise.',
+        footer: 'A copy of your countersigned agreement is attached.'
+      }),
+      attachments: [{ filename: 'GP-Link-Recruitment-Services-Agreement-signed.pdf', content: stampedBase64, contentType: 'application/pdf' }]
+    }).catch(function (err) { console.error('[practice-intake/sign] confirmation email failed:', err && err.message); });
+
+    await sendEmail({
+      to: GP_OWNER_EMAIL,
+      from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
+      subject: 'New signed practice: ' + (practice.name || '') + ' — job pending approval',
+      html: buildCareerEmailHtml({
+        title: 'New signed practice',
+        body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval).',
+        ctaText: 'View in CEO dashboard',
+        ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard#practice=' + practice.id
+      })
+    }).catch(function (err) { console.error('[practice-intake/sign] team notify email failed:', err && err.message); });
+
+    sendJson(res, 200, { ok: true, practice_stage: 'active', job_id: createdJob && createdJob.id });
     return;
   }
 
