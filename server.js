@@ -29731,6 +29731,118 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Task 13: "Secure My Interview" — GP self-serve instant Zoom booking ──
+  // Reuses the exact same 3-way-timezone scheduler as the admin/CEO interview
+  // tools (see _interviewSlotContext/_bookInterviewSlot above), but skips the
+  // practice-availability round-trip entirely: the interview row is created
+  // already 'defaulted' so slots compute straight against
+  // DEFAULT_PRACTICE_CONFIG and the GP can book on the spot.
+  if (pathname === '/api/career/interview/slots' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const ciEmail = getSessionEmail(session);
+    const ciUserId = getSessionSupabaseUserId(session) || (ciEmail ? await getSupabaseUserIdByEmail(ciEmail) : null);
+    if (!ciUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const ciAppId = String(url.searchParams.get('applicationId') || '').trim();
+    if (!ciAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+
+    const ciCtx = await atsGetApplicationContext(ciAppId);
+    if (!ciCtx || String(ciCtx.userId || '') !== String(ciUserId)) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    const ciRevealed = await canRevealPracticeIdentity(ciUserId, ciCtx.careerRoleId);
+    if (!ciRevealed) { sendJson(res, 403, { ok: false, error: 'not_available' }); return; }
+
+    // Find (or create) the interview row for this application. Creating it
+    // here — rather than requiring the admin /request flow first — is the
+    // whole point of self-serve booking: no practice round-trip.
+    const ciInterviewRef = await findInterviewForApplication(ciAppId);
+    if (!ciInterviewRef) {
+      const ciRow = interviewMeetings.buildInterviewRow({
+        caseId: ciCtx.caseId,
+        userId: ciUserId,
+        applicationId: ciAppId,
+        careerRoleId: ciCtx.careerRoleId,
+        practiceName: ciCtx.practiceName,
+        createdBy: ciEmail || '',
+        nowIso: new Date().toISOString()
+      });
+      ciRow.correlation_token = generateCorrelationToken();
+      const ciSaved = await insertScheduledCallRow(ciRow);
+      if (!ciSaved) { sendJson(res, 502, { ok: false, message: 'Could not create interview row.' }); return; }
+      if (isSupabaseDbConfigured()) {
+        await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(ciSaved.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_availability_status: interviewMeetings.PRACTICE_AVAIL.DEFAULTED }
+        });
+      } else {
+        Object.assign(ciSaved, { practice_availability_status: interviewMeetings.PRACTICE_AVAIL.DEFAULTED });
+        saveDbState();
+      }
+    }
+
+    const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now());
+    if (ciSlotCtx.error) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    sendJson(res, 200, { ok: true, slots: ciSlotCtx.slots });
+    return;
+  }
+
+  if (pathname === '/api/career/interview/book' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const cbEmail = getSessionEmail(session);
+    const cbUserId = getSessionSupabaseUserId(session) || (cbEmail ? await getSupabaseUserIdByEmail(cbEmail) : null);
+    if (!cbUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let cbBody; try { cbBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const cbAppId = String((cbBody && cbBody.applicationId) || '').trim();
+    const cbSlotStart = String((cbBody && cbBody.slot_start_utc) || '').trim();
+    if (!cbAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    if (!cbSlotStart) { sendJson(res, 400, { ok: false, message: 'slot_start_utc required.' }); return; }
+
+    const cbCtx = await atsGetApplicationContext(cbAppId);
+    if (!cbCtx || String(cbCtx.userId || '') !== String(cbUserId)) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    const cbRevealed = await canRevealPracticeIdentity(cbUserId, cbCtx.careerRoleId);
+    if (!cbRevealed) { sendJson(res, 403, { ok: false, error: 'not_available' }); return; }
+
+    const cbInterviewRef = await findInterviewForApplication(cbAppId);
+    if (!cbInterviewRef) { sendJson(res, 404, { ok: false, message: 'No interview available for this application.' }); return; }
+
+    let cbRow;
+    if (isSupabaseDbConfigured()) {
+      const cbRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(cbInterviewRef.id) + '&limit=1');
+      cbRow = (cbRowRes.ok && cbRowRes.data && cbRowRes.data[0]) ? cbRowRes.data[0] : null;
+    } else {
+      cbRow = cbInterviewRef;
+    }
+    if (!cbRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
+
+    // Idempotent: already booked.
+    if (cbRow.status === 'booked') {
+      sendJson(res, 200, { ok: true, already: true, booked: { scheduled_at: cbRow.scheduled_at, zoom_join_url: cbRow.zoom_join_url || '' } });
+      return;
+    }
+
+    const cbBooked = await _bookInterviewSlot(cbRow, cbCtx, cbSlotStart, Date.now(), cbEmail || '');
+    if (cbBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, error: 'slot_taken' }); return; }
+
+    // Vercel rule: a serverless function can be frozen the instant the
+    // response is sent, so — unlike the admin book path, which fires the
+    // confirmation emails without awaiting — this GP-facing path must await
+    // them before responding or they may never actually send.
+    await cbBooked.notifyPromise;
+
+    sendJson(res, 200, { ok: true, booked: cbBooked.booked });
+    return;
+  }
+
   if (pathname === '/api/career/apply' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -49518,71 +49630,12 @@ Return ONLY valid JSON with no markdown formatting:
     var slNowParam = url.searchParams.get('now');
     var slNow = slNowParam ? new Date(slNowParam) : new Date();
 
-    // Find the interview row (local mode returns the full object; Supabase returns {id,status}).
-    var slInterviewRef = await findInterviewForApplication(slAppId);
-    if (!slInterviewRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+    var slCtx = await _interviewSlotContext(slAppId, slNow.getTime());
+    if (slCtx.error === 'no_interview') { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+    if (slCtx.error === 'no_row') { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
+    if (slCtx.error === 'no_application') { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
-    // Load full row to access practice_availability_status and windows.
-    var slRow;
-    if (isSupabaseDbConfigured()) {
-      var slRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(slInterviewRef.id) + '&limit=1');
-      slRow = (slRowRes.ok && slRowRes.data && slRowRes.data[0]) ? slRowRes.data[0] : null;
-    } else {
-      slRow = slInterviewRef; // local findInterviewForApplication returns the full object
-    }
-    if (!slRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
-
-    var slStatus = slRow.practice_availability_status || 'not_requested';
-    if (slStatus !== interviewMeetings.PRACTICE_AVAIL.RECEIVED && slStatus !== interviewMeetings.PRACTICE_AVAIL.DEFAULTED) {
-      sendJson(res, 200, { ok: true, status: slStatus, slots: [] }); return;
-    }
-
-    // Get application context for timezone + practice info.
-    var slCtx = await atsGetApplicationContext(slAppId);
-    if (!slCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
-
-    // Build per-party configs.
-    var slHost = interviewMeetings.DEFAULT_HOST_CONFIG;
-    var slPractice = buildInterviewPracticeConfig(slRow, interviewMeetings.practiceTzForLocation(slCtx.practiceName || ''));
-    var slGp = {
-      tz: interviewMeetings.gpTzForCountry(slCtx.gpCountry),
-      weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
-      weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
-    };
-
-    // Build busy intervals: gcal + existing booked interviews.
-    var slNowIso = slNow.toISOString();
-    var slHorizonIso = new Date(slNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    var slBusy = await gcalReadBusy({ fromUtc: slNowIso, toUtc: slHorizonIso });
-    var slBookedInterviews = [];
-    if (isSupabaseDbConfigured()) {
-      var slBR = await supabaseDbRequest('scheduled_calls', 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&limit=200');
-      slBookedInterviews = (slBR.ok && Array.isArray(slBR.data)) ? slBR.data : [];
-    } else {
-      slBookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
-        return r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at;
-      });
-    }
-    slBookedInterviews.forEach(function (r) {
-      if (r.scheduled_at) {
-        slBusy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
-      }
-    });
-
-    var slResult = interviewScheduler.computeInterviewSlots({
-      now: slNow,
-      horizonDays: 14,
-      durationMin: 45,
-      leadHours: 48,
-      gridMin: 30,
-      maxSlots: 12,
-      host: slHost,
-      practice: slPractice,
-      gp: slGp,
-      busy: slBusy
-    });
-
-    sendJson(res, 200, { ok: true, status: slStatus, slots: slResult.slots });
+    sendJson(res, 200, { ok: true, status: slCtx.status, slots: slCtx.slots });
     return;
   }
 
@@ -49617,137 +49670,17 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Re-run slot computation to validate the requested slot is still available.
     var bkCtx = await atsGetApplicationContext(bkAppId);
     if (!bkCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
-    var bkHost = interviewMeetings.DEFAULT_HOST_CONFIG;
-    var bkPractice = buildInterviewPracticeConfig(bkRow, interviewMeetings.practiceTzForLocation(bkCtx.practiceName || ''));
-    var bkGp = {
-      tz: interviewMeetings.gpTzForCountry(bkCtx.gpCountry),
-      weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
-      weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
-    };
+    var bkBooked = await _bookInterviewSlot(bkRow, bkCtx, bkSlotStart, bkNow.getTime(), ctxBK.email || '');
+    if (bkBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
 
-    var bkNowIso = bkNow.toISOString();
-    var bkHorizonIso = new Date(bkNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    var bkBusy = await gcalReadBusy({ fromUtc: bkNowIso, toUtc: bkHorizonIso });
-    var bkBookedInterviews = [];
-    if (isSupabaseDbConfigured()) {
-      var bkBR = await supabaseDbRequest('scheduled_calls', 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&id=neq.' + encodeURIComponent(bkRow.id) + '&limit=200');
-      bkBookedInterviews = (bkBR.ok && Array.isArray(bkBR.data)) ? bkBR.data : [];
-    } else {
-      bkBookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
-        return r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at && String(r.id) !== String(bkRow.id);
-      });
-    }
-    bkBookedInterviews.forEach(function (r) {
-      if (r.scheduled_at) {
-        bkBusy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
-      }
-    });
+    // Fire-and-forget exactly as before this refactor — the admin response
+    // must not wait on the confirmation emails.
+    bkBooked.notifyPromise.catch(function () {});
 
-    // Validation must use a large maxSlots so the cap+spread that GET /slots applies (12) can't
-    // drop a still-valid slot the user legitimately picked and make us 409 a good booking.
-    var bkResult = interviewScheduler.computeInterviewSlots({
-      now: bkNow,
-      horizonDays: 14,
-      durationMin: 45,
-      leadHours: 48,
-      gridMin: 30,
-      maxSlots: 500,
-      host: bkHost,
-      practice: bkPractice,
-      gp: bkGp,
-      busy: bkBusy
-    });
-
-    var bkSlotValid = bkResult.slots.some(function (s) { return s.startUtc === bkSlotStart; });
-    if (!bkSlotValid) { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
-
-    // ⚠️  Partial-failure risk (accepted for v1):
-    // The three side-effects below — Zoom create → GCal create → row PATCH + stage advance —
-    // are NOT wrapped in a transaction. In Supabase mode, if the row PATCH fails after Zoom
-    // and GCal have already been created, the row stays 'requested' and a client retry would
-    // produce duplicate Zoom meetings and GCal events (no orphan cleanup). This is accepted for
-    // v1 because the window is narrow and duplicates can be cleaned up manually. A future
-    // hardening pass should either (a) set an intermediate 'booking' status before the external
-    // calls and clear it on failure, or (b) run a reconciliation job that detects orphaned
-    // Zoom/GCal entries and removes them.
-
-    // Create Zoom meeting.
-    var bkZoom = await createZoomInterviewMeeting({
-      topic: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
-      startUtc: bkSlotStart,
-      durationMin: 45
-    });
-
-    // Create Calendar event.
-    var bkSlotEnd = new Date(new Date(bkSlotStart).getTime() + 45 * 60000).toISOString();
-    var bkGcal = await gcalCreateEvent({
-      summary: 'Interview — ' + bkCtx.gpName + ' @ ' + (bkCtx.practiceName || 'Practice'),
-      startUtc: bkSlotStart,
-      endUtc: bkSlotEnd,
-      attendees: [bkCtx.gpEmail || '', bkCtx.practiceEmail || ''].filter(Boolean),
-      description: 'GP Link interview: ' + bkCtx.gpName + ' for ' + (bkCtx.practiceName || '') + '. Join: ' + (bkZoom.join_url || ''),
-      zoomJoinUrl: bkZoom.join_url || ''
-    });
-
-    // Persist the booking on the interview row (dual-mode).
-    var bkNowTs = atsNowIso();
-    var bkPatch = {
-      status: 'booked',
-      scheduled_at: bkSlotStart,
-      booked_at: bkNowTs,
-      zoom_meeting_id: String(bkZoom.id || ''),
-      zoom_meeting_uuid: String(bkZoom.uuid || ''),
-      zoom_join_url: String(bkZoom.join_url || ''),
-      zoom_passcode: String(bkZoom.passcode || ''),
-      gcal_event_id: String(bkGcal.id || ''),
-      updated_at: bkNowTs
-    };
-    if (isSupabaseDbConfigured()) {
-      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(bkRow.id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: bkPatch
-      });
-    } else {
-      Object.assign(bkRow, bkPatch);
-      saveDbState();
-    }
-
-    // Move application stage to 'interview'. Deliberately NO
-    // notifyGpOfAtsStageChange here: the block right below already emails the
-    // GP their interview confirmation (with the Zoom link), so a second
-    // "you're through to interview" ping would be a duplicate.
-    await atsUpdateApplicationStageRow(bkAppId, 'interview', '', ctxBK.email || '');
-
-    // Notify GP + practice — best-effort, must not throw past the response.
-    (async function () {
-      try {
-        var bkGpEmail = bkCtx.gpEmail || '';
-        var bkTimeLabel = new Date(bkSlotStart).toUTCString();
-        if (bkCtx.practiceEmail && isEmailConfigured()) {
-          await sendEmail({
-            to: bkCtx.practiceEmail,
-            subject: 'Interview confirmed — ' + bkCtx.gpName,
-            text: 'The interview with ' + bkCtx.gpName + ' is confirmed for ' + bkTimeLabel + '. Zoom: ' + (bkZoom.join_url || ''),
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
-          });
-        }
-        if (bkGpEmail && isEmailConfigured()) {
-          await sendEmail({
-            to: bkGpEmail,
-            subject: 'Your interview is confirmed',
-            text: 'Your interview at ' + (bkCtx.practiceName || 'the practice') + ' is confirmed for ' + bkTimeLabel + '. Zoom: ' + (bkZoom.join_url || ''),
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
-          });
-        }
-      } catch (bkNotifyErr) {
-        console.warn('[interview] book notify error (ignored):', bkNotifyErr && bkNotifyErr.message);
-      }
-    })().catch(function () {});
-
-    sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkSlotStart, zoom_join_url: bkZoom.join_url || '' });
+    sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkBooked.booked.scheduled_at, zoom_join_url: bkBooked.booked.zoom_join_url });
     return;
   }
 
@@ -50580,6 +50513,202 @@ function buildInterviewPracticeConfig(interviewRow, practiceTz) {
     return { tz: practiceTz, weekday: [0, 0], weekend: [0, 0], overrides: windows };
   }
   return { tz: practiceTz, weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday, weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend, overrides: [] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Task 13 — shared interview slot/booking helpers.
+//
+// Extracted from the admin GET /api/ats/interview/slots and POST
+// /api/ats/interview/book handlers so the GP-facing self-serve
+// /api/career/interview/* endpoints (Task 13) can reuse the exact same
+// 3-way-timezone scheduler logic without duplicating it. The admin handlers
+// below now just parse/authorize the request and delegate here — their
+// responses, status codes and email sends are unchanged by this refactor.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Busy-interval lookup + computeInterviewSlots call shared by the admin GET
+// (maxSlots 12, no self-exclusion — matches the original GET query exactly)
+// and both book paths (maxSlots 500, self-excluded so a not-yet-booked row
+// can never shadow its own slot).
+async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
+  var host = interviewMeetings.DEFAULT_HOST_CONFIG;
+  var practice = buildInterviewPracticeConfig(row, interviewMeetings.practiceTzForLocation(appCtx.practiceName || ''));
+  var gp = {
+    tz: interviewMeetings.gpTzForCountry(appCtx.gpCountry),
+    weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
+    weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
+  };
+
+  var nowIso = now.toISOString();
+  var horizonIso = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  var busy = await gcalReadBusy({ fromUtc: nowIso, toUtc: horizonIso });
+  var bookedInterviews = [];
+  if (isSupabaseDbConfigured()) {
+    var q = 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&limit=200' + (excludeId ? ('&id=neq.' + encodeURIComponent(excludeId)) : '');
+    var br = await supabaseDbRequest('scheduled_calls', q);
+    bookedInterviews = (br.ok && Array.isArray(br.data)) ? br.data : [];
+  } else {
+    bookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
+      if (!(r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at)) return false;
+      if (excludeId && String(r.id) === String(excludeId)) return false;
+      return true;
+    });
+  }
+  bookedInterviews.forEach(function (r) {
+    if (r.scheduled_at) {
+      busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
+    }
+  });
+
+  return interviewScheduler.computeInterviewSlots({
+    now: now,
+    horizonDays: 14,
+    durationMin: 45,
+    leadHours: 48,
+    gridMin: 30,
+    maxSlots: maxSlots,
+    host: host,
+    practice: practice,
+    gp: gp,
+    busy: busy
+  });
+}
+
+// Everything the admin GET /slots handler does after auth + application_id
+// parsing: find the interview row, gate on practice_availability_status,
+// load the application context, and (if the gate passes) compute the 3-way
+// slots at the default GET cap (maxSlots:12). Returns
+// { error: 'no_interview' | 'no_row' | 'no_application' } on failure,
+// otherwise { meetingRow, app, status, slots }.
+async function _interviewSlotContext(applicationId, nowMs) {
+  var now = nowMs ? new Date(nowMs) : new Date();
+
+  var interviewRef = await findInterviewForApplication(applicationId);
+  if (!interviewRef) return { error: 'no_interview' };
+
+  var row;
+  if (isSupabaseDbConfigured()) {
+    var rowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(interviewRef.id) + '&limit=1');
+    row = (rowRes.ok && rowRes.data && rowRes.data[0]) ? rowRes.data[0] : null;
+  } else {
+    row = interviewRef;
+  }
+  if (!row) return { error: 'no_row' };
+
+  var status = row.practice_availability_status || 'not_requested';
+  if (status !== interviewMeetings.PRACTICE_AVAIL.RECEIVED && status !== interviewMeetings.PRACTICE_AVAIL.DEFAULTED) {
+    return { meetingRow: row, status: status, slots: [] };
+  }
+
+  var appCtx = await atsGetApplicationContext(applicationId);
+  if (!appCtx) return { error: 'no_application' };
+
+  var result = await _interviewComputeSlots(row, appCtx, now, 12, null);
+  return { meetingRow: row, app: appCtx, status: status, slots: result.slots };
+}
+
+// The Zoom → GCal → PATCH → stage-advance → confirm-email sequence shared by
+// the admin book handler and the new GP-facing book endpoint. Re-validates
+// the requested slot against a wide (maxSlots:500) recompute first, so a
+// stale/no-longer-available pick 409s instead of silently booking the wrong
+// time — this mirrors the admin path's original pre-validation exactly.
+// Returns { error: 'slot_taken' } on a stale slot, otherwise
+// { booked: { scheduled_at, zoom_join_url }, zoom, gcal, notifyPromise }.
+// notifyPromise is the (unawaited-by-default) confirmation-email send:
+// callers that must guarantee the emails complete before responding (the
+// serverless GP endpoints, per the Vercel await-before-respond rule) should
+// `await result.notifyPromise`; the admin endpoint deliberately does NOT —
+// it fires-and-forgets exactly as it always has, so its response timing is
+// unchanged by this refactor.
+async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail) {
+  var now = nowMs ? new Date(nowMs) : new Date();
+
+  var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id);
+  var slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
+  if (!slotValid) return { error: 'slot_taken' };
+
+  // ⚠️  Partial-failure risk (accepted for v1):
+  // The three side-effects below — Zoom create → GCal create → row PATCH + stage advance —
+  // are NOT wrapped in a transaction. In Supabase mode, if the row PATCH fails after Zoom
+  // and GCal have already been created, the row stays 'requested' and a client retry would
+  // produce duplicate Zoom meetings and GCal events (no orphan cleanup). This is accepted for
+  // v1 because the window is narrow and duplicates can be cleaned up manually. A future
+  // hardening pass should either (a) set an intermediate 'booking' status before the external
+  // calls and clear it on failure, or (b) run a reconciliation job that detects orphaned
+  // Zoom/GCal entries and removes them.
+
+  var zoom = await createZoomInterviewMeeting({
+    topic: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
+    startUtc: slotStartUtc,
+    durationMin: 45
+  });
+
+  var slotEnd = new Date(new Date(slotStartUtc).getTime() + 45 * 60000).toISOString();
+  var gcal = await gcalCreateEvent({
+    summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
+    startUtc: slotStartUtc,
+    endUtc: slotEnd,
+    attendees: [appCtx.gpEmail || '', appCtx.practiceEmail || ''].filter(Boolean),
+    description: 'GP Link interview: ' + appCtx.gpName + ' for ' + (appCtx.practiceName || '') + '. Join: ' + (zoom.join_url || ''),
+    zoomJoinUrl: zoom.join_url || ''
+  });
+
+  // Persist the booking on the interview row (dual-mode).
+  var nowTs = atsNowIso();
+  var patch = {
+    status: 'booked',
+    scheduled_at: slotStartUtc,
+    booked_at: nowTs,
+    zoom_meeting_id: String(zoom.id || ''),
+    zoom_meeting_uuid: String(zoom.uuid || ''),
+    zoom_join_url: String(zoom.join_url || ''),
+    zoom_passcode: String(zoom.passcode || ''),
+    gcal_event_id: String(gcal.id || ''),
+    updated_at: nowTs
+  };
+  if (isSupabaseDbConfigured()) {
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+  } else {
+    Object.assign(meetingRow, patch);
+    saveDbState();
+  }
+
+  // Move application stage to 'interview'. Deliberately NO
+  // notifyGpOfAtsStageChange here: the notify block below already emails the
+  // GP their interview confirmation (with the Zoom link), so a second
+  // "you're through to interview" ping would be a duplicate.
+  await atsUpdateApplicationStageRow(appCtx.app.id, 'interview', '', actorEmail || '');
+
+  // Notify GP + practice — best-effort, must not throw past the caller's response.
+  var notifyPromise = (async function () {
+    try {
+      var gpEmail = appCtx.gpEmail || '';
+      var timeLabel = new Date(slotStartUtc).toUTCString();
+      if (appCtx.practiceEmail && isEmailConfigured()) {
+        await sendEmail({
+          to: appCtx.practiceEmail,
+          subject: 'Interview confirmed — ' + appCtx.gpName,
+          text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        });
+      }
+      if (gpEmail && isEmailConfigured()) {
+        await sendEmail({
+          to: gpEmail,
+          subject: 'Your interview is confirmed',
+          text: 'Your interview at ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        });
+      }
+    } catch (notifyErr) {
+      console.warn('[interview] book notify error (ignored):', notifyErr && notifyErr.message);
+    }
+  })();
+  notifyPromise.catch(function () {});
+
+  return { booked: { scheduled_at: slotStartUtc, zoom_join_url: zoom.join_url || '' }, zoom: zoom, gcal: gcal, notifyPromise: notifyPromise };
 }
 
 async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {

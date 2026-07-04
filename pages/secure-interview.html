@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Secure My Interview — GP Link</title>
+  <script src="../js/native-bridge.js?v=20260608a"></script>
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <script src="/js/nav-shell-bridge.js?v=20260705a" defer></script>
+  <script src="../js/auth-guard.js?v=20260705a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --gp-canvas: #0f172a;
+      --gp-surface: #1e293b;
+      --gp-surface-sunken: #1a2332;
+      --gp-ink: #e2e8f0;
+      --gp-text: #cbd5e1;
+      --gp-muted: #94a3b8;
+      --gp-faint: #64748b;
+      --gp-border: #334155;
+      --gp-border-strong: #475569;
+      --gp-blue-soft: rgba(59, 130, 246, 0.12);
+      --gp-blue-border: rgba(59, 130, 246, 0.28);
+      --gp-green-soft: #052e16;
+      --gp-green-border: rgba(34, 197, 94, 0.28);
+      --gp-red-soft: #450a0a;
+      --gp-red-border: rgba(248, 113, 113, 0.32);
+      --gp-shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 2px 10px -4px rgba(0,0,0,0.4);
+      --gp-shadow-md: 0 10px 30px -18px rgba(0,0,0,0.55);
+      --gp-shadow-lg: 0 24px 55px -24px rgba(0,0,0,0.65);
+    }
+  }
+  :root[data-theme="dark"] {
+    --gp-canvas: #0f172a;
+    --gp-surface: #1e293b;
+    --gp-surface-sunken: #1a2332;
+    --gp-ink: #e2e8f0;
+    --gp-text: #cbd5e1;
+    --gp-muted: #94a3b8;
+    --gp-faint: #64748b;
+    --gp-border: #334155;
+    --gp-border-strong: #475569;
+    --gp-blue-soft: rgba(59, 130, 246, 0.12);
+    --gp-blue-border: rgba(59, 130, 246, 0.28);
+    --gp-green-soft: #052e16;
+    --gp-green-border: rgba(34, 197, 94, 0.28);
+    --gp-red-soft: #450a0a;
+    --gp-red-border: rgba(248, 113, 113, 0.32);
+  }
+  :root[data-theme="light"] {
+    --gp-canvas: #f4f6fb;
+    --gp-surface: #ffffff;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: var(--gp-font-body);
+    background: var(--gp-canvas);
+    color: var(--gp-text);
+    min-height: 100vh;
+    padding-bottom: calc(var(--gp-shell-bottom-clearance, 0px) + 32px);
+  }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 40px; }
+
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 16px 20px 4px; max-width: 640px; margin: 0 auto; }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: var(--gp-fs-sm); color: var(--gp-muted); text-decoration: none;
+    font-weight: 600;
+  }
+  .back-link:hover { color: var(--gp-blue); }
+
+  .hero { margin-bottom: 24px; }
+  .hero h1 {
+    font-family: var(--gp-font-display);
+    font-size: var(--gp-fs-2xl);
+    color: var(--gp-ink);
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  .hero p { color: var(--gp-muted); font-size: var(--gp-fs-base); line-height: 1.5; }
+
+  .card {
+    background: var(--gp-surface);
+    border: 1px solid var(--gp-border);
+    border-radius: var(--gp-r-lg);
+    box-shadow: var(--gp-shadow-sm);
+    padding: 24px;
+  }
+
+  /* ── Loading ── */
+  #loadingState { text-align: center; color: var(--gp-muted); font-size: var(--gp-fs-base); }
+  .spinner {
+    width: 28px; height: 28px; margin: 0 auto 14px;
+    border: 3px solid var(--gp-border);
+    border-top-color: var(--gp-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error / not-available ── */
+  #errorState { text-align: center; }
+  #errorState p { color: var(--gp-text); font-size: var(--gp-fs-base); line-height: 1.5; margin-bottom: 18px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--gp-font-body); font-weight: 600; font-size: var(--gp-fs-base);
+    border-radius: var(--gp-r-md); padding: 12px 22px; cursor: pointer;
+    border: 1px solid transparent; text-decoration: none;
+    transition: transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--gp-grad-brand); color: #fff; box-shadow: 0 10px 24px -10px rgba(37, 99, 235, 0.55); }
+  .btn-primary:hover { box-shadow: 0 12px 28px -10px rgba(37, 99, 235, 0.7); }
+  .btn-secondary { background: var(--gp-surface); color: var(--gp-text); border-color: var(--gp-border-strong); }
+  .btn-secondary:hover { background: var(--gp-surface-sunken); }
+  .btn-block { width: 100%; }
+
+  /* ── Day-grouped slots ── */
+  .day-group { margin-bottom: 22px; }
+  .day-group:last-child { margin-bottom: 0; }
+  .day-heading {
+    font-size: var(--gp-fs-sm); font-weight: 700; color: var(--gp-muted);
+    text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
+    margin-bottom: 10px;
+  }
+  .slot-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 480px) { .slot-grid { grid-template-columns: repeat(3, 1fr); } }
+  .slot-btn {
+    font-family: var(--gp-font-body); font-size: var(--gp-fs-sm); font-weight: 600;
+    color: var(--gp-text); background: var(--gp-surface-sunken);
+    border: 1px solid var(--gp-border); border-radius: var(--gp-r-sm);
+    padding: 12px 10px; cursor: pointer; text-align: center; line-height: 1.35;
+    transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
+  }
+  .slot-btn:hover { border-color: var(--gp-blue-border); background: var(--gp-blue-soft); color: var(--gp-blue-ink, var(--gp-blue)); }
+  .slot-btn:active { transform: scale(0.97); }
+
+  .empty-slots { text-align: center; color: var(--gp-muted); padding: 20px 0; }
+
+  /* ── Confirm sheet ── */
+  #confirmOverlay {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+    display: flex; align-items: flex-end; justify-content: center; z-index: 200;
+    padding: 0;
+  }
+  @media (min-width: 640px) { #confirmOverlay { align-items: center; padding: 20px; } }
+  .confirm-sheet {
+    background: var(--gp-surface); border-radius: var(--gp-r-xl) var(--gp-r-xl) 0 0;
+    box-shadow: var(--gp-shadow-lg); padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 100%; max-width: 480px;
+  }
+  @media (min-width: 640px) { .confirm-sheet { border-radius: var(--gp-r-xl); } }
+  .confirm-sheet h2 { font-family: var(--gp-font-display); font-size: var(--gp-fs-xl); color: var(--gp-ink); margin-bottom: 8px; }
+  .confirm-sheet p { color: var(--gp-muted); font-size: var(--gp-fs-base); margin-bottom: 4px; }
+  .confirm-time { font-weight: 700; color: var(--gp-ink); font-size: var(--gp-fs-md); margin-bottom: 22px; }
+  .confirm-actions { display: flex; gap: 10px; }
+  .confirm-actions .btn { flex: 1; }
+
+  /* ── Success state ── */
+  #successState { text-align: center; }
+  .success-icon { font-size: 44px; margin-bottom: 12px; }
+  #successState h1 { font-family: var(--gp-font-display); font-size: var(--gp-fs-2xl); color: var(--gp-ink); margin-bottom: 10px; }
+  #successState .success-time {
+    display: inline-block; background: var(--gp-green-soft); border: 1px solid var(--gp-green-border);
+    color: var(--gp-green-ink, var(--gp-green)); font-weight: 700; font-size: var(--gp-fs-md);
+    border-radius: var(--gp-r-md); padding: 10px 18px; margin: 6px 0 20px;
+  }
+  #successState .success-note { color: var(--gp-muted); font-size: var(--gp-fs-sm); margin-top: 16px; }
+  #successZoomLink { margin-bottom: 4px; }
+
+  /* ── Toast (slot_taken) ── */
+  #toast {
+    position: fixed; left: 50%; bottom: calc(var(--gp-shell-bottom-clearance, 0px) + 24px);
+    transform: translateX(-50%); background: var(--gp-ink); color: #fff;
+    font-size: var(--gp-fs-sm); font-weight: 600; padding: 12px 20px; border-radius: var(--gp-r-md);
+    box-shadow: var(--gp-shadow-md); z-index: 300; max-width: 90vw; text-align: center;
+  }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back-link" href="/pages/offer-review.html" id="backLink">&larr; Back to offer</a>
+  </div>
+
+  <div class="wrap">
+    <div class="hero" id="pageHero">
+      <h1>Secure My Interview</h1>
+      <p>Pick a time that works for you — we'll lock in the Zoom call instantly and send you the invite.</p>
+    </div>
+
+    <div id="loadingState" class="card">
+      <div class="spinner"></div>
+      Finding available times&hellip;
+    </div>
+
+    <div id="errorState" class="card" hidden>
+      <p id="errorMessage"></p>
+      <a class="btn btn-primary" id="errorAction" href="#" hidden>Go to my offer</a>
+    </div>
+
+    <div id="slotsState" hidden>
+      <div class="card">
+        <div id="daysList"></div>
+        <div class="empty-slots" id="emptySlots" hidden>No times are available right now — please check back shortly.</div>
+      </div>
+    </div>
+
+    <div id="successState" class="card" hidden>
+      <div class="success-icon">🎉</div>
+      <h1>Interview locked in</h1>
+      <div class="success-time" id="successTime"></div>
+      <div>
+        <a class="btn btn-primary btn-block" id="successZoomLink" href="#" target="_blank" rel="noopener" hidden>Join Zoom call</a>
+      </div>
+      <p class="success-note">It's on your calendar — invite sent to your email.</p>
+    </div>
+  </div>
+
+  <div id="confirmOverlay" hidden>
+    <div class="confirm-sheet">
+      <h2>Confirm your interview</h2>
+      <p>You're booking for:</p>
+      <div class="confirm-time" id="confirmTimeLabel"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" id="confirmCancelBtn" type="button">Back</button>
+        <button class="btn btn-primary" id="confirmBookBtn" type="button">Confirm booking</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(window.location.search);
+  var applicationId = params.get('applicationId') || params.get('application_id') || params.get('id') || '';
+
+  var loadingState = document.getElementById('loadingState');
+  var errorState = document.getElementById('errorState');
+  var errorMessage = document.getElementById('errorMessage');
+  var errorAction = document.getElementById('errorAction');
+  var slotsState = document.getElementById('slotsState');
+  var daysList = document.getElementById('daysList');
+  var emptySlots = document.getElementById('emptySlots');
+  var successState = document.getElementById('successState');
+  var successTime = document.getElementById('successTime');
+  var successZoomLink = document.getElementById('successZoomLink');
+  var confirmOverlay = document.getElementById('confirmOverlay');
+  var confirmTimeLabel = document.getElementById('confirmTimeLabel');
+  var confirmBookBtn = document.getElementById('confirmBookBtn');
+  var confirmCancelBtn = document.getElementById('confirmCancelBtn');
+  var toast = document.getElementById('toast');
+  var backLink = document.getElementById('backLink');
+
+  if (applicationId) {
+    backLink.setAttribute('href', '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
+  }
+
+  var pendingSlot = null; // the slot object currently shown in the confirm sheet
+  var toastTimer = null;
+
+  function showToast(text) {
+    toast.textContent = text;
+    toast.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.hidden = true; }, 4200);
+  }
+
+  function showOnly(nodeToShow) {
+    [loadingState, errorState, slotsState, successState].forEach(function (node) {
+      node.hidden = (node !== nodeToShow);
+    });
+  }
+
+  function showError(message, actionHref) {
+    errorMessage.textContent = message;
+    if (actionHref) {
+      errorAction.setAttribute('href', actionHref);
+      errorAction.hidden = false;
+    } else {
+      errorAction.hidden = true;
+    }
+    showOnly(errorState);
+  }
+
+  // ── Confetti (reused pattern from pages/offer-review.html, Task 12) —
+  // self-contained canvas burst, no library, removes its own canvas after. ──
+  function launchConfetti() {
+    var palette = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444', '#a855f7'];
+    var canvas = document.createElement('canvas');
+    canvas.id = 'confettiCanvas';
+    canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var pieces = [];
+    for (var i = 0; i < 140; i++) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height * 0.5,
+        w: 6 + Math.random() * 6,
+        h: 4 + Math.random() * 8,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        vx: (Math.random() - 0.5) * 2.2,
+        vy: 2 + Math.random() * 3.2,
+        rotation: Math.random() * 360,
+        vr: (Math.random() - 0.5) * 12
+      });
+    }
+
+    var startTs = null;
+    var DURATION_MS = 2800;
+    function frame(ts) {
+      if (!startTs) startTs = ts;
+      var elapsed = ts - startTs;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (var i = 0; i < pieces.length; i++) {
+        var p = pieces[i];
+        p.x += p.vx; p.y += p.vy; p.rotation += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (elapsed < DURATION_MS) {
+        requestAnimationFrame(frame);
+      } else {
+        window.removeEventListener('resize', resize);
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function dayGroupKey(slot) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: slot.local.gp.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc));
+    } catch (e) {
+      return slot.startUtc.slice(0, 10);
+    }
+  }
+
+  function dayHeading(slot) {
+    try {
+      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(slot.startUtc));
+    } catch (e) {
+      return dayGroupKey(slot);
+    }
+  }
+
+  function timeOnlyLabel(slot) {
+    try {
+      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
+    } catch (e) {
+      return slot.local && slot.local.gp && slot.local.gp.label ? slot.local.gp.label : slot.startUtc;
+    }
+  }
+
+  function renderSlots(slots) {
+    daysList.textContent = '';
+    if (!slots || !slots.length) {
+      emptySlots.hidden = false;
+      showOnly(slotsState);
+      return;
+    }
+    emptySlots.hidden = true;
+
+    var groups = [];
+    var groupsByKey = {};
+    slots.forEach(function (slot) {
+      var key = dayGroupKey(slot);
+      if (!groupsByKey[key]) {
+        groupsByKey[key] = { key: key, heading: dayHeading(slot), slots: [] };
+        groups.push(groupsByKey[key]);
+      }
+      groupsByKey[key].slots.push(slot);
+    });
+
+    groups.forEach(function (group) {
+      var groupEl = document.createElement('div');
+      groupEl.className = 'day-group';
+
+      var heading = document.createElement('div');
+      heading.className = 'day-heading';
+      heading.textContent = group.heading; // textContent only — never innerHTML with server data
+      groupEl.appendChild(heading);
+
+      var grid = document.createElement('div');
+      grid.className = 'slot-grid';
+      group.slots.forEach(function (slot) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'slot-btn';
+        btn.textContent = timeOnlyLabel(slot);
+        btn.setAttribute('data-start-utc', slot.startUtc);
+        btn.addEventListener('click', function () { openConfirm(slot); });
+        grid.appendChild(btn);
+      });
+      groupEl.appendChild(grid);
+      daysList.appendChild(groupEl);
+    });
+
+    showOnly(slotsState);
+  }
+
+  function openConfirm(slot) {
+    pendingSlot = slot;
+    var label = dayHeading(slot) + ' at ' + timeOnlyLabel(slot);
+    confirmTimeLabel.textContent = label;
+    confirmOverlay.hidden = false;
+  }
+
+  function closeConfirm() {
+    confirmOverlay.hidden = true;
+    pendingSlot = null;
+  }
+
+  confirmCancelBtn.addEventListener('click', closeConfirm);
+  confirmOverlay.addEventListener('click', function (ev) {
+    if (ev.target === confirmOverlay) closeConfirm();
+  });
+
+  function renderSuccess(booked) {
+    var timeLabel = '';
+    try {
+      timeLabel = new Date(booked.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+    } catch (e) {
+      timeLabel = booked.scheduled_at || '';
+    }
+    successTime.textContent = timeLabel;
+
+    var zoomUrl = String(booked.zoom_join_url || '');
+    if (zoomUrl.indexOf('https://') === 0) {
+      successZoomLink.setAttribute('href', zoomUrl);
+      successZoomLink.hidden = false;
+    } else {
+      successZoomLink.hidden = true;
+    }
+
+    showOnly(successState);
+    launchConfetti();
+  }
+
+  function loadSlots() {
+    showOnly(loadingState);
+    fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(applicationId), { credentials: 'same-origin' })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) { return { status: res.status, data: data }; });
+      })
+      .then(function (result) {
+        var status = result.status, data = result.data || {};
+        if (status === 200 && data.ok) {
+          renderSlots(data.slots || []);
+          return;
+        }
+        if (status === 403 && data.error === 'not_available') {
+          showError("Your interview isn't available to book yet — check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
+          return;
+        }
+        if (status === 401) {
+          showError('Please sign in again to book your interview.');
+          return;
+        }
+        if (status === 404) {
+          showError("We couldn't find this application. Please go back to your offer and try again.", '/pages/offer-review.html');
+          return;
+        }
+        showError('Something went wrong loading your interview times. Please try again shortly.');
+      })
+      .catch(function () {
+        showError('Something went wrong loading your interview times. Please try again shortly.');
+      });
+  }
+
+  function bookSlot(slot) {
+    confirmBookBtn.disabled = true;
+    confirmBookBtn.textContent = 'Booking…';
+    fetch('/api/career/interview/book', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId: applicationId, slot_start_utc: slot.startUtc })
+    })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) { return { status: res.status, data: data }; });
+      })
+      .then(function (result) {
+        var status = result.status, data = result.data || {};
+        confirmBookBtn.disabled = false;
+        confirmBookBtn.textContent = 'Confirm booking';
+        if (status === 200 && data.ok) {
+          closeConfirm();
+          renderSuccess(data.booked || {});
+          return;
+        }
+        if (status === 409 && data.error === 'slot_taken') {
+          closeConfirm();
+          showToast('That time was just taken — please pick another.');
+          loadSlots();
+          return;
+        }
+        if (status === 403 && data.error === 'not_available') {
+          closeConfirm();
+          showError("Your interview isn't available to book yet — check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
+          return;
+        }
+        closeConfirm();
+        showToast('Something went wrong booking that time — please try again.');
+      })
+      .catch(function () {
+        confirmBookBtn.disabled = false;
+        confirmBookBtn.textContent = 'Confirm booking';
+        closeConfirm();
+        showToast('Something went wrong booking that time — please try again.');
+      });
+  }
+
+  confirmBookBtn.addEventListener('click', function () {
+    if (pendingSlot) bookSlot(pendingSlot);
+  });
+
+  if (!applicationId) {
+    showError("We couldn't find which interview to book. Please go back to your offer and tap Secure My Interview again.", '/pages/offer-review.html');
+  } else {
+    loadSlots();
+  }
+})();
+</script>
+</body>
+</html>
