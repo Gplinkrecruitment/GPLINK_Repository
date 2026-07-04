@@ -119,6 +119,16 @@
     }
     .escalation-badge.visible { display: inline-flex; }
     .escalation-badge:hover { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
+    /* Role chip shown to consultants (ATS-only mode) — matches the header badge shape */
+    .role-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(96,165,250,0.12);
+      border: 1px solid rgba(96,165,250,0.35);
+      font-size: 11px; font-weight: 700; color: #60a5fa;
+      letter-spacing: 0.02em;
+    }
     @keyframes pulse-red {
       0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
       50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
@@ -1474,15 +1484,58 @@
           return false;
         }
         var role = (d.profile && (d.profile.role || d.profile.adminRole)) || '';
-        if (role !== 'super_admin') {
+        // super_admin gets the full dashboard; consultant gets the ATS-only view.
+        if (role !== 'super_admin' && role !== 'consultant') {
           if (!isEmbedded) window.location.href = '/pages/admin-signin';
           return false;
         }
+        window.__gpAdminRole = role;
         return true;
       }).catch(function() {
         if (!isEmbedded) window.location.href = '/pages/admin-signin';
         return false;
       });
+    }
+
+    /* ── Consultant (ATS-only) mode ──
+       Consultants share the four ATS master tabs (Candidates / Jobs / Practices /
+       Meetings) but must never see the Registration side or team management.
+       The server 403s every Registration/CEO endpoint for them anyway — this
+       just makes the page honest about what they can use. */
+    function applyConsultantMode() {
+      document.body.classList.add('gp-consultant');
+      // Hide the Registration master tab + its panel (its data is never loaded).
+      var regTab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="registration"]');
+      if (regTab) regTab.style.display = 'none';
+      var regPanel = document.getElementById('panel-registration');
+      if (regPanel) regPanel.style.display = 'none';
+      // Registration-only header widgets are meaningless without the CEO feed.
+      var escBadge = document.getElementById('headerEscBadge');
+      if (escBadge) escBadge.style.display = 'none';
+      var refreshMeta = document.querySelector('.header-right .refresh-meta');
+      if (refreshMeta) refreshMeta.style.display = 'none';
+      var autoLabel = document.querySelector('.header-right label[title="Auto-refresh"]');
+      if (autoLabel) autoLabel.style.display = 'none';
+      // Small role chip where the header controls live.
+      var headerRight = document.querySelector('.header-right');
+      if (headerRight && !document.getElementById('roleChipConsultant')) {
+        var chip = document.createElement('div');
+        chip.id = 'roleChipConsultant';
+        chip.className = 'role-chip';
+        chip.textContent = 'Consultant';
+        headerRight.appendChild(chip);
+      }
+      // Land on Candidates (the ATS home). ceo-ats-shared.js may still be
+      // initialising when the session check resolves, so retry briefly. An ATS
+      // deep-link hash (#jobs, #candidate=…) has already moved activeTab off
+      // 'registration' — honour it.
+      (function goAts(tries) {
+        if (window.ATS && typeof window.ATS.showMaster === 'function') {
+          if (window.ATS.activeTab === 'registration') window.ATS.showMaster('candidates');
+          return;
+        }
+        if (tries > 0) setTimeout(function() { goAts(tries - 1); }, 50);
+      })(40);
     }
 
     /* ── Load failure / recovery (no eternal spinner) + service-worker self-heal ── */
@@ -1599,7 +1652,7 @@
 
       // Section Grid
       html += '<div class="section-grid">';
-      html += renderPipelineSection(data.pipeline);
+      html += renderPipelineSection(data.pipeline, data.ats_funnel);
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
       html += renderRsoWorkloadSection(data.rso_workload || data.va_workload);
@@ -1716,7 +1769,17 @@
     }
 
     /* ── Pipeline Funnel ── */
-    function renderPipelineSection(pipeline) {
+    // Hiring-pipeline stages + wording mirror lib/ats-practices.js ATS_STAGE_LABELS.
+    var ATS_FUNNEL_STAGES = [
+      { key: 'applied', label: 'Applied', color: 'blue' },
+      { key: 'submitted', label: 'Submitted to Practice', color: 'amber' },
+      { key: 'reviewing', label: 'Practice Reviewing', color: 'purple' },
+      { key: 'interview', label: 'Interview', color: 'blue' },
+      { key: 'offer', label: 'Offer', color: 'amber' },
+      { key: 'hired', label: 'Hired', color: 'green' }
+    ];
+
+    function renderPipelineSection(pipeline, atsFunnel) {
       if (!pipeline) return '';
       // pipeline is now an array: [{key, label, count, blocked}, ...]
       var stages = Array.isArray(pipeline) ? pipeline : [];
@@ -1737,7 +1800,34 @@
         rows += '<span class="funnel-blocked">' + (sd.blocked > 0 ? sd.blocked + '&#x1F6D1;' : '') + '</span>';
         rows += '</div>';
       }
+      rows += renderHiringFunnelStrip(atsFunnel);
       return sectionCard('pipeline', '&#x1F4CA;', 'Pipeline Funnel', rows);
+    }
+
+    // Compact live hiring funnel (gp_applications by ats_stage) rendered under
+    // the registration funnel, using the same funnel-row visual language.
+    function renderHiringFunnelStrip(atsFunnel) {
+      if (!atsFunnel || typeof atsFunnel !== 'object') return '';
+      var maxCount = 1;
+      for (var i = 0; i < ATS_FUNNEL_STAGES.length; i++) {
+        var c = Number(atsFunnel[ATS_FUNNEL_STAGES[i].key]) || 0;
+        if (c > maxCount) maxCount = c;
+      }
+      var html = '<div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Hiring pipeline</div>';
+      for (var j = 0; j < ATS_FUNNEL_STAGES.length; j++) {
+        var st = ATS_FUNNEL_STAGES[j];
+        var count = Number(atsFunnel[st.key]) || 0;
+        var pct = count === 0 ? 0 : Math.max(2, Math.round(count / maxCount * 100));
+        html += '<div class="funnel-row" style="cursor:default">';
+        html += '<span class="funnel-label">' + esc(st.label) + '</span>';
+        html += '<div class="funnel-bar-wrap"><div class="funnel-bar ' + st.color + '" style="width:' + pct + '%"></div></div>';
+        html += '<span class="funnel-count">' + count + '</span>';
+        html += '<span class="funnel-blocked"></span>';
+        html += '</div>';
+      }
+      var notProceeding = Number(atsFunnel.not_proceeding) || 0;
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:6px">Not proceeding: ' + notProceeding + '</div>';
+      return html;
     }
 
     /* ── Blockers ── */
@@ -3240,9 +3330,9 @@
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
 
-    // Dispatcher: render the active GP-file sub-tab into #gpDetailPane.
-    // 'tasks' is filled by renderGpTasksTab (3a.2); the others show a placeholder
-    // that subsequent Phase 3a tasks (3a.3-3a.5) replace.
+    // Dispatcher: render the active GP-file sub-tab into #gpDetailPane. Every tab
+    // has a live renderer (Tasks/Notes/Timeline/Documents/Calls); the trailing
+    // spinner is only a fallback for an unknown tab key.
     function renderGpDetailTab(tab) {
       gpDetailTab = tab;
       var tabsEl = document.getElementById('gpDetailTabs');
@@ -4729,7 +4819,7 @@
 
     // Minimal Zoom/call scheduler (admin parity for the profile-header Zoom button). The
     // /api/admin/calls/schedule endpoint requires case_id + a stage in {myintealth,amc,ahpra};
-    // optional admin_notes. Sends a Calendly invite to the GP (no live send during build — this
+    // optional admin_notes. Sends a Zoom invite to the GP (no live send during build — this
     // only fires on an explicit click at runtime). Refreshes the open GP file on success.
     var CEO_ZOOM_STAGES = ['myintealth', 'amc', 'ahpra'];
     function openCeoZoomModal(caseId, userId, currentStage, opts) {
@@ -4744,7 +4834,7 @@
       html += '<div class="modal-field"><label class="modal-label">Reason for the meeting (the GP will see this)</label><textarea class="modal-textarea" id="mZoomReason" placeholder="e.g. We&rsquo;d like to walk you through your AHPRA documents."></textarea></div>';
       html += '<div class="modal-field"><label class="modal-label">Assigned RSO</label><select class="modal-select" id="mZoomRso"><option value="">Default (GP Link)</option></select></div>';
       html += '<div class="modal-field"><label class="modal-label">Internal notes (the GP will NOT see this)</label><textarea class="modal-textarea" id="mZoomNotes" placeholder="Internal notes for this call..."></textarea></div>';
-      html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">Sends the GP a Calendly invite for the selected stage.</div>';
+      html += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin:-4px 0 12px">Sends the GP a Zoom invite for the selected stage.</div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mZoomSubmit" onclick="submitCeoZoom(\'' + esc(caseId) + '\', \'' + esc(userId) + '\')">Send Invite</button></div>';
       openModal(html);
       // Populate the Assigned RSO dropdown from the /api/ceo/rsos roster (active only),
@@ -4811,7 +4901,7 @@
       if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
       apiFetch('/api/admin/calls/schedule', { method: 'POST', body: body }).then(function(d) {
         if (d && d.ok) {
-          showToast('Calendly invite sent', 'success');
+          showToast('Zoom invite sent', 'success');
           closeModal();
           // When opened from a task, flip the originating task to waiting_on_gp so the
           // GP-action loop reflects that the ball is now in the GP's court.
@@ -4819,6 +4909,9 @@
             apiFetch('/api/admin/task?id=' + encodeURIComponent(_origin), { method: 'PUT', body: { status: 'waiting_on_gp' } }).then(function(){ refreshGpDetailTasks(); });
           }
           refreshGpDetailTasks();
+          // Also bust + re-fetch the per-GP calls cache so the Calls tab shows the
+          // new invite immediately when the modal was opened from that tab.
+          refreshGpDetailCalls();
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Schedule failed'), 'error');
           if (btn) { btn.disabled = false; btn.textContent = 'Send Invite'; }
@@ -4982,8 +5075,9 @@
       return merged.sort(function(a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
     }
 
-    // Render the cached note timeline entries for the open GP file (read-only).
-    // Add-note input is deferred to Phase 3b.
+    // Render the open GP file's notes: an inline add-note composer (ceoAddGpNote →
+    // POST /api/admin/case/note?id=, same endpoint as admin's addCaseNote) followed
+    // by the cached note timeline entries, newest first.
     function renderGpNotesTab() {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
@@ -5575,6 +5669,10 @@
         actions += '<button class="btn btn-blue" onclick="ceoGpCallReschedule(event, \'' + cid + '\')">Reschedule</button>';
         // Server now permits cancelling a no_show row (already-cancelled rows skip it).
         if (cs === 'no_show') actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
+      } else if (cs === 'completed' && !c.meeting_summary) {
+        // Completed call with no summary yet — same gate as admin (10733–10736):
+        // pull the Zoom AI meeting summary on demand.
+        actions += '<button class="btn btn-blue" onclick="ceoGpCallFetchSummary(event, \'' + cid + '\')">Fetch Summary</button>';
       }
       if (actions) html += '<div class="ceo-gp-call-actions">' + actions + '</div>';
       html += '</div>';
@@ -5613,7 +5711,14 @@
       if (gpCallsSubTab !== 'upcoming' && gpCallsSubTab !== 'past' && gpCallsSubTab !== 'summary') gpCallsSubTab = 'upcoming';
       var active = groups[gpCallsSubTab] || [];
 
-      var html = '<div class="ceo-ops-section-head">Calls</div>';
+      // Header row: section title + "+ Send meeting invite" (admin renderGpCallHistoryPane
+      // parity, admin.html 10647–10657). Opens the existing CEO scheduler modal, which
+      // POSTs /api/admin/calls/schedule and refreshes this GP file on success.
+      var _cs = (gpDetailCache && gpDetailCache.case) || {};
+      var _caseId = (gpDetailCache && gpDetailCache.caseId) || '';
+      var html = '<div class="ceo-ops-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px">Calls'
+        + '<button class="btn btn-blue" onclick="openCeoZoomModal(\'' + esc(_caseId) + '\', \'' + esc(_cs.user_id || '') + '\', \'' + esc(_cs.stage || '') + '\')">+ Send meeting invite</button>'
+        + '</div>';
       // Nested sub-tab bar (CEO override RSO picker is unaffected and lives elsewhere).
       var subtabs = [
         { key: 'upcoming', label: 'Upcoming', count: groups.upcoming.length },
@@ -5652,7 +5757,7 @@
       pane.innerHTML = html;
     }
 
-    // Calls sub-tab: fetch this GP's calls once (cached per GP file), then render. Read-only.
+    // Calls sub-tab: fetch this GP's calls once (cached per GP file), then render.
     function renderGpCallsTab() {
       var pane = document.getElementById('gpDetailPane');
       if (!pane) return;
@@ -5665,7 +5770,7 @@
       loadGpCalls(caseId);
     }
 
-    // Fetch GET /api/admin/calls?case_id=<caseId>, cache, render. Read-only.
+    // Fetch GET /api/admin/calls?case_id=<caseId>, cache, render.
     function loadGpCalls(caseId) {
       apiFetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId)).then(function(d) {
         // Guard against a stale response after the user switched GP files.
@@ -5721,7 +5826,7 @@
       });
     }
     function ceoGpCallResend(ev, callId) {
-      if (!confirm('Resend the Calendly invite to this GP?')) return;
+      if (!confirm('Resend the Zoom invite to this GP?')) return;
       ceoGpCallApiAction(ev, {
         path: '/api/admin/calls/' + encodeURIComponent(callId) + '/resend',
         fetchOpts: { method: 'POST' },
@@ -5745,11 +5850,20 @@
       });
     }
     function ceoGpCallReschedule(ev, callId) {
-      if (!confirm('Reschedule this call? A new Calendly invite will be sent to the GP.')) return;
+      if (!confirm('Reschedule this call? A new Zoom invite will be sent to the GP.')) return;
       ceoGpCallApiAction(ev, {
         path: '/api/admin/calls/' + encodeURIComponent(callId),
         fetchOpts: { method: 'PATCH', body: { action: 'reschedule' } },
         successMsg: 'Call rescheduled — new invite sent'
+      });
+    }
+    // Pull the Zoom AI meeting summary for a completed call that has none yet
+    // (admin retryZoomSummary parity — no confirm, same endpoint).
+    function ceoGpCallFetchSummary(ev, callId) {
+      ceoGpCallApiAction(ev, {
+        path: '/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary',
+        fetchOpts: { method: 'POST' },
+        successMsg: 'Summary fetched'
       });
     }
 
@@ -6391,6 +6505,13 @@
           if (isEmbedded) renderLoadError('Your admin session has expired. Please sign in again.');
           return;
         }
+        if (window.__gpAdminRole === 'consultant') {
+          // ATS-only: skip the Registration dashboard feed + refresh loop
+          // entirely (those endpoints are CEO-only and would 403).
+          clearTimeout(loadWatchdog);
+          applyConsultantMode();
+          return;
+        }
         // Load dashboard + trends in parallel. loadRsoRoster is guarded so a roster
         // hiccup can never block the loop from starting.
         Promise.all([
@@ -6405,10 +6526,10 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
-  <script src="/js/ceo-ats-shared.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-jobs.js?v=20260630b"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260630b"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260703c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260703d"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20260703d"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260703c"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260630b"></script>
 </body>
 </html>

@@ -137,6 +137,17 @@ var ceoActions = require('./lib/ceo-actions');
 var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
 var atsComms = require('./lib/ats-comms');
+// Offers storage adapter (Task B). lib modules never import server internals, so
+// the store RECEIVES the db/kv capabilities as lazy accessors — the closures run
+// at request time, after dbState & co. are initialised below.
+var atsOffersStore = require('./lib/ats-offers').createAtsOffersStore({
+  isSupabaseDbConfigured: function () { return isSupabaseDbConfigured(); },
+  supabaseDbRequest: function (table, query, opts) { return supabaseDbRequest(table, query, opts); },
+  getRuntimeKv: function (key) { return getRuntimeKv(key); },
+  setRuntimeKv: function (key, value, expiresAtMs) { return setRuntimeKv(key, value, expiresAtMs); },
+  getDbState: function () { return dbState; },
+  saveDbState: function () { return saveDbState(); }
+});
 var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
@@ -302,6 +313,18 @@ const ADMIN_EMAILS = new Set(
 );
 const SUPER_ADMIN_EMAILS = new Set(
   String(process.env.SUPER_ADMIN_EMAILS || '')
+    .replace(/\\n/g, '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
+// Recruitment consultants: ATS-only access (jobs/candidates/pipeline/interviews)
+// on the CEO / super-admin host via requireAtsSession. They are NOT general
+// admins — every other admin/CEO route rejects them. Additional consultants can
+// be granted at runtime (no deploy) through the runtime_kv 'ats_consultants'
+// list — see isConsultantEmail().
+const CONSULTANT_EMAILS = new Set(
+  String(process.env.CONSULTANT_EMAILS || '')
     .replace(/\\n/g, '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
@@ -3443,6 +3466,7 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
   }
 
   var created = 0;
+  var createdGpTasks = []; // released GP-owned items → one staggered email each
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     var meta = {
@@ -3499,6 +3523,9 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     });
     if (actionTask && actionTask.id) {
       created++;
+      if (item.owner === 'gp') {
+        createdGpTasks.push({ id: actionTask.id, title: actionTask.title || item.title, metadata: meta, ahpra_deadline: dueDate });
+      }
       // Link the original officer email to the task so reply-threading works.
       try {
         await supabaseDbRequest('task_messages', '', {
@@ -3526,8 +3553,95 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     }
   }
 
+  // Released-live bundles (the RSO's "Send to GP" review IS the release step) email the GP
+  // one action per message, a minute apart. Holding-tray bundles email at /api/admin/ahpra/release.
+  var emailsQueued = 0;
+  if (opts.release && createdGpTasks.length > 0 && gpCase.user_id) {
+    try {
+      emailsQueued = await sendAhpraGpTaskEmails(gpCase.id, gpCase.user_id, createdGpTasks, { reference: reference });
+    } catch (e) { console.error('[AHPRA] s80 task emails failed (non-critical):', e && e.message); }
+  }
+
   console.log('[AHPRA] Created s80 holding-tray bundle ' + bundleId + ' with ' + created + ' item(s) for case ' + gpCase.id);
-  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false };
+  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false, emailsQueued: emailsQueued };
+}
+
+// ── s80: one email per GP-owned action item, staggered 1 minute apart ──
+// Each email mirrors the card on pages/ahpra.html — a single "Upload document" or
+// "Mark as requested" button deep-linking to /pages/ahpra.html?task=<id> (the signin
+// bounce preserves the query, and the page scrolls to + flashes that exact card).
+// Sends FROM the GP's assigned RSO mailbox when it's @mygplink.com.au (Reply-To
+// always points at the RSO). Tasks that already queued an email are skipped, and a
+// gp_email marker is stamped on metadata so a re-release can never double-send.
+async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
+  opts = opts || {};
+  if (!isEmailConfigured() || !Array.isArray(gpTasks) || gpTasks.length === 0) return 0;
+  var gp = await getGpEmailContext(userId);
+  if (!gp || !gp.email) return 0;
+
+  var pending = gpTasks.filter(function (t) {
+    var m = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return t && t.id && !(m.gp_email && m.gp_email.queued_at);
+  });
+  if (pending.length === 0) return 0;
+
+  // Send "from" the assigned RSO (From when @mygplink, else Reply-To only).
+  var fromOpts = {};
+  try {
+    var rsoId = await resolveCaseRsoAssignee(caseId);
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = roster.find(function (r) { return r.user_id === rsoId; });
+    fromOpts = buildRsoEmailFromOpts(rso || null);
+  } catch (e) { /* default sender is fine */ }
+
+  var plan = ahpraTaskEmails.buildAhpraTaskEmailPlan(pending.map(function (t) {
+    var m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return {
+      id: t.id,
+      title: t.title,
+      mode: m.mode,
+      gp_instructions: m.gp_instructions,
+      detail: m.detail,
+      how_to_steps: m.how_to_steps,
+      sub_items: m.sub_items,
+      institution: m.institution,
+      deadline: t.ahpra_deadline || t.due_date || null
+    };
+  }), { appBaseUrl: APP_BASE_URL, startAtMs: Date.now(), reference: opts.reference || null });
+
+  var nameVal = gp.firstName || 'there';
+  var queued = 0;
+  for (var i = 0; i < plan.length; i++) {
+    var e = plan[i];
+    var result = await sendEmail(Object.assign({
+      to: gp.email,
+      subject: e.subject,
+      html: buildCareerEmailHtml({
+        title: e.title,
+        body: e.bodyHtml.replace(/\{\{name\}\}/g, nameVal),
+        ctaText: e.ctaText,
+        ctaUrl: e.ctaUrl,
+        footer: 'Questions? Reply to this email and your registration support officer will help.'
+      }),
+      text: e.text,
+      scheduledAt: e.scheduledAt
+    }, fromOpts));
+    if (result && result.ok) {
+      queued++;
+      try {
+        var task = pending[i];
+        var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+        meta.gp_email = { queued_at: new Date().toISOString(), scheduled_at: e.scheduledAt || null };
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+          method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() }
+        });
+      } catch (markErr) { /* marker is best-effort */ }
+    } else {
+      console.error('[AHPRA] task email failed for', pending[i].id, result && result.error);
+    }
+  }
+  console.log('[AHPRA] Queued ' + queued + '/' + plan.length + ' per-task GP email(s) for case ' + caseId);
+  return queued;
 }
 
 // ── Response matching: link incoming messages to open tasks ──
@@ -3712,6 +3826,7 @@ function preFilterEmail(emailMeta) {
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
+var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
 var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
@@ -5952,6 +6067,14 @@ const INSTITUTION_DOCUMENT_KEYS = new Set(
     .filter((item) => item && item.source === 'institution_docs')
     .map((item) => item.key)
 );
+// Delivered offer/contract documents (GP_LINK_DOCUMENT_META source 'gplink_pack').
+// Kept as a SEPARATE set from PREPARED_DOCUMENT_KEYS on purpose: these are
+// delivered BY the GP Link team (deliverToMyDocuments / POST /api/ats/offer),
+// never uploaded by the GP, so they are readable through GET
+// /api/prepared-documents + its /download endpoint WITHOUT ever becoming a
+// "You prepare" upload slot — the PUT/DELETE handlers and the upload pages keep
+// validating against PREPARED_DOCUMENT_KEYS only.
+const OFFER_DOCUMENT_KEYS = new Set(['offer_contract']);
 const ONBOARDING_DOCUMENT_KEYS = new Set([
   'onboarding_specialist_qualification',
   'onboarding_primary_med_degree'
@@ -6331,6 +6454,75 @@ async function savePreparedDocumentForUser(userId, _email, payload) {
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   const row = result.data[0];
   return mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(payload.country, payload.key));
+}
+
+// ── Delivered offer documents (OFFER_DOCUMENT_KEYS) ──────────────────────────
+// Offer/contract rows are written by deliverToMyDocuments (no country_code, and
+// historically no storage path — Drive only) or by POST /api/ats/offer (which
+// now also uploads to Supabase Storage and records file_url). They are looked
+// up by user + key WITHOUT the country filter the prepared-by-you docs use.
+async function getOfferDocumentRow(userId, key) {
+  const normalizedKey = sanitizeUserString(key, 120);
+  if (!normalizedKey || !OFFER_DOCUMENT_KEYS.has(normalizedKey) || !userId || !isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&document_key=eq.${encodeURIComponent(normalizedKey)}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+// Map of delivered offer docs for the GET /api/prepared-documents response.
+// Merged in at the ROUTE level only — /api/ahpra/document-readiness and the
+// upload flows keep calling getPreparedDocumentsForUser directly, so nothing
+// new appears in the AHPRA pack or the "You prepare" slots (the download pack
+// already surfaces offer docs via /api/gplink-docs-status).
+async function getOfferDocumentsForUser(userId, country) {
+  const docs = {};
+  if (!userId || !isSupabaseDbConfigured()) return docs;
+  for (const key of OFFER_DOCUMENT_KEYS) {
+    const row = await getOfferDocumentRow(userId, key);
+    if (!row) continue;
+    const status = String(row.status || '');
+    if (status !== 'approved' && status !== 'uploaded' && status !== 'received') continue;
+    docs[key] = mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(country || 'uk', key));
+  }
+  return docs;
+}
+
+// Resolve the downloadable target for a delivered offer doc, covering BOTH
+// storage shapes:
+//   1. row.file_url is a Supabase Storage path → signed URL (existing flow);
+//   2. delivered via deliverToMyDocuments (no storage path) → the Drive file id
+//      on the row, or the Drive URL _updatePreparedDocsState recorded in the
+//      user_state gp_prepared_docs KV.
+// Returns a redirectable URL string, or '' when nothing is stored anywhere.
+async function resolveOfferDocumentDownloadUrl(userId, key) {
+  const row = await getOfferDocumentRow(userId, key);
+  if (!row) return '';
+  const mapped = mapPreparedDocumentRow(row);
+  const storagePath = mapped && mapped.storagePath ? String(mapped.storagePath) : '';
+  if (storagePath && !/^https?:/i.test(storagePath) && !storagePath.startsWith('data:')) {
+    const signedUrl = await supabaseStorageCreateSignedUrl(
+      mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET,
+      storagePath,
+      mapped.fileName || ''
+    );
+    if (signedUrl) return signedUrl;
+    // fall through to the Drive shapes when signing fails
+  }
+  if (row.google_drive_file_id) return 'https://drive.google.com/file/d/' + row.google_drive_file_id + '/view';
+  if (/^https?:/i.test(storagePath)) return storagePath;
+  try {
+    const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    let fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
+    if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch { fullState = {}; }
+    let prepState = fullState.gp_prepared_docs;
+    if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch { prepState = {}; }
+    const kvDoc = prepState && prepState.docs && typeof prepState.docs === 'object' ? prepState.docs[key] : null;
+    if (kvDoc && typeof kvDoc.url === 'string' && /^https?:/i.test(kvDoc.url)) return kvDoc.url;
+  } catch (e) { /* fall through */ }
+  return '';
 }
 
 async function deletePreparedDocumentForUser(userId, _email, country, key) {
@@ -7451,7 +7643,7 @@ function isLoopbackHostname(hostname) {
 
 function normalizeAdminRole(value) {
   const role = String(value || '').trim().toLowerCase().replace(/-/g, '_');
-  if (role === 'staff' || role === 'admin' || role === 'super_admin') return role;
+  if (role === 'staff' || role === 'admin' || role === 'super_admin' || role === 'consultant') return role;
   return '';
 }
 
@@ -7467,6 +7659,7 @@ function getAdminRoleLabel(role) {
   const normalized = normalizeAdminRole(role);
   if (normalized === 'super_admin') return 'Super Admin';
   if (normalized === 'staff') return 'Staff Admin';
+  if (normalized === 'consultant') return 'Consultant';
   if (normalized === 'admin') return 'Admin';
   return 'Admin';
 }
@@ -7476,6 +7669,8 @@ function getConfiguredAdminRoleForEmail(email) {
   if (!normalizedEmail) return '';
   if (SUPER_ADMIN_EMAILS.has(normalizedEmail)) return 'super_admin';
   if (ADMIN_EMAILS.has(normalizedEmail)) return 'admin';
+  // Checked AFTER the super/admin lists so those always win for a shared email.
+  if (CONSULTANT_EMAILS.has(normalizedEmail)) return 'consultant';
   return '';
 }
 
@@ -7499,8 +7694,14 @@ function getAdminHostLabel(scope) {
 function doesAdminRoleMatchHost(role, hostScope) {
   const normalizedRole = normalizeAdminRole(role);
   if (!normalizedRole) return false;
-  if (hostScope === 'super_admin') return normalizedRole === 'super_admin';
-  return hostScope === 'admin' || hostScope === 'local';
+  // The CEO / super-admin host admits super admins AND consultants (the ATS
+  // surface lives there). Consultants are still fenced to the ATS routes by
+  // requireAdminSession/requireAtsSession — matching the host is necessary
+  // but not sufficient.
+  if (hostScope === 'super_admin') return normalizedRole === 'super_admin' || normalizedRole === 'consultant';
+  // The employee admin host never serves consultants (they get ATS only).
+  if (hostScope === 'admin') return normalizedRole !== 'consultant';
+  return hostScope === 'local';
 }
 
 function getAdminRoleFromSession(session) {
@@ -8806,12 +9007,118 @@ async function getAdminRoleFromSupabaseUserId(userId) {
   return normalizeAdminRole(result.data[0] && result.data[0].role);
 }
 
+// ── Consultant allow-list (env + runtime_kv) ────────────────────────────────
+// Consultants can be granted/revoked WITHOUT a deploy: the runtime_kv key
+// 'ats_consultants' holds a JSON array of lowercase emails (managed from the
+// CEO dashboard Team card). The kv read is cached in a module var for ~60s so
+// login/reset flows don't hit the DB on every call. Env CONSULTANT_EMAILS
+// entries are merged in (and also resolve synchronously via
+// getConfiguredAdminRoleForEmail).
+const ATS_CONSULTANTS_KV_KEY = 'ats_consultants';
+const ATS_CONSULTANTS_KV_CACHE_MS = 60 * 1000;
+let atsConsultantsKvCache = { emails: null, fetchedAt: 0 };
+
+// Normalize every historical kv value shape into rich entries
+// [{email, name, added_at, added_by}]. Tolerated shapes:
+//   ['a@b.c', ...]                          (Task A write shape)
+//   { emails: ['a@b.c', ...] }              (Task A also tolerated this)
+//   { consultants: [{email, name, ...}] }   (Task E standardized write shape)
+function normalizeConsultantKvValue(value) {
+  const out = [];
+  const seen = new Set();
+  const push = (email, entry) => {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push({
+      email: normalized,
+      name: entry && typeof entry === 'object' ? String(entry.name || '').trim() : '',
+      added_at: entry && typeof entry === 'object' ? (entry.added_at || entry.created_at || null) : null,
+      added_by: entry && typeof entry === 'object' ? String(entry.added_by || '').trim() : ''
+    });
+  };
+  if (Array.isArray(value)) {
+    value.forEach((item) => (item && typeof item === 'object') ? push(item.email, item) : push(item, null));
+  } else if (value && typeof value === 'object') {
+    if (Array.isArray(value.consultants)) {
+      value.consultants.forEach((item) => (item && typeof item === 'object') ? push(item.email, item) : push(item, null));
+    }
+    if (Array.isArray(value.emails)) value.emails.forEach((item) => push(item, null));
+  }
+  return out;
+}
+
+// Full (uncached) read of the consultant list as rich entries. Local-JSON mode
+// (no Supabase) keeps the list in dbState.atsConsultants instead of runtime_kv.
+async function loadKvConsultantEntries() {
+  if (!isSupabaseDbConfigured()) {
+    return normalizeConsultantKvValue({ consultants: dbState.atsConsultants || [] });
+  }
+  try {
+    const row = await getRuntimeKv(ATS_CONSULTANTS_KV_KEY);
+    return normalizeConsultantKvValue(row ? row.value : null);
+  } catch (err) {
+    return [];
+  }
+}
+
+// Persist the consultant list. Writes the Task E standardized richer shape
+// { consultants: [{email,name,added_at,added_by}] } — normalizeConsultantKvValue
+// keeps reads compatible with the older array shapes already in prod.
+async function saveKvConsultantEntries(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  let saved;
+  if (!isSupabaseDbConfigured()) {
+    dbState.atsConsultants = list;
+    saveDbState();
+    saved = true;
+  } else {
+    saved = await setRuntimeKv(ATS_CONSULTANTS_KV_KEY, { consultants: list }, null);
+  }
+  // Invalidate the ~60s login/reset cache so a just-added consultant can sign
+  // in (and a just-removed one is refused) immediately.
+  atsConsultantsKvCache = { emails: null, fetchedAt: 0 };
+  return saved;
+}
+
+async function loadKvConsultantEmails() {
+  const nowMs = Date.now();
+  if (Array.isArray(atsConsultantsKvCache.emails)
+    && (nowMs - atsConsultantsKvCache.fetchedAt) < ATS_CONSULTANTS_KV_CACHE_MS) {
+    return atsConsultantsKvCache.emails;
+  }
+  let emails = [];
+  try {
+    const entries = await loadKvConsultantEntries();
+    emails = entries.map((entry) => entry.email).filter(Boolean);
+  } catch (err) {
+    emails = [];
+  }
+  atsConsultantsKvCache = { emails, fetchedAt: nowMs };
+  return emails;
+}
+
+// Async because the runtime_kv list requires a DB read (cached ~60s). Sync
+// call sites (session-cookie role checks) rely on the adminRole stamped into
+// the session at login instead of calling this.
+async function isConsultantEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return false;
+  if (CONSULTANT_EMAILS.has(normalizedEmail)) return true;
+  const kvEmails = await loadKvConsultantEmails();
+  return kvEmails.includes(normalizedEmail);
+}
+
 async function resolveAdminRoleForSupabaseUser(supaUser, fallbackEmail = '') {
   const userId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
   const email = String((supaUser && supaUser.email) || fallbackEmail || '').trim().toLowerCase();
   const dbRole = await getAdminRoleFromSupabaseUserId(userId);
   if (dbRole) return dbRole;
-  return getConfiguredAdminRoleForEmail(email);
+  const configuredRole = getConfiguredAdminRoleForEmail(email);
+  if (configuredRole) return configuredRole;
+  // Runtime-granted consultants (runtime_kv 'ats_consultants') resolve last.
+  if (await isConsultantEmail(email)) return 'consultant';
+  return '';
 }
 
 function buildAdminSessionProfile(userProfile, adminRole) {
@@ -8825,7 +9132,11 @@ function isAdminEmail(email) {
   return hasAdminPortalAccess(getConfiguredAdminRoleForEmail(email));
 }
 
-function requireAdminSession(req, res) {
+// Shared host + session + role-vs-host resolution for admin-cookie guards.
+// Returns the admin context or writes the 404/401/403 response and returns null.
+// NOTE: this admits consultants on the super-admin host — the role fencing
+// (consultant = ATS only) happens in requireAdminSession / requireAtsSession.
+function resolveAdminRequestContext(req, res) {
   const hostScope = getAdminHostScope(req);
   if (!hostScope) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
@@ -8857,12 +9168,26 @@ function requireAdminSession(req, res) {
   };
 }
 
+function requireAdminSession(req, res) {
+  const adminCtx = resolveAdminRequestContext(req, res);
+  if (!adminCtx) return null;
+  // Consultants are ATS-only: they authenticate like admins on the super-admin
+  // host, but every generic admin route stays closed to them. Only
+  // requireAtsSession admits the consultant role.
+  if (normalizeAdminRole(adminCtx.role) === 'consultant') {
+    sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+    return null;
+  }
+  return adminCtx;
+}
+
 function requireIntegrationAdminSession(req, res) {
   const session = requireSession(req, res);
   if (!session) return null;
   const email = getSessionEmail(session);
   const role = getConfiguredAdminRoleForEmail(email);
-  if (!hasAdminPortalAccess(role)) {
+  // Consultants are ATS-only — integration management stays admin/super-admin.
+  if (!hasAdminPortalAccess(role) || normalizeAdminRole(role) === 'consultant') {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
     return null;
   }
@@ -8885,6 +9210,33 @@ function requireSuperAdminSession(req, res) {
 // roles there) and contradictory on the employee host, so it is removed (#70).
 function requireCeoSession(req, res) {
   return requireSuperAdminSession(req, res);
+}
+
+// ATS access: the ATS surface (jobs, candidates, pipeline, interviews,
+// practices) is shared by the CEO (super_admin) and recruitment consultants.
+// Uses resolveAdminRequestContext directly (NOT requireAdminSession, which
+// deliberately rejects consultants) so consultants pass ONLY the routes that
+// opt into this guard. Everything else on the CEO dashboard stays
+// super-admin-only via requireCeoSession.
+function requireAtsSession(req, res) {
+  const adminCtx = resolveAdminRequestContext(req, res);
+  if (!adminCtx) return null;
+  const role = normalizeAdminRole(adminCtx.role);
+  if (role !== 'super_admin' && role !== 'consultant') {
+    sendJson(res, 403, { ok: false, message: 'ATS access required.' });
+    return null;
+  }
+  return adminCtx;
+}
+
+// Routes that are BOTH admin-ops tooling and ATS-functional (currently only
+// submit-to-practice) accept every requireAdminSession-passing role AND the
+// consultant role. resolveAdminRequestContext already enforces the host↔role
+// match (consultants only ever match the super-admin host; RSO admins keep
+// their employee-host access unchanged), so this union is exactly that check
+// without requireAdminSession's explicit consultant rejection.
+function requireAdminOrAtsSession(req, res) {
+  return resolveAdminRequestContext(req, res);
 }
 
 function ensureAgentOutputRoot() {
@@ -13208,6 +13560,78 @@ function isCareerPlacementSecuredStatus(value) {
   return SECURED_CAREER_APPLICATION_STATUS_KEYS.has(normalizeCareerApplicationStatusKey(value));
 }
 
+// ── Standalone ATS (Task F): status presentation for INTERNAL applications ──
+// For in-app (non-Zoho) applications the kanban `ats_stage` is the pipeline
+// source of truth — gp_applications.status only moves at the endpoints
+// ('applied' → 'placement_secured'/'withdrawn') — so the label the doctor sees
+// on career.html / application-detail.html must derive from the stage plus the
+// live in-app offer state. Zoho-managed applications keep their existing
+// labels (career.html's own status map) completely untouched.
+function isInternalCareerApplication(appRow, roleRow) {
+  if (roleRow && String(roleRow.provider || '') === 'internal_ats') return true;
+  if (appRow && String(appRow.zoho_application_id || '').trim()) return false;
+  return String((appRow && appRow.provider_role_id) || '').trim().startsWith('ats_');
+}
+
+// Returns { status, statusLabel, statusTone, offerPending } for an internal
+// application. `status` stays a machine key (timeline/tone logic), while
+// `statusLabel` is the friendly copy the pages render. `statusTone` matches
+// career.html's status-pill tone classes (review/interview/offer/secured).
+function buildInternalCareerStatusPresentation(appRow, offerRow) {
+  const row = appRow || {};
+  const storedStatus = normalizeCareerApplicationStatusKey(row.status);
+  const offerStatus = offerRow ? String(offerRow.status || '') : '';
+  const stage = String(row.ats_stage || '').trim().toLowerCase()
+    || atsPracticeUtil.deriveAtsStage(row, false);
+
+  if (isCareerPlacementSecuredStatus(storedStatus)) {
+    return { status: storedStatus, statusLabel: 'Practice secured', statusTone: 'secured', offerPending: false };
+  }
+  if (storedStatus === 'withdrawn') {
+    return { status: 'withdrawn', statusLabel: 'Application withdrawn', statusTone: 'review', offerPending: false };
+  }
+  if (storedStatus === 'rejected' || stage === 'not_proceeding') {
+    return { status: 'not_proceeding', statusLabel: 'Not proceeding this time', statusTone: 'review', offerPending: false };
+  }
+  if (offerStatus === 'accepted' || stage === 'hired') {
+    // Offer accepted (or the card was dragged to Hired) but the secured status
+    // hasn't landed yet — celebrate WITHOUT flipping the secured view, because
+    // no placement payload exists until the acceptance completes.
+    return { status: 'finalising_placement', statusLabel: 'Offer accepted — finalising your placement', statusTone: 'offer', offerPending: false };
+  }
+  if (stage === 'offer') {
+    if (offerStatus === 'sent') {
+      return { status: 'offer', statusLabel: 'Offer waiting for you 🎉', statusTone: 'offer', offerPending: true };
+    }
+    if (offerStatus === 'declined') {
+      // The doctor said no: the card stays in the Offer lane for consultant
+      // follow-up, but the doctor must not see "preparing an offer" again.
+      // (Withdrawn offers don't need a branch — the withdraw endpoint moves
+      // the stage back to 'reviewing', so they fall through to that copy.)
+      return { status: 'offer_declined', statusLabel: 'You declined this offer', statusTone: 'review', offerPending: false };
+    }
+    return { status: 'offer', statusLabel: 'The practice is preparing an offer', statusTone: 'offer', offerPending: false };
+  }
+  if (stage === 'interview') {
+    return { status: 'interview', statusLabel: 'Interview stage', statusTone: 'interview', offerPending: false };
+  }
+  if (stage === 'reviewing') {
+    return { status: 'reviewing', statusLabel: 'The practice is reviewing your profile', statusTone: 'review', offerPending: false };
+  }
+  if (stage === 'submitted') {
+    return { status: 'submitted', statusLabel: 'Sent to the practice', statusTone: 'review', offerPending: false };
+  }
+  return { status: 'applied', statusLabel: 'Application submitted', statusTone: 'review', offerPending: false };
+}
+
+// The in-app offer record only affects the label at these points — skip the
+// (kv/table) offer lookup everywhere else.
+function internalCareerStatusNeedsOffer(appRow) {
+  const row = appRow || {};
+  const stage = String(row.ats_stage || '').trim().toLowerCase();
+  return stage === 'offer' || stage === 'hired' || isCareerPlacementSecuredStatus(row.status);
+}
+
 function normalizePlacementStartDate(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -16637,6 +17061,27 @@ async function listCareerRoleRows(activeOnly = true, provider = '') {
   return result.data;
 }
 
+// A CEO-created in-app ATS job (provider='internal_ats') is visible to GPs only
+// while it is active AND still open. job_status can't be filtered inside
+// listCareerRoleRows (older rows may have it null, which the ATS dashboard also
+// treats as open — see atsJobCard), so the check lives here in JS.
+function isInternalAtsRoleOpenForGp(row) {
+  if (!row || row.is_active === false) return false;
+  const status = String(row.job_status || 'open').trim().toLowerCase();
+  return status === 'open';
+}
+
+// GP-visible in-app ATS roles. In production these are career_roles rows with
+// provider='internal_ats'; in local-JSON dev mode the ATS stores jobs in
+// dbState.atsJobs (same shape).
+async function listGpVisibleInternalAtsRoles() {
+  if (isSupabaseDbConfigured()) {
+    const rows = await listCareerRoleRows(true, 'internal_ats');
+    return rows.filter(isInternalAtsRoleOpenForGp);
+  }
+  return (dbState.atsJobs || []).filter((row) => row && row.provider === 'internal_ats' && isInternalAtsRoleOpenForGp(row));
+}
+
 async function getCareerRoleRowById(roleId) {
   const value = String(roleId || '').trim();
   if (!value) return null;
@@ -16836,7 +17281,12 @@ function mapCareerRoleRowToClient(row) {
     location: location || 'Australia',
     locationLine: gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb),
     proximityNote: gpLinkMeta.publicLocationProximity || buildCareerPublicProximityNote(row, gpLinkMeta.suburb),
-    summary: gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.'),
+    // In-app ATS jobs: the "About the role" text the CEO/consultant writes IS
+    // the doctor-facing copy — it wins over the derived anonymised intro.
+    // Zoho roles keep the redacted publicIntro (confidential listings).
+    summary: (row && row.provider === 'internal_ats' && row.summary && String(row.summary).trim())
+      ? String(row.summary).trim()
+      : (gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.')),
     billing: billingLabel,
     geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
@@ -16847,7 +17297,9 @@ function mapCareerRoleRowToClient(row) {
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
     roleType: row && row.title ? String(row.title) : 'General Practitioner',
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
-    footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit',
+    footnote: row && row.employment_type
+      ? String(row.employment_type)
+      : (row && row.provider === 'internal_ats' ? 'Live opening via GP Link' : 'Live opening via Zoho Recruit'),
     locationSummary: gpLinkMeta.locationSummary || '',
     heroImageUrl: gpLinkMeta.heroImageUrl || '',
     heroImageSourceUrl: gpLinkMeta.heroImageSourceUrl || '',
@@ -17646,7 +18098,7 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
   // Fetch all applications that have a zoho_application_id
   const appsResult = await supabaseDbRequest(
     'gp_applications',
-    'select=id,user_id,career_role_id,provider_role_id,status,zoho_application_id,zoho_candidate_id,zoho_client_id,practice_contact_name,practice_contact_email&zoho_application_id=not.is.null&limit=500'
+    'select=id,user_id,career_role_id,provider_role_id,status,practice_submission_status,ats_stage,zoho_application_id,zoho_candidate_id,zoho_client_id,practice_contact_name,practice_contact_email&zoho_application_id=not.is.null&limit=500'
   );
   const localApps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
   if (!localApps.length) return 0;
@@ -17680,6 +18132,18 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
       // If newly secured, fetch practice contacts and build placement
       const wasSecured = isCareerPlacementSecuredStatus(localStatus);
       const nowSecured = isCareerPlacementSecuredStatus(liveStatus);
+      // NEVER DOWNGRADE a secured placement. An in-app offer acceptance
+      // (allowed on legacy Zoho apps while Zoho was disconnected) writes
+      // 'placement_secured' + the placement payload; if a reconnected Zoho
+      // still shows the stale pre-offer status, patching it back would strip
+      // the secured status AND rebuild gp_career_state from stale Zoho data,
+      // fighting the in-app placement. Skip the status patch, the placement
+      // rebuild and the gp_career_state write for this row entirely.
+      // Secured→secured updates (e.g. hired → contract_signed) may proceed.
+      if (wasSecured && !nowSecured) {
+        console.log('[ZohoRecruit sync] Skipping app', app.id, '— stored status', localStatus, 'is placement-secured; not downgrading to live Zoho status', liveStatus);
+        continue;
+      }
       if (nowSecured && !wasSecured) {
         // Resolve client ID from job opening
         let clientId = app.zoho_client_id || '';
@@ -17803,6 +18267,16 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
         headers: { Prefer: 'return=minimal' },
         body: patch
       });
+
+      // Pull the CEO kanban stage forward to match the new Zoho status.
+      // Forward-only (never regresses a manually advanced card); writes its own
+      // ats_stage_events audit row + GP milestone notification.
+      try {
+        const reconciledStage = await reconcileAtsStageAfterStatusSync(app, liveStatus, 'zoho_sync');
+        if (reconciledStage) app.ats_stage = reconciledStage;
+      } catch (stageErr) {
+        console.error('[ZohoRecruit sync] ats_stage reconcile failed for app', app.id, ':', stageErr && stageErr.message);
+      }
 
       // Mark the career role as filled when an application is hired
       if (nowSecured && !wasSecured && app.career_role_id) {
@@ -22197,6 +22671,155 @@ async function buildCareerPlacementPayload({
   return placementResult;
 }
 
+// ── In-app placement payload (standalone-ATS Task C) ─────────────────────────
+// buildCareerPlacementPayload above speaks Zoho — it enriches from Zoho
+// application/job-opening records and the contract-extraction cache. An in-app
+// offer already carries the agreed terms as first-class fields, so accepting
+// one builds this LOCAL payload instead: the same minimal field set
+// career.html's secured view reads (resolveSecuredPlacement), no Zoho needed.
+// The Split shown is always the GP's (majority) share — see
+// ensureGpShareSplitDisplay / applyGpShareToPlacementPayload.
+function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeContact, extras) {
+  const opts = extras && typeof extras === 'object' ? extras : {};
+  const o = offer && typeof offer === 'object' ? offer : {};
+  const role = roleRow && typeof roleRow === 'object' ? roleRow : {};
+  const practice = practiceRow && typeof practiceRow === 'object' ? practiceRow : {};
+
+  const practiceName = String(o.practice_name || role.practice_name || practice.name || 'Medical Centre').trim() || 'Medical Centre';
+  const roleTitle = String(o.job_title || role.title || 'General Practitioner').trim() || 'General Practitioner';
+  const location = [role.location_city, role.location_state].filter(Boolean).join(', ');
+  const billingLabel = normalizeCareerBillingLabel(role.billing_model) || 'Billing pending';
+  const splitDisplay = ensureGpShareSplitDisplay(o.billing_split) || (String(o.billing_split || '').trim() || 'Pending');
+  const sessionsDisplay = String(o.sessions_per_week || '').trim();
+  const startDateIso = normalizePlacementStartDate(o.start_date) || '';
+  const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
+
+  // Practice contact precedence: the registration case's saved contact →
+  // the practice record → a friendly practice-team fallback.
+  const cc = casePracticeContact && typeof casePracticeContact === 'object' ? casePracticeContact : {};
+  const contactName = String(cc.name || cc.contactName || practice.contact_name || '').trim() || (practiceName + ' Team');
+  const contactEmail = String(cc.email || cc.contactEmail || practice.contact_email || '').trim();
+  const contactPhone = String(cc.phone || cc.contactPhone || practice.contact_phone || '').trim();
+
+  const contractUrl = opts.contractAvailable
+    ? buildPreparedDocumentDownloadUrl(normalizeDocumentCountry(opts.documentCountry) || 'uk', 'offer_contract')
+    : '';
+
+  const placementResult = {
+    practiceName,
+    roleTitle,
+    location,
+    statusLabel: 'Placement confirmed',
+    startDateIso,
+    contractUrl,
+    contractFileName: opts.contractFileName || '',
+    quickStats: [
+      { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
+      { label: 'Split', value: splitDisplay },
+      { label: 'Sessions', value: sessionsDisplay ? (/week/i.test(sessionsDisplay) ? sessionsDisplay : sessionsDisplay + ' / week') : 'Pending' }
+    ],
+    story: {
+      title: (location || practiceName).replace(/,\s*Australia\s*$/i, ''),
+      text: (role.summary) || (roleClient && roleClient.summary) || 'Your medical centre placement is now secured.',
+      imageUrl: roleClient && roleClient.heroImageUrl ? roleClient.heroImageUrl : '',
+      mapQuery: roleClient && roleClient.mapQuery ? roleClient.mapQuery : (location || practiceName)
+    },
+    lifestyle: opts.lifestyle || null,
+    practiceContact: {
+      name: contactName,
+      initials: buildInitials(contactName),
+      role: String(cc.role || '').trim() || 'Medical centre contact',
+      meta: (contactEmail || contactPhone) ? 'Reach out directly to the practice' : 'Direct contact details will appear here once confirmed',
+      phone: contactPhone,
+      email: contactEmail,
+      whatsapp: contactPhone
+    },
+    compensation: {
+      range: String(o.compensation_range || '').trim() || 'Pending',
+      unit: 'Per Year',
+      note: String(o.compensation_note || '').trim() || 'Estimated income',
+      facts: [
+        { label: 'Billing type', value: billingLabel || 'Pending' },
+        { label: 'Billing split', value: splitDisplay || 'Pending' },
+        { label: 'Sessions per week', value: sessionsDisplay || 'Pending' },
+        { label: 'Start date', value: startDateIso || 'Pending' }
+      ]
+    }
+  };
+  return applyGpShareToPlacementPayload(placementResult);
+}
+
+// Resolve everything buildInAppPlacementPayload needs from a gp_applications
+// row + its offer record: the role, practice, the registration case's saved
+// practice contact, contract availability and the GP's document country. Used
+// by BOTH the accept endpoint and /api/career/applications so the secured view
+// gets the same payload wherever it's read from.
+async function resolveInAppPlacementForApplication(appRow, offer, profile, options) {
+  const app = appRow && typeof appRow === 'object' ? appRow : {};
+  const opts = options && typeof options === 'object' ? options : {};
+  let roleRow = opts.roleRow || null;
+  if (!roleRow && app.career_role_id) {
+    roleRow = isSupabaseDbConfigured()
+      ? await getCareerRoleRowById(app.career_role_id)
+      : ((dbState.atsJobs || []).find((j) => String(j.id) === String(app.career_role_id)) || null);
+  }
+  let practiceRow = null;
+  const placementPracticeId = (offer && offer.practice_id) || (roleRow && roleRow.practice_id) || null;
+  if (placementPracticeId) {
+    try { practiceRow = await atsGetPracticeRow(placementPracticeId); } catch (e) { practiceRow = null; }
+  }
+
+  let casePracticeContact = null;
+  if (app.user_id && isSupabaseDbConfigured()) {
+    try {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=practice_contact&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      const caseRow = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+      if (caseRow && caseRow.practice_contact) {
+        casePracticeContact = typeof caseRow.practice_contact === 'string' ? JSON.parse(caseRow.practice_contact) : caseRow.practice_contact;
+      }
+    } catch (e) { casePracticeContact = null; }
+  }
+
+  // Contract availability mirrors the my-offer check: the offer recorded a
+  // delivered contract, or an offer_contract doc already sits in the GP's docs.
+  let contractAvailable = !!(offer && offer.contract_document_key);
+  let contractFileName = '';
+  if (app.user_id && isSupabaseDbConfigured()) {
+    try {
+      const contractRow = await getOfferDocumentRow(app.user_id, 'offer_contract');
+      const contractStatus = contractRow ? String(contractRow.status || '') : '';
+      if (contractRow && (contractStatus === 'approved' || contractStatus === 'uploaded' || contractStatus === 'received')) {
+        contractAvailable = true;
+        contractFileName = contractRow.file_name || '';
+      }
+    } catch (e) { /* keep the offer-record answer */ }
+  }
+
+  const documentCountry = normalizeDocumentCountry(
+    (profile && (profile.registration_country || profile.country)) || (opts.gpCountry || '')
+  ) || 'uk';
+
+  const practiceName = (offer && offer.practice_name) || (roleRow && roleRow.practice_name) || (practiceRow && practiceRow.name) || '';
+  const location = roleRow ? [roleRow.location_city, roleRow.location_state].filter(Boolean).join(', ') : '';
+  let lifestyle = null;
+  try {
+    lifestyle = await resolvePracticeLifestylePayload({
+      applicationId: String(app.id || ''),
+      practiceName,
+      location,
+      roleRow,
+      profile: profile || {}
+    });
+  } catch (e) { lifestyle = null; }
+
+  return buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeContact, {
+    contractAvailable,
+    contractFileName,
+    documentCountry,
+    lifestyle
+  });
+}
+
 async function fetchZohoRecruitCareerApplicationsForUser(zoho, email, zohoCandidateId, localApplications) {
   if (!zoho) return [];
   const canSearchApplications = doesZohoRecruitScopeGrant(
@@ -23657,7 +24280,10 @@ function isEmailConfigured() {
 
 // from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
 // replyTo: optional address (or array) replies should go to. Both default to the GP Link sender.
-async function sendEmail({ to, subject, html, text, from, replyTo }) {
+// attachments (optional): [{ filename, content (base64 string), contentType? }]
+// — forwarded to Resend's native attachments field (used by the in-app
+// submit-to-practice candidate introduction to carry the GP's CV).
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -23672,6 +24298,19 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
       text: text || ''
     };
     if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const cleanAttachments = attachments
+        .filter((a) => a && a.filename && a.content)
+        .map((a) => {
+          const att = { filename: String(a.filename), content: String(a.content) };
+          if (a.contentType || a.mimeType) att.content_type = String(a.contentType || a.mimeType);
+          return att;
+        });
+      if (cleanAttachments.length > 0) emailPayload.attachments = cleanAttachments;
+    }
+    // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
+    // per-task sequences without a queue table or cron on serverless.
+    if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -24260,6 +24899,54 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
+// Resolve a practices-table row id for a free-text practice name
+// (case-insensitive match, same lower(name) key as the unique index).
+// Creates the row when it doesn't exist yet — source 'backfill', which the
+// practices CHECK constraint allows — so gp_applications can carry a
+// first-class practice_id link. Returns the row id or null. Dual-mode.
+async function atsEnsurePracticeIdByName(name, extras) {
+  var trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  var key = trimmed.toLowerCase();
+  var rows = await atsListPracticeRows();
+  var match = rows.find(function (p) { return String(p.name || '').trim().toLowerCase() === key; });
+  if (match && match.id) return match.id;
+  var created = await atsInsertPracticeRow(Object.assign({ name: trimmed, source: 'backfill' }, extras || {}));
+  if (created && created.id) return created.id;
+  // The insert can lose a race against the lower(name) unique index — re-read.
+  rows = await atsListPracticeRows();
+  match = rows.find(function (p) { return String(p.name || '').trim().toLowerCase() === key; });
+  return (match && match.id) ? match.id : null;
+}
+
+// Practice id for a career_roles row: the explicit practice_id when set
+// (CEO-created ATS jobs), else ensure/lookup by practice_name (Zoho + manual
+// roles, whose practice only exists as denormalised text).
+async function atsResolvePracticeIdForRole(roleRow) {
+  if (!roleRow) return null;
+  if (roleRow.practice_id) return roleRow.practice_id;
+  return atsEnsurePracticeIdByName(roleRow.practice_name, {
+    location_city: roleRow.location_city || '',
+    location_state: roleRow.location_state || '',
+    location_country: roleRow.location_country || 'Australia',
+    created_by: 'system:career_apply'
+  });
+}
+
+// gp_applications.practice_id ships in migration 20260702090000, which may not
+// be applied yet. Detect the missing column ONCE per process and stop sending
+// it, so the apply path never pays for a second failing insert.
+var _gpApplicationsPracticeIdMissing = false;
+function isMissingColumnInsertError(result, column) {
+  var d = result ? result.data : null;
+  if (!d) return false;
+  var code = (typeof d === 'object') ? String(d.code || '') : '';
+  var msg = (typeof d === 'string') ? d : String(d.message || '');
+  if (msg.indexOf(column) === -1) return false;
+  // Postgres 42703 = undefined column; PGRST204 = column missing from schema cache.
+  return code === '42703' || code === 'PGRST204' || /column/i.test(msg);
+}
+
 // A practice is identified either by a real practices-table row id, or — when it
 // only exists as a denormalised name on jobs (like the Medical Centres view) — by
 // a synthetic "name:<encoded>" id.
@@ -24453,7 +25140,7 @@ async function atsInsertApplicationRow(row) {
     var cand = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === String(local.user_id); });
     if (cand) {
       cand.apps = Array.isArray(cand.apps) ? cand.apps : [];
-      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage });
+      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage, practice_submission_status: local.practice_submission_status || 'pending_va_submission' });
     }
   }
   saveDbState();
@@ -24473,7 +25160,7 @@ async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
     if (a) { prevStage = a.ats_stage || ''; Object.assign(a, patch); updated = a; }
   }
   if (updated) await atsRecordStageEvent(appId, prevStage, stage, actor);
-  return updated;
+  return updated ? { row: updated, prevStage: prevStage } : null;
 }
 async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
   var ev = { application_id: appId, from_stage: fromStage || '', to_stage: toStage || '', actor: actor || '', created_at: atsNowIso() };
@@ -24484,6 +25171,184 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
     dbState.atsStageAudit.push(Object.assign({ id: atsLocalId('aud_') }, ev));
     saveDbState();
   }
+}
+
+// ---- GP-facing stage notifications (Task 5) --------------------------------
+
+// Stage moves that matter to the GP. Everything else is internal shuffling.
+var ATS_GP_NOTIFY_STAGES = ['interview', 'offer', 'hired', 'not_proceeding'];
+
+// Tell the GP their application reached a milestone stage: in-app update +
+// push + branded email. Every leg is best-effort (individually caught), and
+// call sites fire-and-forget with a .catch log.
+//
+// Dedupe invariant: this is ONLY called on a real stage CHANGE
+// (fromStage !== toStage). The Zoho reconciliation below is forward-only, so a
+// repeated sync re-derives the same stage, writes nothing, and never calls
+// this again — each real transition notifies the GP exactly once.
+async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
+  var row = appRow || {};
+  var userId = row.user_id ? String(row.user_id) : '';
+  if (!userId) return; // board-only/legacy cards without a real user
+  if (!toStage || fromStage === toStage) return;
+  if (ATS_GP_NOTIFY_STAGES.indexOf(toStage) === -1) return;
+
+  // Best-effort labels: prod gp_applications has no job_title/practice_name
+  // columns, so look the role up; local-mode rows may carry them directly.
+  var jobLabel = String(row.job_title || '').trim();
+  var practiceLabel = String(row.practice_name || '').trim();
+  if ((!jobLabel || !practiceLabel) && row.career_role_id) {
+    try {
+      var notifyRole = await getCareerRoleRowById(row.career_role_id);
+      if (notifyRole) {
+        if (!jobLabel) jobLabel = String(notifyRole.title || '').trim();
+        if (!practiceLabel) practiceLabel = String(notifyRole.practice_name || '').trim();
+      }
+    } catch (e) { /* labels are optional */ }
+  }
+  var roleLabel = jobLabel && practiceLabel ? (jobLabel + ' at ' + practiceLabel)
+    : (jobLabel || (practiceLabel ? 'the role at ' + practiceLabel : 'the role'));
+
+  var copy;
+  if (toStage === 'interview') {
+    copy = {
+      type: 'success',
+      subject: 'Interview stage — GP Link',
+      title: 'You\'re through to interview!',
+      body: 'Great news — your application for ' + roleLabel + ' has moved to the interview stage. We\'ll be in touch shortly to arrange a time.'
+    };
+  } else if (toStage === 'offer') {
+    // Page-agnostic on purpose: this fires for Zoho-lane offers via the
+    // reconciler, where NO in-app offer record exists — so it must not point
+    // the doctor at offer-review (an empty page). The dedicated in-app offer
+    // email (notifyGpOfferSent) is the one that deep-links to the offer.
+    copy = {
+      type: 'success',
+      subject: 'You have an offer — GP Link',
+      title: 'You have an offer!',
+      body: 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you ' + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role') + '. Your consultant will walk you through the details.'
+    };
+  } else if (toStage === 'hired') {
+    copy = {
+      type: 'success',
+      subject: 'Congratulations — you\'re hired! — GP Link',
+      title: 'Congratulations!',
+      body: 'You\'ve been hired for ' + roleLabel + '. We\'re thrilled for you — we\'ll guide you through everything that happens next.'
+    };
+  } else {
+    copy = {
+      type: 'info',
+      subject: 'An update on your application — GP Link',
+      title: 'An update on your application',
+      body: 'This one didn\'t work out — we\'re already looking at other options for you. Your application for ' + roleLabel + ' won\'t be moving forward, but new roles come up all the time and we\'ll keep you posted.'
+    };
+  }
+
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: copy.type, title: copy.title, body: copy.body })
+      .catch(function (e) { console.error('[ats-notify] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: copy.title,
+      body: copy.body,
+      data: { type: 'career', action: 'ats_stage_' + toStage, url: '/pages/career.html#applications' }
+    }).catch(function (e) { console.error('[ats-notify] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId, copy.subject, copy.title, copy.body, 'View Your Applications', APP_BASE_URL + '/pages/career.html#applications', '')
+      .catch(function (e) { console.error('[ats-notify] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
+// Dedicated "offer sent" notification (standalone-ATS Task B). This REPLACES the
+// generic Task-5 'offer' milestone email for in-app offers, so the GP gets
+// exactly ONE email per offer: POST /api/ats/offer advances the stage by calling
+// atsUpdateApplicationStageRow directly, and the generic notifier
+// (notifyGpOfAtsStageChange) only ever fires from the call sites that opt in
+// (the PATCH /api/ats/application kanban move + the Zoho reconciler) — so the
+// direct call IS the suppression. The deep link lands on the real offer page and
+// survives the sign-in bounce the same way the doc-delivery email does
+// (buildSigninRedirect + auth-guard carry the full path+query through ?next).
+// Awaited (not fire-and-forget) so serverless freeze after res.end can't drop it.
+async function notifyGpOfferSent(userId, applicationId, jobLabel, practiceLabel) {
+  if (!userId) return;
+  var offerPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(applicationId || ''));
+  var offerTitle = 'You have an offer to review 🎉';
+  var offerBody = 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you '
+    + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role')
+    + '. Open your offer to see the billing split, sessions and start date, and accept when you\'re ready.';
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: 'success', title: offerTitle, body: offerBody })
+      .catch(function (e) { console.error('[ats offer] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: offerTitle,
+      body: offerBody,
+      data: { type: 'career', action: 'offer_sent', url: offerPath }
+    }).catch(function (e) { console.error('[ats offer] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId,
+      'You have an offer to review 🎉 — GP Link',
+      'You have an offer, {{name}}!',
+      offerBody,
+      'Review Your Offer',
+      APP_BASE_URL + offerPath,
+      'Questions about the offer? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    ).catch(function (e) { console.error('[ats offer] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
+// Tell the consultant/CEO who SENT the offer what the doctor decided
+// (standalone-ATS Task C). Plain professional copy, addressed to
+// offer.sent_by. Best-effort: never throws; failures are logged by callers.
+async function notifyOfferSenderOfDecision(offer, decision, info) {
+  var to = String(offer && offer.sent_by || '').trim();
+  if (!to || !isEmailConfigured()) return;
+  var escOfferHtml = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var details = info && typeof info === 'object' ? info : {};
+  var gpLabel = String(details.gpName || '').trim() || 'The doctor';
+  var jobLabel = String(offer && offer.job_title || '').trim() || 'the role';
+  var practiceLabel = String(offer && offer.practice_name || '').trim();
+  var roleLine = jobLabel + (practiceLabel ? ' at ' + practiceLabel : '');
+  var roleLineHtml = escOfferHtml(jobLabel) + (practiceLabel ? ' at ' + escOfferHtml(practiceLabel) : '');
+  var gpLabelHtml = escOfferHtml(gpLabel);
+  var accepted = decision === 'accepted';
+  var subject = accepted
+    ? ('🎉 ' + gpLabel + ' accepted the offer for ' + roleLine)
+    : (gpLabel + ' has declined the offer for ' + roleLine);
+  var body = accepted
+    ? (gpLabelHtml + ' has accepted the offer for ' + roleLineHtml + '. The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.')
+    : (gpLabelHtml + ' has let us know they won\'t be taking the offer for ' + roleLineHtml + '. The application stays in the Offer lane so you can follow up, adjust the terms, or withdraw the offer from the ATS.');
+  await sendEmail({
+    to: to,
+    subject: subject,
+    html: buildCareerEmailHtml({
+      title: accepted ? 'Offer accepted' : 'Offer declined',
+      body: body,
+      footer: 'You\'re receiving this because you sent this offer from the GP Link ATS.'
+    })
+  });
+}
+
+// Zoho → kanban reconciliation (Task 5). After a Zoho status lands on a
+// gp_applications row, pull the CEO kanban stage forward to match.
+// Forward-only via planAtsStageReconciliation: a manually advanced card is
+// never pulled backwards and terminal lanes never move automatically.
+// atsUpdateApplicationStageRow writes the ats_stage_events audit row itself —
+// no separate audit write here. Returns the new stage, or null when unchanged.
+async function reconcileAtsStageAfterStatusSync(app, liveStatus, actor) {
+  var row = app || {};
+  var storedStage = row.ats_stage || '';
+  // Evidence of a booked interview without an extra query: the interview-book
+  // flow already advances ats_stage to 'interview', so a stored stage at
+  // interview-or-later is the marker.
+  var hasInterview = storedStage === 'interview' || storedStage === 'offer' || storedStage === 'hired';
+  var derived = atsPracticeUtil.deriveAtsStage({ status: liveStatus, practice_submission_status: row.practice_submission_status }, hasInterview);
+  var target = atsPracticeUtil.planAtsStageReconciliation(storedStage, derived);
+  if (!target) return null;
+  var updated = await atsUpdateApplicationStageRow(row.id, target, undefined, actor || 'zoho_sync');
+  if (!updated || !updated.row) return null;
+  // storedStage !== target is guaranteed by planAtsStageReconciliation, so this
+  // fires exactly once per real transition (see the notifier's dedupe note).
+  notifyGpOfAtsStageChange(updated.row, storedStage, target).catch(function (e) {
+    console.error('[ZohoRecruit sync] ATS stage notify failed for app', row.id, ':', e && e.message);
+  });
+  return target;
 }
 
 // ---- Interview request helpers (Task 4) ------------------------------------
@@ -24678,6 +25543,20 @@ function atsOnboardingFractionFilled(ob) {
   return checks.filter(Boolean).length / checks.length;
 }
 
+// Map a stored ats_offers record onto the drawer's per-application offer state
+// (Task B). No record (or an unsent draft) → 'not_started', matching the old
+// placeholder. Shared by the prod + local facts builders.
+function atsOfferCardState(offerRow) {
+  var status = offerRow ? String(offerRow.status || '') : '';
+  if (!status || status === 'draft') return { status: 'not_started', label: '—' };
+  var labels = { sent: 'Offer sent', accepted: 'Offer accepted', declined: 'Offer declined', withdrawn: 'Offer withdrawn' };
+  return {
+    status: status,
+    label: labels[status] || status,
+    sent_at: offerRow.sent_at || null
+  };
+}
+
 // Build the normalized candidate "facts" bundle from a local seed row.
 function atsLocalCandidateFacts(row) {
   // Enrich each seeded app with interview (most-recent non-cancelled interview from
@@ -24694,7 +25573,14 @@ function atsLocalCandidateFacts(row) {
       var m = matches[0];
       intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null };
     }
-    return Object.assign({}, a, { interview: intRow, offer: { status: 'not_started', label: '—' } });
+    var offerRow = (dbState.atsOffers || []).find(function (o) { return String(o.application_id) === String(a.id); }) || null;
+    return Object.assign({}, a, {
+      interview: intRow,
+      offer: atsOfferCardState(offerRow),
+      // Drawer source chip (Task F) — local-mode apps are in-app by definition
+      // unless the seed row carries a Zoho id.
+      source: a.source || (a.zoho_application_id ? 'zoho' : 'in_app')
+    });
   });
   return {
     case_id: row.id, user_id: row.user_id || row.id,
@@ -24752,14 +25638,28 @@ async function atsProdCandidateFacts(regCase) {
       }
     });
   }
+  // Real offer state per application (Task B) — one batched lookup, drives the
+  // drawer's Send offer / Offer sent / Accepted UI. Best-effort decoration.
+  var appOfferMap = {};
+  if (prodAppIds.length) {
+    try {
+      var offerRows = await atsOffersStore.listAtsOffers(prodAppIds.map(String));
+      offerRows.forEach(function (o) { if (o && o.application_id) appOfferMap[String(o.application_id)] = o; });
+    } catch (e) { /* offers are optional decoration on the drawer */ }
+  }
   var apps = appRows.map(function (a) {
     var role = roleMap[a.career_role_id] || {};
     var intRow = appInterviewMap[a.id] || null;
     return {
       id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—',
       practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false),
+      // Drives the drawer's "Submit to practice" affordance (Task D):
+      // '' / null normalises to 'pending_va_submission' = still submittable.
+      practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
+      // Drawer source chip (Task F): Zoho-managed vs in-app application.
+      source: a.zoho_application_id ? 'zoho' : 'in_app',
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
-      offer: { status: 'not_started', label: '—' }
+      offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
   });
 
@@ -24858,6 +25758,7 @@ function atsJobCard(job, practicesById, appsByJob) {
     practice_id: job.practice_id || '', practice_name: p ? p.name : (job.practice_name || ''),
     city: job.location_city || '', state: job.location_state || '',
     type: job.employment_type || '', billing: job.billing_model || '',
+    summary: job.summary || '',
     status: job.job_status || (job.is_active === false ? 'closed' : 'open'),
     posted: job.published_at || job.created_at || '', ats_created: !!job.ats_created,
     active_count: active, stage_counts: counts
@@ -24991,9 +25892,7 @@ async function handleApi(req, res, pathname) {
 
   // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
   if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
-    var gdCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var gdAuth = req.headers['authorization'] || '';
-    if (!gdCronSecret || gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var diag = { steps: [] };
     try {
       // Step 1: Check env vars
@@ -25151,9 +26050,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: poll Gmail for new emails (fallback when Pub/Sub push doesn't fire)
   if (req.method === 'GET' && pathname === '/api/cron/process-gmail') {
-    var pgCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var pgAuth = req.headers['authorization'] || '';
-    if (!pgCronSecret || pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
@@ -25300,9 +26197,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: organise every candidate's Drive folder into per-document subfolders (daily, 03:00 UTC)
   if (req.method === 'GET' && pathname === '/api/cron/organize-drive') {
-    var odCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var odAuth = req.headers['authorization'] || '';
-    if (!odCronSecret || odAuth !== 'Bearer ' + odCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     if (!isGoogleDriveConfigured() || !isSupabaseDbConfigured()) {
       sendJson(res, 200, { ok: true, organized: 0, errors: 0, message: 'Drive or DB not configured — skipped' });
       return;
@@ -25326,9 +26221,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
-    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var authHeader = req.headers['authorization'] || '';
-    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) {
+    if (!isValidCronSecret(getBearerToken(req))) {
       sendJson(res, 401, { error: 'Unauthorized' });
       return;
     }
@@ -27227,10 +28120,12 @@ async function handleApi(req, res, pathname) {
     const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     if (_zohoRolesCache && _zohoRolesCache.roles && (now - _zohoRolesCache.ts) < CACHE_TTL) {
       const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+      const internalAtsRows = await listGpVisibleInternalAtsRoles();
+      const storedRows = manualRows.concat(internalAtsRows);
       sendJson(res, 200, {
         ok: true,
         source: 'zoho-live',
-        roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
+        roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
@@ -27241,10 +28136,12 @@ async function handleApi(req, res, pathname) {
         const cachedRoles = await _zohoRolesFetchPromise;
         if (cachedRoles) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          const internalAtsRows = await listGpVisibleInternalAtsRoles();
+          const storedRows = manualRows.concat(internalAtsRows);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), cachedRoles)
+            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), cachedRoles)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -27287,10 +28184,12 @@ async function handleApi(req, res, pathname) {
         const allRoles = await _zohoRolesFetchPromise;
         if (allRoles) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          const internalAtsRows = await listGpVisibleInternalAtsRoles();
+          const storedRows = manualRows.concat(internalAtsRows);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), allRoles)
+            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), allRoles)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -27305,17 +28204,23 @@ async function handleApi(req, res, pathname) {
         listCareerRoleRows(true),
         getZohoRecruitConnection()
       ]);
+      // listCareerRoleRows(true) returns every active provider, including
+      // internal_ats rows whose job_status is filled/closed (closing an ATS job
+      // does not flip is_active) — hide those from GPs.
+      const visibleRows = rows.filter((row) => row && (row.provider !== 'internal_ats' || isInternalAtsRoleOpenForGp(row)));
       sendJson(res, 200, {
         ok: true,
-        source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
+        source: visibleRows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
         connected: !!(connection && connection.status === 'active'),
         lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
-        roles: rows.map(mapCareerRoleRowToClient)
+        roles: visibleRows.map(mapCareerRoleRowToClient)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
-    sendJson(res, 200, { ok: true, source: 'fallback', roles: [] }, PRIVATE_METADATA_CACHE_HEADERS);
+    // Local-JSON dev mode: still surface CEO-created in-app ATS jobs.
+    const localInternalRoles = await listGpVisibleInternalAtsRoles();
+    sendJson(res, 200, { ok: true, source: 'fallback', roles: localInternalRoles.map(mapCareerRoleRowToClient) }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -27334,7 +28239,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+    let existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+    if (!existingRow && parsedId.provider === 'internal_ats' && !isSupabaseDbConfigured()) {
+      // Local-JSON dev mode: in-app ATS jobs live in dbState.atsJobs.
+      existingRow = (dbState.atsJobs || []).find((job) => job && job.provider === 'internal_ats' && String(job.provider_role_id || '') === parsedId.providerRoleId) || null;
+    }
     if (!existingRow) {
       sendJson(res, 404, { ok: false, message: 'Career role not found.' });
       return;
@@ -27454,6 +28363,448 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // GP accepts their offer (offer-review.html Accept Offer button). Advances
+  // the application's kanban stage to 'hired' (forward-only, never backwards).
+  //
+  // When an IN-APP offer record exists (standalone-ATS Task C), accepting also
+  // COMPLETES THE PLACEMENT locally — writing the exact shapes the Zoho
+  // reverse-sync writes, so every existing consumer (career.html secured view,
+  // AHPRA prerequisites, apply-guard, withdraw-block, admin panes) works with
+  // Zoho disconnected:
+  //   offer → accepted; gp_applications.status → placement_secured;
+  //   gp_career_state.applications[].placement (+ career_secured) + task
+  //   automation; a placements row (tolerantly skipped until the migration is
+  //   applied); career_roles.job_status → filled for internal jobs; and an
+  //   email to the consultant who sent the offer.
+  // Legacy applications WITHOUT an offer record keep today's behaviour (stage
+  // advance only) — the Zoho sync remains their placement writer.
+  //
+  // Deliberately NO GP-facing notification here: the page shows its own
+  // celebration/confirmation state the moment the GP clicks Accept, so a
+  // "congratulations" email about their own click would be a duplicate.
+  if (pathname === '/api/career/offer/accept' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const acceptEmail = getSessionEmail(session);
+    if (!acceptEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const acceptUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(acceptEmail);
+    if (!acceptUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let acceptBody = {};
+    try { acceptBody = await readJsonBody(req) || {}; } catch { acceptBody = {}; }
+    const requestedAppId = acceptBody.applicationId != null ? String(acceptBody.applicationId).trim() : '';
+
+    // The GP's applications (dual-mode).
+    let acceptApps = [];
+    if (isSupabaseDbConfigured()) {
+      const acceptAppsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(acceptUserId) + '&limit=200');
+      acceptApps = acceptAppsRes.ok && Array.isArray(acceptAppsRes.data) ? acceptAppsRes.data : [];
+    } else {
+      acceptApps = (dbState.atsApplications || []).filter((a) => String(a.user_id) === String(acceptUserId));
+    }
+
+    let acceptTargetApp = null;
+    if (requestedAppId) {
+      acceptTargetApp = acceptApps.find((a) => String(a.id) === requestedAppId) || null;
+    } else {
+      // The application whose offer is on the table: prefer the kanban 'offer'
+      // lane, else a Zoho status that derives to 'offer'; most recent first.
+      const offerApps = acceptApps.filter((a) => (a.ats_stage || '') === 'offer' || atsPracticeUtil.deriveAtsStage(a, false) === 'offer');
+      offerApps.sort((a, b) => String(b.updated_at || b.applied_at || '').localeCompare(String(a.updated_at || a.applied_at || '')));
+      acceptTargetApp = offerApps[0] || null;
+    }
+    if (!acceptTargetApp) { sendJson(res, 404, { ok: false, message: 'No offer-stage application found to accept.' }); return; }
+
+    const acceptStoredStage = acceptTargetApp.ats_stage || '';
+    // Reuse the forward-only rule: already 'hired' (or terminal) → no advance.
+    const acceptNextStage = atsPracticeUtil.planAtsStageReconciliation(acceptStoredStage, 'hired');
+
+    let acceptOffer = null;
+    try { acceptOffer = await atsOffersStore.getAtsOfferByApplication(String(acceptTargetApp.id)); }
+    catch (e) { acceptOffer = null; }
+    const acceptOfferStatus = acceptOffer ? String(acceptOffer.status || '').trim().toLowerCase() : '';
+
+    // An in-app offer record that is not acceptable (withdrawn / declined /
+    // still a draft): refuse WITHOUT touching the stage. Falling through to
+    // the legacy branch here is exactly the exploit that let a withdrawn
+    // offer still be "accepted" into a terminal 'hired' card.
+    if (acceptOffer && acceptOfferStatus !== 'sent' && acceptOfferStatus !== 'accepted') {
+      sendJson(res, 409, { ok: false, code: 'offer_not_available', message: 'This offer is no longer available — your consultant will be in touch.' });
+      return;
+    }
+
+    // Repeat click on an already-accepted offer. When the placement finished
+    // (gp_applications.status made it to placement_secured) answer idempotently
+    // without re-writing state or re-emailing anyone. When it did NOT finish
+    // (a crash / network flake between the offer flipping 'accepted' and the
+    // downstream writes), fall through and RESUME the remaining steps — each
+    // is individually idempotent — but never re-notify the consultant: that
+    // email belongs to the sent→accepted transition only.
+    const acceptIsResume = !!(acceptOffer && acceptOfferStatus === 'accepted');
+    const acceptAppStatus = String(acceptTargetApp.status || '').trim().toLowerCase();
+    if (acceptIsResume && acceptAppStatus === 'placement_secured') {
+      sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: acceptStoredStage || 'hired', advanced: false, placement_secured: true });
+      return;
+    }
+
+    if (!acceptOffer) {
+      // Legacy behaviour (no in-app offer record — Zoho-managed application):
+      // stage advance only, so Zoho placements aren't double-written. Only
+      // applications with REAL offer evidence may advance: the card is in the
+      // kanban offer lane, or its Zoho-ish status derives to offer/hired
+      // ('offer', 'offered', client_approved, offer_accepted, …). Anything
+      // else (e.g. a fresh 'applied' row) has no offer to accept → 404 and
+      // no writes, closing the applied→hired self-service exploit.
+      const acceptDerivedStage = atsPracticeUtil.deriveAtsStage(acceptTargetApp, false);
+      const acceptHasOfferEvidence = acceptStoredStage === 'offer'
+        || acceptStoredStage === 'hired' // already-hired repeat → quiet no-op below
+        || acceptDerivedStage === 'offer'
+        || acceptDerivedStage === 'hired';
+      if (!acceptHasOfferEvidence) {
+        sendJson(res, 404, { ok: false, code: 'no_offer', message: 'No offer found for this application.' });
+        return;
+      }
+      if (!acceptNextStage) {
+        sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: acceptStoredStage || 'hired', advanced: false });
+        return;
+      }
+      const acceptUpdated = await atsUpdateApplicationStageRow(acceptTargetApp.id, 'hired', undefined, 'gp_accept_offer');
+      if (!acceptUpdated || !acceptUpdated.row) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+      sendJson(res, 200, { ok: true, applicationId: String(acceptTargetApp.id), ats_stage: 'hired', advanced: true });
+      return;
+    }
+
+    // ── In-app offer: accepting completes the placement ──
+    // ('sent' → fresh acceptance; 'accepted' with an unfinished placement → resume)
+    const acceptNowIso = new Date().toISOString();
+
+    // (1) Offer record → accepted (skipped on resume — it already is).
+    const acceptedOffer = acceptIsResume
+      ? acceptOffer
+      : ((await atsOffersStore.updateAtsOfferStatus(String(acceptTargetApp.id), 'accepted', { responded_at: acceptNowIso }))
+        || Object.assign({}, acceptOffer, { status: 'accepted', responded_at: acceptNowIso }));
+
+    // (2) Kanban → hired (forward-only; quiet no-op when already there).
+    if (acceptNextStage) {
+      const acceptUpdatedRow = await atsUpdateApplicationStageRow(acceptTargetApp.id, 'hired', undefined, 'gp_accept_offer');
+      if (!acceptUpdatedRow || !acceptUpdatedRow.row) { console.error('[offer-accept] stage update failed for app', acceptTargetApp.id); }
+    }
+    // gp_applications.status → placement_secured — the value the apply-guard,
+    // withdraw-block and /api/career/applications key off.
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acceptTargetApp.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'placement_secured', updated_at: acceptNowIso }
+      });
+    } else {
+      acceptTargetApp.status = 'placement_secured';
+      acceptTargetApp.updated_at = acceptNowIso;
+      saveDbState();
+    }
+
+    // Context for the payload, the case event and the sender email.
+    let acceptCtx = null;
+    try { acceptCtx = await atsGetApplicationContext(String(acceptTargetApp.id)); } catch (e) { acceptCtx = null; }
+    let acceptRoleRow = null;
+    if (acceptTargetApp.career_role_id) {
+      try {
+        acceptRoleRow = isSupabaseDbConfigured()
+          ? await getCareerRoleRowById(acceptTargetApp.career_role_id)
+          : ((dbState.atsJobs || []).find((j) => String(j.id) === String(acceptTargetApp.career_role_id)) || null);
+      } catch (e) { acceptRoleRow = null; }
+    }
+
+    // (3) Local placement payload — the offer terms are the source of truth.
+    let acceptPlacement = null;
+    try {
+      acceptPlacement = await resolveInAppPlacementForApplication(
+        acceptTargetApp,
+        acceptedOffer,
+        { registration_country: acceptCtx && acceptCtx.gpCountry },
+        { roleRow: acceptRoleRow, gpCountry: acceptCtx && acceptCtx.gpCountry }
+      );
+    } catch (e) {
+      console.error('[offer-accept] placement payload failed for app', acceptTargetApp.id, ':', e && e.message);
+    }
+
+    // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape, so career.html,
+    // the AHPRA prerequisites and the dashboards all read it unchanged.
+    if (isSupabaseDbConfigured()) {
+      const acceptStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(acceptUserId) + '&limit=1');
+      const acceptCurrentState = acceptStateRes.ok && Array.isArray(acceptStateRes.data) && acceptStateRes.data[0] && typeof acceptStateRes.data[0].state === 'object'
+        ? acceptStateRes.data[0].state : {};
+      // Snapshot prev state before mutation so task automation can diff.
+      const acceptPrevState = JSON.parse(JSON.stringify(acceptCurrentState));
+      const acceptCareerState = acceptCurrentState.gp_career_state && typeof acceptCurrentState.gp_career_state === 'object' ? acceptCurrentState.gp_career_state : {};
+      const acceptStateApps = Array.isArray(acceptCareerState.applications) ? acceptCareerState.applications : [];
+      const acceptAppIdx = acceptStateApps.findIndex((a) => a && String(a.id) === String(acceptTargetApp.id));
+      const acceptEntry = {
+        id: String(acceptTargetApp.id),
+        status: 'placement_secured',
+        isPlacementSecured: true,
+        placement: acceptPlacement,
+        provider_role_id: acceptTargetApp.provider_role_id || ''
+      };
+      if (acceptAppIdx >= 0) Object.assign(acceptStateApps[acceptAppIdx], acceptEntry);
+      else acceptStateApps.push(acceptEntry);
+      acceptCareerState.applications = acceptStateApps;
+      acceptCareerState.career_secured = true;
+      acceptCurrentState.gp_career_state = acceptCareerState;
+      await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(acceptUserId), {
+        method: 'PATCH', body: { state: acceptCurrentState }
+      });
+
+      // (5) Task automation (practice pack, AHPRA unlock, WhatsApp/email
+      // journey) — awaited so a serverless freeze after res.end can't drop it;
+      // failures never block the acceptance itself.
+      try {
+        await processRegistrationTaskAutomation(acceptUserId, acceptEmail, acceptPrevState, acceptCurrentState);
+      } catch (autoErr) {
+        console.error('[offer-accept] task automation failed for user', acceptUserId, ':', autoErr && autoErr.message);
+      }
+    }
+
+    // (6) Placement-of-record row (tolerantly skipped until the placements
+    // migration is applied — gp_career_state above stays the durable record).
+    try {
+      await atsOffersStore.insertAtsPlacement({
+        user_id: acceptTargetApp.user_id || acceptUserId,
+        application_id: String(acceptTargetApp.id),
+        career_role_id: acceptTargetApp.career_role_id || null,
+        practice_id: acceptedOffer.practice_id || null,
+        practice_name: (acceptPlacement && acceptPlacement.practiceName) || acceptedOffer.practice_name || '',
+        job_title: (acceptPlacement && acceptPlacement.roleTitle) || acceptedOffer.job_title || '',
+        location: (acceptPlacement && acceptPlacement.location) || '',
+        billing_split: acceptedOffer.billing_split || '',
+        sessions_per_week: acceptedOffer.sessions_per_week || '',
+        compensation_range: acceptedOffer.compensation_range || '',
+        start_date: acceptedOffer.start_date || null,
+        contract_document_key: acceptedOffer.contract_document_key || null,
+        offer_id: acceptedOffer.id || null,
+        placed_by: acceptedOffer.sent_by || '',
+        placed_at: acceptNowIso,
+        status: 'active'
+      });
+    } catch (plErr) {
+      console.error('[offer-accept] placements insert failed for app', acceptTargetApp.id, ':', plErr && plErr.message);
+    }
+
+    // (7) Internal (in-app) jobs are filled by this acceptance.
+    try {
+      if (acceptRoleRow && acceptRoleRow.provider === 'internal_ats' && acceptRoleRow.job_status !== 'filled') {
+        await atsUpdateJobRow(acceptRoleRow.id, { job_status: 'filled' });
+      }
+    } catch (jobErr) {
+      console.error('[offer-accept] job fill update failed for role', acceptTargetApp.career_role_id, ':', jobErr && jobErr.message);
+    }
+
+    // (8) Tell the consultant who sent the offer + audit the case timeline —
+    // ONLY on the sent→accepted transition. A resume re-runs the placement
+    // writes above but must never re-email or double-log.
+    if (!acceptIsResume) {
+      try {
+        await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: acceptCtx && acceptCtx.gpName });
+      } catch (senderErr) {
+        console.error('[offer-accept] sender notify failed for app', acceptTargetApp.id, ':', senderErr && senderErr.message);
+      }
+      if (acceptCtx && acceptCtx.caseId) {
+        try {
+          await _logCaseEvent(acceptCtx.caseId, null, 'system',
+            'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
+            null, 'system');
+        } catch (evErr) { /* timeline is best-effort */ }
+      }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      applicationId: String(acceptTargetApp.id),
+      ats_stage: acceptNextStage ? 'hired' : (acceptStoredStage || 'hired'),
+      advanced: !!acceptNextStage,
+      placement_secured: true
+    });
+    return;
+  }
+
+  // GP declines their offer (offer-review.html "I need to decline this offer").
+  // The offer record → declined; the kanban card STAYS in the offer lane so the
+  // consultant can follow up / adjust terms / withdraw; the consultant who sent
+  // the offer is emailed; the case timeline gets an audit entry. No stage or
+  // status change for the application itself.
+  if (pathname === '/api/career/offer/decline' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const declineEmail = getSessionEmail(session);
+    if (!declineEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const declineUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(declineEmail);
+    if (!declineUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let declineBody = {};
+    try { declineBody = await readJsonBody(req) || {}; } catch { declineBody = {}; }
+    const declineAppId = declineBody.applicationId != null ? String(declineBody.applicationId).trim() : '';
+    if (!declineAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    // Ownership: an application id belonging to someone else answers 404.
+    let declineApp = null;
+    if (isSupabaseDbConfigured()) {
+      const declineAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(declineAppId) + '&limit=1');
+      declineApp = (declineAppRes.ok && Array.isArray(declineAppRes.data) && declineAppRes.data[0]) ? declineAppRes.data[0] : null;
+    } else {
+      declineApp = (dbState.atsApplications || []).find((a) => String(a.id) === declineAppId) || null;
+    }
+    if (!declineApp || String(declineApp.user_id || '') !== String(declineUserId)) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    let declineOffer = null;
+    try { declineOffer = await atsOffersStore.getAtsOfferByApplication(declineAppId); } catch (e) { declineOffer = null; }
+    if (declineOffer && declineOffer.status === 'declined') {
+      sendJson(res, 200, { ok: true, applicationId: declineAppId, status: 'declined', already: true });
+      return;
+    }
+    if (!declineOffer || declineOffer.status !== 'sent') {
+      sendJson(res, 404, { ok: false, message: 'No offer to decline for this application.' });
+      return;
+    }
+
+    const declineNowIso = new Date().toISOString();
+    const declinedOffer = (await atsOffersStore.updateAtsOfferStatus(declineAppId, 'declined', { responded_at: declineNowIso }))
+      || Object.assign({}, declineOffer, { status: 'declined', responded_at: declineNowIso });
+
+    let declineCtx = null;
+    try { declineCtx = await atsGetApplicationContext(declineAppId); } catch (e) { declineCtx = null; }
+    try {
+      await notifyOfferSenderOfDecision(declinedOffer, 'declined', { gpName: declineCtx && declineCtx.gpName });
+    } catch (senderErr) {
+      console.error('[offer-decline] sender notify failed for app', declineAppId, ':', senderErr && senderErr.message);
+    }
+    if (declineCtx && declineCtx.caseId) {
+      try {
+        await _logCaseEvent(declineCtx.caseId, null, 'system',
+          'Offer declined by the doctor: ' + (declinedOffer.job_title || 'role') + (declinedOffer.practice_name ? ' at ' + declinedOffer.practice_name : ''),
+          null, 'system');
+      } catch (evErr) { /* timeline is best-effort */ }
+    }
+
+    sendJson(res, 200, { ok: true, applicationId: declineAppId, status: 'declined' });
+    return;
+  }
+
+  // GET /api/career/my-offer?applicationId= — the CURRENT user's in-app offer
+  // for one application (pages/offer-review.html). Ownership enforced: an
+  // application id belonging to someone else answers 404 (no existence leak).
+  // Without an id, the user's most recent live offer is picked (old links).
+  // `notes` ARE returned — they're the offer-terms notes the consultant writes
+  // FOR the doctor. NEVER exposed: sent_by (consultant email) or internal ids.
+  if (pathname === '/api/career/my-offer' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const moEmail = getSessionEmail(session);
+    if (!moEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const moUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(moEmail);
+    if (!moUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const moAppIdParam = String(url.searchParams.get('applicationId') || url.searchParams.get('application_id') || url.searchParams.get('id') || '').trim();
+
+    let moApp = null;
+    if (moAppIdParam) {
+      if (isSupabaseDbConfigured()) {
+        const moAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(moAppIdParam) + '&limit=1');
+        moApp = (moAppRes.ok && Array.isArray(moAppRes.data) && moAppRes.data[0]) ? moAppRes.data[0] : null;
+      } else {
+        moApp = (dbState.atsApplications || []).find((a) => String(a.id) === moAppIdParam) || null;
+      }
+      if (!moApp || String(moApp.user_id || '') !== String(moUserId)) {
+        sendJson(res, 404, { ok: false, message: 'Application not found.' });
+        return;
+      }
+    } else {
+      // No id → the user's most recent application with a live offer.
+      let moApps = [];
+      if (isSupabaseDbConfigured()) {
+        const moAppsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(moUserId) + '&limit=200');
+        moApps = (moAppsRes.ok && Array.isArray(moAppsRes.data)) ? moAppsRes.data : [];
+      } else {
+        moApps = (dbState.atsApplications || []).filter((a) => String(a.user_id) === String(moUserId));
+      }
+      const moOffers = await atsOffersStore.listAtsOffers(moApps.map((a) => String(a.id)));
+      const moLive = moOffers.filter((o) => o && (o.status === 'sent' || o.status === 'accepted'));
+      moLive.sort((a, b) => String(b.sent_at || '').localeCompare(String(a.sent_at || '')));
+      const moPick = moLive[0] || null;
+      moApp = moPick ? (moApps.find((a) => String(a.id) === String(moPick.application_id)) || null) : null;
+      if (!moApp) { sendJson(res, 200, { ok: true, offer: null }); return; }
+    }
+
+    const moOffer = await atsOffersStore.getAtsOfferByApplication(String(moApp.id));
+    // Withdrawn/unsent offers are no longer (or not yet) reviewable.
+    if (!moOffer || moOffer.status === 'withdrawn' || moOffer.status === 'draft') {
+      sendJson(res, 200, { ok: true, offer: null });
+      return;
+    }
+
+    // Role / practice context (dual-mode).
+    let moRole = null;
+    if (moApp.career_role_id) {
+      moRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(moApp.career_role_id)
+        : ((dbState.atsJobs || []).find((j) => String(j.id) === String(moApp.career_role_id)) || null);
+    }
+    let moPractice = null;
+    if (moRole && moRole.practice_id) {
+      try { moPractice = await atsGetPracticeRow(moRole.practice_id); } catch (e) { moPractice = null; }
+    }
+    const moPracticeName = moOffer.practice_name || (moRole && moRole.practice_name) || '';
+    const moLocation = moRole ? [moRole.location_city, moRole.location_state].filter(Boolean).join(', ') : '';
+
+    // Contract availability: the offer recorded a delivered contract, or an
+    // offer_contract document already sits in the GP's documents.
+    let moContractAvailable = !!moOffer.contract_document_key;
+    if (!moContractAvailable && isSupabaseDbConfigured()) {
+      const moDocRes = await supabaseDbRequest('user_documents',
+        'select=id&user_id=eq.' + encodeURIComponent(moUserId) + '&document_key=eq.offer_contract&status=in.(approved,uploaded,received)&limit=1');
+      moContractAvailable = !!(moDocRes.ok && Array.isArray(moDocRes.data) && moDocRes.data[0]);
+    }
+
+    // Guidance officer = the case's assigned RSO (registration_cases.assigned_rso,
+    // falling back to assigned_va), resolved to a name via the rso_team roster.
+    let moOfficer = '';
+    try {
+      let moAssigned = null;
+      if (isSupabaseDbConfigured()) {
+        const moCaseRes = await supabaseDbRequest('registration_cases',
+          'select=assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(moUserId) + '&limit=1');
+        const moCase = (moCaseRes.ok && Array.isArray(moCaseRes.data) && moCaseRes.data[0]) ? moCaseRes.data[0] : null;
+        moAssigned = moCase ? (moCase.assigned_rso || moCase.assigned_va || null) : null;
+      }
+      if (moAssigned) {
+        const moRoster = await loadRsoTeam({ includeInactive: true });
+        const moRso = moRoster.find((r) => String(r.user_id) === String(moAssigned));
+        if (moRso && moRso.name) moOfficer = moRso.name;
+      }
+    } catch (e) { /* fall through to the team default */ }
+
+    sendJson(res, 200, {
+      ok: true,
+      offer: {
+        billing_split: moOffer.billing_split || '',
+        sessions_per_week: moOffer.sessions_per_week || '',
+        compensation_range: moOffer.compensation_range || '',
+        start_date: moOffer.start_date || '',
+        notes: moOffer.notes || '',
+        sent_at: moOffer.sent_at || '',
+        status: moOffer.status || 'sent'
+      },
+      applicationId: String(moApp.id),
+      practiceName: moPracticeName,
+      roleTitle: moOffer.job_title || (moRole && moRole.title) || '',
+      location: moLocation,
+      practiceContact: {
+        name: (moPractice && moPractice.contact_name) || ((moPracticeName ? moPracticeName + ' ' : '') + 'Team'),
+        role: 'Medical centre contact'
+      },
+      contractAvailable: moContractAvailable,
+      guidanceOfficer: moOfficer || 'GP Link team'
+    });
+    return;
+  }
+
   if (pathname === '/api/career/apply' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -27509,6 +28860,22 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Already-placed guard: a GP whose placement is secured can't start new
+    // applications — their recruitment officer manages any change from here.
+    const priorAppsResult = await supabaseDbRequest(
+      'gp_applications',
+      `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`
+    );
+    const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
+    if (priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status))) {
+      sendJson(res, 409, {
+        ok: false,
+        code: 'already_placed',
+        message: 'You already have a secured placement — contact your recruitment officer if anything needs to change.'
+      });
+      return;
+    }
+
     // Get user profile for Zoho candidate ID
     const profileResult = await supabaseDbRequest('user_profiles', `select=zoho_candidate_id,first_name,last_name&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
@@ -27524,6 +28891,20 @@ async function handleApi(req, res, pathname) {
     if (!roleRow) {
       sendJson(res, 404, { ok: false, message: 'Role not found.' });
       return;
+    }
+
+    // A CEO-closed/filled in-app job can still be reached via a stale link or
+    // an in-flight tab — reject before any insert or side effect.
+    if (String(roleRow.provider || parsedRoleId.provider) === 'internal_ats') {
+      const applyJobStatus = String(roleRow.job_status || '').trim().toLowerCase();
+      if (applyJobStatus === 'filled' || applyJobStatus === 'closed') {
+        sendJson(res, 409, {
+          ok: false,
+          code: 'job_closed',
+          message: "This position is no longer open — but we'll help you find another. Browse the latest openings or talk to your recruitment officer."
+        });
+        return;
+      }
     }
 
     if (!zohoCandidateId && parsedRoleId.provider === 'zoho_recruit' && isZohoRecruitConfigured()) {
@@ -27554,6 +28935,15 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // First-class practice link: resolve (or create, source 'backfill') the
+    // practices-table row for this role. Best-effort — never blocks the apply.
+    let applyPracticeId = null;
+    try {
+      applyPracticeId = await atsResolvePracticeIdForRole(roleRow);
+    } catch (practiceErr) {
+      console.error('[career apply] practice resolution failed:', practiceErr && practiceErr.message);
+    }
+
     // Save application to DB
     const appRow = {
       user_id: userId,
@@ -27564,11 +28954,28 @@ async function handleApi(req, res, pathname) {
       status: 'applied',
       applied_at: new Date().toISOString()
     };
-    const insertResult = await supabaseDbRequest('gp_applications', '', {
+    if (applyPracticeId && !_gpApplicationsPracticeIdMissing) appRow.practice_id = applyPracticeId;
+    let insertResult = await supabaseDbRequest('gp_applications', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: [appRow]
     });
+
+    // Tolerate the practice_id migration not being applied yet: on an
+    // unknown-column rejection, remember it (module-level) and retry once
+    // without the column so applies keep working at full speed.
+    if (!insertResult.ok && appRow.practice_id && isMissingColumnInsertError(insertResult, 'practice_id')) {
+      if (!_gpApplicationsPracticeIdMissing) {
+        _gpApplicationsPracticeIdMissing = true;
+        console.warn('[career apply] gp_applications.practice_id column missing (migration 20260702090000 not applied) — inserting without it from now on.');
+      }
+      delete appRow.practice_id;
+      insertResult = await supabaseDbRequest('gp_applications', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [appRow]
+      });
+    }
 
     if (!insertResult.ok) {
       sendJson(res, 502, { ok: false, message: 'Failed to save application.' });
@@ -27647,6 +29054,135 @@ async function handleApi(req, res, pathname) {
       }).catch(() => {});
     }
 
+    return;
+  }
+
+  // GET /api/career/my-interviews — the CURRENT user's interviews, merged from BOTH
+  // interview stores: scheduled_calls (newer 3-way CEO flow, meeting_kind='interview')
+  // and career_interviews (older admin-scheduled flow). Consumed by pages/interview-prep.html.
+  // GP-facing payload only: NEVER expose zoom_host_url, zoom_passcode or interviewer_email.
+  if (pathname === '/api/career/my-interviews' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const miEmail = getSessionEmail(session);
+    if (!miEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const miUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(miEmail);
+    if (!miUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let miCallRows = [];
+    let miCiRows = [];
+    if (isSupabaseDbConfigured()) {
+      const [miCallsRes, miCiRes] = await Promise.all([
+        supabaseDbRequest(
+          'scheduled_calls',
+          'select=*&user_id=eq.' + encodeURIComponent(miUserId) + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=50'
+        ),
+        supabaseDbRequest(
+          'career_interviews',
+          'select=*&user_id=eq.' + encodeURIComponent(miUserId) + '&status=neq.cancelled&order=scheduled_at.desc&limit=50'
+        )
+      ]);
+      miCallRows = (miCallsRes.ok && Array.isArray(miCallsRes.data)) ? miCallsRes.data : [];
+      miCiRows = (miCiRes.ok && Array.isArray(miCiRes.data)) ? miCiRes.data : [];
+    } else {
+      miCallRows = (dbState.scheduledCalls || []).filter(function (r) {
+        return r && r.meeting_kind === 'interview' && String(r.user_id) === String(miUserId) && r.status !== 'cancelled';
+      });
+      miCiRows = (dbState.careerInterviews || []).filter(function (r) {
+        return r && String(r.user_id) === String(miUserId) && r.status !== 'cancelled';
+      });
+    }
+
+    // Enrich practice/job context from the linked application → career role.
+    const miAppIds = [];
+    miCallRows.concat(miCiRows).forEach(function (r) {
+      const appId = r && r.application_id ? String(r.application_id) : '';
+      if (appId && miAppIds.indexOf(appId) === -1) miAppIds.push(appId);
+    });
+    const miAppMap = {};  // application_id -> gp_applications row
+    const miRoleMap = {}; // career_role id -> { title, practice_name }
+    if (miAppIds.length) {
+      if (isSupabaseDbConfigured()) {
+        const miAppsRes = await supabaseDbRequest(
+          'gp_applications',
+          'select=id,career_role_id&id=in.(' + encodeURIComponent(miAppIds.join(',')) + ')&limit=100'
+        );
+        ((miAppsRes.ok && Array.isArray(miAppsRes.data)) ? miAppsRes.data : []).forEach(function (a) {
+          miAppMap[String(a.id)] = a;
+        });
+        const miRoleIds = Object.keys(miAppMap)
+          .map(function (k) { return miAppMap[k].career_role_id; })
+          .filter(Boolean)
+          .map(String);
+        if (miRoleIds.length) {
+          const miRolesRes = await supabaseDbRequest(
+            'career_roles',
+            'select=id,title,practice_name&id=in.(' + encodeURIComponent(miRoleIds.join(',')) + ')&limit=100'
+          );
+          ((miRolesRes.ok && Array.isArray(miRolesRes.data)) ? miRolesRes.data : []).forEach(function (roleRow) {
+            miRoleMap[String(roleRow.id)] = roleRow;
+          });
+        }
+      } else {
+        (dbState.atsApplications || []).forEach(function (a) {
+          if (a && miAppIds.indexOf(String(a.id)) !== -1) miAppMap[String(a.id)] = a;
+        });
+        (dbState.atsJobs || []).forEach(function (j) {
+          if (j) miRoleMap[String(j.id)] = j;
+        });
+      }
+    }
+
+    function miContextFor(row) {
+      const app = row && row.application_id ? miAppMap[String(row.application_id)] : null;
+      const roleId = app ? (app.career_role_id || app.job_id) : (row && row.career_role_id);
+      const role = roleId != null && roleId !== '' ? miRoleMap[String(roleId)] : null;
+      return {
+        job_title: (role && role.title) || (app && app.job_title) || '',
+        practice_name: (role && role.practice_name) || (app && app.practice_name) || ''
+      };
+    }
+
+    // Normalize both stores to one GP-safe shape (allowlist — never spread the raw row).
+    function miNormalize(row, source) {
+      const ctx = miContextFor(row);
+      return {
+        id: row.id,
+        source: source,
+        scheduled_at: row.scheduled_at || null,
+        duration_minutes: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 45,
+        timezone: row.timezone || '',
+        format: row.format || 'video',
+        status: row.status || '',
+        zoom_join_url: row.zoom_join_url || '',
+        practice_name: row.practice_name || ctx.practice_name || '',
+        job_title: ctx.job_title || '',
+        interviewer_name: row.interviewer_name || ''
+      };
+    }
+
+    const miInterviews = miCallRows.map(function (r) { return miNormalize(r, 'scheduled_calls'); })
+      .concat(miCiRows.map(function (r) { return miNormalize(r, 'career_interviews'); }));
+
+    // Sort: upcoming soonest-first, then past most-recent-first, unscheduled last.
+    const miNowTs = Date.now();
+    function miTs(x) {
+      const t = Date.parse(x.scheduled_at || '');
+      return Number.isFinite(t) ? t : null;
+    }
+    miInterviews.sort(function (a, b) {
+      const ta = miTs(a);
+      const tb = miTs(b);
+      const aUpcoming = ta !== null && ta >= miNowTs;
+      const bUpcoming = tb !== null && tb >= miNowTs;
+      if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+      if (ta === null && tb === null) return 0;
+      if (ta === null) return 1;
+      if (tb === null) return -1;
+      return aUpcoming ? ta - tb : tb - ta;
+    });
+
+    sendJson(res, 200, { ok: true, interviews: miInterviews }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -27748,7 +29284,23 @@ async function handleApi(req, res, pathname) {
         || ''
       ).trim();
       const roleRow = await getRoleRowForEntry(localApp, liveRecord);
-      const jobOpeningRecord = providerRoleId ? await getJobOpeningRecord(providerRoleId) : null;
+      // In-app ATS roles have no Zoho job opening — don't ask Zoho about their
+      // provider_role_id ('ats_…'); status falls back to the local row below.
+      const isInternalAtsRole = !!(roleRow && roleRow.provider === 'internal_ats');
+      // Standalone ATS: internal apps derive their user-facing status from the
+      // kanban ats_stage + the in-app offer state (gp_applications.status only
+      // moves at the endpoints). Zoho apps keep their labels untouched.
+      const isInternalApp = !!localApp && !liveRecord && isInternalCareerApplication(localApp, roleRow);
+      let internalOffer = null;
+      let internalPresentation = null;
+      if (isInternalApp) {
+        if (internalCareerStatusNeedsOffer(localApp)) {
+          try { internalOffer = await atsOffersStore.getAtsOfferByApplication(String(localApp.id)); } catch (offerErr) { internalOffer = null; }
+        }
+        internalPresentation = buildInternalCareerStatusPresentation(localApp, internalOffer);
+      }
+      const effectiveStatus = internalPresentation ? internalPresentation.status : status;
+      const jobOpeningRecord = (providerRoleId && !isInternalAtsRole) ? await getJobOpeningRecord(providerRoleId) : null;
       const clientId = getZohoApplicationClientId(liveRecord)
         || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
       const practiceContacts = clientId ? await getClientContacts(clientId) : [];
@@ -27761,22 +29313,36 @@ async function handleApi(req, res, pathname) {
           billing: normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing'])) || 'Billing pending',
           roleType: getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']) || 'General Practitioner'
         };
-      const placement = (isCareerPlacementSecuredStatus(status) && (liveRecord || localApp))
-        ? await buildCareerPlacementPayload({
-          zoho,
-          applicationRecord: liveRecord,
-          roleRow,
-          jobOpeningRecord,
-          startDateIso: startDateIso
-            || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date']))
-            || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
-          practiceContacts,
-          providerRoleId,
-          profile,
-          zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || '',
-          skipContractCache: forceRefresh
-        })
-        : null;
+      let placement = null;
+      if (isCareerPlacementSecuredStatus(effectiveStatus) && (liveRecord || localApp)) {
+        // In-app offers (standalone ATS): the accepted offer's terms are the
+        // placement source of truth — there's no Zoho record to enrich from,
+        // so build the local payload the accept endpoint writes.
+        if (localApp && !liveRecord) {
+          try {
+            const inAppOffer = internalOffer || await atsOffersStore.getAtsOfferByApplication(String(localApp.id));
+            if (inAppOffer && inAppOffer.status === 'accepted') {
+              placement = await resolveInAppPlacementForApplication(localApp, inAppOffer, profile, { roleRow });
+            }
+          } catch (inAppErr) { placement = null; }
+        }
+        if (!placement) {
+          placement = await buildCareerPlacementPayload({
+            zoho,
+            applicationRecord: liveRecord,
+            roleRow,
+            jobOpeningRecord,
+            startDateIso: startDateIso
+              || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date']))
+              || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
+            practiceContacts,
+            providerRoleId,
+            profile,
+            zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || '',
+            skipContractCache: forceRefresh
+          });
+        }
+      }
 
       if (localApp && liveRecord) {
         const patch = {};
@@ -27883,15 +29449,43 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      enriched.push({
+      // The client's "Review Offer" CTA links to offer-review.html, which only
+      // knows about IN-APP offers (/api/career/my-offer) — so offerPending is
+      // true ONLY when a live in-app offer record exists (status 'sent').
+      // A Zoho-offered app without one (offer runs inside Zoho) instead gets
+      // consultant-led copy and NO offer-review CTA, never an empty page.
+      let zohoOfferPending = false;
+      let zohoOfferLabel = '';
+      if (!internalPresentation
+          && (effectiveStatus === 'offer' || effectiveStatus === 'offer_pending' || effectiveStatus === 'offered')) {
+        let zohoLiveOffer = null;
+        if (localApp && localApp.id) {
+          try { zohoLiveOffer = await atsOffersStore.getAtsOfferByApplication(String(localApp.id)); } catch (offerErr) { zohoLiveOffer = null; }
+        }
+        zohoOfferPending = !!(zohoLiveOffer && zohoLiveOffer.status === 'sent');
+        if (!zohoOfferPending) zohoOfferLabel = 'Offer stage — your consultant will be in touch with the details';
+      }
+
+      const entryPayload = {
         id: localApp && localApp.id ? localApp.id : (sanitizeZohoText(liveRecord && liveRecord.id) || providerRoleId || crypto.randomUUID()),
-        status,
+        status: effectiveStatus,
+        offerPending: internalPresentation
+          ? internalPresentation.offerPending
+          : zohoOfferPending,
         appliedAt: (localApp && localApp.applied_at)
           || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
           || new Date().toISOString(),
         role: roleClient,
         placement
-      });
+      };
+      if (internalPresentation) {
+        entryPayload.statusLabel = internalPresentation.statusLabel;
+        entryPayload.statusTone = internalPresentation.statusTone;
+      } else if (zohoOfferLabel) {
+        entryPayload.statusLabel = zohoOfferLabel;
+        entryPayload.statusTone = 'offer';
+      }
+      enriched.push(entryPayload);
     }
 
     sendJson(res, 200, { ok: true, applications: enriched }, PRIVATE_METADATA_CACHE_HEADERS);
@@ -27951,12 +29545,34 @@ async function handleApi(req, res, pathname) {
     const id = String(params.get('id') || '').trim();
     if (!id) { sendJson(res, 400, { ok: false, message: 'Missing id parameter.' }); return; }
 
-    // Query by id (UUID) or provider_role_id
-    const appResult = await supabaseDbRequest(
-      'gp_applications',
-      `select=*&user_id=eq.${encodeURIComponent(userId)}&or=(id.eq.${encodeURIComponent(id)},provider_role_id.eq.${encodeURIComponent(id)})&limit=1`
-    );
-    const appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+    // Query by id (UUID) or provider_role_id. career.html may pass the ROLE's
+    // public id ('internal_ats:ats_…' / 'zoho_recruit:…') when the app id is
+    // unknown — comparing that against the uuid `id` column errors the whole
+    // PostgREST query, so strip the provider prefix and match provider_role_id
+    // directly, and fall back to a provider_role_id-only match when the
+    // combined or= filter fails (non-uuid value → 22P02 cast error in prod).
+    const parsedPublicRoleId = parseCareerRolePublicId(id);
+    let appRow = null;
+    if (parsedPublicRoleId) {
+      const byRoleResult = await supabaseDbRequest(
+        'gp_applications',
+        `select=*&user_id=eq.${encodeURIComponent(userId)}&provider_role_id=eq.${encodeURIComponent(parsedPublicRoleId.providerRoleId)}&limit=1`
+      );
+      appRow = byRoleResult.ok && Array.isArray(byRoleResult.data) && byRoleResult.data[0] ? byRoleResult.data[0] : null;
+    } else {
+      const appResult = await supabaseDbRequest(
+        'gp_applications',
+        `select=*&user_id=eq.${encodeURIComponent(userId)}&or=(id.eq.${encodeURIComponent(id)},provider_role_id.eq.${encodeURIComponent(id)})&limit=1`
+      );
+      appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+      if (!appResult.ok) {
+        const retryResult = await supabaseDbRequest(
+          'gp_applications',
+          `select=*&user_id=eq.${encodeURIComponent(userId)}&provider_role_id=eq.${encodeURIComponent(id)}&limit=1`
+        );
+        appRow = retryResult.ok && Array.isArray(retryResult.data) && retryResult.data[0] ? retryResult.data[0] : null;
+      }
+    }
     if (!appRow) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
       return;
@@ -27984,9 +29600,21 @@ async function handleApi(req, res, pathname) {
         }
       } catch {}
     }
-    const status = normalizeCareerApplicationStatusKey(liveStatus)
+    let status = normalizeCareerApplicationStatusKey(liveStatus)
       || normalizeCareerApplicationStatusKey(appRow.status)
       || 'applied';
+
+    // Standalone ATS: internal apps derive their user-facing status from the
+    // kanban ats_stage + the in-app offer state. Zoho apps keep their labels.
+    let detailPresentation = null;
+    let detailOffer = null;
+    if (!liveRecord && isInternalCareerApplication(appRow, roleRow)) {
+      if (internalCareerStatusNeedsOffer(appRow)) {
+        try { detailOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); } catch (offerErr) { detailOffer = null; }
+      }
+      detailPresentation = buildInternalCareerStatusPresentation(appRow, detailOffer);
+      status = detailPresentation.status;
+    }
 
     const providerRoleId = String(appRow.provider_role_id || '').trim();
     const roleClient = roleRow
@@ -28004,6 +29632,13 @@ async function handleApi(req, res, pathname) {
     if (isCareerPlacementSecuredStatus(status)) {
       try {
         const profile = await getSupabaseUserProfile(email, userId);
+        // Internal apps: the accepted in-app offer's terms are the placement
+        // source of truth (same payload the accept endpoint + list build).
+        if (detailPresentation && detailOffer && detailOffer.status === 'accepted') {
+          try {
+            placement = await resolveInAppPlacementForApplication(appRow, detailOffer, profile, { roleRow });
+          } catch (inAppErr) { placement = null; }
+        }
         const startDateIso = normalizePlacementStartDate(profile && profile.target_arrival_date);
         let jobOpeningRecord = null;
         if (zoho && providerRoleId) {
@@ -28015,7 +29650,7 @@ async function handleApi(req, res, pathname) {
         if (zoho && clientId) {
           try { practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId); } catch {}
         }
-        placement = await buildCareerPlacementPayload({
+        if (!placement) placement = await buildCareerPlacementPayload({
           zoho,
           applicationRecord: liveRecord,
           roleRow,
@@ -28070,14 +29705,38 @@ async function handleApi(req, res, pathname) {
       }
     } catch {}
 
+    // Same rule as the list payload: "Review Offer" only ever points at a REAL
+    // in-app offer (offer-review.html knows nothing about Zoho offers), so a
+    // Zoho-offered app without a live in-app offer gets consultant-led copy
+    // and NO offer CTA instead of a deep link to an empty page.
+    let detailZohoOfferPending = false;
+    let detailZohoOfferLabel = '';
+    if (!detailPresentation
+        && (status === 'offer' || status === 'offer_pending' || status === 'offered')) {
+      let detailZohoOffer = null;
+      try { detailZohoOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); } catch (offerErr) { detailZohoOffer = null; }
+      detailZohoOfferPending = !!(detailZohoOffer && detailZohoOffer.status === 'sent');
+      if (!detailZohoOfferPending) detailZohoOfferLabel = 'Offer stage — your consultant will be in touch with the details';
+    }
+
     const enrichedApp = {
       id: appRow.id,
       status,
+      offerPending: detailPresentation
+        ? detailPresentation.offerPending
+        : detailZohoOfferPending,
       appliedAt: appRow.applied_at || new Date().toISOString(),
       role: roleClient,
       placement,
       interview
     };
+    if (detailPresentation) {
+      enrichedApp.statusLabel = detailPresentation.statusLabel;
+      enrichedApp.statusTone = detailPresentation.statusTone;
+    } else if (detailZohoOfferLabel) {
+      enrichedApp.statusLabel = detailZohoOfferLabel;
+      enrichedApp.statusTone = 'offer';
+    }
 
     sendJson(res, 200, { ok: true, application: enrichedApp });
     return;
@@ -28149,7 +29808,7 @@ async function handleApi(req, res, pathname) {
     if (!applicationId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
 
     // Verify application belongs to user
-    const appResult = await supabaseDbRequest('gp_applications', `select=id,status&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const appResult = await supabaseDbRequest('gp_applications', `select=id,status,ats_stage&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
       return;
@@ -28171,6 +29830,20 @@ async function handleApi(req, res, pathname) {
     if (!patchResult.ok) {
       sendJson(res, 502, { ok: false, message: 'Failed to withdraw application.' });
       return;
+    }
+
+    // Kanban: a withdrawn application leaves the active pipeline, so move the
+    // card to the terminal 'not_proceeding' lane (audit actor 'gp_withdrew').
+    // planAtsStageReconciliation keeps terminal lanes (hired/not_proceeding)
+    // untouched. Quiet move — the GP withdrew it themselves, no milestone
+    // notification fires (atsUpdateApplicationStageRow never notifies).
+    try {
+      const withdrawNextStage = atsPracticeUtil.planAtsStageReconciliation(app.ats_stage || '', atsPracticeUtil.ATS_REJECT_STAGE);
+      if (withdrawNextStage) {
+        await atsUpdateApplicationStageRow(applicationId, withdrawNextStage, undefined, 'gp_withdrew');
+      }
+    } catch (stageErr) {
+      console.error('[career withdraw] kanban stage move failed for app', applicationId, ':', stageErr && stageErr.message);
     }
 
     // Cancel any scheduled interviews
@@ -28236,33 +29909,28 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
-    if (!candidate.ok || !candidate.zohoId) {
-      sendJson(res, 502, {
-        ok: false,
-        savedLocally: true,
-        document: saved,
-        message: candidate.message || 'CV saved in GP Link, but could not resolve the Zoho Recruit candidate.'
-      });
-      return;
-    }
-
-    const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, 'cv');
-    if (!synced.ok) {
-      sendJson(res, 502, {
-        ok: false,
-        savedLocally: true,
-        document: saved,
-        message: synced.message || 'CV saved in GP Link, but failed to sync to Zoho Recruit.'
-      });
-      return;
+    // Zoho mirror is BEST-EFFORT (standalone ATS): the CV lives in GP Link and
+    // everything downstream (apply guard, ATS submit-to-practice) reads it from
+    // user_documents — a missing/disconnected Zoho must never block the doctor.
+    let zohoSync = { ok: false, skipped: true, message: 'Zoho Recruit is not connected.' };
+    if (isZohoRecruitConfigured()) {
+      const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+      if (candidate.ok && candidate.zohoId) {
+        const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, 'cv');
+        zohoSync = synced.ok
+          ? { ok: true, candidateId: candidate.zohoId }
+          : { ok: false, message: synced.message || 'CV saved in GP Link, but failed to sync to Zoho Recruit.' };
+      } else {
+        zohoSync = { ok: false, message: candidate.message || 'CV saved in GP Link, but could not resolve the Zoho Recruit candidate.' };
+      }
+      if (!zohoSync.ok) console.warn('[career upload-cv] Zoho mirror skipped for', email, ':', zohoSync.message);
     }
 
     // Reliably create the RSO review task now (awaited); the AI pipeline below is
     // best-effort and may not complete on serverless.
     await ensureDocReviewOnUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', undefined);
 
-    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync });
 
     // Background: best-effort AI auto-check (may auto-approve and close the task).
     processDocumentUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', 'AU', 'application/pdf').catch(function (err) {
@@ -30372,19 +32040,14 @@ async function handleApi(req, res, pathname) {
           client_rejected: 'Client rejected',
           interview_ready: 'Ready for interview'
         })[submissionStatus] || 'Awaiting VA submission';
-        app.can_submit_to_practice = !!app.zoho_application_id
-          && !!app.zoho_candidate_id
-          && !!app.provider_role_id
-          && submissionStatus === 'pending_va_submission';
+        // Zoho ids are no longer required: apps without them (internal ATS
+        // jobs, or Zoho disconnected) go down the in-app email branch of
+        // POST /api/admin/career/application/submit-to-practice (Task D).
+        app.can_submit_to_practice = submissionStatus === 'pending_va_submission'
+          && !app.zoho_submission_id;
         app.submit_disabled_reason = app.can_submit_to_practice
           ? ''
-          : (!app.zoho_application_id
-            ? 'Zoho application is not available yet. Refresh after candidate sync finishes.'
-            : (!app.zoho_candidate_id
-              ? 'Zoho candidate is missing for this application.'
-              : (!app.provider_role_id
-                ? 'The linked job opening is missing for this application.'
-                : 'This application has already been submitted to the practice.')));
+          : 'This application has already been submitted to the practice.';
         try {
           const profileResult = await supabaseDbRequest('user_profiles', `select=email,first_name,last_name&user_id=eq.${encodeURIComponent(app.user_id)}&limit=1`);
           if (profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0]) {
@@ -30404,6 +32067,20 @@ async function handleApi(req, res, pathname) {
             }
           } catch {}
         }
+        // Standalone ATS (Task F6): internal apps' pipeline truth is the
+        // kanban ats_stage — gp_applications.status stays 'applied' until the
+        // endpoints — so the RSO panel needs the same presented status the
+        // doctor sees (career.html). Zoho rows keep their raw status untouched.
+        if (isInternalCareerApplication(app, null)) {
+          let adminOffer = null;
+          if (internalCareerStatusNeedsOffer(app)) {
+            try { adminOffer = await atsOffersStore.getAtsOfferByApplication(String(app.id)); } catch { adminOffer = null; }
+          }
+          const adminPresentation = buildInternalCareerStatusPresentation(app, adminOffer);
+          app.status_key = adminPresentation.status;
+          app.status_label = adminPresentation.statusLabel;
+          app.status_tone = adminPresentation.statusTone;
+        }
         enriched.push(app);
       }
 
@@ -30420,7 +32097,9 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
       return;
     }
-    const admin = requireAdminSession(req, res);
+    // ATS-functional route: consultants submit candidates to practices from the
+    // CEO-dashboard drawer, RSO admins keep using it from admin.html (Task E 3c).
+    const admin = requireAdminOrAtsSession(req, res);
     if (!admin) return;
 
     let body;
@@ -30451,6 +32130,37 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, message: 'This application has already been submitted to the practice.' });
       return;
     }
+
+    // ── Branch decision (standalone-ATS Task D) ─────────────────────────────
+    // Zoho branch ONLY when the application actually lives in Zoho (both zoho
+    // ids present) AND a Zoho Recruit connection record exists. A connection
+    // that exists but can't refresh its token still routes to Zoho and keeps
+    // the historical 503 (an outage shouldn't silently fork to direct email).
+    // Everything else — internal ATS applications, or Zoho disconnected —
+    // takes the in-app branch below, which emails the practice directly.
+    const hasZohoIds = !!(appRow.zoho_application_id && appRow.zoho_candidate_id);
+    let zohoConnectionExists = false;
+    if (hasZohoIds && isZohoRecruitConfigured()) {
+      // Explicit ok-checked read (NOT getZohoRecruitConnection, which returns
+      // null on transient PostgREST read errors too): a momentary DB blip must
+      // NOT be mistaken for "Zoho disconnected" and route a Zoho-managed app
+      // down the in-app email branch. Only a SUCCESSFUL read with no row is a
+      // genuine disconnect; a failed read aborts with a retryable 503 before
+      // any email or write happens.
+      const zohoConnResult = await supabaseDbRequest(
+        'integration_connections',
+        'select=*&provider=eq.zoho_recruit&limit=1'
+      );
+      if (!zohoConnResult.ok || !Array.isArray(zohoConnResult.data)) {
+        sendJson(res, 503, { ok: false, message: "Couldn't confirm the Zoho Recruit connection just now — please try again in a moment." });
+        return;
+      }
+      const zohoConn = zohoConnResult.data[0] ? mapZohoConnectionRow(zohoConnResult.data[0]) : null;
+      zohoConnectionExists = !!(zohoConn && zohoConn.refreshToken);
+    }
+
+    if (hasZohoIds && zohoConnectionExists) {
+      // ── Zoho branch (unchanged behaviour) ────────────────────────────────
     if (!appRow.zoho_application_id) {
       sendJson(res, 400, { ok: false, message: 'Zoho Recruit application is missing for this GP application.' });
       return;
@@ -30587,6 +32297,240 @@ async function handleApi(req, res, pathname) {
 
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, application: updatedApp });
+    return;
+    }
+    // ── End of the Zoho branch ───────────────────────────────────────────────
+
+    // ── In-app branch (standalone-ATS Task D): Zoho not connected, or the
+    // application has no Zoho ids (internal ATS jobs). The RSO/consultant
+    // submits the candidate by emailing the practice a professional
+    // introduction directly, then everything downstream mirrors the Zoho
+    // branch: practice_submission_status, kanban stage, VA task, case event
+    // and the GP push notification.
+
+    // Role + practice rows for labels and the contact lookup.
+    let inAppRole = null;
+    if (appRow.career_role_id) {
+      const inAppRoleRes = await supabaseDbRequest('career_roles', `select=*&id=eq.${encodeURIComponent(appRow.career_role_id)}&limit=1`);
+      inAppRole = inAppRoleRes.ok && Array.isArray(inAppRoleRes.data) && inAppRoleRes.data[0] ? inAppRoleRes.data[0] : null;
+    }
+    let inAppPractice = null;
+    const inAppPracticeId = appRow.practice_id || (inAppRole && inAppRole.practice_id) || null;
+    if (inAppPracticeId) {
+      try { inAppPractice = await atsGetPracticeRow(inAppPracticeId); } catch (prErr) { inAppPractice = null; }
+    }
+
+    // Practice-contact precedence (documented order, plan 2026-07-03 Task D):
+    //   1) practices table via career_roles.practice_id — the ATS-native source,
+    //   2) contact fields carried on the career_roles row / its source payload,
+    //   3) the registration case's practice_contact JSON.
+    let inAppContactEmail = '';
+    let inAppContactName = '';
+    if (inAppPractice) {
+      inAppContactEmail = String(inAppPractice.contact_email || '').trim();
+      inAppContactName = String(inAppPractice.contact_name || '').trim();
+    }
+    if (!inAppContactEmail && inAppRole) {
+      const roleSource = inAppRole.source_payload && typeof inAppRole.source_payload === 'object' ? inAppRole.source_payload : {};
+      inAppContactEmail = String(
+        inAppRole.practice_contact_email || inAppRole.contact_email
+        || roleSource.practice_contact_email || roleSource.contact_email || ''
+      ).trim();
+      if (!inAppContactName) {
+        inAppContactName = String(
+          inAppRole.practice_contact_name || inAppRole.contact_name
+          || roleSource.practice_contact_name || roleSource.contact_name || ''
+        ).trim();
+      }
+    }
+    if (!inAppContactEmail && appRow.user_id) {
+      try {
+        const inAppCaseRes = await supabaseDbRequest('registration_cases', `select=practice_contact&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+        const inAppCaseRow = inAppCaseRes.ok && Array.isArray(inAppCaseRes.data) && inAppCaseRes.data[0] ? inAppCaseRes.data[0] : null;
+        if (inAppCaseRow && inAppCaseRow.practice_contact) {
+          const casePc = typeof inAppCaseRow.practice_contact === 'string' ? JSON.parse(inAppCaseRow.practice_contact) : inAppCaseRow.practice_contact;
+          inAppContactEmail = String((casePc && (casePc.contactEmail || casePc.email)) || '').trim();
+          if (!inAppContactName) inAppContactName = String((casePc && (casePc.contactName || casePc.name)) || '').trim();
+        }
+      } catch (pcErr) { /* tolerated — falls through to the 422 below */ }
+    }
+
+    if (!inAppContactEmail) {
+      sendJson(res, 422, {
+        ok: false,
+        code: 'no_practice_contact',
+        message: 'Add a contact email to this practice first — you can do that in the Practices tab.'
+      });
+      return;
+    }
+
+    // Candidate facts for the introduction. Only fields that actually exist
+    // are included — nothing about the candidate is ever invented.
+    const inAppProfileRes = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+    const inAppProfile = inAppProfileRes.ok && Array.isArray(inAppProfileRes.data) && inAppProfileRes.data[0] ? inAppProfileRes.data[0] : {};
+    const inAppGpName = ((inAppProfile.first_name || '') + ' ' + (inAppProfile.last_name || '')).trim() || inAppProfile.email || 'GP candidate';
+    const inAppRoleLabel = (inAppRole && inAppRole.title) || 'General Practitioner';
+    const inAppPracticeLabel = (inAppPractice && inAppPractice.name) || (inAppRole && inAppRole.practice_name) || 'the practice';
+
+    // Country (user_profiles.registration_country → user_state.gp_selected_country,
+    // the same fallback _resolveGpCountry uses) + qualification summary from the
+    // onboarding answers (same source the candidate drawer shows).
+    let inAppStateVal = {};
+    try {
+      const inAppStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+      inAppStateVal = inAppStateRes.ok && Array.isArray(inAppStateRes.data) && inAppStateRes.data[0] && inAppStateRes.data[0].state
+        ? inAppStateRes.data[0].state : {};
+    } catch (stateErr) { inAppStateVal = {}; }
+    const inAppCountryNames = { uk: 'United Kingdom', gb: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia' };
+    const inAppCountryRaw = String(inAppProfile.registration_country || inAppStateVal.gp_selected_country || '').trim();
+    const inAppCountryLabel = inAppCountryRaw ? (inAppCountryNames[inAppCountryRaw.toLowerCase()] || inAppCountryRaw) : '';
+    let inAppSpecialty = '';
+    try {
+      inAppSpecialty = atsSpecialtyFromOnboarding(_parseStateVal(inAppStateVal.gp_onboarding) || {});
+    } catch (spErr) { inAppSpecialty = ''; }
+
+    // The GP's CV (user_documents key cv_signed_dated) — same storage-path
+    // download the doc pipeline uses (processDocumentUpload). If there's no CV
+    // row or the file can't be fetched, the email still goes out without the
+    // attachment and says the CV will follow.
+    let inAppCvAttachment = null;
+    try {
+      const inAppCvRes = await supabaseDbRequest('user_documents',
+        `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1`);
+      const inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';
+      if (inAppCvPath && !/^https?:/i.test(inAppCvPath)) {
+        const inAppCvDl = await supabaseStorageDownloadObject(inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppCvPath);
+        if (inAppCvDl && inAppCvDl.buffer && inAppCvDl.buffer.length) {
+          inAppCvAttachment = {
+            filename: inAppCvRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-CV.pdf'),
+            content: inAppCvDl.buffer.toString('base64'),
+            contentType: inAppCvRow.mime_type || inAppCvDl.mimeType || 'application/pdf'
+          };
+        }
+      }
+    } catch (cvErr) { inAppCvAttachment = null; }
+
+    // Compose + send the introduction. From/branding matches the other
+    // ATS practice-facing emails (interview confirmations): the registration
+    // hub mailbox as 'GP Link', via the shared sendEmail helper.
+    const escIntro = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const introFacts = [];
+    if (inAppCountryLabel) introFacts.push('Registration country: ' + inAppCountryLabel);
+    if (inAppSpecialty) introFacts.push('Qualification: ' + inAppSpecialty);
+    const introCvLine = inAppCvAttachment
+      ? 'We\'ve attached ' + inAppGpName + '\'s CV to this email for your review.'
+      : 'We\'ll follow up with the candidate\'s CV shortly.';
+    const introSubject = 'Candidate introduction: ' + inAppGpName + ' — ' + inAppRoleLabel;
+    const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
+    const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
+    const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
+    const introBodyHtml =
+      escIntro(introGreeting) + '<br><br>' +
+      'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
+      (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
+      '<br><br>' + escIntro(introCvLine) +
+      '<br><br>' + escIntro(introClose);
+    const introText = [introGreeting, '', introLead]
+      .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
+      .concat(['', introCvLine, '', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
+      .join('\n');
+
+    const introSendResult = await sendEmail({
+      to: inAppContactEmail,
+      subject: introSubject,
+      html: buildCareerEmailHtml({
+        title: 'Candidate introduction',
+        body: introBodyHtml,
+        footer: 'Sent by the GP Link recruitment team on behalf of ' + escIntro(inAppGpName) + '.'
+      }),
+      text: introText,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      attachments: inAppCvAttachment ? [inAppCvAttachment] : undefined
+    });
+    if (!introSendResult || !introSendResult.ok) {
+      console.error('[admin career applications] in-app submit-to-practice email failed:', introSendResult && introSendResult.error);
+      sendJson(res, 502, { ok: false, message: 'Could not send the introduction email to the practice, so nothing was submitted. Please try again.' });
+      return;
+    }
+
+    // Parity with the Zoho branch: mark the application submitted.
+    const inAppNowIso = new Date().toISOString();
+    const inAppNextStatus = isCareerInterviewStatus(appRow.status) ? appRow.status : 'review';
+    const inAppPatch = {
+      status: inAppNextStatus,
+      practice_submission_status: 'submitted_to_practice',
+      practice_contact_name: inAppContactName || null,
+      practice_contact_email: inAppContactEmail,
+      submitted_to_practice_at: inAppNowIso,
+      submitted_to_practice_by: admin.email || '',
+      updated_at: inAppNowIso
+    };
+    const inAppPatchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: inAppPatch
+    });
+    if (!inAppPatchResult.ok) {
+      console.error('[admin career applications] in-app submit-to-practice patch failed:', inAppPatchResult.status, inAppPatchResult.data);
+      sendJson(res, 502, {
+        ok: false,
+        message: 'The introduction email was sent, but GP Link could not save the update locally. Refresh before retrying.'
+      });
+      return;
+    }
+    const inAppUpdatedApp = Array.isArray(inAppPatchResult.data) && inAppPatchResult.data[0]
+      ? inAppPatchResult.data[0]
+      : Object.assign({}, appRow, inAppPatch);
+
+    // Kanban parity: pull the card forward to 'submitted'. Forward-only via
+    // planAtsStageReconciliation — a card already at reviewing/interview/offer
+    // is never yanked backwards. Direct atsUpdateApplicationStageRow call, so
+    // no GP milestone email fires ('submitted' isn't a milestone anyway).
+    try {
+      const inAppStageTarget = atsPracticeUtil.planAtsStageReconciliation(inAppUpdatedApp.ats_stage || appRow.ats_stage || '', 'submitted');
+      if (inAppStageTarget) {
+        const inAppStageUp = await atsUpdateApplicationStageRow(applicationId, inAppStageTarget, undefined, 'submitted_to_practice');
+        if (inAppStageUp && inAppStageUp.row) inAppUpdatedApp.ats_stage = inAppStageUp.row.ats_stage || inAppStageTarget;
+      }
+    } catch (stErr) {
+      console.error('[admin career applications] in-app submit stage advance error:', stErr && stErr.message);
+    }
+
+    // Complete the linked VA reg-task + log the case event (same as Zoho branch).
+    try {
+      const inAppRegCase = await _ensureRegCase(appRow.user_id);
+      if (inAppRegCase && appRow.submission_task_id) {
+        await _completeRegTask(appRow.submission_task_id, inAppRegCase.id, admin.email || 'system');
+      }
+      if (inAppRegCase) {
+        await _logCaseEvent(
+          inAppRegCase.id,
+          appRow.submission_task_id || null,
+          'system',
+          'Candidate submitted to practice',
+          `${inAppGpName} was introduced to ${inAppContactName || inAppPracticeLabel} for ${inAppRoleLabel} by email (${inAppContactEmail}).`,
+          admin.email || 'system'
+        );
+      }
+    } catch (taskErr) {
+      console.error('[admin career applications] in-app submit-to-practice task update error:', taskErr && taskErr.message);
+    }
+
+    // GP notification — identical copy to the Zoho branch.
+    pushCareerNotificationToUser(appRow.user_id, {
+      type: 'info',
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${inAppPracticeLabel} for review.`
+    }).catch(() => {});
+    sendPushNotification(appRow.user_id, {
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${inAppPracticeLabel} for review.`,
+      data: { type: 'career', action: 'submitted_to_practice', url: '/pages/career.html#applications' }
+    }).catch(() => {});
+
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, application: inAppUpdatedApp, submission_mode: 'in_app_email' });
     return;
   }
 
@@ -33438,12 +35382,15 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Please provide a valid email.' });
       return;
     }
-    // Only send reset if email belongs to an admin/VA
+    // Only send reset if email belongs to an admin/VA/consultant
     var isAdmin = ADMIN_EMAILS.has(resetEmail) || SUPER_ADMIN_EMAILS.has(resetEmail) || MONITORED_VA_EMAILS.includes(resetEmail);
     if (!isAdmin && isSupabaseDbConfigured()) {
-      var roleCheck = await supabaseDbRequest('user_roles', 'select=role&user_id=eq.' + encodeURIComponent(resetEmail) + '&role=in.(admin,super_admin)&limit=1');
+      var roleCheck = await supabaseDbRequest('user_roles', 'select=role&user_id=eq.' + encodeURIComponent(resetEmail) + '&role=in.(admin,super_admin,consultant)&limit=1');
       if (roleCheck.ok && Array.isArray(roleCheck.data) && roleCheck.data.length > 0) isAdmin = true;
     }
+    // Consultants (env CONSULTANT_EMAILS or the runtime_kv 'ats_consultants'
+    // list) must also be able to reset their password (async: kv read).
+    if (!isAdmin && await isConsultantEmail(resetEmail)) isAdmin = true;
     if (isAdmin && isSupabaseConfigured()) {
       var resetRedirectTo = APP_BASE_URL + '/pages/admin-signin?reset=true';
       try {
@@ -33771,26 +35718,20 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 502, { ok: false, message: 'Failed to save career document.' });
         return;
       }
-      const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
-      if (!candidate.ok || !candidate.zohoId) {
-        sendJson(res, 502, {
-          ok: false,
-          savedLocally: true,
-          document: saved,
-          message: candidate.message || 'Saved in GP Link, but could not resolve the Zoho Recruit candidate.'
-        });
-        return;
-      }
-
-      const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, payload.type);
-      if (!synced.ok) {
-        sendJson(res, 502, {
-          ok: false,
-          savedLocally: true,
-          document: saved,
-          message: synced.message || 'Saved in GP Link, but failed to sync to Zoho Recruit.'
-        });
-        return;
+      // Zoho mirror is BEST-EFFORT (standalone ATS): the document lives in GP
+      // Link — a missing/disconnected Zoho must never block the doctor's upload.
+      let accountDocZohoSync = { ok: false, skipped: true, message: 'Zoho Recruit is not connected.' };
+      if (isZohoRecruitConfigured()) {
+        const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+        if (candidate.ok && candidate.zohoId) {
+          const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, payload.type);
+          accountDocZohoSync = synced.ok
+            ? { ok: true, candidateId: candidate.zohoId }
+            : { ok: false, message: synced.message || 'Saved in GP Link, but failed to sync to Zoho Recruit.' };
+        } else {
+          accountDocZohoSync = { ok: false, message: candidate.message || 'Saved in GP Link, but could not resolve the Zoho Recruit candidate.' };
+        }
+        if (!accountDocZohoSync.ok) console.warn('[account career-documents] Zoho mirror skipped for', email, ':', accountDocZohoSync.message);
       }
 
       var careerDocMeta = ACCOUNT_CAREER_DOCUMENT_TYPES[payload.type];
@@ -33800,7 +35741,7 @@ Return ONLY valid JSON with no markdown formatting:
         await ensureDocReviewOnUpload(userId, careerDocMeta.key, careerDocMeta.label, undefined);
       }
 
-      sendJson(res, 200, { ok: true, document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+      sendJson(res, 200, { ok: true, document: saved, zohoSync: accountDocZohoSync });
 
       // Background: best-effort AI auto-check (may auto-approve and close the task).
       if (careerDocMeta) {
@@ -34086,6 +36027,14 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const docs = await getPreparedDocumentsForUser(userId, email, country);
+    // Delivered offer docs (offer_contract) ride along READ-ONLY so
+    // offer-review.html and the documents pages can link the download. The
+    // upload pages only merge keys they already render, and PUT/DELETE still
+    // reject these keys — no new upload slot appears.
+    try {
+      const offerDocs = await getOfferDocumentsForUser(userId, country);
+      Object.keys(offerDocs).forEach((key) => { if (!docs.docs[key]) docs.docs[key] = offerDocs[key]; });
+    } catch (offerDocsErr) { /* non-fatal — prepared docs still answer */ }
     sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
     return;
   }
@@ -34300,7 +36249,7 @@ Return ONLY valid JSON with no markdown formatting:
       country = '';
       key = '';
     }
-    if (!country || !(PREPARED_DOCUMENT_KEYS.has(key) || INSTITUTION_DOCUMENT_KEYS.has(key))) {
+    if (!country || !(PREPARED_DOCUMENT_KEYS.has(key) || INSTITUTION_DOCUMENT_KEYS.has(key) || OFFER_DOCUMENT_KEYS.has(key))) {
       sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
       return;
     }
@@ -34308,6 +36257,23 @@ Return ONLY valid JSON with no markdown formatting:
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) {
       sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document download.' });
+      return;
+    }
+
+    // Delivered offer docs are keyed by user only (no country_code on the row)
+    // and may live in Supabase Storage OR only on Google Drive — resolve both.
+    if (OFFER_DOCUMENT_KEYS.has(key)) {
+      const offerTarget = await resolveOfferDocumentDownloadUrl(userId, key);
+      if (!offerTarget) {
+        sendJson(res, 404, { ok: false, message: 'Document not found.' });
+        return;
+      }
+      res.writeHead(302, {
+        Location: offerTarget,
+        'Cache-Control': 'no-store',
+        ...SECURITY_HEADERS
+      });
+      res.end();
       return;
     }
 
@@ -36624,9 +38590,7 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/cron/check-contract-signatures' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var csCronSecret = url.searchParams.get('secret') || '';
-    var validSecret = (process.env.CRON_SECRET && csCronSecret === process.env.CRON_SECRET) ||
-      (process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET && csCronSecret === process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET);
-    if (!validSecret) {
+    if (!isValidCronSecret(csCronSecret)) {
       sendJson(res, 401, { ok: false, message: 'Invalid secret.' }); return;
     }
     let csBody; try { csBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
@@ -36949,6 +38913,7 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
     let releasedGp = 0, releasedTeam = 0;
+    const releasedGpTasks = [];
     for (const t of bundleTasks) {
       var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
       meta.review_status = 'active';
@@ -36957,9 +38922,13 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
         method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
       });
-      if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
+      if (meta.owner === 'gp') {
+        releasedGp++;
+        releasedGpTasks.push({ id: t.id, title: t.title, metadata: meta, ahpra_deadline: t.ahpra_deadline, due_date: t.due_date });
+      } else releasedTeam++;
     }
     // Notify the GP only if they now have items to action.
+    let emailsQueued = 0;
     if (releasedGp > 0) {
       try {
         const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
@@ -36970,11 +38939,14 @@ Return ONLY valid JSON with no markdown formatting:
             title: 'AHPRA has requested more information',
             detail: 'Please open your AHPRA page to see what is needed and the deadline.'
           });
+          // One email per GP task, 1 minute apart, each with its single action button.
+          const relMeta0 = releasedGpTasks[0].metadata || {};
+          emailsQueued = await sendAhpraGpTaskEmails(caseId, uid, releasedGpTasks, { reference: relMeta0.reference || null });
         }
       } catch (e) { /* non-critical */ }
     }
-    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', adminCtx.email);
-    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam });
+    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).' + (emailsQueued ? ' Queued ' + emailsQueued + ' per-task email(s) to the GP, 1 minute apart.' : ''), adminCtx.email);
+    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam, emails_queued: emailsQueued });
     return;
   }
 
@@ -39773,12 +41745,18 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Fallback / non-request_from_gp: the original single lumped GP item so a notice is never lost.
     if (!fannedOut) {
-      const gpItem = await _createRegTask(card.case_id, Object.assign(
-        buildAhpraGpDeliveryItem(card, cardMeta, nowIso),
-        { _actor: admin.email }
-      ));
+      const gpItemSpec = buildAhpraGpDeliveryItem(card, cardMeta, nowIso);
+      const gpItem = await _createRegTask(card.case_id, Object.assign(gpItemSpec, { _actor: admin.email }));
       if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
       gpTaskId = gpItem.id;
+      // Same one-action email as the fanned-out items (single task → sends immediately).
+      if (gpUserId) {
+        try {
+          await sendAhpraGpTaskEmails(card.case_id, gpUserId, [{
+            id: gpItem.id, title: gpItemSpec.title, metadata: gpItemSpec.metadata, ahpra_deadline: gpItemSpec.ahpra_deadline
+          }]);
+        } catch (e) { console.error('[AHPRA deliver] GP item email failed (non-critical):', e && e.message); }
+      }
     }
 
     // Notify the GP in-app + push (only when they actually have items to action).
@@ -44807,7 +46785,11 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true, refreshed_at: new Date().toISOString(), period: period,
-      kpi: kpi, escalations: escalations, pipeline: pipeline, blockers: blockers, task_health: taskHealth,
+      kpi: kpi, escalations: escalations, pipeline: pipeline,
+      // Live hiring funnel (ATS): all gp_applications counted by ats_stage —
+      // rendered under the registration funnel on the CEO Overview.
+      ats_funnel: atsPracticeUtil.countAtsStages(apps),
+      blockers: blockers, task_health: taskHealth,
       rso_workload: rsoWorkload, va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
     });
@@ -45587,9 +47569,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   if (pathname === '/api/ceo/technical/system-bugs/ingest' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
-    var authHeader = req.headers['authorization'] || '';
-    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
     var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
     if (!body || !body.scan_id || !Array.isArray(body.findings)) { sendJson(res, 400, { ok: false, message: 'scan_id and findings array required.' }); return; }
     var inserted = 0; var skipped = 0;
@@ -45704,9 +47684,133 @@ Return ONLY valid JSON with no markdown formatting:
   // IN-APP ATS ENDPOINTS (CEO / super-admin). Dual-mode Supabase | local-JSON.
   // ==========================================================================
 
+  // ---- Consultant team management (CEO only — requireCeoSession) -----------
+  // Consultants themselves are ATS-only and must NOT manage the team.
+  if (pathname === '/api/ats/consultants' && req.method === 'GET') {
+    var ctxTL = requireCeoSession(req, res); if (!ctxTL) return;
+    var tlEntries = await loadKvConsultantEntries();
+    var tlSeen = {};
+    var tlOut = [];
+    // Env entries first (read-only) — if an email is in both, env wins so the
+    // UI shows it as environment-managed.
+    CONSULTANT_EMAILS.forEach(function (em) {
+      tlSeen[em] = true;
+      tlOut.push({ email: em, name: '', source: 'env' });
+    });
+    tlEntries.forEach(function (entry) {
+      if (tlSeen[entry.email]) return;
+      tlSeen[entry.email] = true;
+      tlOut.push({ email: entry.email, name: entry.name || '', source: 'kv', created_at: entry.added_at || null });
+    });
+    sendJson(res, 200, { ok: true, consultants: tlOut });
+    return;
+  }
+
+  if (pathname === '/api/ats/consultants' && req.method === 'POST') {
+    var ctxTA = requireCeoSession(req, res); if (!ctxTA) return;
+    var bodyTA; try { bodyTA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var taName = sanitizeUserString(bodyTA && bodyTA.name, 120);
+    var taEmail = String((bodyTA && bodyTA.email) || '').trim().toLowerCase();
+    if (!isValidEmail(taEmail)) { sendJson(res, 400, { ok: false, message: 'Please provide a valid email address.' }); return; }
+    // Don't shadow an existing admin/super-admin — their env role always wins
+    // over the consultant list, so adding them here would only mislead.
+    var taExistingRole = getConfiguredAdminRoleForEmail(taEmail);
+    if (taExistingRole && taExistingRole !== 'consultant') {
+      sendJson(res, 400, { ok: false, message: 'That email already has ' + getAdminRoleLabel(taExistingRole) + ' access — it can\'t also be added as a consultant.' });
+      return;
+    }
+    // Idempotent: already a consultant (env or kv) → 200, no duplicate work.
+    if (CONSULTANT_EMAILS.has(taEmail)) {
+      sendJson(res, 200, { ok: true, already: true, consultant: { email: taEmail, name: taName, source: 'env' } });
+      return;
+    }
+    var taEntries = await loadKvConsultantEntries();
+    var taExisting = null;
+    taEntries.forEach(function (entry) { if (entry.email === taEmail) taExisting = entry; });
+    if (taExisting) {
+      sendJson(res, 200, { ok: true, already: true, consultant: { email: taExisting.email, name: taExisting.name || '', source: 'kv', created_at: taExisting.added_at || null } });
+      return;
+    }
+    // Ensure a Supabase Auth account exists (admin login is a password grant),
+    // then send a branded set-password invite via the recovery generate_link
+    // flow (same pattern as the admin password reset).
+    var taInviteSent = false;
+    if (isSupabaseDbConfigured()) {
+      var taCreate = await supabaseAuthAdminRequest('admin/users', {
+        method: 'POST',
+        body: { email: taEmail, email_confirm: true, user_metadata: { firstName: taName } }
+      });
+      if (!taCreate.ok) {
+        var taCreateMsg = String((taCreate.data && (taCreate.data.msg || taCreate.data.message)) || '');
+        var taAlreadyExists = taCreate.status === 422 || /already (registered|exists)|duplicate/i.test(taCreateMsg);
+        if (!taAlreadyExists) {
+          sendJson(res, 502, { ok: false, message: 'Could not create the sign-in account: ' + (taCreateMsg || ('status ' + taCreate.status)) });
+          return;
+        }
+      }
+      try {
+        var taLinkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'recovery', email: taEmail, options: { redirect_to: APP_BASE_URL + '/pages/admin-signin?reset=true' } })
+        });
+        var taLinkData = await taLinkRes.json().catch(function () { return {}; });
+        var taInviteLink = taLinkData.action_link || (taLinkData.properties && taLinkData.properties.action_link) || '';
+        if (taInviteLink && isEmailConfigured()) {
+          var taEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+          var taSigninUrl = APP_BASE_URL + '/pages/admin-signin';
+          var taSend = await sendEmail({
+            to: taEmail,
+            subject: "You've been invited to the GP Link ATS",
+            html: buildCareerEmailHtml({
+              title: "You've been invited to the GP Link ATS",
+              body: 'Hi ' + taEsc(taName || 'there') + ', you\'ve been given consultant access to the GP Link recruitment dashboard — candidates, jobs, practices and interviews in one place. Click the button below to set your password and get started.',
+              ctaText: 'Set your password',
+              ctaUrl: taInviteLink,
+              footer: 'After setting your password, sign in any time at ' + taEsc(taSigninUrl) + '. This link expires in 1 hour — if it does, use "Forgot password" on the sign-in page.'
+            })
+          });
+          taInviteSent = !!(taSend && taSend.ok);
+        }
+      } catch (taInviteErr) {
+        console.error('[ats consultants] invite email failed:', taInviteErr && taInviteErr.message);
+      }
+    }
+    var taEntry = { email: taEmail, name: taName, added_at: new Date().toISOString(), added_by: String(ctxTA.email || '') };
+    taEntries.push(taEntry);
+    var taSaved = await saveKvConsultantEntries(taEntries);
+    if (!taSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      consultant: { email: taEntry.email, name: taEntry.name, source: 'kv', created_at: taEntry.added_at },
+      invite_sent: taInviteSent
+    });
+    return;
+  }
+
+  if (pathname === '/api/ats/consultants' && req.method === 'DELETE') {
+    var ctxTD = requireCeoSession(req, res); if (!ctxTD) return;
+    var tdEmail = String(url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!isValidEmail(tdEmail)) { sendJson(res, 400, { ok: false, message: 'Please provide a valid email address.' }); return; }
+    if (CONSULTANT_EMAILS.has(tdEmail)) {
+      sendJson(res, 400, { ok: false, message: 'This consultant is set in the CONSULTANT_EMAILS environment variable, so they can\'t be removed from here — remove the email from that variable in your hosting settings instead.' });
+      return;
+    }
+    var tdEntries = await loadKvConsultantEntries();
+    var tdNext = tdEntries.filter(function (entry) { return entry.email !== tdEmail; });
+    var tdRemoved = tdNext.length !== tdEntries.length;
+    if (tdRemoved) {
+      var tdSaved = await saveKvConsultantEntries(tdNext);
+      if (!tdSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+    }
+    // Note: this only revokes ATS access — the Supabase Auth user is kept.
+    sendJson(res, 200, { ok: true, removed: tdRemoved });
+    return;
+  }
+
   // ---- Jobs ----------------------------------------------------------------
   if (pathname === '/api/ats/jobs' && req.method === 'GET') {
-    var ctxJ = requireCeoSession(req, res); if (!ctxJ) return;
+    var ctxJ = requireAtsSession(req, res); if (!ctxJ) return;
     var jobs = await atsListJobRows();
     var pracs = await atsListPracticeRows();
     var pById = {}; pracs.forEach(function (p) { pById[p.id] = p; });
@@ -45724,7 +47828,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/jobs' && req.method === 'POST') {
-    var ctxJC = requireCeoSession(req, res); if (!ctxJC) return;
+    var ctxJC = requireAtsSession(req, res); if (!ctxJC) return;
     var bodyJ; try { bodyJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyJ || !String(bodyJ.title || '').trim()) { sendJson(res, 400, { ok: false, message: 'Job title is required.' }); return; }
     var practiceName = String(bodyJ.practice_name || '');
@@ -45750,7 +47854,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job' && req.method === 'GET') {
-    var ctxJG = requireCeoSession(req, res); if (!ctxJG) return;
+    var ctxJG = requireAtsSession(req, res); if (!ctxJG) return;
     var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
@@ -45759,7 +47863,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job' && req.method === 'PATCH') {
-    var ctxJP = requireCeoSession(req, res); if (!ctxJP) return;
+    var ctxJP = requireAtsSession(req, res); if (!ctxJP) return;
     var jpId = url.searchParams.get('id'); if (!jpId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyJP; try { bodyJP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var patchJ = {};
@@ -45768,6 +47872,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof bodyJP.state === 'string') patchJ.location_state = bodyJP.state;
     if (typeof bodyJP.type === 'string') patchJ.employment_type = bodyJP.type;
     if (typeof bodyJP.billing === 'string') patchJ.billing_model = bodyJP.billing;
+    if (typeof bodyJP.summary === 'string') patchJ.summary = bodyJP.summary.trim();
     if (bodyJP.practice_id !== undefined) {
       if (!bodyJP.practice_id) { patchJ.practice_name = ''; }
       else {
@@ -45784,7 +47889,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/job/pipeline' && req.method === 'GET') {
-    var ctxPP = requireCeoSession(req, res); if (!ctxPP) return;
+    var ctxPP = requireAtsSession(req, res); if (!ctxPP) return;
     var ppId = url.searchParams.get('id'); if (!ppId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var ppJob = await atsGetJobRow(ppId); if (!ppJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var ppPr = ppJob.practice_id ? await atsGetPracticeRow(ppJob.practice_id) : null;
@@ -45805,24 +47910,62 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/application' && req.method === 'PATCH') {
-    var ctxAP = requireCeoSession(req, res); if (!ctxAP) return;
+    var ctxAP = requireAtsSession(req, res); if (!ctxAP) return;
     var apId = url.searchParams.get('id'); if (!apId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyAP; try { bodyAP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
     var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
     if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
     if (!newStage && typeof bodyAP.notes !== 'string') { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
-    var updatedAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    var updatedAP = upAP ? upAP.row : null;
     if (!updatedAP && newStage) {
       // stage required but row missing
       sendJson(res, 404, { ok: false, message: 'Application not found.' }); return;
+    }
+    // Kanban → practice_submission_status mapping (standalone-ATS Task D).
+    // Deliberately CONSERVATIVE — the ONLY automatic sync is:
+    //   not_proceeding, on a card that was previously 'submitted_to_practice'
+    //     ⇒ practice_submission_status = 'client_rejected'
+    // (the practice had received the candidate and the card is now dead, so the
+    // legacy admin Applications panel should read "Client rejected").
+    // NOTHING else is automatic: client_approved / interview_ready / reviewing
+    // etc. stay operator- or Zoho-driven, and moving a card back OUT of
+    // not_proceeding does not restore the previous submission status.
+    if (updatedAP && newStage === 'not_proceeding'
+        && normalizeCareerPracticeSubmissionStatus(updatedAP.practice_submission_status) === 'submitted_to_practice') {
+      try {
+        updatedAP.practice_submission_status = 'client_rejected';
+        if (isSupabaseDbConfigured()) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(apId), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { practice_submission_status: 'client_rejected', updated_at: atsNowIso() }
+          });
+        } else {
+          saveDbState(); // local mode: updatedAP IS the live dbState row
+        }
+      } catch (prSyncErr) {
+        console.error('[ats] client_rejected sync failed for app', apId, ':', prSyncErr && prSyncErr.message);
+      }
+    }
+    // Milestone stages ping the GP — only on a REAL change (fromStage !== toStage;
+    // see notifyGpOfAtsStageChange's dedupe invariant). Fire-and-forget.
+    // EXCEPT 'offer': a bare kanban drag into the Offer lane must not promise
+    // the doctor an offer — no offer record exists yet, and the dedicated
+    // offer email from POST /api/ats/offer is the doctor-facing signal (the
+    // generic "You have an offer!" here would fire early AND duplicate it).
+    // Other milestones (interview/hired/not_proceeding) keep notifying.
+    if (updatedAP && newStage && newStage !== 'offer' && upAP.prevStage !== newStage) {
+      notifyGpOfAtsStageChange(updatedAP, upAP.prevStage, newStage).catch(function (e) {
+        console.error('[ats] stage notify failed for app', apId, ':', e && e.message);
+      });
     }
     sendJson(res, 200, { ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null });
     return;
   }
 
   if (pathname === '/api/ats/application' && req.method === 'POST') {
-    var ctxAA = requireCeoSession(req, res); if (!ctxAA) return;
+    var ctxAA = requireAtsSession(req, res); if (!ctxAA) return;
     var bodyAA; try { bodyAA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var aaUserId = (bodyAA && bodyAA.user_id != null) ? String(bodyAA.user_id) : '';
     var aaJobId = (bodyAA && bodyAA.career_role_id != null) ? bodyAA.career_role_id : (bodyAA ? bodyAA.job_id : undefined);
@@ -45853,9 +47996,162 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Offers (Task B: in-app offer flow) ----------------------------------
+  // POST sends (or re-sends/updates) the offer for an application: saves the
+  // record, optionally delivers the contract into the GP's documents, advances
+  // the kanban to 'offer' and sends the ONE dedicated GP notification
+  // (see notifyGpOfferSent — the generic Task-5 stage email is not triggered
+  // because the stage move below calls atsUpdateApplicationStageRow directly).
+  if (pathname === '/api/ats/offer' && req.method === 'POST') {
+    var ctxOF = requireAtsSession(req, res); if (!ctxOF) return;
+    var bodyOF;
+    try { bodyOF = await readJsonBody(req); } catch (e) {
+      var ofTooBig = /too large/i.test(String(e && e.message || ''));
+      sendJson(res, 400, { ok: false, message: ofTooBig ? 'That contract file is too large — please attach one under 8 MB.' : 'Invalid body.' });
+      return;
+    }
+    var ofAppId = (bodyOF && bodyOF.application_id != null) ? String(bodyOF.application_id) : '';
+    if (!ofAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ofCtx = await atsGetApplicationContext(ofAppId);
+    if (!ofCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    // Zoho-managed apps must not take in-app offers while a Zoho connection
+    // exists: the Zoho status sync owns gp_applications.status for rows with
+    // zoho ids and would fight the in-app placement (see the never-downgrade
+    // guard in syncZohoRecruitApplicationStatuses). Once Zoho is DISCONNECTED
+    // the sync no longer runs, so legacy Zoho-imported apps may receive
+    // in-app offers.
+    if (ofCtx.app && String(ofCtx.app.zoho_application_id || '').trim()) {
+      var ofZohoConn = await getZohoRecruitConnection();
+      if (ofZohoConn) {
+        sendJson(res, 409, { ok: false, code: 'zoho_managed', message: 'This application is managed in Zoho Recruit. Manage the offer there, or disconnect Zoho Recruit to run offers in-app.' });
+        return;
+      }
+    }
+    var ofExisting = await atsOffersStore.getAtsOfferByApplication(ofAppId);
+    if (ofExisting && ofExisting.status === 'accepted') {
+      sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — it can\'t be replaced.' });
+      return;
+    }
+    // Job/practice labels for the record + notification (dual-mode role lookup).
+    var ofRole = null;
+    if (ofCtx.careerRoleId) {
+      ofRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(ofCtx.careerRoleId)
+        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(ofCtx.careerRoleId); }) || null);
+    }
+    var ofJobTitle = (ofRole && ofRole.title) || ofCtx.app.job_title || '';
+    var ofPracticeName = ofCtx.practiceName || (ofRole && ofRole.practice_name) || '';
+    // Optional contract: decode the data URL (decoded cap 10MB; the 12MB JSON
+    // body cap upstream already bounds the raw payload) and deliver it into the
+    // GP's documents WITHOUT the per-document delivery email — the offer email
+    // below is the single notification and deep-links to the offer instead.
+    var ofContractDelivered = false;
+    var ofContractUrl = typeof bodyOF.contract_data_url === 'string' ? bodyOF.contract_data_url.trim() : '';
+    if (ofContractUrl) {
+      var ofParsed = parseDataUrlPayload(ofContractUrl);
+      if (!ofParsed) { sendJson(res, 400, { ok: false, message: 'The contract file could not be read — please attach it again.' }); return; }
+      if (ofParsed.buffer.length > 10 * 1024 * 1024) { sendJson(res, 400, { ok: false, message: 'The contract file is too large (10 MB max).' }); return; }
+      if (ofCtx.userId) {
+        var ofFileName = sanitizeUserString(String(bodyOF.contract_file_name || ''), 240) || 'Offer-Contract.pdf';
+        try {
+          // Supabase Storage copy FIRST so the row carries a signable storage
+          // path — that's what makes /api/prepared-documents/download resolve
+          // (deliverToMyDocuments alone stores no downloadable reference).
+          var ofStoragePath = '';
+          if (isSupabaseDbConfigured()) {
+            var ofPath = ['users', sanitizeStoragePathSegment(ofCtx.userId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
+            var ofUploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, ofPath, ofContractUrl, ofParsed.mimeType);
+            if (ofUploaded) ofStoragePath = ofPath;
+          }
+          var ofDelivery = await deliverToMyDocuments(ofCtx.userId, ofCtx.caseId, 'offer_contract', ofFileName, ofParsed.buffer, ofParsed.mimeType, { notifyGp: false });
+          ofContractDelivered = true;
+          // Persist the download references deliverToMyDocuments doesn't write.
+          var ofDocPatch = {};
+          if (ofStoragePath) ofDocPatch.file_url = ofStoragePath;
+          if (ofDelivery && ofDelivery.driveFile) ofDocPatch.google_drive_file_id = ofDelivery.driveFile;
+          if (isSupabaseDbConfigured() && Object.keys(ofDocPatch).length > 0) {
+            await supabaseDbRequest('user_documents',
+              'user_id=eq.' + encodeURIComponent(ofCtx.userId) + '&document_key=eq.offer_contract',
+              { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: ofDocPatch });
+          }
+          // Same "Ready" state the Zoho deliverOfferContract path records, so
+          // My Documents + the Drive-URL download fallback both work.
+          try { await _updatePreparedDocsState(ofCtx.userId, 'offer_contract', (ofDelivery && ofDelivery.driveFile) || null, ofFileName); }
+          catch (ofStateErr) { console.error('[ats offer] gp_prepared_docs update error:', ofStateErr && ofStateErr.message); }
+        } catch (e) { console.error('[ats offer] contract delivery failed for app', ofAppId, ':', e && e.message); }
+      }
+    }
+    // start_date feeds a DATE column once the migration lands — only accept the
+    // <input type="date"> shape so a bad value can't start failing inserts later.
+    var ofStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(bodyOF.start_date || '').trim()) ? String(bodyOF.start_date).trim() : null;
+    var ofSaved = await atsOffersStore.saveAtsOffer({
+      application_id: ofAppId,
+      user_id: ofCtx.userId || null,
+      career_role_id: ofCtx.careerRoleId || null,
+      practice_id: (ofRole && ofRole.practice_id) || null,
+      job_title: ofJobTitle,
+      practice_name: ofPracticeName,
+      billing_split: sanitizeUserString(String(bodyOF.billing_split || ''), 120),
+      sessions_per_week: sanitizeUserString(String(bodyOF.sessions_per_week || ''), 120),
+      compensation_range: sanitizeUserString(String(bodyOF.compensation_range || ''), 160),
+      start_date: ofStartDate,
+      notes: sanitizeUserString(String(bodyOF.notes || ''), 4000),
+      contract_document_key: ofContractDelivered ? 'offer_contract' : ((ofExisting && ofExisting.contract_document_key) || null),
+      status: 'sent',
+      sent_by: ctxOF.email || '',
+      sent_at: atsNowIso(),
+      responded_at: null
+    });
+    if (!ofSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+    // Kanban → 'offer' via the forward-only rule (no-op when already at offer,
+    // never yanks a terminal lane). Direct atsUpdateApplicationStageRow call =
+    // the generic milestone notifier stays silent for this transition.
+    var ofTarget = atsPracticeUtil.planAtsStageReconciliation(ofCtx.app.ats_stage || '', 'offer');
+    if (ofTarget) await atsUpdateApplicationStageRow(ofAppId, ofTarget, undefined, 'offer_sent');
+    if (ofCtx.userId) {
+      await notifyGpOfferSent(ofCtx.userId, ofAppId, ofJobTitle, ofPracticeName)
+        .catch(function (e) { console.error('[ats offer] notify failed for app', ofAppId, ':', e && e.message); });
+    }
+    sendJson(res, 200, { ok: true, offer: ofSaved, contract_delivered: ofContractDelivered });
+    return;
+  }
+
+  if (pathname === '/api/ats/offer' && req.method === 'GET') {
+    var ctxOG = requireAtsSession(req, res); if (!ctxOG) return;
+    var ogAppId = url.searchParams.get('application_id');
+    if (!ogAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ogOffer = await atsOffersStore.getAtsOfferByApplication(ogAppId);
+    sendJson(res, 200, { ok: true, offer: ogOffer || null });
+    return;
+  }
+
+  // Withdraw quietly retracts the offer: status → withdrawn, kanban back to
+  // 'reviewing' (only when the card actually sits in the offer lane), and NO
+  // GP notification — the consultant is retracting, not announcing.
+  if (pathname === '/api/ats/offer' && req.method === 'PATCH') {
+    var ctxOW = requireAtsSession(req, res); if (!ctxOW) return;
+    var bodyOW; try { bodyOW = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var owAppId = (bodyOW && bodyOW.application_id != null) ? String(bodyOW.application_id) : '';
+    if (!owAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    if (String(bodyOW.action || '') !== 'withdraw') { sendJson(res, 400, { ok: false, message: 'Unsupported action.' }); return; }
+    var owOffer = await atsOffersStore.getAtsOfferByApplication(owAppId);
+    if (!owOffer) { sendJson(res, 404, { ok: false, message: 'No offer found for this application.' }); return; }
+    if (owOffer.status === 'accepted') {
+      sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — talk to the doctor before changing anything.' });
+      return;
+    }
+    var owUpdated = await atsOffersStore.updateAtsOfferStatus(owAppId, 'withdrawn');
+    var owCtx = await atsGetApplicationContext(owAppId);
+    if (owCtx && (owCtx.app.ats_stage || '') === 'offer') {
+      await atsUpdateApplicationStageRow(owAppId, 'reviewing', undefined, 'offer_withdrawn');
+    }
+    sendJson(res, 200, { ok: true, offer: owUpdated || Object.assign({}, owOffer, { status: 'withdrawn' }) });
+    return;
+  }
+
   // ---- Interview request ---------------------------------------------------
   if (pathname === '/api/ats/interview/request' && req.method === 'POST') {
-    var ctxIR = requireCeoSession(req, res); if (!ctxIR) return;
+    var ctxIR = requireAtsSession(req, res); if (!ctxIR) return;
     var bodyIR; try { bodyIR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var irAppId = (bodyIR && bodyIR.application_id != null) ? String(bodyIR.application_id) : '';
     if (!irAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
@@ -45872,6 +48168,11 @@ Return ONLY valid JSON with no markdown formatting:
       createdBy: ctxIR.email || '',
       nowIso: new Date().toISOString()
     });
+    // Attribute the interview to the ATS operator who requested it (consultant
+    // or CEO) so the /api/ceo/meetings "assigned_rso_email = me" branch surfaces
+    // their bookings. host_kind stays 'ceo' on purpose: the Meetings tab is a
+    // team-shared view for everyone with ATS access.
+    if (!irRow.assigned_rso_email) irRow.assigned_rso_email = String(ctxIR.email || '').trim().toLowerCase();
     // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default, so every
     // interview row must carry a freshly-generated unique token (same generator the
     // consultation path uses in buildScheduledCallInsertPayload). Without it the prod
@@ -45889,7 +48190,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview slots (GET) -----------------------------------------------
   if (pathname === '/api/ats/interview/slots' && req.method === 'GET') {
-    var ctxSL = requireCeoSession(req, res); if (!ctxSL) return;
+    var ctxSL = requireAtsSession(req, res); if (!ctxSL) return;
     var slAppId = url.searchParams.get('application_id');
     if (!slAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
     var slNowParam = url.searchParams.get('now');
@@ -45965,7 +48266,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview book (POST) -----------------------------------------------
   if (pathname === '/api/ats/interview/book' && req.method === 'POST') {
-    var ctxBK = requireCeoSession(req, res); if (!ctxBK) return;
+    var ctxBK = requireAtsSession(req, res); if (!ctxBK) return;
     var bodyBK; try { bodyBK = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var bkAppId = (bodyBK && bodyBK.application_id != null) ? String(bodyBK.application_id) : '';
     var bkSlotStart = (bodyBK && bodyBK.slot_start_utc) ? String(bodyBK.slot_start_utc) : '';
@@ -46092,7 +48393,10 @@ Return ONLY valid JSON with no markdown formatting:
       saveDbState();
     }
 
-    // Move application stage to 'interview'.
+    // Move application stage to 'interview'. Deliberately NO
+    // notifyGpOfAtsStageChange here: the block right below already emails the
+    // GP their interview confirmation (with the Zoom link), so a second
+    // "you're through to interview" ping would be a duplicate.
     await atsUpdateApplicationStageRow(bkAppId, 'interview', '', ctxBK.email || '');
 
     // Notify GP + practice — best-effort, must not throw past the response.
@@ -46127,7 +48431,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Interview ingest-reply (POST) ---------------------------------------
   if (pathname === '/api/ats/interview/ingest-reply' && req.method === 'POST') {
-    var ctxIngR = requireCeoSession(req, res); if (!ctxIngR) return;
+    var ctxIngR = requireAtsSession(req, res); if (!ctxIngR) return;
     var bodyIngR; try { bodyIngR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var ingAppId = (bodyIngR && bodyIngR.application_id != null) ? String(bodyIngR.application_id) : '';
     var ingReplyText = (bodyIngR && bodyIngR.reply_text != null) ? String(bodyIngR.reply_text) : '';
@@ -46151,7 +48455,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
-    var ctxPL = requireCeoSession(req, res); if (!ctxPL) return;
+    var ctxPL = requireAtsSession(req, res); if (!ctxPL) return;
     var derived = await atsListPracticesDerived();
     var plApps = await atsListApplicationRows({});
     var appsByJobP = {};
@@ -46169,7 +48473,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practices' && req.method === 'POST') {
-    var ctxPC = requireCeoSession(req, res); if (!ctxPC) return;
+    var ctxPC = requireAtsSession(req, res); if (!ctxPC) return;
     var bodyP; try { bodyP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyP || !String(bodyP.name || '').trim()) { sendJson(res, 400, { ok: false, message: 'Practice name is required.' }); return; }
     var pracRow = {
@@ -46185,7 +48489,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practice' && req.method === 'GET') {
-    var ctxPG = requireCeoSession(req, res); if (!ctxPG) return;
+    var ctxPG = requireAtsSession(req, res); if (!ctxPG) return;
     var pgId = url.searchParams.get('id'); if (!pgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var pg = await atsResolvePractice(pgId); if (!pg) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
     var pgJobs = pg.jobs || [];
@@ -46211,7 +48515,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ats/practice' && req.method === 'PATCH') {
-    var ctxPPatch = requireCeoSession(req, res); if (!ctxPPatch) return;
+    var ctxPPatch = requireAtsSession(req, res); if (!ctxPPatch) return;
     var ppgId = url.searchParams.get('id'); if (!ppgId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyPP; try { bodyPP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var patchP = {};
@@ -46242,7 +48546,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ---- Candidates ----------------------------------------------------------
   if (pathname === '/api/ceo/candidates' && req.method === 'GET') {
-    var ctxCL = requireCeoSession(req, res); if (!ctxCL) return;
+    var ctxCL = requireAtsSession(req, res); if (!ctxCL) return;
     var clQ = (url.searchParams.get('q') || '').toLowerCase();
     var clStage = (url.searchParams.get('stage') || '').toLowerCase();
     var clBand = (url.searchParams.get('band') || '').toLowerCase();
@@ -46305,10 +48609,11 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ceo/pipeline-summary' && req.method === 'GET') {
-    var ctxPS = requireCeoSession(req, res); if (!ctxPS) return;
+    var ctxPS = requireAtsSession(req, res); if (!ctxPS) return;
     var psCounts = {};
     atsPracticeUtil.PIPELINE_BUCKETS.forEach(function (k) { psCounts[k] = 0; });
     var psTotal = 0;
+    var psAts = null; // live hiring funnel: gp_applications rows counted by ats_stage
     if (!isSupabaseDbConfigured()) {
       var psCands = dbState.atsCandidates || [];
       psCands.forEach(function (c) {
@@ -46316,6 +48621,7 @@ Return ONLY valid JSON with no markdown formatting:
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCands.length;
+      psAts = atsPracticeUtil.countAtsStages(dbState.atsApplications || []);
     } else {
       var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
@@ -46328,17 +48634,19 @@ Return ONLY valid JSON with no markdown formatting:
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCases.length;
+      psAts = atsPracticeUtil.countAtsStages(psApps);
     }
     sendJson(res, 200, {
       ok: true,
       total: psTotal,
-      buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; })
+      buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; }),
+      ats: psAts
     });
     return;
   }
 
   if (pathname === '/api/ceo/candidate' && req.method === 'GET') {
-    var ctxCP = requireCeoSession(req, res); if (!ctxCP) return;
+    var ctxCP = requireAtsSession(req, res); if (!ctxCP) return;
     var cpCaseId = url.searchParams.get('case_id');
     var cpUserId = url.searchParams.get('user_id');
     if (!cpCaseId && !cpUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
@@ -46394,7 +48702,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/ceo/candidate/comms-scan' && req.method === 'POST') {
-    var ctxCS = requireCeoSession(req, res); if (!ctxCS) return;
+    var ctxCS = requireAtsSession(req, res); if (!ctxCS) return;
     var csCaseId = url.searchParams.get('case_id');
     if (!csCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
     if (!isSupabaseDbConfigured()) {
@@ -46476,7 +48784,7 @@ Return ONLY valid JSON with no markdown formatting:
   // never show the CEO's own standard consultations. Excludes abandoned drafts
   // (status='cancelled' with no scheduled_at and no booked_at). Dual-mode.
   if (pathname === '/api/ceo/meetings' && req.method === 'GET') {
-    var ctxMtg = requireCeoSession(req, res); if (!ctxMtg) return;
+    var ctxMtg = requireAtsSession(req, res); if (!ctxMtg) return;
     var mtgKind = url.searchParams.get('kind') || 'all';
     var mtgSessEmail = String(ctxMtg.email || '').trim().toLowerCase();
     if (!isSupabaseDbConfigured()) {
@@ -46790,8 +49098,11 @@ async function handleRequest(req, res) {
     }
     const ceoRole = getAdminRoleFromSession(adminSession);
     const ceoHostScope = getAdminHostScope(req);
-    // Must be on the super-admin host scope AND hold a super-admin role.
-    if (ceoHostScope !== 'super_admin' || !doesAdminRoleMatchHost(ceoRole, ceoHostScope) || !isSuperAdminRole(ceoRole)) {
+    // Must be on the super-admin host scope AND hold a super-admin OR consultant
+    // role (page serve only — consultants get the ATS-only view; every API stays
+    // guarded by requireCeoSession / requireAtsSession).
+    if (ceoHostScope !== 'super_admin' || !doesAdminRoleMatchHost(ceoRole, ceoHostScope)
+      || !(isSuperAdminRole(ceoRole) || normalizeAdminRole(ceoRole) === 'consultant')) {
       clearAdminSession(res);
       res.writeHead(302, { Location: '/pages/admin-signin' });
       res.end();
@@ -47111,6 +49422,9 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   ingestPracticeAvailabilityReply,
+  reconcileAtsStageAfterStatusSync,
+  notifyGpOfAtsStageChange,
+  syncZohoRecruitApplicationStatuses,
   buildRsoWritePayload,
   ahpraConfidentMatch,
   isAhpraSender,

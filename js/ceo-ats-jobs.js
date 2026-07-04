@@ -486,6 +486,8 @@
             '<div><label>Type</label><select id="atsNjType">' + plainOptions(JOB_TYPES, JOB_TYPES[0]) + '</select></div>' +
             '<div><label>Billing</label><select id="atsNjBilling">' + plainOptions(BILLINGS, BILLINGS[0]) + '</select></div>' +
           '</div>' +
+          '<label>About the role (shown to doctors)</label>' +
+          '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>' +
         '</div>' +
         '<div class="ats-modal-foot">' +
           '<button class="ats-btn ats-btn-ghost" id="atsAddJobCancel">Cancel</button>' +
@@ -504,7 +506,8 @@
       city: (val('atsNjCity') || '').trim(),
       state: val('atsNjState'),
       type: val('atsNjType'),
-      billing: val('atsNjBilling')
+      billing: val('atsNjBilling'),
+      summary: (val('atsNjSummary') || '').trim()
     };
     A.api('/api/ats/jobs', { method: 'POST', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not create job'); return; }
@@ -547,6 +550,8 @@
             '<div><label>Type</label><select id="atsJsType">' + plainOptions(optionsWithCurrent(JOB_TYPES, job.type), job.type) + '</select></div>' +
             '<div><label>Billing</label><select id="atsJsBilling">' + plainOptions(optionsWithCurrent(BILLINGS, job.billing), job.billing) + '</select></div>' +
           '</div>' +
+          '<label>About the role (shown to doctors)</label>' +
+          '<textarea id="atsJsSummary" rows="3" placeholder="A short, friendly description of the practice and the role…">' + A.esc(job.summary || '') + '</textarea>' +
           '<label>Status</label>' +
           '<select id="atsJsStatus">' + valueOptions(JOB_STATUSES, job.status) + '</select>' +
         '</div>' +
@@ -566,6 +571,7 @@
       ['state', 'atsJsState'],
       ['type', 'atsJsType'],
       ['billing', 'atsJsBilling'],
+      ['summary', 'atsJsSummary'],
       ['status', 'atsJsStatus']
     ];
     var body = {};

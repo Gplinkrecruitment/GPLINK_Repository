@@ -240,13 +240,11 @@
   }
 
   function canBypassOnboardingValidation() {
-    const email = window.gpSessionProfile && typeof window.gpSessionProfile.email === "string"
-      ? window.gpSessionProfile.email.trim().toLowerCase()
-      : "";
-    const temporaryBypassExpiresAt = email === "smithmiller1234@gmail.com"
-      ? Date.parse("2026-06-10T14:05:40.018Z")
-      : 0;
-    return temporaryBypassExpiresAt > Date.now();
+    // The temporary tester bypass expired on 2026-06-10, so this already always
+    // returned false; the plaintext email has been removed from client code.
+    // If a new temporary bypass is ever needed, add a SHA-256 digest entry in
+    // js/bypass-config.js instead of embedding an email address here.
+    return false;
   }
 
   function renderQualDocSlots() {

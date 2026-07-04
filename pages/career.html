@@ -48,7 +48,7 @@
   <script src="../js/native-bridge.js?v=20260608a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
-  <script src="../js/bypass-config.js?v=20260610a"></script>
+  <script src="../js/bypass-config.js?v=20260702a"></script>
   <script src="../js/auth-guard.js?v=20260614a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260612a" defer></script>
@@ -7478,12 +7478,22 @@
       const source = record && typeof record === "object" ? record : {};
       const meta = getApplicationStatusMeta(source.rawStatus || source.status);
       return {
+        id: source.id || source.applicationId || "",
         roleId: source.roleId || "",
         practiceName: source.practiceName || "",
         location: source.location || "",
         rawStatus: source.rawStatus || source.status || meta.label,
-        status: meta.label,
-        tone: meta.tone,
+        // In-app (standalone ATS) applications carry a server-built friendly
+        // label + tone derived from the pipeline stage; Zoho apps fall back to
+        // the local status map exactly as before.
+        status: source.statusLabel || meta.label,
+        statusLabel: source.statusLabel || "",
+        tone: source.statusTone || meta.tone,
+        statusTone: source.statusTone || "",
+        // Server-decided ONLY: offerPending is true just when a live in-app
+        // offer exists (offer-review.html can't render Zoho offers, so an
+        // offer-ish raw status alone must NOT produce a "Review Offer" CTA).
+        offerPending: source.offerPending === true,
         isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
         meta: Array.isArray(source.meta) ? source.meta : [],
         placement: source.placement && typeof source.placement === "object" ? source.placement : null
@@ -10140,6 +10150,11 @@
             return;
           }
           if (resp.status === 409) {
+            if (data && data.code === "already_placed") {
+              showToast(data.message || "You already have a secured placement — contact your recruitment officer if anything needs to change.");
+              closeRoleModal();
+              return;
+            }
             showToast("You've already applied for this role");
             setView("applications");
             closeRoleModal();
@@ -10277,10 +10292,14 @@
     function mergeRemoteApplications(payload, shouldRender) {
       if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
       const remote = payload.applications.map((app) => normalizeCareerApplication({
+        id: app.id || "",
         roleId: app.role && app.role.id ? app.role.id : app.id,
         practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
         location: app.role && app.role.location ? app.role.location : "",
         rawStatus: app.status,
+        statusLabel: app.statusLabel || "",
+        statusTone: app.statusTone || "",
+        offerPending: app.offerPending === true,
         placement: app.placement,
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
@@ -10361,10 +10380,12 @@
           .join('<span class="app-meta-dot">&middot;</span>');
 
         var statusAction = '';
-        if (application.status === 'interview' || application.status === 'interview_scheduled') {
-          statusAction = '<a href="interview-prep?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
-        } else if (application.status === 'offer' || application.status === 'offer_pending' || application.status === 'offered') {
-          statusAction = '<a href="offer-review?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
+        var actionAppId = application.id || application.applicationId || '';
+        var actionStatusKey = normalizeStatusKey(application.rawStatus);
+        if (application.offerPending) {
+          statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
+        } else if (actionStatusKey === 'interview' || actionStatusKey === 'interview_scheduled') {
+          statusAction = '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
         }
 
         return `<article class="application-card">

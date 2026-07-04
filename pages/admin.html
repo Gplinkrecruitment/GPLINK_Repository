@@ -7997,7 +7997,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   async function submitApplicationToPractice(appId){
     if(!appId)return;
-    if(!confirm("Submit this candidate to the practice via Zoho Recruit?"))return;
+    if(!confirm("Submit this candidate's profile to the practice? The practice will receive an introduction email (or a Zoho submission when Zoho is connected)."))return;
     try{
       const r=await fetch("/api/admin/career/application/submit-to-practice",{
         method:"POST",
@@ -8040,8 +8040,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.applications.loading){el.innerHTML='<div class="applications-wrap"><div class="empty">Loading applications...</div></div>';return;}
     const apps=S.applications.list.slice().sort((a,b)=>new Date(b.applied_at||b.created_at||0)-new Date(a.applied_at||a.created_at||0));
     const total=apps.length;
+    // Internal (in-app ATS) apps: gp_applications.status stays 'applied' while
+    // the kanban moves, so the server sends the PRESENTED status_key/status_label
+    // (from ats_stage + offer state). Map the presented key onto the existing
+    // stat buckets; Zoho rows (no status_key) keep the raw-status behaviour.
+    function appStatusBucket(a){
+      const presented=(a.status_key||"").toLowerCase();
+      if(presented){
+        if(presented==="withdrawn"||presented==="not_proceeding")return "withdrawn";
+        if(["hired","secured","placed","placement_secured","offer_accepted","contract_signed","finalising_placement"].indexOf(presented)!==-1)return "secured";
+        if(presented.indexOf("offer")===0)return "offer";
+        if(presented.indexOf("interview")===0)return "interview";
+        if(presented==="reviewing"||presented==="submitted"||presented==="review"||presented==="under_review")return "review";
+        return "applied";
+      }
+      const s=(a.status||"applied").toLowerCase();
+      return ["applied","review","interview","offer","secured","withdrawn"].indexOf(s)!==-1?s:"applied";
+    }
     const counts={applied:0,review:0,interview:0,offer:0,secured:0,withdrawn:0};
-    apps.forEach(a=>{const s=(a.status||"applied").toLowerCase();if(counts[s]!==undefined)counts[s]++;else counts.applied++;});
+    apps.forEach(a=>{counts[appStatusBucket(a)]++;});
 
     let statsHtml='<div class="applications-stats">'+
       '<div class="applications-stat"><span class="stat-num">'+total+'</span><span class="stat-label">Total</span></div>'+
@@ -8059,11 +8076,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else{
       cardsHtml='<div class="applications-grid">';
       apps.forEach(a=>{
-        const status=(a.status||"applied").toLowerCase();
+        // Pill: prefer the server-presented label/bucket (internal ATS apps);
+        // Zoho rows fall back to the raw status exactly as before.
+        const bucket=appStatusBucket(a);
+        const pillText=a.status_label||(a.status||"applied").toLowerCase();
         const submissionStatus=(a.practice_submission_status||"pending_va_submission").toLowerCase();
         const submissionLabel=a.practice_submission_label||"Awaiting VA submission";
         const submissionCls=submissionStatus==="submitted_to_practice"?"submitted":(submissionStatus==="client_approved"||submissionStatus==="interview_ready"?"ready":(submissionStatus==="client_rejected"?"rejected":"pending"));
-        const pillCls=status==="review"?"review":status==="interview"?"interview":status==="offer"?"offer":status==="secured"?"secured":status==="withdrawn"?"withdrawn":"applied";
+        const pillCls=bucket;
         const submitBtn=a.can_submit_to_practice
           ? '<button class="btn sm primary" data-app-submit="'+esc(a.id)+'">Submit to Practice</button>'
           : '<button class="btn sm" disabled title="'+esc(a.submit_disabled_reason||"Already submitted to practice")+'">Submit to Practice</button>';
@@ -8071,7 +8091,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           '<div class="app-admin-card-top">'+
             '<div><div class="app-admin-card-gp">'+esc(a.gp_name||"Unknown GP")+'</div>'+
             '<div class="app-admin-card-email">'+esc(a.gp_email||"")+'</div></div>'+
-            '<span class="app-status-pill '+esc(pillCls)+'">'+esc(status)+'</span>'+
+            '<span class="app-status-pill '+esc(pillCls)+'">'+esc(pillText)+'</span>'+
           '</div>'+
           '<div class="app-admin-card-role">'+esc(a.role_title||"Untitled Role")+'</div>'+
           '<div class="app-admin-card-meta">'+
@@ -10395,7 +10415,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('zoomNotifyWhatsapp').checked = true;
     document.getElementById('zoomNotifyEmail').checked = true;
     document.getElementById('zoomScheduleBtn').disabled = false;
-    document.getElementById('zoomScheduleBtn').textContent = 'Send Calendly Invite';
+    document.getElementById('zoomScheduleBtn').textContent = 'Send Zoom Invite';
     overlay.classList.add('open');
   }
   window.openZoomScheduleModal = openZoomScheduleModal;
@@ -10450,17 +10470,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         // If this call was scheduled in response to a GP request task, flip that
         // originating task to "waiting on GP" (awaiting their booking).
         if (_originId) { try { await fetch('/api/admin/task?id=' + encodeURIComponent(_originId), { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ status:'waiting_on_gp' }) }); } catch(e){} }
-        showOpsToast('Calendly invite sent to GP');
+        showOpsToast('Zoom invite sent to GP');
         if (typeof renderDetail === 'function') renderDetail();
       } else {
         alert('Failed: ' + (data.message || 'Unknown error'));
         btn.disabled = false;
-        btn.textContent = 'Send Calendly Invite';
+        btn.textContent = 'Send Zoom Invite';
       }
     } catch (e) {
       alert('Error: ' + e.message);
       btn.disabled = false;
-      btn.textContent = 'Send Calendly Invite';
+      btn.textContent = 'Send Zoom Invite';
     }
   }
   window.submitZoomSchedule = submitZoomSchedule;
@@ -10542,7 +10562,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.refreshAfterCallAction = refreshAfterCallAction;
 
   async function resendZoomInvite(callId) {
-    if (!confirm('Resend the Calendly invite to this GP?')) return;
+    if (!confirm('Resend the Zoom invite to this GP?')) return;
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId) + '/resend', { method: 'POST', credentials: 'same-origin' });
       var d = await r.json();
@@ -10572,7 +10592,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.markZoomNoShow = markZoomNoShow;
 
   async function rescheduleZoomCall(callId) {
-    if (!confirm('Reschedule this call? A new Calendly invite will be sent to the GP.')) return;
+    if (!confirm('Reschedule this call? A new Zoom invite will be sent to the GP.')) return;
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'reschedule' }) });
       var d = await r.json();
@@ -11117,7 +11137,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="zoom-modal-footer">
       <button class="btn" onclick="closeZoomScheduleModal()">Cancel</button>
-      <button class="btn primary" id="zoomScheduleBtn" style="background:#2D8CFF;border-color:#2D8CFF" onclick="submitZoomSchedule()">Send Calendly Invite</button>
+      <button class="btn primary" id="zoomScheduleBtn" style="background:#2D8CFF;border-color:#2D8CFF" onclick="submitZoomSchedule()">Send Zoom Invite</button>
     </div>
   </div>
 </div>

@@ -86,11 +86,18 @@
       '<span class="ats-pill ' + (bl === 'hot' ? 'red' : bl === 'warm' ? 'amber' : 'muted') + '">' + bandLabel(score) + '</span></div>';
   }
 
+  // Role helpers — checkAuth (ceo-dashboard.html inline) stamps the session
+  // role onto window.__gpAdminRole ('super_admin' | 'consultant'). Empty until
+  // the session check resolves, so treat '' as "not (yet) known".
+  function role() { return String(window.__gpAdminRole || ''); }
+  function isConsultant() { return role() === 'consultant'; }
+
   window.ATS = {
     esc: esc, escAttr: escAttr, initials: initials, avatarColor: avatarColor,
     flag: flag, countryLabel: countryLabel, bandClass: bandClass, bandLabel: bandLabel,
     api: api, toast: toast, setOverlay: setOverlay,
     loadingHtml: loadingHtml, emptyHtml: emptyHtml, intentChip: intentChip,
+    role: role, isConsultant: isConsultant,
     activeTab: 'registration'
   };
 
@@ -99,6 +106,10 @@
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
   function setActiveTab(name, skipLoad) {
+    // Consultants are ATS-only: the Registration tab is hidden for them, so a
+    // deep-link/hash pointing at it lands on Candidates instead (the server
+    // 403s all Registration data for consultants anyway — this is cosmetic).
+    if (name === 'registration' && isConsultant()) name = 'candidates';
     window.ATS.activeTab = name;
     var tabs = document.querySelectorAll('#masterTabs .ats-master-tab');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].getAttribute('data-mtab') === name);

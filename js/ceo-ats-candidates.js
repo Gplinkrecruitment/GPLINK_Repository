@@ -312,9 +312,13 @@
           '<div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
           '<div><h2>' + ATS.esc(c.name) + '</h2><div class="ph-sub">' + subHtml + '</div></div>' +
         '</div>' +
+        // Consultants are ATS-only: the RSO file lives on admin.html (closed to
+        // them) and "Schedule call" posts to /api/admin/calls/schedule (a
+        // registration-side RSO route we deliberately did NOT open) — hide both.
         '<div style="display:flex;gap:9px">' +
-          '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-rsofile">Open RSO file</button>' +
-          '<button class="ats-btn ats-btn-primary ats-btn-sm" id="ats-cand-schedule">＋ Schedule call</button>' +
+          (ATS.isConsultant && ATS.isConsultant() ? '' :
+            '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-rsofile">Open RSO file</button>' +
+            '<button class="ats-btn ats-btn-primary ats-btn-sm" id="ats-cand-schedule">＋ Schedule call</button>') +
         '</div>' +
       '</div>' +
       '<div class="ats-cand-profile-grid">' +
@@ -412,8 +416,8 @@
         interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
       }
 
-      var offer = a.offer || {};
-      var offerLabel = offer.label || '—';
+      // Source chip: Zoho-managed application vs in-app (standalone ATS).
+      var sourceChip = '<span class="ats-pill muted" style="font-size:10.5px">' + (a.source === 'zoho' ? 'Zoho' : 'In-app') + '</span>';
 
       return '<div class="ats-app-card">' +
         '<div class="ats-app-card-top">' +
@@ -422,12 +426,16 @@
             '<div class="ats-app-practice">' + ATS.esc(a.practice_name || '') + '</div>' +
           '</div>' +
           '<div class="ats-app-right">' +
+            sourceChip +
             '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
             stageSel +
           '</div>' +
         '</div>' +
+        '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + '</div>' +
         '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
-        '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span><span>' + ATS.esc(offerLabel) + '</span></div>' +
+        '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
+          '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
+        '</div>' +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
@@ -438,6 +446,186 @@
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-add-job">＋ Add to a job</button>' +
       '</div>' +
       appsHtml;
+  }
+
+  /* ---- Submit to practice (Task D) ----
+   * Works for internal (non-Zoho) applications too: the server's
+   * /api/admin/career/application/submit-to-practice now emails the practice a
+   * candidate introduction (with the CV) when Zoho isn't connected or the app
+   * has no Zoho ids. The button shows while the app is still awaiting
+   * submission and hasn't moved past the early pipeline lanes. */
+  var SUBMIT_ELIGIBLE_STAGES = ['applied', 'submitted', 'reviewing'];
+  var SUBMISSION_STATUS_LABELS = {
+    submitted_to_practice: 'Submitted to practice',
+    client_reviewed: 'Reviewed by the practice',
+    client_approved: 'Approved by the practice',
+    client_rejected: 'Practice declined',
+    interview_ready: 'Ready for interview'
+  };
+
+  function submitPracticeLineHtml(a) {
+    var st = a.practice_submission_status || '';
+    if (SUBMISSION_STATUS_LABELS[st]) {
+      return '<span>' + ATS.esc(SUBMISSION_STATUS_LABELS[st]) + '</span>';
+    }
+    // pending_va_submission (or unknown) — offer the action while the card is
+    // still in an early lane; otherwise just show the neutral state.
+    if (st && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1) {
+      return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>';
+    }
+    return '<span class="ats-app-interview-none">Not submitted yet</span>';
+  }
+
+  function submitToPractice(appId, c, btn) {
+    if (!window.confirm('Submit this candidate\'s profile to the practice? They\'ll receive an introduction email with the candidate\'s CV.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Submitted — the practice has been introduced to this candidate.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id); // reload so the practice line + stage refresh
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.');
+        if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; }
+      }
+    });
+  }
+
+  /* ---- Offer state + inline send-offer form (Task B) ----
+   * Same inline interaction style as the interview slot picker: the offer line
+   * lives in a per-application .ats-offer-box and swaps to an inline form. */
+  var OFFER_ELIGIBLE_STAGES = ['reviewing', 'interview', 'offer'];
+  var OFFER_FILE_MAX_BYTES = 8 * 1024 * 1024; // base64 data URL must stay under the server's 12MB JSON body cap
+
+  function fmtOfferDate(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); }
+    catch (ex) { return String(iso); }
+  }
+
+  // The offer line for one application: none → Send offer (eligible stages),
+  // sent → "Offer sent <date>" + subtle Withdraw, accepted → celebration.
+  function offerLineHtml(a) {
+    var offer = a.offer || {};
+    var status = offer.status || 'not_started';
+    if (status === 'accepted') {
+      return '<span style="color:var(--ats-green);font-weight:600">Offer accepted 🎉</span>';
+    }
+    if (status === 'sent') {
+      return '<span>Offer sent' + (offer.sent_at ? ' ' + ATS.esc(fmtOfferDate(offer.sent_at)) : '') + '</span>' +
+        '<button type="button" class="ats-offer-withdraw" data-app-id="' + ATS.escAttr(String(a.id)) + '"' +
+          ' style="background:none;border:none;padding:0;margin-left:10px;color:var(--ats-dim);font-size:11.5px;text-decoration:underline;cursor:pointer">Withdraw</button>';
+    }
+    var canSend = OFFER_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
+    var priorNote = (status === 'withdrawn' || status === 'declined')
+      ? '<span style="color:var(--ats-dim);margin-right:10px">' + ATS.esc(offer.label || '') + '</span>'
+      : '';
+    if (!canSend) return priorNote || '<span>' + ATS.esc(offer.label || '—') + '</span>';
+    return priorNote +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-send" data-app-id="' + ATS.escAttr(String(a.id)) + '">Send offer</button>';
+  }
+
+  function offerFormHtml(appId) {
+    var lbl = 'display:grid;gap:3px;font-size:11px;color:var(--ats-dim)';
+    return '<div class="ats-offer-form" data-offer-form-id="' + ATS.escAttr(String(appId)) + '"' +
+        ' style="display:grid;gap:9px;margin-top:6px;padding:12px;border:1px solid rgba(255,255,255,0.09);border-radius:10px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">' +
+        '<label style="' + lbl + '">Billing split<input type="text" class="of-billing" placeholder="e.g. 70 / 30"></label>' +
+        '<label style="' + lbl + '">Sessions / week<input type="text" class="of-sessions" placeholder="e.g. 8"></label>' +
+        '<label style="' + lbl + '">Compensation range<input type="text" class="of-comp" placeholder="e.g. $350k+ estimated"></label>' +
+        '<label style="' + lbl + '">Start date<input type="date" class="of-start"></label>' +
+      '</div>' +
+      '<label style="' + lbl + '">Notes for the doctor<textarea class="of-notes" placeholder="Anything the doctor should know about these terms…" style="min-height:56px;resize:vertical"></textarea></label>' +
+      '<label style="' + lbl + '">Contract (optional, up to 8 MB)<input type="file" class="of-contract" accept=".pdf,.doc,.docx,application/pdf"></label>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-cancel" data-app-id="' + ATS.escAttr(String(appId)) + '">Cancel</button>' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-offer-submit" data-app-id="' + ATS.escAttr(String(appId)) + '">Send offer</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function offerBoxFor(appId) {
+    var host = panel();
+    return host ? host.querySelector('.ats-offer-box[data-offer-app-id="' + String(appId).replace(/"/g, '') + '"]') : null;
+  }
+
+  function appFromCurrent(appId) {
+    var apps = (currentCandidate && currentCandidate.apps) || [];
+    return apps.find(function (x) { return String(x.id) === String(appId); }) || null;
+  }
+
+  function openOfferForm(appId) {
+    var box = offerBoxFor(appId);
+    if (box) box.innerHTML = offerFormHtml(appId);
+  }
+
+  function closeOfferForm(appId) {
+    var box = offerBoxFor(appId);
+    var app = appFromCurrent(appId);
+    if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
+  }
+
+  function submitOffer(appId, c) {
+    var box = offerBoxFor(appId);
+    if (!box) return;
+    var form = box.querySelector('.ats-offer-form');
+    if (!form) return;
+    var val = function (sel) { var el = form.querySelector(sel); return el ? el.value : ''; };
+    var body = {
+      application_id: String(appId),
+      billing_split: val('.of-billing'),
+      sessions_per_week: val('.of-sessions'),
+      compensation_range: val('.of-comp'),
+      start_date: val('.of-start'),
+      notes: val('.of-notes')
+    };
+    var submitBtn = form.querySelector('.ats-offer-submit');
+    var fileInput = form.querySelector('.of-contract');
+    var file = fileInput && fileInput.files && fileInput.files[0];
+
+    function post() {
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+      ATS.api('/api/ats/offer', { method: 'POST', body: body }).then(function (res) {
+        if (res && res.ok) {
+          ATS.toast('Offer sent — the doctor has been notified.');
+          if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+          window.atsOpenCandidate(c.case_id); // reload so the offer state + stage pill refresh
+        } else {
+          ATS.toast((res && (res.error || res.message)) || 'Could not send the offer.');
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
+        }
+      });
+    }
+
+    if (file) {
+      if (file.size > OFFER_FILE_MAX_BYTES) {
+        ATS.toast('That contract is too large — please attach a file under 8 MB.');
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        body.contract_data_url = String(reader.result || '');
+        body.contract_file_name = file.name || '';
+        post();
+      };
+      reader.onerror = function () { ATS.toast('Could not read the contract file.'); };
+      reader.readAsDataURL(file);
+    } else {
+      post();
+    }
+  }
+
+  function withdrawOffer(appId, c) {
+    if (!window.confirm('Withdraw this offer? The doctor won\'t be notified — the card quietly moves back to Reviewing.')) return;
+    ATS.api('/api/ats/offer', { method: 'PATCH', body: { application_id: String(appId), action: 'withdraw' } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Offer withdrawn.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the offer.');
+      }
+    });
   }
 
   // Expose globally so GP-facing pages can reuse the slot picker.
@@ -615,11 +803,21 @@
     });
     var sched = host.querySelector('#ats-cand-schedule');
     if (sched) sched.addEventListener('click', function () { openScheduleModal(c); });
-    // delegated click: comms-scan + add-to-job buttons (either may be re-rendered).
+    // delegated click: comms-scan + add-to-job + offer buttons (all may be re-rendered).
     host.addEventListener('click', function (e) {
       if (!e.target.closest) return;
       if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
+      var submitPracticeBtn = e.target.closest('.ats-submit-practice');
+      if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
+      var sendBtn = e.target.closest('.ats-offer-send');
+      if (sendBtn) { openOfferForm(sendBtn.getAttribute('data-app-id')); return; }
+      var cancelBtn = e.target.closest('.ats-offer-cancel');
+      if (cancelBtn) { closeOfferForm(cancelBtn.getAttribute('data-app-id')); return; }
+      var submitBtn = e.target.closest('.ats-offer-submit');
+      if (submitBtn) { submitOffer(submitBtn.getAttribute('data-app-id'), c); return; }
+      var withdrawBtn = e.target.closest('.ats-offer-withdraw');
+      if (withdrawBtn) { withdrawOffer(withdrawBtn.getAttribute('data-app-id'), c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');

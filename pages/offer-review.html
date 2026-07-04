@@ -407,6 +407,19 @@
   .cta-accept:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(29, 78, 216, 0.65); }
   .cta-accept:active { transform: scale(0.98); }
   .cta-accept svg { width: 18px; height: 18px; }
+  /* In-flight "Confirming…" state while the server records the acceptance */
+  .cta-accept:disabled {
+    opacity: 0.65; cursor: default;
+    transform: none; box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.35);
+  }
+
+  /* Inline error shown when the accept call fails (network / server) */
+  .accept-error {
+    padding: 12px 14px; border-radius: var(--gp-r-md);
+    background: var(--gp-red-soft); border: 1px solid var(--gp-red-border);
+    color: var(--gp-red-ink);
+    font-size: 13px; font-weight: 600; line-height: 1.5; text-align: center;
+  }
 
   .cta-secondary {
     display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -420,6 +433,34 @@
   }
   .cta-secondary:hover { background: var(--gp-surface-sunken); color: var(--gp-ink); box-shadow: var(--gp-shadow-sm); }
   .cta-secondary svg { width: 16px; height: 16px; }
+
+  /* .cta-secondary sets display:flex, which would otherwise override the UA
+     stylesheet's [hidden] rule — force hidden to win. */
+  [hidden] { display: none !important; }
+
+  .contract-note {
+    padding: 12px 14px; border-radius: var(--gp-r-md);
+    background: var(--gp-surface-sunken); border: 1px dashed var(--gp-border-strong);
+    color: var(--gp-text-soft, var(--gp-text));
+    font-size: 13px; line-height: 1.5; text-align: center;
+  }
+
+  /* Subtle decline affordance under the main CTAs */
+  .decline-link {
+    background: none; border: none; padding: 6px 0 0;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px;
+    cursor: pointer; justify-self: center;
+    transition: color var(--gp-dur-fast) var(--gp-ease);
+  }
+  .decline-link:hover { color: var(--gp-text); }
+
+  .decline-note {
+    padding: 14px 16px; border-radius: var(--gp-r-md);
+    background: var(--gp-surface-sunken); border: 1px solid var(--gp-border-strong);
+    color: var(--gp-text);
+    font-size: 13.5px; line-height: 1.55; text-align: center;
+  }
 
   /* ── Officer ── */
   .officer-row { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
@@ -638,22 +679,22 @@
           <div class="offer-status-dot"></div>
           Offer Received
         </div>
-        <div class="practice-name" style="margin-top: 10px;">Bayside Family<br>Medical Centre</div>
-        <div class="practice-role">General Practitioner — Full Time</div>
-        <div class="practice-address">
+        <div class="practice-name" style="margin-top: 10px;" id="practiceName">—</div>
+        <div class="practice-role" id="roleLine"></div>
+        <div class="practice-address" id="practiceAddress" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          42 Marine Parade, Brighton VIC 3186
+          <span id="practiceAddressText"></span>
         </div>
       </div>
 
       <div class="deadline-strip gp-reveal gp-reveal-2">
         <div class="deadline-ring" id="deadlineRing">
-          <div class="deadline-ring-inner" id="deadlineShort">5d</div>
+          <div class="deadline-ring-inner" id="deadlineShort">—</div>
         </div>
         <div class="deadline-info">
           <div class="deadline-label">Response Deadline</div>
-          <div class="deadline-time" id="deadlineTime">5 days remaining</div>
-          <div class="deadline-date">Tuesday 15 April · 5:00 PM AEST</div>
+          <div class="deadline-time" id="deadlineTime">Loading…</div>
+          <div class="deadline-date" id="deadlineDate"></div>
         </div>
       </div>
     </div>
@@ -665,70 +706,37 @@
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-label">Earnings</div>
-          <div class="stat-value">$350k+</div>
-          <div class="stat-sub">Estimated annual (70% billing)</div>
+          <div class="stat-value" id="statEarnings">—</div>
+          <div class="stat-sub" id="statEarningsSub"></div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Billing Split</div>
-          <div class="stat-value">70 / 30</div>
-          <div class="stat-sub">You keep 70%</div>
+          <div class="stat-value" id="statSplit">—</div>
+          <div class="stat-sub" id="statSplitSub"></div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Sessions</div>
-          <div class="stat-value stat-value-sm">8 per week</div>
-          <div class="stat-sub">Mon–Fri, flexible start</div>
+          <div class="stat-value stat-value-sm" id="statSessions">—</div>
+          <div class="stat-sub" id="statSessionsSub"></div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Start Date</div>
-          <div class="stat-value stat-value-sm">1 July 2026</div>
-          <div class="stat-sub">12-week notice period</div>
+          <div class="stat-value stat-value-sm" id="statStart">—</div>
+          <div class="stat-sub" id="statStartSub"></div>
         </div>
       </div>
     </div>
 
-    <!-- WHAT GP LINK NEGOTIATED -->
-    <hr class="divider">
-    <div class="glass-section gp-reveal gp-reveal-3">
-      <div class="section-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        Negotiated for you
-      </div>
-      <div class="section-title">What GP Link Secured</div>
-
-      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">Billing split increased from 65% to 70%</div><div class="nego-detail">Standard for the area is 65% — we pushed for and secured 70%</div></div></div>
-      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">6 weeks paid leave (was 4)</div><div class="nego-detail">Includes 2 weeks professional development leave</div></div></div>
-      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">$5,000 relocation allowance</div><div class="nego-detail">Covers moving costs, paid upon commencement</div></div></div>
-      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">Guaranteed minimum income for 3 months</div><div class="nego-detail">$6,500/week floor while you build your patient base</div></div></div>
-    </div>
-
-    <!-- CONTRACT HIGHLIGHTS -->
-    <hr class="divider">
-    <div class="section gp-reveal gp-reveal-3">
-      <div class="section-head">Contract Highlights</div>
-
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-        <div><strong>Contract length:</strong> 2 years initial, then rolling annually</div>
-      </div>
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-        <div><strong>Medical indemnity:</strong> Practice covers 100% of indemnity insurance</div>
-      </div>
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-        <div><strong>Support staff:</strong> Dedicated nurse + receptionist assigned to you</div>
-      </div>
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-        <div><strong>After-hours:</strong> No mandatory after-hours or on-call requirements</div>
-      </div>
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-        <div><strong>Equipment:</strong> Modern consulting rooms with telehealth setup provided</div>
-      </div>
-      <div class="contract-item">
-        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-        <div><strong>Restrictive covenant:</strong> 5 km radius, 12 months post-contract</div>
+    <!-- NOTES FROM YOUR CONSULTANT (shown only when the offer carries notes) -->
+    <div id="notesBlock" hidden>
+      <hr class="divider">
+      <div class="glass-section gp-reveal gp-reveal-3">
+        <div class="section-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          From your consultant
+        </div>
+        <div class="section-title">Notes on this offer</div>
+        <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text" id="notesBody" style="white-space:pre-line"></div></div></div>
       </div>
     </div>
 
@@ -741,14 +749,18 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Accept Offer
         </button>
-        <a class="cta-secondary" href="#">
+        <div class="accept-error" id="acceptError" role="alert" hidden>That didn't go through — please check your connection and tap Accept again.</div>
+        <a class="cta-secondary" href="#" id="requestChangesBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Request Changes
         </a>
-        <a class="cta-secondary" href="#">
+        <a class="cta-secondary" href="#" id="downloadContractBtn" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download Full Contract
         </a>
+        <div class="contract-note" id="contractNote" hidden>Your full contract isn't in your documents yet — your GP Link officer will upload it here as soon as it's ready.</div>
+        <button type="button" class="decline-link" id="declineOfferBtn">I need to decline this offer</button>
+        <div class="decline-note" id="declineNote" hidden>Thanks for letting us know — your consultant will be in touch about next steps.</div>
       </div>
     </div>
 
@@ -757,42 +769,51 @@
     <div class="section gp-reveal gp-reveal-5">
       <div class="section-label">Your Registration Guidance Officer</div>
       <div class="officer-row">
-        <div class="officer-avatar">H</div>
+        <div class="officer-avatar" id="officerAvatar">G</div>
         <div class="officer-info">
-          <div class="officer-name">Hazel</div>
-          <div class="officer-copy">Have questions about the offer? I can walk you through the contract details.</div>
+          <div class="officer-name" id="officerName">GP Link team</div>
+          <div class="officer-copy" id="officerCopy">Have questions about the offer? Message us and we'll walk you through the details.</div>
         </div>
       </div>
-      <a class="whatsapp-btn" href="https://wa.me/61400000000" target="_blank" rel="noopener">
+      <a class="whatsapp-btn" href="https://wa.me/61494391968" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-        Message Hazel on WhatsApp
+        <span id="officerWaLabel">Message us on WhatsApp</span>
       </a>
     </div>
 
   </div><!-- /pre-accept -->
+
+  <!-- EMPTY STATE (no offer to show for this application) -->
+  <div id="emptyState" hidden>
+    <div class="celebration-card">
+      <div class="celebration-icon">📬</div>
+      <div class="celebration-title">Nothing to review just yet</div>
+      <div class="celebration-sub">We'll email you the moment an offer is ready.</div>
+    </div>
+  </div>
 
   <!-- POST-ACCEPT STATE -->
   <div class="post-accept">
     <div class="celebration-card">
       <div class="celebration-icon">🎉</div>
       <div class="celebration-title">Placement Secured</div>
-      <div class="celebration-sub">You've accepted your offer at Bayside Family Medical Centre. Here's what happens next.</div>
+      <div class="celebration-sub" id="celebrationSub">You've accepted your offer. Here's what happens next.</div>
 
       <div class="next-steps-item">
         <div class="step-num">1</div>
-        <div class="step-text"><strong>Contract signing</strong> — Hazel will send the formal contract within 48 hours</div>
+        <div class="step-text"><strong>Contract signing</strong> — your GP Link officer will send the formal contract within 48 hours</div>
       </div>
       <div class="next-steps-item">
         <div class="step-num">2</div>
-        <div class="step-text"><strong>Visa processing</strong> — Your sponsorship paperwork begins immediately</div>
+        <div class="step-text"><strong>Registration &amp; paperwork</strong> — we keep your registration steps moving right away</div>
       </div>
       <div class="next-steps-item">
         <div class="step-num">3</div>
-        <div class="step-text"><strong>Relocation support</strong> — Access housing search & area guides for Brighton</div>
+        <div class="step-text"><strong>Relocation support</strong> — access housing search &amp; area guides for your new area</div>
       </div>
       <div class="next-steps-item">
         <div class="step-num">4</div>
-        <div class="step-text"><strong>Onboarding</strong> — Practice orientation scheduled 2 weeks before start</div>
+        <div class="step-text"><strong>Onboarding</strong> — practice orientation scheduled 2 weeks before start</div>
       </div>
     </div>
   </div>
@@ -804,7 +825,6 @@
   // ── Query params ──
   var params = new URLSearchParams(window.location.search);
   var applicationId = params.get('id') || params.get('applicationId') || '';
-  // Phase 2: fetch real data. For now, demo data from mockup.
 
   // ── Back button (shell-aware) ──
   document.getElementById('backBtn').addEventListener('click', function(e) {
@@ -816,50 +836,301 @@
     }
   });
 
-  // ── Restore accepted state from localStorage ──
+  // ── Restore accepted state from localStorage (server state also applies below) ──
   var acceptKey = applicationId ? 'gp_offer_accepted_' + applicationId : 'gp_offer_accepted';
   if (localStorage.getItem(acceptKey)) {
     document.getElementById('pageRoot').classList.add('accepted');
   }
 
-  // ── Deadline countdown ──
-  // Demo: deadline is ~5 days from now
-  var deadlineDate = new Date(Date.now() + 5 * 24 * 3600000);
+  function setText(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  // ── Deadline countdown (real: sent_at + 7 days) ──
+  var deadlineDate = null;
   var totalSeconds = 7 * 24 * 3600; // 7-day response window
+  var deadlineTimer = null;
 
   function updateDeadline() {
+    if (!deadlineDate) return;
     var now = Date.now();
     var diff = deadlineDate.getTime() - now;
 
     if (diff <= 0) {
-      document.getElementById('deadlineTime').textContent = 'Deadline passed';
-      document.getElementById('deadlineShort').textContent = '0d';
+      setText('deadlineTime', 'Deadline passed — talk to us if you need more time');
+      setText('deadlineShort', '0d');
+      document.getElementById('deadlineRing').style.setProperty('--ring-pct', '100%');
       return;
     }
 
     var days = Math.floor(diff / 86400000);
     var hours = Math.floor((diff % 86400000) / 3600000);
 
-    document.getElementById('deadlineShort').textContent = days + 'd';
-    document.getElementById('deadlineTime').textContent = days + (days === 1 ? ' day, ' : ' days, ') + hours + (hours === 1 ? ' hour' : ' hours') + ' remaining';
+    setText('deadlineShort', days + 'd');
+    setText('deadlineTime', days + (days === 1 ? ' day, ' : ' days, ') + hours + (hours === 1 ? ' hour' : ' hours') + ' remaining');
 
     var elapsed = totalSeconds - (diff / 1000);
     var pct = Math.min(100, Math.max(0, (elapsed / totalSeconds) * 100));
     document.getElementById('deadlineRing').style.setProperty('--ring-pct', pct + '%');
   }
 
-  updateDeadline();
-  setInterval(updateDeadline, 60000);
+  function startDeadline(sentAtIso) {
+    var sentMs = sentAtIso ? new Date(sentAtIso).getTime() : NaN;
+    if (!isFinite(sentMs)) sentMs = Date.now();
+    deadlineDate = new Date(sentMs + 7 * 24 * 3600000);
+    try {
+      setText('deadlineDate', deadlineDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) +
+        ' · ' + deadlineDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+    } catch (err) { setText('deadlineDate', ''); }
+    updateDeadline();
+    if (deadlineTimer) clearInterval(deadlineTimer);
+    deadlineTimer = setInterval(updateDeadline, 60000);
+  }
+
+  function fmtLongDate(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso);
+      if (!isFinite(d.getTime())) return String(iso);
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    } catch (err) { return String(iso); }
+  }
+
+  // ── No-offer state: hide the offer content, show the friendly empty card ──
+  function showEmptyState() {
+    var pre = document.querySelector('.pre-accept');
+    if (pre) pre.style.display = 'none';
+    document.getElementById('pageRoot').classList.remove('accepted');
+    var empty = document.getElementById('emptyState');
+    if (empty) empty.hidden = false;
+  }
+
+  // ── Declined state: keep the offer visible but swap the decision CTAs for a
+  // supportive note (the consultant follows up from here). ──
+  var resolvedApplicationId = applicationId;
+  function showDeclinedState() {
+    var acceptBtn = document.getElementById('acceptOfferBtn');
+    var changesBtn = document.getElementById('requestChangesBtn');
+    var declineBtn = document.getElementById('declineOfferBtn');
+    var note = document.getElementById('declineNote');
+    if (acceptBtn) acceptBtn.hidden = true;
+    if (changesBtn) changesBtn.hidden = true;
+    if (declineBtn) declineBtn.hidden = true;
+    if (note) {
+      // Set the supportive copy explicitly: a failed decline attempt writes an
+      // error message into this same node, so a later SUCCESSFUL decline must
+      // restore the friendly text rather than unhide the stale error.
+      note.textContent = 'Thanks for letting us know — your consultant will be in touch about next steps.';
+      note.hidden = false;
+    }
+  }
+
+  // ── Populate the page from the real offer ──
+  function renderOffer(data) {
+    var offer = data.offer || {};
+    if (data.applicationId) resolvedApplicationId = String(data.applicationId);
+    setText('practiceName', data.practiceName || 'Your offer');
+    setText('roleLine', data.roleTitle || '');
+    if (data.location) {
+      setText('practiceAddressText', data.location);
+      var addr = document.getElementById('practiceAddress');
+      if (addr) addr.hidden = false;
+    }
+
+    setText('statEarnings', offer.compensation_range || '—');
+    setText('statEarningsSub', offer.compensation_range ? 'Estimated annual' : '');
+    setText('statSplit', offer.billing_split || '—');
+    setText('statSplitSub', offer.billing_split ? 'Your share of billings' : '');
+    setText('statSessions', offer.sessions_per_week || '—');
+    setText('statSessionsSub', offer.sessions_per_week ? 'Per week' : '');
+    setText('statStart', fmtLongDate(offer.start_date));
+    setText('statStartSub', '');
+
+    if (offer.notes) {
+      setText('notesBody', offer.notes);
+      var nb = document.getElementById('notesBlock');
+      if (nb) nb.hidden = false;
+    }
+
+    var officer = data.guidanceOfficer || 'GP Link team';
+    var isTeam = officer === 'GP Link team';
+    setText('officerName', officer);
+    setText('officerAvatar', (officer.charAt(0) || 'G').toUpperCase());
+    setText('officerCopy', isTeam
+      ? "Have questions about the offer? Message us and we'll walk you through the details."
+      : 'Have questions about the offer? I can walk you through the details.');
+    setText('officerWaLabel', isTeam ? 'Message us on WhatsApp' : 'Message ' + officer + ' on WhatsApp');
+
+    setText('celebrationSub', "You've accepted your offer" + (data.practiceName ? ' at ' + data.practiceName : '') + ". Here's what happens next.");
+
+    startDeadline(offer.sent_at);
+
+    // Server knows best: an accepted offer shows the celebration state even on a new device.
+    if (offer.status === 'accepted') {
+      document.getElementById('pageRoot').classList.add('accepted');
+      try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
+    } else {
+      // Self-heal: the server says this offer is NOT accepted (e.g. a past
+      // Accept tap latched locally but the request never landed) — drop the
+      // stale celebration state so the doctor can actually accept.
+      document.getElementById('pageRoot').classList.remove('accepted');
+      try {
+        localStorage.removeItem(acceptKey);
+        if (resolvedApplicationId) localStorage.removeItem('gp_offer_accepted_' + resolvedApplicationId);
+      } catch (err) { /* non-blocking */ }
+    }
+    // …and a declined offer shows the supportive follow-up note instead of the CTAs.
+    if (offer.status === 'declined') showDeclinedState();
+  }
+
+  // ── Fetch the real offer (?applicationId= / ?id=; server picks the latest live offer without one) ──
+  fetch('/api/career/my-offer' + (applicationId ? '?applicationId=' + encodeURIComponent(applicationId) : ''), { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data && data.ok && data.offer) renderOffer(data);
+      else showEmptyState();
+    })
+    .catch(function () { showEmptyState(); });
 
   // ── Accept offer (event delegation) ──
   document.addEventListener('click', function(e) {
     var acceptBtn = e.target.closest('#acceptOfferBtn');
     if (acceptBtn) {
-      document.getElementById('pageRoot').classList.add('accepted');
-      localStorage.setItem(acceptKey, '1');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (acceptBtn.disabled) return; // a confirm is already in flight
+      var acceptErr = document.getElementById('acceptError');
+      if (acceptErr) acceptErr.hidden = true;
+      // Subtle in-flight state so a double-tap can't double-fire.
+      var acceptBtnHtml = acceptBtn.innerHTML;
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Confirming…';
+      var restoreAcceptBtn = function () {
+        acceptBtn.disabled = false;
+        acceptBtn.innerHTML = acceptBtnHtml; // the button's own static markup
+      };
+      var showAcceptError = function (message) {
+        restoreAcceptBtn();
+        if (acceptErr) {
+          acceptErr.textContent = (message && typeof message === 'string')
+            ? message
+            : "That didn't go through — please check your connection and tap Accept again.";
+          acceptErr.hidden = false;
+        }
+      };
+      // The celebration state is only shown once the server has really
+      // recorded the acceptance — a failed call re-enables the button instead
+      // of stranding the doctor on a false "Placement Secured" screen.
+      fetch('/api/career/offer/accept', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
+      })
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (data) {
+            return { httpOk: r.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.httpOk && result.data && result.data.ok) {
+            try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
+            restoreAcceptBtn(); // hidden by the accepted state, but left sane
+            document.getElementById('pageRoot').classList.add('accepted');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else {
+            showAcceptError(result.data && result.data.message);
+          }
+        })
+        .catch(function () { showAcceptError(null); });
+    }
+
+    // ── Decline offer (subtle link → confirm → supportive note) ──
+    var declineBtn = e.target.closest('#declineOfferBtn');
+    if (declineBtn) {
+      if (!window.confirm('Decline this offer? Your consultant will be told and can talk through other options with you.')) return;
+      declineBtn.disabled = true;
+      fetch('/api/career/offer/decline', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: resolvedApplicationId || applicationId || '' })
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (data && data.ok) {
+            showDeclinedState();
+          } else {
+            declineBtn.disabled = false;
+            var note = document.getElementById('declineNote');
+            if (note) {
+              note.textContent = "We couldn't record that just now — please try again, or message us on WhatsApp below.";
+              note.hidden = false;
+            }
+          }
+        })
+        .catch(function () {
+          declineBtn.disabled = false;
+          var note = document.getElementById('declineNote');
+          if (note) {
+            note.textContent = "We couldn't record that just now — please try again, or message us on WhatsApp below.";
+            note.hidden = false;
+          }
+        });
     }
   });
+
+  // ── Request Changes → Messages (Contract category), shell-aware ──
+  document.getElementById('requestChangesBtn').addEventListener('click', function (e) {
+    e.preventDefault();
+    var href = '/pages/messages?category=Contract#new-ticket';
+    if (window.parent !== window && window.parent && typeof window.parent.postMessage === 'function') {
+      try {
+        window.parent.postMessage({ type: 'gp-shell-route', href: href, title: 'Messages' }, window.location.origin);
+        return;
+      } catch (err) { /* fall through to direct navigation */ }
+    }
+    window.location.href = href;
+  });
+
+  // ── Download Full Contract — same source as the documents pages: the GP's
+  // delivered offer_contract in user_documents, served via /api/prepared-documents. ──
+  function getPageCountry() {
+    var raw = '';
+    try { raw = localStorage.getItem('gp_selected_country') || ''; } catch (err) { raw = ''; }
+    if (!raw) return 'uk';
+    var val = raw;
+    try { val = JSON.parse(raw); } catch (err) { /* use raw */ }
+    if (typeof val !== 'string') return 'uk';
+    var lower = val.toLowerCase().trim();
+    if (lower === 'uk' || lower === 'gb' || lower === 'united kingdom') return 'uk';
+    if (lower === 'ie' || lower === 'ireland') return 'ie';
+    if (lower === 'nz' || lower === 'new zealand') return 'nz';
+    return 'uk';
+  }
+
+  function loadContractLink() {
+    fetch('/api/prepared-documents?country=' + encodeURIComponent(getPageCountry()), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var doc = data && data.ok && data.docs && data.docs.offer_contract ? data.docs.offer_contract : null;
+        var url = doc && typeof doc.downloadUrl === 'string' ? doc.downloadUrl : '';
+        var rejected = doc && String(doc.status || '').toLowerCase() === 'rejected';
+        var btn = document.getElementById('downloadContractBtn');
+        if (url && !rejected && url.indexOf('/api/') === 0) {
+          btn.href = url;
+          btn.target = '_blank';
+          btn.rel = 'noopener';
+          btn.hidden = false;
+        } else {
+          document.getElementById('contractNote').hidden = false;
+        }
+      })
+      .catch(function () {
+        document.getElementById('contractNote').hidden = false;
+      });
+  }
+
+  loadContractLink();
 })();
 </script>
 
