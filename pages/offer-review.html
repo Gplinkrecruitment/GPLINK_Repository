@@ -278,6 +278,34 @@
   }
   .reveal-map-wrap iframe { width: 100%; height: 200px; border: 0; display: block; }
 
+  /* ── Revealed header image hero ── */
+  .header-hero {
+    border-radius: var(--gp-r-lg, 14px); overflow: hidden;
+    border: 1px solid var(--surface-subtle-border); margin-bottom: 4px;
+  }
+  .header-hero img { width: 100%; height: 160px; object-fit: cover; display: block; }
+
+  /* ── Secure My Interview (Task 12) ── */
+  .secure-interview-btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 16px; border-radius: var(--gp-r-md, 12px); border: none;
+    background: #2563eb; color: #fff;
+    font-family: inherit; font-size: 15px; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+    transition: transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
+    box-shadow: 0 8px 20px -10px rgba(37, 99, 235, 0.6);
+  }
+  .secure-interview-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(37, 99, 235, 0.7); }
+  .secure-interview-btn:active { transform: scale(0.98); }
+  .secure-interview-btn svg { width: 18px; height: 18px; }
+  .booked-interview-note {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 14px 16px; border-radius: var(--gp-r-md, 12px);
+    background: var(--gp-green-soft); border: 1px solid var(--gp-green-border);
+    color: var(--gp-green-ink); font-size: 13.5px; font-weight: 600; line-height: 1.5;
+  }
+  .booked-interview-note a { color: inherit; text-decoration: underline; }
+
   /* ── Status badge ── */
   .offer-status {
     display: inline-flex; align-items: center; gap: 7px;
@@ -679,6 +707,9 @@
   <div class="pre-accept">
 
     <div class="hero">
+      <div class="header-hero gp-reveal gp-reveal-1" id="headerHero" hidden>
+        <img id="headerHeroImg" alt="" />
+      </div>
       <div class="practice-block gp-reveal gp-reveal-1">
         <div class="offer-status">
           <div class="offer-status-dot"></div>
@@ -705,6 +736,18 @@
           <div class="deadline-date" id="deadlineDate"></div>
         </div>
       </div>
+    </div>
+
+    <!-- SECURE MY INTERVIEW (Task 12: shown once the practice has accepted this GP) -->
+    <div class="gp-reveal gp-reveal-2" id="secureInterviewBlock" hidden>
+      <a class="secure-interview-btn" id="secureInterviewBtn" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Secure My Interview
+      </a>
+    </div>
+    <div class="booked-interview-note gp-reveal gp-reveal-2" id="bookedInterviewNote" hidden>
+      <span>🎥 Interview booked for <strong id="bookedInterviewTime"></strong></span>
+      <a id="bookedInterviewZoomLink" href="#" target="_blank" rel="noopener">Join Zoom call</a>
     </div>
 
     <!-- OFFER SUMMARY -->
@@ -905,6 +948,63 @@
     } catch (err) { return String(iso); }
   }
 
+  // ── Confetti (Task 12) — self-contained canvas burst, no library. Fires once
+  // when a revealed offer lands (either the practice-accept congrats moment,
+  // or a returning visit while the offer is still sent/accepted). Removes its
+  // own canvas after the burst so it never lingers over the page. ──
+  function launchConfetti() {
+    var palette = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444', '#a855f7'];
+    var canvas = document.createElement('canvas');
+    canvas.id = 'confettiCanvas';
+    canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var pieces = [];
+    for (var i = 0; i < 140; i++) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height * 0.5,
+        w: 6 + Math.random() * 6,
+        h: 4 + Math.random() * 8,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        vx: (Math.random() - 0.5) * 2.2,
+        vy: 2 + Math.random() * 3.2,
+        rotation: Math.random() * 360,
+        vr: (Math.random() - 0.5) * 12
+      });
+    }
+
+    var startTs = null;
+    var DURATION_MS = 2800;
+    var rafId = null;
+    function frame(ts) {
+      if (!startTs) startTs = ts;
+      var elapsed = ts - startTs;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (var i = 0; i < pieces.length; i++) {
+        var p = pieces[i];
+        p.x += p.vx; p.y += p.vy; p.rotation += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (elapsed < DURATION_MS) {
+        rafId = requestAnimationFrame(frame);
+      } else {
+        window.removeEventListener('resize', resize);
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      }
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
   // ── No-offer state: hide the offer content, show the friendly empty card ──
   function showEmptyState() {
     var pre = document.querySelector('.pre-accept');
@@ -957,6 +1057,55 @@
     } else if (revealMapWrap) {
       revealMapWrap.hidden = true;
       if (revealMapFrame) revealMapFrame.removeAttribute('src');
+    }
+
+    // Revealed header image hero — only ever shown once the practice identity
+    // itself has been revealed (never for a masked offer).
+    var headerHero = document.getElementById('headerHero');
+    var headerHeroImg = document.getElementById('headerHeroImg');
+    if (data.revealed && data.headerImageUrl && headerHero && headerHeroImg) {
+      headerHeroImg.src = data.headerImageUrl;
+      headerHero.hidden = false;
+    } else if (headerHero) {
+      headerHero.hidden = true;
+      if (headerHeroImg) headerHeroImg.removeAttribute('src');
+    }
+
+    // Secure My Interview (Task 12) — once the practice has accepted this GP
+    // (interviewBookable), give them one prominent way to lock in a slot; once
+    // a slot is actually booked, swap for the confirmed time + Zoom link.
+    var secureBlock = document.getElementById('secureInterviewBlock');
+    var secureBtn = document.getElementById('secureInterviewBtn');
+    var bookedNote = document.getElementById('bookedInterviewNote');
+    if (data.bookedInterview && data.bookedInterview.scheduled_at) {
+      if (secureBlock) secureBlock.hidden = true;
+      if (bookedNote) {
+        var bTime = '';
+        try { bTime = new Date(data.bookedInterview.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
+        catch (err) { bTime = data.bookedInterview.scheduled_at; }
+        setText('bookedInterviewTime', bTime);
+        var zoomLink = document.getElementById('bookedInterviewZoomLink');
+        if (zoomLink) {
+          if (data.bookedInterview.zoom_join_url) { zoomLink.href = data.bookedInterview.zoom_join_url; zoomLink.hidden = false; }
+          else { zoomLink.hidden = true; }
+        }
+        bookedNote.hidden = false;
+      }
+    } else {
+      if (bookedNote) bookedNote.hidden = true;
+      if (data.interviewBookable && secureBlock && secureBtn) {
+        secureBtn.href = '/pages/secure-interview?applicationId=' + encodeURIComponent(String(data.applicationId || applicationId || ''));
+        secureBlock.hidden = false;
+      } else if (secureBlock) {
+        secureBlock.hidden = true;
+      }
+    }
+
+    // Confetti — the moment this page shows a revealed, live (sent or already
+    // accepted) offer, celebrate. Fires once per render (renderOffer only runs
+    // once per page load from the initial fetch).
+    if (data.revealed && offer && (offer.status === 'sent' || offer.status === 'accepted')) {
+      launchConfetti();
     }
 
     setText('statEarnings', offer.compensation_range || '—');

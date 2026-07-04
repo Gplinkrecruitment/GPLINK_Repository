@@ -25312,6 +25312,10 @@ var _gpApplicationsPracticeIdMissing = false;
 // gp_applications.origin ships alongside the practice-client-pipeline work and
 // may not be applied yet either — same detect-once-and-stop-sending pattern.
 var _gpApplicationsOriginMissing = false;
+// gp_applications.revealed (Task 12, same migration 20260705100000) — same
+// detect-once guard, shared across atsInsertApplicationRow and any PATCH path
+// that also tries to set it.
+var _gpApplicationsRevealedMissing = false;
 function isMissingColumnInsertError(result, column) {
   var d = result ? result.data : null;
   if (!d) return false;
@@ -25596,7 +25600,28 @@ async function atsInsertApplicationRow(row) {
     var prodRow = Object.assign({}, row);
     delete prodRow.job_title;
     delete prodRow.practice_name;
+    if (_gpApplicationsOriginMissing) delete prodRow.origin;
+    if (_gpApplicationsRevealedMissing) delete prodRow.revealed;
     var r = await supabaseDbRequest('gp_applications', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [prodRow] });
+    // Missing-column tolerance for origin/revealed (migration 20260705100000
+    // may not be applied yet) — same detect-once-and-stop-sending pattern as
+    // /api/career/apply's own insert. Looped since either column can be
+    // missing independently.
+    for (var insAppRetry = 0; insAppRetry < 2 && !r.ok; insAppRetry++) {
+      var insAppDropped = false;
+      if (prodRow.origin !== undefined && isMissingColumnInsertError(r, 'origin')) {
+        if (!_gpApplicationsOriginMissing) { _gpApplicationsOriginMissing = true; console.warn('[ats] gp_applications.origin column missing — inserting without it from now on.'); }
+        delete prodRow.origin;
+        insAppDropped = true;
+      }
+      if (prodRow.revealed !== undefined && isMissingColumnInsertError(r, 'revealed')) {
+        if (!_gpApplicationsRevealedMissing) { _gpApplicationsRevealedMissing = true; console.warn('[ats] gp_applications.revealed column missing — inserting without it from now on.'); }
+        delete prodRow.revealed;
+        insAppDropped = true;
+      }
+      if (!insAppDropped) break;
+      r = await supabaseDbRequest('gp_applications', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [prodRow] });
+    }
     return (r.ok && r.data && r.data[0]) || null;
   }
   var local = Object.assign({ id: atsLocalId('app_'), applied_at: atsNowIso(), ats_stage: 'applied' }, row, { updated_at: atsNowIso() });
@@ -25757,6 +25782,33 @@ async function notifyGpOfferSent(userId, applicationId, jobLabel, practiceLabel)
       APP_BASE_URL + offerPath,
       'Questions about the offer? Reply to this email or message us on WhatsApp at +61 494 391 968.'
     ).catch(function (e) { console.error('[ats offer] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
+// Congratulate the GP the moment a practice accepts them (Task 12): fired by
+// POST /api/ats/application/accept and by the admin-apply auto-reveal path.
+// Deep-links to /pages/secure-interview so the doctor can lock in a slot
+// straight from the email — mirrors notifyGpOfferSent's Promise.all/.catch
+// shape, but the CALLER awaits this whole function before sendJson (Vercel's
+// freeze-after-response constraint means fire-and-forget can get dropped).
+async function sendGpCongratsEmail(userId, applicationId, practiceName) {
+  if (!userId) return;
+  var secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(String(applicationId || ''));
+  var cgCtx = null;
+  try { cgCtx = await atsGetApplicationContext(String(applicationId || '')); } catch (e) { cgCtx = null; }
+  var gpName = (cgCtx && cgCtx.gpName) || 'there';
+  var practiceLabel = practiceName || (cgCtx && cgCtx.practiceName) || 'A practice';
+  var copy = practicePipeline.buildCongratsEmailCopy({ gpName: gpName, practiceName: practiceLabel, secureUrl: secureUrl });
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: 'success', title: copy.title, body: copy.body })
+      .catch(function (e) { console.error('[ats accept] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: copy.title,
+      body: copy.body,
+      data: { type: 'career', action: 'practice_accepted', url: '/pages/secure-interview?applicationId=' + encodeURIComponent(String(applicationId || '')) }
+    }).catch(function (e) { console.error('[ats accept] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId, copy.subject, copy.title, copy.body, copy.ctaText, copy.ctaUrl, copy.footer)
+      .catch(function (e) { console.error('[ats accept] email failed for', userId, ':', e && e.message); })
   ]);
 }
 
@@ -29597,9 +29649,21 @@ async function handleApi(req, res, pathname) {
       moRevealedMapQuery = [moPracticeAddress, moRole && moRole.suburb, moRole && moRole.location_state].filter(Boolean).join(', ');
       moHeaderImageUrl = (moRole && moRole.header_image_url) ? String(moRole.header_image_url) : '';
     }
-    // Task 12 will refine this further (e.g. interview-status checks); for now
-    // it's simply gated on reveal + the offer still being live.
-    const moInterviewBookable = moRevealed && moOffer.status !== 'declined' && moOffer.status !== 'withdrawn';
+    // Task 12: once an interview is actually booked (scheduled_calls row,
+    // meeting_kind='interview', status='booked') the "Secure My Interview"
+    // button must stop offering to book a SECOND one — show the booked time
+    // + Zoom link instead.
+    let moBookedInterviewRow = null;
+    if (isSupabaseDbConfigured()) {
+      const moBiRes = await supabaseDbRequest('scheduled_calls',
+        'select=scheduled_at,zoom_join_url&meeting_kind=eq.interview&application_id=eq.' + encodeURIComponent(String(moApp.id)) + '&status=eq.booked&limit=1');
+      moBookedInterviewRow = (moBiRes.ok && Array.isArray(moBiRes.data) && moBiRes.data[0]) ? moBiRes.data[0] : null;
+    } else {
+      moBookedInterviewRow = (dbState.scheduledCalls || []).find((r) =>
+        r && r.meeting_kind === 'interview' && String(r.application_id) === String(moApp.id) && r.status === 'booked'
+      ) || null;
+    }
+    const moInterviewBookable = moRevealed && moOffer.status !== 'declined' && moOffer.status !== 'withdrawn' && !moBookedInterviewRow;
 
     // Contract availability: the offer recorded a delivered contract, or an
     // offer_contract document already sits in the GP's documents.
@@ -29655,7 +29719,10 @@ async function handleApi(req, res, pathname) {
       practiceAddress: moPracticeAddress,
       revealedMapQuery: moRevealedMapQuery,
       headerImageUrl: moHeaderImageUrl,
-      interviewBookable: moInterviewBookable
+      interviewBookable: moInterviewBookable,
+      bookedInterview: moBookedInterviewRow
+        ? { scheduled_at: moBookedInterviewRow.scheduled_at || '', zoom_join_url: moBookedInterviewRow.zoom_join_url || '' }
+        : null
     });
     return;
   }
@@ -49078,12 +49145,139 @@ Return ONLY valid JSON with no markdown formatting:
       status: 'applied',
       ats_stage: 'applied',
       job_title: aaJob.title,
-      practice_name: aaJob.practice_name || ''
+      practice_name: aaJob.practice_name || '',
+      // Admin-placed candidates skip the masked-identity funnel entirely —
+      // the consultant already matched this GP to the practice by hand, so
+      // there is nothing left to reveal-gate. atsInsertApplicationRow drops
+      // either column (tolerant retry) if migration 20260705100000 hasn't
+      // landed on this environment yet.
+      origin: 'admin_applied',
+      revealed: true
     };
     var aaCreated = await atsInsertApplicationRow(aaRow);
     if (!aaCreated) { sendJson(res, 502, { ok: false, message: 'Could not add candidate to this job.' }); return; }
     await atsRecordStageEvent(aaCreated.id, '', 'applied', ctxAA.email || '');
+    // Admin placement IS the practice's acceptance — record the offer/interview-invite
+    // and congratulate the GP the same way the /accept endpoint does, so an
+    // admin-placed candidate lands straight on "Secure My Interview" with no
+    // separate consultant step required.
+    var aaIntake = (aaJob.source_payload && aaJob.source_payload.intake) || {};
+    var aaOfferSaved = await atsOffersStore.saveAtsOffer({
+      application_id: String(aaCreated.id),
+      user_id: aaUserId,
+      career_role_id: aaJob.id,
+      practice_id: aaJob.practice_id || null,
+      job_title: aaJob.title || '',
+      practice_name: aaJob.practice_name || '',
+      billing_split: sanitizeUserString(String(aaIntake.percentage_split || ''), 120),
+      status: 'sent',
+      sent_by: ctxAA.email || '',
+      sent_at: atsNowIso(),
+      notes: 'Admin placed this GP with the practice'
+    });
+    if (!aaOfferSaved) console.error('[ats admin apply] could not save the auto-offer for application', aaCreated.id);
+    await sendGpCongratsEmail(aaUserId, String(aaCreated.id), aaJob.practice_name || '')
+      .catch(function (e) { console.error('[ats admin apply] congrats email failed for app', aaCreated.id, ':', e && e.message); });
     sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false });
+    return;
+  }
+
+  // ---- Practice accepted → reveal identity + record offer (Task 12) --------
+  // Fired by the CEO drawer's "Practice accepted — reveal & congratulate"
+  // button once the practice has verbally/informally confirmed they want to
+  // meet this candidate. Turns on canRevealPracticeIdentityCore's `revealed`
+  // signal, drops an in-app-offer record so the offer page has something to
+  // show, forwards the kanban to 'offer', and congratulates the GP with the
+  // "Secure My Interview" email.
+  if (pathname === '/api/ats/application/accept' && req.method === 'POST') {
+    var ctxAC = requireAtsSession(req, res); if (!ctxAC) return;
+    var acAppId = String(url.searchParams.get('id') || '').trim();
+    if (!acAppId) { sendJson(res, 400, { ok: false, message: 'id required.' }); return; }
+    var acCtx = await atsGetApplicationContext(acAppId);
+    if (!acCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Idempotent: already revealed with a live offer on file → no-op repeat click.
+    var acExistingOffer = await atsOffersStore.getAtsOfferByApplication(acAppId);
+    if (acCtx.app && acCtx.app.revealed === true && acExistingOffer) {
+      sendJson(res, 200, { ok: true, already: true });
+      return;
+    }
+
+    // PATCH gp_applications — missing-column tolerant. `revealed` ships in
+    // migration 20260705100000 which may not be applied everywhere yet;
+    // practice_submission_status is an older, stable column. If NEITHER
+    // field can be persisted, fail loud (503) rather than report success
+    // when nothing actually happened — see the practice-intake/sign
+    // precedent a few hundred lines up for the same "fail loud, no side
+    // effects" rule.
+    var acPatchBody = { revealed: true, practice_submission_status: 'client_approved' };
+    if (_gpApplicationsRevealedMissing) delete acPatchBody.revealed;
+    if (isSupabaseDbConfigured()) {
+      var acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
+      });
+      if (!acRes.ok && acPatchBody.revealed !== undefined && isMissingColumnInsertError(acRes, 'revealed')) {
+        _gpApplicationsRevealedMissing = true;
+        console.warn('[ats accept] gp_applications.revealed column missing (migration 20260705100000 not applied) — the GP will not see the revealed identity until this migration runs.');
+        delete acPatchBody.revealed;
+        acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
+          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
+        });
+      }
+      if (!acRes.ok && isMissingColumnInsertError(acRes, 'practice_submission_status')) {
+        delete acPatchBody.practice_submission_status;
+        acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
+          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
+        });
+      }
+      if (!acRes.ok || Object.keys(acPatchBody).length === 0) {
+        console.error('[ats accept] could not persist the acceptance for application', acAppId, ':', acRes && acRes.data);
+        sendJson(res, 503, { ok: false, message: 'Could not record the acceptance — the database is missing required columns. Run migration 20260705100000.' });
+        return;
+      }
+    } else {
+      var acLocalApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(acAppId); });
+      if (!acLocalApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+      Object.assign(acLocalApp, acPatchBody);
+      saveDbState();
+    }
+
+    // Role/practice context for the offer record (ctx alone only carries the
+    // denormalised practiceName — the offer needs practice_id + the intake's
+    // billing split too, both of which live on the career_roles row).
+    var acRole = null;
+    if (acCtx.careerRoleId) {
+      acRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(acCtx.careerRoleId)
+        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(acCtx.careerRoleId); }) || null);
+    }
+    var acJobTitle = (acRole && acRole.title) || (acCtx.app && acCtx.app.job_title) || '';
+    var acPracticeName = acCtx.practiceName || (acRole && acRole.practice_name) || '';
+    var acIntake = (acRole && acRole.source_payload && acRole.source_payload.intake) || {};
+
+    var acSaved = await atsOffersStore.saveAtsOffer({
+      application_id: acAppId,
+      user_id: acCtx.userId || null,
+      career_role_id: acCtx.careerRoleId || null,
+      practice_id: (acRole && acRole.practice_id) || null,
+      job_title: acJobTitle,
+      practice_name: acPracticeName,
+      billing_split: sanitizeUserString(String(acIntake.percentage_split || ''), 120),
+      status: 'sent',
+      sent_by: ctxAC.email || '',
+      sent_at: atsNowIso(),
+      notes: 'Practice accepted — interview invitation'
+    });
+    if (!acSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+
+    await atsUpdateApplicationStageRow(acAppId, 'offer', undefined, 'practice_accept');
+
+    if (acCtx.userId) {
+      await sendGpCongratsEmail(acCtx.userId, acAppId, acPracticeName)
+        .catch(function (e) { console.error('[ats accept] congrats email failed for app', acAppId, ':', e && e.message); });
+    }
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 

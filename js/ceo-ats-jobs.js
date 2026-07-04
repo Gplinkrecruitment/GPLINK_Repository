@@ -403,6 +403,7 @@
           '<label>Pipeline stage</label>' +
           '<select id="atsJobDrawerStage">' + stageOptions + '</select>' +
           '<button class="ats-btn ats-btn-primary" id="atsJobSchedBtn">📅 Book interview</button>' +
+          '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>' +
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +
@@ -424,6 +425,7 @@
     on('atsJobDrawerStage', 'change', onDrawerStageChange);
     on('atsJobDrawerSave', 'click', onDrawerSave);
     on('atsJobSchedBtn', 'click', openInterviewModal);
+    on('atsJobAcceptBtn', 'click', onAcceptApplication);
   }
 
   function closeDrawer() {
@@ -455,6 +457,18 @@
       closeDrawer();
       if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
     });
+  }
+
+  /* -------------------- practice accepted → reveal + congratulate -------------------- */
+  function onAcceptApplication() {
+    if (!drawerCardId) return;
+    if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
+    A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), { method: 'POST' }).then(function (d) {
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not record the practice\'s acceptance'); return; }
+      A.toast(d.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+      closeDrawer();
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+    }).catch(function () { A.toast('Could not record the practice\'s acceptance'); });
   }
 
   /* -------------------- book interview -------------------- */

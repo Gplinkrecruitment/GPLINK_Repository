@@ -1,0 +1,388 @@
+// Task 12 — practice-accept trigger: reveal identity + record offer + confetti
+// congrats + "Secure My Interview" email.
+//
+// Boots the real server against the same in-memory PostgREST emulator pattern
+// as tests/ats-offer-flow.test.js. Outbound email (Resend) and push (FCM) are
+// captured by wrapping global fetch.
+//
+// Covers:
+//  1. POST /api/ats/application/accept → gp_applications.revealed=true +
+//     practice_submission_status='client_approved', an ats_offers row (status
+//     'sent', billing_split from the role's intake), stage → 'offer' (actor
+//     'practice_accept'), and exactly ONE congrats email deep-linking to
+//     /pages/secure-interview?applicationId=….
+//  2. Idempotent second call → {ok:true, already:true}, no duplicate email.
+//  3. 404 for an unknown application id.
+//  4. Admin apply (POST /api/ats/application) now writes origin:'admin_applied'
+//     + revealed:true, creates its own offer record and sends the same
+//     congrats email.
+//  5. GET /api/career/my-offer for the accepted application returns
+//     revealed:true + interviewBookable:true + the real practice name; an
+//     application that hasn't been accepted stays masked.
+//  6. Once a scheduled_calls row is booked for the application, my-offer
+//     flips interviewBookable to false and returns bookedInterview.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import http from 'http';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+const RUN_ID = crypto.randomBytes(4).toString('hex');
+const DB_FILE = path.join('/tmp', `gplink-ats-accept-${RUN_ID}.json`);
+let server, port;
+let sbServer, sbPort;
+
+const SUPER_HOST = 'ceo-accept.local';
+const SUPER_EMAIL = 'super@gplink-test.local';
+const GP = { userId: 'u-acc-gp-1', email: 'gp-accept@gplink-test.local' };
+const GP2 = { userId: 'u-acc-gp-2', email: 'other-accept@gplink-test.local' };
+const GP3 = { userId: 'u-acc-gp-3', email: 'admin-placed@gplink-test.local' };
+const RSO_ID = 'rso-accept-1';
+const NOW = new Date().toISOString();
+
+const resendCalls = [];
+const fcmCalls = [];
+
+const db = {
+  user_profiles: [
+    { user_id: GP.userId, email: GP.email, first_name: 'Accepted', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
+    { user_id: GP3.userId, email: GP3.email, first_name: 'Placed', last_name: 'Doctor', registration_country: 'nz' }
+  ],
+  user_state: [
+    { user_id: GP.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-1' }] }, updated_at: NOW },
+    { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-3' }] }, updated_at: NOW }
+  ],
+  registration_cases: [
+    { id: 'case-acc-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
+    { id: 'case-acc-2', user_id: GP2.userId, status: 'active', assigned_rso: null, assigned_va: null },
+    { id: 'case-acc-3', user_id: GP3.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null }
+  ],
+  rso_team: [
+    { user_id: RSO_ID, name: 'Priya Test', email: 'priya@gplink-test.local', phone: '', active: true, calendly_event_url: '' }
+  ],
+  practices: [
+    { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
+  ],
+  career_roles: [
+    {
+      id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR',
+      practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD',
+      is_active: true, job_status: 'open', updated_at: NOW,
+      source_payload: { intake: { percentage_split: '65 / 35' } }
+    }
+  ],
+  gp_applications: [
+    { id: 'app-acc-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
+    { id: 'app-acc-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'pending_va_submission' }
+  ],
+  ats_offers: [],
+  ats_stage_events: [],
+  user_documents: [],
+  integration_connections: [],
+  scheduled_calls: [],
+  runtime_kv: []
+};
+function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
+function buildMatcher(searchParams) {
+  const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
+  const filters = [];
+  for (const [key, raw] of searchParams.entries()) {
+    if (reserved.has(key)) continue;
+    const dot = raw.indexOf('.');
+    const op = dot > 0 ? raw.slice(0, dot) : '';
+    if (!FILTER_OPS.includes(op)) continue;
+    const val = raw.slice(dot + 1);
+    filters.push({ col: key, op, val });
+  }
+  return (row) => filters.every(({ col, op, val }) => {
+    const cell = row ? row[col] : undefined;
+    if (op === 'eq') return String(cell) === val;
+    if (op === 'neq') return String(cell) !== val;
+    if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
+    if (op === 'in') {
+      return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
+        .map((s) => s.trim().replace(/^"/, '').replace(/"$/, ''))
+        .includes(String(cell));
+    }
+    return true;
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null')); }
+      catch { resolve(null); }
+    });
+  });
+}
+
+function startSupabaseEmulator() {
+  return new Promise((resolve) => {
+    sbServer = http.createServer(async (req, res) => {
+      const u = new URL(req.url, 'http://sb.local');
+      const send = (status, payload) => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      };
+      const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+      if (!m) { send(404, { message: 'not found' }); return; }
+      const table = decodeURIComponent(m[1]);
+      const rows = tableOf(table);
+      const matches = buildMatcher(u.searchParams);
+
+      if (req.method === 'GET') {
+        let out = rows.filter(matches);
+        const limit = parseInt(u.searchParams.get('limit') || '', 10);
+        if (Number.isFinite(limit)) out = out.slice(0, limit);
+        send(200, out);
+        return;
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+        const conflictCol = u.searchParams.get('on_conflict');
+        const saved = incoming.map((r) => {
+          if (conflictCol) {
+            const existing = rows.find((row) => row && String(row[conflictCol]) === String(r[conflictCol]));
+            if (existing) { Object.assign(existing, r); return existing; }
+          }
+          const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+          rows.push(row);
+          return row;
+        });
+        send(201, saved);
+        return;
+      }
+      if (req.method === 'PATCH') {
+        const patch = await readBody(req);
+        const matched = rows.filter(matches);
+        matched.forEach((row) => Object.assign(row, patch || {}));
+        send(200, matched);
+        return;
+      }
+      if (req.method === 'DELETE') {
+        const keep = rows.filter((row) => !matches(row));
+        rows.length = 0;
+        keep.forEach((row) => rows.push(row));
+        send(200, []);
+        return;
+      }
+      send(405, { message: 'method not allowed' });
+    });
+    sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+  });
+}
+
+function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+function adminCookieFor(email, adminRole) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, adminRole }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+}
+function userCookie(email, supabaseUserId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+}
+const superCookie = () => adminCookieFor(SUPER_EMAIL, 'super_admin');
+
+function httpReq(method, p, { cookie, body, host } = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null;
+    const headers = {};
+    if (cookie) headers.Cookie = cookie;
+    if (host) headers.Host = host;
+    if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+      const c = []; res.on('data', (x) => c.push(x));
+      res.on('end', () => {
+        const raw = Buffer.concat(c).toString('utf8');
+        let parsed = null; try { parsed = JSON.parse(raw); } catch {}
+        resolve({ status: res.statusCode, body: parsed, raw });
+      });
+    });
+    r.on('error', reject); r.end(data);
+  });
+}
+
+const atsPost = (p, body) => httpReq('POST', p, { host: SUPER_HOST, cookie: superCookie(), body });
+const gpGet = (p, who = GP) => httpReq('GET', p, { cookie: userCookie(who.email, who.userId) });
+
+let realFetch;
+
+beforeAll(async () => {
+  await startSupabaseEmulator();
+
+  process.env.AGENT_SKIP_DOTENV = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AUTH_DISABLED = 'false';
+  process.env.AUTH_SECRET = 'ats-accept-secret-' + RUN_ID;
+  process.env.REQUIRE_SUPABASE_DB = 'false';
+  process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  process.env.ENFORCE_SAME_ORIGIN = 'false';
+  process.env.DB_FILE_PATH = DB_FILE;
+  process.env.ZOHO_RECRUIT_CLIENT_ID = '';
+  process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
+  process.env.ZOHO_RECRUIT_REDIRECT_URI = '';
+  process.env.OPENAI_API_KEY = '';
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+  process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
+  process.env.ADMIN_ALLOWED_HOSTS = 'admin-accept.local';
+  process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
+  process.env.ADMIN_EMAILS = '';
+  process.env.RESEND_API_KEY = 'test-resend-key';
+  process.env.FCM_SERVER_KEY = 'test-fcm-key';
+
+  realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => {
+    const u = String(url && url.url ? url.url : url);
+    if (u.startsWith('https://api.resend.com/')) {
+      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+      resendCalls.push({ url: u, body: parsed });
+      return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+    }
+    if (u.startsWith('https://fcm.googleapis.com/')) {
+      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+      fcmCalls.push({ url: u, body: parsed });
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }
+    return realFetch(url, opts);
+  };
+
+  const { createServer } = await import('../server.js');
+  server = createServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+});
+
+afterAll(async () => {
+  if (realFetch) globalThis.fetch = realFetch;
+  if (server) await new Promise((r) => server.close(r));
+  if (sbServer) await new Promise((r) => sbServer.close(r));
+  try { fs.unlinkSync(DB_FILE); } catch {}
+});
+
+describe('POST /api/ats/application/accept', () => {
+  it('404s an unknown application', async () => {
+    const r = await atsPost('/api/ats/application/accept?id=nope-1');
+    expect(r.status).toBe(404);
+  });
+
+  it('reveals identity, records the offer, advances the stage and congratulates the GP once', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-1');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBeFalsy();
+
+    const app = db.gp_applications.find((a) => a.id === 'app-acc-1');
+    expect(app.revealed).toBe(true);
+    expect(app.practice_submission_status).toBe('client_approved');
+
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-acc-1');
+    expect(offer).toBeTruthy();
+    expect(offer.status).toBe('sent');
+    expect(offer.billing_split).toBe('65 / 35');
+    expect(offer.practice_name).toBe('Greenslopes Family Medical');
+    expect(offer.notes).toBe('Practice accepted — interview invitation');
+    expect(offer.user_id).toBe(GP.userId);
+
+    expect(app.ats_stage).toBe('offer');
+    const ev = db.ats_stage_events.find((e) => e.application_id === 'app-acc-1' && e.actor === 'practice_accept');
+    expect(ev).toBeTruthy();
+    expect(ev.to_stage).toBe('offer');
+
+    const sends = resendCalls.slice(before);
+    expect(sends.length).toBe(1);
+    expect(sends[0].body.to).toContain(GP.email);
+    expect(String(sends[0].body.subject)).toMatch(/congratulations/i);
+    expect(String(sends[0].body.html)).toContain('/pages/secure-interview?applicationId=app-acc-1');
+    expect(String(sends[0].body.html)).toContain('Secure My Interview');
+    expect(String(sends[0].body.html)).toContain('Greenslopes Family Medical');
+
+    expect(fcmCalls.some((c) => c.body && c.body.to === 'push-tok-acc-1')).toBe(true);
+  });
+
+  it('is idempotent on a second call (already revealed + offer on file)', async () => {
+    const before = resendCalls.length;
+    const beforeOffers = db.ats_offers.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-1');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(true);
+    expect(db.ats_offers.length).toBe(beforeOffers);
+    expect(resendCalls.length).toBe(before);
+  });
+});
+
+describe('GET /api/career/my-offer — reveal + interviewBookable', () => {
+  it('reveals the real practice name and marks the interview bookable once accepted', async () => {
+    const r = await gpGet('/api/career/my-offer?applicationId=app-acc-1');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.revealed).toBe(true);
+    expect(r.body.practiceName).toBe('Greenslopes Family Medical');
+    expect(r.body.interviewBookable).toBe(true);
+    expect(r.body.bookedInterview).toBe(null);
+  });
+
+  it('stays masked for an application the practice has not accepted', async () => {
+    const r = await gpGet('/api/career/my-offer?applicationId=app-acc-2', GP2);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    // No offer exists yet for app-acc-2, so my-offer reports offer:null.
+    expect(r.body.offer).toBe(null);
+  });
+
+  it('flips interviewBookable to false and returns bookedInterview once a slot is booked', async () => {
+    db.scheduled_calls.push({
+      id: 'call-acc-1', application_id: 'app-acc-1', meeting_kind: 'interview', status: 'booked',
+      scheduled_at: '2026-08-01T04:00:00.000Z', zoom_join_url: 'https://zoom.us/j/acc-test-1', created_at: NOW
+    });
+    const r = await gpGet('/api/career/my-offer?applicationId=app-acc-1');
+    expect(r.status).toBe(200);
+    expect(r.body.interviewBookable).toBe(false);
+    expect(r.body.bookedInterview).toEqual({ scheduled_at: '2026-08-01T04:00:00.000Z', zoom_join_url: 'https://zoom.us/j/acc-test-1' });
+  });
+});
+
+describe('Admin apply (POST /api/ats/application) auto-reveals + congratulates', () => {
+  it('creates the application with origin admin_applied + revealed:true, records an offer and emails the GP', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application', { user_id: GP3.userId, career_role_id: 'role-1' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(false);
+    const appId = r.body.application.id;
+
+    const app = db.gp_applications.find((a) => a.id === appId);
+    expect(app).toBeTruthy();
+    expect(app.origin).toBe('admin_applied');
+    expect(app.revealed).toBe(true);
+
+    const offer = db.ats_offers.find((o) => o.application_id === String(appId));
+    expect(offer).toBeTruthy();
+    expect(offer.status).toBe('sent');
+    expect(offer.notes).toBe('Admin placed this GP with the practice');
+    expect(offer.user_id).toBe(GP3.userId);
+
+    const sends = resendCalls.slice(before);
+    expect(sends.length).toBe(1);
+    expect(sends[0].body.to).toContain(GP3.email);
+    expect(String(sends[0].body.html)).toContain('/pages/secure-interview?applicationId=' + appId);
+
+    // The GP now sees the revealed, interview-bookable offer too.
+    const my = await gpGet('/api/career/my-offer?applicationId=' + appId, GP3);
+    expect(my.body.revealed).toBe(true);
+    expect(my.body.interviewBookable).toBe(true);
+    expect(my.body.practiceName).toBe('Greenslopes Family Medical');
+  });
+});

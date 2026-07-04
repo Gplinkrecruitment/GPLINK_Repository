@@ -431,7 +431,7 @@
             stageSel +
           '</div>' +
         '</div>' +
-        '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + '</div>' +
+        '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + acceptApplicationLineHtml(a) + '</div>' +
         '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
@@ -474,6 +474,30 @@
       return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>';
     }
     return '<span class="ats-app-interview-none">Not submitted yet</span>';
+  }
+
+  // "Practice accepted" (Task 12): reveals the real practice identity to the
+  // GP, records an in-app offer and congratulates them by email. Hidden once
+  // the practice has already approved/reached interview-ready, or the offer
+  // itself is already accepted — nothing left for this button to do.
+  function acceptApplicationLineHtml(a) {
+    var st = a.practice_submission_status || '';
+    var offerStatus = (a.offer && a.offer.status) || 'not_started';
+    if (st === 'client_approved' || st === 'interview_ready' || offerStatus === 'accepted') return '';
+    return ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-application" data-ats="accept-application" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">✅ Practice accepted</button>';
+  }
+
+  function acceptApplication(appId, c) {
+    if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
+    ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), { method: 'POST' }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast(res.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not record the practice\'s acceptance.');
+      }
+    });
   }
 
   function submitToPractice(appId, c, btn) {
@@ -818,6 +842,8 @@
       if (submitBtn) { submitOffer(submitBtn.getAttribute('data-app-id'), c); return; }
       var withdrawBtn = e.target.closest('.ats-offer-withdraw');
       if (withdrawBtn) { withdrawOffer(withdrawBtn.getAttribute('data-app-id'), c); return; }
+      var acceptBtn = e.target.closest('.ats-accept-application');
+      if (acceptBtn) { acceptApplication(acceptBtn.getAttribute('data-app-id'), c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
