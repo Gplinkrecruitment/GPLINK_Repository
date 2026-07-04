@@ -49617,6 +49617,7 @@ async function handleRequest(req, res) {
   const isPublic =
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
+    pathname === '/pages/practice-intake.html' ||
     pathname.startsWith('/media/images/') ||
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
