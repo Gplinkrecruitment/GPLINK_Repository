@@ -150,6 +150,7 @@ var atsOffersStore = require('./lib/ats-offers').createAtsOffersStore({
 });
 var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
+const practicePipeline = require('./lib/practice-pipeline');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
   normalizeIchcReference, isValidIchcReference,
@@ -8377,6 +8378,188 @@ async function handleDoubleTickWebhook(req, res) {
     console.error('[doubletick-webhook] Unexpected error:', err && err.message);
     sendJson(res, 500, { ok: false, message: 'Internal error' });
   }
+}
+
+/**
+ * GET/POST /api/webhooks/facebook-lead
+ * GET: FB Lead Ads webhook verification handshake.
+ * POST: Facebook (or Zapier-relayed) lead delivery -> creates a prospective
+ * practice row + sends the practice a themed intake email.
+ *
+ * Disabled (POST returns 503) when FB_LEAD_WEBHOOK_SECRET is not configured.
+ * Auth: shared secret as a query parameter (timing-safe comparison), same
+ * pattern as the DoubleTick webhook above:
+ *   ${APP_BASE_URL}/api/webhooks/facebook-lead?secret=YOUR_SECRET
+ */
+async function handleFacebookLeadWebhook(req, res) {
+  const reqUrl = new URL(req.url, 'http://localhost');
+
+  if (req.method === 'GET') {
+    const mode = reqUrl.searchParams.get('hub.mode') || '';
+    const verifyToken = reqUrl.searchParams.get('hub.verify_token') || '';
+    const challenge = reqUrl.searchParams.get('hub.challenge') || '';
+    const expectedToken = process.env.FB_LEAD_VERIFY_TOKEN || '';
+    if (mode === 'subscribe' && expectedToken && verifyToken === expectedToken) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(challenge);
+      return;
+    }
+    sendJson(res, 403, { ok: false, message: 'Verification failed' });
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, message: 'Method not allowed' });
+    return;
+  }
+
+  if (!process.env.FB_LEAD_WEBHOOK_SECRET) {
+    console.warn('[fb-lead-webhook] FB_LEAD_WEBHOOK_SECRET not set — webhook disabled');
+    sendJson(res, 503, { ok: false, message: 'Webhook not configured' });
+    return;
+  }
+
+  // Verify shared secret from URL query parameter (timing-safe comparison)
+  const providedSecret = reqUrl.searchParams.get('secret') || '';
+  const secretBuf = Buffer.from(process.env.FB_LEAD_WEBHOOK_SECRET);
+  const providedBuf = Buffer.from(providedSecret);
+  if (secretBuf.length !== providedBuf.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
+    console.warn('[fb-lead-webhook] Invalid secret from IP:', getClientIp(req));
+    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+    return;
+  }
+
+  // Rate-limit by source IP (30 req/hour) — prevents flood from a leaked URL
+  const ip = getClientIp(req);
+  const allowed = await checkRateLimitWindow(`fb_lead_webhook:${ip}`, 30, 60 * 60 * 1000);
+  if (!allowed) {
+    sendJson(res, 429, { ok: false, message: 'Too many requests' });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
+    return;
+  }
+
+  const lead = practicePipeline.normalizeFacebookLeadPayload(body);
+  if (!lead) {
+    sendJson(res, 400, { ok: false, error: 'unrecognized_payload' });
+    return;
+  }
+
+  const isDuplicate = await checkAndRecordWebhookEvent('facebook_lead', lead.leadId, 'lead', {
+    event: 'lead',
+    created_at: new Date().toISOString()
+  });
+  if (isDuplicate) {
+    sendJson(res, 200, { ok: true, action: 'duplicate_ignored' });
+    return;
+  }
+
+  try {
+    var pracRow = {
+      name: lead.practice_name || (lead.contact_name ? lead.contact_name + "'s practice" : 'New practice lead'),
+      location_city: lead.location || '', location_state: '', location_country: 'Australia',
+      practice_type: '', contact_name: lead.contact_name || '', contact_email: lead.contact_email || '',
+      contact_phone: lead.contact_phone || '', ahpra_number: '',
+      source: 'facebook_lead', is_active: true, created_by: 'facebook_lead_webhook',
+      stage: 'prospective', website: lead.website || '',
+      dpa: typeof lead.dpa === 'boolean' ? lead.dpa : null,
+      intake_token: practicePipeline.generateIntakeToken(),
+      agreement_status: 'unsigned',
+      metadata: { fb_lead: lead, fb_raw: body }
+    };
+
+    var created = await atsInsertPracticeRow(pracRow);
+    var degraded = false;
+    if (!created && isSupabaseDbConfigured()) {
+      // Missing-column tolerance: the practice_client_pipeline migration
+      // (20260705100000) may not be applied yet. Retry with only the
+      // original practices columns so the webhook never 500s on lagging DDL.
+      console.error('[fb-lead] practices pipeline columns missing — run migration 20260705100000');
+      var legacyRow = {
+        name: pracRow.name,
+        location_city: pracRow.location_city,
+        location_state: pracRow.location_state,
+        location_country: pracRow.location_country,
+        practice_type: pracRow.practice_type,
+        contact_name: pracRow.contact_name,
+        contact_email: pracRow.contact_email,
+        contact_phone: pracRow.contact_phone,
+        ahpra_number: pracRow.ahpra_number,
+        source: 'manual',
+        is_active: true,
+        created_by: pracRow.created_by
+      };
+      created = await atsInsertPracticeRow(legacyRow);
+      degraded = true;
+    }
+
+    if (!created) {
+      sendJson(res, 500, { ok: false, message: 'Failed to save practice lead' });
+      return;
+    }
+
+    sendPracticeIntakeEmail(created).catch(function (e) {
+      console.error('[fb-lead] intake email send failed:', e && e.message);
+    });
+
+    var response = { ok: true, practice_id: created.id };
+    if (degraded) response.degraded = true;
+    sendJson(res, 200, response);
+  } catch (err) {
+    console.error('[fb-lead-webhook] Unexpected error:', err && err.message);
+    sendJson(res, 500, { ok: false, message: 'Internal error' });
+  }
+}
+
+/**
+ * Sends the themed "your GP is waiting" intake email to a practice contact,
+ * ensuring the row has an intake_token (generating + persisting one if it
+ * doesn't) and recording metadata.intake_email_last_sent_at on success.
+ * Best-effort: caller should treat this as fire-and-forget.
+ */
+async function sendPracticeIntakeEmail(practice) {
+  if (!practice) return { ok: false };
+  var token = practice.intake_token || (practice.metadata && practice.metadata.intake_token);
+  if (!token) {
+    token = practicePipeline.generateIntakeToken();
+    var patchedMeta = Object.assign({}, practice.metadata || {}, { intake_token: token });
+    var patched = await atsUpdatePracticeRow(practice.id, { metadata: patchedMeta }).catch(function () { return null; });
+    if (!patched) {
+      // Metadata column may also be missing — proceed with the in-memory
+      // token so the email still goes out; persistence is best-effort.
+      practice = Object.assign({}, practice, { metadata: patchedMeta });
+    } else {
+      practice = patched;
+    }
+  }
+
+  var intakeUrl = APP_BASE_URL + '/pages/practice-intake?token=' + encodeURIComponent(token);
+  var copy = practicePipeline.buildIntakeEmailCopy({ practiceName: practice.name, intakeUrl: intakeUrl });
+
+  var result = await sendEmail({
+    to: practice.contact_email,
+    subject: copy.subject,
+    html: buildCareerEmailHtml(copy),
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
+
+  if (result && result.ok) {
+    var current = await atsGetPracticeRow(practice.id).catch(function () { return null; });
+    var mergedMeta = Object.assign({}, (current && current.metadata) || practice.metadata || {}, {
+      intake_email_last_sent_at: new Date().toISOString()
+    });
+    await atsUpdatePracticeRow(practice.id, { metadata: mergedMeta }).catch(function (e) {
+      console.error('[fb-lead] failed to record intake_email_last_sent_at:', e && e.message);
+    });
+  }
+
+  return result;
 }
 
 function joinDialPhone(countryDial, phoneNumber) {
@@ -25795,6 +25978,12 @@ async function handleApi(req, res, pathname) {
   // DoubleTick inbound webhook — external origin, must be before same-origin enforcement
   if (pathname === '/api/webhooks/doubletick' && req.method === 'POST') {
     return handleDoubleTickWebhook(req, res);
+  }
+
+  // Facebook lead webhook — external origin, must be before same-origin enforcement
+  // (handles both GET verification handshake and POST lead delivery)
+  if (pathname === '/api/webhooks/facebook-lead') {
+    return handleFacebookLeadWebhook(req, res);
   }
 
   // Gmail Pub/Sub webhook — external origin, must be before same-origin enforcement
@@ -48541,6 +48730,18 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
     sendJson(res, 200, { ok: true, practice: updatedP });
+    return;
+  }
+
+  if (pathname === '/api/ats/practice/resend-intake' && req.method === 'POST') {
+    var ctxRI = requireAtsSession(req, res); if (!ctxRI) return;
+    var riId = url.searchParams.get('id'); if (!riId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var parsedRI = atsParsePracticeId(riId);
+    if (parsedRI.name) { sendJson(res, 400, { ok: false, message: 'This practice has no stored record yet.' }); return; }
+    var riRow = await atsGetPracticeRow(parsedRI.rowId);
+    if (!riRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    await sendPracticeIntakeEmail(riRow);
+    sendJson(res, 200, { ok: true });
     return;
   }
 
