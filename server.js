@@ -8504,7 +8504,13 @@ async function handleFacebookLeadWebhook(req, res) {
       return;
     }
 
-    sendPracticeIntakeEmail(created).catch(function (e) {
+    // Await the send BEFORE responding: on Vercel the function can be killed
+    // right after res.end(), so a fire-and-forget Resend call may silently
+    // never complete (same constraint the Gmail webhook documents). Still
+    // best-effort — the .catch means a failed email never fails the webhook.
+    // This single call covers both the normal and degraded-fallback paths,
+    // since `created` is reassigned to the legacy row in the fallback.
+    await sendPracticeIntakeEmail(created).catch(function (e) {
       console.error('[fb-lead] intake email send failed:', e && e.message);
     });
 
