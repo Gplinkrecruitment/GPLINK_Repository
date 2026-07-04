@@ -143,11 +143,11 @@ describe('marketing site public routes', () => {
     expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);
   });
 
-  it('/sitemap.xml is 200 application/xml and lists all 8 canonical URLs', async () => {
+  it('/sitemap.xml is 200 application/xml and lists all 9 canonical URLs', async () => {
     const res = await get('/sitemap.xml');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/xml/);
-    const expectedPaths = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs'];
+    const expectedPaths = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs', '/exclusive-placements'];
     for (const p of expectedPaths) {
       expect(res.raw).toContain(`<loc>https://www.mygplink.com.au${p}</loc>`);
     }
@@ -388,12 +388,71 @@ describe('marketing site "For GPs" page (Task 15)', () => {
   });
 });
 
+// Task 19: "Exclusive placement" scarcity/teaser page (pages/site-exclusive.html),
+// served at GET /exclusive-placements — the honest landing page linked from the
+// job board's zero-real-match locked teaser cards. It is NOT a nav item (no
+// header/footer link points at it), so none of the shared chrome nav links are
+// marked aria-current for it.
+describe('marketing site "Exclusive placement" page (Task 19)', () => {
+  it('GET /exclusive-placements is 200, marked data-page="exclusive", no auth-guard.js, no dead href="#" links', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.raw).toContain('data-page="exclusive"');
+    expect(res.raw).not.toMatch(/auth-guard\.js/);
+    expect(res.raw).not.toMatch(/href="#"/);
+  });
+
+  it('GET /exclusive-placements makes the honest "never advertised" scarcity claim', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).toMatch(/never advertised/i);
+  });
+
+  it('GET /exclusive-placements mentions the free Registration Support Officer', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).toContain('Registration Support Officer');
+  });
+
+  it('GET /exclusive-placements has the shared site chrome and SEO head tags', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).toContain('/css/site.css?v=20260703');
+    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('<title>Exclusive GP Placement Opportunities | GP Link</title>');
+    expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/exclusive-placements">');
+    expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
+    expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/sydney-opera.jpg"');
+  });
+
+  it('GET /exclusive-placements CTAs point at real destinations (signup, Calendly) and has no app-shell chrome', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).toContain('href="/pages/signin?signup=1"');
+    expect(res.raw).toContain('https://calendly.com/hello-mygplink/30min');
+    expect(res.raw).not.toMatch(/app-shell/);
+    expect(res.raw).not.toMatch(/nav-shell-bridge/);
+  });
+
+  it('GET /exclusive-placements is not marked as a current nav item anywhere (it is not a nav link)', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).not.toMatch(/href="\/exclusive-placements"[^>]*aria-current="page"/);
+    expect((res.raw.match(/aria-current="page"/g) || []).length).toBe(0);
+  });
+
+  // Honesty guard: the whole point of this page is that it must never invent
+  // a fake job. No specific practice/suburb/salary presented as a real
+  // current vacancy, and no numeric claim about how many exclusive roles exist.
+  it('GET /exclusive-placements makes no numeric claim about exclusive-role counts', async () => {
+    const res = await get('/exclusive-placements');
+    expect(res.raw).not.toMatch(/\b\d+\+?\s*(exclusive|unadvertised|roles?|vacanc(y|ies)|opportunit(y|ies))\b/i);
+    expect(res.raw).not.toMatch(/\d+\s*roles?\s*in\s*your\s*area/i);
+  });
+});
+
 // Task 16, Change 2: the old "no documents needed to start" copy was flagged
 // by the owner as false — GP Link does ask candidates to upload documents.
 // Regression guard: loop every public marketing route (including /gp-jobs,
 // which isn't in PUBLIC_ROUTES) and assert the claim never comes back.
 describe('marketing site never claims "no documents" (Task 16, Change 2 regression guard)', () => {
-  const ALL_PUBLIC_ROUTES = [...PUBLIC_ROUTES, '/gp-jobs'];
+  const ALL_PUBLIC_ROUTES = [...PUBLIC_ROUTES, '/gp-jobs', '/exclusive-placements'];
   for (const route of ALL_PUBLIC_ROUTES) {
     it(`GET ${route} does not contain the false "no documents" claim`, async () => {
       const res = await get(route);

@@ -118,6 +118,24 @@
   .single-match-panel h4{margin:0 0 8px;font-size:19px;font-weight:730;color:var(--ink-2);}
   .single-match-panel p{margin:0 auto 18px;font-size:14.5px;line-height:1.55;color:var(--mut);max-width:56ch;}
 
+  /* ---------- filtered search, ZERO real matches: honest "exclusive placement"
+     scarcity teaser (Task 19). Real, focusable links to /exclusive-placements —
+     never a fabricated job, never a numeric hidden-roles count. ---------- */
+  .job-card.exclusive-teaser{display:flex;flex-direction:column;align-items:flex-start;gap:10px;
+    background:linear-gradient(180deg,#f7fafd 0%,#eef4fa 100%);border:1px dashed var(--line);
+    text-decoration:none;color:inherit;cursor:pointer;transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease;}
+  .job-card.exclusive-teaser:hover{transform:translateY(-4px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);border-color:var(--teal);}
+  .job-card.exclusive-teaser:focus-visible{outline:2px solid var(--teal);outline-offset:3px;}
+  .excl-teaser-lock{color:var(--teal);opacity:.8;}
+  .excl-teaser-label{font-size:13.5px;font-weight:730;color:var(--ink-2);letter-spacing:.01em;}
+  .excl-teaser-label .dot{opacity:.5;margin:0 .35em;}
+  .excl-teaser-blur{width:100%;}
+  .excl-teaser-blur .bl{display:block;height:10px;border-radius:6px;background:#dbe6f0;margin-bottom:8px;filter:blur(1.5px);}
+  .excl-teaser-blur .bl1{width:82%}.excl-teaser-blur .bl2{width:60%}.excl-teaser-blur .bl3{width:70%}
+  .excl-teaser-sub{margin:0;font-size:13px;color:var(--mut);line-height:1.5;}
+
+  .exclusive-cta-panel{grid-column:1/-1;padding:0;border:0;}
+
   @media (prefers-reduced-motion: reduce){
     .job-card.skeleton,.job-card.skeleton-teaser{animation:none;}
   }
@@ -547,6 +565,55 @@
     paginationEl.innerHTML = "";
   }
 
+  // ---------- filtered search, ZERO real public matches: honest "exclusive
+  // placement" scarcity flow (Task 19) ----------
+  // When a FILTERED search has no real public listing at all, we don't show
+  // the generic dead-end empty state. Instead we show 2 locked "Exclusive
+  // placement" teaser cards — real, focusable links to the dedicated
+  // /exclusive-placements page, NOT fabricated jobs. They carry no invented
+  // practice name, suburb, salary or vacancy detail, and no numeric claim
+  // about how many exclusive roles exist — just an honest invitation to
+  // create a free account so a Registration Support Officer can match the
+  // visitor to unadvertised roles.
+  function buildExclusiveCard() {
+    var a = document.createElement("a");
+    a.className = "job-card exclusive-teaser";
+    a.href = "/exclusive-placements?from=jobs";
+    a.setAttribute("aria-label", "Exclusive placement — create a free account to view");
+    a.innerHTML =
+      '<span class="excl-teaser-lock">' + LOCK_ICON_SVG + "</span>" +
+      '<div class="excl-teaser-label">Exclusive placement<span class="dot">&middot;</span>Members only</div>' +
+      '<div class="excl-teaser-blur" aria-hidden="true"><span class="bl bl1"></span><span class="bl bl2"></span><span class="bl bl3"></span></div>' +
+      '<p class="excl-teaser-sub">Unadvertised role &mdash; create a free account to unlock</p>';
+    return a;
+  }
+
+  function buildExclusiveCtaPanel() {
+    var wrap = document.createElement("div");
+    wrap.className = "job-card exclusive-cta-panel";
+    var inner = document.createElement("div");
+    inner.className = "fcp-inner";
+    inner.innerHTML =
+      "<h4>Unlock exclusive opportunities</h4>" +
+      "<p>Create a free account and your dedicated Registration Support Officer will match you to exclusive, " +
+      "unadvertised roles that fit your profile &mdash; then you choose which to apply for.</p>" +
+      '<a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>';
+    wrap.appendChild(inner);
+    return wrap;
+  }
+
+  function renderExclusiveZeroMatch() {
+    if (resultsCountEl) {
+      resultsCountEl.textContent =
+        "No public listings match your search — but many of our best roles are never advertised.";
+    }
+    grid.innerHTML = "";
+    grid.appendChild(buildExclusiveCard());
+    grid.appendChild(buildExclusiveCard());
+    grid.appendChild(buildExclusiveCtaPanel());
+    paginationEl.innerHTML = "";
+  }
+
   function initFilteredResults() {
     renderSkeletons();
     if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
@@ -562,9 +629,7 @@
       if (!job) {
         total = Number(data.total) || 0;
         jobs = [];
-        updateResultsCount();
-        renderEmpty();
-        paginationEl.innerHTML = "";
+        renderExclusiveZeroMatch();
         return;
       }
       total = Number(data.total) || 0;

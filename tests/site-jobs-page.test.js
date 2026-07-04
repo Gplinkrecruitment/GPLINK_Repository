@@ -174,10 +174,56 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
     expect(res.raw).toMatch(/if \(hasFilters\) \{\s*\n\s*initFilteredResults\(\);\s*\n\s*\} else \{\s*\n\s*loadPage\(0\);\s*\n\s*\}/);
   });
 
-  it('zero real matches keeps the existing empty state (no fabricated top match)', async () => {
+  // Task 19: zero real matches on a FILTERED search no longer falls through
+  // to the generic empty state — it now shows the honest "exclusive
+  // placement" scarcity flow (2 locked teaser cards linking to the dedicated
+  // /exclusive-placements page + an "unlock" CTA panel). Still no fabricated
+  // top match (job stays null) and no numeric hidden-roles claim.
+  it('zero real matches on a filtered search renders the exclusive-placement flow, not the generic empty state', async () => {
     const res = await get('/jobs');
     expect(res.raw).toMatch(/var job = data\.jobs\[0\] \|\| null;\s*\n\s*if \(!job\) \{/);
-    expect(res.raw).toContain('renderEmpty();');
+    expect(res.raw).toMatch(/function renderExclusiveZeroMatch/);
+    expect(res.raw).toContain('renderExclusiveZeroMatch();');
+  });
+
+  it('defines a real, focusable, accessibly-labelled link to /exclusive-placements for each locked card (not aria-hidden/decorative)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function buildExclusiveCard/);
+    expect(res.raw).toContain('a.href = "/exclusive-placements?from=jobs"');
+    expect(res.raw).toContain('Exclusive placement — create a free account to view');
+    // it must be an <a>, not a decorative aria-hidden div like the skeleton teasers
+    expect(res.raw).toMatch(/var a = document\.createElement\("a"\);\s*\n\s*a\.className = "job-card exclusive-teaser";/);
+  });
+
+  it('the exclusive-zero-match card copy never fabricates a specific job (no practice name/suburb/salary presented as real)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('Exclusive placement');
+    expect(res.raw).toContain('Members only');
+    expect(res.raw).toContain('Unadvertised role &mdash; create a free account to unlock');
+  });
+
+  it('the exclusive-zero-match header uses the honest intro line (no numeric roles-found claim)', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('No public listings match your search — but many of our best roles are never advertised.');
+  });
+
+  it('the exclusive-zero-match CTA panel has the exact required copy', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function buildExclusiveCtaPanel/);
+    expect(res.raw).toContain('Unlock exclusive opportunities');
+    expect(res.raw).toContain(
+      'Create a free account and your dedicated Registration Support Officer will match you to exclusive, '
+    );
+    expect(res.raw).toContain(
+      'unadvertised roles that fit your profile &mdash; then you choose which to apply for.</p>'
+    );
+  });
+
+  it('never fabricates a numeric count of exclusive/hidden roles anywhere on the page', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).not.toContain('100+');
+    expect(res.raw).not.toMatch(/\b\d+\s*(exclusive|unadvertised)\s*roles?\b/i);
+    expect(res.raw).not.toMatch(/\d+\s*roles?\s*in\s*your\s*area/i);
   });
 
   it('respects prefers-reduced-motion for the teaser shimmer (static grey cards)', async () => {

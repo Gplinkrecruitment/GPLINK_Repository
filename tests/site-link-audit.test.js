@@ -27,7 +27,7 @@ const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server;
 let addrPort;
 
-const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs'];
+const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs', '/exclusive-placements'];
 const PUBLIC_BASE_URL = 'https://www.mygplink.com.au';
 
 const ALLOWED_EXTERNAL = [
