@@ -276,6 +276,13 @@
       flex-shrink: 0;
     }
 
+    .hero-display-label {
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0.94;
+    }
+
     .hero-caption {
       max-width: 300px;
       display: grid;
@@ -997,6 +1004,7 @@
               <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
               <span>Location reference</span>
             </div>
+            <div class="hero-display-label" id="heroDisplayLabel" hidden></div>
             <div class="hero-caption">
               <span class="hero-caption-title">Practice summary</span>
               <span class="hero-caption-copy" id="heroCaptionCopy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
@@ -1262,7 +1270,9 @@
   const heroImageEl = document.getElementById("heroImage");
   const heroPlaceholderEl = document.getElementById("heroPlaceholder");
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
+  const heroDisplayLabelEl = document.getElementById("heroDisplayLabel");
   const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
+  const heroPrivacyBadgeEl = document.getElementById("heroPrivacyBadge");
   const billingPillEl = document.getElementById("billingPill");
   const benefitGridEl = document.getElementById("benefitGrid");
   const mapSectionEl = document.getElementById("mapSection");
@@ -1429,7 +1439,9 @@
   }
 
   function renderHeroImage(role) {
-    const imageUrl = String(role && role.heroImageUrl ? role.heroImageUrl : "").trim();
+    // A practice-uploaded header image (task 9) always wins over the
+    // AI-sourced scenery photo — it's a real photo of the actual location.
+    const imageUrl = String(role && (role.headerImageUrl || role.heroImageUrl) ? (role.headerImageUrl || role.heroImageUrl) : "").trim();
     const label = String(role && (role.locationLine || role.location || role.mapLabel) ? (role.locationLine || role.location || role.mapLabel) : "the surrounding suburb").trim();
 
     if (!imageUrl) {
@@ -1489,7 +1501,7 @@
   }
 
   async function ensureHeroImage(role) {
-    if (!role || role.heroImageUrl) return;
+    if (!role || role.headerImageUrl || role.heroImageUrl) return;
     const params = buildHeroImageLookupParams(role);
     const requestId = ++heroImageLookupRequestId;
     try {
@@ -1544,19 +1556,39 @@
     document.title = "Role Details - GP Link";
     heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
     if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
+    if (heroDisplayLabelEl) {
+      // Real practice name once the server marks this role as revealed
+      // (accepted offer / admin-applied origin); masked displayLabel otherwise.
+      if (role && role.revealed && role.realPracticeName) {
+        heroDisplayLabelEl.textContent = role.realPracticeName;
+        heroDisplayLabelEl.hidden = false;
+      } else if (role && role.displayLabel) {
+        heroDisplayLabelEl.textContent = role.displayLabel;
+        heroDisplayLabelEl.hidden = false;
+      } else {
+        heroDisplayLabelEl.hidden = true;
+        heroDisplayLabelEl.textContent = "";
+      }
+    }
+    if (heroPrivacyBadgeEl) {
+      heroPrivacyBadgeEl.textContent = (role && role.revealed) ? "Practice revealed" : "Confidential listing";
+    }
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
     renderHeroImage(role);
     ensureHeroImage(role);
 
     renderBenefits(role.benefits);
 
-    if (role.mapQuery) {
+    var effectiveMapQuery = (role && role.revealed && role.revealedMapQuery) ? role.revealedMapQuery : (role && role.mapQuery);
+    if (effectiveMapQuery) {
       mapSectionEl.hidden = false;
       if (mapPreviewEl) mapPreviewEl.hidden = false;
       mapWrapEl.hidden = true;
       mapFrameEl.removeAttribute("src");
       mapToggleBtnEl.textContent = "Show map";
-      mapHintEl.textContent = "Explore the suburb surrounding this confidential role while the practice identity remains protected.";
+      mapHintEl.textContent = (role && role.revealed)
+        ? `Explore the exact location of ${role.realPracticeName || "this practice"}.`
+        : "Explore the suburb surrounding this confidential role while the practice identity remains protected.";
     } else {
       mapSectionEl.hidden = true;
       if (mapPreviewEl) mapPreviewEl.hidden = true;
@@ -1663,13 +1695,15 @@
 
   /* ── Event listeners ── */
   mapToggleBtnEl.addEventListener("click", () => {
-    if (!currentRole || !currentRole.mapQuery) return;
+    var revealed = !!(currentRole && currentRole.revealed && currentRole.revealedMapQuery);
+    var query = revealed ? currentRole.revealedMapQuery : (currentRole && currentRole.mapQuery);
+    if (!query) return;
     mapVisible = !mapVisible;
     mapWrapEl.hidden = !mapVisible;
     if (mapPreviewEl) mapPreviewEl.hidden = mapVisible;
     mapToggleBtnEl.textContent = mapVisible ? "Hide map" : "Show map";
     if (mapVisible && !mapFrameEl.getAttribute("src")) {
-      mapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(currentRole.mapQuery) + "&z=13&output=embed");
+      mapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(query) + "&z=" + (revealed ? 15 : 13) + "&output=embed");
     }
   });
 

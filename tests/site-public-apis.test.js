@@ -117,10 +117,15 @@ describe('GET /api/public/stats (HTTP)', () => {
 // Direct unit tests against the exact functions the route handler calls
 // ---------------------------------------------------------------------------
 
+// practice_name is intentionally ABSENT — the marketing site (no session, no
+// reveal gate) must only ever see the masked title/display_label. See
+// canRevealPracticeIdentity() in server.js for the session-gated in-app
+// equivalent that IS allowed to surface the real name once earned.
 const PUBLIC_JOB_FIELDS = [
-  'id', 'title', 'practice_name', 'location_label', 'location_state',
+  'id', 'title', 'location_label', 'location_state',
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
-  'employment_type', 'tags', 'published_at'
+  'employment_type', 'tags', 'published_at',
+  'display_label', 'header_image_url', 'suburb', 'nearest_city'
 ];
 
 function makeRawRow(overrides) {
@@ -129,7 +134,14 @@ function makeRawRow(overrides) {
     provider: 'zoho_recruit',
     provider_role_id: 'ZR-000',
     title: 'General Practitioner',
+    // The raw DB row DOES carry the real practice name (and, once the
+    // practice-client pipeline migration lands, masked_title/suburb/etc.) —
+    // that's exactly why the mapper/sanitizer whitelist below is load-bearing.
     practice_name: 'Sample Medical Centre',
+    masked_title: '',
+    header_image_url: '',
+    suburb: '',
+    nearest_city: '',
     location_city: 'Brisbane',
     location_state: 'QLD',
     location_country: 'Australia',
@@ -161,21 +173,31 @@ function makeRawRow(overrides) {
 }
 
 describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
-  it('the sanitized job object contains ONLY the whitelisted keys, and source_payload is absent', () => {
+  it('the sanitized job object contains ONLY the whitelisted keys, and source_payload/practice_name are absent', () => {
     const row = makeRawRow({});
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
     const sanitized = testUtils.sanitizePublicJob(mapped);
     expect(Object.keys(sanitized).sort()).toEqual([...PUBLIC_JOB_FIELDS].sort());
     expect(sanitized.source_payload).toBeUndefined();
+    expect(sanitized.practice_name).toBeUndefined();
     expect(JSON.stringify(sanitized)).not.toMatch(/internal-zoho-payload|sk-should-not-leak|synced_at/);
   });
 
-  it('sanitizing a raw row directly (bypassing the mapper) still strips source_payload', () => {
-    // Defensive whitelist test: even a raw DB row (which DOES carry source_payload)
-    // must come out clean if it were ever passed straight into the sanitizer.
+  it('the real practice name never appears anywhere in the sanitized job — even inside another field', () => {
+    const row = makeRawRow({ practice_name: 'Riverside Medical Centre' });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    const sanitized = testUtils.sanitizePublicJob(mapped);
+    expect(JSON.stringify(sanitized)).not.toMatch(/Riverside Medical Centre/);
+  });
+
+  it('sanitizing a raw row directly (bypassing the mapper) still strips source_payload AND practice_name', () => {
+    // Defensive whitelist test: even a raw DB row (which DOES carry
+    // source_payload and practice_name) must come out clean if it were ever
+    // passed straight into the sanitizer, bypassing the mapper entirely.
     const row = makeRawRow({});
     const sanitized = testUtils.sanitizePublicJob(row);
     expect(sanitized.source_payload).toBeUndefined();
+    expect(sanitized.practice_name).toBeUndefined();
     expect(Object.keys(sanitized).sort()).toEqual([...PUBLIC_JOB_FIELDS].sort());
   });
 
@@ -184,6 +206,35 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
     expect(mapped.dpa).toBe(true);
     expect(mapped.tags).toEqual(['VR-GP', 'DPA']);
+  });
+
+  it('title prefers masked_title over the raw title when present', () => {
+    const row = makeRawRow({ title: 'Dr Smith GP role at Riverside', masked_title: 'GP Job near Brisbane | Mixed Billing' });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    expect(mapped.title).toBe('GP Job near Brisbane | Mixed Billing');
+  });
+
+  it('falls back to the raw title when masked_title is absent (legacy/pre-migration rows)', () => {
+    const row = makeRawRow({ title: 'General Practitioner', masked_title: '' });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    expect(mapped.title).toBe('General Practitioner');
+  });
+
+  it('builds display_label from billing_model/dpa/nearest_city (never from practice_name)', () => {
+    // billing_model on a practice-client-pipeline row (task 6) is the raw
+    // style key ('mixed'/'bulk'/'private'), not a human label — that's the
+    // key buildMaskedDisplayLabel's BILLING_LABELS map expects.
+    const row = makeRawRow({ billing_model: 'bulk', dpa: true, nearest_city: 'Perth' });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    expect(mapped.display_label).toBe('Bulk Billing · DPA · near Perth');
+  });
+
+  it('carries header_image_url/suburb/nearest_city through when present', () => {
+    const row = makeRawRow({ header_image_url: 'https://cdn.example.com/hero.jpg', suburb: 'Toowong', nearest_city: 'Brisbane' });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    expect(mapped.header_image_url).toBe('https://cdn.example.com/hero.jpg');
+    expect(mapped.suburb).toBe('Toowong');
+    expect(mapped.nearest_city).toBe('Brisbane');
   });
 });
 
@@ -211,22 +262,36 @@ describe('classifyPublicJobType', () => {
 });
 
 describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact function the route calls)', () => {
+  // Each row still carries a real (sensitive) practice_name — exactly like a
+  // live career_roles row would — so these tests double as a masking
+  // regression suite: the practice_name text must never surface anywhere in
+  // a response, even via search/filter/pagination paths.
   const rows = [
     makeRawRow({ id: 1, provider_role_id: 'ZR-001', title: 'General Practitioner (VR)', practice_name: 'Riverside Medical Centre', location_city: 'Brisbane', location_state: 'QLD', location_label: 'Riverside, QLD', tags: ['VR-GP', 'DPA'], summary: 'VR GP required for a busy riverside clinic.' }),
-    makeRawRow({ id: 2, provider_role_id: 'ZR-002', title: 'Locum GP', practice_name: 'Outback Family Practice', location_city: 'Toowoomba', location_state: 'QLD', location_label: 'Toowoomba, QLD', tags: ['Locum'], employment_type: 'Locum', summary: 'Locum GP needed for rural placement.' }),
+    makeRawRow({ id: 2, provider_role_id: 'ZR-002', title: 'Outback Rural Locum GP', practice_name: 'Outback Family Practice', location_city: 'Toowoomba', location_state: 'QLD', location_label: 'Toowoomba, QLD', tags: ['Locum'], employment_type: 'Locum', summary: 'Locum GP needed for rural placement.' }),
     makeRawRow({ id: 3, provider_role_id: 'ZR-003', title: 'Non-VR GP', practice_name: 'Melbourne Central Clinic', location_city: 'Melbourne', location_state: 'VIC', location_label: 'Melbourne, VIC', tags: ['Non-VR', 'Supervised'], summary: 'Non-VR GP welcome, supervision provided.' }),
     makeRawRow({ id: 4, provider_role_id: 'ZR-004', title: 'General Practitioner (VR)', practice_name: 'Harbourside Practice', location_city: 'Sydney', location_state: 'NSW', location_label: 'Sydney, NSW', tags: ['VR-GP'], summary: 'VR GP opportunity in Sydney.' }),
     makeRawRow({ id: 5, provider_role_id: 'ZR-005', title: 'Locum GP', practice_name: 'Southbank Clinic', location_city: 'Melbourne', location_state: 'VIC', location_label: 'Southbank, VIC', tags: ['Locum'], employment_type: 'Locum', summary: 'Short-term locum cover in Melbourne.' })
   ];
+  const ALL_PRACTICE_NAMES = ['Riverside Medical Centre', 'Outback Family Practice', 'Melbourne Central Clinic', 'Harbourside Practice', 'Southbank Clinic'];
 
-  it('with no filters, returns all rows sanitized to the whitelist', () => {
+  function expectNoPracticeNameLeak(result) {
+    const json = JSON.stringify(result);
+    for (const name of ALL_PRACTICE_NAMES) {
+      expect(json).not.toMatch(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
+  }
+
+  it('with no filters, returns all rows sanitized to the whitelist, with no practice_name leak', () => {
     const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams());
     expect(result.ok).toBe(true);
     expect(result.total).toBe(5);
     expect(result.jobs.length).toBe(5);
     for (const job of result.jobs) {
       expect(Object.keys(job).sort()).toEqual([...PUBLIC_JOB_FIELDS].sort());
+      expect(job.practice_name).toBeUndefined();
     }
+    expectNoPracticeNameLeak(result);
   });
 
   it('state=QLD returns only QLD roles (case-insensitive)', () => {
@@ -235,10 +300,10 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     expect(result.jobs.every((j) => j.location_state === 'QLD')).toBe(true);
   });
 
-  it('q substring-matches title/practice_name/location_label/tags, case-insensitively', () => {
-    const byPractice = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ q: 'outback' }));
-    expect(byPractice.total).toBe(1);
-    expect(byPractice.jobs[0].practice_name).toBe('Outback Family Practice');
+  it('q substring-matches title/display_label/location_label/tags (never practice_name), case-insensitively', () => {
+    const byTitle = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ q: 'outback' }));
+    expect(byTitle.total).toBe(1);
+    expect(byTitle.jobs[0].title).toBe('Outback Rural Locum GP');
 
     const byLocation = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ q: 'SYDNEY' }));
     expect(byLocation.total).toBe(1);
@@ -246,20 +311,29 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
 
     const byTag = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ q: 'vr-gp' }));
     expect(byTag.total).toBe(2);
+
+    // The real practice names are searchable text on the raw rows, but since
+    // the mapper never carries practice_name into the public shape, searching
+    // for them must return nothing.
+    const byRealName = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ q: 'riverside medical centre' }));
+    expect(byRealName.total).toBe(0);
   });
 
-  it('type=locum / vr-gp / non-vr-gp each filter to the right subset', () => {
+  it('type=locum / vr-gp / non-vr-gp each filter to the right subset (by title, never practice_name)', () => {
     const locum = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'locum' }));
     expect(locum.total).toBe(2);
-    expect(locum.jobs.map((j) => j.practice_name).sort()).toEqual(['Outback Family Practice', 'Southbank Clinic']);
+    expect(locum.jobs.map((j) => j.title).sort()).toEqual(['Locum GP', 'Outback Rural Locum GP']);
+    expectNoPracticeNameLeak(locum);
 
     const vr = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'vr-gp' }));
     expect(vr.total).toBe(2);
-    expect(vr.jobs.map((j) => j.practice_name).sort()).toEqual(['Harbourside Practice', 'Riverside Medical Centre']);
+    expect(vr.jobs.map((j) => j.location_label).sort()).toEqual(['Riverside, QLD', 'Sydney, NSW']);
+    expectNoPracticeNameLeak(vr);
 
     const nonVr = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'non-vr-gp' }));
     expect(nonVr.total).toBe(1);
-    expect(nonVr.jobs[0].practice_name).toBe('Melbourne Central Clinic');
+    expect(nonVr.jobs[0].location_label).toBe('Melbourne, VIC');
+    expectNoPracticeNameLeak(nonVr);
   });
 
   it('limit caps the returned jobs while total still reflects the pre-limit filtered count', () => {
@@ -276,14 +350,15 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     expect(page2.offset).toBe(2);
   });
 
-  it('id returns exactly the matching job, sanitized to the whitelist', () => {
+  it('id returns exactly the matching job, sanitized to the whitelist, with no practice_name leak', () => {
     const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ id: 'zoho_recruit:ZR-003' }));
     expect(result.ok).toBe(true);
     expect(result.total).toBe(1);
     expect(result.jobs.length).toBe(1);
     expect(result.jobs[0].id).toBe('zoho_recruit:ZR-003');
-    expect(result.jobs[0].practice_name).toBe('Melbourne Central Clinic');
+    expect(result.jobs[0].location_label).toBe('Melbourne, VIC');
     expect(Object.keys(result.jobs[0]).sort()).toEqual([...PUBLIC_JOB_FIELDS].sort());
+    expectNoPracticeNameLeak(result);
   });
 
   it('an unknown id returns jobs:[] and total:0 (not an error)', () => {

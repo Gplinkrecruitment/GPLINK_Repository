@@ -17294,6 +17294,9 @@ async function listCareerRoleRows(activeOnly = true, provider = '') {
 // treats as open — see atsJobCard), so the check lives here in JS.
 function isInternalAtsRoleOpenForGp(row) {
   if (!row || row.is_active === false) return false;
+  // Practice-client-pipeline jobs (task 6) stay hidden from GPs until an
+  // admin/CEO approves them, even if is_active somehow flips true early.
+  if (row.approval_status && row.approval_status !== 'approved') return false;
   const status = String(row.job_status || 'open').trim().toLowerCase();
   return status === 'open';
 }
@@ -17504,7 +17507,20 @@ function mapCareerRoleRowToClient(row) {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
     sourceId: row && row.provider_role_id ? String(row.provider_role_id) : '',
     match: 'Live opening',
-    practiceName: gpLinkMeta.publicHeadline || 'Confidential GP practice',
+    // masked_title (practice-client pipeline, task 6) is a display-safe
+    // masked name — it is NEVER the real practice name. Falls back to the
+    // existing Zoho-derived publicHeadline, then a generic label.
+    practiceName: (row && row.masked_title) ? String(row.masked_title) : (gpLinkMeta.publicHeadline || 'Confidential GP practice'),
+    headerImageUrl: (row && row.header_image_url) ? String(row.header_image_url) : '',
+    displayLabel: practicePipeline.buildMaskedDisplayLabel({
+      billingStyle: row && row.billing_model,
+      dpa: !!(row && row.dpa),
+      nearestCity: (row && row.nearest_city) || (row && row.location_city) || ''
+    }),
+    dpa: !!(row && row.dpa),
+    state: row && row.location_state ? String(row.location_state) : '',
+    nearest_city: (row && row.nearest_city) ? String(row.nearest_city) : '',
+    qualifies: true,
     location: location || 'Australia',
     locationLine: gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb),
     proximityNote: gpLinkMeta.publicLocationProximity || buildCareerPublicProximityNote(row, gpLinkMeta.suburb),
@@ -17556,6 +17572,42 @@ function mapCareerRoleDetailToClient(row) {
   };
 }
 
+// ── Centralized practice-identity reveal gate ──────────────────────────────
+// The SINGLE source of truth for "is this GP allowed to see the real practice
+// name/address for this role". Used by /api/career/role and
+// /api/career/my-offer so the reveal rule can never drift between the two
+// endpoints. Delegates the actual policy to practicePipeline.canRevealPracticeIdentityCore
+// (application.origin === 'admin_applied' OR application.revealed === true OR
+// an accepted offer) — this function's only job is resolving the user's
+// application + offer for the given career_role_id, dual-mode (Supabase /
+// local dbState), and handing them to that pure rule.
+async function canRevealPracticeIdentity(userId, careerRoleId) {
+  const uid = String(userId || '').trim();
+  const roleId = careerRoleId !== undefined && careerRoleId !== null ? String(careerRoleId).trim() : '';
+  if (!uid || !roleId) return false;
+
+  let application = null;
+  if (isSupabaseDbConfigured()) {
+    const appRes = await supabaseDbRequest('gp_applications',
+      'select=*&user_id=eq.' + encodeURIComponent(uid) + '&career_role_id=eq.' + encodeURIComponent(roleId) + '&limit=1');
+    application = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
+  } else {
+    application = (dbState.atsApplications || []).find((a) =>
+      a && String(a.user_id) === uid && String(a.career_role_id) === roleId
+    ) || null;
+  }
+  if (!application) return false;
+
+  let offer = null;
+  try {
+    offer = await atsOffersStore.getAtsOfferByApplication(String(application.id));
+  } catch (e) {
+    offer = null;
+  }
+
+  return practicePipeline.canRevealPracticeIdentityCore({ application, offer });
+}
+
 function parseCareerRolePublicId(publicId) {
   const value = String(publicId || '').trim();
   if (!value) return null;
@@ -17572,10 +17624,14 @@ function parseCareerRolePublicId(publicId) {
 // the public marketing site only ever sees the raw whitelisted columns below and
 // must never see source_payload or any other GP-Link-internal metadata.
 const SITE_STATS = { locations: 830, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100, jobsFallback: 1470 };
+// practice_name is NEVER whitelisted here — the marketing site (no session,
+// no reveal gate) must only ever see the masked title/display_label. See
+// canRevealPracticeIdentity() below for the session-gated in-app equivalent.
 const PUBLIC_JOB_FIELDS = [
-  'id', 'title', 'practice_name', 'location_label', 'location_state',
+  'id', 'title', 'location_label', 'location_state',
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
-  'employment_type', 'tags', 'published_at'
+  'employment_type', 'tags', 'published_at',
+  'display_label', 'header_image_url', 'suburb', 'nearest_city'
 ];
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
@@ -17591,8 +17647,19 @@ function mapCareerRoleRowToPublicJob(row) {
   ]);
   return {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
-    title: row && row.title ? String(row.title) : '',
-    practice_name: row && row.practice_name ? String(row.practice_name) : '',
+    // masked_title (set by the practice-client pipeline, task 6) always wins
+    // over the raw title — the raw `title` column may itself carry the real
+    // practice name for older/legacy rows, so masked_title is the only safe
+    // public-facing value once it exists.
+    title: (row && row.masked_title) ? String(row.masked_title) : (row && row.title ? String(row.title) : ''),
+    display_label: practicePipeline.buildMaskedDisplayLabel({
+      billingStyle: row && row.billing_model,
+      dpa: !!(row && row.dpa),
+      nearestCity: (row && row.nearest_city) || (row && row.location_city) || ''
+    }),
+    header_image_url: row && row.header_image_url ? String(row.header_image_url) : '',
+    suburb: row && row.suburb ? String(row.suburb) : '',
+    nearest_city: row && row.nearest_city ? String(row.nearest_city) : '',
     location_label: locationLabel || 'Australia',
     location_state: row && row.location_state ? String(row.location_state).trim().toUpperCase() : '',
     billing_model: row && row.billing_model ? String(row.billing_model) : '',
@@ -17616,7 +17683,7 @@ function sanitizePublicJob(role) {
 }
 
 function publicJobSearchText(job) {
-  return [job.title, job.practice_name, job.location_label, ...(Array.isArray(job.tags) ? job.tags : [])]
+  return [job.title, job.display_label, job.location_label, ...(Array.isArray(job.tags) ? job.tags : [])]
     .map((value) => String(value || ''))
     .join(' ')
     .toLowerCase();
@@ -17714,7 +17781,11 @@ async function getActivePublicJobRowsLive() {
   if (!isSupabaseDbConfigured()) return null;
   const result = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc');
   if (!result.ok || !Array.isArray(result.data)) return null;
-  return result.data;
+  // Defensive belt-and-braces on top of is_active=eq.true above: a
+  // practice-client-pipeline job (task 6) is only ever public once an
+  // admin/CEO has approved it. Rows with no approval_status at all (Zoho /
+  // legacy manual rows) are treated as approved.
+  return result.data.filter((row) => !row.approval_status || row.approval_status === 'approved');
 }
 
 // Cached read for GET /api/public/jobs — same 5-min-TTL style as
@@ -28879,9 +28950,34 @@ async function handleApi(req, res, pathname) {
     const billingReadyRow = await ensureCareerRoleWebsiteBilling(existingRow);
     const aiReadyRow = await ensureCareerRoleAiProfile(billingReadyRow || existingRow);
     const heroReadyRow = await ensureCareerRoleHeroImage(aiReadyRow || billingReadyRow || existingRow);
+    const finalRoleRow = heroReadyRow || aiReadyRow || billingReadyRow || existingRow;
+    const roleClientPayload = mapCareerRoleDetailToClient(finalRoleRow);
+
+    // Reveal gate: only ever add the real practice name/address once
+    // canRevealPracticeIdentity says this GP has earned it for this role
+    // (admin-applied origin, an explicit revealed flag, or an accepted offer).
+    const roleDetailEmail = getSessionEmail(session);
+    const roleDetailUserId = getSessionSupabaseUserId(session) || (roleDetailEmail ? await getSupabaseUserIdByEmail(roleDetailEmail) : null);
+    const revealed = roleDetailUserId ? await canRevealPracticeIdentity(roleDetailUserId, finalRoleRow.id) : false;
+    if (revealed) {
+      let practiceAddress = '';
+      if (finalRoleRow.practice_id) {
+        try {
+          const practiceRow = await atsGetPracticeRow(finalRoleRow.practice_id);
+          practiceAddress = (practiceRow && practiceRow.address)
+            ? String(practiceRow.address)
+            : ((practiceRow && practiceRow.metadata && practiceRow.metadata.intake && practiceRow.metadata.intake.address) ? String(practiceRow.metadata.intake.address) : '');
+        } catch (e) { practiceAddress = ''; }
+      }
+      roleClientPayload.revealed = true;
+      roleClientPayload.realPracticeName = finalRoleRow.practice_name ? String(finalRoleRow.practice_name) : '';
+      roleClientPayload.practiceAddress = practiceAddress;
+      roleClientPayload.revealedMapQuery = [practiceAddress, finalRoleRow.suburb, finalRoleRow.location_state].filter(Boolean).join(', ');
+    }
+
     sendJson(res, 200, {
       ok: true,
-      role: mapCareerRoleDetailToClient(heroReadyRow || aiReadyRow || billingReadyRow || existingRow)
+      role: roleClientPayload
     }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
@@ -29377,8 +29473,33 @@ async function handleApi(req, res, pathname) {
     if (moRole && moRole.practice_id) {
       try { moPractice = await atsGetPracticeRow(moRole.practice_id); } catch (e) { moPractice = null; }
     }
-    const moPracticeName = moOffer.practice_name || (moRole && moRole.practice_name) || '';
-    const moLocation = moRole ? [moRole.location_city, moRole.location_state].filter(Boolean).join(', ') : '';
+
+    // Reveal gate — same centralized rule as /api/career/role. Until this GP's
+    // application/offer earns a reveal, the offer page must show only the
+    // masked title + suburb/state, never the real practice name/address.
+    const moRevealed = await canRevealPracticeIdentity(moUserId, moRole && moRole.id);
+
+    const moPracticeName = moRevealed
+      ? (moOffer.practice_name || (moRole && moRole.practice_name) || '')
+      : ((moRole && moRole.masked_title) || 'Confidential practice');
+
+    const moLocation = moRevealed
+      ? (moRole ? [moRole.location_city, moRole.location_state].filter(Boolean).join(', ') : '')
+      : (moRole ? [(moRole.suburb || moRole.location_city || ''), moRole.location_state].filter(Boolean).join(', ') : '');
+
+    let moPracticeAddress = '';
+    let moRevealedMapQuery = '';
+    let moHeaderImageUrl = '';
+    if (moRevealed) {
+      moPracticeAddress = (moPractice && moPractice.address)
+        ? String(moPractice.address)
+        : ((moPractice && moPractice.metadata && moPractice.metadata.intake && moPractice.metadata.intake.address) ? String(moPractice.metadata.intake.address) : '');
+      moRevealedMapQuery = [moPracticeAddress, moRole && moRole.suburb, moRole && moRole.location_state].filter(Boolean).join(', ');
+      moHeaderImageUrl = (moRole && moRole.header_image_url) ? String(moRole.header_image_url) : '';
+    }
+    // Task 12 will refine this further (e.g. interview-status checks); for now
+    // it's simply gated on reveal + the offer still being live.
+    const moInterviewBookable = moRevealed && moOffer.status !== 'declined' && moOffer.status !== 'withdrawn';
 
     // Contract availability: the offer recorded a delivered contract, or an
     // offer_contract document already sits in the GP's documents.
@@ -29423,11 +29544,18 @@ async function handleApi(req, res, pathname) {
       roleTitle: moOffer.job_title || (moRole && moRole.title) || '',
       location: moLocation,
       practiceContact: {
-        name: (moPractice && moPractice.contact_name) || ((moPracticeName ? moPracticeName + ' ' : '') + 'Team'),
+        name: moRevealed
+          ? ((moPractice && moPractice.contact_name) || ((moPracticeName ? moPracticeName + ' ' : '') + 'Team'))
+          : 'The practice team',
         role: 'Medical centre contact'
       },
       contractAvailable: moContractAvailable,
-      guidanceOfficer: moOfficer || 'GP Link team'
+      guidanceOfficer: moOfficer || 'GP Link team',
+      revealed: moRevealed,
+      practiceAddress: moPracticeAddress,
+      revealedMapQuery: moRevealedMapQuery,
+      headerImageUrl: moHeaderImageUrl,
+      interviewBookable: moInterviewBookable
     });
     return;
   }
@@ -50258,6 +50386,10 @@ module.exports.__testUtils = {
   sanitizePublicJob,
   classifyPublicJobType,
   buildPublicJobsResponse,
+  mapCareerRoleRowToClient,
+  mapCareerRoleDetailToClient,
+  isInternalAtsRoleOpenForGp,
+  canRevealPracticeIdentity,
   getPublicJobsCount,
   getPublicJobsRows,
   __getPublicJobsRowsCacheForTest,

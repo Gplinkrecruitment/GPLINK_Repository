@@ -5001,6 +5001,13 @@
       color: var(--gp-ink);
     }
 
+    .role-display-label {
+      margin: 4px 0 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gp-muted);
+    }
+
     .modal-meta {
       display: flex;
       flex-wrap: wrap;
@@ -6780,6 +6787,7 @@
       </button>
       <div>
         <h2 class="modal-title" id="roleModalTitle">Role title</h2>
+        <p class="role-display-label" id="roleModalDisplayLabel" hidden></p>
         <p class="role-location" id="roleModalLocation"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>Location</span></p>
       </div>
       <p class="modal-summary" id="roleModalSummary"></p>
@@ -7730,6 +7738,7 @@
     const roleModalEl = document.getElementById("roleModal");
     const roleModalCloseBtnEl = document.getElementById("roleModalCloseBtn");
     const roleModalTitleEl = document.getElementById("roleModalTitle");
+    const roleModalDisplayLabelEl = document.getElementById("roleModalDisplayLabel");
     const roleModalLocationEl = document.getElementById("roleModalLocation");
     const roleModalSummaryEl = document.getElementById("roleModalSummary");
     const roleModalBadgesEl = document.getElementById("roleModalBadges");
@@ -10025,7 +10034,9 @@
       const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
       const location = String(role.location || "Australia");
       const earnings = String(role.earnings || "");
-      const heroUrl = String(role.heroImageUrl || "");
+      // A practice-uploaded header image (task 9) always wins over the
+      // AI-sourced scenery photo — it's a real photo of the actual location.
+      const heroUrl = String(role.headerImageUrl || role.heroImageUrl || "");
 
       return `<article class="role-card">
         <div class="role-card-content">
@@ -10046,26 +10057,43 @@
       </article>`;
     }
 
+    // Once the server marks a role as revealed (accepted offer / admin-applied
+    // origin — see canRevealPracticeIdentity in server.js), swap the suburb-only
+    // map for the exact-address map at a tighter zoom.
+    function getRoleMapContext(role) {
+      if (role && role.revealed && role.revealedMapQuery) {
+        return { query: role.revealedMapQuery, zoom: 15 };
+      }
+      if (role && role.mapQuery) {
+        return { query: role.mapQuery, zoom: 13 };
+      }
+      return null;
+    }
+
     function resetRoleMap(role) {
       roleModalMapVisible = false;
-      const hasMap = !!(role && role.mapQuery);
+      const mapContext = getRoleMapContext(role);
+      const hasMap = !!mapContext;
       roleModalMapCardEl.hidden = !hasMap;
       roleModalMapWrapEl.hidden = true;
       roleModalMapFrameEl.removeAttribute("src");
-      roleModalMapHintEl.textContent = hasMap
-        ? `Explore the suburb surrounding ${role.mapLabel || "this confidential practice profile"}.`
-        : "Area mapping will appear when suburb data is available.";
+      roleModalMapHintEl.textContent = (role && role.revealed)
+        ? `Explore the exact location of ${role.realPracticeName || "this practice"}.`
+        : hasMap
+          ? `Explore the suburb surrounding ${role.mapLabel || "this confidential practice profile"}.`
+          : "Area mapping will appear when suburb data is available.";
       roleModalMapToggleBtnEl.textContent = "Show suburb map";
       roleModalMapToggleBtnEl.disabled = !hasMap;
     }
 
     function toggleRoleMap(role) {
-      if (!role || !role.mapQuery) return;
+      const mapContext = getRoleMapContext(role);
+      if (!mapContext) return;
       roleModalMapVisible = !roleModalMapVisible;
       roleModalMapWrapEl.hidden = !roleModalMapVisible;
       roleModalMapToggleBtnEl.textContent = roleModalMapVisible ? "Hide suburb map" : "Show suburb map";
       if (roleModalMapVisible && !roleModalMapFrameEl.getAttribute("src")) {
-        roleModalMapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(role.mapQuery) + "&z=13&output=embed");
+        roleModalMapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(mapContext.query) + "&z=" + mapContext.zoom + "&output=embed");
       }
     }
 
@@ -10483,6 +10511,21 @@
 
     }
 
+    // Masked (displayLabel) name under the headline by default; switches to
+    // the real practice name once the server marks the role as revealed.
+    function renderRoleModalDisplayLabel(role) {
+      if (role && role.revealed && role.realPracticeName) {
+        roleModalDisplayLabelEl.textContent = role.realPracticeName;
+        roleModalDisplayLabelEl.hidden = false;
+      } else if (role && role.displayLabel) {
+        roleModalDisplayLabelEl.textContent = role.displayLabel;
+        roleModalDisplayLabelEl.hidden = false;
+      } else {
+        roleModalDisplayLabelEl.hidden = true;
+        roleModalDisplayLabelEl.textContent = "";
+      }
+    }
+
     async function renderRoleModal(roleId) {
       if (shouldLockCareerToSecuredView()) {
         setView("secured");
@@ -10492,6 +10535,7 @@
       if (!role) return;
       currentRoleId = roleId;
       roleModalTitleEl.textContent = getConfidentialRoleTitle(role);
+      renderRoleModalDisplayLabel(role);
       roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span>`;
       roleModalSummaryEl.textContent = role.summary;
       roleModalBadgesEl.innerHTML = `
@@ -10516,6 +10560,7 @@
         const detailRole = await loadRoleDetail(roleId);
         if (!detailRole || currentRoleId !== roleId) return;
         roleModalTitleEl.textContent = getConfidentialRoleTitle(detailRole);
+        renderRoleModalDisplayLabel(detailRole);
         roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(detailRole.location)}</span>`;
         roleModalSummaryEl.textContent = detailRole.summary;
         roleModalBadgesEl.innerHTML = `

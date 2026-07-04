@@ -56,6 +56,8 @@
   .job-card:focus-visible{outline:2px solid var(--teal);outline-offset:3px;}
   .jc-title{font-size:18px;font-weight:730;color:var(--ink-2);letter-spacing:-.01em;line-height:1.3;}
   .jc-practice{font-size:13.5px;color:var(--mut-2);font-weight:600;}
+  .jc-hero{margin:-4px 0 2px;}
+  .jc-hero img{width:100%;height:120px;object-fit:cover;border-radius:10px;display:block;}
   .jc-loc{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--mut);flex-wrap:wrap;}
   .jc-loc .state-chip{background:var(--teal-soft);color:var(--teal);font-weight:700;font-size:11.5px;
     letter-spacing:.03em;padding:3px 9px;border-radius:999px;}
@@ -318,8 +320,11 @@
     if (job.employment_type) chips.push(chipHtml(job.employment_type));
 
     var html = "";
+    if (job.header_image_url) {
+      html += '<div class="jc-hero"><img src="' + escapeHtml(job.header_image_url) + '" alt="" loading="lazy"></div>';
+    }
     html += '<div class="jc-title">' + escapeHtml(job.title || "GP role") + "</div>";
-    if (job.practice_name) html += '<div class="jc-practice">' + escapeHtml(job.practice_name) + "</div>";
+    if (job.display_label) html += '<div class="jc-practice">' + escapeHtml(job.display_label) + "</div>";
     html += '<div class="jc-loc"><span>' + escapeHtml(job.location_label || "Australia") + "</span>";
     if (job.location_state) html += '<span class="state-chip">' + escapeHtml(job.location_state) + "</span>";
     html += "</div>";

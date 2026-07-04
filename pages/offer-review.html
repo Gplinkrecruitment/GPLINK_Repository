@@ -272,6 +272,11 @@
     display: flex; align-items: center; gap: 6px;
   }
   .practice-address svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.5; }
+  .reveal-map-wrap {
+    border-radius: var(--gp-r-md, 12px); overflow: hidden; border: 1px solid var(--surface-subtle-border);
+    margin-top: 4px;
+  }
+  .reveal-map-wrap iframe { width: 100%; height: 200px; border: 0; display: block; }
 
   /* ── Status badge ── */
   .offer-status {
@@ -685,6 +690,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
           <span id="practiceAddressText"></span>
         </div>
+        <div class="reveal-map-wrap" id="revealMapWrap" hidden>
+          <iframe id="revealMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Practice address map"></iframe>
+        </div>
       </div>
 
       <div class="deadline-strip gp-reveal gp-reveal-2">
@@ -936,6 +944,19 @@
       setText('practiceAddressText', data.location);
       var addr = document.getElementById('practiceAddress');
       if (addr) addr.hidden = false;
+    }
+
+    // Once the server says this offer has earned a reveal (accepted/admin
+    // origin — see canRevealPracticeIdentity in server.js), show the exact
+    // street-level map. Never rendered for a masked (unrevealed) offer.
+    var revealMapWrap = document.getElementById('revealMapWrap');
+    var revealMapFrame = document.getElementById('revealMapFrame');
+    if (data.revealed && data.revealedMapQuery && revealMapWrap && revealMapFrame) {
+      revealMapFrame.src = 'https://www.google.com/maps?q=' + encodeURIComponent(data.revealedMapQuery) + '&z=15&output=embed';
+      revealMapWrap.hidden = false;
+    } else if (revealMapWrap) {
+      revealMapWrap.hidden = true;
+      if (revealMapFrame) revealMapFrame.removeAttribute('src');
     }
 
     setText('statEarnings', offer.compensation_range || '—');

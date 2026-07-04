@@ -192,6 +192,21 @@ describe('buildMaskedDisplayLabel', () => {
     });
     expect(label).toBe('Mixed Billing · Non-DPA · near Melbourne');
   });
+
+  it('shows DPA when dpa is true', () => {
+    const label = buildMaskedDisplayLabel({ billingStyle: 'bulk', dpa: true, nearestCity: 'Perth' });
+    expect(label).toBe('Bulk Billing · DPA · near Perth');
+  });
+
+  it('omits missing parts (no billing label, no nearest city) without stray separators', () => {
+    const label = buildMaskedDisplayLabel({ billingStyle: '', dpa: false, nearestCity: '' });
+    expect(label).toBe('Non-DPA');
+  });
+
+  it('never includes a practice name — output is a masked shape assembled only from billing/dpa/city', () => {
+    const label = buildMaskedDisplayLabel({ billingStyle: 'private', dpa: true, nearestCity: 'Brisbane' });
+    expect(label).not.toMatch(/medical|clinic|centre|practice/i);
+  });
 });
 
 describe('canRevealPracticeIdentityCore', () => {
@@ -224,6 +239,25 @@ describe('canRevealPracticeIdentityCore', () => {
 
   it('is false when there is no application at all', () => {
     expect(canRevealPracticeIdentityCore({ application: null, offer: null })).toBe(false);
+  });
+
+  it('is false for a gp_applied application with an offer that is only sent (not yet accepted)', () => {
+    expect(
+      canRevealPracticeIdentityCore({
+        application: { origin: 'gp_applied', revealed: false },
+        offer: { status: 'sent' },
+      })
+    ).toBe(false);
+  });
+
+  it('is false when revealed/origin columns are missing entirely (undefined, not false) and the offer is only sent', () => {
+    // Missing-column tolerance: an application row read before migration
+    // 20260705100000 has no `revealed`/`origin` columns at all — both come
+    // back undefined, not false. The core rule must still safely return
+    // false rather than throwing or coercing undefined into a reveal.
+    expect(
+      canRevealPracticeIdentityCore({ application: {}, offer: { status: 'sent' } })
+    ).toBe(false);
   });
 });
 

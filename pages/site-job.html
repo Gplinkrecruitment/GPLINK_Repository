@@ -39,6 +39,7 @@
   @media(prefers-reduced-motion:reduce){.job-skeleton .sk-line{animation:none;}}
 
   /* ---------- job content ---------- */
+  .job-hero-img{width:100%;height:260px;object-fit:cover;border-radius:var(--r);margin-bottom:22px;display:block;}
   .job-content h1{font-size:clamp(26px,3.4vw,38px);line-height:1.1;letter-spacing:-.02em;font-weight:730;
     color:var(--ink-2);margin:0 0 10px;}
   .job-meta-line{font-size:15px;color:var(--mut);margin:0 0 18px;}
@@ -59,6 +60,14 @@
   .job-summary{font-size:15.5px;line-height:1.7;color:var(--ink);margin-bottom:32px;}
   .job-summary p{margin:0 0 1em;}
   .job-summary p:last-child{margin-bottom:0;}
+
+  .job-profile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
+  .job-profile h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
+  .job-profile-rows{display:grid;gap:10px;margin-bottom:16px;}
+  .job-profile-row{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--mut);}
+  .job-profile-row b{color:var(--ink-2);font-weight:650;}
+  .job-profile-map{border-radius:12px;overflow:hidden;border:1px solid var(--line);}
+  .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
 
   .job-handles{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
   .job-handles h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
@@ -135,6 +144,7 @@
         </div>
 
         <div class="job-content" id="jobContent" hidden>
+          <img class="job-hero-img" id="jobHeroImg" hidden alt="">
           <h1 id="jobTitle"></h1>
           <p class="job-meta-line" id="jobMeta"></p>
           <div class="job-chips" id="jobChips"></div>
@@ -143,6 +153,14 @@
             <span class="je-value" id="jobEarningsValue"></span>
           </div>
           <div class="job-summary" id="jobSummary"></div>
+
+          <div class="job-profile" id="jobProfile" hidden>
+            <h2>Practice profile</h2>
+            <div class="job-profile-rows" id="jobProfileRows"></div>
+            <div class="job-profile-map" id="jobProfileMap" hidden>
+              <iframe id="jobProfileMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Suburb map"></iframe>
+            </div>
+          </div>
 
           <div class="job-handles">
             <h2>What GP Link handles for you</h2>
@@ -209,11 +227,16 @@
   var notFoundEl = document.getElementById("jobNotFound");
   var sidebarEl = document.getElementById("jobSidebar");
   var titleEl = document.getElementById("jobTitle");
+  var heroImgEl = document.getElementById("jobHeroImg");
   var metaEl = document.getElementById("jobMeta");
   var chipsEl = document.getElementById("jobChips");
   var earningsWrap = document.getElementById("jobEarnings");
   var earningsValueEl = document.getElementById("jobEarningsValue");
   var summaryEl = document.getElementById("jobSummary");
+  var profileWrap = document.getElementById("jobProfile");
+  var profileRowsEl = document.getElementById("jobProfileRows");
+  var profileMapWrap = document.getElementById("jobProfileMap");
+  var profileMapFrameEl = document.getElementById("jobProfileMapFrame");
   var relatedWrap = document.getElementById("jobRelated");
   var relatedGrid = document.getElementById("jobRelatedGrid");
   var breadcrumbBack = document.getElementById("breadcrumbBack");
@@ -272,8 +295,8 @@
     a.href = "/jobs/view?id=" + id;
     a.innerHTML =
       '<div class="jrc-title">' + escapeHtml(job.title || "GP role") + "</div>" +
-      '<div class="jrc-meta">' + escapeHtml(job.practice_name || "") +
-      (job.practice_name && job.location_label ? " &middot; " : "") +
+      '<div class="jrc-meta">' + escapeHtml(job.display_label || "") +
+      (job.display_label && job.location_label ? " &middot; " : "") +
       escapeHtml(job.location_label || "") + "</div>";
     return a;
   }
@@ -296,13 +319,53 @@
     return sameState.concat(rest).slice(0, 3);
   }
 
+  // "Practice Profile" block: DPA / MMM / billing rows plus a suburb-level
+  // (never exact-address) map preview — only ever the suburb, since this is
+  // the public, no-session marketing site and the practice's real address is
+  // never sent to /api/public/jobs.
+  function renderPracticeProfile(job) {
+    var rows = [];
+    rows.push(['DPA Location', job.dpa ? 'Yes' : 'No']);
+    if (job.mmm) rows.push(['Modified Monash Model', mmmChipLabel(job.mmm)]);
+    if (job.billing_model) rows.push(['Billing', job.billing_model]);
+
+    if (!rows.length && !job.suburb) {
+      profileWrap.hidden = true;
+      return;
+    }
+
+    profileRowsEl.innerHTML = rows.map(function (row) {
+      return '<div class="job-profile-row"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
+    }).join('');
+
+    if (job.suburb) {
+      var mapQuery = job.suburb + (job.location_state ? ' ' + job.location_state : '');
+      profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=12&output=embed';
+      profileMapWrap.hidden = false;
+    } else {
+      profileMapWrap.hidden = true;
+      profileMapFrameEl.removeAttribute('src');
+    }
+
+    profileWrap.hidden = false;
+  }
+
   function renderJob(job, allJobs) {
     document.title = (job.title || "GP role") + " — " + (job.location_label || "Australia") + " | GP Link";
 
     titleEl.textContent = job.title || "GP role";
 
+    if (job.header_image_url) {
+      heroImgEl.src = job.header_image_url;
+      heroImgEl.alt = job.display_label || job.title || "Practice header image";
+      heroImgEl.hidden = false;
+    } else {
+      heroImgEl.hidden = true;
+      heroImgEl.removeAttribute("src");
+    }
+
     var metaParts = [];
-    if (job.practice_name) metaParts.push('<span class="practice">' + escapeHtml(job.practice_name) + "</span>");
+    if (job.display_label) metaParts.push('<span class="practice">' + escapeHtml(job.display_label) + "</span>");
     if (job.location_label) metaParts.push(escapeHtml(job.location_label));
     metaEl.innerHTML = metaParts.join('<span class="sep">&middot;</span>');
 
@@ -317,6 +380,8 @@
 
     var summaryHtml = renderSummaryHtml(job.summary);
     summaryEl.innerHTML = summaryHtml;
+
+    renderPracticeProfile(job);
 
     var related = pickRelated(allJobs, job);
     if (related.length) {

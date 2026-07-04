@@ -395,7 +395,12 @@ describe('POST /api/ats/offer — Zoho-managed applications (F4)', () => {
 });
 
 describe('GET /api/career/my-offer — the doctor sees the real offer', () => {
-  it('returns the own offer with practice, role, contact and officer context', async () => {
+  // Task 10 (identity masking): a 'sent'-but-not-yet-accepted offer with no
+  // origin='admin_applied'/revealed=true on the application must NOT reveal
+  // the real practice name/contact — canRevealPracticeIdentity only opens up
+  // once the offer is accepted (or an explicit reveal is set). See
+  // tests/practice-pipeline.test.js for the underlying rule's unit coverage.
+  it('masks the practice name/contact while the offer is only sent (not yet accepted)', async () => {
     const r = await gpGet('/api/career/my-offer?applicationId=app-1');
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -406,12 +411,16 @@ describe('GET /api/career/my-offer — the doctor sees the real offer', () => {
     expect(r.body.offer.notes).toBe('Includes 4 weeks leave and relocation help.');
     expect(r.body.offer.status).toBe('sent');
     expect(r.body.offer.sent_at).toBeTruthy();
-    expect(r.body.practiceName).toBe('Greenslopes Family Medical');
+    expect(r.body.revealed).toBe(false);
+    expect(r.body.practiceName).toBe('Confidential practice');
     expect(r.body.roleTitle).toBe('General Practitioner — VR');
     expect(r.body.location).toBe('Brisbane, QLD');
-    expect(r.body.practiceContact).toEqual({ name: 'Anna Manager', role: 'Medical centre contact' });
+    expect(r.body.practiceContact).toEqual({ name: 'The practice team', role: 'Medical centre contact' });
     expect(r.body.contractAvailable).toBe(false);
     expect(r.body.guidanceOfficer).toBe('Hazel Test');
+    // The real practice name never appears anywhere in the response while unrevealed.
+    expect(r.raw).not.toContain('Greenslopes Family Medical');
+    expect(r.raw).not.toContain('Anna Manager');
     // The consultant's identity is never exposed to the GP.
     expect(r.body.offer.sent_by).toBeUndefined();
     expect(r.raw).not.toContain(SUPER_EMAIL);
@@ -543,11 +552,13 @@ describe('runtime_kv fallback (ats_offers table not applied)', () => {
     expect(g.status).toBe(200);
     expect(g.body.offer.billing_split).toBe('65 / 35');
 
-    // …and the doctor's my-offer works end-to-end off the kv record.
+    // …and the doctor's my-offer works end-to-end off the kv record. Still
+    // masked (Task 10) — a 'sent' offer with no accept/reveal yet.
     const my = await gpGet('/api/career/my-offer?applicationId=app-3');
     expect(my.status).toBe(200);
     expect(my.body.offer.billing_split).toBe('65 / 35');
-    expect(my.body.practiceName).toBe('Greenslopes Family Medical');
+    expect(my.body.revealed).toBe(false);
+    expect(my.body.practiceName).toBe('Confidential practice');
     expect(my.body.guidanceOfficer).toBe('Hazel Test');
   });
 
