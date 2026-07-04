@@ -25588,7 +25588,11 @@ function atsApplicationToCard(app, label) {
     ats_stage: app.ats_stage || 'applied',
     ats_notes: app.ats_notes || app.notes || '',
     job_id: app.career_role_id || app.job_id || '',
-    provider_role_id: app.provider_role_id || ''
+    provider_role_id: app.provider_role_id || '',
+    // Task 12: lets the CEO drawer hide the "Practice accepted" button once
+    // the acceptance has already been recorded.
+    revealed: app.revealed === true,
+    practice_submission_status: app.practice_submission_status || ''
   };
 }
 // Insert a new gp_applications row (candidate -> job). Dual-mode.
@@ -49157,6 +49161,16 @@ Return ONLY valid JSON with no markdown formatting:
     var aaCreated = await atsInsertApplicationRow(aaRow);
     if (!aaCreated) { sendJson(res, 502, { ok: false, message: 'Could not add candidate to this job.' }); return; }
     await atsRecordStageEvent(aaCreated.id, '', 'applied', ctxAA.email || '');
+    // Degraded env (migration 20260705100000 not applied): the insert had to
+    // drop revealed/origin, so the GP still sees the MASKED practice. Keep the
+    // application (pre-existing behavior) but skip the offer + congrats email —
+    // never email the real practice name while my-offer would still mask it.
+    // Reveal/congrats simply waits for the migration + a manual /accept click.
+    if (isSupabaseDbConfigured() && aaCreated.revealed !== true) {
+      console.error('[ats admin apply] gp_applications.revealed column missing — run migration 20260705100000. Application ' + aaCreated.id + ' created WITHOUT reveal; skipping the offer record + congrats email.');
+      sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false, degraded: true });
+      return;
+    }
     // Admin placement IS the practice's acceptance — record the offer/interview-invite
     // and congratulate the GP the same way the /accept endpoint does, so an
     // admin-placed candidate lands straight on "Secure My Interview" with no
@@ -49196,43 +49210,57 @@ Return ONLY valid JSON with no markdown formatting:
     var acCtx = await atsGetApplicationContext(acAppId);
     if (!acCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
-    // Idempotent: already revealed with a live offer on file → no-op repeat click.
+    // No-stomp guard: a DECIDED offer (the doctor already accepted or
+    // declined) must never be overwritten back to 'sent' by a repeat click.
     var acExistingOffer = await atsOffersStore.getAtsOfferByApplication(acAppId);
-    if (acCtx.app && acCtx.app.revealed === true && acExistingOffer) {
+    if (acExistingOffer && (acExistingOffer.status === 'accepted' || acExistingOffer.status === 'declined')) {
+      sendJson(res, 200, { ok: true, already: true });
+      return;
+    }
+    // Idempotent: acceptance already recorded — revealed, or its
+    // pre-migration proxy practice_submission_status='client_approved' —
+    // with an offer on file → no-op repeat click.
+    var acAlreadyApproved = acCtx.app && (acCtx.app.revealed === true
+      || String(acCtx.app.practice_submission_status || '') === 'client_approved');
+    if (acAlreadyApproved && acExistingOffer) {
       sendJson(res, 200, { ok: true, already: true });
       return;
     }
 
-    // PATCH gp_applications — missing-column tolerant. `revealed` ships in
-    // migration 20260705100000 which may not be applied everywhere yet;
-    // practice_submission_status is an older, stable column. If NEITHER
-    // field can be persisted, fail loud (503) rather than report success
-    // when nothing actually happened — see the practice-intake/sign
-    // precedent a few hundred lines up for the same "fail loud, no side
-    // effects" rule.
+    // PATCH gp_applications {revealed:true, practice_submission_status:'client_approved'}.
+    // FAIL LOUD when the reveal itself cannot persist: `revealed` ships in
+    // migration 20260705100000, and if that column is missing we must NOT
+    // record an offer or congratulate the GP — the congrats email names the
+    // real practice while /api/career/my-offer would still serve the masked
+    // identity. Same fail-loud rule as the practice-intake/sign 503 above.
+    // practice_submission_status (older, stable column) may persist or not —
+    // it's a bonus signal, never a substitute for the persisted reveal.
     var acPatchBody = { revealed: true, practice_submission_status: 'client_approved' };
-    if (_gpApplicationsRevealedMissing) delete acPatchBody.revealed;
     if (isSupabaseDbConfigured()) {
+      if (_gpApplicationsRevealedMissing) {
+        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
+        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
+        return;
+      }
       var acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
         method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
       });
-      if (!acRes.ok && acPatchBody.revealed !== undefined && isMissingColumnInsertError(acRes, 'revealed')) {
+      if (!acRes.ok && isMissingColumnInsertError(acRes, 'revealed')) {
         _gpApplicationsRevealedMissing = true;
-        console.warn('[ats accept] gp_applications.revealed column missing (migration 20260705100000 not applied) — the GP will not see the revealed identity until this migration runs.');
-        delete acPatchBody.revealed;
-        acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
-          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
-        });
+        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
+        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
+        return;
       }
       if (!acRes.ok && isMissingColumnInsertError(acRes, 'practice_submission_status')) {
+        // The bonus column being absent is tolerable — the reveal is what matters.
         delete acPatchBody.practice_submission_status;
         acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
           method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
         });
       }
-      if (!acRes.ok || Object.keys(acPatchBody).length === 0) {
+      if (!acRes.ok) {
         console.error('[ats accept] could not persist the acceptance for application', acAppId, ':', acRes && acRes.data);
-        sendJson(res, 503, { ok: false, message: 'Could not record the acceptance — the database is missing required columns. Run migration 20260705100000.' });
+        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'Could not record the acceptance — nothing was changed. Check the database (migration 20260705100000) and try again.' });
         return;
       }
     } else {
@@ -49255,22 +49283,31 @@ Return ONLY valid JSON with no markdown formatting:
     var acPracticeName = acCtx.practiceName || (acRole && acRole.practice_name) || '';
     var acIntake = (acRole && acRole.source_payload && acRole.source_payload.intake) || {};
 
-    var acSaved = await atsOffersStore.saveAtsOffer({
-      application_id: acAppId,
-      user_id: acCtx.userId || null,
-      career_role_id: acCtx.careerRoleId || null,
-      practice_id: (acRole && acRole.practice_id) || null,
-      job_title: acJobTitle,
-      practice_name: acPracticeName,
-      billing_split: sanitizeUserString(String(acIntake.percentage_split || ''), 120),
-      status: 'sent',
-      sent_by: ctxAC.email || '',
-      sent_at: atsNowIso(),
-      notes: 'Practice accepted — interview invitation'
-    });
-    if (!acSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+    // A live 'sent' offer already on file (e.g. the consultant sent a manual
+    // offer with real terms before clicking accept) is kept as-is — never
+    // overwritten by this synthetic interview-invitation record.
+    if (!acExistingOffer || acExistingOffer.status !== 'sent') {
+      var acSaved = await atsOffersStore.saveAtsOffer({
+        application_id: acAppId,
+        user_id: acCtx.userId || null,
+        career_role_id: acCtx.careerRoleId || null,
+        practice_id: (acRole && acRole.practice_id) || null,
+        job_title: acJobTitle,
+        practice_name: acPracticeName,
+        billing_split: sanitizeUserString(String(acIntake.percentage_split || ''), 120),
+        status: 'sent',
+        sent_by: ctxAC.email || '',
+        sent_at: atsNowIso(),
+        notes: 'Practice accepted — interview invitation'
+      });
+      if (!acSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+    }
 
-    await atsUpdateApplicationStageRow(acAppId, 'offer', undefined, 'practice_accept');
+    // Kanban → 'offer' via the same forward-only rule as POST /api/ats/offer:
+    // a later stage is never yanked backwards and terminal lanes
+    // ('hired' / 'not_proceeding') never move.
+    var acTarget = atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'offer');
+    if (acTarget) await atsUpdateApplicationStageRow(acAppId, acTarget, undefined, 'practice_accept');
 
     if (acCtx.userId) {
       await sendGpCongratsEmail(acCtx.userId, acAppId, acPracticeName)

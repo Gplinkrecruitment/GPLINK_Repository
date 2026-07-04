@@ -403,7 +403,12 @@
           '<label>Pipeline stage</label>' +
           '<select id="atsJobDrawerStage">' + stageOptions + '</select>' +
           '<button class="ats-btn ats-btn-primary" id="atsJobSchedBtn">📅 Book interview</button>' +
-          '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>' +
+          // "Practice accepted" (Task 12) — hidden once the acceptance is
+          // already recorded (revealed / client_approved / interview_ready),
+          // mirroring ceo-ats-candidates.js's gating.
+          (c.revealed === true || c.practice_submission_status === 'client_approved' || c.practice_submission_status === 'interview_ready'
+            ? ''
+            : '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>') +
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +

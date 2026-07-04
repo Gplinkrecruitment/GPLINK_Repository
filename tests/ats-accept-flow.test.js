@@ -21,6 +21,15 @@
 //     application that hasn't been accepted stays masked.
 //  6. Once a scheduled_calls row is booked for the application, my-offer
 //     flips interviewBookable to false and returns bookedInterview.
+//  7. Hardening (review round): accept never regresses a 'hired' stage
+//     (forward-only planAtsStageReconciliation); an accepted/declined offer
+//     is never stomped back to 'sent'; practice_submission_status=
+//     'client_approved' + an offer row also counts as already-processed.
+//  8. Degraded env (gp_applications.revealed column missing — simulated by
+//     the emulator; runs LAST because the missing-column determination is
+//     cached process-wide): accept → 503 pipeline_migration_required with NO
+//     offer/email side effects; admin apply still creates the application
+//     but skips the offer + congrats email and reports degraded:true.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -37,8 +46,14 @@ const SUPER_EMAIL = 'super@gplink-test.local';
 const GP = { userId: 'u-acc-gp-1', email: 'gp-accept@gplink-test.local' };
 const GP2 = { userId: 'u-acc-gp-2', email: 'other-accept@gplink-test.local' };
 const GP3 = { userId: 'u-acc-gp-3', email: 'admin-placed@gplink-test.local' };
+const GP4 = { userId: 'u-acc-gp-4', email: 'degraded-placed@gplink-test.local' };
 const RSO_ID = 'rso-accept-1';
 const NOW = new Date().toISOString();
+
+// When true the emulator rejects any gp_applications write that carries the
+// `revealed` column with the Postgres undefined-column error — the
+// pre-migration-20260705100000 schema.
+let simulateRevealedMissing = false;
 
 const resendCalls = [];
 const fcmCalls = [];
@@ -47,12 +62,14 @@ const db = {
   user_profiles: [
     { user_id: GP.userId, email: GP.email, first_name: 'Accepted', last_name: 'Doctor', registration_country: 'uk' },
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
-    { user_id: GP3.userId, email: GP3.email, first_name: 'Placed', last_name: 'Doctor', registration_country: 'nz' }
+    { user_id: GP3.userId, email: GP3.email, first_name: 'Placed', last_name: 'Doctor', registration_country: 'nz' },
+    { user_id: GP4.userId, email: GP4.email, first_name: 'Degraded', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-1' }] }, updated_at: NOW },
     { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-3' }] }, updated_at: NOW }
+    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-3' }] }, updated_at: NOW },
+    { user_id: GP4.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   registration_cases: [
     { id: 'case-acc-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
@@ -75,9 +92,19 @@ const db = {
   ],
   gp_applications: [
     { id: 'app-acc-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
-    { id: 'app-acc-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'pending_va_submission' }
+    { id: 'app-acc-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'pending_va_submission' },
+    // Hardening fixtures (review round):
+    { id: 'app-acc-hired', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rh', status: 'placement_secured', ats_stage: 'hired', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
+    { id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rs', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
+    { id: 'app-acc-pss', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rp', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'client_approved' },
+    { id: 'app-acc-degraded', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rd', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' }
   ],
-  ats_offers: [],
+  ats_offers: [
+    // The doctor already ACCEPTED this offer — a practice-accept click must never stomp it.
+    { id: 'off-stomp-1', application_id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Manual offer', created_at: NOW },
+    // Pre-migration proxy: practice_submission_status='client_approved' + an offer row = already processed.
+    { id: 'off-pss-1', application_id: 'app-acc-pss', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Prior accept (pre-migration)', created_at: NOW }
+  ],
   ats_stage_events: [],
   user_documents: [],
   integration_connections: [],
@@ -136,6 +163,37 @@ function startSupabaseEmulator() {
       const table = decodeURIComponent(m[1]);
       const rows = tableOf(table);
       const matches = buildMatcher(u.searchParams);
+
+      // Pre-migration-20260705100000 simulation: any gp_applications write
+      // that carries the `revealed` column is rejected exactly like Postgres
+      // rejects an undefined column through PostgREST.
+      if (simulateRevealedMissing && table === 'gp_applications' && (req.method === 'PATCH' || req.method === 'POST')) {
+        const wBody = await readBody(req);
+        const wRows = Array.isArray(wBody) ? wBody : (wBody ? [wBody] : []);
+        if (wRows.some((r) => r && Object.prototype.hasOwnProperty.call(r, 'revealed'))) {
+          send(400, { code: '42703', message: 'column "revealed" of relation "gp_applications" does not exist', details: null, hint: null });
+          return;
+        }
+        // Body already consumed — finish the write inline with the parsed rows.
+        if (req.method === 'POST') {
+          const conflictCol = u.searchParams.get('on_conflict');
+          const saved = wRows.map((r) => {
+            if (conflictCol) {
+              const existing = rows.find((row) => row && String(row[conflictCol]) === String(r[conflictCol]));
+              if (existing) { Object.assign(existing, r); return existing; }
+            }
+            const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+            rows.push(row);
+            return row;
+          });
+          send(201, saved);
+        } else {
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, wBody || {}));
+          send(200, matched);
+        }
+        return;
+      }
 
       if (req.method === 'GET') {
         let out = rows.filter(matches);
@@ -384,5 +442,93 @@ describe('Admin apply (POST /api/ats/application) auto-reveals + congratulates',
     expect(my.body.revealed).toBe(true);
     expect(my.body.interviewBookable).toBe(true);
     expect(my.body.practiceName).toBe('Greenslopes Family Medical');
+  });
+});
+
+describe('accept hardening (review round)', () => {
+  it('never regresses a hired application back to the offer lane', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-hired');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const app = db.gp_applications.find((a) => a.id === 'app-acc-hired');
+    expect(app.ats_stage).toBe('hired'); // terminal lane never moves
+    expect(app.revealed).toBe(true);      // the reveal itself still lands
+    // No practice_accept stage event was written (no stage change happened).
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-acc-hired' && e.actor === 'practice_accept')).toBe(false);
+    // The offer + congrats email still fire (first acceptance for this app).
+    expect(db.ats_offers.some((o) => o.application_id === 'app-acc-hired' && o.status === 'sent')).toBe(true);
+    expect(resendCalls.length - before).toBe(1);
+  });
+
+  it('never stomps an offer the doctor already accepted', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-stomp');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(true);
+
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-acc-stomp');
+    expect(offer.status).toBe('accepted');       // untouched
+    expect(offer.notes).toBe('Manual offer');    // untouched
+    const app = db.gp_applications.find((a) => a.id === 'app-acc-stomp');
+    expect(app.revealed).toBe(false);            // no writes at all
+    expect(resendCalls.length).toBe(before);     // no email
+  });
+
+  it("treats practice_submission_status='client_approved' + an offer row as already processed (pre-migration proxy)", async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-pss');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(true);
+
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-acc-pss');
+    expect(offer.notes).toBe('Prior accept (pre-migration)'); // untouched
+    expect(resendCalls.length).toBe(before);                  // no email
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-acc-pss' && e.actor === 'practice_accept')).toBe(false);
+  });
+});
+
+// LAST on purpose: once the server observes the missing `revealed` column it
+// caches the determination (module flag) for the rest of the process.
+describe('degraded env — gp_applications.revealed column missing (migration 20260705100000 not applied)', () => {
+  it('accept fails loud with 503 pipeline_migration_required and NO side effects', async () => {
+    simulateRevealedMissing = true;
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-degraded');
+    expect(r.status).toBe(503);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.error).toBe('pipeline_migration_required');
+
+    const app = db.gp_applications.find((a) => a.id === 'app-acc-degraded');
+    expect(app.revealed).toBe(false);
+    expect(app.practice_submission_status).toBe('submitted_to_practice'); // no partial write
+    expect(db.ats_offers.some((o) => o.application_id === 'app-acc-degraded')).toBe(false); // no offer
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-acc-degraded' && e.actor === 'practice_accept')).toBe(false);
+    expect(resendCalls.length).toBe(before); // no congrats email
+  });
+
+  it('a second accept 503s immediately off the cached determination', async () => {
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-degraded');
+    expect(r.status).toBe(503);
+    expect(r.body.error).toBe('pipeline_migration_required');
+  });
+
+  it('admin apply still creates the application but skips the offer + congrats email (degraded:true)', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application', { user_id: GP4.userId, career_role_id: 'role-1' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(false);
+    expect(r.body.degraded).toBe(true);
+    const appId = r.body.application.id;
+
+    const app = db.gp_applications.find((a) => a.id === appId);
+    expect(app).toBeTruthy();                    // application still created
+    expect(app.revealed).toBeUndefined();        // column dropped from the insert
+    expect(db.ats_offers.some((o) => o.application_id === String(appId))).toBe(false); // no offer
+    expect(resendCalls.length).toBe(before);     // no congrats email
   });
 });

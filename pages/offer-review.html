@@ -1086,7 +1086,10 @@
         setText('bookedInterviewTime', bTime);
         var zoomLink = document.getElementById('bookedInterviewZoomLink');
         if (zoomLink) {
-          if (data.bookedInterview.zoom_join_url) { zoomLink.href = data.bookedInterview.zoom_join_url; zoomLink.hidden = false; }
+          // Scheme check before assigning server data to an href (same rule
+          // as loadContractLink's /api/ prefix check): only https may link.
+          var zoomUrl = String(data.bookedInterview.zoom_join_url || '');
+          if (zoomUrl.indexOf('https://') === 0) { zoomLink.href = zoomUrl; zoomLink.hidden = false; }
           else { zoomLink.hidden = true; }
         }
         bookedNote.hidden = false;
