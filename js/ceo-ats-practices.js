@@ -34,6 +34,17 @@
   function stagePillClass(s) { return STAGE_PILL[s] || 'muted'; }
   function stageLabel(s) { return STAGE_LABEL[s] || s || '—'; }
 
+  // Practice-lifecycle stage (distinct from the candidate pipeline stage above).
+  var PRACTICE_STAGES = ['prospective', 'active', 'declined', 'archived'];
+  function practiceStageLabel(s) { return s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '—'; }
+  function agreementPillClass(s) { return s === 'signed' ? 'green' : s === 'sent' ? 'amber' : 'muted'; }
+  function agreementLabel(s) {
+    return s === 'signed' ? 'Agreement signed' : s === 'sent' ? 'Agreement sent' : 'Agreement unsigned';
+  }
+  function humanizeKey(k) {
+    return String(k || '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
   var currentQuery = '';     // active directory search term
   var currentPractice = null; // last-loaded practice detail (for the edit modal)
   var searchTimer = null;
@@ -67,24 +78,86 @@
     });
   }
 
+  function practiceCardHtml(p) {
+    var name = p.name || '—';
+    return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
+      '<div class="pc-top">' +
+        '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
+        '<div><h3>' + ATS.esc(name) + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
+      '</div>' +
+      '<div class="pc-loc" style="margin-bottom:4px">' + ATS.esc(p.type || '—') + '</div>' +
+      '<div class="ats-pc-stats">' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (p.job_count != null ? p.job_count : 0) + '</div><div class="s-lbl">Jobs</div></div>' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (p.candidate_count != null ? p.candidate_count : 0) + '</div><div class="s-lbl">In pipeline</div></div>' +
+      '</div>' +
+    '</div>';
+  }
+
   function practiceCardsHtml(list) {
     if (!list || !list.length) {
       return '<div class="ats-empty" style="padding:40px">No practices match your search.</div>';
     }
-    return list.map(function (p) {
-      var name = p.name || '—';
-      return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
-        '<div class="pc-top">' +
-          '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
-          '<div><h3>' + ATS.esc(name) + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
+    return list.map(practiceCardHtml).join('');
+  }
+
+  // Potential-client (prospective) cards surface intake/agreement progress and
+  // two quick actions (Call the contact, resend the intake email) instead of
+  // the job/candidate stats a mainstream practice card shows.
+  function prospectiveCardHtml(p) {
+    var name = p.name || '—';
+    var phone = p.phone || '';
+    var callBtn = phone
+      ? '<a class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="call-tel" href="tel:' + ATS.escAttr(phone.replace(/[^\d+]/g, '')) + '">📞 Call</a>'
+      : '<span class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="call-noop" style="opacity:.45;cursor:default" title="No phone number on file">📞 Call</span>';
+    var sourceChip = p.source === 'facebook_lead' ? '<span class="ats-pill blue">Facebook lead</span>' : '';
+    var contactBits = [p.contact, p.email, p.phone].filter(Boolean).map(function (s) { return ATS.esc(s); });
+    return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
+      '<div class="pc-top">' +
+        '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
+        '<div><h3>' + ATS.esc(name) + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
+      '</div>' +
+      '<div class="pc-loc" style="margin-bottom:8px">' + (contactBits.length ? contactBits.join(' · ') : '—') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' +
+        sourceChip + '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '">' + agreementLabel(p.agreement_status) + '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;padding-top:13px;border-top:1px solid var(--ats-border)">' +
+        callBtn +
+        '<button class="ats-btn ats-btn-primary ats-btn-sm" data-ats="resend-intake" data-id="' + ATS.escAttr(p.id) + '">Resend intake email</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Splits the full practice list into the three directory sections. Used both
+  // for the initial load and for live search re-renders (both target the same
+  // #atsPracticeList container so a single helper keeps them in sync).
+  function practiceSectionsHtml(list) {
+    list = list || [];
+    var prospective = list.filter(function (p) { return p.stage === 'prospective'; });
+    var archived = list.filter(function (p) { return p.stage === 'declined' || p.stage === 'archived'; });
+    var mainstream = list.filter(function (p) { return p.stage !== 'prospective' && p.stage !== 'declined' && p.stage !== 'archived'; });
+
+    var html = '';
+    if (prospective.length) {
+      html +=
+        '<div class="ats-section-head" style="margin-bottom:14px">' +
+          '<div><h2>Potential Clients <span class="ats-pill blue" style="margin-left:6px">' + prospective.length + '</span></h2>' +
+          '<p>Leads mid-pipeline — intake, agreement &amp; onboarding.</p></div>' +
         '</div>' +
-        '<div class="pc-loc" style="margin-bottom:4px">' + ATS.esc(p.type || '—') + '</div>' +
-        '<div class="ats-pc-stats">' +
-          '<div class="ats-pc-stat"><div class="s-val">' + (p.job_count != null ? p.job_count : 0) + '</div><div class="s-lbl">Jobs</div></div>' +
-          '<div class="ats-pc-stat"><div class="s-val">' + (p.candidate_count != null ? p.candidate_count : 0) + '</div><div class="s-lbl">In pipeline</div></div>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+        '<div class="ats-practice-list" style="margin-bottom:28px">' + prospective.map(prospectiveCardHtml).join('') + '</div>';
+    }
+    html +=
+      '<div class="ats-section-head" style="margin-bottom:14px">' +
+        '<div><h2>Mainstream Practices</h2><p>Active client practices — their jobs, contacts &amp; candidates.</p></div>' +
+      '</div>' +
+      '<div class="ats-practice-list">' + practiceCardsHtml(mainstream) + '</div>';
+    if (archived.length) {
+      html +=
+        '<details style="margin-top:24px">' +
+          '<summary style="cursor:pointer;color:var(--ats-dim);font-size:13px;font-weight:500">Archived &amp; declined (' + archived.length + ')</summary>' +
+          '<div class="ats-practice-list" style="margin-top:14px">' + practiceCardsHtml(archived) + '</div>' +
+        '</details>';
+    }
+    return html;
   }
 
   function renderDirectory(panel, d) {
@@ -100,7 +173,7 @@
           '<input type="text" id="atsPracSearch" placeholder="Search practices…" value="' + ATS.escAttr(currentQuery) + '" />' +
         '</div>' +
       '</div>' +
-      '<div class="ats-practice-list" id="atsPracticeList">' + practiceCardsHtml(practices) + '</div>' +
+      '<div id="atsPracticeList">' + practiceSectionsHtml(practices) + '</div>' +
       '<div id="atsTeamSection" style="margin-top:26px"></div>';
     updateCount(d);
     loadTeamSection();
@@ -206,7 +279,7 @@
       fetchPractices(q).then(function (d) {
         if (q !== currentQuery) return; // a newer keystroke superseded this one
         var list = document.getElementById('atsPracticeList');
-        if (list) list.innerHTML = practiceCardsHtml((d && d.practices) || []);
+        if (list) list.innerHTML = practiceSectionsHtml((d && d.practices) || []);
         updateCount(d || {});
       });
     }, 220);
@@ -235,6 +308,34 @@
       '</div><div class="df-val">' + ATS.esc(value || '—') + '</div></div>';
   }
 
+  // Same as detailField but the value is trusted HTML (a <select>, a link) —
+  // callers are responsible for escaping any dynamic text inside it.
+  function detailFieldHtml(label, html) {
+    return '<div class="ats-detail-field"><div class="df-lbl">' + ATS.esc(label) +
+      '</div><div class="df-val">' + html + '</div></div>';
+  }
+
+  function resendIntake(id, btn) {
+    if (!id) return;
+    var origLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    ATS.api('/api/ats/practice/resend-intake?id=' + encodeURIComponent(id), { method: 'POST' }).then(function (d) {
+      if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not resend the intake email'); return; }
+      ATS.toast('Intake email sent');
+    });
+  }
+
+  function onStageChange(stage) {
+    var p = currentPractice;
+    if (!p) return;
+    ATS.api('/api/ats/practice?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the stage'); return; }
+      ATS.toast('Stage updated');
+      openPractice(p.id);
+    });
+  }
+
   function renderDetail(panel, d) {
     var p = d.practice || {};
     var jobs = d.jobs || [];
@@ -244,12 +345,53 @@
     var loc = '📍 ' + ATS.esc(p.location_city || '—') + ', ' + ATS.esc(p.location_state || '');
     if (p.practice_type) loc += ' · ' + ATS.esc(p.practice_type);
 
+    var stageHtml = '<select id="atsStageSelect">' + PRACTICE_STAGES.map(function (s) {
+      return '<option value="' + s + '"' + (s === (p.stage || 'active') ? ' selected' : '') + '>' + practiceStageLabel(s) + '</option>';
+    }).join('') + '</select>';
+
+    var agreementHtml = ATS.esc(agreementLabel(p.agreement_status));
+    if (p.agreement_signed_pdf_url) {
+      agreementHtml += ' · <a href="' + ATS.escAttr(p.agreement_signed_pdf_url) + '" target="_blank" rel="noopener noreferrer">View signed PDF</a>';
+    }
+
+    var dpaLabel = p.dpa === true ? 'Yes' : p.dpa === false ? 'No' : '—';
+
+    var introHtml = '';
+    if (p.intro_text) introHtml += detailField('Intro text', p.intro_text);
+    if (p.intro_video_url) {
+      introHtml += detailFieldHtml('Intro video', '<a href="' + ATS.escAttr(p.intro_video_url) + '" target="_blank" rel="noopener noreferrer">' + ATS.esc(p.intro_video_url) + '</a>');
+    }
+
     var fields =
       detailField('Primary contact', p.contact_name) +
       detailField('Email', p.contact_email) +
       detailField('Phone', p.contact_phone) +
       detailField('Practice type', p.practice_type) +
-      detailField('AHPRA / reg no.', p.ahpra_number);
+      detailField('AHPRA / reg no.', p.ahpra_number) +
+      detailFieldHtml('Stage', stageHtml) +
+      detailFieldHtml('Agreement status', agreementHtml) +
+      detailField('Website', p.website) +
+      detailField('DPA', dpaLabel) +
+      detailField('Suburb', p.suburb) +
+      detailField('Nearest city', p.nearest_city) +
+      introHtml;
+
+    var intakeCardHtml = '';
+    if (p.intake && typeof p.intake === 'object') {
+      var intakeRows = Object.keys(p.intake).map(function (k) {
+        var v = p.intake[k];
+        if (v === null || v === undefined || v === '') return '';
+        var display = (typeof v === 'boolean') ? (v ? 'Yes' : 'No') : String(v);
+        return detailField(humanizeKey(k), display);
+      }).filter(Boolean).join('');
+      if (intakeRows) {
+        intakeCardHtml =
+          '<div class="ats-card" style="margin-top:16px">' +
+            '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Intake answers</div>' +
+            intakeRows +
+          '</div>';
+      }
+    }
 
     var jobsHtml = jobs.length ? jobs.map(function (j) {
       return '<div class="ats-mini-job" data-ats="open-job" data-id="' + ATS.escAttr(j.id) + '">' +
@@ -281,7 +423,7 @@
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="edit-practice">✎ Edit</button>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
-        '<div class="ats-card">' + fields + '</div>' +
+        '<div><div class="ats-card">' + fields + '</div>' + intakeCardHtml + '</div>' +
         '<div>' +
           '<div class="ats-card" style="margin-bottom:16px">' +
             '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Jobs at this practice</div>' +
@@ -421,6 +563,11 @@
     else if (action === 'edit-practice') openEditModal();
     else if (action === 'invite-consultant') inviteConsultant(t);
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
+    else if (action === 'resend-intake') resendIntake(id, t);
+    // 'call-tel' / 'call-noop': intercepted here purely so the click doesn't
+    // bubble to the enclosing card's 'open-practice' — the tel: link (when
+    // present) still navigates via its own default browser action.
+    else if (action === 'call-tel' || action === 'call-noop') { /* no-op */ }
     else if (action === 'open-job') {
       ATS.showMaster('jobs');
       if (typeof window.atsOpenJobBoard === 'function') window.atsOpenJobBoard(id);
@@ -432,6 +579,10 @@
 
   function onPanelInput(e) {
     if (e.target && e.target.id === 'atsPracSearch') onSearchInput(e.target.value);
+  }
+
+  function onPanelChange(e) {
+    if (e.target && e.target.id === 'atsStageSelect') onStageChange(e.target.value);
   }
 
   function onOverlayClick(e) {
@@ -453,6 +604,7 @@
     bound = true;
     panel.addEventListener('click', onPanelClick);
     panel.addEventListener('input', onPanelInput);
+    panel.addEventListener('change', onPanelChange);
     var overlay = document.getElementById('atsOverlayRoot');
     if (overlay) overlay.addEventListener('click', onOverlayClick);
   }

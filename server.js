@@ -25218,7 +25218,13 @@ async function atsListPracticesDerived() {
         location_country: j.location_country || 'Australia',
         practice_type: j.practice_type || j.billing_model || '',
         contact_name: ct.contact_name, contact_email: ct.contact_email, contact_phone: ct.contact_phone,
-        ahpra_number: '', source: (j.provider === 'internal_ats' ? 'internal_ats' : 'zoho_sync'), jobs: []
+        ahpra_number: '', source: (j.provider === 'internal_ats' ? 'internal_ats' : 'zoho_sync'), jobs: [],
+        // Derived (name-only) practices have no practices-table row at all, so
+        // they cannot be "prospective" (no intake pipeline has ever run for
+        // them) — they always report as an existing/mainstream practice.
+        stage: 'active', agreement_status: 'unsigned', website: '', dpa: null,
+        suburb: '', nearest_city: '', intro_text: '', intro_video_url: '',
+        agreement_signed_pdf_key: '', intake_token: '', metadata: {}
       };
     }
     var e = byKey[k];
@@ -25242,6 +25248,20 @@ async function atsListPracticesDerived() {
     e.contact_phone = p.contact_phone || e.contact_phone || '';
     e.ahpra_number = p.ahpra_number || e.ahpra_number || '';
     e.source = p.source || e.source || 'internal_ats';
+    // A real practices-table row is the source of truth for pipeline/lifecycle
+    // fields — overwrite the derived defaults set above (rather than falling
+    // back with `||`, since e.g. an empty string dpa/website is a real value).
+    e.stage = p.stage || 'active';
+    e.agreement_status = p.agreement_status || 'unsigned';
+    e.website = p.website || '';
+    e.dpa = (typeof p.dpa === 'boolean') ? p.dpa : null;
+    e.suburb = p.suburb || '';
+    e.nearest_city = p.nearest_city || '';
+    e.intro_text = p.intro_text || '';
+    e.intro_video_url = p.intro_video_url || '';
+    e.agreement_signed_pdf_key = p.agreement_signed_pdf_key || '';
+    e.intake_token = p.intake_token || '';
+    e.metadata = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
   });
   return Object.keys(byKey).map(function (k) { return byKey[k]; });
 }
@@ -25261,7 +25281,13 @@ async function atsResolvePractice(id) {
   return all.find(function (p) { return String(p.name || '').toLowerCase() === rk; }) || {
     id: row.id, name: row.name, location_city: row.location_city, location_state: row.location_state,
     practice_type: row.practice_type, contact_name: row.contact_name, contact_email: row.contact_email,
-    contact_phone: row.contact_phone, ahpra_number: row.ahpra_number, source: row.source, jobs: []
+    contact_phone: row.contact_phone, ahpra_number: row.ahpra_number, source: row.source, jobs: [],
+    stage: row.stage || 'active', agreement_status: row.agreement_status || 'unsigned',
+    website: row.website || '', dpa: (typeof row.dpa === 'boolean') ? row.dpa : null,
+    suburb: row.suburb || '', nearest_city: row.nearest_city || '',
+    intro_text: row.intro_text || '', intro_video_url: row.intro_video_url || '',
+    agreement_signed_pdf_key: row.agreement_signed_pdf_key || '', intake_token: row.intake_token || '',
+    metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {}
   };
 }
 
@@ -49044,14 +49070,25 @@ Return ONLY valid JSON with no markdown formatting:
     var appsByJobP = {};
     plApps.forEach(function (a) { var k = String(a.career_role_id || a.job_id || ''); (appsByJobP[k] = appsByJobP[k] || []).push(a); });
     var plq = (url.searchParams.get('q') || '').toLowerCase();
+    var plCounts = { prospective: 0, active: 0 };
+    derived.forEach(function (p) {
+      var st = p.stage || 'active';
+      if (st === 'prospective') plCounts.prospective++;
+      else if (st === 'active') plCounts.active++;
+    });
     var plCards = derived.map(function (p) {
       var cand = 0;
       (p.jobs || []).forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; }); });
-      return { id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type, contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number, job_count: (p.jobs || []).length, candidate_count: cand };
+      return {
+        id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
+        contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
+        job_count: (p.jobs || []).length, candidate_count: cand,
+        stage: p.stage || 'active', agreement_status: p.agreement_status || 'unsigned', source: p.source || ''
+      };
     });
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
     plCards.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
-    sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length });
+    sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length, counts: plCounts });
     return;
   }
 
@@ -49085,12 +49122,29 @@ Return ONLY valid JSON with no markdown formatting:
     var pgLabels = {};
     if (isSupabaseDbConfigured()) pgLabels = await atsResolveCandidateLabels(pgApps.map(function (a) { return a.user_id; }));
     var pgCands = pgApps.map(function (a) { var c = atsApplicationToCard(a, pgLabels[a.user_id]); c.job_title = a.job_title; return c; });
+    // Degraded metadata stash: when migration 20260705100000 hasn't been
+    // applied yet, agreement fields live under metadata.pipeline_agreement
+    // (see /api/practice-intake/sign) — fall back to it when the real
+    // columns are empty.
+    var pgMetaAgreement = (pg.metadata && pg.metadata.pipeline_agreement) || null;
+    var pgAgreementStatus = pg.agreement_status || (pgMetaAgreement && pgMetaAgreement.agreement_status) || 'unsigned';
+    var pgSignedKey = pg.agreement_signed_pdf_key || (pgMetaAgreement && pgMetaAgreement.agreement_signed_pdf_key) || '';
+    var pgSignedUrl = null;
+    if (pgSignedKey && pgSignedKey.indexOf('local:') !== 0) {
+      try { pgSignedUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pgSignedKey, 'agreement.pdf')) || null; } catch (e) { pgSignedUrl = null; }
+    }
+    var pgIntake = (pg.metadata && pg.metadata.intake) || null;
     sendJson(res, 200, {
       ok: true,
       practice: {
         id: pg.id, name: pg.name, location_city: pg.location_city, location_state: pg.location_state,
         practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
-        contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source
+        contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
+        stage: pg.stage || 'active', agreement_status: pgAgreementStatus,
+        website: pg.website || '', dpa: (typeof pg.dpa === 'boolean') ? pg.dpa : null,
+        suburb: pg.suburb || '', nearest_city: pg.nearest_city || '',
+        intro_text: pg.intro_text || '', intro_video_url: pg.intro_video_url || '',
+        intake: pgIntake, agreement_signed_pdf_url: pgSignedUrl
       },
       jobs: pgJobCards, candidates: pgCands
     });
@@ -49104,6 +49158,11 @@ Return ONLY valid JSON with no markdown formatting:
     var patchP = {};
     var pmap = { name: 'name', city: 'location_city', state: 'location_state', type: 'practice_type', contact: 'contact_name', email: 'contact_email', phone: 'contact_phone', ahpra: 'ahpra_number', notes: 'notes' };
     Object.keys(pmap).forEach(function (k) { if (typeof bodyPP[k] === 'string') patchP[pmap[k]] = bodyPP[k]; });
+    if (typeof bodyPP.stage === 'string') {
+      var validStagesPP = ['prospective', 'active', 'declined', 'archived'];
+      if (validStagesPP.indexOf(bodyPP.stage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
+      patchP.stage = bodyPP.stage;
+    }
     if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var parsedPP = atsParsePracticeId(ppgId);
     var updatedP = null;
