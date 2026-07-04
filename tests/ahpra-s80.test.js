@@ -371,4 +371,44 @@ describe('RSO refinements: team_instructions, PSV/MyIntealth/AMC → Zoom call, 
     expect(out.items.length).toBe(2);
     expect(out.items.every(i => (i.team_instructions || '').length > 0)).toBe(true);
   });
+
+  it('isStatutoryDeclarationItem detects a stat-dec item, not real documents', () => {
+    expect(s80.isStatutoryDeclarationItem({ title: 'Statutory Declaration' })).toBe(true);
+    expect(s80.isStatutoryDeclarationItem({ title: 'Statutory declaration of identity' })).toBe(true);
+    expect(s80.isStatutoryDeclarationItem({ title: 'Stat dec confirming an employment gap' })).toBe(true);
+    expect(s80.isStatutoryDeclarationItem({ title: 'Certificate of Good Standing from GMC' })).toBe(false);
+  });
+
+  it('normalizeExtraction drops a statutory declaration item (GP waits for GMC confirmation) but keeps good standing', () => {
+    const out = s80.normalizeExtraction({ items: [
+      { title: 'Statutory Declaration', detail: 'A statutory declaration confirming your registration.' },
+      { title: 'Certificate of Good Standing from GMC', detail: 'From the GMC; if unavailable a statutory declaration may be accepted.', owner: 'gp', mode: 'request_institution', institution: 'GMC', kind: 'good_standing' }
+    ] }, {});
+    const titles = out.items.map(i => i.title);
+    expect(titles).not.toContain('Statutory Declaration');
+    expect(titles).toContain('Certificate of Good Standing from GMC'); // kept even though its detail mentions a stat dec
+    expect(out.items.length).toBe(1);
+  });
+});
+
+describe('officer-reply draft + prompt', () => {
+  it('template renders name/title/reference and a Re: subject', () => {
+    const d = s80.buildOfficerReplyDraft({ gpName: 'Smith Miller', itemTitle: 'Curriculum Vitae', reference: '1460970', officerName: 'Helen' });
+    expect(d.subject).toMatch(/^Re:/);
+    expect(d.body).toContain('Curriculum Vitae');
+    expect(d.body).toContain('Smith Miller');
+    expect(d.body).toContain('1460970');
+  });
+  it('template is safe with missing fields', () => {
+    const d = s80.buildOfficerReplyDraft({});
+    expect(typeof d.subject).toBe('string');
+    expect(d.body.length).toBeGreaterThan(0);
+  });
+  it('AI prompt grounds with item + gp + reference', () => {
+    const m = s80.buildOfficerReplyMessages({ gpName: 'Smith Miller', itemTitle: 'Signed CV', requirement: 'A signed, dated CV', reference: '1460970', officerName: 'Helen' });
+    expect(m.system).toMatch(/AHPRA/i);
+    expect(m.userText).toContain('Signed CV');
+    expect(m.userText).toContain('Smith Miller');
+    expect(m.userText).toContain('1460970');
+  });
 });

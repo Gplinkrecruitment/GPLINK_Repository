@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GP Jobs in Australia for Overseas Doctors | GP Link</title>
+<meta name="description" content="Free, end-to-end support for overseas-trained GPs moving to Australia — AHPRA registration, visa sponsorship and practice placement, all in one place.">
+<link rel="canonical" href="https://www.mygplink.com.au/">
+<meta property="og:title" content="GP Jobs in Australia for Overseas Doctors | GP Link">
+<meta property="og:description" content="Free, end-to-end support for overseas-trained GPs moving to Australia — AHPRA registration, visa sponsorship and practice placement, all in one place.">
+<meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mygplink.com.au/">
+<link rel="stylesheet" href="/css/site.css?v=20260703">
+<style>
+  /* ---------- hero ---------- */
+  .hero{position:relative;min-height:88svh;display:flex;flex-direction:column;justify-content:center;
+    color:#fff;overflow:hidden;}
+  .hero video,.hero .vfallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
+    transform:scale(1.02);}
+  .hero .shade{position:absolute;inset:0;z-index:1;
+    background:linear-gradient(180deg,rgba(13,42,58,.55) 0%,rgba(13,42,58,.35) 40%,rgba(13,42,58,.72) 100%);}
+  .hero .inner{position:relative;z-index:2;padding:104px var(--pad) 64px;max-width:1180px;margin:0 auto;width:100%;}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;
+    text-transform:uppercase;font-weight:700;color:#b9dcff;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--sky);display:block;}
+  .hero h1{font-size:clamp(38px,6.4vw,76px);line-height:1.02;letter-spacing:-.022em;font-weight:730;
+    margin:.35em 0 .3em;max-width:13ch;text-wrap:balance;
+    text-shadow:0 2px 24px rgba(13,42,58,.45);}
+  .hero .sub{font-size:clamp(16px,1.9vw,20px);color:#dcebee;max-width:46ch;margin:0 0 24px;
+    text-shadow:0 1px 12px rgba(13,42,58,.5);}
+  .cta-row{display:flex;gap:14px;flex-wrap:wrap;}
+  /* ---------- hero job search + stats card ---------- */
+  .hero-card{margin-top:26px;background:rgba(255,255,255,.97);border-radius:18px;max-width:880px;
+    box-shadow:0 30px 60px -28px rgba(9,30,50,.65);overflow:hidden;}
+  .job-search{padding:16px;display:grid;grid-template-columns:1.3fr 1fr 1fr auto;gap:10px;align-items:end;}
+  .job-search label{display:grid;gap:5px;font-size:11.5px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--mut-2);}
+  .job-search input,.job-search select{font:inherit;font-size:14.5px;color:var(--ink-2);
+    border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;width:100%;}
+  .job-search input:focus,.job-search select:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal);}
+  .job-search .go{background:var(--teal);color:#fff;border:0;border-radius:10px;font:inherit;
+    font-size:14.5px;font-weight:700;padding:12px 22px;cursor:pointer;white-space:nowrap;
+    transition:background .2s, transform .2s;}
+  .job-search .go:hover{background:#0d5ee0;transform:translateY(-1px);}
+  .card-stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:#fbfdff;}
+  .card-stats>div{padding:14px 18px;border-right:1px solid var(--line);display:flex;align-items:baseline;gap:8px;}
+  .card-stats>div:last-child{border-right:0;}
+  .card-stats .stat-n{font-size:clamp(19px,2vw,24px);font-weight:760;color:var(--teal);letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;}
+  .card-stats .stat-n small{font-size:.62em;font-weight:700;color:var(--mut-2);margin-left:1px;}
+  .card-stats .stat-l{font-size:12px;color:var(--mut-2);letter-spacing:.02em;line-height:1.3;}
+  @media(max-width:760px){.job-search{grid-template-columns:1fr 1fr}.job-search .kw{grid-column:1/-1}.job-search .go{grid-column:1/-1}
+    .card-stats{grid-template-columns:1fr}.card-stats>div{border-right:0;border-bottom:1px solid var(--line);padding:10px 18px;}
+    .card-stats>div:last-child{border-bottom:0;}}
+
+  .scroll-cue{position:absolute;z-index:2;left:50%;bottom:26px;transform:translateX(-50%);
+    width:26px;height:42px;border:2px solid rgba(255,255,255,.55);border-radius:14px;}
+  .scroll-cue::after{content:"";position:absolute;left:50%;top:8px;width:4px;height:8px;border-radius:3px;
+    background:#fff;transform:translateX(-50%);animation:cue 1.8s ease-in-out infinite;}
+  @keyframes cue{0%{opacity:0;top:7px}30%{opacity:1}100%{opacity:0;top:22px}}
+
+  /* hero staged entrance */
+  .stage{opacity:0;transform:translateY(26px);animation:rise .9s cubic-bezier(.2,.7,.2,1) forwards;}
+  .stage.d1{animation-delay:.15s}.stage.d2{animation-delay:.3s}.stage.d3{animation-delay:.5s}.stage.d4{animation-delay:.7s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  /* ---------- how we help ---------- */
+  .help-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(22px,3.5vw,44px);align-items:center;margin-top:28px;}
+  .help-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .hcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;
+    transition:transform .3s ease, box-shadow .3s ease;}
+  .hcard:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
+  .hcard .ic{width:42px;height:42px;border-radius:12px;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+  .hcard h4{margin:0 0 6px;font-size:16.5px;font-weight:700;color:var(--ink-2);}
+  .hcard p{margin:0;font-size:14px;color:var(--mut);line-height:1.55;}
+  .doc-visual{position:relative;}
+  .doc-visual .blob-bg{position:absolute;inset:8% 4% 4% 8%;background:radial-gradient(80% 80% at 60% 30%,var(--teal-soft),transparent 70%);z-index:0;border-radius:50%;}
+  .doc-visual img{position:relative;z-index:1;margin:0 auto;max-width:min(440px,88%);
+    filter:drop-shadow(0 30px 50px rgba(13,58,79,.28));animation:floaty 7s ease-in-out infinite;}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+  @media(max-width:880px){.help-grid{grid-template-columns:1fr}.doc-visual{order:-1}}
+  @media(max-width:560px){.help-cards{grid-template-columns:1fr}}
+
+  /* ---------- app push ---------- */
+  .app-push{background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 48%,#116dff 72%,#2b8ef0 100%);
+    color:#fff;overflow:hidden;position:relative;}
+  .app-push::before{content:"";position:absolute;width:560px;height:560px;border-radius:50%;
+    background:radial-gradient(circle,rgba(78,183,245,.35),transparent 68%);top:-180px;right:-120px;}
+  .app-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(26px,4vw,56px);align-items:center;position:relative;}
+  .app-push .sec-eyebrow{color:#9fd1ff;}
+  .app-push h2.sec-title{color:#fff;}
+  .app-push .lede{color:#d6e7ff;font-size:clamp(15px,1.8vw,17.5px);max-width:54ch;margin:0 0 22px;}
+  .app-feats{list-style:none;margin:0 0 26px;padding:0;display:grid;gap:12px;}
+  .app-feats li{display:flex;gap:13px;align-items:flex-start;font-size:15px;color:#eaf3ff;}
+  .app-feats .fic{flex:0 0 auto;width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;}
+  .app-feats b{color:#fff;font-weight:700;display:block;}
+  .app-feats span.d{color:#c2dbff;font-size:13.5px;}
+  .app-cta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+  .app-cta-row .free{font-size:13px;color:#c2dbff;}
+  /* phone mockup */
+  .phone-wrap{display:flex;justify-content:center;position:relative;}
+  .phone{width:min(300px,82vw);background:#0c2038;border-radius:42px;padding:11px;
+    box-shadow:0 50px 90px -40px rgba(6,20,40,.9), 0 0 0 1px rgba(255,255,255,.08);
+    transform:rotate(2.5deg);}
+  .screen{background:#f4f8fd;border-radius:32px;overflow:hidden;font-size:12px;color:var(--ink-2);}
+  .scr-top{display:flex;align-items:center;justify-content:space-between;padding:14px 15px 10px;}
+  .scr-top .hello b{font-size:13.5px;}
+  .scr-top .hello span{display:block;color:var(--mut-2);font-size:10.5px;}
+  .scr-top .ava{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--sky));
+    color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  .scr-card{background:#fff;border:1px solid #e3ecf5;border-radius:14px;margin:0 12px 10px;padding:12px 13px;}
+  .scr-card .t{font-weight:750;font-size:12px;margin-bottom:8px;}
+  .pbar{height:7px;border-radius:5px;background:#e6eef7;overflow:hidden;}
+  .pbar i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,var(--teal),var(--sky));
+    transition:width 1.4s cubic-bezier(.2,.7,.2,1) .3s;}
+  .in .pbar i{width:68%;}
+  .pbar-l{display:flex;justify-content:space-between;color:var(--mut-2);font-size:10px;margin-top:6px;}
+  .step-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid #eef4fa;}
+  .step-row:last-child{border-bottom:0;}
+  .step-row .dot{flex:0 0 auto;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;}
+  .dot.done{background:#d9f2e4;color:#0e7a45;}
+  .dot.now{background:var(--teal);color:#fff;box-shadow:0 0 0 4px rgba(17,109,255,.18);}
+  .dot.next{background:#e9eff6;color:#9fb1c4;}
+  .step-row .nm{font-weight:640;font-size:11.5px;}
+  .step-row .st{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+  .st.g{color:#0e7a45;}.st.b{color:var(--teal);}.st.m{color:#9fb1c4;}
+  .scr-note{display:flex;gap:9px;align-items:center;background:var(--teal-soft);border:1px solid #cfe4ff;
+    border-radius:12px;margin:0 12px 12px;padding:10px 12px;opacity:0;transform:translateY(10px);
+    transition:opacity .6s ease 1.4s, transform .6s ease 1.4s;}
+  .in .scr-note{opacity:1;transform:none;}
+  .scr-note .bell{width:26px;height:26px;border-radius:8px;background:var(--teal);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .scr-note b{font-size:11px;display:block;}
+  .scr-note span{font-size:10px;color:var(--mut);}
+  .float-chip{position:absolute;background:#fff;color:var(--ink-2);border-radius:12px;padding:9px 13px;
+    font-size:12px;font-weight:650;box-shadow:0 18px 40px -16px rgba(6,20,40,.55);display:flex;gap:8px;align-items:center;}
+  .float-chip.c1{top:8%;left:2%;transform:rotate(-3deg);}
+  .float-chip.c2{bottom:10%;right:0;transform:rotate(2deg);}
+  .float-chip .ok{color:#0e7a45;font-weight:800;}
+  @media(max-width:880px){.app-grid{grid-template-columns:1fr}.phone{transform:rotate(0)}.float-chip{display:none}}
+  /* flow steps */
+  .flow{margin-top:clamp(30px,4.5vw,48px);position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .flow .fstep{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:16px;
+    padding:18px 18px 16px;backdrop-filter:blur(4px);}
+  .flow .num{width:28px;height:28px;border-radius:50%;background:#fff;color:#0d5ee0;font-weight:800;font-size:13px;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;}
+  .flow b{display:block;font-size:14.5px;margin-bottom:4px;}
+  .flow span{font-size:12.5px;color:#c2dbff;line-height:1.45;}
+  @media(max-width:880px){.flow{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.flow{grid-template-columns:1fr}}
+
+  /* ---------- why australia (dark) ---------- */
+  .oz{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;overflow:hidden;}
+  .oz .sec-eyebrow{color:var(--sky);}
+  .oz h2.sec-title{color:#fff;}
+  .oz .sec-sub{color:#a8c4dc;}
+  .oz-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(22px,3.5vw,44px);align-items:center;margin-top:8px;}
+  .oz-photo{border-radius:22px;overflow:hidden;box-shadow:0 40px 80px -40px rgba(0,0,0,.8);position:relative;}
+  .oz-photo img{width:100%;height:100%;object-fit:cover;transform:scale(1.06);transition:transform 1.2s ease;}
+  .oz-photo:hover img{transform:scale(1.0);}
+  .perks{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:13px;}
+  .perks li{display:flex;gap:14px;align-items:flex-start;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:15px 18px;font-size:15px;}
+  .perks .tick{flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:var(--sky);color:#0c2038;
+    display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;margin-top:1px;}
+  .perks b{color:#fff;font-weight:680;}
+  .perks span.note{color:#a8c4dc;font-weight:400;}
+  @media(max-width:880px){.oz-grid{grid-template-columns:1fr}}
+
+  /* ---------- why gp link ---------- */
+  .why-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(22px,3.5vw,44px);margin-top:26px;align-items:center;}
+  .metrics{display:grid;gap:14px;}
+  .metric{display:flex;align-items:baseline;gap:18px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:20px 24px;}
+  .metric .n{font-size:clamp(30px,3.4vw,42px);font-weight:770;color:var(--ink);letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;min-width:3.4ch;}
+  .metric .t{font-size:14.5px;color:var(--mut);}
+  .quote-card{background:var(--ink-2);color:#e6f0f8;border-radius:22px;padding:clamp(26px,3.4vw,42px);
+    position:relative;box-shadow:0 34px 70px -36px rgba(20,50,76,.75);}
+  .quote-card .qmark{font-size:76px;line-height:0;font-family:Georgia,serif;color:var(--sky);
+    position:absolute;top:38px;left:30px;opacity:.85;}
+  .quote-card blockquote{margin:34px 0 22px;font-size:clamp(16.5px,1.9vw,20px);line-height:1.55;font-weight:480;}
+  .quote-card .who{display:flex;align-items:center;gap:13px;font-size:14px;color:#a8c4dc;}
+  .quote-card .avatar{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--sky));
+    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:750;}
+  @media(max-width:880px){.why-grid{grid-template-columns:1fr}}
+
+  /* ---------- partners ---------- */
+  .partners{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#fbfcfd;}
+  .partners .container{padding-top:30px;padding-bottom:30px;}
+  .partners .lbl{text-align:center;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--mut-2);font-weight:700;margin-bottom:26px;}
+  .logo-marquee{position:relative;width:100%;overflow:hidden;
+    -webkit-mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);
+    mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);}
+  .logo-track{display:flex;align-items:center;width:max-content;
+    animation:logoMarqueeLtr 24s linear infinite;}
+  .logo-marquee:hover .logo-track{animation-play-state:paused;}
+  .logo-seq{display:flex;align-items:center;flex-shrink:0;
+    gap:clamp(26px,6vw,72px);padding-right:clamp(26px,6vw,72px);}
+  .logo-seq img{height:52px;width:auto;filter:grayscale(1);opacity:.6;transition:filter .3s, opacity .3s, transform .3s;}
+  .logo-seq img:hover{filter:none;opacity:1;transform:translateY(-3px);}
+  /* Animate rightward (owner-requested): start shifted left by exactly one
+     sequence width, end at rest — content appears to flow toward the right.
+     3 identical .logo-seq copies of equal width make -33.3334% == -1 sequence,
+     so the loop restarts with zero visible seam. */
+  @keyframes logoMarqueeLtr{
+    from{transform:translateX(-33.3334%);}
+    to{transform:translateX(0);}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .logo-marquee{-webkit-mask-image:none;mask-image:none;}
+    .logo-track{animation:none;transform:none;width:auto;flex-wrap:wrap;justify-content:center;}
+    .logo-seq[aria-hidden="true"]{display:none;}
+    .logo-seq{padding-right:0;}
+  }
+
+  /* ---------- final cta ---------- */
+  .final{position:relative;color:#fff;overflow:hidden;}
+  .final .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
+  .final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
+  .final .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
+  .final h2{font-size:clamp(28px,4.6vw,52px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
+  .final p{color:#d3e4f6;max-width:52ch;margin:0 auto 26px;font-size:clamp(15px,1.8vw,18px);}
+
+  @media (prefers-reduced-motion: reduce){
+    .stage{animation:none !important;opacity:1 !important;transform:none !important;}
+    .doc-visual img{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header" id="siteHeader">
+  <div class="nav-in container">
+    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
+    <nav class="nav-links">
+      <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+      <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="nav-signin" href="/pages/signin">Sign in</a>
+      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+  <nav class="site-mobile-menu" id="siteMobileMenu">
+    <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+    <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    <a class="nav-signin" href="/pages/signin">Sign in</a>
+    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <video autoplay muted loop playsinline preload="metadata" poster="/media/images/site/beach-poster.jpg">
+    <source src="/media/videos/site-hero-beach.mp4" type="video/mp4">
+  </video>
+  <div class="vfallback" style="background:url('/media/images/site/beach-poster.jpg') center/cover;display:none;" role="img" aria-label="Australian coastline"></div>
+  <div class="shade"></div>
+  <div class="inner">
+    <div class="eyebrow stage d1">Move to Australia as a GP</div>
+    <h1 class="stage d2">Take your GP career to&nbsp;Australia</h1>
+    <p class="sub stage d3">Expert, end-to-end support with AHPRA registration, visa sponsorship and finding the right practice — completely free for doctors.</p>
+    <div class="hero-card stage d4">
+      <form class="job-search" id="jobSearch">
+        <label class="kw">Keyword or suburb
+          <input type="text" name="q" placeholder="e.g. Bondi, mixed billing, DPA…">
+        </label>
+        <label>State / Territory
+          <select name="state">
+            <option value="">All of Australia</option>
+            <option>NSW</option><option>VIC</option><option>QLD</option><option>WA</option>
+            <option>SA</option><option>TAS</option><option>ACT</option><option>NT</option>
+          </select>
+        </label>
+        <label>Position type
+          <select name="type">
+            <option value="">All positions</option>
+            <option value="vr-gp">VR GP</option>
+            <option value="non-vr-gp">Non-VR GP</option>
+            <option value="locum">Locum</option>
+          </select>
+        </label>
+        <button class="go" type="submit" id="jobSearchGo">Search 1,470 jobs</button>
+      </form>
+      <div class="card-stats">
+        <div><span class="stat-n"><span id="jobsCount" data-count="1470">0</span></span><span class="stat-l">jobs available right now</span></div>
+        <div><span class="stat-n"><span id="locationsCount" data-count="830">0</span>+</span><span class="stat-l">locations across Australia</span></div>
+        <div><span class="stat-n"><span id="daysCount" data-count="22">0</span><small>days</small></span><span class="stat-l">average placement time</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll-cue" aria-hidden="true"></div>
+</section>
+
+<section class="block" id="help">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">How we help GPs</div>
+      <h2 class="sec-title">Every step handled, from first call to first&nbsp;day</h2>
+      <p class="sec-sub">One team manages your whole move — registration, visa, placement and relocation — so you can focus on the decision, not the paperwork.</p>
+    </div>
+    <div class="help-grid">
+      <div class="help-cards">
+        <div class="hcard reveal dl1">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
+          <h4>Completely free</h4>
+          <p>Our service costs you nothing — with job matching tailored to you from day one.</p>
+        </div>
+        <div class="hcard reveal dl2">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1"/></svg></div>
+          <h4>Every practice, every option</h4>
+          <p>Private, corporate, large or small — we work across the whole market, not one book of clients.</p>
+        </div>
+        <div class="hcard reveal dl3">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+          <h4>Medicare &amp; pathways, simplified</h4>
+          <p>We navigate exemptions and registration pathways for you — no guesswork, no dead ends.</p>
+        </div>
+        <div class="hcard reveal dl4">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/></svg></div>
+          <h4>Matched to your life</h4>
+          <p>We match on skills, values and the way you want to live — not just the vacancy list.</p>
+        </div>
+      </div>
+      <div class="doc-visual reveal dl2">
+        <div class="blob-bg"></div>
+        <img src="/media/images/site/doctor-sydney.png" alt="A GP beginning her career in Sydney">
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block app-push" id="app">
+  <div class="container">
+    <div class="app-grid">
+      <div class="reveal">
+        <div class="sec-eyebrow">The GP Link app</div>
+        <h2 class="sec-title">Don't just apply — see your whole move in one&nbsp;app</h2>
+        <p class="lede">Create a free account and the guesswork disappears. Your registration, documents, visa steps and job matches all live in one place — with a real person behind every step.</p>
+        <ul class="app-feats">
+          <li class="reveal dl1"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span>
+            <div><b>Your pathway, mapped step by step</b><span class="d">AHPRA, AMC, Medicare and placement — tracked live, so you always know what's next.</span></div></li>
+          <li class="reveal dl2"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <div><b>Upload documents once, verified fast</b><span class="d">Smart checks catch problems in minutes — before they cost you weeks with the regulator.</span></div></li>
+          <li class="reveal dl3"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
+            <div><b>Job matches made for you</b><span class="d">Real vacancies matched to your skills, visa situation and the life you want.</span></div></li>
+          <li class="reveal dl4"><span class="fic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+            <div><b>Your own Registration Support Officer — free</b><span class="d">A dedicated RSO guides you step by step, answers your questions and chases the paperwork — at no cost to you.</span></div></li>
+        </ul>
+        <div class="app-cta-row reveal dl4">
+          <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+          <span class="free">Free forever for doctors · takes 2 minutes</span>
+        </div>
+      </div>
+      <div class="phone-wrap reveal dl2">
+        <div class="float-chip c1"><span class="ok">✓</span> CV verified</div>
+        <div class="phone"><div class="screen">
+          <div class="scr-top">
+            <div class="hello"><b>Good morning, Dr Patel</b><span>Your move to Australia</span></div>
+            <div class="ava">SP</div>
+          </div>
+          <div class="scr-card">
+            <div class="t">Registration progress</div>
+            <div class="pbar"><i></i></div>
+            <div class="pbar-l"><span>Step 4 of 6</span><span>68%</span></div>
+          </div>
+          <div class="scr-card">
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">Secure placement</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">MyIntealth</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">AMC verification</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot now">4</span><span class="nm">AHPRA registration</span><span class="st b">In progress</span></div>
+            <div class="step-row"><span class="dot next">5</span><span class="nm">PBS &amp; Medicare</span><span class="st m">Up next</span></div>
+            <div class="step-row"><span class="dot next">6</span><span class="nm">Commencement</span><span class="st m">Up next</span></div>
+          </div>
+          <div class="scr-note">
+            <span class="bell"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></span>
+            <div><b>New job match — Brisbane, QLD</b><span>Mixed billing · DPA approved · meets your visa needs</span></div>
+          </div>
+        </div></div>
+        <div class="float-chip c2">🇦🇺 Visa step unlocked</div>
+      </div>
+    </div>
+    <div class="flow reveal">
+      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
+      <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
+      <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration and visa step for your exact situation.</span></div>
+      <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="block oz" id="oz">
+  <div class="container">
+    <div class="oz-grid">
+      <div class="reveal">
+        <div class="sec-eyebrow">Why Australia</div>
+        <h2 class="sec-title">A career upgrade that's also a life&nbsp;upgrade</h2>
+        <p class="sec-sub">Australia needs GPs — especially in outer metropolitan and regional communities. That demand works in your favour.</p>
+        <ul class="perks">
+          <li class="reveal dl1"><span class="tick">✓</span><div><b>Visa sponsorship</b> <span class="note">— employer-backed pathways for you and your family</span></div></li>
+          <li class="reveal dl2"><span class="tick">✓</span><div><b>Higher earnings</b> <span class="note">— top GPs earn up to $1M</span></div></li>
+          <li class="reveal dl3"><span class="tick">✓</span><div><b>Better climate &amp; lifestyle</b> <span class="note">— beaches, sunshine and space</span></div></li>
+          <li class="reveal dl4"><span class="tick">✓</span><div><b>Flexible work–life balance</b> <span class="note">— build the roster around your life</span></div></li>
+          <li class="reveal dl4"><span class="tick">✓</span><div><b>Pathway to citizenship</b> <span class="note">— a permanent future, not just a posting</span></div></li>
+        </ul>
+      </div>
+      <div class="oz-photo reveal dl2"><img src="/media/images/site/kangaroo.jpg" alt="Kangaroo on an Australian beach"></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="why">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Why GP Link</div>
+      <h2 class="sec-title">A track record you can check</h2>
+    </div>
+    <div class="why-grid">
+      <div class="metrics">
+        <div class="metric reveal dl1"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed across Australia</div></div>
+        <div class="metric reveal dl2"><div class="n"><span data-count="100">0</span>%</div><div class="t">satisfaction rate from placed doctors</div></div>
+        <div class="metric reveal dl3"><div class="n"><span data-count="30">0</span></div><div class="t">days — our record placement, start to finish</div></div>
+      </div>
+      <div class="quote-card reveal dl2">
+        <div class="qmark">“</div>
+        <blockquote>GP Link made the whole move feel simple. From registration to finding the right practice in Sydney, someone was across every detail — I just had to say yes.</blockquote>
+        <div class="who"><div class="avatar">DR</div><div><b style="color:#fff">Dr Daniel R.</b><br>NZ-trained GP, now practising in Sydney</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="partners">
+  <div class="container reveal">
+    <div class="lbl">Working within Australia's medical framework</div>
+    <div class="logo-marquee">
+      <div class="logo-track">
+        <div class="logo-seq">
+          <img src="/media/images/site/partner-ahpra.png" alt="Ahpra &amp; National Boards">
+          <img src="/media/images/site/partner-amc.png" alt="Australian Medical Council">
+          <img src="/media/images/site/partner-ama.png" alt="Australian Medical Association">
+          <img src="/media/images/site/partner-ecfmg.png" alt="ECFMG">
+        </div>
+        <div class="logo-seq" aria-hidden="true">
+          <img src="/media/images/site/partner-ahpra.png" alt="">
+          <img src="/media/images/site/partner-amc.png" alt="">
+          <img src="/media/images/site/partner-ama.png" alt="">
+          <img src="/media/images/site/partner-ecfmg.png" alt="">
+        </div>
+        <div class="logo-seq" aria-hidden="true">
+          <img src="/media/images/site/partner-ahpra.png" alt="">
+          <img src="/media/images/site/partner-amc.png" alt="">
+          <img src="/media/images/site/partner-ama.png" alt="">
+          <img src="/media/images/site/partner-ecfmg.png" alt="">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="final" id="cta">
+  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <div class="shade"></div>
+  <div class="container reveal">
+    <h2>Create your free account — see your pathway in minutes</h2>
+    <p>Join the doctors already tracking their move in the GP Link app. It's free, takes two minutes, and you'll know exactly what your route to practising in Australia looks like before you commit to anything.</p>
+    <div class="cta-row" style="justify-content:center">
+      <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+      <a class="btn ghost" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Prefer to talk first? Book a call</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="foot-in container">
+    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
+      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
+    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
+    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+  </div>
+  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
+</footer>
+<script src="/js/site.js?v=20260703"></script>
+<script>
+(function () {
+  "use strict";
+
+  // Job search → real navigation to /jobs, via the shared chrome helper.
+  var form = document.getElementById("jobSearch");
+  if (window.GPSite && typeof window.GPSite.initJobSearch === "function") {
+    window.GPSite.initJobSearch(form);
+  }
+
+  // If the hero video can't play (blocked/unsupported), fall back to the
+  // static poster image so the hero stays fully legible.
+  var video = document.querySelector(".hero video");
+  var fallback = document.querySelector(".hero .vfallback");
+  if (video) {
+    video.addEventListener("error", function () {
+      video.style.display = "none";
+      if (fallback) fallback.style.display = "block";
+    });
+  }
+
+  function applyCount(id, value) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute("data-count", String(value));
+    el.textContent = value.toLocaleString();
+  }
+
+  // Live stats: replace the hardcoded prototype numbers with the real
+  // counts on load. If the request fails, the hardcoded numbers stay.
+  fetch("/api/public/stats").then(function (res) {
+    if (!res.ok) throw new Error("stats request failed");
+    return res.json();
+  }).then(function (data) {
+    if (!data || data.ok !== true) throw new Error("bad stats payload");
+
+    var jobs = Number(data.jobsCount);
+    if (Number.isFinite(jobs)) {
+      applyCount("jobsCount", jobs);
+      var goBtn = document.getElementById("jobSearchGo");
+      if (goBtn) goBtn.textContent = "Search " + jobs.toLocaleString() + " jobs";
+    }
+
+    var locations = Number(data.locations);
+    if (Number.isFinite(locations)) applyCount("locationsCount", locations);
+
+    var days = Number(data.avgPlacementDays);
+    if (Number.isFinite(days)) applyCount("daysCount", days);
+  }).catch(function () {
+    // Network/API failure — keep the hardcoded prototype numbers.
+  });
+})();
+</script>
+</body>
+</html>

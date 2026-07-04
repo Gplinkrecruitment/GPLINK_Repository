@@ -634,8 +634,9 @@
     .dp-sec-dl { margin-top: 9px; }
     .dp-sec-dl .qp-dl-btn { width: 100%; justify-content: center; padding: 7px 12px; font-size: 12px; }
     .dp-empty { font-size: 12px; color: var(--ink-muted); line-height: 1.5; padding: 2px 0; }
-    /* Deep-link (?doc=<key>) flash: briefly ring + tint the document row we jumped to. */
+    /* Deep-link (?doc=<key> / ?task=<id>) flash: briefly ring + tint the row we jumped to. */
     .dp-doc.dp-doc-flash { position: relative; z-index: 1; border-radius: 8px; animation: dpDocFlash 2.2s ease; }
+    .mi-task-flash { position: relative; z-index: 1; animation: dpDocFlash 2.2s ease; }
     @keyframes dpDocFlash {
       0%   { background: var(--gp-blue-soft); box-shadow: 0 0 0 2px var(--accent); }
       65%  { background: var(--gp-blue-soft); box-shadow: 0 0 0 2px var(--accent); }
@@ -4811,6 +4812,29 @@
       if (!grid) return;
       grid.innerHTML = renderAhpraMoreInfoCard(data);
       wireAhpraMoreInfo();
+      focusDeepLinkedTask();
+    }
+    // ── Deep link: ?task=<id> jumps straight to one AHPRA action item ─────────
+    // The per-task emails link the GP here as …/pages/ahpra.html?task=<id> (one
+    // email per item — Upload document / Mark as requested). Captured at
+    // script-eval time for the same reason as _deepLinkDocKey below:
+    // syncRouteForStage()'s replaceState strips the query string before the
+    // more-info card has loaded. Scroll to + flash that item's card once rendered.
+    var _deepLinkTaskId = '';
+    try { _deepLinkTaskId = new URLSearchParams(window.location.search).get('task') || ''; } catch (e) {}
+    function focusDeepLinkedTask() {
+      try {
+        if (!_deepLinkTaskId) return;
+        var row = document.querySelector('[data-mi-task="' + _deepLinkTaskId.replace(/"/g, '') + '"]');
+        if (!row) return;
+        _deepLinkTaskId = '';
+        try { history.replaceState({}, '', window.location.pathname + window.location.hash); } catch (e) {}
+        try { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        row.classList.remove('mi-task-flash');
+        void row.offsetWidth; // reflow so re-adding the class restarts the animation
+        row.classList.add('mi-task-flash');
+        setTimeout(function () { try { row.classList.remove('mi-task-flash'); } catch (e) {} }, 2300);
+      } catch (e) { /* nice-to-have: never break page load */ }
     }
     function ahpraUploadBtn(item, label) {
       return '<label class="btn-primary" style="margin-top:8px;cursor:pointer;display:inline-flex;">' + s80Esc(label) +
@@ -4858,7 +4882,7 @@
       }
       // Show the friendly, GP-facing instruction (falls back to detail for older items).
       var instr = item.gp_instructions || item.detail || '';
-      return '<div style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--surface-raised);">' +
+      return '<div data-mi-task="' + s80Esc(item.id) + '" style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--surface-raised);">' +
         '<div style="font-weight:600;color:var(--ink);">' + s80Esc(item.title) + '</div>' +
         '<div style="margin-top:4px;color:var(--ink-muted);font-size:13px;line-height:1.5;white-space:pre-wrap;">' + s80Esc(instr) + '</div>' +
         subs +

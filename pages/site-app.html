@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The GP Link App — Track Your Move to Australia | GP Link</title>
+<meta name="description" content="Create a free GP Link account and see your exact pathway to Australia in minutes — registration, documents, job matches and a real support officer in one app.">
+<link rel="canonical" href="https://www.mygplink.com.au/the-app">
+<meta property="og:title" content="The GP Link App — Track Your Move to Australia | GP Link">
+<meta property="og:description" content="Create a free GP Link account and see your exact pathway to Australia in minutes — registration, documents, job matches and a real support officer in one app.">
+<meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mygplink.com.au/the-app">
+<link rel="stylesheet" href="/css/site.css?v=20260703">
+<style>
+  /* ---------- apppage hero (ported app-push gradient) ---------- */
+  .apppage-hero{background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 48%,#116dff 72%,#2b8ef0 100%);
+    color:#fff;overflow:hidden;position:relative;padding:clamp(128px,15vw,168px) 0 clamp(52px,7vw,76px);}
+  .apppage-hero::before{content:"";position:absolute;width:560px;height:560px;border-radius:50%;
+    background:radial-gradient(circle,rgba(78,183,245,.35),transparent 68%);top:-180px;right:-120px;}
+  .apppage-hero .container{position:relative;z-index:1;}
+  .apppage-hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(26px,4vw,56px);align-items:center;}
+  .apppage-hero .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;
+    text-transform:uppercase;font-weight:700;color:#9fd1ff;margin-bottom:16px;}
+  .apppage-hero .eyebrow::before{content:"";width:26px;height:2px;background:var(--sky);display:block;}
+  .apppage-hero h1{font-size:clamp(34px,5.4vw,60px);line-height:1.05;letter-spacing:-.02em;font-weight:730;
+    margin:0 0 .32em;max-width:15ch;text-wrap:balance;}
+  .apppage-hero .sub{font-size:clamp(15.5px,1.8vw,19px);color:#d6e7ff;max-width:50ch;margin:0 0 26px;}
+  @media(max-width:880px){.apppage-hero-grid{grid-template-columns:1fr}}
+
+  /* ---------- feature grid ---------- */
+  .apppage-fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px;}
+  .apppage-fcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;
+    transition:transform .3s ease, box-shadow .3s ease;}
+  .apppage-fcard:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
+  .apppage-fcard .ic{width:42px;height:42px;border-radius:12px;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+  .apppage-fcard h3{margin:0 0 6px;font-size:16.5px;font-weight:720;color:var(--ink-2);}
+  .apppage-fcard p{margin:0;font-size:14px;color:var(--mut);line-height:1.55;}
+  .apppage-fcard.is-highlight{border-color:var(--teal);
+    background:linear-gradient(180deg,var(--teal-soft) 0%,var(--card) 52%);}
+  .apppage-fcard h3 .badge-free{display:inline-block;margin-left:7px;padding:2px 9px;border-radius:999px;
+    background:var(--teal);color:#fff;font-size:10.5px;font-weight:750;letter-spacing:.02em;
+    vertical-align:middle;white-space:nowrap;}
+  @media(max-width:980px){.apppage-fgrid{grid-template-columns:1fr 1fr;}}
+  @media(max-width:560px){.apppage-fgrid{grid-template-columns:1fr;}}
+
+  /* ---------- 6-stage timeline ---------- */
+  .apppage-stages{background:#fbfcfd;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .apppage-timeline{margin-top:30px;max-width:760px;}
+  .apppage-stage-row{display:flex;gap:18px;position:relative;padding-bottom:28px;}
+  .apppage-stage-row:last-child{padding-bottom:0;}
+  .apppage-stage-row::before{content:"";position:absolute;left:19px;top:42px;bottom:0;width:2px;
+    background:var(--line);}
+  .apppage-stage-row:last-child::before{display:none;}
+  .apppage-stage-row .num{flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--teal);
+    color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 5px var(--teal-soft);z-index:1;}
+  .apppage-stage-row .body{padding-top:5px;}
+  .apppage-stage-row h3{margin:0 0 4px;font-size:16.5px;font-weight:720;color:var(--ink-2);}
+  .apppage-stage-row p{margin:0;font-size:14.5px;color:var(--mut);line-height:1.55;max-width:56ch;}
+
+  /* ---------- phone mockup (ported verbatim from site-home.html app-push) ---------- */
+  .phone-wrap{display:flex;justify-content:center;position:relative;}
+  .phone{width:min(300px,82vw);background:#0c2038;border-radius:42px;padding:11px;
+    box-shadow:0 50px 90px -40px rgba(6,20,40,.9), 0 0 0 1px rgba(255,255,255,.08);
+    transform:rotate(2.5deg);}
+  .screen{background:#f4f8fd;border-radius:32px;overflow:hidden;font-size:12px;color:var(--ink-2);}
+  .scr-top{display:flex;align-items:center;justify-content:space-between;padding:14px 15px 10px;}
+  .scr-top .hello b{font-size:13.5px;}
+  .scr-top .hello span{display:block;color:var(--mut-2);font-size:10.5px;}
+  .scr-top .ava{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--sky));
+    color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  .scr-card{background:#fff;border:1px solid #e3ecf5;border-radius:14px;margin:0 12px 10px;padding:12px 13px;}
+  .scr-card .t{font-weight:750;font-size:12px;margin-bottom:8px;}
+  .pbar{height:7px;border-radius:5px;background:#e6eef7;overflow:hidden;}
+  .pbar i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,var(--teal),var(--sky));
+    transition:width 1.4s cubic-bezier(.2,.7,.2,1) .3s;}
+  .in .pbar i{width:68%;}
+  .pbar-l{display:flex;justify-content:space-between;color:var(--mut-2);font-size:10px;margin-top:6px;}
+  .step-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid #eef4fa;}
+  .step-row:last-child{border-bottom:0;}
+  .step-row .dot{flex:0 0 auto;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;}
+  .dot.done{background:#d9f2e4;color:#0e7a45;}
+  .dot.now{background:var(--teal);color:#fff;box-shadow:0 0 0 4px rgba(17,109,255,.18);}
+  .dot.next{background:#e9eff6;color:#9fb1c4;}
+  .step-row .nm{font-weight:640;font-size:11.5px;}
+  .step-row .st{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+  .st.g{color:#0e7a45;}.st.b{color:var(--teal);}.st.m{color:#9fb1c4;}
+  .scr-note{display:flex;gap:9px;align-items:center;background:var(--teal-soft);border:1px solid #cfe4ff;
+    border-radius:12px;margin:0 12px 12px;padding:10px 12px;opacity:0;transform:translateY(10px);
+    transition:opacity .6s ease 1.4s, transform .6s ease 1.4s;}
+  .in .scr-note{opacity:1;transform:none;}
+  .scr-note .bell{width:26px;height:26px;border-radius:8px;background:var(--teal);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .scr-note b{font-size:11px;display:block;}
+  .scr-note span{font-size:10px;color:var(--mut);}
+  .float-chip{position:absolute;background:#fff;color:var(--ink-2);border-radius:12px;padding:9px 13px;
+    font-size:12px;font-weight:650;box-shadow:0 18px 40px -16px rgba(6,20,40,.55);display:flex;gap:8px;align-items:center;}
+  .float-chip.c1{top:8%;left:2%;transform:rotate(-3deg);}
+  .float-chip.c2{bottom:10%;right:0;transform:rotate(2deg);}
+  .float-chip .ok{color:#0e7a45;font-weight:800;}
+  @media(max-width:880px){.phone{transform:rotate(0)}.float-chip{display:none}}
+
+  /* ---------- flow steps (ported verbatim from site-home.html app-push) ---------- */
+  .apppage-flow-section{background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 48%,#116dff 72%,#2b8ef0 100%);
+    color:#fff;overflow:hidden;position:relative;}
+  .apppage-flow-section .sec-eyebrow{color:#9fd1ff;}
+  .apppage-flow-section h2.sec-title{color:#fff;}
+  .apppage-flow-section .sec-sub{color:#d6e7ff;}
+  .flow{margin-top:clamp(30px,4.5vw,48px);position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .flow .fstep{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:16px;
+    padding:18px 18px 16px;backdrop-filter:blur(4px);}
+  .flow .num{width:28px;height:28px;border-radius:50%;background:#fff;color:#0d5ee0;font-weight:800;font-size:13px;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;}
+  .flow b{display:block;font-size:14.5px;margin-bottom:4px;}
+  .flow span{font-size:12.5px;color:#c2dbff;line-height:1.45;}
+  @media(max-width:880px){.flow{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.flow{grid-template-columns:1fr}}
+
+  /* ---------- trust note band ---------- */
+  .apppage-trust{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#fbfcfd;}
+  .apppage-trust-in{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;
+    padding-top:30px;padding-bottom:30px;}
+  .apppage-trust-copy{display:flex;gap:14px;align-items:flex-start;max-width:64ch;}
+  .apppage-trust-copy .ic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;background:var(--teal-soft);
+    color:var(--teal);display:flex;align-items:center;justify-content:center;}
+  .apppage-trust-copy p{margin:0;font-size:14.5px;color:var(--mut);line-height:1.55;}
+  .apppage-trust-copy b{color:var(--ink-2);}
+
+  /* ---------- final cta ---------- */
+  .apppage-final{position:relative;color:#fff;overflow:hidden;}
+  .apppage-final .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
+  .apppage-final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
+  .apppage-final .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
+  .apppage-final h2{font-size:clamp(28px,4.6vw,52px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
+  .apppage-final p{color:#d3e4f6;max-width:52ch;margin:0 auto 20px;font-size:clamp(15px,1.8vw,18px);}
+  .apppage-final .free{display:block;margin-top:18px;font-size:13px;color:#b9d2ec;}
+
+  @media (prefers-reduced-motion: reduce){
+    .stage{animation:none !important;opacity:1 !important;transform:none !important;}
+  }
+</style>
+</head>
+<body data-page="the-app">
+
+<header class="site-header" id="siteHeader">
+  <div class="nav-in container">
+    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
+    <nav class="nav-links">
+      <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app" aria-current="page">The app</a>
+      <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="nav-signin" href="/pages/signin">Sign in</a>
+      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+  <nav class="site-mobile-menu" id="siteMobileMenu">
+    <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app" aria-current="page">The app</a>
+    <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    <a class="nav-signin" href="/pages/signin">Sign in</a>
+    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+  </nav>
+</header>
+
+<section class="apppage-hero">
+  <div class="container">
+    <div class="apppage-hero-grid">
+      <div class="reveal">
+        <div class="eyebrow">The GP Link app</div>
+        <h1>Your whole move to Australia, in one&nbsp;app</h1>
+        <p class="sub">Create a free account and see your exact pathway in minutes — registration, documents, job matches and a real support officer, all tracked in one place.</p>
+        <div class="cta-row">
+          <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+          <a class="btn ghost" href="/jobs">Browse jobs first</a>
+        </div>
+      </div>
+      <div class="phone-wrap reveal dl2">
+        <div class="float-chip c1"><span class="ok">✓</span> CV verified</div>
+        <div class="phone"><div class="screen">
+          <div class="scr-top">
+            <div class="hello"><b>Good morning, Dr Patel</b><span>Your move to Australia</span></div>
+            <div class="ava">SP</div>
+          </div>
+          <div class="scr-card">
+            <div class="t">Registration progress</div>
+            <div class="pbar"><i></i></div>
+            <div class="pbar-l"><span>Step 4 of 6</span><span>68%</span></div>
+          </div>
+          <div class="scr-card">
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">Secure placement</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">MyIntealth</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">AMC verification</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot now">4</span><span class="nm">AHPRA registration</span><span class="st b">In progress</span></div>
+            <div class="step-row"><span class="dot next">5</span><span class="nm">PBS &amp; Medicare</span><span class="st m">Up next</span></div>
+            <div class="step-row"><span class="dot next">6</span><span class="nm">Commencement</span><span class="st m">Up next</span></div>
+          </div>
+          <div class="scr-note">
+            <span class="bell"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></span>
+            <div><b>New job match — Brisbane, QLD</b><span>Mixed billing · DPA approved · meets your visa needs</span></div>
+          </div>
+        </div></div>
+        <div class="float-chip c2">🔔 Document verified</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="whole-move">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Your whole move, one place</div>
+      <h2 class="sec-title">Everything you'd otherwise chase by email, in one&nbsp;app</h2>
+      <p class="sec-sub">No more wondering where things stand. The app is the single place your registration, documents, job matches and support officer live.</p>
+    </div>
+    <div class="apppage-fgrid">
+      <div class="apppage-fcard reveal dl1">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+        <h3>Pathway tracking</h3>
+        <p>Every step of your move, with a live status — you always know exactly what's next.</p>
+      </div>
+      <div class="apppage-fcard reveal dl2">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
+        <h3>Document checks in minutes</h3>
+        <p>Upload once — smart verification catches problems before the regulator does.</p>
+      </div>
+      <div class="apppage-fcard reveal dl3">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
+        <h3>Matched jobs</h3>
+        <p>Roles filtered to your visa situation and the life you want — apply straight from the app.</p>
+      </div>
+      <div class="apppage-fcard reveal dl1 is-highlight">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <h3>Your Registration Support Officer<span class="badge-free">Included free</span></h3>
+        <p>A dedicated RSO guides you step by step, answers your questions and chases the paperwork — at no cost to you.</p>
+      </div>
+      <div class="apppage-fcard reveal dl2">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+        <h3>Notifications that matter</h3>
+        <p>Push and email alerts the moment something needs you — nothing sits waiting in a queue.</p>
+      </div>
+      <div class="apppage-fcard reveal dl3">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l8 4v6c0 5.2-3.4 9.4-8 11-4.6-1.6-8-5.8-8-11V5z"/></svg></div>
+        <h3>Secure by design</h3>
+        <p>Your documents are encrypted and shared only with the people and bodies who need them.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="apppage-stages" id="stages">
+  <div class="container">
+    <div class="reveal" style="padding-top:44px;">
+      <div class="sec-eyebrow">The 6 stages we track for you</div>
+      <h2 class="sec-title">Your real pathway, mapped end to end</h2>
+      <p class="sec-sub">These are the actual stages the app tracks for every doctor — no guesswork, no vague "in progress" status.</p>
+    </div>
+    <div class="apppage-timeline">
+      <div class="apppage-stage-row reveal dl1">
+        <span class="num">1</span>
+        <div class="body"><h3>Secure Placement</h3><p>We match you with a practice and lock in your offer.</p></div>
+      </div>
+      <div class="apppage-stage-row reveal dl1">
+        <span class="num">2</span>
+        <div class="body"><h3>MyIntealth</h3><p>Your identity and credentials set up with AHPRA's online system.</p></div>
+      </div>
+      <div class="apppage-stage-row reveal dl2">
+        <span class="num">3</span>
+        <div class="body"><h3>AMC</h3><p>Your medical qualifications verified by the Australian Medical Council.</p></div>
+      </div>
+      <div class="apppage-stage-row reveal dl2">
+        <span class="num">4</span>
+        <div class="body"><h3>AHPRA</h3><p>Your registration application, prepared and tracked to approval.</p></div>
+      </div>
+      <div class="apppage-stage-row reveal dl3">
+        <span class="num">5</span>
+        <div class="body"><h3>PBS &amp; Medicare</h3><p>Your prescriber and billing numbers, so you can actually practise.</p></div>
+      </div>
+      <div class="apppage-stage-row reveal dl3">
+        <span class="num">6</span>
+        <div class="body"><h3>Commencement</h3><p>Contracts, relocation and your first day.</p></div>
+      </div>
+    </div>
+    <div style="padding-bottom:44px;"></div>
+  </div>
+</section>
+
+<section class="apppage-flow-section" id="get-started">
+  <div class="container" style="padding-top:clamp(44px,6vw,84px);padding-bottom:clamp(44px,6vw,84px);">
+    <div class="reveal">
+      <div class="sec-eyebrow">Getting started</div>
+      <h2 class="sec-title">Four steps to your personal pathway</h2>
+      <p class="sec-sub">No commitment, no guesswork — just two minutes to see exactly where you stand.</p>
+    </div>
+    <div class="flow reveal">
+      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
+      <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
+      <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration step for your exact situation.</span></div>
+      <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="apppage-trust">
+  <div class="container apppage-trust-in reveal">
+    <div class="apppage-trust-copy">
+      <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l8 4v6c0 5.2-3.4 9.4-8 11-4.6-1.6-8-5.8-8-11V5z"/></svg></span>
+      <p><b>Your documents stay private.</b> Everything you upload is stored securely and only ever shared with your own registration team and the bodies that need it — AHPRA, the AMC and your practice, and nobody else.</p>
+    </div>
+    <a class="btn ghost" style="color:var(--teal);border-color:var(--line);background:#fff;" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Questions first? Book a call</a>
+  </div>
+</div>
+
+<section class="apppage-final" id="cta">
+  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <div class="shade"></div>
+  <div class="container reveal">
+    <h2>Create my free account</h2>
+    <p>See your exact pathway to Australia in minutes — registration, documents, job matches and a real support officer, all in one app.</p>
+    <div class="cta-row" style="justify-content:center">
+      <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+      <a class="btn ghost" href="/jobs">Browse jobs first</a>
+    </div>
+    <span class="free">Free forever for doctors · takes 2 minutes</span>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="foot-in container">
+    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
+      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
+    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
+    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+  </div>
+  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
+</footer>
+<script src="/js/site.js?v=20260703"></script>
+</body>
+</html>

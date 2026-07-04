@@ -1271,6 +1271,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .calls-status-badge.completed{background:#f0fdf4;color:#16a34a}
 .calls-status-badge.cancelled{background:#f8fafc;color:#94a3b8}
 .calls-status-badge.no_show{background:#fef2f2;color:#dc2626}
+/* Website enquiries (Task 13) */
+.site-enq-nav-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;vertical-align:middle}
+.site-enq-panel{padding:16px 20px;max-width:1000px;margin:0 auto}
+.site-enq-panel h2{font-size:18px;font-weight:800;margin:0 0 12px}
+.site-enq-filters{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.site-enq-row{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:8px}
+.site-enq-row-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.site-enq-when{font-size:11px;color:var(--muted);white-space:nowrap}
+.site-enq-kind{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase}
+.site-enq-kind-practice{background:#eff6ff;color:#2563eb}
+.site-enq-kind-gp{background:#f0fdf4;color:#16a34a}
+.site-enq-kind-general{background:#f8fafc;color:#64748b}
+.site-enq-name{font-size:13px;font-weight:700}
+.site-enq-contact{font-size:11px;color:var(--muted)}
+.site-enq-meta{font-size:11px;color:var(--muted)}
+.site-enq-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase}
+.site-enq-status-new{background:#eff6ff;color:#2563eb}
+.site-enq-status-contacted{background:#ecfdf5;color:#059669}
+.site-enq-status-closed{background:#f8fafc;color:#94a3b8}
+.site-enq-message{font-size:12px;color:var(--text);margin-top:8px;line-height:1.5;white-space:pre-wrap}
+.site-enq-actions{display:flex;gap:6px;margin-left:auto}
 /* Call history pane */
 .call-history-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}
 .call-history-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -1437,6 +1458,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="scheduled_calls">Calls</div>
+    <div class="view-tab" data-view="website">Website<span id="websiteEnqBadge" class="site-enq-nav-badge" style="display:none"></span></div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -1588,6 +1610,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 </div>
 <div id="guidePanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
+<div id="siteEnquiriesPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
@@ -1657,6 +1680,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
+    siteEnq:{items:[],loading:false,filter:"",expandedIds:{}},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
@@ -2249,6 +2273,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       support:"supportPanel",
       guide:"guidePanel",
       scheduled_calls:"scheduledCallsPanel",
+      website:"siteEnquiriesPanel",
       technical:"technicalPanel"
     };
     var key=normalizeAdminView(S.view);
@@ -2268,6 +2293,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
+    if(S.view==="website"){vaShowPanel("website");renderSiteEnquiriesPanel();return;}
     if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
     S.view="tools";
     setActiveViewTab("tools");
@@ -3012,6 +3038,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       m.how_to_steps.map(s=>'<li>'+esc(String(s||''))+'</li>').join('')+'</ol>'+
       (m.guide_reminder?'<div style="font-size:11px;color:#92400e;margin-top:4px;">⚠️ '+esc(m.guide_reminder)+'</div>':'');
   }
+  function s80VerdictChip(m){
+    var ac=(m&&m.upload&&m.upload.ai_check)||null; if(!ac||!ac.verdict) return '';
+    var map={match:['#065f46','#d1fae5','✓ Looks right'],possible_issue:['#9a3412','#ffedd5','⚠ Possible issue'],unclear:['#475569','#f1f5f9','— Not verified'],unchecked:['#475569','#f1f5f9','— Not verified']};
+    var v=map[ac.verdict]||map.unclear;
+    var h='<div style="margin-top:6px;"><span style="display:inline-block;font-size:11px;font-weight:700;color:'+v[0]+';background:'+v[1]+';border-radius:999px;padding:2px 8px;">AI check: '+v[2]+'</span>';
+    if(ac.summary) h+='<div style="font-size:12px;color:var(--muted);margin-top:3px;">'+esc(ac.summary)+'</div>';
+    h+='</div>'; return h;
+  }
   // The exact text the doctor will see — so the team can sanity-check it before Release.
   function renderS80GpPreview(m){
     if(m.owner!=='gp') return '';
@@ -3080,22 +3114,24 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-book-call="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">📞 Book guidance call</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark done</button></div>';
       } else if(m.mode==='upload'){
         var up=m.upload||null;
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
-          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Approve</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+          html+=s80VerdictChip(m);
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+          html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(up&&up.status==='rejected'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
         } else {
           html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to upload.</div>';
         }
       } else if(m.mode==='request_institution'){
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>';
+        html+='<div style="font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>';
         html+=renderS80HowTo(m);
         if(m.gp_marked_complete_at){ html+='<div style="font-size:12px;margin-top:6px;color:#15803d;">✓ GP marked as requested'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
         else { html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to request'+(m.institution?' from '+esc(m.institution):'')+'.</div>'; }
       } else {
-        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div>'+renderS80SubItems(m);
+        html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(m.kind==='needs_split'&&m.original_email&&m.original_email.body){
           html+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">View original letter</summary><pre style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:240px;overflow:auto;">'+esc(m.original_email.body)+'</pre></details>';
         }
@@ -5994,7 +6030,39 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ── AHPRA Action Item ── */
+  // Compact Ops-Queue view for an s80 review-tray / doctor-facing item: lead with the plain-English
+  // "what AHPRA is asking" rewrite, not the officer's raw email. The officer's exact words are kept
+  // available but collapsed. Used at every status (in review, waiting on GP/team, done).
+  function renderOpsS80Item(task){
+    var m=s80Meta(task);
+    var ownerLabel=m.owner==='gp'?'GP':'Team';
+    var modeLabel=m.mode==='upload'?'GP uploads':m.mode==='request_institution'?('GP requests'+(m.institution?(' from '+m.institution):'')):'Team handles';
+    var stMap={open:'To do',waiting:'In review',waiting_on_gp:'Waiting on GP',waiting_on_practice:'Waiting on practice',in_progress:'In progress',completed:'Done'};
+    var statusLabel=stMap[task.status||'open']||(task.status||'open');
+    var ti=m.team_instructions||m.detail||task.description||'';
+    var h='<div class="ops-expand-section">';
+    h+='<div class="ops-expand-label">What AHPRA is asking</div>';
+    h+='<div class="ops-expand-desc">'+esc(ti)+'</div>';
+    h+='<div style="font-size:12px;color:var(--muted);margin:2px 0 8px;">'+esc(ownerLabel)+' · '+esc(modeLabel)+' · '+esc(statusLabel)+'</div>';
+    h+=(function(){var ac=m.upload&&m.upload.ai_check;if(!ac||!ac.verdict||ac.verdict==='unchecked')return '';var lab=ac.verdict==='match'?'✓ Looks right':ac.verdict==='possible_issue'?'⚠ Possible issue':'— Not verified';return '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">AI check: '+esc(lab)+(ac.summary?' — '+esc(ac.summary):'')+'</div>';})();
+    if(m.needs_call||m.kind==='qualification_check'){
+      h+='<div style="font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;margin-bottom:8px;">📞 Book a Zoom call with the doctor to debug this (PSV / MyIntealth / AMC).</div>';
+    }
+    if(Array.isArray(m.sub_items)&&m.sub_items.length){
+      h+='<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Attachments needed</div><ul style="margin:0 0 8px 18px;font-size:12px;color:var(--ink);line-height:1.5;">';
+      m.sub_items.forEach(function(s){ h+='<li>'+esc((s&&s.label)||s||'')+'</li>'; });
+      h+='</ul>';
+    }
+    if(m.detail){
+      h+='<details style="margin-top:2px;"><summary style="cursor:pointer;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Officer’s exact words</summary><div class="ops-expand-desc" style="color:var(--muted);margin-top:4px;">'+esc(m.detail)+'</div></details>';
+    }
+    h+='</div>';
+    return h;
+  }
   function renderOpsAhpraActionItem(task,msgs,docs){
+    // An s80 review-tray / doctor-facing item shows the plain-English rewrite, not the officer's raw
+    // email (the 6-card email view below is only for ahpra_correspondence cards).
+    if(isS80Task(task)){ return renderOpsS80Item(task); }
     var st=task.status||'open';
     var gpName=task.gp_name||'the GP';
     var gpEmail=task.gp_email||'';
@@ -6632,6 +6700,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderGuidePanel();
       }else if(view==="scheduled_calls"){
         renderScheduledCallsPanel();
+      }else if(view==="website"){
+        renderSiteEnquiriesPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -6743,6 +6813,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(dec==='reject'){ reason=prompt('Reason for rejecting (the GP will see this):')||''; if(!reason.trim())return; }
         try{ var r=await fetch('/api/admin/ahpra/item/review',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:vid,decision:dec,reason:reason})}); var d=await r.json().catch(()=>({})); if(!d.ok){alert(d.message||'Failed.');return;} }catch(err){alert('Failed.');return;}
         await loadAll(true); return;
+      }
+      var s80Acc=e.target.closest("[data-s80-officer-accept]");
+      if(s80Acc){ e.preventDefault();
+        var atid=s80Acc.getAttribute("data-s80-officer-accept");
+        var box=document.getElementById('s80OfficerComposer_'+atid);
+        if(!box) return;
+        if(box.style.display!=='none'){ box.style.display='none'; return; }
+        box.style.display='block'; box.innerHTML='<div style="font-size:12px;color:var(--muted);">Preparing email…</div>';
+        s80Acc.disabled=true;
+        try{
+          var dr=await fetch('/api/admin/ahpra/item/officer-reply-draft?task_id='+encodeURIComponent(atid),{credentials:'same-origin'}).then(r=>r.json());
+          if(!dr.ok){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Could not prepare the email.</div>'; s80Acc.disabled=false; return; }
+          box.innerHTML=''
+            +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-oreply-to="'+esc(atid)+'" value="'+esc(dr.to||'')+'" style="width:100%"/></div>'
+            +'<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-oreply-cc="'+esc(atid)+'" value="'+esc(dr.cc||'')+'" style="width:100%"/></div>'
+            +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-oreply-subject="'+esc(atid)+'" value="'+esc(dr.subject||'')+'" style="width:100%"/></div>'
+            +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">📎 '+esc(dr.file_name||'the uploaded document')+' will be attached · sent as a reply on the AHPRA thread</div>'
+            +'<div data-oreply-body="'+esc(atid)+'" contenteditable="true" style="min-height:120px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;font-size:13px;">'+(dr.bodyHtml||'')+'</div>'
+            +'<div style="margin-top:8px;text-align:right;"><button type="button" data-oreply-send="'+esc(atid)+'" style="background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Send to AHPRA officer</button></div>';
+          s80Acc.disabled=false;
+        }catch(err){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Error preparing email.</div>'; s80Acc.disabled=false; }
+        return;
+      }
+      var s80Snd=e.target.closest("[data-oreply-send]");
+      if(s80Snd){ e.preventDefault();
+        var stid=s80Snd.getAttribute("data-oreply-send");
+        var to=(document.querySelector('[data-oreply-to="'+stid+'"]')||{}).value||'';
+        var cc=(document.querySelector('[data-oreply-cc="'+stid+'"]')||{}).value||'';
+        var subj=(document.querySelector('[data-oreply-subject="'+stid+'"]')||{}).value||'';
+        var bEl=document.querySelector('[data-oreply-body="'+stid+'"]');
+        var bodyHtml=bEl?bEl.innerHTML:'';
+        if(!to.trim()){ showOpsToast('Officer email required','red'); return; }
+        s80Snd.disabled=true; s80Snd.textContent='Sending…';
+        try{
+          var sr=await fetch('/api/admin/ahpra/item/officer-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:stid,to:to.trim(),cc:cc.trim(),subject:subj.trim(),bodyHtml:bodyHtml})}).then(r=>r.json());
+          if(sr.ok){ showOpsToast('Sent to AHPRA officer — replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
+          else { showOpsToast(sr.message||'Send failed','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+        }catch(err){ showOpsToast(err.message||'Network error','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+        return;
       }
       var s80Copy=e.target.closest("[data-s80-copy]");
       if(s80Copy){ e.preventDefault();
@@ -8193,7 +8302,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -9747,7 +9856,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
        (used by the CEO Command Centre menu items). Defaults to Ops Queue when absent. */
     try{
       var viewParam=new URLSearchParams(location.search).get("view");
-      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","technical"];
+      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","website","technical"];
       if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !((viewParam==="medicalcentres"||viewParam==="technical")&&!isSA())){
         S.view=viewParam;
       }
@@ -10658,6 +10767,152 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">Error loading calls: ' + esc(e.message) + '</div></div>';
     }
   }
+
+  // ── Website enquiries (Task 13) ─────────────────────────────────
+  // Marketing-site leads captured by POST /api/public/enquiry (site_enquiries
+  // table / dbState.siteEnquiries fallback). Loaded once per tab-open into
+  // S.siteEnq.items, then filtered/rendered client-side (no re-fetch per pill).
+  var SITE_ENQ_KIND_LABEL = { practice: 'Practice', gp: 'GP', general: 'General' };
+  var SITE_ENQ_STATUS_LABEL = { new: 'New', contacted: 'Contacted', closed: 'Closed' };
+  var SITE_ENQ_MESSAGE_TRUNCATE = 160;
+
+  function updateWebsiteEnqBadge() {
+    var badge = document.getElementById('websiteEnqBadge');
+    if (!badge) return;
+    var newCount = (S.siteEnq.items || []).filter(function(en) { return en.status === 'new'; }).length;
+    if (newCount > 0) { badge.textContent = String(newCount); badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
+
+  async function loadSiteEnquiries() {
+    S.siteEnq.loading = true;
+    S.siteEnq.loadError = false;
+    try {
+      var r = await fetch('/api/admin/site-enquiries', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (d && d.ok && Array.isArray(d.enquiries)) {
+        S.siteEnq.items = d.enquiries;
+      } else {
+        S.siteEnq.items = [];
+        S.siteEnq.loadError = true;
+      }
+    } catch (e) {
+      S.siteEnq.items = [];
+      S.siteEnq.loadError = true;
+    }
+    S.siteEnq.loading = false;
+  }
+
+  async function renderSiteEnquiriesPanel() {
+    var panel = document.getElementById('siteEnquiriesPanel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="site-enq-panel"><h2>Website enquiries</h2><div style="color:var(--muted);font-size:13px">Loading...</div></div>';
+    await loadSiteEnquiries();
+    updateWebsiteEnqBadge();
+    renderSiteEnquiriesPanelBody();
+  }
+
+  function siteEnqKindBadge(kind) {
+    var label = SITE_ENQ_KIND_LABEL[kind] || kind || 'Unknown';
+    var cls = (kind === 'practice' || kind === 'gp' || kind === 'general') ? kind : 'general';
+    return '<span class="site-enq-kind site-enq-kind-' + cls + '">' + esc(label) + '</span>';
+  }
+
+  function renderSiteEnquiriesPanelBody() {
+    var panel = document.getElementById('siteEnquiriesPanel');
+    if (!panel) return;
+    var items = S.siteEnq.items || [];
+    var filter = S.siteEnq.filter || '';
+    var filtered = filter ? items.filter(function(en) { return en.status === filter; }) : items;
+
+    var html = '<div class="site-enq-panel"><h2>Website enquiries</h2>';
+    html += '<div class="site-enq-filters">';
+    [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['closed', 'Closed']].forEach(function(p) {
+      html += '<button class="hub-filt ' + (filter === p[0] ? 'active' : '') + '" data-site-enq-filter="' + esc(p[0]) + '">' + esc(p[1]) + '</button>';
+    });
+    html += '</div>';
+
+    if (S.siteEnq.loadError) {
+      html += '<div class="empty">Could not load website enquiries. Try again.</div>';
+    } else if (!filtered.length) {
+      html += '<div class="empty">' + (filter ? 'No ' + esc((SITE_ENQ_STATUS_LABEL[filter] || filter).toLowerCase()) + ' enquiries.' : 'No website enquiries yet.') + '</div>';
+    } else {
+      filtered.forEach(function(en) {
+        var expanded = !!S.siteEnq.expandedIds[en.id];
+        var msg = en.message || '';
+        var isLong = msg.length > SITE_ENQ_MESSAGE_TRUNCATE;
+        var shown = (expanded || !isLong) ? msg : (msg.slice(0, SITE_ENQ_MESSAGE_TRUNCATE) + '…');
+        html += '<div class="site-enq-row" data-site-enq-id="' + esc(en.id) + '">';
+        html += '<div class="site-enq-row-top">';
+        html += '<span class="site-enq-when">' + esc(iqTimeAgo(en.created_at)) + '</span>';
+        html += siteEnqKindBadge(en.kind);
+        html += '<span class="site-enq-name">' + esc(en.name || '') + '</span>';
+        html += '<span class="site-enq-contact">' + esc(en.email || '') + (en.phone ? ' · ' + esc(en.phone) : '') + '</span>';
+        if (en.practice_name) html += '<span class="site-enq-meta">' + esc(en.practice_name) + '</span>';
+        if (en.state) html += '<span class="site-enq-meta">' + esc(en.state) + '</span>';
+        html += '<span class="site-enq-status site-enq-status-' + esc(en.status || '') + '">' + esc(SITE_ENQ_STATUS_LABEL[en.status] || en.status) + '</span>';
+        html += '<span class="site-enq-actions">';
+        if (en.status === 'new') html += '<button class="btn sm" data-site-enq-action="contacted" data-site-enq-id="' + esc(en.id) + '">Mark contacted</button>';
+        if (en.status !== 'closed') html += '<button class="btn sm ghost" data-site-enq-action="closed" data-site-enq-id="' + esc(en.id) + '">Close</button>';
+        html += '</span>';
+        html += '</div>';
+        if (msg) {
+          html += '<div class="site-enq-message">' + esc(shown);
+          if (isLong) html += ' <a href="#" data-site-enq-toggle="' + esc(en.id) + '">' + (expanded ? 'Show less' : 'Show more') + '</a>';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
+  // Delegated click handling for the Website enquiries panel: filter pills,
+  // message expand/collapse, and the two status-workflow action buttons.
+  document.addEventListener('click', async function(e) {
+    var filterBtn = e.target.closest('[data-site-enq-filter]');
+    if (filterBtn) {
+      S.siteEnq.filter = filterBtn.getAttribute('data-site-enq-filter');
+      renderSiteEnquiriesPanelBody();
+      return;
+    }
+    var toggleBtn = e.target.closest('[data-site-enq-toggle]');
+    if (toggleBtn) {
+      e.preventDefault();
+      var toggleId = toggleBtn.getAttribute('data-site-enq-toggle');
+      S.siteEnq.expandedIds[toggleId] = !S.siteEnq.expandedIds[toggleId];
+      renderSiteEnquiriesPanelBody();
+      return;
+    }
+    var actionBtn = e.target.closest('[data-site-enq-action]');
+    if (actionBtn) {
+      var enqId = actionBtn.getAttribute('data-site-enq-id');
+      var newStatus = actionBtn.getAttribute('data-site-enq-action');
+      actionBtn.disabled = true;
+      try {
+        var r = await fetch('/api/admin/site-enquiries/update', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: enqId, status: newStatus })
+        });
+        var d = await r.json();
+        if (d && d.ok) {
+          var row = (S.siteEnq.items || []).find(function(en) { return en.id === enqId; });
+          if (row) row.status = newStatus;
+          updateWebsiteEnqBadge();
+          renderSiteEnquiriesPanelBody();
+        } else {
+          actionBtn.disabled = false;
+          toast('Could not update enquiry', 'red');
+        }
+      } catch (err) {
+        actionBtn.disabled = false;
+        toast('Could not update enquiry', 'red');
+      }
+    }
+  });
 
   // ── Call History Sub-Tab (Task 15) ────────────────────────────
   function renderGpCallHistoryPane(c) {

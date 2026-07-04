@@ -661,7 +661,7 @@
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
-  <section class="auth-shell gp-reveal gp-reveal-1" id="authShell" aria-label="Authentication">
+  <section class="auth-shell gp-reveal gp-reveal-1" id="authShell" aria-label="Authentication" data-signup-param="1">
     <div class="form-container reset-password-container" id="resetPasswordContainer" aria-label="Set new password">
       <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
       <h1 class="auth-title">Set new password</h1>
@@ -1042,6 +1042,16 @@
         if (/^\/\//.test(dec) || /:\/\//.test(dec)) return "";
         return dec;
       } catch (e) { return ""; }
+    })();
+
+    // Marketing "Create free account" links land here with ?signup=1 so the
+    // create-account panel opens automatically. Composes with GP_SIGNIN_NEXT
+    // above (?signup=1&next=... both honoured). See data-signup-param on the
+    // #authShell section.
+    var GP_SIGNIN_SIGNUP = (function () {
+      try {
+        return new URLSearchParams(window.location.search).get("signup") === "1";
+      } catch (e) { return false; }
     })();
 
     function normalizeEmail(value) {
@@ -1650,7 +1660,7 @@
       if (dial) signupCountryDialEl.value = dial;
     }
 
-    setPanel("signin");
+    setPanel(GP_SIGNIN_SIGNUP ? "signup" : "signin");
     pickCountryDialFromLocale();
     setOAuthButtonsDisabled(true);
     ensureSupabaseClient().catch(() => {});

@@ -178,6 +178,9 @@ let _homelyBuildIdCache = { value: '', expiresAt: 0 };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
+const _siteEnquiryRateLimitStore = new Map(); // ip → [timestamps] for POST /api/public/enquiry
+const SITE_ENQUIRY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const SITE_ENQUIRY_RATE_MAX = 5; // max 5 stored submissions per hour per IP
 const GOOGLE_PLACES_API_KEY = String(process.env.GOOGLE_PLACES_API_KEY || '').trim();
 const _schoolsSearchCache = new Map(); // cacheKey -> { ts, value }
 const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -3359,6 +3362,41 @@ async function extractAhpraActionItems(emailMeta, ctx) {
   }
 }
 
+// Advisory AI check of a GP's uploaded s80 document against the item requirement. FAIL-OPEN:
+// any missing key / budget / timeout / parse / unsupported type => {verdict:'unchecked', summary:''}.
+async function runUploadCheck(fileBuffer, mimeType, requirement) {
+  var fail = { verdict: 'unchecked', summary: '' };
+  try {
+    if (!process.env.ANTHROPIC_API_KEY || !fileBuffer || !fileBuffer.length) return fail;
+    var mt = String(mimeType || '').toLowerCase();
+    var block;
+    if (mt.indexOf('pdf') >= 0) block = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') } };
+    else if (mt.indexOf('image/') === 0) block = { type: 'image', source: { type: 'base64', media_type: mt, data: fileBuffer.toString('base64') } };
+    else return fail; // unsupported (e.g. docx) — advisory only, skip rather than error
+    if (!(await checkAnthropicBudget())) return fail;
+    var controller = new AbortController();
+    var t = setTimeout(function () { controller.abort(); }, 30000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: AHPRA_S80_EXTRACT_MODEL, max_tokens: 600, thinking: { type: 'disabled' },
+        system: ahpraUploadCheck.UPLOAD_CHECK_SYSTEM,
+        messages: [{ role: 'user', content: [block, { type: 'text', text: ahpraUploadCheck.buildUploadCheckPrompt(requirement) }] }]
+      })
+    });
+    clearTimeout(t);
+    var data = await res.json();
+    if (data && data.usage) recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    var text = (data && data.content && data.content[0] && data.content[0].text) || '';
+    var parsed = ahpraUploadCheck.parseUploadCheck(text);
+    return { verdict: parsed.verdict || 'unclear', summary: parsed.summary || '' };
+  } catch (e) {
+    console.error('[AHPRA upload check] failed (fail-open):', e && e.message);
+    return fail;
+  }
+}
+
 // Create the holding-tray bundle of tasks for one AHPRA s80 notice. Tasks start in
 // review_status 'pending_review' (status 'waiting') so the team checks them before
 // anything reaches the GP. Shared by the live Gmail pipeline and the manual-ingest
@@ -3428,6 +3466,7 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
   }
 
   var created = 0;
+  var createdGpTasks = []; // released GP-owned items → one staggered email each
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     var meta = {
@@ -3484,6 +3523,9 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     });
     if (actionTask && actionTask.id) {
       created++;
+      if (item.owner === 'gp') {
+        createdGpTasks.push({ id: actionTask.id, title: actionTask.title || item.title, metadata: meta, ahpra_deadline: dueDate });
+      }
       // Link the original officer email to the task so reply-threading works.
       try {
         await supabaseDbRequest('task_messages', '', {
@@ -3511,8 +3553,95 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
     }
   }
 
+  // Released-live bundles (the RSO's "Send to GP" review IS the release step) email the GP
+  // one action per message, a minute apart. Holding-tray bundles email at /api/admin/ahpra/release.
+  var emailsQueued = 0;
+  if (opts.release && createdGpTasks.length > 0 && gpCase.user_id) {
+    try {
+      emailsQueued = await sendAhpraGpTaskEmails(gpCase.id, gpCase.user_id, createdGpTasks, { reference: reference });
+    } catch (e) { console.error('[AHPRA] s80 task emails failed (non-critical):', e && e.message); }
+  }
+
   console.log('[AHPRA] Created s80 holding-tray bundle ' + bundleId + ' with ' + created + ' item(s) for case ' + gpCase.id);
-  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false };
+  return { created: created, bundleId: bundleId, deadline: deadline, reference: reference || null, skipped: false, emailsQueued: emailsQueued };
+}
+
+// ── s80: one email per GP-owned action item, staggered 1 minute apart ──
+// Each email mirrors the card on pages/ahpra.html — a single "Upload document" or
+// "Mark as requested" button deep-linking to /pages/ahpra.html?task=<id> (the signin
+// bounce preserves the query, and the page scrolls to + flashes that exact card).
+// Sends FROM the GP's assigned RSO mailbox when it's @mygplink.com.au (Reply-To
+// always points at the RSO). Tasks that already queued an email are skipped, and a
+// gp_email marker is stamped on metadata so a re-release can never double-send.
+async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
+  opts = opts || {};
+  if (!isEmailConfigured() || !Array.isArray(gpTasks) || gpTasks.length === 0) return 0;
+  var gp = await getGpEmailContext(userId);
+  if (!gp || !gp.email) return 0;
+
+  var pending = gpTasks.filter(function (t) {
+    var m = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return t && t.id && !(m.gp_email && m.gp_email.queued_at);
+  });
+  if (pending.length === 0) return 0;
+
+  // Send "from" the assigned RSO (From when @mygplink, else Reply-To only).
+  var fromOpts = {};
+  try {
+    var rsoId = await resolveCaseRsoAssignee(caseId);
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = roster.find(function (r) { return r.user_id === rsoId; });
+    fromOpts = buildRsoEmailFromOpts(rso || null);
+  } catch (e) { /* default sender is fine */ }
+
+  var plan = ahpraTaskEmails.buildAhpraTaskEmailPlan(pending.map(function (t) {
+    var m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    return {
+      id: t.id,
+      title: t.title,
+      mode: m.mode,
+      gp_instructions: m.gp_instructions,
+      detail: m.detail,
+      how_to_steps: m.how_to_steps,
+      sub_items: m.sub_items,
+      institution: m.institution,
+      deadline: t.ahpra_deadline || t.due_date || null
+    };
+  }), { appBaseUrl: APP_BASE_URL, startAtMs: Date.now(), reference: opts.reference || null });
+
+  var nameVal = gp.firstName || 'there';
+  var queued = 0;
+  for (var i = 0; i < plan.length; i++) {
+    var e = plan[i];
+    var result = await sendEmail(Object.assign({
+      to: gp.email,
+      subject: e.subject,
+      html: buildCareerEmailHtml({
+        title: e.title,
+        body: e.bodyHtml.replace(/\{\{name\}\}/g, nameVal),
+        ctaText: e.ctaText,
+        ctaUrl: e.ctaUrl,
+        footer: 'Questions? Reply to this email and your registration support officer will help.'
+      }),
+      text: e.text,
+      scheduledAt: e.scheduledAt
+    }, fromOpts));
+    if (result && result.ok) {
+      queued++;
+      try {
+        var task = pending[i];
+        var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+        meta.gp_email = { queued_at: new Date().toISOString(), scheduled_at: e.scheduledAt || null };
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+          method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() }
+        });
+      } catch (markErr) { /* marker is best-effort */ }
+    } else {
+      console.error('[AHPRA] task email failed for', pending[i].id, result && result.error);
+    }
+  }
+  console.log('[AHPRA] Queued ' + queued + '/' + plan.length + ' per-task GP email(s) for case ' + caseId);
+  return queued;
 }
 
 // ── Response matching: link incoming messages to open tasks ──
@@ -3697,6 +3826,8 @@ function preFilterEmail(emailMeta) {
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
+var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
+var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -6622,7 +6753,9 @@ function createEmptyState() {
     atsJobs: [],
     atsApplications: [],
     atsCandidates: [],
-    atsStageAudit: []
+    atsStageAudit: [],
+    // Public marketing-site enquiries (dev / local-JSON mode). In prod: site_enquiries table.
+    siteEnquiries: []
   };
 }
 
@@ -6659,7 +6792,8 @@ function loadDbState() {
       atsJobs: Array.isArray(parsed && parsed.atsJobs) ? parsed.atsJobs : [],
       atsApplications: Array.isArray(parsed && parsed.atsApplications) ? parsed.atsApplications : [],
       atsCandidates: Array.isArray(parsed && parsed.atsCandidates) ? parsed.atsCandidates : [],
-      atsStageAudit: Array.isArray(parsed && parsed.atsStageAudit) ? parsed.atsStageAudit : []
+      atsStageAudit: Array.isArray(parsed && parsed.atsStageAudit) ? parsed.atsStageAudit : [],
+      siteEnquiries: Array.isArray(parsed && parsed.siteEnquiries) ? parsed.siteEnquiries : []
     };
   } catch (err) {
     console.error('[DB] Failed to parse DB file. Starting with empty state.', err);
@@ -17206,6 +17340,369 @@ function parseCareerRolePublicId(publicId) {
   return { provider, providerRoleId };
 }
 
+// ── Public marketing-site jobs + stats (no session; sanitized career_roles read) ──
+// Separate from mapCareerRoleRowToClient/career.html's richer, AI-enriched shape —
+// the public marketing site only ever sees the raw whitelisted columns below and
+// must never see source_payload or any other GP-Link-internal metadata.
+const SITE_STATS = { locations: 830, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100, jobsFallback: 1470 };
+const PUBLIC_JOB_FIELDS = [
+  'id', 'title', 'practice_name', 'location_label', 'location_state',
+  'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
+  'employment_type', 'tags', 'published_at'
+];
+const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
+const PUBLIC_JOBS_MAX_LIMIT = 100;
+const PUBLIC_JOBS_COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let _publicJobsCountCache = null; // { value, at }
+let _publicJobsRowsCache = null; // { rows, at }
+
+function mapCareerRoleRowToPublicJob(row) {
+  const locationLabel = buildLocationLabel([
+    row && row.location_label,
+    !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
+    !row || row.location_label ? '' : row.location_country
+  ]);
+  return {
+    id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
+    title: row && row.title ? String(row.title) : '',
+    practice_name: row && row.practice_name ? String(row.practice_name) : '',
+    location_label: locationLabel || 'Australia',
+    location_state: row && row.location_state ? String(row.location_state).trim().toUpperCase() : '',
+    billing_model: row && row.billing_model ? String(row.billing_model) : '',
+    dpa: !!(row && row.dpa),
+    mmm: row && row.mmm ? String(row.mmm) : '',
+    earnings_text: row && row.earnings_text ? String(row.earnings_text) : '',
+    summary: row && row.summary ? String(row.summary) : '',
+    employment_type: row && row.employment_type ? String(row.employment_type) : '',
+    tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
+    published_at: row && row.published_at ? row.published_at : null
+  };
+}
+
+// Defensive whitelist — applied right before the HTTP response so a future edit to
+// the mapper above (or ever passing a raw DB row straight through) can never leak
+// source_payload or any other internal column to the public site.
+function sanitizePublicJob(role) {
+  const out = {};
+  for (const key of PUBLIC_JOB_FIELDS) out[key] = (role && role[key] !== undefined) ? role[key] : null;
+  return out;
+}
+
+function publicJobSearchText(job) {
+  return [job.title, job.practice_name, job.location_label, ...(Array.isArray(job.tags) ? job.tags : [])]
+    .map((value) => String(value || ''))
+    .join(' ')
+    .toLowerCase();
+}
+
+// vr-gp | non-vr-gp | locum classification, derived only from the mapped
+// (whitelisted) object's own text fields — never from source_payload.
+function classifyPublicJobType(job) {
+  const text = [job.title, job.summary, job.employment_type, ...(Array.isArray(job.tags) ? job.tags : [])]
+    .map((value) => String(value || ''))
+    .join(' ')
+    .toLowerCase();
+  if (/\blocum\b/i.test(text)) return 'locum';
+  if (/\bnon[\s-]?vr\b/i.test(text)) return 'non-vr-gp';
+  if (/\bvr\b/i.test(text)) return 'vr-gp';
+  return '';
+}
+
+// Filters + paginates + sanitizes raw career_roles rows into the public API
+// response shape. This is the exact function GET /api/public/jobs calls, so it
+// is unit-testable directly with seeded fixture rows (no Supabase/HTTP needed).
+function buildPublicJobsResponse(rows, searchParams) {
+  const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
+  let jobs = (Array.isArray(rows) ? rows : []).map(mapCareerRoleRowToPublicJob);
+
+  // `id` is an exact-match single-job lookup (used by the job detail page to
+  // resolve a permalink without paging the whole board). It short-circuits
+  // every other filter/pagination param — a caller asking for a specific job
+  // id always gets exactly that job (or none), regardless of q/state/type/
+  // limit/offset. Exact string match against the mapped job's id only — no
+  // substring/regex matching.
+  const id = String(getParam('id') || '').trim();
+  if (id) {
+    const match = jobs.find((job) => job.id === id) || null;
+    const paged = match ? [sanitizePublicJob(match)] : [];
+    return { ok: true, total: paged.length, limit: PUBLIC_JOBS_DEFAULT_LIMIT, offset: 0, jobs: paged };
+  }
+
+  const q = String(getParam('q') || '').trim().toLowerCase();
+  if (q) jobs = jobs.filter((job) => publicJobSearchText(job).includes(q));
+
+  const state = String(getParam('state') || '').trim().toUpperCase();
+  if (state) jobs = jobs.filter((job) => job.location_state === state);
+
+  const type = String(getParam('type') || '').trim().toLowerCase();
+  if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
+    jobs = jobs.filter((job) => classifyPublicJobType(job) === type);
+  }
+
+  const total = jobs.length;
+  let limit = parseInt(getParam('limit'), 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = PUBLIC_JOBS_DEFAULT_LIMIT;
+  limit = Math.min(limit, PUBLIC_JOBS_MAX_LIMIT);
+  let offset = parseInt(getParam('offset'), 10);
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+  const paged = jobs.slice(offset, offset + limit).map(sanitizePublicJob);
+  return { ok: true, total, limit, offset, jobs: paged };
+}
+
+// Live count of active career_roles for /api/public/stats.jobsCount. Queries
+// directly (rather than via listCareerRoleRows) so it can distinguish a real
+// "zero active roles" result (data.length === 0) from a failed/unconfigured
+// read (null) — listCareerRoleRows collapses both cases to [].
+async function getActiveCareerRoleCountForStats() {
+  if (!isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest('career_roles', 'select=id&is_active=eq.true');
+  if (!result.ok || !Array.isArray(result.data)) return null;
+  return result.data.length;
+}
+
+async function getPublicJobsCount() {
+  const now = Date.now();
+  // Reuse the rows cache (below) when it's fresh — same underlying data, one
+  // fewer Supabase round trip. Falls through to the dedicated count query
+  // (and its own fallback semantics) whenever the rows cache is cold/stale,
+  // so a rows-cache miss never changes what a stats-only caller sees.
+  if (_publicJobsRowsCache && (now - _publicJobsRowsCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsRowsCache.rows.length;
+  }
+  if (_publicJobsCountCache && (now - _publicJobsCountCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsCountCache.value;
+  }
+  const liveCount = await getActiveCareerRoleCountForStats();
+  if (liveCount === null) return SITE_STATS.jobsFallback; // data failure — don't cache, retry live next call
+  _publicJobsCountCache = { value: liveCount, at: now };
+  return liveCount;
+}
+
+// Live (uncached) read of all active career_roles rows for the public jobs
+// listing. Queries directly (rather than via listCareerRoleRows) so it can
+// distinguish a real "zero active roles" result ([]) from a failed/
+// unconfigured read (null) — mirrors getActiveCareerRoleCountForStats above.
+async function getActivePublicJobRowsLive() {
+  if (!isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc');
+  if (!result.ok || !Array.isArray(result.data)) return null;
+  return result.data;
+}
+
+// Cached read for GET /api/public/jobs — same 5-min-TTL style as
+// getPublicJobsCount()/_publicJobsCountCache above, so an anonymous, no-auth
+// endpoint can't be hammered into issuing a full career_roles select on every
+// request. `fetcher` defaults to the real live read and is only ever
+// overridden by tests (to exercise the caching/TTL/fallback logic without a
+// live Supabase connection).
+async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
+  const now = Date.now();
+  if (_publicJobsRowsCache && (now - _publicJobsRowsCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
+    return _publicJobsRowsCache.rows;
+  }
+  const liveRows = await fetcher();
+  if (liveRows === null) {
+    // Fetch failed (or Supabase is unconfigured) — prefer a stale-good cache
+    // over caching an empty result, which would otherwise wipe the public
+    // jobs list for a full TTL window on a transient Supabase blip. Leave
+    // the cache's `at` untouched so the next call retries live again.
+    return _publicJobsRowsCache ? _publicJobsRowsCache.rows : [];
+  }
+  _publicJobsRowsCache = { rows: liveRows, at: now };
+  return liveRows;
+}
+
+// Test-only cache accessors — Supabase is never configured in unit tests, so
+// getActivePublicJobRowsLive() always returns null there. These let tests
+// seed/inspect _publicJobsRowsCache directly (e.g. to simulate an expired
+// entry) while exercising the real getPublicJobsRows() caching/TTL logic via
+// an injected `fetcher` instead of a live Supabase connection.
+function __getPublicJobsRowsCacheForTest() { return _publicJobsRowsCache; }
+function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; }
+
+// ── Public marketing-site enquiry intake (no session) ─────────────────────
+// POST /api/public/enquiry — practice/GP/general leads from the marketing
+// site. Stored in Supabase `site_enquiries` (prod) or dbState.siteEnquiries
+// (local JSON-db dev fallback); consumed by the admin Website tab (task 13).
+const SITE_ENQUIRY_KINDS = ['practice', 'gp', 'general'];
+const SITE_ENQUIRY_STATUSES = ['new', 'contacted', 'closed'];
+const SITE_ENQUIRY_MESSAGE_MAX = 4000;
+const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
+
+function _siteEnquiryCap(value, max) {
+  const str = String(value == null ? '' : value).trim();
+  return str.length > max ? str.slice(0, max) : str;
+}
+
+// Honeypot: a real visitor never sees/fills the `website` field (hidden via
+// CSS on the marketing form). Any non-empty value means a bot filled every
+// field it could find — respond success but store nothing, so the bot never
+// learns it was caught.
+function isSiteEnquiryHoneypotFilled(body) {
+  return String((body && body.website) || '').trim().length > 0;
+}
+
+// Pure validation, exported for direct unit testing (same convention as
+// buildPublicJobsResponse above). Returns { ok:true, value } or
+// { ok:false, error }. Never touches the network/DB/rate limiter.
+function validateSiteEnquiryPayload(body) {
+  const raw = (body && typeof body === 'object') ? body : {};
+
+  const kind = String(raw.kind || '').trim().toLowerCase();
+  if (!SITE_ENQUIRY_KINDS.includes(kind)) {
+    return { ok: false, error: 'kind must be one of: practice, gp, general.' };
+  }
+
+  const name = _siteEnquiryCap(raw.name, SITE_ENQUIRY_FIELD_CAPS.name);
+  if (!name) return { ok: false, error: 'name is required.' };
+
+  const email = _siteEnquiryCap(raw.email, SITE_ENQUIRY_FIELD_CAPS.email);
+  if (!email) return { ok: false, error: 'email is required.' };
+  if (!isValidEmail(email)) return { ok: false, error: 'email is not a valid email address.' };
+
+  const message = raw.message == null ? '' : String(raw.message).trim();
+  if (message.length > SITE_ENQUIRY_MESSAGE_MAX) {
+    return { ok: false, error: `message must be ${SITE_ENQUIRY_MESSAGE_MAX} characters or fewer.` };
+  }
+
+  const phone = _siteEnquiryCap(raw.phone, SITE_ENQUIRY_FIELD_CAPS.phone);
+  const practice_name = _siteEnquiryCap(raw.practice_name, SITE_ENQUIRY_FIELD_CAPS.practice_name);
+  const state = _siteEnquiryCap(raw.state, SITE_ENQUIRY_FIELD_CAPS.state);
+
+  return { ok: true, value: { kind, name, email, phone, practice_name, state, message } };
+}
+
+// In-memory per-IP rate limit: max SITE_ENQUIRY_RATE_MAX *stored* submissions
+// per SITE_ENQUIRY_RATE_WINDOW_MS. Keyed by the X-Forwarded-For-aware
+// getClientIp helper (this app deploys behind Vercel's proxy, so
+// req.socket.remoteAddress is the proxy's IP, not the client's) — this is a
+// best-effort anti-spam throttle on a public, unauthenticated endpoint, not a
+// security boundary. Only requests that actually pass validation and get
+// stored consume budget — honeypot hits and 400s never call
+// recordSiteEnquiryRateLimitHit.
+function checkSiteEnquiryRateLimit(ip) {
+  const now = Date.now();
+  const key = String(ip || 'unknown');
+  const timestamps = (_siteEnquiryRateLimitStore.get(key) || []).filter((ts) => now - ts < SITE_ENQUIRY_RATE_WINDOW_MS);
+  if (timestamps.length === 0) {
+    _siteEnquiryRateLimitStore.delete(key);
+  } else {
+    _siteEnquiryRateLimitStore.set(key, timestamps);
+  }
+  return timestamps.length < SITE_ENQUIRY_RATE_MAX;
+}
+
+function recordSiteEnquiryRateLimitHit(ip) {
+  const key = String(ip || 'unknown');
+  const timestamps = _siteEnquiryRateLimitStore.get(key) || [];
+  timestamps.push(Date.now());
+  _siteEnquiryRateLimitStore.set(key, timestamps);
+}
+
+function __resetSiteEnquiryRateLimitForTest() { _siteEnquiryRateLimitStore.clear(); }
+// Test-only: dbState is loaded into memory once at module init and only ever
+// flushed to disk (never re-read) by saveDbState(), so resetting the on-disk
+// JSON file between tests does not reset the live in-memory collection —
+// this clears it directly.
+function __resetSiteEnquiriesForTest() { dbState.siteEnquiries = []; saveDbState(); }
+
+// Inserts the already-validated row. We generate id/created_at ourselves so
+// both the Supabase and local-JSON-db paths return an identical shape without
+// depending on Prefer: return=representation (mirrors the registration_tasks
+// insert idiom used elsewhere in this file). Returns true/false.
+async function insertSiteEnquiryRow(row) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' }, body: [row]
+    });
+    return !!r.ok;
+  }
+  dbState.siteEnquiries = dbState.siteEnquiries || [];
+  dbState.siteEnquiries.push(row);
+  saveDbState();
+  return true;
+}
+
+// Test-only: seeds rows directly into the in-memory local-JSON-db collection
+// (see __resetSiteEnquiriesForTest for why this is needed instead of writing
+// the on-disk file directly).
+function __seedSiteEnquiriesForTest(rows) {
+  dbState.siteEnquiries = Array.isArray(rows) ? rows.slice() : [];
+  saveDbState();
+}
+
+// Admin list — consumed by GET /api/admin/site-enquiries (task 13). Same
+// dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
+// in local-JSON-db dev/test mode. Always returns newest-first.
+async function listSiteEnquiryRows(status) {
+  if (isSupabaseDbConfigured()) {
+    let query = 'select=*&order=created_at.desc';
+    if (status) query += '&status=eq.' + encodeURIComponent(status);
+    const r = await supabaseDbRequest('site_enquiries', query, { method: 'GET' });
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries.slice() : [];
+  const filtered = status ? rows.filter((r) => r.status === status) : rows;
+  return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+// Admin status update — consumed by POST /api/admin/site-enquiries/update
+// (task 13). Returns { ok, notFound } so the route can distinguish a missing
+// row (404) from a genuine write failure (500).
+async function updateSiteEnquiryStatus(id, status) {
+  if (isSupabaseDbConfigured()) {
+    const existing = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id) + '&select=id', { method: 'GET' });
+    if (!existing.ok || !Array.isArray(existing.data) || existing.data.length === 0) {
+      return { ok: false, notFound: true };
+    }
+    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status }
+    });
+    return { ok: !!r.ok, notFound: false };
+  }
+  dbState.siteEnquiries = dbState.siteEnquiries || [];
+  const row = dbState.siteEnquiries.find((r) => r.id === id);
+  if (!row) return { ok: false, notFound: true };
+  row.status = status;
+  saveDbState();
+  return { ok: true, notFound: false };
+}
+
+// Optional admin notification — env-gated, best-effort. The enquiry API must
+// never fail (or slow down materially) because of an email problem, so every
+// failure mode here is caught and logged, never thrown.
+async function maybeNotifySiteEnquiry(row) {
+  const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim();
+  if (!notifyTo) return;
+  try {
+    const escapeHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeKind = escapeHtml(row.kind);
+    const safeName = escapeHtml(row.name);
+    const safeEmail = escapeHtml(row.email);
+    const safePracticeName = escapeHtml(row.practice_name);
+    const safePhone = escapeHtml(row.phone);
+    const safeState = escapeHtml(row.state);
+    const safeMessage = escapeHtml(row.message);
+    await sendEmail({
+      to: notifyTo,
+      subject: `New ${row.kind} enquiry — ${row.name}`,
+      html: `<p>New website enquiry (<strong>${safeKind}</strong>) from ${safeName} &lt;${safeEmail}&gt;.</p>` +
+        (row.practice_name ? `<p>Practice: ${safePracticeName}</p>` : '') +
+        (row.phone ? `<p>Phone: ${safePhone}</p>` : '') +
+        (row.state ? `<p>State: ${safeState}</p>` : '') +
+        (safeMessage ? `<p>${safeMessage}</p>` : ''),
+      text: `New ${row.kind} enquiry from ${row.name} (${row.email}).\n` +
+        (row.practice_name ? `Practice: ${row.practice_name}\n` : '') +
+        (row.phone ? `Phone: ${row.phone}\n` : '') +
+        (row.state ? `State: ${row.state}\n` : '') +
+        (row.message ? `\n${row.message}` : '')
+    });
+  } catch (err) {
+    console.error('[site-enquiry] notification email failed:', err && err.message);
+  }
+}
+
 async function syncZohoRecruitRoles() {
   if (!isZohoRecruitConfigured()) {
     return { ok: false, status: 503, message: 'Zoho Recruit integration is not configured.' };
@@ -23786,7 +24283,7 @@ function isEmailConfigured() {
 // attachments (optional): [{ filename, content (base64 string), contentType? }]
 // — forwarded to Resend's native attachments field (used by the in-app
 // submit-to-practice candidate introduction to carry the GP's CV).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -23811,6 +24308,9 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments }
         });
       if (cleanAttachments.length > 0) emailPayload.attachments = cleanAttachments;
     }
+    // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
+    // per-task sequences without a queue table or cron on serverless.
+    if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -27480,6 +27980,133 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Public marketing-site jobs + stats (no session) ──────────────────────
+  if (pathname === '/api/public/jobs' && req.method === 'GET') {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const rows = await getPublicJobsRows();
+    sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
+    return;
+  }
+
+  if (pathname === '/api/public/stats' && req.method === 'GET') {
+    const jobsCount = await getPublicJobsCount();
+    sendJson(res, 200, {
+      ok: true,
+      jobsCount,
+      locations: SITE_STATS.locations,
+      avgPlacementDays: SITE_STATS.avgPlacementDays,
+      gpsPlaced: SITE_STATS.gpsPlaced,
+      satisfaction: SITE_STATS.satisfaction
+    });
+    return;
+  }
+
+  if (pathname === '/api/public/enquiry' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    // Honeypot first — a bot that fills every field (including the hidden
+    // `website` field) gets a success response but nothing is stored, and it
+    // never touches validation or the rate limiter.
+    if (isSiteEnquiryHoneypotFilled(body)) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const validated = validateSiteEnquiryPayload(body);
+    if (!validated.ok) {
+      sendJson(res, 400, { ok: false, error: validated.error });
+      return;
+    }
+
+    const ip = getClientIp(req);
+    if (!checkSiteEnquiryRateLimit(ip)) {
+      sendJson(res, 429, { ok: false, error: 'Too many enquiries from this address. Please try again later.' });
+      return;
+    }
+
+    const row = {
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      kind: validated.value.kind,
+      name: validated.value.name,
+      email: validated.value.email,
+      phone: validated.value.phone || null,
+      practice_name: validated.value.practice_name || null,
+      state: validated.value.state || null,
+      message: validated.value.message || null,
+      status: 'new',
+      metadata: { source: 'marketing-site', ip: ip || null, user_agent: String(req.headers['user-agent'] || '').slice(0, 300) }
+    };
+
+    const stored = await insertSiteEnquiryRow(row);
+    if (!stored) {
+      sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' });
+      return;
+    }
+    recordSiteEnquiryRateLimitHit(ip);
+
+    await maybeNotifySiteEnquiry(row);
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // GET /api/admin/site-enquiries — list marketing-site enquiries for the
+  // admin "Website" tab (task 13), newest-first, optional ?status= filter.
+  if (pathname === '/api/admin/site-enquiries' && req.method === 'GET') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const statusFilter = String(url.searchParams.get('status') || '').trim();
+    if (statusFilter && !SITE_ENQUIRY_STATUSES.includes(statusFilter)) {
+      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
+      return;
+    }
+    const enquiries = await listSiteEnquiryRows(statusFilter);
+    sendJson(res, 200, { ok: true, enquiries });
+    return;
+  }
+
+  // POST /api/admin/site-enquiries/update — change an enquiry's status
+  // (task 13 admin workflow: new -> contacted -> closed).
+  if (pathname === '/api/admin/site-enquiries/update' && req.method === 'POST') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+    const id = String((body && body.id) || '').trim();
+    const status = String((body && body.status) || '').trim();
+    if (!id) {
+      sendJson(res, 400, { ok: false, error: 'id is required.' });
+      return;
+    }
+    if (!SITE_ENQUIRY_STATUSES.includes(status)) {
+      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
+      return;
+    }
+    const result = await updateSiteEnquiryStatus(id, status);
+    if (result.notFound) {
+      sendJson(res, 404, { ok: false, error: 'Enquiry not found.' });
+      return;
+    }
+    if (!result.ok) {
+      sendJson(res, 500, { ok: false, error: 'Failed to update enquiry.' });
+      return;
+    }
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -35356,6 +35983,11 @@ Return ONLY valid JSON with no markdown formatting:
       uploaded_at: new Date().toISOString(),
       country: upCountry
     };
+    // Advisory AI check vs the item requirement (fail-open — never blocks the upload).
+    try {
+      var _uc = await runUploadCheck(upBuffer, upMime, { title: upTask.title, detail: upMeta.detail, team_instructions: upMeta.team_instructions, sub_items: upMeta.sub_items });
+      upMeta.upload.ai_check = { verdict: _uc.verdict, summary: _uc.summary, model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
+    } catch (_ucErr) { upMeta.upload.ai_check = { verdict: 'unchecked', summary: '', checked_at: new Date().toISOString() }; }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(upTaskId), {
       method: 'PATCH', body: { status: 'waiting', metadata: upMeta, updated_at: new Date().toISOString() }
     });
@@ -38281,6 +38913,7 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
     let releasedGp = 0, releasedTeam = 0;
+    const releasedGpTasks = [];
     for (const t of bundleTasks) {
       var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
       meta.review_status = 'active';
@@ -38289,9 +38922,13 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
         method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
       });
-      if (meta.owner === 'gp') releasedGp++; else releasedTeam++;
+      if (meta.owner === 'gp') {
+        releasedGp++;
+        releasedGpTasks.push({ id: t.id, title: t.title, metadata: meta, ahpra_deadline: t.ahpra_deadline, due_date: t.due_date });
+      } else releasedTeam++;
     }
     // Notify the GP only if they now have items to action.
+    let emailsQueued = 0;
     if (releasedGp > 0) {
       try {
         const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
@@ -38302,11 +38939,14 @@ Return ONLY valid JSON with no markdown formatting:
             title: 'AHPRA has requested more information',
             detail: 'Please open your AHPRA page to see what is needed and the deadline.'
           });
+          // One email per GP task, 1 minute apart, each with its single action button.
+          const relMeta0 = releasedGpTasks[0].metadata || {};
+          emailsQueued = await sendAhpraGpTaskEmails(caseId, uid, releasedGpTasks, { reference: relMeta0.reference || null });
         }
       } catch (e) { /* non-critical */ }
     }
-    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).', adminCtx.email);
-    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam });
+    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).' + (emailsQueued ? ' Queued ' + emailsQueued + ' per-task email(s) to the GP, 1 minute apart.' : ''), adminCtx.email);
+    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam, emails_queued: emailsQueued });
     return;
   }
 
@@ -38375,6 +39015,114 @@ Return ONLY valid JSON with no markdown formatting:
     if (!signed) { sendJson(res, 502, { ok: false, message: 'Could not create link.' }); return; }
     res.writeHead(302, { Location: signed });
     res.end();
+    return;
+  }
+
+  // ── AHPRA s80: pre-filled, AI-drafted reply to the officer for one uploaded item ──
+  if (pathname === '/api/admin/ahpra/item/officer-reply-draft' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    const drTaskId = url.searchParams.get('task_id');
+    if (!drTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    const drRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,title,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(drTaskId) + '&limit=1');
+    const drTask = (drRes.ok && Array.isArray(drRes.data) && drRes.data[0]) ? drRes.data[0] : null;
+    if (!drTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var drMeta = (drTask.metadata && typeof drTask.metadata === 'object') ? drTask.metadata : {};
+    // GP name + email (CC) from the case's profile.
+    var drGpName = 'the applicant', drGpEmail = '';
+    const drCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(drTask.case_id) + '&limit=1');
+    const drCase = (drCaseRes.ok && Array.isArray(drCaseRes.data) && drCaseRes.data[0]) ? drCaseRes.data[0] : {};
+    if (drCase.user_id) {
+      const drProf = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(drCase.user_id) + '&limit=1');
+      const p = (drProf.ok && Array.isArray(drProf.data) && drProf.data[0]) ? drProf.data[0] : {};
+      drGpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || drGpName;
+      drGpEmail = p.email || '';
+    }
+    var drOfficer = (drMeta.officer && drMeta.officer.email) || drCase.ahpra_officer_email || '';
+    var drOfficerName = (drMeta.officer && drMeta.officer.name) || drCase.ahpra_officer_name || '';
+    var drReference = drMeta.reference || '';
+    var drSubject = drMeta.thread_subject || (drMeta.original_email && drMeta.original_email.subject) || '';
+    drSubject = drSubject ? (/^re:/i.test(drSubject) ? drSubject : 'Re: ' + drSubject) : 'Re: Notice to provide further information under section 80(1)(b)' + (drReference ? ' — ' + drReference : '');
+    // AI draft (fail-open to the deterministic template).
+    var drBody = '';
+    try {
+      if (process.env.ANTHROPIC_API_KEY && await checkAnthropicBudget()) {
+        var drMsgs = ahpraS80.buildOfficerReplyMessages({ gpName: drGpName, itemTitle: drTask.title, requirement: drMeta.detail || drMeta.team_instructions || '', reference: drReference, officerName: drOfficerName });
+        var drCtl = new AbortController(); var drT = setTimeout(function () { drCtl.abort(); }, 30000);
+        var drAi = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: drCtl.signal, headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 700, system: drMsgs.system, messages: [{ role: 'user', content: drMsgs.userText }] }) });
+        clearTimeout(drT);
+        var drData = await drAi.json();
+        if (drData && drData.usage) recordAnthropicSpend(drData.usage.input_tokens || 0, drData.usage.output_tokens || 0, drData.usage.cache_read_input_tokens || 0, drData.usage.cache_creation_input_tokens || 0);
+        drBody = (drData && drData.content && drData.content[0] && drData.content[0].text) || '';
+      }
+    } catch (drErr) { console.error('[AHPRA officer-reply-draft] AI failed (fallback to template):', drErr && drErr.message); }
+    if (!drBody.trim()) { drBody = ahpraS80.buildOfficerReplyDraft({ gpName: drGpName, itemTitle: drTask.title, reference: drReference, officerName: drOfficerName }).body; }
+    // escapeHtml doesn't exist in this file — inline escape for the plain-text-to-HTML body conversion.
+    var _drEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var drBodyHtml = drBody.split('\n').map(function (ln) { return _drEsc(ln); }).join('<br>');
+    sendJson(res, 200, { ok: true, to: drOfficer, cc: drGpEmail, subject: drSubject, bodyHtml: drBodyHtml, file_name: (drMeta.upload && drMeta.upload.file_name) || '' });
+    return;
+  }
+
+  // ── AHPRA s80: send the uploaded doc to the officer as a threaded reply, then complete the item ──
+  if (pathname === '/api/admin/ahpra/item/officer-reply' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let orBody; try { orBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const orTaskId = orBody && typeof orBody.task_id === 'string' ? orBody.task_id.trim() : '';
+    const orTo = orBody && typeof orBody.to === 'string' ? orBody.to.trim() : '';
+    const orCc = orBody && typeof orBody.cc === 'string' ? orBody.cc.trim() : '';
+    const orSubject = orBody && typeof orBody.subject === 'string' ? orBody.subject.trim().slice(0, 800) : '';
+    const orBodyHtml = orBody && typeof orBody.bodyHtml === 'string' ? orBody.bodyHtml : '';
+    if (!orTaskId || !orTo || !orBodyHtml.trim()) { sendJson(res, 400, { ok: false, message: 'task_id, to and a body are required.' }); return; }
+    const orRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(orTaskId) + '&limit=1');
+    const orTask = (orRes.ok && Array.isArray(orRes.data) && orRes.data[0]) ? orRes.data[0] : null;
+    if (!orTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var orMeta = (orTask.metadata && typeof orTask.metadata === 'object') ? orTask.metadata : {};
+    // Idempotency: never re-send to the regulator. A retry / second tab / direct re-POST after a
+    // successful send would otherwise email AHPRA a duplicate of the same document.
+    if (orTask.status === 'completed' || (orMeta.upload && orMeta.upload.status === 'approved')) {
+      sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This item was already sent to the AHPRA officer.' }); return;
+    }
+    var orUp = orMeta.upload || null;
+    if (!orUp || !orUp.storage_path) { sendJson(res, 400, { ok: false, message: 'No uploaded file to attach.' }); return; }
+    // Attachment bytes. supabaseStorageDownloadObject returns { buffer, mimeType }; sendGmailEmail wants base64.
+    var orDl = await supabaseStorageDownloadObject(orUp.storage_bucket || SUPABASE_DOCUMENT_BUCKET, orUp.storage_path);
+    if (!orDl || !orDl.buffer) { sendJson(res, 502, { ok: false, message: 'Could not read the uploaded file.' }); return; }
+    // Threading: reply on the original officer email (its inbound task_message carries the RFC822 id).
+    var orInbound = await supabaseDbRequest('task_messages', 'select=rfc822_message_id,rfc822_references,subject,gmail_thread_id&task_id=eq.' + encodeURIComponent(orTaskId) + '&direction=eq.inbound&order=created_at.asc&limit=1');
+    var orMsg = (orInbound.ok && Array.isArray(orInbound.data) && orInbound.data[0]) ? orInbound.data[0] : {};
+    var orThreadId = orTask.gmail_thread_id || orMsg.gmail_thread_id || '';
+    var orInReplyTo = orMsg.rfc822_message_id || '';
+    var orReferences = orMsg.rfc822_references || orMsg.rfc822_message_id || '';
+    // Items delivered via the 6-card "Send to GP" path carry no thread of their own — thread the
+    // reply onto the SOURCE card's original officer email so it still lands in the AHPRA thread.
+    if ((!orThreadId || !orInReplyTo) && orMeta.source_card_task_id) {
+      var orCardMsgRes = await supabaseDbRequest('task_messages', 'select=rfc822_message_id,rfc822_references,gmail_thread_id&task_id=eq.' + encodeURIComponent(orMeta.source_card_task_id) + '&direction=eq.inbound&order=created_at.asc&limit=1');
+      var orCardMsg = (orCardMsgRes.ok && Array.isArray(orCardMsgRes.data) && orCardMsgRes.data[0]) ? orCardMsgRes.data[0] : {};
+      if (!orThreadId && orCardMsg.gmail_thread_id) orThreadId = orCardMsg.gmail_thread_id;
+      if (!orInReplyTo && orCardMsg.rfc822_message_id) { orInReplyTo = orCardMsg.rfc822_message_id; orReferences = orCardMsg.rfc822_references || orCardMsg.rfc822_message_id; }
+    }
+    // From mailbox for this case (rep/hub mailbox), same resolver the SPPA send-to-candidate flow uses (returns {from, fromName}).
+    var orSender = await resolveCaseSenderInfo(orTask.case_id);
+    var orSentSubject = orSubject || 'Re: Notice to provide further information under section 80(1)(b)';
+    var sendResult = await sendGmailEmail({
+      from: orSender.from, fromName: orSender.fromName, to: orTo, cc: orCc || undefined,
+      subject: orSentSubject,
+      bodyHtml: orBodyHtml, threadId: orThreadId || undefined, inReplyTo: orInReplyTo || undefined, references: orReferences || undefined,
+      attachments: [{ filename: orUp.file_name || 'document', mimeType: orUp.mime_type || orDl.mimeType || 'application/octet-stream', content: orDl.buffer.toString('base64') }],
+      caseId: orTask.case_id
+    });
+    if (!sendResult || !sendResult.ok) { sendJson(res, 502, { ok: false, message: 'Email send failed.' }); return; }
+    // Mark approved + completed; record the outbound reply on the thread.
+    orUp.status = 'approved'; orUp.reviewed_by = adminCtx.email; orUp.reviewed_at = new Date().toISOString();
+    orMeta.upload = orUp;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(orTaskId), { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, metadata: orMeta, updated_at: new Date().toISOString() } });
+    try {
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: orSender.from, recipient: orTo, cc: orCc || null, subject: orSentSubject, body_text: orBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), gmail_thread_id: sendResult.threadId || orThreadId || null, rfc822_message_id: sendResult.rfc822MessageId || null, created_at: new Date().toISOString() }] });
+    } catch (e) { /* non-critical */ }
+    await _logCaseEvent(orTask.case_id, orTaskId, 'completed', 'AHPRA item sent to officer', (orUp.file_name || 'document') + ' emailed to ' + orTo, adminCtx.email);
+    sendJson(res, 200, { ok: true, sent: true });
     return;
   }
 
@@ -40997,12 +41745,18 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Fallback / non-request_from_gp: the original single lumped GP item so a notice is never lost.
     if (!fannedOut) {
-      const gpItem = await _createRegTask(card.case_id, Object.assign(
-        buildAhpraGpDeliveryItem(card, cardMeta, nowIso),
-        { _actor: admin.email }
-      ));
+      const gpItemSpec = buildAhpraGpDeliveryItem(card, cardMeta, nowIso);
+      const gpItem = await _createRegTask(card.case_id, Object.assign(gpItemSpec, { _actor: admin.email }));
       if (!gpItem || !gpItem.id) { sendJson(res, 502, { ok: false, error: 'failed to create GP item' }); return; }
       gpTaskId = gpItem.id;
+      // Same one-action email as the fanned-out items (single task → sends immediately).
+      if (gpUserId) {
+        try {
+          await sendAhpraGpTaskEmails(card.case_id, gpUserId, [{
+            id: gpItem.id, title: gpItemSpec.title, metadata: gpItemSpec.metadata, ahpra_deadline: gpItemSpec.ahpra_deadline
+          }]);
+        } catch (e) { console.error('[AHPRA deliver] GP item email failed (non-critical):', e && e.message); }
+      }
     }
 
     // Notify the GP in-app + push (only when they actually have items to action).
@@ -48104,10 +48858,48 @@ Return ONLY valid JSON with no markdown formatting:
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
+// ── Public marketing site routing config ──────────────────────────────────
+// The anonymous-accessible marketing routes and the page files backing them.
+// Never add these paths to APP_SHELL_SUPPORTED_PATHS or to
+// js/nav-shell-bridge.js's PAGE_PATHS — marketing pages are standalone HTML,
+// not embedded app-shell pages, and must not load js/auth-guard.js.
+const SITE_PUBLIC_ROUTES = {
+  '/': 'pages/site-home.html',
+  '/jobs': 'pages/site-jobs.html',
+  '/jobs/view': 'pages/site-job.html',
+  '/employers': 'pages/site-employers.html',
+  '/about': 'pages/site-about.html',
+  '/faq': 'pages/site-faq.html',
+  '/the-app': 'pages/site-app.html',
+  // Matches the owner's old Wix page (www.mygplink.com.au/gp-jobs) so
+  // existing inbound links keep working after the DNS cutover.
+  '/gp-jobs': 'pages/site-gp-jobs.html',
+};
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
+// Reverse map so a direct hit on the backing file (e.g. /pages/site-home.html)
+// 302s to its clean marketing URL instead of the generic /pages/* clean-URL rule.
+const SITE_PAGE_FILE_TO_ROUTE = Object.fromEntries(
+  Object.entries(SITE_PUBLIC_ROUTES).map(([route, file]) => ['/' + file, route])
+);
+
 async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // ── Public marketing site clean-URL redirect ───────────────────────
+  // /pages/site-home.html etc are internal placeholder files backing the
+  // marketing routes below; visitors should only ever see the clean marketing
+  // URL (e.g. '/', '/jobs/view'), never the /pages/site-*.html file path. This
+  // must run BEFORE the generic /pages/*.html → /pages/* clean-URL rule below,
+  // which would otherwise rewrite it to the wrong (non-existent) clean URL.
+  if (SITE_PAGE_FILE_TO_ROUTE[url.pathname] &&
+      !url.searchParams.has('gp_shell') && !url.searchParams.has('gp_shell_static')) {
+    const clean = SITE_PAGE_FILE_TO_ROUTE[url.pathname] + (url.search || '');
+    res.writeHead(302, { Location: clean });
+    res.end();
+    return;
+  }
 
   // ── Clean URL support ──────────────────────────────────────────────
   // Redirect /pages/foo.html → /pages/foo so browsers see clean URLs.
@@ -48130,6 +48922,29 @@ async function handleRequest(req, res) {
     pathname += '.html';
   }
 
+  // ── Public marketing site routes (no auth required) ────────────────
+  // robots.txt / sitemap.xml, and the marketing pages other than '/' (which
+  // is handled below alongside the existing host/session-aware root redirect).
+  if (pathname === '/robots.txt') {
+    const body = `User-agent: *\nAllow: /\nSitemap: ${PUBLIC_BASE_URL}/sitemap.xml\n`;
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(body);
+    return;
+  }
+  if (pathname === '/sitemap.xml') {
+    const urls = Object.keys(SITE_PUBLIC_ROUTES)
+      .map((route) => `  <url><loc>${PUBLIC_BASE_URL}${route === '/' ? '/' : route}</loc></url>`)
+      .join('\n');
+    const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end(body);
+    return;
+  }
+  if (pathname !== '/' && Object.prototype.hasOwnProperty.call(SITE_PUBLIC_ROUTES, pathname)) {
+    serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES[pathname]);
+    return;
+  }
+
   if (pathname === '/') {
     // Host-aware root: real admin hosts go to the admin dashboard (which itself routes
     // to /pages/admin-signin when there's no admin session). Without this, the admin host
@@ -48138,8 +48953,23 @@ async function handleRequest(req, res) {
     // 'local' dev/test scope (loopback) — keep the GP app home as the default.
     const rootHostScope = getAdminHostScope(req);
     const rootIsAdminHost = rootHostScope === 'admin' || rootHostScope === 'super_admin';
-    res.writeHead(302, { Location: rootIsAdminHost ? '/pages/admin' : '/pages/index' });
-    res.end();
+    if (rootIsAdminHost) {
+      res.writeHead(302, { Location: '/pages/admin' });
+      res.end();
+      return;
+    }
+    // Signed-in visitors (GP or admin session) on a non-admin host keep the
+    // existing behaviour of landing on the app home. Anonymous visitors see
+    // the public marketing homepage instead of bouncing through /pages/index
+    // → signin.
+    const rootSession = getSession(req);
+    const rootAdminSession = getAdminSession(req);
+    if (rootSession || rootAdminSession) {
+      res.writeHead(302, { Location: '/pages/index' });
+      res.end();
+      return;
+    }
+    serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES['/']);
     return;
   }
 
@@ -48617,6 +49447,26 @@ module.exports.__testUtils = {
   parseLifestylePriceValue,
   parseVaSearchScope,
   resizeDomainImageUrl,
-  sanitizeVaSearchQuery
+  sanitizeVaSearchQuery,
+  mapCareerRoleRowToPublicJob,
+  sanitizePublicJob,
+  classifyPublicJobType,
+  buildPublicJobsResponse,
+  getPublicJobsCount,
+  getPublicJobsRows,
+  __getPublicJobsRowsCacheForTest,
+  __setPublicJobsRowsCacheForTest,
+  PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
+  SITE_STATS,
+  validateSiteEnquiryPayload,
+  isSiteEnquiryHoneypotFilled,
+  checkSiteEnquiryRateLimit,
+  recordSiteEnquiryRateLimitHit,
+  __resetSiteEnquiryRateLimitForTest,
+  __resetSiteEnquiriesForTest,
+  __seedSiteEnquiriesForTest,
+  insertSiteEnquiryRow,
+  listSiteEnquiryRows,
+  updateSiteEnquiryStatus
 };
 // cache-bust 1778597236

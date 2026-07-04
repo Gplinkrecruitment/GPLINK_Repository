@@ -64,10 +64,15 @@ describe('clean URL routing', () => {
     expect([200, 302]).toContain(res.status);
   });
 
-  it('/ redirects to /pages/index (clean)', async () => {
+  it('/ serves the public marketing homepage for an anonymous visitor (no session)', async () => {
+    // Task 2 (public marketing routes): '/' on a non-admin host now serves the
+    // public marketing homepage for anonymous visitors instead of redirecting
+    // to /pages/index, which used to bounce straight to /pages/signin anyway.
+    // Signed-in visitors still land on /pages/index — see
+    // tests/site-public-routes.test.js for that coverage.
     const res = await get('/');
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/pages/index');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
   });
 
   it('/pages/account.html?q=1 preserves query on redirect', async () => {
