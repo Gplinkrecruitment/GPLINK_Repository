@@ -43,7 +43,11 @@ const NOW = new Date().toISOString();
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
   user_profiles: [
-    { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', registration_country: 'uk' }
+    // Task 11's server-side DPA gate blurs non-DPA roles for a non-Australia-
+    // trained GP (these fixture roles never set `dpa`, which defaults false) —
+    // mark Australia-trained here since this file tests ATS/Zoho mechanics
+    // unrelated to the DPA gate.
+    { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', registration_country: 'uk', australia_trained: true }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }

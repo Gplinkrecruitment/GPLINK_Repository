@@ -37,8 +37,12 @@ let rejectPracticeIdInsert = false;
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
   user_profiles: [
-    { user_id: GP1.userId, email: GP1.email, first_name: 'Test', last_name: 'DoctorOne', zoho_candidate_id: null },
-    { user_id: GP2.userId, email: GP2.email, first_name: 'Test', last_name: 'DoctorTwo', zoho_candidate_id: null }
+    // Task 11's server-side DPA gate blocks a non-Australia-trained GP from a
+    // non-DPA role (these fixture roles don't set `dpa`, so it defaults false
+    // per the career_roles schema) — mark both Australia-trained here since
+    // this file tests practice-link/CEO-funnel mechanics, not the DPA gate.
+    { user_id: GP1.userId, email: GP1.email, first_name: 'Test', last_name: 'DoctorOne', zoho_candidate_id: null, australia_trained: true },
+    { user_id: GP2.userId, email: GP2.email, first_name: 'Test', last_name: 'DoctorTwo', zoho_candidate_id: null, australia_trained: true }
   ],
   user_state: [
     { user_id: GP1.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },

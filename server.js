@@ -3304,6 +3304,58 @@ async function _resolveGpCountry(userId) {
   }
 }
 
+// Resolve a GP's practice-client-pipeline jobs profile: whether they trained in
+// Australia (drives the DPA gate on /api/career/roles + /api/career/apply) and
+// their preferred city (drives ranking). Reads user_profiles first, falls back
+// to the onboarding blob stored on user_state (same shape as _resolveGpCountry).
+// Legally-safe default when nothing is set: NOT Australia-trained (DPA-restricted).
+async function _resolveGpJobsProfile(userId, email) {
+  var out = { australiaTrained: false, preferredCity: '' };
+  if (!userId && email) {
+    try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = null; }
+  }
+  if (!userId) return out;
+  try {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=australia_trained,preferred_city&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var profRow = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+    var haveTrained = profRow && typeof profRow.australia_trained === 'boolean';
+    var haveCity = profRow && profRow.preferred_city;
+    if (haveTrained) out.australiaTrained = profRow.australia_trained;
+    if (haveCity) out.preferredCity = String(profRow.preferred_city);
+
+    if (!haveTrained || !haveCity) {
+      var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : {};
+      var ob = _parseStateVal(st.gp_onboarding) || {};
+      if (!haveTrained && typeof ob.australiaTrained === 'boolean') out.australiaTrained = ob.australiaTrained;
+      if (!haveCity && ob.preferredCity) out.preferredCity = String(ob.preferredCity);
+    }
+    return out;
+  } catch (e) {
+    return out;
+  }
+}
+
+// Apply the DPA qualification gate + preferred-city ranking to a client-shaped
+// roles array (each role already mapped via mapCareerRoleRowToClient, carrying
+// `dpa`, `state`, `nearest_city`). Non-qualifying roles are replaced with
+// redacted stubs (no identifying fields) and appended after the qualifying,
+// ranked list. Single chokepoint called from every /api/career/roles response path.
+async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
+  var list = Array.isArray(clientRoles) ? clientRoles : [];
+  try {
+    var gpProfile = await _resolveGpJobsProfile(userId, email);
+    var gated = list.map(function (r) {
+      return Object.assign(r, practicePipeline.gpQualifiesForRole({ dpa: r.dpa }, { australiaTrained: gpProfile.australiaTrained }));
+    });
+    var qualifying = practicePipeline.rankRolesForGp(gated.filter(function (r) { return r.qualifies; }), { preferredCity: gpProfile.preferredCity });
+    var blurred = gated.filter(function (r) { return !r.qualifies; }).map(function (r) { return practicePipeline.buildRedactedRoleStub(r); });
+    return qualifying.concat(blurred);
+  } catch (e) {
+    return list;
+  }
+}
+
 // Extract the requested items from an AHPRA s80(1)(b) notice.
 // Returns { deadline, reference, items:[...], failed:bool }. `failed:true` means we
 // could not get a usable split (no key/budget/parse) — the caller MUST then create
@@ -25239,6 +25291,9 @@ async function atsResolvePracticeIdForRole(roleRow) {
 // be applied yet. Detect the missing column ONCE per process and stop sending
 // it, so the apply path never pays for a second failing insert.
 var _gpApplicationsPracticeIdMissing = false;
+// gp_applications.origin ships alongside the practice-client-pipeline work and
+// may not be applied yet either — same detect-once-and-stop-sending pattern.
+var _gpApplicationsOriginMissing = false;
 function isMissingColumnInsertError(result, column) {
   var d = result ? result.data : null;
   if (!d) return false;
@@ -28816,6 +28871,8 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/career/roles' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
+    const _gpRolesUserId = getSessionSupabaseUserId(session) || null;
+    const _gpRolesEmail = getSessionEmail(session) || null;
 
     // Try direct Zoho fetch with in-memory cache
     const now = Date.now();
@@ -28824,10 +28881,11 @@ async function handleApi(req, res, pathname) {
       const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
       const internalAtsRows = await listGpVisibleInternalAtsRoles();
       const storedRows = manualRows.concat(internalAtsRows);
+      const mergedRoles = mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles);
       sendJson(res, 200, {
         ok: true,
         source: 'zoho-live',
-        roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
+        roles: await _applyGpRoleVisibilityGate(mergedRoles, _gpRolesUserId, _gpRolesEmail)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
@@ -28840,10 +28898,11 @@ async function handleApi(req, res, pathname) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
           const internalAtsRows = await listGpVisibleInternalAtsRoles();
           const storedRows = manualRows.concat(internalAtsRows);
+          const mergedRoles = mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), cachedRoles);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), cachedRoles)
+            roles: await _applyGpRoleVisibilityGate(mergedRoles, _gpRolesUserId, _gpRolesEmail)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -28888,10 +28947,11 @@ async function handleApi(req, res, pathname) {
           const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
           const internalAtsRows = await listGpVisibleInternalAtsRoles();
           const storedRows = manualRows.concat(internalAtsRows);
+          const mergedRoles = mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), allRoles);
           sendJson(res, 200, {
             ok: true,
             source: 'zoho-live',
-            roles: mergeCareerRoleClientLists(storedRows.map(mapCareerRoleRowToClient), allRoles)
+            roles: await _applyGpRoleVisibilityGate(mergedRoles, _gpRolesUserId, _gpRolesEmail)
           }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
@@ -28915,14 +28975,18 @@ async function handleApi(req, res, pathname) {
         source: visibleRows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
         connected: !!(connection && connection.status === 'active'),
         lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
-        roles: visibleRows.map(mapCareerRoleRowToClient)
+        roles: await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
     // Local-JSON dev mode: still surface CEO-created in-app ATS jobs.
     const localInternalRoles = await listGpVisibleInternalAtsRoles();
-    sendJson(res, 200, { ok: true, source: 'fallback', roles: localInternalRoles.map(mapCareerRoleRowToClient) }, PRIVATE_METADATA_CACHE_HEADERS);
+    sendJson(res, 200, {
+      ok: true,
+      source: 'fallback',
+      roles: await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail)
+    }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -28957,11 +29021,25 @@ async function handleApi(req, res, pathname) {
     const finalRoleRow = heroReadyRow || aiReadyRow || billingReadyRow || existingRow;
     const roleClientPayload = mapCareerRoleDetailToClient(finalRoleRow);
 
+    const roleDetailEmail = getSessionEmail(session);
+    const roleDetailUserId = getSessionSupabaseUserId(session) || (roleDetailEmail ? await getSupabaseUserIdByEmail(roleDetailEmail) : null);
+
+    // Task 11 DPA gate — a GP who can't be shown this role on /api/career/roles
+    // (blurred filler) must not be able to fetch its full detail either, e.g.
+    // by loading pages/job.html directly with a guessed/shared/cached role id.
+    const roleDetailGpProfile = await _resolveGpJobsProfile(roleDetailUserId, roleDetailEmail);
+    const roleDetailQualification = practicePipeline.gpQualifiesForRole({ dpa: finalRoleRow.dpa }, { australiaTrained: roleDetailGpProfile.australiaTrained });
+    if (!roleDetailQualification.qualifies) {
+      sendJson(res, 200, {
+        ok: true,
+        role: practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, roleDetailQualification))
+      }, PRIVATE_METADATA_CACHE_HEADERS);
+      return;
+    }
+
     // Reveal gate: only ever add the real practice name/address once
     // canRevealPracticeIdentity says this GP has earned it for this role
     // (admin-applied origin, an explicit revealed flag, or an accepted offer).
-    const roleDetailEmail = getSessionEmail(session);
-    const roleDetailUserId = getSessionSupabaseUserId(session) || (roleDetailEmail ? await getSupabaseUserIdByEmail(roleDetailEmail) : null);
     const revealed = roleDetailUserId ? await canRevealPracticeIdentity(roleDetailUserId, finalRoleRow.id) : false;
     if (revealed) {
       let practiceAddress = '';
@@ -29666,6 +29744,16 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // Server-side DPA qualification gate — mirrors the /api/career/roles hide/blur
+    // rule, but enforced here too so a GP can't apply by guessing/reusing a role id
+    // for a non-DPA role they were never shown a live "Apply" for.
+    const applyGpProfile = await _resolveGpJobsProfile(userId, email);
+    const applyQualification = practicePipeline.gpQualifiesForRole({ dpa: roleRow.dpa }, { australiaTrained: applyGpProfile.australiaTrained });
+    if (!applyQualification.qualifies) {
+      sendJson(res, 403, { ok: false, error: 'not_qualified', message: "You don't currently qualify for this role." });
+      return;
+    }
+
     if (!zohoCandidateId && parsedRoleId.provider === 'zoho_recruit' && isZohoRecruitConfigured()) {
       const ensuredCandidate = await ensureZohoRecruitCandidateIdForUser(userId, email, profile, userState);
       if (ensuredCandidate && ensuredCandidate.ok && ensuredCandidate.zohoId) {
@@ -29711,24 +29799,40 @@ async function handleApi(req, res, pathname) {
       zoho_candidate_id: zohoCandidateId || null,
       zoho_application_id: zohoApplicationId || null,
       status: 'applied',
-      applied_at: new Date().toISOString()
+      applied_at: new Date().toISOString(),
+      origin: 'gp_applied'
     };
     if (applyPracticeId && !_gpApplicationsPracticeIdMissing) appRow.practice_id = applyPracticeId;
+    if (_gpApplicationsOriginMissing) delete appRow.origin;
     let insertResult = await supabaseDbRequest('gp_applications', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: [appRow]
     });
 
-    // Tolerate the practice_id migration not being applied yet: on an
-    // unknown-column rejection, remember it (module-level) and retry once
-    // without the column so applies keep working at full speed.
-    if (!insertResult.ok && appRow.practice_id && isMissingColumnInsertError(insertResult, 'practice_id')) {
-      if (!_gpApplicationsPracticeIdMissing) {
-        _gpApplicationsPracticeIdMissing = true;
-        console.warn('[career apply] gp_applications.practice_id column missing (migration 20260702090000 not applied) — inserting without it from now on.');
+    // Tolerate the practice_id / origin migrations not being applied yet: on an
+    // unknown-column rejection, remember it (module-level) and retry without the
+    // offending column(s) so applies keep working at full speed. Looped since
+    // either column could be missing independently of the other.
+    for (let applyRetryAttempt = 0; applyRetryAttempt < 2 && !insertResult.ok; applyRetryAttempt++) {
+      let droppedAColumn = false;
+      if (appRow.practice_id && isMissingColumnInsertError(insertResult, 'practice_id')) {
+        if (!_gpApplicationsPracticeIdMissing) {
+          _gpApplicationsPracticeIdMissing = true;
+          console.warn('[career apply] gp_applications.practice_id column missing (migration 20260702090000 not applied) — inserting without it from now on.');
+        }
+        delete appRow.practice_id;
+        droppedAColumn = true;
       }
-      delete appRow.practice_id;
+      if (appRow.origin && isMissingColumnInsertError(insertResult, 'origin')) {
+        if (!_gpApplicationsOriginMissing) {
+          _gpApplicationsOriginMissing = true;
+          console.warn('[career apply] gp_applications.origin column missing — inserting without it from now on.');
+        }
+        delete appRow.origin;
+        droppedAColumn = true;
+      }
+      if (!droppedAColumn) break;
       insertResult = await supabaseDbRequest('gp_applications', '', {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
@@ -34422,6 +34526,7 @@ async function handleApi(req, res, pathname) {
         if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
         if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
         if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
+        if (typeof body.australiaTrained === 'boolean') profileUpdate.australia_trained = body.australiaTrained;
         if (Object.keys(profileUpdate).length > 0) {
           profileUpdate.onboarding_completed_at = new Date().toISOString();
           await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
@@ -34446,6 +34551,7 @@ async function handleApi(req, res, pathname) {
       if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
       if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
       if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
+      if (typeof body.australiaTrained === 'boolean') dbState.userProfiles[email].australia_trained = body.australiaTrained;
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
       saveDbState(dbState);
     }

@@ -312,6 +312,28 @@ describe('rankRolesForGp', () => {
     rankRolesForGp(rows, { preferredCity: 'Sydney' });
     expect(rows).toEqual(copy);
   });
+
+  // Task 11: /api/career/roles ranks the ALREADY client-serialized shape
+  // produced by mapCareerRoleRowToClient — `state` (not `location_state`),
+  // `nearest_city`, `dpa`, and no `published_at`/`created_at` timestamp at
+  // all. Must still rank without crashing and keep stable ordering.
+  it('ranks client-role-shaped objects (mapCareerRoleRowToClient output: state, nearest_city, dpa, no timestamp field)', () => {
+    const clientRoles = [
+      { id: 'internal_ats:sydney', dpa: true, state: 'NSW', nearest_city: 'Sydney' },
+      { id: 'internal_ats:melbourne', dpa: false, state: 'VIC', nearest_city: 'Melbourne' },
+      { id: 'internal_ats:geelong', dpa: true, state: 'VIC', nearest_city: 'Geelong' },
+      { id: 'internal_ats:perth', dpa: true, state: 'WA', nearest_city: 'Perth' },
+    ];
+    const ranked = rankRolesForGp(clientRoles, { preferredCity: 'Melbourne' });
+    // No timestamp field on client roles → ties within a score keep their
+    // original (stable) order: sydney (idx 0) then perth (idx 3), both score 2.
+    expect(ranked.map((r) => r.id)).toEqual([
+      'internal_ats:melbourne',
+      'internal_ats:geelong',
+      'internal_ats:sydney',
+      'internal_ats:perth',
+    ]);
+  });
 });
 
 describe('buildRedactedRoleStub', () => {
@@ -344,6 +366,42 @@ describe('buildRedactedRoleStub', () => {
     const stub = buildRedactedRoleStub({ id: 'role-2' });
     expect(stub.location).toBe('Australia');
     expect(stub.qualifyReason).toBe('dpa_restricted');
+  });
+
+  // Task 11: gated client roles carry dpa/nearest_city/practiceName straight
+  // from mapCareerRoleRowToClient — confirm none of that survives into the stub.
+  it('leaks no dpa/nearest_city/headerImageUrl/displayLabel fields from a gated client role', () => {
+    const gatedClientRole = {
+      id: 'internal_ats:secret1',
+      practiceName: 'ULTRA SECRET Toowoomba Family Medical Centre',
+      headerImageUrl: 'https://example.com/secret-practice-photo.jpg',
+      displayLabel: 'Mixed Billing · Non-DPA · near Toowoomba',
+      dpa: false,
+      state: 'QLD',
+      nearest_city: 'Toowoomba',
+      qualifies: false,
+      reason: 'dpa_restricted',
+    };
+    const stub = buildRedactedRoleStub(gatedClientRole);
+    expect(stub).toEqual({
+      id: 'internal_ats:secret1',
+      title: 'GP Opportunity',
+      practiceName: 'Confidential practice',
+      location: 'QLD',
+      billing: '',
+      summary: "You don't currently qualify for this role.",
+      qualifies: false,
+      blurred: true,
+      qualifyReason: 'dpa_restricted',
+    });
+    const serialized = JSON.stringify(stub);
+    expect(serialized).not.toContain('Toowoomba');
+    expect(serialized).not.toContain('SECRET');
+    expect(serialized).not.toContain('secret-practice-photo');
+    expect(stub.dpa).toBeUndefined();
+    expect(stub.nearest_city).toBeUndefined();
+    expect(stub.headerImageUrl).toBeUndefined();
+    expect(stub.displayLabel).toBeUndefined();
   });
 });
 

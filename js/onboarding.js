@@ -61,6 +61,7 @@
       _version: 2,
       currentStep: 0,
       country: "",
+      australiaTrained: null, // true = trained in Australia, false = overseas-trained. null = not yet answered.
       qualDocs: {},         // { [docKey]: { fileName, status, scanResult, retryCount, nameMatch } }
       accountReviewFlag: false,
       targetDate: "",
@@ -154,6 +155,34 @@
     const match = COUNTRIES.find((c) => c.code === state.country);
     if (match) countrySearch.value = match.name;
   }
+
+  // ── Where did you train? (Australia / Overseas) ─────
+  const trainedWhereGroup = document.getElementById("trainedWhereGroup");
+  const trainedWhereAu = document.getElementById("trainedWhereAu");
+  const trainedWhereOverseas = document.getElementById("trainedWhereOverseas");
+
+  function renderTrainedWhereUI() {
+    if (!trainedWhereGroup) return;
+    const options = trainedWhereGroup.querySelectorAll(".radio-option");
+    options.forEach((opt) => {
+      const isAu = opt.dataset.value === "au";
+      const selected = state.australiaTrained === true ? isAu : (state.australiaTrained === false ? !isAu : false);
+      opt.classList.toggle("selected", selected);
+    });
+    if (trainedWhereAu) trainedWhereAu.checked = state.australiaTrained === true;
+    if (trainedWhereOverseas) trainedWhereOverseas.checked = state.australiaTrained === false;
+  }
+
+  function selectTrainedWhere(v) {
+    state.australiaTrained = v === "au";
+    renderTrainedWhereUI();
+    hideError("trainedWhereError");
+    saveState();
+  }
+
+  if (trainedWhereAu) trainedWhereAu.addEventListener("change", () => selectTrainedWhere("au"));
+  if (trainedWhereOverseas) trainedWhereOverseas.addEventListener("change", () => selectTrainedWhere("overseas"));
+  renderTrainedWhereUI();
 
   // ── Qualification document verification (Step 2) ──
   const qualDocsContainer = document.getElementById("qualDocsContainer");
@@ -1022,6 +1051,7 @@
   function validateStep(step) {
     if (canBypassOnboardingValidation()) {
       hideError("countryError");
+      hideError("trainedWhereError");
       hideError("qualDocsError");
       hideError("docsError");
       hideError("dateError");
@@ -1032,7 +1062,7 @@
 
     switch (step) {
       case 0: return true; // intro
-      case 1: // country + qualification docs
+      case 1: // country + trained-where + qualification docs
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -1040,6 +1070,11 @@
           return false;
         }
         hideError("countryError");
+        if (state.australiaTrained !== true && state.australiaTrained !== false) {
+          showError("trainedWhereError");
+          return false;
+        }
+        hideError("trainedWhereError");
         if (!allDocsComplete()) {
           showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;

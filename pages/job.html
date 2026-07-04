@@ -1548,6 +1548,13 @@
   }
 
   function renderRole(role) {
+    // Task 11: a blurred (non-qualifying) filler stub has no real practice
+    // details to show — never render it as an openable job page.
+    if (role && role.blurred) {
+      currentRole = null;
+      setPageState("error", "This role is unavailable — you don't currently qualify for it.");
+      return;
+    }
     currentRole = role;
     mapVisible = false;
     stripLegacyTitleUi();

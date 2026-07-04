@@ -1113,6 +1113,34 @@
     }
     .role-card-cta:hover::after { transform: translateX(3px); }
 
+    /* Task 11: blurred filler card for a role the GP doesn't currently qualify
+       for (server-side DPA gate). Content stays blurred + non-interactive; a
+       centered pill explains why. No practice details ever reach the DOM. */
+    .role-card--blurred { cursor: default; }
+    .role-card--blurred .role-card-body {
+      filter: blur(6px);
+      pointer-events: none;
+      user-select: none;
+    }
+    .role-card--blurred .role-save-btn { display: none; }
+    .role-blur-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #fff;
+      color: #111;
+      font-weight: 700;
+      font-size: 12.5px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+      text-align: center;
+      max-width: 85%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
     .role-qualify-badge {
       display: inline-flex;
       align-items: center;
@@ -10029,7 +10057,28 @@
       `;
     }
 
+    // Task 11: a non-qualifying role (server-side DPA gate) arrives already
+    // redacted (buildRedactedRoleStub) — no identifying fields at all. Render
+    // it as a blurred filler card: no save button, no clickable CTA, no modal.
+    function buildBlurredRoleCardHtml(role) {
+      const location = String((role && role.location) || "Australia");
+      const billingLabel = String((role && role.billing) || "");
+      return `<article class="role-card role-card--blurred" data-role-id="${escapeHtml((role && role.id) || "")}">
+        <div class="role-card-content role-card-body">
+          <div class="role-card-header">
+            <div class="role-card-tags">
+              ${billingLabel ? `<span class="role-tag">${escapeHtml(billingLabel)}</span>` : ""}
+            </div>
+          </div>
+          <p class="role-card-location">${escapeHtml(location)}</p>
+          <button class="role-card-cta" type="button" tabindex="-1" aria-hidden="true">View details</button>
+        </div>
+        <div class="role-blur-overlay">You don't currently qualify for this role</div>
+      </article>`;
+    }
+
     function buildRoleCardHtml(role) {
+      if (role && role.blurred) return buildBlurredRoleCardHtml(role);
       const saved = isSaved(role.id);
       const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
       const location = String(role.location || "Australia");
@@ -10237,7 +10286,12 @@
     function getFilteredRoles() {
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
       const filterBilling = careerState.filterBilling.trim().toLowerCase();
-      return roleData.filter((role) => {
+      // Task 11: blurred (non-qualifying) filler roles carry no searchable/
+      // filterable data by design (buildRedactedRoleStub strips it all) — they
+      // sit out of every filter and just get appended at the end, always.
+      const blurredRoles = roleData.filter((role) => role && role.blurred);
+      const qualifying = roleData.filter((role) => !(role && role.blurred));
+      return qualifying.filter((role) => {
         const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
         if (!matchesSaved) return false;
         const matchesLocation = !filterLocation || String(role.majorCity || role.location || "").trim().toLowerCase() === filterLocation;
@@ -10256,7 +10310,7 @@
         }
 
         return true;
-      });
+      }).concat(blurredRoles);
     }
 
     async function loadRemoteRoles(options = {}) {
@@ -10914,6 +10968,9 @@
 
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
+        // Task 11: a blurred (non-qualifying) filler card must never open a
+        // job modal — even if something upstream re-attached data-open-role.
+        if (openBtn.closest(".role-card--blurred")) return;
         if (shouldLockCareerToSecuredView()) {
           setView("secured");
           return;

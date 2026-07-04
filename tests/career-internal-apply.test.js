@@ -26,8 +26,12 @@ const NOW = new Date().toISOString();
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
   user_profiles: [
-    { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', zoho_candidate_id: null },
-    { user_id: PLACED.userId, email: PLACED.email, first_name: 'Placed', last_name: 'Doctor', zoho_candidate_id: null }
+    // Task 11's server-side DPA gate blocks a non-Australia-trained GP from a
+    // non-DPA role (these fixture roles don't set `dpa`, so it defaults false
+    // per the career_roles schema) — mark both Australia-trained here since
+    // this file tests internal-ATS visibility/apply mechanics, not the DPA gate.
+    { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', zoho_candidate_id: null, australia_trained: true },
+    { user_id: PLACED.userId, email: PLACED.email, first_name: 'Placed', last_name: 'Doctor', zoho_candidate_id: null, australia_trained: true }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },

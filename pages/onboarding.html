@@ -656,6 +656,38 @@
     }
     .option-card.selected .option-card-label { color: var(--gp-blue-ink); }
 
+    /* ── TRAINED-WHERE RADIO PAIR ─────────────── */
+    .radio-pair {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .radio-option {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-md);
+      padding: 12px 14px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gp-text);
+      transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease);
+    }
+    .radio-option:hover { border-color: var(--gp-blue); }
+    .radio-option.selected {
+      border: 1.5px solid var(--gp-blue);
+      background: var(--gp-blue-soft);
+      color: var(--gp-blue-ink);
+    }
+    .radio-option input[type="radio"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--gp-blue);
+    }
+
     .children-count-wrap {
       display: none;
       margin-top: 12px;
@@ -1081,6 +1113,20 @@ if (window.parent && window.parent !== window) {
               </div>
               <div class="field-error" id="countryError">Please select your country of qualification.</div>
               <div class="field-hint" id="countryHint" style="display:none;color:var(--red);font-size:13px;margin-top:8px;">We currently only accept GPs qualified in the United Kingdom, Ireland, or New Zealand.</div>
+            </div>
+            <div style="margin-top:14px;">
+              <label class="field-label">Where did you complete your GP training?</label>
+              <div class="radio-pair" id="trainedWhereGroup">
+                <label class="radio-option" data-value="au">
+                  <input type="radio" name="trainedWhere" id="trainedWhereAu" value="au" />
+                  Australia
+                </label>
+                <label class="radio-option" data-value="overseas">
+                  <input type="radio" name="trainedWhere" id="trainedWhereOverseas" value="overseas" />
+                  Overseas
+                </label>
+              </div>
+              <div class="field-error" id="trainedWhereError">Please tell us where you completed your GP training.</div>
             </div>
             <!-- Explanation above upload cards -->
             <p id="qualDocsExplainer" style="font-size:13px;color:var(--light);margin-top:10px;margin-bottom:-4px;display:none;">Upload your certificates so we can quickly assess the best pathway to Australia and tailor the journey for you.</p>
