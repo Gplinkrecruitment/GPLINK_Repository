@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { isZohoCandidateHired, toCandidateLead, normalizeArchiveRow } from '../lib/zoho-archive.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { isZohoCandidateHired, toCandidateLead, normalizeArchiveRow } = require('../lib/zoho-archive.js');
 
 describe('isZohoCandidateHired', () => {
   it('is true when Candidate_Status says Hired (any case)', () => {
