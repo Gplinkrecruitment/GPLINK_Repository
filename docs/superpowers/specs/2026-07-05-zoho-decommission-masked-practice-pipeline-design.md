@@ -68,6 +68,13 @@ Delivered as **five** sequenced phases: capture Zoho data → populate owned dat
 - Backfill each job's `dpa` from the true `source_payload.zoho.DPA` value.
 - Once Zoho Recruit sync is removed (Phase 5), nothing overwrites DPA again. Until then (Phases 1–4 still have the sync running), the sync must be changed to **preserve** an owner-set DPA rather than overwrite it.
 
+### Organisation model — practices vs corporations, and where details live (owner directive 2026-07-06)
+- A client entity is either a **practice** or a **corporation** (`practices.org_type`, default 'practice'). Corporations (e.g. ForHealth Group, GP West Group) own many job locations. Manual "Add practice" offers the choice; existing entities are toggleable. Seed ForHealth Group + GP West Group as corporations in the Phase 1 migration.
+- **Slim practice/corporation record.** The entity detail page (both CEO + RSO/admin dashboards) holds ONLY: primary contact, email, phone, Stage, Agreement (e-signed PDF or manually uploaded contract). It is the relationship+contract level.
+- **All operational detail lives on the JOB** (career_roles): billing type, DPA, suburb/nearest city, address, earnings, % split, MMM, visa, GP count, intro text/video, and every intake-form answer. Each job = one location's facts. New columns/`details` jsonb on career_roles as needed.
+- **Intake flow split:** the practice-intake form is unchanged for the practice, but on submit/sign the contact + agreement land on the practice row; every other answer lands on the created job.
+- Reveal gating is unchanged: job-level masked facts (suburb, billing, DPA) are public; practice identity + exact address stay locked until acceptance.
+
 ### Manual entry parity (Phase 3)
 - Admin editor exposes the **same fields the intake form collects** (`INTAKE_FIELDS`): billing_style, dpa, mmm, visa_sponsorship, ownership, years_operating, nursing_on_site, gp_count, percentage_split, incentives, earnings_text, suburb, nearest_city, state, address, general_location, role_title, role_summary, intro_text, intro_video_url — plus existing contact fields.
 - Saving runs the **same server logic** as a real intake submission (reuse `validatePracticeIntakePayload` + `createPendingJobFromIntake`, do not duplicate): creates/updates the masked job in `approval_status='pending'` → upload suburb photo → approve → live & masked.
@@ -102,23 +109,26 @@ Delivered as **five** sequenced phases: capture Zoho data → populate owned dat
 - Build the candidate re-engagement list (e.g. `marketing_leads` / `candidate_email_list`: name, email, phone, source='zoho_recruit', hired=excluded).
 - Output: everything Zoho holds is retained locally. Fully reversible.
 
-### Phase 1 — Populate owned data from the archive
-- Create a `practices` row per Zoho client; link jobs via `practice_id` / `zoho_client_id`.
-- Backfill `career_roles` fields from `source_payload.zoho`: `dpa` (from real `DPA`), `billing_model`, `suburb`/`nearest_city` (from `City`/`Location`/`Zip_Code`), contacts, benefits, positions, intro text.
-- Build `masked_title` for every job.
-- Output: app runs entirely on owned data; DPA correct; titles masked.
+### Phase 1 — Populate owned data from the archive (+ close the title leak)
+- Migration: `practices.org_type` ('practice'|'corporation'); `career_roles.address` + `career_roles.details` jsonb (job-level home for intake answers/benefits/etc.).
+- Create a `practices` row per Zoho client (slim: contact/stage/agreement + identity); seed ForHealth Group + GP West Group as `corporation`; link jobs via `career_roles.practice_id` ↔ `practices.zoho_client_id` (from each job's `Client_Name.id`).
+- Backfill `career_roles` from `source_payload.zoho` at JOB level: `dpa` (real `DPA` field), `billing_model`, `suburb` (`City`), `address` (`Location`+`Zip_Code`), `details` (benefits, GP count, intro, website, etc.).
+- Implement the NEW masked-name format `DPA - Suburb (City) - Billing` (legacy town-only variant without parens) in `buildMaskedTitle` and **backfill `masked_title` for all jobs** — this closes the live real-name leak immediately (pulled forward from Phase 2).
+- Output: app runs entirely on owned data; DPA correct; titles masked; org model in place.
 
 ### Phase 2 — GP-facing masking/UX
-- New `buildMaskedTitle` format + no-fallback-to-real-title in `mapCareerRoleRowToPublicJob`, `mapCareerRoleRowToClient`, single-role view.
+- No-fallback-to-real-title in `mapCareerRoleRowToPublicJob`, `mapCareerRoleRowToClient`, single-role view (masked format itself ships in Phase 1).
 - Blurred name box (web + app copy variants).
 - Two-tier intro video reveal + admin video review at approval.
-- DPA admin toggle; sync preserves owner-set DPA.
+- Sync preserves owner-set DPA (until the sync is removed in Phase 5).
 - Search + address leak fixes.
 - Update automated tests for the new title format; add cache-buster bumps on changed JS.
 
-### Phase 3 — Admin manual entry + contract slot
-- Expand `js/ceo-ats-practices.js` editor to the full parity field set; server reuse of intake validation + job creation; suburb-photo upload + approve in-admin; idempotent update.
-- Contract card with manual upload endpoint.
+### Phase 3 — Admin org UI, manual entry + contract slot
+- Slim practice/corporation detail view (contact/email/phone/Stage/Agreement only) on BOTH dashboards; Practice/Corporation type on Add + Edit; corporation badge on cards.
+- Job-level detail editor: the full intake-parity field set (billing, DPA toggle, suburb, address, earnings, split, intro…) lives on the JOB under the practice; server reuse of intake validation + job creation; suburb-photo upload + approve in-admin; idempotent update.
+- Intake submit/sign routes practice-level fields (contact, agreement) to the practice row and everything else to the created job.
+- Contract card with manual upload endpoint (practice/corporation level).
 
 ### Phase 5 — Remove Zoho entirely (Recruit + the dead Sign scaffolding)
 - Remove all Zoho Recruit code (sync, OAuth, crons, API, admin UI) **and** the unused Zoho Sign scaffolding (`lib/zoho-sign.js`, OAuth connect/callback, token-refresh cron, webhook receiver, envelope helpers, `zoho_sign_envelopes` handling, `ZOHO_*` env usage, admin "connect Zoho Sign" UI).
