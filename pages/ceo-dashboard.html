@@ -401,6 +401,13 @@
     .pep-wl-release { font-size: 11px; font-weight: 700; color: var(--blue); background: var(--blue-dim); border: 1px solid transparent; border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
     .pep-wl-release:hover:not(:disabled) { border-color: var(--blue); }
     .pep-wl-release:disabled { opacity: 0.5; cursor: default; }
+    .wl-tabs { display:flex; gap:8px; margin-bottom:10px; }
+    .wl-tab { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text-muted); border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; }
+    .wl-tab.active { background:rgba(99,102,241,0.18); color:var(--text-bright, #fff); border-color:rgba(99,102,241,0.5); }
+    .wl-pane { display:none; }
+    .wl-pane.active { display:block; }
+    .onb-wl-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; background:rgba(59,130,246,0.15); color:#7fb3ff; }
+    .onb-wl-badge.muted { background:rgba(255,255,255,0.07); color:var(--text-dim); }
 
     /* ═══ BLOCKERS LIST ═══ */
     .blocker-row {
@@ -1666,7 +1673,7 @@
       // Section Grid
       html += '<div class="section-grid">';
       html += renderPipelineSection(data.pipeline, data.ats_funnel);
-      html += renderPepWaitlistSection();
+      html += renderWaitlistSection();
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
       html += renderRsoWorkloadSection(data.rso_workload || data.va_workload);
@@ -1679,8 +1686,9 @@
 
       c.innerHTML = html;
 
-      // Populate the PEP waitlist section asynchronously (separate endpoint).
+      // Populate the Waitlist tabs asynchronously (separate endpoints).
       loadPepWaitlist();
+      loadOnbWaitlist();
 
       // Update header escalation badge
       var badge = document.getElementById('headerEscBadge');
@@ -1829,8 +1837,15 @@
       if (!iso) return '—';
       try { var d = new Date(iso); if (isNaN(d.getTime())) return '—'; return d.toLocaleDateString(); } catch (e) { return '—'; }
     }
-    function renderPepWaitlistSection() {
-      return sectionCard('pep-waitlist', '&#x23F3;', 'Waitlist (PEP pathway)', '<div id="pepWaitlistBody"><div class="pep-wl-empty">Loading…</div></div>', true);
+    function renderWaitlistSection() {
+      var tabs = '<div class="wl-tabs">'
+        + '<button class="wl-tab active" data-wl-tab="pep">PEP pathway <span id="wlPepCount"></span></button>'
+        + '<button class="wl-tab" data-wl-tab="onb">Onboarding incomplete <span id="wlOnbCount"></span></button>'
+        + '</div>';
+      var body = tabs
+        + '<div id="pepWaitlistBody" class="wl-pane active"><div class="pep-wl-empty">Loading…</div></div>'
+        + '<div id="onbWaitlistBody" class="wl-pane"><div class="pep-wl-empty">Loading…</div></div>';
+      return sectionCard('waitlist', '&#x23F3;', 'Waitlist', body, true);
     }
     function renderPepWaitlistBody(data) {
       if (!data || !data.ok) return '<div class="pep-wl-empty">Could not load the waitlist.</div>';
@@ -1865,9 +1880,48 @@
       apiFetch('/api/ceo/pep-waitlist').then(function (d) {
         var b = document.getElementById('pepWaitlistBody');
         if (b) b.innerHTML = renderPepWaitlistBody(d);
+        var c = document.getElementById('wlPepCount');
+        if (c && d && d.ok) c.textContent = '(' + (d.waiting || 0) + ')';
       }).catch(function () {
         var b = document.getElementById('pepWaitlistBody');
         if (b) b.innerHTML = '<div class="pep-wl-empty">Could not load the waitlist.</div>';
+      });
+    }
+    function renderOnbWaitlistBody(data) {
+      if (!data || !data.ok) return '<div class="pep-wl-empty">Could not load the list.</div>';
+      var items = data.items || [];
+      var summary = '<div class="pep-wl-summary">' + items.length + ' GP' + (items.length === 1 ? '' : 's') + ' started but haven’t finished onboarding</div>';
+      if (items.length === 0) return summary + '<div class="pep-wl-empty">Everyone who signed up has finished onboarding.</div>';
+      var rows = '';
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var status = it.unsubscribed ? '<span class="onb-wl-badge muted">Unsubscribed</span>'
+          : it.stopped ? '<span class="onb-wl-badge muted">' + (it.stopped_reason === 'exhausted' ? 'Reminders ended' : 'Stopped') + '</span>'
+          : '<span class="onb-wl-badge">' + it.emails_sent + '/7 emails</span>';
+        rows += '<tr>'
+          + '<td>' + esc(it.name || '—') + '</td>'
+          + '<td>' + esc(it.email || '—') + '</td>'
+          + '<td>' + esc(it.country || '—') + '</td>'
+          + '<td>Step ' + (Number(it.last_step) + 1) + ' — ' + esc(it.last_step_label || '') + '</td>'
+          + '<td>' + it.inactivity_days + 'd</td>'
+          + '<td>' + status + '</td>'
+          + '</tr>';
+      }
+      return summary + '<div class="pep-wl-tablewrap"><table class="pep-wl-table"><thead><tr>'
+        + '<th>GP</th><th>Email</th><th>Country</th><th>Last step</th><th>Inactive</th><th>Reminders</th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+    function loadOnbWaitlist() {
+      var body = document.getElementById('onbWaitlistBody');
+      if (!body) return;
+      apiFetch('/api/ceo/onboarding-incomplete').then(function (d) {
+        var b = document.getElementById('onbWaitlistBody');
+        if (b) b.innerHTML = renderOnbWaitlistBody(d);
+        var c = document.getElementById('wlOnbCount');
+        if (c && d && d.ok) c.textContent = '(' + (d.count || 0) + ')';
+      }).catch(function () {
+        var b = document.getElementById('onbWaitlistBody');
+        if (b) b.innerHTML = '<div class="pep-wl-empty">Could not load the list.</div>';
       });
     }
 
@@ -2946,6 +3000,22 @@
           if (d && d.ok) { loadPepWaitlist(); }
           else { relBtn.disabled = false; relBtn.textContent = 'Release'; alert((d && d.message) || 'Release failed.'); }
         }).catch(function () { relBtn.disabled = false; relBtn.textContent = 'Release'; alert('Release failed.'); });
+      });
+    })();
+
+    /* ── Waitlist: tab switching between PEP pathway / Onboarding incomplete ── */
+    (function () {
+      var mainEl = document.getElementById('mainContent');
+      if (!mainEl) return;
+      mainEl.addEventListener('click', function (e) {
+        var tab = e.target.closest('[data-wl-tab]');
+        if (!tab) return;
+        document.querySelectorAll('.wl-tab').forEach(function (t) { t.classList.toggle('active', t === tab); });
+        var key = tab.getAttribute('data-wl-tab');
+        var pep = document.getElementById('pepWaitlistBody');
+        var onb = document.getElementById('onbWaitlistBody');
+        if (pep) pep.classList.toggle('active', key === 'pep');
+        if (onb) onb.classList.toggle('active', key === 'onb');
       });
     })();
 
