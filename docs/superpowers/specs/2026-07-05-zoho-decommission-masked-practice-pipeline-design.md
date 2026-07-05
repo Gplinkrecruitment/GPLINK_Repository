@@ -17,9 +17,9 @@ Three things the owner asked for grew into a program of work once we traced them
 Investigating those surfaced two more must-dos:
 
 4. **DPA is wrong on the live site.** The database says 47/49 jobs are Non-DPA and the public board shows "Non-DPA · near Werribee", even though the owner considers them DPA and the real Zoho `DPA` field says "Yes". Cause: the Zoho sync mis-maps DPA and overwrites it on every run, so a one-time fix never sticks. DPA must become owner-controlled.
-5. **Fully disconnect Zoho** (Recruit **and** Sign) while retaining all its data. Zoho is currently the source of jobs/clients, and Zoho Sign powers SPPA e-signing. Everything Zoho holds must be captured and moved into owned data before Zoho is removed.
+5. **Fully disconnect Zoho** (Recruit **and** Sign) while retaining all its data. Zoho Recruit is the current source of jobs/clients. **Zoho Sign is NOT actually used** — it was scaffolded but is dead code (see verified facts); SPPA e-signing already runs on emailed-PDF signing coordinated by admin tasks + AI signature checks. So removing Zoho Sign is just deleting unused code/env, not migrating a live flow.
 
-Delivered as six sequenced phases: capture Zoho data → populate owned data → GP-facing masking/UX → admin manual entry → move SPPA e-sign in-app → remove Zoho. Each phase is committed, pushed and verified before the next. Zoho is only removed once everything replacing it is proven.
+Delivered as **five** sequenced phases: capture Zoho data → populate owned data → GP-facing masking/UX → admin manual entry → remove Zoho (Recruit sync/API + the dead Zoho Sign scaffolding). Each phase is committed, pushed and verified before the next. Zoho Recruit is only removed once everything replacing it is proven. (An earlier draft had a sixth phase to "move SPPA e-sign in-app" — dropped, because SPPA never used Zoho Sign, so there is nothing to migrate.)
 
 ---
 
@@ -34,6 +34,7 @@ Delivered as six sequenced phases: capture Zoho data → populate owned data →
 - **No `metadata` column on `career_roles`** (it exists on `practices`). Do not write role metadata to a non-existent column.
 - **Zoho creds present in env:** `ZOHO_RECRUIT_*` (OAuth) and `ZOHO_SIGN_*` (incl. `ZOHO_SIGN_SPPA_TEMPLATE_ID`). A live pull is possible using the app's existing stored token.
 - **Agreement has a non-circumvention / introduction-fee clause** (owner-confirmed), so showing the intro video to logged-in GPs is commercially safe.
+- **Zoho Sign is dead code for SPPA** (traced on `origin/main`). The live SPPA-00 is signed by emailing the PDF (`sendGmailEmail` with an `SPPA-00.pdf` attachment, "reply with the signed document attached", server.js ~42231/42385); the PDF comes from `task_documents.attachment_url`; state is tracked in `taskMeta.sppa_state` + `practice_doc_ops`. The Zoho Sign envelope helpers (`createEnvelopeFromTemplate` @ ~15911, and siblings) have **zero callers**; nothing ever writes `zoho_sign_envelope_id` (only read @ ~41330/41339) or inserts a `zoho_sign_envelopes` row; the OAuth connect/callback/webhook/token-refresh cron are reachable but a dead end for SPPA. Task table is `registration_tasks` (queried by `related_document_key=eq.sppa_00`). **Nothing to migrate — removal is deletion.**
 
 ---
 
@@ -82,9 +83,9 @@ Delivered as six sequenced phases: capture Zoho data → populate owned data →
 - Public/GP job **search** matches only masked fields (suburb, city, billing, DPA) — never the real name or raw title.
 - Exact **street address** and any `location_label` carrying a street/name are never sent to the browser pre-reveal (suburb + city + state only).
 
-### Zoho scope (Phases 0, 4, 5)
-- Remove **Zoho Recruit** (jobs/clients/candidates sync, OAuth, crons, API) **and Zoho Sign** (SPPA e-signature).
-- **SPPA e-signing must move in-app first** (Phase 4) using the same pdf-lib signing the practice agreement uses, before Zoho Sign is removed.
+### Zoho scope (Phases 0, 5)
+- Remove **Zoho Recruit** (jobs/clients/candidates sync, OAuth, crons, API) **and Zoho Sign** (dead scaffolding).
+- **No SPPA migration needed** — SPPA signing already runs on emailed-PDF signing (not Zoho Sign), so Zoho Sign removal is straightforward dead-code deletion in Phase 5. Verify (grep + tests) that nothing reachable breaks; keep the emailed-PDF SPPA flow untouched.
 
 ### Candidate export (Phase 0)
 - Pull candidates but store **only name, email, phone**.
@@ -119,18 +120,18 @@ Delivered as six sequenced phases: capture Zoho data → populate owned data →
 - Expand `js/ceo-ats-practices.js` editor to the full parity field set; server reuse of intake validation + job creation; suburb-photo upload + approve in-admin; idempotent update.
 - Contract card with manual upload endpoint.
 
-### Phase 4 — Move SPPA e-sign in-app (off Zoho Sign) ⚠️ own mini-design
-- Requires a dedicated investigation of the current SPPA Zoho Sign flow (templates, callbacks, completeness checks) before design. Replace with in-app pdf-lib signing modeled on the practice-agreement signing. Highest risk; compliance-sensitive.
-
-### Phase 5 — Remove Zoho entirely
-- Remove all Zoho Recruit + Zoho Sign code, crons, OAuth endpoints, env usage, and UI. Keep the Phase 0 archive. Verify nothing references Zoho at runtime.
+### Phase 5 — Remove Zoho entirely (Recruit + the dead Sign scaffolding)
+- Remove all Zoho Recruit code (sync, OAuth, crons, API, admin UI) **and** the unused Zoho Sign scaffolding (`lib/zoho-sign.js`, OAuth connect/callback, token-refresh cron, webhook receiver, envelope helpers, `zoho_sign_envelopes` handling, `ZOHO_*` env usage, admin "connect Zoho Sign" UI).
+- **Do NOT touch the emailed-PDF SPPA flow** (`registration_tasks` + `task_documents` + `sendGmailEmail`) — it is the real signing mechanism and is independent of Zoho.
+- Keep the Phase 0 archive. Verify (grep for `zoho`/`Zoho` + full test suite) that nothing reachable references Zoho at runtime.
+- (There is no separate SPPA-migration phase: SPPA never used Zoho Sign, so nothing needs replacing.)
 
 ---
 
 ## Non-negotiables / risks
 - **Never** show the real practice name (title, search, intro, address) to a non-accepted GP. Fail closed.
 - Capture Zoho data **before** removing anything; verify counts match before disconnect.
-- Phase 4 (SPPA e-sign) touches a live compliance flow — gets its own design pass and careful verification; do not fold it into Phase 5.
+- The emailed-PDF SPPA flow is the real signing mechanism and must be left untouched when Zoho Sign is deleted; confirm no reachable SPPA code path depends on `lib/zoho-sign.js`.
 - DPA is a real regulatory eligibility fact — backfill from the true Zoho `DPA` field, not assumptions.
 - Every phase: commit, push, run the test suite, verify against live/real behavior before proceeding.
 
