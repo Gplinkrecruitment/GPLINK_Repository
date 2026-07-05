@@ -451,17 +451,36 @@ describe('buildRedactedRoleStub', () => {
 });
 
 describe('buildIntakeEmailCopy', () => {
-  it('includes the required subject, promise, difference, CTA, and footer', () => {
+  it('builds a spaced letter-style HTML body, CEO signature, CTA, and footer', () => {
     const copy = buildIntakeEmailCopy({
       practiceName: 'Fitzroy Medical',
+      contactName: 'Jane Manager',
       intakeUrl: 'https://app.mygplink.com.au/intake/abc123',
     });
-    expect(copy.subject).toBe('Your GP is waiting — complete your job details');
-    expect(copy.body).toMatch(/30 days/);
-    expect(copy.body.toLowerCase()).toMatch(/gp link/);
-    expect(copy.ctaText).toBe('Complete your job details');
+    expect(copy.subject).toBe('Your GP is waiting: complete your placement application');
+    // Greeting uses the contact's first name.
+    expect(copy.bodyHtml).toMatch(/Dear Jane,/);
+    // Spaced paragraphs, not one clumped block: multiple <p> with bottom margin.
+    expect((copy.bodyHtml.match(/<p /g) || []).length).toBeGreaterThanOrEqual(6);
+    expect(copy.bodyHtml).toMatch(/How to secure your GP placement:/);
+    expect(copy.bodyHtml).toMatch(/1\/3 RULE:/);
+    // CEO signature block.
+    expect(copy.signatureHtml).toMatch(/Khaleed Mahmoud Ibañez/);
+    expect(copy.signatureHtml).toMatch(/CEO/);
+    expect(copy.signatureHtml).toMatch(/GP LINK RECRUITMENT AUSTRALIA PTY LTD/);
+    expect(copy.signatureHtml).toMatch(/gp-link-logo\.png/);
+    // Never use an em dash anywhere in the email copy.
+    expect(copy.subject).not.toContain('—');
+    expect(copy.bodyHtml).not.toContain('—');
+    expect(copy.signatureHtml).not.toContain('—');
+    expect(copy.ctaText).toBe('Complete the Placement Application');
     expect(copy.ctaUrl).toBe('https://app.mygplink.com.au/intake/abc123');
     expect(copy.footer).toBe('You are receiving this because you enquired about GP recruitment with GP Link.');
+  });
+
+  it('falls back to a generic greeting when no contact name is present', () => {
+    const copy = buildIntakeEmailCopy({ intakeUrl: 'https://x/intake/1' });
+    expect(copy.bodyHtml).toMatch(/Dear Practice Manager,/);
   });
 });
 
