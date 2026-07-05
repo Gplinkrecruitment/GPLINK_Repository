@@ -27440,6 +27440,156 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Hourly: chase GPs who started but never finished onboarding ────────────
+  // Sequence per lib/onboarding-nudge.js: 1h, 24h, 3d, then weekly to day 31.
+  // Reset on return: fresh activity re-anchors the clock and clears steps_sent.
+  // Stops on completion (silent), unsubscribe, or exhaustion.
+  if (req.method === 'GET' && pathname === '/api/cron/onboarding-nudge') {
+    var onbSecret = String(process.env.CRON_SECRET || '').trim();
+    var onbAuth = req.headers['authorization'] || '';
+    if (!onbSecret || onbAuth !== 'Bearer ' + onbSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var onbNow = Date.now();
+      var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
+
+      // 1) Candidate GPs: incomplete onboarding, active account, not staff.
+      //    { userId, email, name, lastActiveMs, lastStep, completed }
+      var onbGps = [];
+      if (isSupabaseDbConfigured()) {
+        var onbAdminIds = await getAdminUserIdSet();
+        var onbProfRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,email,first_name,last_name,account_status,onboarding_completed_at,created_at,updated_at' +
+          '&onboarding_completed_at=is.null&limit=2000');
+        var onbProfs = (onbProfRes.ok && Array.isArray(onbProfRes.data)) ? onbProfRes.data : [];
+        onbProfs = onbProfs.filter(function (p) {
+          var st = String(p.account_status || 'active').toLowerCase();
+          return st === 'active' && p.user_id && !onbAdminIds.has(p.user_id) && p.email;
+        });
+        // user_state for completion double-check + last-active + currentStep (chunked)
+        var onbStateMap = {};
+        for (var onbI = 0; onbI < onbProfs.length; onbI += 100) {
+          var onbChunk = onbProfs.slice(onbI, onbI + 100).map(function (p) { return '"' + String(p.user_id).replace(/"/g, '') + '"'; }).join(',');
+          var onbStRes = await supabaseDbRequest('user_state', 'select=user_id,state,updated_at&user_id=in.(' + encodeURIComponent(onbChunk) + ')&limit=200');
+          (((onbStRes.ok && onbStRes.data) || [])).forEach(function (s) { onbStateMap[s.user_id] = s; });
+        }
+        onbProfs.forEach(function (p) {
+          var sRow = onbStateMap[p.user_id] || null;
+          var sObj = (sRow && sRow.state && typeof sRow.state === 'object') ? sRow.state : {};
+          var ob = sObj.gp_onboarding;
+          if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
+          ob = (ob && typeof ob === 'object') ? ob : {};
+          var completed = !!(ob.completedAt || sObj.gp_onboarding_complete || p.onboarding_completed_at);
+          var lastActive = (sRow && sRow.updated_at) || p.updated_at || p.created_at || null;
+          onbGps.push({
+            userId: p.user_id,
+            email: String(p.email || '').toLowerCase(),
+            name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim(),
+            lastActiveMs: lastActive ? new Date(lastActive).getTime() : onbNow,
+            lastStep: (ob.currentStep != null ? Number(ob.currentStep) : 0),
+            completed: completed
+          });
+        });
+      } else {
+        // Local-JSON mode: users + userState keyed by email.
+        Object.keys(dbState.users || {}).forEach(function (em) {
+          var u = dbState.users[em] || {};
+          var stWrap = (dbState.userState && dbState.userState[em]) || {};
+          var sObj = stWrap.state || stWrap || {};
+          var ob = sObj.gp_onboarding;
+          if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
+          ob = (ob && typeof ob === 'object') ? ob : {};
+          var completed = !!(ob.completedAt || sObj.gp_onboarding_complete);
+          var acct = String(sObj.account_status || 'active').toLowerCase();
+          if (acct !== 'active') return;
+          var lastActive = stWrap.updatedAt || u.updatedAt || u.createdAt || null;
+          onbGps.push({
+            userId: u.supabaseUserId || em,
+            email: em,
+            name: [(u.firstName || ''), (u.lastName || '')].join(' ').trim(),
+            lastActiveMs: lastActive ? new Date(lastActive).getTime() : onbNow,
+            lastStep: (ob.currentStep != null ? Number(ob.currentStep) : 0),
+            completed: completed
+          });
+        });
+        // Exclude staff in local mode via configured admin emails.
+        var onbAdminEmails = String(process.env.SUPER_ADMIN_EMAILS || '').toLowerCase() + ',' + String(process.env.ADMIN_EMAILS || '').toLowerCase();
+        onbGps = onbGps.filter(function (g) { return onbAdminEmails.indexOf(g.email) === -1; });
+      }
+
+      // 2) Existing reminder rows by user_id.
+      var onbRows = await listOnboardingReminders();
+      var onbByUser = {};
+      onbRows.forEach(function (r) { if (r && r.user_id != null) onbByUser[String(r.user_id)] = r; });
+
+      for (var onbG of onbGps) {
+        onbScanned++;
+        var onbRow = onbByUser[String(onbG.userId)] || null;
+        if (onbG.completed) {
+          if (onbRow && !onbRow.stopped) {
+            await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: 'completed' });
+            onbStopped++;
+          }
+          continue;
+        }
+        if (!onbRow) {
+          // First sight — anchor at their current last-active (backfills existing incomplete GPs).
+          await upsertOnboardingReminder(onbG.userId, {
+            email: onbG.email, name: onbG.name,
+            anchor_at: new Date(onbG.lastActiveMs).toISOString(),
+            last_step: onbG.lastStep, steps_sent: []
+          });
+          onbCreated++;
+          continue; // first email considered next pass (>=1h inactivity by then if they stay away)
+        }
+        if (onbRow.unsubscribed || onbRow.stopped) { onbSkipped++; continue; }
+        var onbAnchorMs = onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
+        if (onbG.lastActiveMs > onbAnchorMs) {
+          // Returned since the anchor — reset the clock and the sequence.
+          await upsertOnboardingReminder(onbG.userId, {
+            email: onbG.email, name: onbG.name,
+            anchor_at: new Date(onbG.lastActiveMs).toISOString(),
+            last_step: onbG.lastStep, steps_sent: []
+          });
+          onbReset++;
+          continue;
+        }
+        var onbInactivity = onbNow - onbAnchorMs;
+        var onbSentArr = Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [];
+        var onbStep = onboardingNudge.nextDueStep({ inactivityMs: onbInactivity, stepsSent: onbSentArr });
+        if (onbStep != null) {
+          var onbStepsLeft = Math.max(1, 5 - (onbG.lastStep || 0));
+          var onbSendRes = await sendOnboardingNudgeEmail(
+            { user_id: onbG.userId, email: onbG.email, name: onbG.name, last_step: onbG.lastStep },
+            onbStep, onbStepsLeft
+          );
+          if (onbSendRes && onbSendRes.ok) {
+            await upsertOnboardingReminder(onbG.userId, {
+              email: onbG.email, last_step: onbG.lastStep,
+              steps_sent: onbSentArr.concat([onbStep]),
+              last_sent_at: new Date().toISOString()
+            });
+            onbSent++;
+          } else {
+            console.error('[OnbNudge] send failed for ' + onbG.email + ':', (onbSendRes && onbSendRes.error) || 'unknown');
+            onbSkipped++;
+          }
+          continue;
+        }
+        if (onboardingNudge.isExhausted({ inactivityMs: onbInactivity, stepsSent: onbSentArr })) {
+          await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: 'exhausted' });
+          onbStopped++;
+        }
+      }
+
+      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', reset ' + onbReset + ', stopped ' + onbStopped);
+      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped });
+    } catch (onbErr) {
+      console.error('[Cron] onboarding-nudge failed:', onbErr);
+      sendJson(res, 500, { ok: false, error: onbErr.message });
+    }
+    return;
+  }
+
   // Cron: weekly sweep — chase stalled GPs and auto-escalate overdue tasks
   if (req.method === 'GET' && pathname === '/api/cron/weekly-sweep') {
     var wsCronSecret = String(process.env.CRON_SECRET || '').trim();
@@ -51460,6 +51610,7 @@ module.exports.__testUtils = {
   listSiteEnquiryRows,
   updateSiteEnquiryStatus,
   listOnboardingReminders,
-  upsertOnboardingReminder
+  upsertOnboardingReminder,
+  sendOnboardingNudgeEmail
 };
 // cache-bust 1778597236
