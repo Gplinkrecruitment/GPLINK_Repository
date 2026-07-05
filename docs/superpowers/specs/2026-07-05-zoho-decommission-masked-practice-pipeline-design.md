@@ -2,7 +2,20 @@
 
 **Date:** 2026-07-05
 **Branch:** `worktree-zoho-decommission-masked-pipeline` (based on `origin/main` @ `ecfb5e7` — the live production code; the local `main` checkout was stale/behind and must not be used as the base)
-**Status:** Design approved in brainstorming; awaiting spec review before plan.
+**Status:** Phases 0 + 1 COMPLETE + LIVE on main (2026-07-06). Phases 2–4 pending — build autonomously on the owner's "begin".
+
+---
+
+## ⚡ REMAINING-PHASE EXECUTION GUIDE (read first if resuming / post-compaction)
+
+Owner authorised: **build all remaining phases completely functional and push each to main while they are away.** Use subagent-driven-development, one phase at a time, each phase's suite green before pushing to main, then move to the next WITHOUT waiting for check-in (owner is away). Work in worktree `worktree-zoho-decommission-masked-pipeline` (already on origin/main HEAD). Node at `/tmp/node-v20.18.1-darwin-arm64/bin/node`; tests `node node_modules/vitest/vitest.mjs run`; worktree has NO `.env` → source the main checkout's `.env` (skip malformed line 71 — parse KEY=VALUE, don't `source`); DDL via `rpc/exec_sql` param `query` (strip begin/commit); Zoho creds live ONLY in Vercel (captures need owner click — but Phases 2–4 need NO Zoho pull). Full context: `memory/zoho-decommission-masked-pipeline.md`.
+
+**Build order on "begin":**
+- **Phase 2 — Career Experience** → plan `docs/superpowers/plans/2026-07-06-phase2-career-experience.md`, reference mockup `docs/mockups/career-redesign/variant-b.html` (Atlas). The BIG one. Absorbs the old Phase 2 masking-UX items (blur box, two-tier video, search/address leak fixes).
+- **Phase 3 — Admin org model + manual entry + contract** (see below).
+- **Phase 4 — Remove Zoho** (Recruit + dead Sign; see below).
+
+Standing UX rules for GP-facing work: never "RSO" → "Registration Support Officer"; application count = fixed 15–23 band (not real); no inventory counts; identity server-masked until reveal.
 
 ---
 
