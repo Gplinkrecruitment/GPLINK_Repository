@@ -14,7 +14,8 @@
     { "path": "/api/cron/purge-accounts", "schedule": "0 4 * * *" },
     { "path": "/api/cron/check-model-updates", "schedule": "0 5 * * 1" },
     { "path": "/api/cron/recompute-intent", "schedule": "0 2 * * *" },
-    { "path": "/api/cron/organize-drive", "schedule": "0 3 * * *" }
+    { "path": "/api/cron/organize-drive", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/onboarding-nudge", "schedule": "0 * * * *" }
   ],
   "builds": [
     {

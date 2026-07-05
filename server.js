@@ -165,6 +165,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
+const onboardingNudge = require('./lib/onboarding-nudge.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -7777,6 +7778,195 @@ async function releasePepWaitlist(email) {
     }
   }
   return true;
+}
+
+// ── Onboarding nudge reminders ─────────────────────────────────────────────
+// GPs who started but never finished the 5-step onboarding wizard get a chase
+// sequence (1h/24h/3d/weekly to day 31) from notifications@. Pure scheduling
+// lives in lib/onboarding-nudge.js; these helpers own storage + sending.
+
+function onbUnsubToken(userId) {
+  return crypto.createHmac('sha256', SECRET).update('onb-unsub:' + String(userId || '')).digest('hex');
+}
+function onbUnsubTokenValid(userId, token) {
+  var expect = onbUnsubToken(userId);
+  var got = String(token || '');
+  if (got.length !== expect.length) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expect, 'utf8')); } catch (e) { return false; }
+}
+function onbuEscHtml(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Shared confirm/result page for the unsubscribe flow. `bodyHtml` (optional)
+// lets the GET confirm page embed the one-click POST form.
+function onbUnsubPage(title, msg, bodyHtml) {
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>' + title + '</title></head><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1220;color:#e8ecf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+    + '<div style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 12px">' + title + '</h2><p style="color:#8a94a6">' + msg + '</p>'
+    + (bodyHtml || '') + '</div></body></html>';
+}
+
+// Enumerate incomplete-onboarding GPs: active accounts, not staff, that haven't
+// finished the 5-step wizard. Shared by the hourly cron (/api/cron/onboarding-nudge)
+// and the CEO onboarding-incomplete waitlist endpoint — do not duplicate this logic.
+// Excludes GPs who already have a gp_applications row: they're real candidates
+// in the ATS pipeline (the funnel already keeps them in their own bucket — see
+// /api/ceo/candidates + /api/ceo/pipeline-summary) and must not also appear on
+// the onboarding waitlist or get chase emails.
+// Returns [{ userId, email, name, country, lastActiveMs, lastStep, completed }].
+async function enumerateIncompleteOnboardingGps() {
+  var onbNow = Date.now();
+  var onbGps = [];
+  var onbHasAppsIds = {}; // key = user_id or (lowercased) email of any GP with >=1 gp_applications row
+  if (isSupabaseDbConfigured()) {
+    var onbAdminIds = await getAdminUserIdSet();
+    var onbProfRes = await supabaseDbRequest('user_profiles',
+      'select=user_id,email,first_name,last_name,account_status,onboarding_completed_at,registration_country,created_at,updated_at' +
+      '&onboarding_completed_at=is.null&limit=2000');
+    var onbProfs = (onbProfRes.ok && Array.isArray(onbProfRes.data)) ? onbProfRes.data : [];
+    onbProfs = onbProfs.filter(function (p) {
+      var st = String(p.account_status || 'active').toLowerCase();
+      return st === 'active' && p.user_id && !onbAdminIds.has(p.user_id) && p.email;
+    });
+    // user_state for completion double-check + last-active + currentStep (chunked)
+    var onbStateMap = {};
+    for (var onbI = 0; onbI < onbProfs.length; onbI += 100) {
+      var onbChunk = onbProfs.slice(onbI, onbI + 100).map(function (p) { return '"' + String(p.user_id).replace(/"/g, '') + '"'; }).join(',');
+      var onbStRes = await supabaseDbRequest('user_state', 'select=user_id,state,updated_at&user_id=in.(' + encodeURIComponent(onbChunk) + ')&limit=200');
+      (((onbStRes.ok && onbStRes.data) || [])).forEach(function (s) { onbStateMap[s.user_id] = s; });
+    }
+    onbProfs.forEach(function (p) {
+      var sRow = onbStateMap[p.user_id] || null;
+      var sObj = (sRow && sRow.state && typeof sRow.state === 'object') ? sRow.state : {};
+      var ob = sObj.gp_onboarding;
+      if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
+      ob = (ob && typeof ob === 'object') ? ob : {};
+      var completed = !!(ob.completedAt || sObj.gp_onboarding_complete || p.onboarding_completed_at);
+      var lastActive = (sRow && sRow.updated_at) || p.updated_at || p.created_at || null;
+      onbGps.push({
+        userId: p.user_id,
+        email: String(p.email || '').toLowerCase(),
+        name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim(),
+        country: p.registration_country || '',
+        lastActiveMs: lastActive ? new Date(lastActive).getTime() : onbNow,
+        lastStep: (ob.currentStep != null ? Number(ob.currentStep) : 0),
+        completed: completed
+      });
+    });
+    // GPs with any gp_applications row are real ATS candidates, not waitlist
+    // (same limit=5000 the /api/ceo/candidates + pipeline-summary funnel uses).
+    var onbAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id&limit=5000');
+    (((onbAppsRes.ok && onbAppsRes.data) || [])).forEach(function (a) { if (a && a.user_id) onbHasAppsIds[String(a.user_id)] = true; });
+  } else {
+    // Local-JSON mode: users + userState keyed by email.
+    Object.keys(dbState.users || {}).forEach(function (em) {
+      var u = dbState.users[em] || {};
+      var stWrap = (dbState.userState && dbState.userState[em]) || {};
+      var sObj = stWrap.state || stWrap || {};
+      var ob = sObj.gp_onboarding;
+      if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
+      ob = (ob && typeof ob === 'object') ? ob : {};
+      var completed = !!(ob.completedAt || sObj.gp_onboarding_complete);
+      var acct = String(sObj.account_status || 'active').toLowerCase();
+      if (acct !== 'active') return;
+      var lastActive = stWrap.updatedAt || u.updatedAt || u.createdAt || null;
+      onbGps.push({
+        userId: u.supabaseUserId || em,
+        email: em,
+        name: [(u.firstName || ''), (u.lastName || '')].join(' ').trim(),
+        country: u.registrationCountry || '',
+        lastActiveMs: lastActive ? new Date(lastActive).getTime() : onbNow,
+        lastStep: (ob.currentStep != null ? Number(ob.currentStep) : 0),
+        completed: completed
+      });
+    });
+    // Exclude staff in local mode via configured admin + monitored VA emails
+    // (Supabase mode already excludes admins via getAdminUserIdSet() above).
+    var onbAdminEmails = String(process.env.SUPER_ADMIN_EMAILS || '').toLowerCase() + ',' + String(process.env.ADMIN_EMAILS || '').toLowerCase()
+      + ',' + MONITORED_VA_EMAILS.map(function (e) { return String(e || '').toLowerCase(); }).join(',');
+    onbGps = onbGps.filter(function (g) { return onbAdminEmails.indexOf(g.email) === -1; });
+    // GPs with any application on their local atsCandidates row are real ATS
+    // candidates, not waitlist. Local users are keyed by email, so match by
+    // BOTH user_id and email fallback (mirrors the Supabase gp_applications check).
+    (dbState.atsCandidates || []).forEach(function (c) {
+      if (c && Array.isArray(c.apps) && c.apps.length > 0) {
+        if (c.user_id) onbHasAppsIds[String(c.user_id)] = true;
+        if (c.email) onbHasAppsIds[String(c.email).toLowerCase()] = true;
+      }
+    });
+  }
+  onbGps = onbGps.filter(function (g) { return !onbHasAppsIds[String(g.userId)] && !onbHasAppsIds[String(g.email || '').toLowerCase()]; });
+  return onbGps;
+}
+
+async function listOnboardingReminders() {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('onboarding_reminders', 'select=*&limit=5000');
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  var out = [];
+  var map = dbState.onboardingReminders || {};
+  Object.keys(map).forEach(function (k) { out.push(map[k]); });
+  return out;
+}
+
+// Upsert by user_id on both backends (local map key = lowercased user_id,
+// email fallback only when user_id is missing). patch always includes email.
+async function upsertOnboardingReminder(userId, patch) {
+  var nowIso = new Date().toISOString();
+  var body = Object.assign({}, patch, { updated_at: nowIso });
+  if (isSupabaseDbConfigured()) {
+    var q = 'select=id&user_id=eq.' + encodeURIComponent(String(userId));
+    var existing = await supabaseDbRequest('onboarding_reminders', q);
+    if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+      await supabaseDbRequest('onboarding_reminders', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: body });
+    } else {
+      await supabaseDbRequest('onboarding_reminders', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [Object.assign({ user_id: userId, created_at: nowIso }, body)] });
+    }
+    return;
+  }
+  if (!dbState.onboardingReminders) dbState.onboardingReminders = {};
+  // Key by user_id first (stable — a pre-emptive opt-out row written with a null
+  // email must be the SAME row a later cron write with a real email lands on),
+  // falling back to email only when no user_id is known.
+  var key = String(userId || (patch && patch.email) || '').trim().toLowerCase();
+  var prev = dbState.onboardingReminders[key] || { user_id: userId, created_at: nowIso, steps_sent: [], unsubscribed: false, stopped: false };
+  dbState.onboardingReminders[key] = Object.assign({}, prev, body, { user_id: prev.user_id || userId });
+  saveDbState();
+}
+
+// Send one nudge. row = onboarding_reminders row. Returns sendEmail's result.
+async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
+  if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
+  var to = String((row && row.email) || '').trim();
+  if (!to) return { ok: false, error: 'No email on reminder row' };
+  var firstName = String((row && row.name) || '').split(' ')[0] || '';
+  var copy = onboardingNudge.copyForStep(stepIndex, { name: firstName || 'there', stepsLeft: stepsLeft });
+  var step = (row && row.last_step != null && row.last_step >= 0 && row.last_step < 5) ? row.last_step : 0;
+  var ctaUrl = APP_BASE_URL + '/pages/onboarding.html?step=' + step;
+  var unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
+  var footer = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
+  // NOTE: buildCareerEmailHtml already wraps `body` in its own <p> tag, so pass
+  // copy.body as plain text here (not pre-wrapped) — matches the working call
+  // pattern in sendGpNotificationEmail just above.
+  var html = buildCareerEmailHtml({
+    title: copy.title,
+    body: copy.body,
+    ctaText: 'Continue where you left off',
+    ctaUrl: ctaUrl,
+    footer: footer
+  });
+  return sendEmail({
+    to: to,
+    subject: copy.subject,
+    html: html,
+    text: copy.body + '\n\nContinue: ' + ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    // List-Unsubscribe-Post (RFC 8058) tells Gmail/Yahoo's native "Unsubscribe"
+    // affordance to POST to the List-Unsubscribe URL instead of just showing a
+    // link — handled by the POST branch on /api/onboarding-reminders/unsubscribe,
+    // which reads u/t from the URL's own query params.
+    headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+  });
 }
 
 /**
@@ -25110,7 +25300,7 @@ function isEmailConfigured() {
 // attachments (optional): [{ filename, content (base64 string), contentType? }]
 // — forwarded to Resend's native attachments field (used by the in-app
 // submit-to-practice candidate introduction to carry the GP's CV).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -25138,6 +25328,8 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
     // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
     // per-task sequences without a queue table or cron on serverless.
     if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
+    // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
+    if (headers && typeof headers === 'object') emailPayload.headers = headers;
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -27534,6 +27726,162 @@ async function handleApi(req, res, pathname) {
     } catch (err) {
       console.error('[Cron] Interview reminders failed:', err);
       sendJson(res, 500, { ok: false, error: err.message });
+    }
+    return;
+  }
+
+  // GET /api/onboarding-reminders/unsubscribe?u=<userId>&t=<hmac> — no login
+  // (opened from email), but performs NO write. Email-security link
+  // prefetchers (e.g. Outlook SafeLinks) follow GET links automatically and
+  // would silently unsubscribe people if GET wrote anything, so a valid token
+  // here only renders a confirm page with a one-click POST form. Invalid
+  // token: a generic 400 page, no user enumeration, on either method.
+  if (req.method === 'GET' && pathname === '/api/onboarding-reminders/unsubscribe') {
+    var onbuU = String(url.searchParams.get('u') || '').trim();
+    var onbuT = String(url.searchParams.get('t') || '').trim();
+    if (!onbuU || !onbuT || !onbUnsubTokenValid(onbuU, onbuT)) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    var onbuForm = '<form method="POST" action="/api/onboarding-reminders/unsubscribe" style="margin-top:8px">'
+      + '<input type="hidden" name="u" value="' + onbuEscHtml(onbuU) + '">'
+      + '<input type="hidden" name="t" value="' + onbuEscHtml(onbuT) + '">'
+      + '<button type="submit" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;cursor:pointer">Unsubscribe</button>'
+      + '</form>';
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbUnsubPage('Unsubscribe from these reminders?', 'Click below to stop onboarding reminder emails. You can still sign in and finish your setup any time.', onbuForm));
+    return;
+  }
+
+  // POST /api/onboarding-reminders/unsubscribe — u/t via query params (RFC 8058
+  // one-click: Gmail/Yahoo POST straight to the List-Unsubscribe URL, which
+  // already carries u/t as query params) OR via an application/x-www-form-urlencoded
+  // body (the confirm page's own form submit). Valid token: mark unsubscribed
+  // (upsert a row if the cron hasn't created one yet, so the opt-out survives).
+  if (req.method === 'POST' && pathname === '/api/onboarding-reminders/unsubscribe') {
+    var onbuBodyBuf = Buffer.alloc(0);
+    try { onbuBodyBuf = await readRawBody(req, 8192); } catch (e) { onbuBodyBuf = Buffer.alloc(0); }
+    var onbuFormParams = new URLSearchParams(onbuBodyBuf.toString('utf8'));
+    var onbuU2 = String(url.searchParams.get('u') || onbuFormParams.get('u') || '').trim();
+    var onbuT2 = String(url.searchParams.get('t') || onbuFormParams.get('t') || '').trim();
+    if (!onbuU2 || !onbuT2 || !onbUnsubTokenValid(onbuU2, onbuT2)) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    try {
+      var onbuRows = await listOnboardingReminders();
+      var onbuRow = onbuRows.find(function (r) { return String(r.user_id) === onbuU2; }) || null;
+      await upsertOnboardingReminder(onbuU2, {
+        email: (onbuRow && onbuRow.email) || null,
+        unsubscribed: true,
+        unsubscribed_at: new Date().toISOString()
+      });
+    } catch (e) { console.error('[OnbNudge] unsubscribe write failed:', e.message); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbUnsubPage('Unsubscribed', 'You won’t get onboarding reminder emails anymore. You can still sign in and finish your setup any time.'));
+    return;
+  }
+
+  // ── Hourly: chase GPs who started but never finished onboarding ────────────
+  // Sequence per lib/onboarding-nudge.js: 1h, 24h, 3d, then weekly to day 31.
+  // Reset on return: fresh activity re-anchors the clock and clears steps_sent.
+  // Stops on completion (silent), unsubscribe, or exhaustion.
+  if (req.method === 'GET' && pathname === '/api/cron/onboarding-nudge') {
+    var onbSecret = String(process.env.CRON_SECRET || '').trim();
+    var onbAuth = req.headers['authorization'] || '';
+    if (!onbSecret || onbAuth !== 'Bearer ' + onbSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var onbNow = Date.now();
+      var onbHandlerStart = onbNow;
+      // vercel.json maxDuration is 60s — bail out of the per-GP loop with margin
+      // to spare so a big backfill run returns a clean partial result instead of
+      // being killed mid-loop and 504ing. Reruns are idempotent and pick up
+      // where this one left off (each GP is independently up-to-date or not).
+      var ONB_CRON_TIME_BUDGET_MS = 45000;
+      var onbPartial = false;
+      var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
+
+      // 1) Candidate GPs: incomplete onboarding, active account, not staff.
+      //    { userId, email, name, country, lastActiveMs, lastStep, completed }
+      var onbGps = await enumerateIncompleteOnboardingGps();
+
+      // 2) Existing reminder rows by user_id.
+      var onbRows = await listOnboardingReminders();
+      var onbByUser = {};
+      onbRows.forEach(function (r) { if (r && r.user_id != null) onbByUser[String(r.user_id)] = r; });
+
+      for (var onbG of onbGps) {
+        if (Date.now() - onbHandlerStart > ONB_CRON_TIME_BUDGET_MS) { onbPartial = true; break; }
+        onbScanned++;
+        var onbRow = onbByUser[String(onbG.userId)] || null;
+        if (onbG.completed) {
+          if (onbRow && !onbRow.stopped) {
+            await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: 'completed' });
+            onbStopped++;
+          }
+          continue;
+        }
+        if (!onbRow) {
+          // First sight (backfills existing incomplete GPs). A GP already inactive
+          // 24h+ anchors at NOW so the sequence starts fresh and properly spaced
+          // instead of every threshold firing back-to-back; a fresh dropout (<24h)
+          // keeps their true last-active anchor. See backfillAnchorMs.
+          var onbAnchorNew = onboardingNudge.backfillAnchorMs(onbG.lastActiveMs, onbNow);
+          await upsertOnboardingReminder(onbG.userId, {
+            email: onbG.email, name: onbG.name,
+            anchor_at: new Date(onbAnchorNew).toISOString(),
+            last_step: onbG.lastStep, steps_sent: []
+          });
+          onbCreated++;
+          continue; // first email considered next pass (>=1h inactivity by then if they stay away)
+        }
+        if (onbRow.unsubscribed || onbRow.stopped) { onbSkipped++; continue; }
+        var onbAnchorMs = onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
+        if (onbG.lastActiveMs > onbAnchorMs) {
+          // Returned since the anchor — reset the clock and the sequence.
+          await upsertOnboardingReminder(onbG.userId, {
+            email: onbG.email, name: onbG.name,
+            anchor_at: new Date(onbG.lastActiveMs).toISOString(),
+            last_step: onbG.lastStep, steps_sent: []
+          });
+          onbReset++;
+          continue;
+        }
+        var onbInactivity = onbNow - onbAnchorMs;
+        var onbSentArr = Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [];
+        var onbStep = onboardingNudge.nextDueStep({ inactivityMs: onbInactivity, stepsSent: onbSentArr });
+        if (onbStep != null) {
+          var onbStepsLeft = Math.max(1, 5 - (onbG.lastStep || 0));
+          var onbSendRes = await sendOnboardingNudgeEmail(
+            { user_id: onbG.userId, email: onbG.email, name: onbG.name, last_step: onbG.lastStep },
+            onbStep, onbStepsLeft
+          );
+          if (onbSendRes && onbSendRes.ok) {
+            await upsertOnboardingReminder(onbG.userId, {
+              email: onbG.email, last_step: onbG.lastStep,
+              steps_sent: onbSentArr.concat([onbStep]),
+              last_sent_at: new Date().toISOString()
+            });
+            onbSent++;
+          } else {
+            console.error('[OnbNudge] send failed for ' + onbG.email + ':', (onbSendRes && onbSendRes.error) || 'unknown');
+            onbSkipped++;
+          }
+          continue;
+        }
+        if (onboardingNudge.isExhausted({ inactivityMs: onbInactivity, stepsSent: onbSentArr })) {
+          await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: 'exhausted' });
+          onbStopped++;
+        }
+      }
+
+      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', reset ' + onbReset + ', stopped ' + onbStopped + (onbPartial ? ', PARTIAL (time-boxed)' : ''));
+      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
+    } catch (onbErr) {
+      console.error('[Cron] onboarding-nudge failed:', onbErr);
+      sendJson(res, 500, { ok: false, error: onbErr.message });
     }
     return;
   }
@@ -48250,6 +48598,49 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/ceo/onboarding-incomplete — the second Waitlist tab: GPs who have an
+  // account but never finished the onboarding wizard, with their nudge status.
+  if (pathname === '/api/ceo/onboarding-incomplete' && req.method === 'GET') {
+    const ceoCtxOnbi = requireCeoSession(req, res);
+    if (!ceoCtxOnbi) return;
+    try {
+      const onbiRows = await listOnboardingReminders();
+      const onbiByUser = {};
+      onbiRows.forEach(function (r) { if (r && r.user_id != null) onbiByUser[String(r.user_id)] = r; });
+      const onbiGps = await enumerateIncompleteOnboardingGps();
+      const onbiItems = [];
+      for (const g of onbiGps) {
+        if (g.completed) continue;
+        const rec = onbiByUser[String(g.userId)] || {};
+        const sentArr = Array.isArray(rec.steps_sent) ? rec.steps_sent : [];
+        const anchorMs = rec.anchor_at ? new Date(rec.anchor_at).getTime() : g.lastActiveMs;
+        const inact = Date.now() - Math.max(anchorMs, 0);
+        // Next unsent schedule index (NOT nextDueStep — that requires finite inactivity).
+        let nextIdx = null;
+        if (!rec.unsubscribed && !rec.stopped) {
+          for (let k = 0; k < onboardingNudge.NUDGE_SCHEDULE_MS.length; k++) {
+            if (sentArr.indexOf(k) === -1) { nextIdx = k; break; }
+          }
+        }
+        const nextEta = (nextIdx == null) ? null : new Date(anchorMs + onboardingNudge.NUDGE_SCHEDULE_MS[nextIdx]).toISOString();
+        onbiItems.push({
+          user_id: g.userId, name: g.name || '', email: g.email || '', country: g.country || '',
+          last_step: g.lastStep, last_step_label: onboardingNudge.ONBOARDING_STEP_LABELS[g.lastStep] || '',
+          last_active_at: new Date(g.lastActiveMs).toISOString(),
+          inactivity_days: Math.floor(inact / 86400000),
+          emails_sent: sentArr.length, next_email_eta: nextEta,
+          unsubscribed: !!rec.unsubscribed, stopped: !!rec.stopped, stopped_reason: rec.stopped_reason || null
+        });
+      }
+      onbiItems.sort(function (a, b) { return new Date(b.last_active_at) - new Date(a.last_active_at); });
+      sendJson(res, 200, { ok: true, count: onbiItems.length, items: onbiItems });
+    } catch (onbiErr) {
+      console.error('[CEO] onboarding-incomplete failed:', onbiErr.message);
+      sendJson(res, 500, { ok: false, message: onbiErr.message });
+    }
+    return;
+  }
+
   // POST /api/ceo/pep-waitlist/release — move a GP back into the normal pipeline (safeguard for AI misreads).
   if (pathname === '/api/ceo/pep-waitlist/release' && req.method === 'POST') {
     const ceoCtxRel = requireCeoSession(req, res);
@@ -50465,6 +50856,8 @@ Return ONLY valid JSON with no markdown formatting:
         var facts = atsLocalCandidateFacts(row);
         var listRow = atsCandidateListRow(facts, atsComputeIntent(facts));
         listRow.pipeline_bucket = atsPracticeUtil.bucketForApps(row.apps || []);
+        // Having applications implies a real candidate — never waitlist someone with apps.
+        listRow.onboarding_completed = !!(listRow.onboarding_completed || (row.apps || []).length > 0);
         return listRow;
       });
     } else {
@@ -50476,7 +50869,7 @@ Return ONLY valid JSON with no markdown formatting:
       for (var ci = 0; ci < uids.length; ci += 200) {
         var chunk = uids.slice(ci, ci + 200);
         var listStr = chunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
-        var pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+        var pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country,onboarding_completed_at&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
         ((pRes.ok && pRes.data) || []).forEach(function (p) { profMap[p.user_id] = p; });
       }
       rows = cases.map(function (c) {
@@ -50490,7 +50883,7 @@ Return ONLY valid JSON with no markdown formatting:
           reg_stage: c.stage || '', reg_stage_label: atsRailLabel(c.stage),
           blocked: !!c.blocker_status, blocked_days: facts.blocked_days || 0,
           intent_score: (c.intent_score != null ? c.intent_score : null), intent_band: c.intent_band || null,
-          onboarding_completed: facts.onboarding_pct === 100, onboarding_pct: (facts.onboarding_pct != null ? facts.onboarding_pct : null),
+          onboarding_completed: facts.onboarding_pct === 100 || prof.onboarding_completed_at != null, onboarding_pct: (facts.onboarding_pct != null ? facts.onboarding_pct : null),
           docs: facts.docs ? { cv: !!facts.docs.cv, coverLetter: !!facts.docs.coverLetter } : { cv: false, coverLetter: false },
           account_status: facts.account_status || 'active', rso: c.assigned_rso || c.assigned_va || ''
         };
@@ -50500,8 +50893,18 @@ Return ONLY valid JSON with no markdown formatting:
       var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
       var byUser2 = {};
       apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
-      rows.forEach(function (r) { r.pipeline_bucket = byUser2[r.user_id] ? atsPracticeUtil.bucketForApps(byUser2[r.user_id]) : 'unassociated'; });
+      rows.forEach(function (r) {
+        r.pipeline_bucket = byUser2[r.user_id] ? atsPracticeUtil.bucketForApps(byUser2[r.user_id]) : 'unassociated';
+        // Having applications implies a real candidate — never waitlist someone with apps.
+        r.onboarding_completed = !!(r.onboarding_completed || byUser2[r.user_id]);
+      });
     }
+    // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
+    // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.
+    rows = rows.filter(function (r) {
+      if (r.pipeline_bucket !== 'unassociated') return true;
+      return !!r.onboarding_completed;
+    });
     // filters
     if (clBucket) rows = rows.filter(function (r) { return String(r.pipeline_bucket || 'unassociated') === clBucket; });
     if (clQ) rows = rows.filter(function (r) { return (r.name || '').toLowerCase().indexOf(clQ) !== -1 || (r.email || '').toLowerCase().indexOf(clQ) !== -1; });
@@ -50520,23 +50923,49 @@ Return ONLY valid JSON with no markdown formatting:
     atsPracticeUtil.PIPELINE_BUCKETS.forEach(function (k) { psCounts[k] = 0; });
     var psTotal = 0;
     var psAts = null; // live hiring funnel: gp_applications rows counted by ats_stage
+    var psWaitlistOnboarding = 0; // unassociated + not-yet-onboarded — see /api/ceo/onboarding-incomplete
     if (!isSupabaseDbConfigured()) {
       var psCands = dbState.atsCandidates || [];
       psCands.forEach(function (c) {
-        var b = atsPracticeUtil.bucketForApps(c.apps || []);
+        var apps = c.apps || [];
+        var b = atsPracticeUtil.bucketForApps(apps);
+        if (b === 'unassociated') {
+          var psFacts = atsLocalCandidateFacts(c);
+          var psComplete = !!(psFacts.ob && psFacts.ob.completed) || apps.length > 0;
+          if (!psComplete) { psWaitlistOnboarding++; return; }
+        }
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCands.length;
       psAts = atsPracticeUtil.countAtsStages(dbState.atsApplications || []);
     } else {
-      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&limit=2000');
+      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,intent_signals&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
       var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
       var psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];
       var psByUser = {};
       psApps.forEach(function (a) { (psByUser[a.user_id] = psByUser[a.user_id] || []).push(a); });
+      // Fetch onboarding_completed_at for all case user_ids, chunked (mirrors /api/ceo/candidates).
+      var psProfMap = {};
+      var psUids = psCases.map(function (c) { return c.user_id; }).filter(Boolean);
+      for (var psI = 0; psI < psUids.length; psI += 200) {
+        var psChunk = psUids.slice(psI, psI + 200);
+        var psListStr = psChunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var psProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&user_id=in.(' + encodeURIComponent(psListStr) + ')&limit=2000');
+        ((psProfRes.ok && psProfRes.data) || []).forEach(function (p) { psProfMap[p.user_id] = p; });
+      }
       psCases.forEach(function (c) {
         var b = psByUser[c.user_id] ? atsPracticeUtil.bucketForApps(psByUser[c.user_id]) : 'unassociated';
+        if (b === 'unassociated') {
+          var psProf = psProfMap[c.user_id] || {};
+          // SAME completion signal as /api/ceo/candidates (cached intent facts pct
+          // OR profile completion stamp OR has apps) — otherwise the two endpoints
+          // show disagreeing unassociated/waitlist counts side by side on the
+          // dashboard. has-apps is via psByUser, matching candidates' byUser2 OR.
+          var psFacts = (c.intent_signals && c.intent_signals.facts) || {};
+          var psComplete = psFacts.onboarding_pct === 100 || psProf.onboarding_completed_at != null || !!psByUser[c.user_id];
+          if (!psComplete) { psWaitlistOnboarding++; return; }
+        }
         psCounts[b] = (psCounts[b] || 0) + 1;
       });
       psTotal = psCases.length;
@@ -50546,6 +50975,7 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true,
       total: psTotal,
       buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; }),
+      waitlist_onboarding: psWaitlistOnboarding,
       ats: psAts
     });
     return;
@@ -51592,6 +52022,10 @@ module.exports.__testUtils = {
   __seedSiteEnquiriesForTest,
   insertSiteEnquiryRow,
   listSiteEnquiryRows,
-  updateSiteEnquiryStatus
+  updateSiteEnquiryStatus,
+  listOnboardingReminders,
+  upsertOnboardingReminder,
+  sendOnboardingNudgeEmail,
+  enumerateIncompleteOnboardingGps
 };
 // cache-bust 1778597236

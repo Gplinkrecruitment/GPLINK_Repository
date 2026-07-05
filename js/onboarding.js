@@ -1345,6 +1345,13 @@
 
       // If onboarding already completed and navigated here directly, allow re-entry
       // (removed auto-redirect to dashboard so users can redo onboarding via button)
+
+      // Deep link from the reminder emails: ?step=N opens the step the GP was on
+      // when they left (their local device may not have the saved progress).
+      var urlStep = parseInt(new URLSearchParams(window.location.search).get("step"), 10);
+      if (!isNaN(urlStep) && urlStep >= 0 && urlStep < TOTAL_STEPS) {
+        currentStep = urlStep;
+      }
       goToStep(currentStep);
     })
     .catch(() => {
