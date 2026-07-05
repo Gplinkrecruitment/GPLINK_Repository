@@ -153,6 +153,7 @@ var interviewScheduler = require('./lib/interview-scheduler');
 const practicePipeline = require('./lib/practice-pipeline');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
+const { isZohoCandidateHired, toCandidateLead, normalizeArchiveRow } = require('./lib/zoho-archive.js');
 const {
   normalizeIchcReference, isValidIchcReference,
   isExampleIchcReference, isExampleIchcFile,
@@ -19511,6 +19512,54 @@ async function fetchAllZohoRecruitClients(zoho) {
 }
 async function fetchAllZohoRecruitCandidates(zoho) {
   return fetchAllZohoRecruitModule(zoho, ['Candidates', 'candidates']);
+}
+
+// test seam: allow tests to stub the underlying supabaseDbRequest for the archive/lead writers
+let _supabaseDbRequestForTests = null;
+function __setSupabaseDbRequestForTests(fn) { _supabaseDbRequestForTests = fn; }
+async function archiveDb(path, q, opts) {
+  return _supabaseDbRequestForTests ? _supabaseDbRequestForTests(path, q, opts) : supabaseDbRequest(path, q, opts);
+}
+
+// Upsert raw Zoho records into zoho_archive (chunked, conflict on entity_type+zoho_id).
+async function writeZohoArchiveRecords(entityType, records, pulledAtIso) {
+  const rows = (records || [])
+    .map(r => normalizeArchiveRow(entityType, r, pulledAtIso))
+    .filter(Boolean);
+  let written = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    const res = await archiveDb('zoho_archive', 'on_conflict=entity_type,zoho_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: chunk,
+    });
+    if (res && res.ok) written += chunk.length;
+  }
+  return { written: written };
+}
+
+// Build candidate_leads from candidate records: skip hired, skip no-email; upsert by zoho id.
+async function upsertCandidateLeads(candidateRecords) {
+  let skippedHired = 0, skippedNoEmail = 0;
+  const leads = [];
+  for (const rec of (candidateRecords || [])) {
+    if (isZohoCandidateHired(rec)) { skippedHired++; continue; }
+    const lead = toCandidateLead(rec);
+    if (!lead) { skippedNoEmail++; continue; }
+    leads.push({ zoho_candidate_id: lead.zoho_candidate_id, name: lead.name, email: lead.email, phone: lead.phone, source: 'zoho_recruit' });
+  }
+  let inserted = 0;
+  for (let i = 0; i < leads.length; i += 100) {
+    const chunk = leads.slice(i, i + 100);
+    const res = await archiveDb('candidate_leads', 'on_conflict=zoho_candidate_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: chunk,
+    });
+    if (res && res.ok) inserted += chunk.length;
+  }
+  return { inserted: inserted, skippedHired: skippedHired, skippedNoEmail: skippedNoEmail };
 }
 
 async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, apiDomain, resourcePaths) {
@@ -50990,6 +51039,9 @@ module.exports.__testUtils = {
   fetchAllZohoRecruitClients,
   fetchAllZohoRecruitCandidates,
   __setZohoRecordFetcherForTests,
+  writeZohoArchiveRecords,
+  upsertCandidateLeads,
+  __setSupabaseDbRequestForTests,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,

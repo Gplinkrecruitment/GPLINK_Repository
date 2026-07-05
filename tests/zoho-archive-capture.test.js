@@ -24,3 +24,19 @@ describe('fetchAllZohoRecruitModule', () => {
     U.__setZohoRecordFetcherForTests(null);
   });
 });
+
+describe('upsertCandidateLeads filtering (pure part)', () => {
+  it('skips hired and no-email candidates', async () => {
+    // stub supabaseDbRequest via a captured seam
+    const calls = [];
+    U.__setSupabaseDbRequestForTests(async (path, q, opts) => { calls.push({ path, body: opts.body }); return { ok: true, status: 201 }; });
+    const res = await U.upsertCandidateLeads([
+      { id: '1', Full_Name: 'Keep Me', Email: 'keep@x.com', Phone: '040' },
+      { id: '2', Full_Name: 'Hired One', Email: 'h@x.com', Candidate_Status: 'Hired' },
+      { id: '3', Full_Name: 'No Email' },
+    ]);
+    expect(res).toEqual({ inserted: 1, skippedHired: 1, skippedNoEmail: 1 });
+    expect(calls[0].body[0].email).toBe('keep@x.com');
+    U.__setSupabaseDbRequestForTests(null);
+  });
+});
