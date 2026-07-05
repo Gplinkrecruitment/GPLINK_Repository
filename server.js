@@ -19480,6 +19480,39 @@ async function fetchZohoRecruitRecordsWithVariants(connection, accessToken, apiD
   return lastFailure;
 }
 
+// test seam: allow tests to stub the underlying record fetcher
+let _zohoRecordFetcherForTests = null;
+function __setZohoRecordFetcherForTests(fn) { _zohoRecordFetcherForTests = fn; }
+
+// Page every record from a Zoho Recruit module, following more_records.
+async function fetchAllZohoRecruitModule(zoho, resourcePaths) {
+  const out = [];
+  const perPage = ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200;
+  const maxPages = ZOHO_RECRUIT_SYNC_MAX_PAGES || 25;
+  for (let page = 1; page <= maxPages; page++) {
+    const result = _zohoRecordFetcherForTests
+      ? await _zohoRecordFetcherForTests(resourcePaths, { page: page, per_page: perPage })
+      : await fetchZohoRecruitRecordsWithVariants(
+          zoho.connection, zoho.accessToken, zoho.apiDomain, resourcePaths, { page: page, per_page: perPage }
+        );
+    const records = (result && result.records) || [];
+    for (const r of records) out.push(r);
+    const more = result && result.data && result.data.info && result.data.info.more_records;
+    if (!more || records.length === 0) break;
+  }
+  return out;
+}
+
+async function fetchAllZohoRecruitJobOpenings(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['JobOpenings', 'jobopenings', 'Job_Openings']);
+}
+async function fetchAllZohoRecruitClients(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['Clients', 'clients']);
+}
+async function fetchAllZohoRecruitCandidates(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['Candidates', 'candidates']);
+}
+
 async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, apiDomain, resourcePaths) {
   const paths = Array.isArray(resourcePaths) ? resourcePaths.filter(Boolean) : [];
   if (paths.length === 0) return null;
@@ -50952,6 +50985,11 @@ module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  fetchAllZohoRecruitModule,
+  fetchAllZohoRecruitJobOpenings,
+  fetchAllZohoRecruitClients,
+  fetchAllZohoRecruitCandidates,
+  __setZohoRecordFetcherForTests,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,
