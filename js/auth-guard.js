@@ -1,6 +1,7 @@
 (function () {
   const pathname = window.location.pathname;
   const isSignInPage = pathname === "/pages/signin";
+  const isPepPathwayPage = pathname === "/pages/pep-pathway" || pathname === "/pages/pep-pathway.html";
   const isPublicPage =
     isSignInPage ||
     pathname === "/pages/privacy" ||
@@ -46,6 +47,30 @@
     safeSessionRemove(PROFILE_CACHE_KEY);
     safeSessionRemove(ACCOUNT_STATUS_CACHE_KEY);
     try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
+    try { localStorage.removeItem("gp_account_pep_waitlist"); } catch (err) {}
+  }
+
+  // PEP gate: a GP whose qualification predates the expedited-specialist cutoff is
+  // held on the PEP (Substantially Comparable) waitlist and must not see the app —
+  // only the PEP pathway page — until that pathway launches. This is a HARD redirect
+  // (unlike under_review, which is a soft overlay). Returns true if it redirected.
+  function applyPepGate(status) {
+    var isFullAccess = FULL_ACCESS_EMAILS[getBypassEmail()];
+    if (status === "pep_waitlist" && !isFullAccess) {
+      try { localStorage.setItem("gp_account_pep_waitlist", "true"); } catch (err) {}
+      if (!isPepPathwayPage && !isPublicPage) {
+        window.location.replace("/pages/pep-pathway");
+        return true;
+      }
+    } else {
+      try { localStorage.removeItem("gp_account_pep_waitlist"); } catch (err) {}
+      // Released / not gated: don't strand them on the PEP page.
+      if (isPepPathwayPage) {
+        window.location.replace("/pages/index");
+        return true;
+      }
+    }
+    return false;
   }
 
   const cachedSessionProfile = readCachedSessionProfile();
@@ -56,6 +81,18 @@
   const cachedAccountStatus = safeSessionGet(ACCOUNT_STATUS_CACHE_KEY);
   if (cachedAccountStatus === "under_review") {
     try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
+  }
+
+  // Instant PEP gate from cache (no flash-of-app-content). The PEP page
+  // itself is exempt, and it self-corrects via the authoritative check below if the
+  // GP has since been released. Returning here halts the guard; the redirect target
+  // re-runs it cleanly.
+  if ((cachedAccountStatus === "pep_waitlist" || (function () { try { return localStorage.getItem("gp_account_pep_waitlist") === "true"; } catch (e) { return false; } })())
+      && !isPepPathwayPage && !isPublicPage) {
+    if (!FULL_ACCESS_EMAILS[getBypassEmail()]) {
+      window.location.replace("/pages/pep-pathway");
+      return;
+    }
   }
 
   var gpCacheFetch = null;
@@ -135,7 +172,10 @@
         return;
       }
 
-      if (cachedAccountStatus) {
+      // On the PEP page, always re-fetch fresh status so a released GP is sent back
+      // into the app rather than stranded. Elsewhere the cached value is fine.
+      if (cachedAccountStatus && !isPepPathwayPage) {
+        if (applyPepGate(cachedAccountStatus)) return;
         if (cachedAccountStatus === "under_review") {
           try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
           enforceRestrictedUI();
@@ -151,6 +191,7 @@
               ? statusData.accountStatus
               : "active";
             safeSessionSet(ACCOUNT_STATUS_CACHE_KEY, accountStatus);
+            if (applyPepGate(accountStatus)) return;
             if (accountStatus === "under_review") {
               localStorage.setItem("gp_account_under_review", "true");
               enforceRestrictedUI();

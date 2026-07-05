@@ -130,7 +130,8 @@ const {
   isDocMime,
   buildClassificationPrompt,
   classifyQualificationOutcome,
-  buildFlagReason
+  buildFlagReason,
+  classifyPepEligibility
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoActions = require('./lib/ceo-actions');
@@ -7518,21 +7519,28 @@ Verify this document.`;
 
     applyQualificationNameMatchPolicy(verification, profileName, verifiedNames);
 
-    // Server-side date enforcement — don't trust AI alone
+    // Server-side date enforcement — don't trust AI alone.
+    // A genuine specialist certificate dated before the country cutoff is not a bad
+    // scan: the doctor belongs on the PEP (Substantially Comparable) pathway. We still
+    // flip `verified` to false (they cannot pass the expedited pathway) but ALSO tag
+    // `pepEligible` so the caller can gate them onto the PEP waitlist instead of the
+    // normal retry/manual-review path.
     if (verification.verified && !isPrimaryMedDegree && verification.dateFound && expectedCountry !== 'any') {
-      const dateCutoffs = { GB: '2007-08-01', IE: '2009-01-01', NZ: '2010-01-01' };
-      const cutoff = dateCutoffs[expectedCountry];
-      if (cutoff) {
-        try {
-          const docDate = new Date(verification.dateFound);
-          const cutoffDate = new Date(cutoff);
-          if (!isNaN(docDate.getTime()) && docDate < cutoffDate) {
-            verification.verified = false;
-            verification.issues = verification.issues || [];
-            verification.issues.push('This document is dated ' + verification.dateFound + ', which is before the required date (' + dateRule + ') for the ' + expectedCountry + ' pathway.');
-          }
-        } catch (e) { /* non-critical — AI flagging is the fallback */ }
-      }
+      try {
+        const pep = classifyPepEligibility({
+          documentType,
+          expectedCountry,
+          verified: verification.verified,
+          dateFound: verification.dateFound
+        });
+        if (pep.pepEligible) {
+          verification.verified = false;
+          verification.pepEligible = true;
+          verification.pepMeta = pep.pepMeta;
+          verification.issues = verification.issues || [];
+          verification.issues.push('This document is dated ' + verification.dateFound + ', which is before the required date (' + dateRule + ') for the ' + expectedCountry + ' expedited specialist pathway. You qualify for the PEP Substantially Comparable pathway.');
+        }
+      } catch (e) { /* non-critical — AI flagging is the fallback */ }
     }
 
     // Server-side certification enforcement — documents AHPRA requires as certified
@@ -7553,6 +7561,220 @@ Verify this document.`;
   } finally {
     clearTimeout(qualTimeout);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PEP (Practice Experience Program — "Substantially Comparable" pathway) waitlist
+// A GP whose specialist qualification predates the expedited-specialist cutoff is
+// gated out of the GP Link app behind the PEP pathway page until we launch that
+// pathway. These helpers set the gate, store the waitlist record, handle Notify Me,
+// feed the CEO dashboard, and (later) release + broadcast at launch. Works with
+// Supabase (prod) or the local JSON DB (dev).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function pepCutoffLabel(country) {
+  return ({ GB: 'August 2007', IE: '2009', NZ: '2010' })[String(country || '').toUpperCase()] || '';
+}
+
+// Set a GP's account_status (used for the pep_waitlist gate and for release).
+async function setGpAccountStatus(email, userId, newStatus) {
+  const lower = String(email || '').trim().toLowerCase();
+  if (isSupabaseDbConfigured()) {
+    try {
+      let uid = userId || null;
+      let state = null;
+      const remote = await getSupabaseUserStateByEmail(lower);
+      if (remote && remote.userId) { uid = remote.userId; state = remote.state || {}; }
+      if (!uid) return false;
+      state = state || {};
+      state.account_status = newStatus;
+      await upsertSupabaseUserState(uid, state, new Date().toISOString());
+      return true;
+    } catch (e) { console.error('[PEP] setGpAccountStatus error:', e.message); return false; }
+  }
+  if (lower === '__proto__' || lower === 'constructor' || lower === 'prototype') return false;
+  const dbState = loadDbState();
+  if (!Object.prototype.hasOwnProperty.call(dbState.userState, lower)) dbState.userState[lower] = {};
+  dbState.userState[lower].account_status = newStatus;
+  saveDbState(dbState);
+  return true;
+}
+
+// Read a single waitlist row by email (null if none).
+async function getPepWaitlistByEmail(email) {
+  const lower = String(email || '').trim().toLowerCase();
+  if (!lower) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('pep_waitlist', 'select=*&email=eq.' + encodeURIComponent(lower) + '&limit=1');
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const dbState = loadDbState();
+  return (dbState.pepWaitlist && dbState.pepWaitlist[lower]) || null;
+}
+
+// Create or refresh a waitlist record. Never resurrects a released row's gate.
+async function upsertPepWaitlistRow(userId, email, details) {
+  const lower = String(email || '').trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const base = {
+    user_id: userId || null,
+    email: lower || null,
+    name: details.name || null,
+    phone: details.phone || null,
+    country: details.country || null,
+    cert_type: details.certType || null,
+    date_found: details.dateFound || null,
+    cutoff_date: details.cutoffDate || null,
+    updated_at: nowIso
+  };
+  if (isSupabaseDbConfigured()) {
+    // Prefer matching an existing row by user_id; fall back to email when the user
+    // id has not been resolved yet (avoids a malformed empty-value filter).
+    const matchQuery = userId
+      ? 'select=id,released&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'
+      : (lower ? 'select=id,released&email=eq.' + encodeURIComponent(lower) + '&limit=1' : null);
+    const existing = matchQuery ? await supabaseDbRequest('pep_waitlist', matchQuery) : { ok: true, data: [] };
+    const row = existing.ok && Array.isArray(existing.data) && existing.data[0] ? existing.data[0] : null;
+    if (row) {
+      await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: base });
+      return { ok: true, id: row.id, released: !!row.released };
+    }
+    const ins = await supabaseDbRequest('pep_waitlist', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ ...base, created_at: nowIso, notify_requested: false, released: false }] });
+    return { ok: ins.ok, id: ins.ok && Array.isArray(ins.data) && ins.data[0] ? ins.data[0].id : null, released: false };
+  }
+  const dbState = loadDbState();
+  if (!dbState.pepWaitlist) dbState.pepWaitlist = {};
+  const prev = dbState.pepWaitlist[lower] || {};
+  dbState.pepWaitlist[lower] = {
+    ...base,
+    notify_requested: prev.notify_requested || false,
+    notify_requested_at: prev.notify_requested_at || null,
+    launch_notified_at: prev.launch_notified_at || null,
+    released: prev.released || false,
+    released_at: prev.released_at || null,
+    created_at: prev.created_at || nowIso
+  };
+  saveDbState(dbState);
+  return { ok: true, id: lower, released: !!prev.released };
+}
+
+// Gate a GP onto the PEP waitlist: lock the account + record their details.
+async function applyPepWaitlistGate(email, userId, pepMeta, profile) {
+  const name = [profile && profile.first_name, profile && profile.last_name].filter(Boolean).join(' ').trim() || null;
+  const phone = (profile && (profile.phone || profile.phone_number || profile.whatsapp)) || null;
+  await setGpAccountStatus(email, userId, 'pep_waitlist');
+  await upsertPepWaitlistRow(userId, email, {
+    name, phone,
+    country: pepMeta.country, certType: pepMeta.certType,
+    dateFound: pepMeta.dateFound, cutoffDate: pepMeta.cutoffDate
+  });
+}
+
+// Mark a waitlist row as having requested launch notification. Returns true only
+// on the FIRST request (so callers send the confirmation exactly once).
+async function markPepNotifyRequested(email) {
+  const lower = String(email || '').trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('pep_waitlist', 'select=id,notify_requested&email=eq.' + encodeURIComponent(lower) + '&limit=1');
+    const row = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+    if (!row) return false;
+    if (row.notify_requested) return false;
+    await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { notify_requested: true, notify_requested_at: nowIso, updated_at: nowIso } });
+    return true;
+  }
+  const dbState = loadDbState();
+  const row = dbState.pepWaitlist && dbState.pepWaitlist[lower];
+  if (!row || row.notify_requested) return false;
+  row.notify_requested = true;
+  row.notify_requested_at = nowIso;
+  row.updated_at = nowIso;
+  saveDbState(dbState);
+  return true;
+}
+
+// Send the "you're on the PEP waitlist" confirmation via WhatsApp + email.
+async function sendPepWaitlistConfirmation(row) {
+  const firstName = String((row && row.name) || '').trim().split(/\s+/)[0] || 'there';
+  const escHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const waBody = 'Hi ' + firstName + ' — you\'re on the GP Link PEP (Substantially Comparable) pathway waitlist. '
+    + 'We\'re opening this pathway within the next 30 days and will message you the moment it\'s available. — GP Link';
+  if (row && row.phone) { try { await sendWhatsappText(row.phone, waBody); } catch (e) { console.error('[PEP] WA confirm failed:', e.message); } }
+  if (row && row.email) {
+    try {
+      await sendEmail({
+        to: row.email,
+        subject: 'You\'re on the PEP pathway waitlist',
+        html: '<p>Hi ' + escHtml(firstName) + ',</p>'
+          + '<p>Thanks for your interest. Because your qualification predates the expedited specialist pathway cutoff, you qualify for the <strong>PEP (Substantially Comparable) pathway</strong>.</p>'
+          + '<p>We currently only facilitate the Expedited Specialist Pathway, but we\'re opening the app to the PEP pathway <strong>within the next 30 days</strong>. You\'re now on the waitlist and we\'ll message you the moment it\'s available.</p>'
+          + '<p>— The GP Link Team</p>',
+        text: 'Hi ' + firstName + ', you\'re on the GP Link PEP (Substantially Comparable) pathway waitlist. We\'re opening this pathway within the next 30 days and will contact you the moment it\'s available. — GP Link'
+      });
+    } catch (e) { console.error('[PEP] Email confirm failed:', e.message); }
+  }
+}
+
+// Broadcast the "PEP pathway is now open" launch message via WhatsApp + email and
+// stamp launch_notified_at so re-running the launch never double-sends.
+async function sendPepLaunchBroadcast(row) {
+  const firstName = String((row && row.name) || '').trim().split(/\s+/)[0] || 'there';
+  const escHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const nowIso = new Date().toISOString();
+  const waBody = 'Great news ' + firstName + ' — the GP Link PEP (Substantially Comparable) pathway is now OPEN. '
+    + 'Sign in to continue your application: https://app.mygplink.com.au — GP Link';
+  if (row && row.phone) { try { await sendWhatsappText(row.phone, waBody); } catch (e) { console.error('[PEP] launch WA failed:', e.message); } }
+  if (row && row.email) {
+    try {
+      await sendEmail({
+        to: row.email,
+        subject: 'The PEP pathway is now open',
+        html: '<p>Hi ' + escHtml(firstName) + ',</p>'
+          + '<p>Great news — the <strong>PEP (Substantially Comparable) pathway</strong> is now open on GP Link. You can sign in and continue your application.</p>'
+          + '<p><a href="https://app.mygplink.com.au">Open GP Link</a></p><p>— The GP Link Team</p>',
+        text: 'Hi ' + firstName + ', the GP Link PEP pathway is now open. Sign in to continue: https://app.mygplink.com.au — GP Link'
+      });
+    } catch (e) { console.error('[PEP] launch email failed:', e.message); }
+  }
+  if (isSupabaseDbConfigured() && row && row.id) {
+    await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { launch_notified_at: nowIso, updated_at: nowIso } });
+  } else if (row && row.email) {
+    const dbState = loadDbState();
+    const lower = String(row.email).toLowerCase();
+    if (dbState.pepWaitlist && dbState.pepWaitlist[lower]) { dbState.pepWaitlist[lower].launch_notified_at = nowIso; saveDbState(dbState); }
+  }
+}
+
+// List all waitlist rows for the CEO dashboard (newest first).
+async function listPepWaitlist() {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('pep_waitlist', 'select=*&order=created_at.desc');
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  const dbState = loadDbState();
+  const rows = Object.values(dbState.pepWaitlist || {});
+  return rows.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
+// Release a GP from the waitlist back into the normal pipeline (admin safeguard).
+async function releasePepWaitlist(email) {
+  const lower = String(email || '').trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const row = await getPepWaitlistByEmail(lower);
+  if (!row) return false;
+  await setGpAccountStatus(lower, row.user_id, 'active');
+  if (isSupabaseDbConfigured()) {
+    await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { released: true, released_at: nowIso, updated_at: nowIso } });
+  } else {
+    const dbState = loadDbState();
+    if (dbState.pepWaitlist && dbState.pepWaitlist[lower]) {
+      dbState.pepWaitlist[lower].released = true;
+      dbState.pepWaitlist[lower].released_at = nowIso;
+      dbState.pepWaitlist[lower].updated_at = nowIso;
+      saveDbState(dbState);
+    }
+  }
+  return true;
 }
 
 /**
@@ -34893,6 +35115,25 @@ async function handleApi(req, res, pathname) {
       return;
     }
     if (verifyEmail) recordUserAiCall(verifyEmail);
+
+    // PEP gate: a genuine specialist certificate that predates the expedited cutoff
+    // means this GP belongs on the PEP (Substantially Comparable) pathway. Lock the
+    // account behind the PEP page and record them on the waitlist. Best-effort — a
+    // failure here must not break the scan response (the client also redirects).
+    if (result.verification && result.verification.pepEligible && verifyEmail) {
+      try {
+        const pepUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail);
+        let pepProfile = null;
+        if (pepUserId && isSupabaseDbConfigured()) {
+          const pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,phone&user_id=eq.' + encodeURIComponent(pepUserId) + '&limit=1');
+          pepProfile = pr.ok && Array.isArray(pr.data) && pr.data[0] ? pr.data[0] : null;
+        }
+        await applyPepWaitlistGate(verifyEmail, pepUserId, result.verification.pepMeta, pepProfile);
+      } catch (pepErr) {
+        console.error('[PEP] gate application failed:', pepErr.message);
+      }
+    }
+
     sendJson(res, 200, {
       ok: true,
       verification: result.verification,
@@ -35371,6 +35612,45 @@ Classify this document.`;
     return;
   }
 
+  // GP taps "Notify me when this is available" on the PEP pathway gate page.
+  // Records the request and sends a one-time WhatsApp + email confirmation.
+  if (pathname === '/api/pep/notify-me' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    let row = await getPepWaitlistByEmail(email);
+    if (!row) {
+      // Defensive: if the gate row is missing (e.g. status set manually), create a
+      // minimal record from the session profile so Notify Me still works.
+      try {
+        const uid = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+        let prof = null;
+        if (uid && isSupabaseDbConfigured()) {
+          const pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,phone&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+          prof = pr.ok && Array.isArray(pr.data) && pr.data[0] ? pr.data[0] : null;
+        }
+        await upsertPepWaitlistRow(uid, email, {
+          name: [prof && prof.first_name, prof && prof.last_name].filter(Boolean).join(' ').trim() || null,
+          phone: (prof && prof.phone) || null,
+          country: null, certType: null, dateFound: null, cutoffDate: null
+        });
+        row = await getPepWaitlistByEmail(email);
+      } catch (e) { console.error('[PEP] notify-me backfill failed:', e.message); }
+    }
+    if (!row) { sendJson(res, 200, { ok: true, alreadyRequested: false, sent: false }); return; }
+
+    const isNew = await markPepNotifyRequested(email);
+    if (isNew) {
+      // Re-read so the confirmation uses the freshest contact details.
+      const fresh = await getPepWaitlistByEmail(email) || row;
+      await sendPepWaitlistConfirmation(fresh);
+    }
+    sendJson(res, 200, { ok: true, alreadyRequested: !isNew, sent: isNew });
+    return;
+  }
+
   // Admin: set account status (for testing restricted mode)
   if (pathname === '/api/account/set-status' && (req.method === 'POST' || req.method === 'GET')) {
     const adminCtx = requireAdminSession(req, res);
@@ -35388,7 +35668,7 @@ Classify this document.`;
       status = body.status;
     }
     // Validate status value to prevent arbitrary state injection
-    const ALLOWED_STATUSES = ['active', 'under_review', 'suspended'];
+    const ALLOWED_STATUSES = ['active', 'under_review', 'suspended', 'pep_waitlist'];
     if (!ALLOWED_STATUSES.includes(status)) {
       sendJson(res, 400, { ok: false, message: 'Invalid status. Allowed: ' + ALLOWED_STATUSES.join(', ') });
       return;
@@ -47706,6 +47986,62 @@ Return ONLY valid JSON with no markdown formatting:
   // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════
+
+  // GET /api/ceo/pep-waitlist — GPs gated onto the PEP (Substantially Comparable) waitlist.
+  if (pathname === '/api/ceo/pep-waitlist' && req.method === 'GET') {
+    const ceoCtxPep = requireCeoSession(req, res);
+    if (!ceoCtxPep) return;
+    const rows = await listPepWaitlist();
+    const items = rows.map(function (r) {
+      return {
+        email: r.email || '',
+        name: r.name || '',
+        phone: r.phone || '',
+        country: r.country || '',
+        certType: r.cert_type || '',
+        dateFound: r.date_found || '',
+        cutoffDate: r.cutoff_date || '',
+        cutoffLabel: pepCutoffLabel(r.country),
+        notifyRequested: !!r.notify_requested,
+        notifyRequestedAt: r.notify_requested_at || null,
+        launchNotifiedAt: r.launch_notified_at || null,
+        released: !!r.released,
+        createdAt: r.created_at || null
+      };
+    });
+    const active = items.filter(function (i) { return !i.released; });
+    sendJson(res, 200, { ok: true, items: items, total: items.length, waiting: active.length, notifyCount: active.filter(function (i) { return i.notifyRequested; }).length });
+    return;
+  }
+
+  // POST /api/ceo/pep-waitlist/release — move a GP back into the normal pipeline (safeguard for AI misreads).
+  if (pathname === '/api/ceo/pep-waitlist/release' && req.method === 'POST') {
+    const ceoCtxRel = requireCeoSession(req, res);
+    if (!ceoCtxRel) return;
+    let relBody; try { relBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const relEmail = String((relBody && relBody.email) || '').trim().toLowerCase();
+    if (!relEmail) { sendJson(res, 400, { ok: false, message: 'email required' }); return; }
+    const relDone = await releasePepWaitlist(relEmail);
+    if (!relDone) { sendJson(res, 404, { ok: false, message: 'No waitlist record for that email.' }); return; }
+    sendJson(res, 200, { ok: true, released: true });
+    return;
+  }
+
+  // POST /api/ceo/pep-waitlist/launch — open the PEP pathway: release everyone still
+  // gated and broadcast to those who asked to be notified. Ships OFF: only fires when a
+  // CEO explicitly calls it. Idempotent (launch_notified_at guards against double-send).
+  if (pathname === '/api/ceo/pep-waitlist/launch' && req.method === 'POST') {
+    const ceoCtxLaunch = requireCeoSession(req, res);
+    if (!ceoCtxLaunch) return;
+    const launchRows = await listPepWaitlist();
+    let releasedCount = 0, notifiedCount = 0;
+    for (const r of launchRows) {
+      if (!r.released) { await releasePepWaitlist(r.email); releasedCount++; }
+      if (r.notify_requested && !r.launch_notified_at) { await sendPepLaunchBroadcast(r); notifiedCount++; }
+    }
+    sendJson(res, 200, { ok: true, released: releasedCount, notified: notifiedCount });
+    return;
+  }
 
   if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }

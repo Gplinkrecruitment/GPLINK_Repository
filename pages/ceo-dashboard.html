@@ -389,6 +389,19 @@
       flex-shrink: 0;
     }
 
+    /* ═══ PEP WAITLIST ═══ */
+    .pep-wl-summary { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 10px; }
+    .pep-wl-empty { font-size: 12px; color: var(--text-dim); padding: 8px 0; }
+    .pep-wl-tablewrap { overflow-x: auto; }
+    .pep-wl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .pep-wl-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--panel-border); white-space: nowrap; }
+    .pep-wl-table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text); vertical-align: top; }
+    .pep-wl-dim { color: var(--text-muted); font-size: 11px; }
+    .pep-badge { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px; color: var(--amber); background: rgba(251,191,36,0.15); border-radius: 4px; padding: 1px 5px; vertical-align: middle; }
+    .pep-wl-release { font-size: 11px; font-weight: 700; color: var(--blue); background: var(--blue-dim); border: 1px solid transparent; border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+    .pep-wl-release:hover:not(:disabled) { border-color: var(--blue); }
+    .pep-wl-release:disabled { opacity: 0.5; cursor: default; }
+
     /* ═══ BLOCKERS LIST ═══ */
     .blocker-row {
       display: flex;
@@ -1653,6 +1666,7 @@
       // Section Grid
       html += '<div class="section-grid">';
       html += renderPipelineSection(data.pipeline, data.ats_funnel);
+      html += renderPepWaitlistSection();
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
       html += renderRsoWorkloadSection(data.rso_workload || data.va_workload);
@@ -1664,6 +1678,9 @@
       html += '</div>';
 
       c.innerHTML = html;
+
+      // Populate the PEP waitlist section asynchronously (separate endpoint).
+      loadPepWaitlist();
 
       // Update header escalation badge
       var badge = document.getElementById('headerEscBadge');
@@ -1802,6 +1819,56 @@
       }
       rows += renderHiringFunnelStrip(atsFunnel);
       return sectionCard('pipeline', '&#x1F4CA;', 'Pipeline Funnel', rows);
+    }
+
+    /* ── PEP (Substantially Comparable) waitlist ── */
+    // GPs whose specialist qualification predates the expedited cutoff are gated onto
+    // the PEP pathway page until we launch that pathway. This section lists them and
+    // lets the CEO release anyone the AI misjudged back into the normal pipeline.
+    function pepShortDate(iso) {
+      if (!iso) return '—';
+      try { var d = new Date(iso); if (isNaN(d.getTime())) return '—'; return d.toLocaleDateString(); } catch (e) { return '—'; }
+    }
+    function renderPepWaitlistSection() {
+      return sectionCard('pep-waitlist', '&#x23F3;', 'Waitlist (PEP pathway)', '<div id="pepWaitlistBody"><div class="pep-wl-empty">Loading…</div></div>', true);
+    }
+    function renderPepWaitlistBody(data) {
+      if (!data || !data.ok) return '<div class="pep-wl-empty">Could not load the waitlist.</div>';
+      var items = (data.items || []).filter(function (i) { return !i.released; });
+      var summary = '<div class="pep-wl-summary">' + items.length + ' waiting &middot; ' + (data.notifyCount || 0) + ' asked to be notified</div>';
+      if (items.length === 0) return summary + '<div class="pep-wl-empty">No GPs on the PEP waitlist yet.</div>';
+      var rows = '';
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var contact = esc(it.email || '—');
+        if (it.phone) contact += '<br><span class="pep-wl-dim">' + esc(it.phone) + '</span>';
+        var cert = esc(it.certType || '—');
+        if (it.dateFound) cert += '<br><span class="pep-wl-dim">dated ' + esc(it.dateFound) + '</span>';
+        rows += '<tr>'
+          + '<td>' + esc(it.name || '—') + ' <span class="pep-badge">PEP</span></td>'
+          + '<td>' + contact + '</td>'
+          + '<td>' + esc(it.country || '—') + '</td>'
+          + '<td>' + cert + '</td>'
+          + '<td>' + esc(it.cutoffLabel || it.cutoffDate || '—') + '</td>'
+          + '<td>' + (it.notifyRequested ? 'Yes' : 'No') + '</td>'
+          + '<td>' + esc(pepShortDate(it.createdAt)) + '</td>'
+          + '<td><button class="pep-wl-release" data-pep-release="' + esc(it.email) + '">Release</button></td>'
+          + '</tr>';
+      }
+      return summary + '<div class="pep-wl-tablewrap"><table class="pep-wl-table"><thead><tr>'
+        + '<th>GP</th><th>Contact</th><th>Country</th><th>Certificate</th><th>Cutoff</th><th>Notify?</th><th>Added</th><th></th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+    function loadPepWaitlist() {
+      var body = document.getElementById('pepWaitlistBody');
+      if (!body) return;
+      apiFetch('/api/ceo/pep-waitlist').then(function (d) {
+        var b = document.getElementById('pepWaitlistBody');
+        if (b) b.innerHTML = renderPepWaitlistBody(d);
+      }).catch(function () {
+        var b = document.getElementById('pepWaitlistBody');
+        if (b) b.innerHTML = '<div class="pep-wl-empty">Could not load the waitlist.</div>';
+      });
     }
 
     // Compact live hiring funnel (gp_applications by ats_stage) rendered under
@@ -2861,6 +2928,24 @@
         var btn = e.target.closest('.ceo-mc-toggle-btn[data-mc-status]');
         if (!btn) return;
         setMedicalCentresStatus(btn.getAttribute('data-mc-status'));
+      });
+    })();
+
+    /* ── PEP waitlist: release a GP back into the normal pipeline ── */
+    (function () {
+      var mainEl = document.getElementById('mainContent');
+      if (!mainEl) return;
+      mainEl.addEventListener('click', function (e) {
+        var relBtn = e.target.closest('[data-pep-release]');
+        if (!relBtn) return;
+        var email = relBtn.getAttribute('data-pep-release');
+        if (!email) return;
+        if (!window.confirm('Release ' + email + ' back into the normal pipeline? They will regain access to the GP Link app.')) return;
+        relBtn.disabled = true; relBtn.textContent = 'Releasing…';
+        apiFetch('/api/ceo/pep-waitlist/release', { method: 'POST', body: { email: email } }).then(function (d) {
+          if (d && d.ok) { loadPepWaitlist(); }
+          else { relBtn.disabled = false; relBtn.textContent = 'Release'; alert((d && d.message) || 'Release failed.'); }
+        }).catch(function () { relBtn.disabled = false; relBtn.textContent = 'Release'; alert('Release failed.'); });
       });
     })();
 
