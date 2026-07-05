@@ -13,6 +13,10 @@ describe('isZohoCandidateHired', () => {
     expect(isZohoCandidateHired({ Candidate_Status: 'New' })).toBe(false);
     expect(isZohoCandidateHired({})).toBe(false);
   });
+  it('is true when Candidate_Stage says Hired (real Zoho org field)', () => {
+    expect(isZohoCandidateHired({ Candidate_Status: 'New', Candidate_Stage: 'Hired' })).toBe(true);
+    expect(isZohoCandidateHired({ Candidate_Stage: 'In Review' })).toBe(false);
+  });
 });
 
 describe('toCandidateLead', () => {
