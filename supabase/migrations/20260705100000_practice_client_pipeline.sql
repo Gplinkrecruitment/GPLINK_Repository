@@ -42,6 +42,3 @@ ALTER TABLE public.gp_applications ADD COLUMN IF NOT EXISTS revealed boolean NOT
 ALTER TABLE public.gp_applications ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'gp_applied';
 ALTER TABLE public.gp_applications DROP CONSTRAINT IF EXISTS gp_applications_origin_check;
 ALTER TABLE public.gp_applications ADD CONSTRAINT gp_applications_origin_check CHECK (origin IN ('gp_applied','admin_applied'));
-
--- user_profiles: Australia-trained flag (onboarding mirror)
-ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS australia_trained boolean;

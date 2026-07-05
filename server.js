@@ -3304,11 +3304,22 @@ async function _resolveGpCountry(userId) {
   }
 }
 
+// True only when a raw country value clearly means Australia. Used to derive
+// the DPA jobs-visibility flag from the GP's registration country instead of
+// a separate onboarding question.
+function _isAustraliaTrainedCountry(raw) {
+  var v = String(raw || '').trim().toLowerCase();
+  return v === 'au' || v === 'aus' || v === 'australia';
+}
+
 // Resolve a GP's practice-client-pipeline jobs profile: whether they trained in
 // Australia (drives the DPA gate on /api/career/roles + /api/career/apply) and
-// their preferred city (drives ranking). Reads user_profiles first, falls back
-// to the onboarding blob stored on user_state (same shape as _resolveGpCountry).
-// Legally-safe default when nothing is set: NOT Australia-trained (DPA-restricted).
+// their preferred city (drives ranking). "Australia-trained" is DERIVED from the
+// GP's registration country (same fallback chain as _resolveGpCountry: reads
+// user_profiles.registration_country, falls back to user_state.gp_selected_country,
+// then the onboarding blob's country) — there is no separate onboarding question
+// for this any more. Legally-safe default when nothing is set: NOT Australia-trained
+// (DPA-restricted).
 async function _resolveGpJobsProfile(userId, email) {
   var out = { australiaTrained: false, preferredCity: '' };
   if (!userId && email) {
@@ -3316,20 +3327,20 @@ async function _resolveGpJobsProfile(userId, email) {
   }
   if (!userId) return out;
   try {
-    var profRes = await supabaseDbRequest('user_profiles', 'select=australia_trained,preferred_city&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var profRes = await supabaseDbRequest('user_profiles', 'select=registration_country,preferred_city&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     var profRow = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
-    var haveTrained = profRow && typeof profRow.australia_trained === 'boolean';
+    var rawCountry = profRow && profRow.registration_country;
     var haveCity = profRow && profRow.preferred_city;
-    if (haveTrained) out.australiaTrained = profRow.australia_trained;
     if (haveCity) out.preferredCity = String(profRow.preferred_city);
 
-    if (!haveTrained || !haveCity) {
+    if (!rawCountry || !haveCity) {
       var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : {};
       var ob = _parseStateVal(st.gp_onboarding) || {};
-      if (!haveTrained && typeof ob.australiaTrained === 'boolean') out.australiaTrained = ob.australiaTrained;
+      if (!rawCountry) rawCountry = st.gp_selected_country || ob.country;
       if (!haveCity && ob.preferredCity) out.preferredCity = String(ob.preferredCity);
     }
+    out.australiaTrained = _isAustraliaTrainedCountry(rawCountry);
     return out;
   } catch (e) {
     return out;
@@ -34745,7 +34756,6 @@ async function handleApi(req, res, pathname) {
         if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
         if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
         if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
-        if (typeof body.australiaTrained === 'boolean') profileUpdate.australia_trained = body.australiaTrained;
         if (Object.keys(profileUpdate).length > 0) {
           profileUpdate.onboarding_completed_at = new Date().toISOString();
           await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
@@ -34770,7 +34780,6 @@ async function handleApi(req, res, pathname) {
       if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
       if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
       if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
-      if (typeof body.australiaTrained === 'boolean') dbState.userProfiles[email].australia_trained = body.australiaTrained;
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
       saveDbState(dbState);
     }

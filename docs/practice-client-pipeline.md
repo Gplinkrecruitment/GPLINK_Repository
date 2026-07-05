@@ -255,18 +255,17 @@ deploying; if you see it, apply the migration.
       `career_roles` rows created before this pipeline have no `dpa` value.
       `gpQualifiesForRole` treats a missing/falsy `dpa` as "not DPA", which
       means every pre-existing role will show as a **blurred stub** to any GP
-      who hasn't answered "trained in Australia" on onboarding. Decide
-      whether to backfill `dpa:true` on legacy Zoho/manual roles (if they're
-      genuinely DPA) before this ships, or accept that older roles blur until
-      someone re-tags them from the CEO dashboard.
-- [ ] **Existing-GP `australia_trained` answer path:** GPs who onboarded
-      before this feature have no `australia_trained` value on their profile
-      — they will default to "not Australia-trained" (fail-closed) and see
-      non-DPA roles blurred until they answer the new onboarding question.
-      There's currently no standalone "update my training country" surface
-      outside onboarding — a GP who already completed onboarding would need a
-      follow-up screen or admin override if this needs correcting sooner than
-      a natural re-onboard.
+      whose registration country isn't Australia. Decide whether to backfill
+      `dpa:true` on legacy Zoho/manual roles (if they're genuinely DPA) before
+      this ships, or accept that older roles blur until someone re-tags them
+      from the CEO dashboard.
+- [x] **Australia-trained flag — derived, not asked:** there is no separate
+      "where did you train?" onboarding question any more. The DPA
+      jobs-visibility flag is derived server-side from the GP's onboarding
+      country (`registration_country`, same fallback chain as the AHPRA
+      country guide) — treated as Australia-trained only when that country is
+      `au`/`aus`/`australia`, otherwise DPA-restricted. No backfill is needed:
+      every GP's existing country answer already drives the correct outcome.
 - [ ] **Warm-instance self-heal after migration:** a Vercel serverless
       instance that was warm *before* the migration ran may still see the old
       schema cache and hit the "missing-column" fallback path for a request

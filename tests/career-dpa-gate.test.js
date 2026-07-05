@@ -3,8 +3,9 @@
 // A GP who did NOT train in Australia can only be legally placed into a DPA
 // (District of Priority Area) role. Non-DPA roles must never be applyable —
 // and their identifying details (practice name, suburb, exact city) must
-// never even reach the client — for a GP who hasn't answered "Australia" to
-// the onboarding "where did you train" question.
+// never even reach the client — for a GP whose registration country isn't
+// Australia (the "Australia-trained" flag is derived from that country, not
+// a separate onboarding question).
 //
 // Boots the real server against a tiny in-memory PostgREST emulator (same
 // pattern as tests/career-internal-apply.test.js), so the FULL Supabase-mode
@@ -30,12 +31,12 @@ const db = {
     {
       user_id: OVERSEAS_GP.userId, email: OVERSEAS_GP.email,
       first_name: 'Overseas', last_name: 'Doctor', zoho_candidate_id: null,
-      australia_trained: false, preferred_city: 'Melbourne'
+      registration_country: 'uk', preferred_city: 'Melbourne'
     },
     {
       user_id: AU_TRAINED_GP.userId, email: AU_TRAINED_GP.email,
       first_name: 'AuTrained', last_name: 'Doctor', zoho_candidate_id: null,
-      australia_trained: true, preferred_city: ''
+      registration_country: 'australia', preferred_city: ''
     }
   ],
   user_state: [
