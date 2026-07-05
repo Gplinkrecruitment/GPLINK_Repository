@@ -657,6 +657,14 @@
 
       if (data.ok && data.verification) {
         const v = data.verification;
+        // PEP pathway: a genuine specialist certificate that predates the expedited
+        // cutoff means this GP belongs on the PEP (Substantially Comparable) waitlist.
+        // The server has already locked the account (account_status = 'pep_waitlist');
+        // hand the GP straight to the PEP pathway gate page instead of the app.
+        if (v.pepEligible) {
+          window.location.replace("/pages/pep-pathway");
+          return;
+        }
         const nameConfirmed = v.nameMatch === "exact" || v.nameMatch === "fuzzy";
         if (v.verified && nameConfirmed) {
           state.qualDocs[docKey].status = "verified";
