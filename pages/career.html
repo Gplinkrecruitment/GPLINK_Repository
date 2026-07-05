@@ -11,8 +11,12 @@
   <title>My Practice - GP Link</title>
   <script>
     (function () {
-      var initialView = "secured";
-      var initialPlacementState = "";
+      // Anti-flash pre-lock: only default to the placement ("secured") view when the
+      // cached state shows a real, concrete placement. GPs without a placement fall
+      // through to the job-browse view instead of a placement placeholder. The JS
+      // below reconciles this attribute against the authoritative lock state once the
+      // live career data has loaded.
+      var initialView = "";
       try {
         var rawCareerState = localStorage.getItem("gp_career_state");
         var careerState = rawCareerState ? JSON.parse(rawCareerState) : null;
@@ -30,18 +34,12 @@
             hasConcretePlacement = true;
           }
         });
-        if (initialView === "secured" && !hasConcretePlacement) {
-          initialPlacementState = "loading";
-        }
+        if (hasConcretePlacement) initialView = "secured";
       } catch (err) {
         initialView = "";
-        initialPlacementState = "";
       }
       if (initialView === "secured") {
         document.documentElement.setAttribute("data-career-initial-view", "secured");
-      }
-      if (initialPlacementState) {
-        document.documentElement.setAttribute("data-career-placement-state", initialPlacementState);
       }
     })();
   </script>
@@ -7699,7 +7697,7 @@
         updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
         activeView: hasLockedPlacement
           ? "secured"
-          : (["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView),
+          : (["browse", "applications", "saved"].includes(source.activeView) ? source.activeView : "browse"),
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
         filterSearch: typeof source.filterSearch === "string" ? source.filterSearch : fallback.filterSearch,
@@ -7960,6 +7958,15 @@
     }
 
     function syncActiveViewUi() {
+      // Reconcile the anti-flash CSS attribute with the authoritative lock state.
+      // Without this, a stale "secured" attribute set by the head script would keep
+      // the browse/applications/saved panels display:none for a non-placed GP.
+      if (shouldLockCareerToSecuredView()) {
+        document.documentElement.setAttribute("data-career-initial-view", "secured");
+      } else {
+        document.documentElement.removeAttribute("data-career-initial-view");
+        document.body.classList.remove("career-mode-secured");
+      }
       viewPanels.forEach((panel) => {
         panel.classList.toggle("is-active", panel.dataset.viewPanel === careerState.activeView);
       });
@@ -7988,8 +7995,13 @@
     }
 
     function shouldLockCareerToSecuredView() {
-      // v1: all GPs have secured placement — job listings deferred to future release
-      return true;
+      // Lock to the placement view only for GPs who actually have a secured placement
+      // (or the designated secured-career/demo account). GPs without a placement can
+      // browse and apply to job listings.
+      if (isSecuredCareerAccount()) return true;
+      return careerState.applications.some(function (application) {
+        return application && application.isPlacementSecured;
+      });
     }
 
     function enforceLockedCareerView() {
@@ -8023,8 +8035,11 @@
 
     function syncCareerViewFromLocation() {
       if (enforceLockedCareerView()) return;
+      // Not locked (no secured placement): never honour a stale #secured hash —
+      // a GP without a placement belongs on the job-browse view, not the empty
+      // placement view. The locked case is already handled by the early return above.
       const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "saved", "secured"].includes(hashView)) {
+      if (["browse", "applications", "saved"].includes(hashView)) {
         careerState.activeView = hashView;
       }
     }
