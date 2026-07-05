@@ -50634,7 +50634,7 @@ Return ONLY valid JSON with no markdown formatting:
       psTotal = psCands.length;
       psAts = atsPracticeUtil.countAtsStages(dbState.atsApplications || []);
     } else {
-      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&limit=2000');
+      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,intent_signals&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
       var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
       var psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];
@@ -50653,7 +50653,12 @@ Return ONLY valid JSON with no markdown formatting:
         var b = psByUser[c.user_id] ? atsPracticeUtil.bucketForApps(psByUser[c.user_id]) : 'unassociated';
         if (b === 'unassociated') {
           var psProf = psProfMap[c.user_id] || {};
-          var psComplete = psProf.onboarding_completed_at != null;
+          // SAME completion signal as /api/ceo/candidates (cached intent facts pct
+          // OR profile completion stamp OR has apps) — otherwise the two endpoints
+          // show disagreeing unassociated/waitlist counts side by side on the
+          // dashboard. has-apps is via psByUser, matching candidates' byUser2 OR.
+          var psFacts = (c.intent_signals && c.intent_signals.facts) || {};
+          var psComplete = psFacts.onboarding_pct === 100 || psProf.onboarding_completed_at != null || !!psByUser[c.user_id];
           if (!psComplete) { psWaitlistOnboarding++; return; }
         }
         psCounts[b] = (psCounts[b] || 0) + 1;
