@@ -154,6 +154,7 @@ var interviewScheduler = require('./lib/interview-scheduler');
 const practicePipeline = require('./lib/practice-pipeline');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
+const { isZohoCandidateHired, toCandidateLead, normalizeArchiveRow } = require('./lib/zoho-archive.js');
 const {
   normalizeIchcReference, isValidIchcReference,
   isExampleIchcReference, isExampleIchcFile,
@@ -19892,6 +19893,115 @@ async function fetchZohoRecruitRecordsWithVariants(connection, accessToken, apiD
   return lastFailure;
 }
 
+// test seam: allow tests to stub the underlying record fetcher
+let _zohoRecordFetcherForTests = null;
+function __setZohoRecordFetcherForTests(fn) { _zohoRecordFetcherForTests = fn; }
+
+// Page every record from a Zoho Recruit module, following more_records.
+async function fetchAllZohoRecruitModule(zoho, resourcePaths) {
+  const out = [];
+  const perPage = ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200;
+  const maxPages = ZOHO_RECRUIT_SYNC_MAX_PAGES || 25;
+  for (let page = 1; page <= maxPages; page++) {
+    const result = _zohoRecordFetcherForTests
+      ? await _zohoRecordFetcherForTests(resourcePaths, { page: page, per_page: perPage })
+      : await fetchZohoRecruitRecordsWithVariants(
+          zoho.connection, zoho.accessToken, zoho.apiDomain, resourcePaths, { page: page, per_page: perPage }
+        );
+    const records = (result && result.records) || [];
+    for (const r of records) out.push(r);
+    const more = result && result.data && result.data.info && result.data.info.more_records;
+    if (!more || records.length === 0) break;
+  }
+  return out;
+}
+
+async function fetchAllZohoRecruitJobOpenings(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['JobOpenings', 'jobopenings', 'Job_Openings']);
+}
+async function fetchAllZohoRecruitClients(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['Clients', 'clients']);
+}
+async function fetchAllZohoRecruitCandidates(zoho) {
+  return fetchAllZohoRecruitModule(zoho, ['Candidates', 'candidates']);
+}
+
+// test seam: allow tests to stub the underlying supabaseDbRequest for the archive/lead writers
+let _supabaseDbRequestForTests = null;
+function __setSupabaseDbRequestForTests(fn) { _supabaseDbRequestForTests = fn; }
+async function archiveDb(path, q, opts) {
+  return _supabaseDbRequestForTests ? _supabaseDbRequestForTests(path, q, opts) : supabaseDbRequest(path, q, opts);
+}
+
+// Upsert raw Zoho records into zoho_archive (chunked, conflict on entity_type+zoho_id).
+async function writeZohoArchiveRecords(entityType, records, pulledAtIso) {
+  const rows = (records || [])
+    .map(r => normalizeArchiveRow(entityType, r, pulledAtIso))
+    .filter(Boolean);
+  let written = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    const res = await archiveDb('zoho_archive', 'on_conflict=entity_type,zoho_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: chunk,
+    });
+    if (res && res.ok) written += chunk.length;
+  }
+  return { written: written };
+}
+
+// Build candidate_leads from candidate records: skip hired, skip no-email; upsert by zoho id.
+async function upsertCandidateLeads(candidateRecords) {
+  let skippedHired = 0, skippedNoEmail = 0;
+  const leads = [];
+  for (const rec of (candidateRecords || [])) {
+    if (isZohoCandidateHired(rec)) { skippedHired++; continue; }
+    const lead = toCandidateLead(rec);
+    if (!lead) { skippedNoEmail++; continue; }
+    leads.push({ zoho_candidate_id: lead.zoho_candidate_id, name: lead.name, email: lead.email, phone: lead.phone, source: 'zoho_recruit' });
+  }
+  let inserted = 0;
+  for (let i = 0; i < leads.length; i += 100) {
+    const chunk = leads.slice(i, i + 100);
+    const res = await archiveDb('candidate_leads', 'on_conflict=zoho_candidate_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: chunk,
+    });
+    if (res && res.ok) inserted += chunk.length;
+  }
+  return { inserted: inserted, skippedHired: skippedHired, skippedNoEmail: skippedNoEmail };
+}
+
+// test seam: allow tests to stub the Zoho access-token/domain lookup
+let _zohoAccessForTests = null;
+function __setZohoAccessForTests(fn) { _zohoAccessForTests = fn; }
+
+// Orchestrator: pull all Zoho Recruit modules, archive raw records, and build candidate leads.
+async function captureZohoArchive() {
+  const zoho = _zohoAccessForTests ? await _zohoAccessForTests() : await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho || !zoho.accessToken) return { ok: false, error: 'zoho_not_connected' };
+  const pulledAt = new Date().toISOString();
+
+  const jobs = await fetchAllZohoRecruitJobOpenings(zoho);
+  const clients = await fetchAllZohoRecruitClients(zoho);
+  const candidates = await fetchAllZohoRecruitCandidates(zoho);
+
+  const jw = await writeZohoArchiveRecords('job_opening', jobs, pulledAt);
+  const cw = await writeZohoArchiveRecords('client', clients, pulledAt);
+  const nw = await writeZohoArchiveRecords('candidate', candidates, pulledAt);
+  const leads = await upsertCandidateLeads(candidates);
+
+  return {
+    ok: true, pulledAt: pulledAt,
+    jobOpenings: { fetched: jobs.length, archived: jw.written },
+    clients: { fetched: clients.length, archived: cw.written },
+    candidates: { fetched: candidates.length, archived: nw.written },
+    leads: leads,
+  };
+}
+
 async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, apiDomain, resourcePaths) {
   const paths = Array.isArray(resourcePaths) ? resourcePaths.filter(Boolean) : [];
   if (paths.length === 0) return null;
@@ -31986,6 +32096,29 @@ async function handleApi(req, res, pathname) {
       message: syncResult.message || '',
       connection: syncResult.connected || null
     });
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/archive-capture' && (req.method === 'POST' || req.method === 'GET')) {
+    // Allow either the cron secret (Authorization: Bearer <secret>) OR an
+    // authenticated super-admin session (admin cookie, not the user cookie —
+    // this is candidate-PII, and the CEO/super-admin dashboard authenticates
+    // via the admin cookie, so requireIntegrationAdminSession's user-session
+    // guard 401'd every legitimate CEO-dashboard call). Checked read-only
+    // first so we never double-write the response.
+    const cronToken = getBearerToken(req);
+    const cronOk = !!(ZOHO_RECRUIT_SYNC_CRON_SECRET && cronToken && timingSafeEqualStrings(cronToken, ZOHO_RECRUIT_SYNC_CRON_SECRET));
+    if (!cronOk) {
+      const adminCtx = requireSuperAdminSession(req, res);
+      if (!adminCtx) return; // requireSuperAdminSession already wrote the 401/403
+    }
+
+    try {
+      const result = await captureZohoArchive();
+      sendJson(res, result.ok ? 200 : 502, result);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+    }
     return;
   }
 
@@ -51718,6 +51851,16 @@ module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  fetchAllZohoRecruitModule,
+  fetchAllZohoRecruitJobOpenings,
+  fetchAllZohoRecruitClients,
+  fetchAllZohoRecruitCandidates,
+  __setZohoRecordFetcherForTests,
+  writeZohoArchiveRecords,
+  upsertCandidateLeads,
+  __setSupabaseDbRequestForTests,
+  captureZohoArchive,
+  __setZohoAccessForTests,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,
