@@ -82,4 +82,32 @@ describe('GET /api/onboarding-reminders/unsubscribe', () => {
     expect(r.status).toBe(200);
     expect(r.raw.toLowerCase()).toContain('unsubscribed');
   });
+  it('keeps ONE row per user_id — a later write with a real email lands on the pre-emptive opt-out row', async () => {
+    // Regression: local-JSON key priority must be user_id BEFORE email. The
+    // unsubscribe upsert writes email:null (key = user_id); when the cron later
+    // upserts the same GP WITH a real email, it must hit the SAME row — not
+    // fork a second email-keyed row that silently loses unsubscribed:true.
+    const uid = 'user-fork-check';
+    const r1 = await req('GET', '/api/onboarding-reminders/unsubscribe?u=' + uid + '&t=' + unsubToken(uid));
+    expect(r1.status).toBe(200);
+    // saveDbState writes DB_FILE synchronously — observe the on-disk row.
+    const db1 = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const rows1 = Object.entries(db1.onboardingReminders || {}).filter(([, v]) => v.user_id === uid);
+    expect(rows1.length).toBe(1);
+    expect(rows1[0][0]).toBe(uid); // keyed by user_id, not email
+    expect(rows1[0][1].unsubscribed).toBe(true);
+    // Now simulate exactly what the Task-3 cron will do: upsert the SAME user
+    // with a REAL email in the patch. Same server module instance -> same
+    // in-memory dbState the endpoint wrote to.
+    const serverModule = await import('../server.js');
+    await serverModule.__testUtils.upsertOnboardingReminder(uid, {
+      email: 'fork-check@example.com', name: 'Fork Check', last_step: 3
+    });
+    const db2 = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const rows2 = Object.entries(db2.onboardingReminders || {}).filter(([, v]) => v.user_id === uid);
+    expect(rows2.length).toBe(1); // no forked second row
+    expect(rows2[0][0]).toBe(uid); // still the user_id key
+    expect(rows2[0][1].unsubscribed).toBe(true); // opt-out survived the cron write
+    expect(rows2[0][1].email).toBe('fork-check@example.com'); // and the email merged in
+  });
 });

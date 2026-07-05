@@ -7804,7 +7804,8 @@ async function listOnboardingReminders() {
   return out;
 }
 
-// Upsert by user_id (Supabase) / lowercased email (local). patch always includes email.
+// Upsert by user_id on both backends (local map key = lowercased user_id,
+// email fallback only when user_id is missing). patch always includes email.
 async function upsertOnboardingReminder(userId, patch) {
   var nowIso = new Date().toISOString();
   var body = Object.assign({}, patch, { updated_at: nowIso });
@@ -7819,7 +7820,10 @@ async function upsertOnboardingReminder(userId, patch) {
     return;
   }
   if (!dbState.onboardingReminders) dbState.onboardingReminders = {};
-  var key = String((patch && patch.email) || userId || '').trim().toLowerCase();
+  // Key by user_id first (stable — a pre-emptive opt-out row written with a null
+  // email must be the SAME row a later cron write with a real email lands on),
+  // falling back to email only when no user_id is known.
+  var key = String(userId || (patch && patch.email) || '').trim().toLowerCase();
   var prev = dbState.onboardingReminders[key] || { user_id: userId, created_at: nowIso, steps_sent: [], unsubscribed: false, stopped: false };
   dbState.onboardingReminders[key] = Object.assign({}, prev, body, { user_id: prev.user_id || userId });
   saveDbState();
@@ -51454,6 +51458,8 @@ module.exports.__testUtils = {
   __seedSiteEnquiriesForTest,
   insertSiteEnquiryRow,
   listSiteEnquiryRows,
-  updateSiteEnquiryStatus
+  updateSiteEnquiryStatus,
+  listOnboardingReminders,
+  upsertOnboardingReminder
 };
 // cache-bust 1778597236
