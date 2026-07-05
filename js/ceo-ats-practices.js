@@ -41,8 +41,11 @@
   function agreementLabel(s) {
     return s === 'signed' ? 'Agreement signed' : s === 'sent' ? 'Agreement sent' : 'Agreement unsigned';
   }
-  function humanizeKey(k) {
-    return String(k || '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  // Small "Corporation" chip shown wherever an org is a corporation (cards +
+  // detail header). Regular practices get no chip at all.
+  function corpBadge(p, style) {
+    if (!p || p.org_type !== 'corporation') return '';
+    return '<span class="ats-pill purple"' + (style ? ' style="' + ATS.escAttr(style) + '"' : '') + '>Corporation</span>';
   }
 
   var currentQuery = '';     // active directory search term
@@ -83,7 +86,7 @@
     return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
       '<div class="pc-top">' +
         '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
-        '<div><h3>' + ATS.esc(name) + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
+        '<div><h3>' + ATS.esc(name) + corpBadge(p, 'margin-left:6px;vertical-align:middle') + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
       '</div>' +
       '<div class="pc-loc" style="margin-bottom:4px">' + ATS.esc(p.type || '—') + '</div>' +
       '<div class="ats-pc-stats">' +
@@ -118,7 +121,7 @@
       '</div>' +
       '<div class="pc-loc" style="margin-bottom:8px">' + (contactBits.length ? contactBits.join(' · ') : '—') + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' +
-        sourceChip + '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '">' + agreementLabel(p.agreement_status) + '</span>' +
+        corpBadge(p) + sourceChip + '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '">' + agreementLabel(p.agreement_status) + '</span>' +
       '</div>' +
       '<div style="display:flex;gap:8px;padding-top:13px;border-top:1px solid var(--ats-border)">' +
         callBtn +
@@ -336,6 +339,92 @@
     });
   }
 
+  // -------------------- agreement / contract card --------------------
+  // Always shown in the detail (practices AND corporations). Lists the
+  // e-signed PDF and/or a manually uploaded one (e-signed first when both
+  // exist), plus an always-available "Upload signed PDF" affordance.
+  var UPLOAD_CONTRACT_LABEL = '⬆ Upload signed PDF';
+
+  function contractCardHtml(p) {
+    var rows = '';
+    if (p.agreement_signed_pdf_url) {
+      rows +=
+        '<div class="ats-mini-job">' +
+          '<div><div class="mj-title">Signed agreement (e-signed)</div>' +
+          '<div class="mj-sub">Completed through the in-app e-sign flow</div></div>' +
+          '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + ATS.escAttr(p.agreement_signed_pdf_url) + '" target="_blank" rel="noopener noreferrer">View PDF</a>' +
+        '</div>';
+    }
+    if (p.agreement_manual_pdf_url) {
+      var meta = [];
+      if (p.agreement_manual_uploaded_at) {
+        var dt = new Date(p.agreement_manual_uploaded_at);
+        meta.push('Uploaded ' + (isNaN(dt.getTime()) ? p.agreement_manual_uploaded_at : dt.toLocaleDateString()));
+      }
+      if (p.agreement_manual_uploaded_by) meta.push('by ' + p.agreement_manual_uploaded_by);
+      rows +=
+        '<div class="ats-mini-job">' +
+          '<div><div class="mj-title">Signed agreement (uploaded)</div>' +
+          '<div class="mj-sub">' + ATS.esc(meta.length ? meta.join(' ') : 'Manually uploaded PDF') + '</div></div>' +
+          '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + ATS.escAttr(p.agreement_manual_pdf_url) + '" target="_blank" rel="noopener noreferrer">View PDF</a>' +
+        '</div>';
+    }
+    if (!rows) rows = '<div class="ats-empty">No signed contract on file yet.</div>';
+    return '<div class="ats-card" style="margin-top:16px">' +
+      '<div class="ats-card-title" style="display:flex;align-items:center;gap:8px"><span class="ats-dot" style="background:var(--ats-green)"></span> Agreement &amp; contract' +
+        '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '" style="margin-left:auto">' + ATS.esc(agreementLabel(p.agreement_status)) + '</span></div>' +
+      rows +
+      '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--ats-border)">' +
+        '<input type="file" id="atsContractFile" accept="application/pdf" style="display:none" />' +
+        '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="upload-contract">' + UPLOAD_CONTRACT_LABEL + '</button>' +
+        '<span style="font-size:12px;color:var(--ats-dim)">PDF only · 10 MB max</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function triggerContractUpload() {
+    var input = document.getElementById('atsContractFile');
+    if (input) input.click();
+  }
+
+  function uploadContract(input) {
+    var p = currentPractice;
+    var file = input && input.files && input.files[0];
+    if (!p || !file) return;
+    var isPdf = /pdf$/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
+    if (!isPdf) { ATS.toast('The contract must be a PDF.'); input.value = ''; return; }
+    if (file.size > 10 * 1024 * 1024) { ATS.toast('That PDF is too large (10 MB max).'); input.value = ''; return; }
+    var panel = panelEl();
+    var btn = panel ? panel.querySelector('[data-ats="upload-contract"]') : null;
+    function setBusy(busy) {
+      if (!btn) return;
+      btn.disabled = busy;
+      btn.textContent = busy ? 'Uploading…' : UPLOAD_CONTRACT_LABEL;
+    }
+    setBusy(true);
+    var reader = new FileReader();
+    reader.onerror = function () {
+      setBusy(false);
+      ATS.toast('Could not read that file — please try attaching it again.');
+    };
+    reader.onload = function () {
+      ATS.api('/api/ats/practice/contract', {
+        method: 'POST',
+        body: { id: p.id, file_data: String(reader.result || ''), file_name: file.name || '' }
+      }).then(function (d) {
+        if (!d || !d.ok) {
+          setBusy(false);
+          if (input) input.value = '';
+          ATS.toast((d && d.message) || 'Could not upload the contract — please try again.');
+          return;
+        }
+        ATS.toast('Contract uploaded');
+        openPractice(p.id); // re-fetch so the new row, timestamp + status pill render
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
   function renderDetail(panel, d) {
     var p = d.practice || {};
     var jobs = d.jobs || [];
@@ -349,49 +438,14 @@
       return '<option value="' + s + '"' + (s === (p.stage || 'active') ? ' selected' : '') + '>' + practiceStageLabel(s) + '</option>';
     }).join('') + '</select>';
 
-    var agreementHtml = ATS.esc(agreementLabel(p.agreement_status));
-    if (p.agreement_signed_pdf_url) {
-      agreementHtml += ' · <a href="' + ATS.escAttr(p.agreement_signed_pdf_url) + '" target="_blank" rel="noopener noreferrer">View signed PDF</a>';
-    }
-
-    var dpaLabel = p.dpa === true ? 'Yes' : p.dpa === false ? 'No' : '—';
-
-    var introHtml = '';
-    if (p.intro_text) introHtml += detailField('Intro text', p.intro_text);
-    if (p.intro_video_url) {
-      introHtml += detailFieldHtml('Intro video', '<a href="' + ATS.escAttr(p.intro_video_url) + '" target="_blank" rel="noopener noreferrer">' + ATS.esc(p.intro_video_url) + '</a>');
-    }
-
+    // Slim by design: everything operational (billing, DPA, address, role
+    // details, intro media) lives on the JOB listings under this org — the
+    // org record itself holds only contact + stage + the agreement/contract.
     var fields =
       detailField('Primary contact', p.contact_name) +
       detailField('Email', p.contact_email) +
       detailField('Phone', p.contact_phone) +
-      detailField('Practice type', p.practice_type) +
-      detailField('AHPRA / reg no.', p.ahpra_number) +
-      detailFieldHtml('Stage', stageHtml) +
-      detailFieldHtml('Agreement status', agreementHtml) +
-      detailField('Website', p.website) +
-      detailField('DPA', dpaLabel) +
-      detailField('Suburb', p.suburb) +
-      detailField('Nearest city', p.nearest_city) +
-      introHtml;
-
-    var intakeCardHtml = '';
-    if (p.intake && typeof p.intake === 'object') {
-      var intakeRows = Object.keys(p.intake).map(function (k) {
-        var v = p.intake[k];
-        if (v === null || v === undefined || v === '') return '';
-        var display = (typeof v === 'boolean') ? (v ? 'Yes' : 'No') : String(v);
-        return detailField(humanizeKey(k), display);
-      }).filter(Boolean).join('');
-      if (intakeRows) {
-        intakeCardHtml =
-          '<div class="ats-card" style="margin-top:16px">' +
-            '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Intake answers</div>' +
-            intakeRows +
-          '</div>';
-      }
-    }
+      detailFieldHtml('Stage', stageHtml);
 
     var jobsHtml = jobs.length ? jobs.map(function (j) {
       return '<div class="ats-mini-job" data-ats="open-job" data-id="' + ATS.escAttr(j.id) + '">' +
@@ -418,15 +472,16 @@
       '<div class="ats-section-head" style="margin-bottom:16px">' +
         '<div style="display:flex;align-items:center;gap:14px">' +
           '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
-          '<div><h2>' + ATS.esc(name) + '</h2><p>' + loc + '</p></div>' +
+          '<div><h2>' + ATS.esc(name) + corpBadge(p, 'margin-left:10px;vertical-align:middle') + '</h2><p>' + loc + '</p></div>' +
         '</div>' +
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="edit-practice">✎ Edit</button>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
-        '<div><div class="ats-card">' + fields + '</div>' + intakeCardHtml + '</div>' +
+        '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + '</div>' +
         '<div>' +
           '<div class="ats-card" style="margin-bottom:16px">' +
             '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Jobs at this practice</div>' +
+            '<p style="font-size:12px;color:var(--ats-dim);margin:0 0 10px">Billing, DPA, address and role details live on each job.</p>' +
             jobsHtml +
           '</div>' +
           '<div class="ats-card">' +
@@ -463,8 +518,15 @@
             '<div><label>City</label><input type="text" id="atsFCity" placeholder="Brisbane"' + ivAttr(v.city) + ' /></div>' +
             '<div><label>State</label>' + stateSelect('atsFState', v.state) + '</div>' +
           '</div>' +
-          '<label>Type</label>' +
-          '<input type="text" id="atsFType" placeholder="e.g. GP Clinic — Mixed billing"' + ivAttr(v.type) + ' />' +
+          '<div class="ats-form-row">' +
+            '<div><label>Type</label><input type="text" id="atsFType" placeholder="e.g. GP Clinic — Mixed billing"' + ivAttr(v.type) + ' /></div>' +
+            '<div><label>Organisation type</label>' +
+              '<select id="atsFOrgType">' +
+                '<option value="practice"' + (v.org_type === 'corporation' ? '' : ' selected') + '>Practice</option>' +
+                '<option value="corporation"' + (v.org_type === 'corporation' ? ' selected' : '') + '>Corporation</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
           '<div class="ats-form-row">' +
             '<div><label>Contact name</label><input type="text" id="atsFContact" placeholder="Dr. Helen Carter"' + ivAttr(v.contact) + ' /></div>' +
             '<div><label>Contact email</label><input type="text" id="atsFEmail" placeholder="admin@practice.com.au"' + ivAttr(v.email) + ' /></div>' +
@@ -491,7 +553,8 @@
       contact: val('atsFContact').trim(),
       email: val('atsFEmail').trim(),
       phone: val('atsFPhone').trim(),
-      ahpra: val('atsFAhpra').trim()
+      ahpra: val('atsFAhpra').trim(),
+      org_type: val('atsFOrgType') || 'practice'
     };
   }
 
@@ -510,7 +573,8 @@
       title: 'Edit practice', btn: 'Save changes', action: 'save-practice',
       vals: {
         name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
-        contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number
+        contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
+        org_type: p.org_type
       }
     }));
   }
@@ -533,9 +597,10 @@
     if (!cur.name) { ATS.toast('Enter a practice name'); return; }
     var orig = {
       name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
-      contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number
+      contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
+      org_type: p.org_type || 'practice'
     };
-    var keys = ['name', 'city', 'state', 'type', 'contact', 'email', 'phone', 'ahpra'];
+    var keys = ['name', 'city', 'state', 'type', 'contact', 'email', 'phone', 'ahpra', 'org_type'];
     var body = {};
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
@@ -564,6 +629,7 @@
     else if (action === 'invite-consultant') inviteConsultant(t);
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);
+    else if (action === 'upload-contract') triggerContractUpload();
     // 'call-tel' / 'call-noop': intercepted here purely so the click doesn't
     // bubble to the enclosing card's 'open-practice' — the tel: link (when
     // present) still navigates via its own default browser action.
@@ -582,7 +648,9 @@
   }
 
   function onPanelChange(e) {
-    if (e.target && e.target.id === 'atsStageSelect') onStageChange(e.target.value);
+    if (!e.target) return;
+    if (e.target.id === 'atsStageSelect') onStageChange(e.target.value);
+    else if (e.target.id === 'atsContractFile') uploadContract(e.target);
   }
 
   function onOverlayClick(e) {
