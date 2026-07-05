@@ -17985,6 +17985,97 @@ function mapToMajorCity(locationCity, locationState) {
   return city ? (city + ', ' + state) : state;
 }
 
+// Deterministic "how many GPs have applied" band shown to doctors. This is
+// DELIBERATELY a fixed 15–23 integer hashed from the role id — NOT the real
+// gp_applications count (which is never exposed) and NEVER Math.random, so a
+// given role always shows the same number on every render and across the card
+// list + detail payloads.
+function careerApplicantBand(roleId) {
+  const s = String(roleId || '');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; // djb2, kept unsigned
+  }
+  return 15 + (h % 9); // 15..23 inclusive (9 possible values)
+}
+
+// A display-safe role title for non-internal (legacy Zoho) rows. On those rows
+// the raw `title` column can literally BE the real practice name, so it must
+// never surface — prefer the vetted masked_title, else a generated masked title
+// (billing / DPA / suburb only), else a generic label. Internal-ATS rows keep
+// their admin-written title elsewhere; this helper is for the masked path.
+function careerRoleMaskedTitleFallback(row) {
+  if (row && row.masked_title && String(row.masked_title).trim()) return String(row.masked_title).trim();
+  const generated = practicePipeline.buildMaskedTitle({
+    suburb: row && row.suburb,
+    nearestCity: (row && row.nearest_city) || (row && row.location_city) || '',
+    billingStyle: row && row.billing_model,
+    dpa: !!(row && row.dpa),
+    visaSponsorship: !!(row && row.visa_pathway_aligned),
+    earningsText: row && row.earnings_text,
+    state: row && row.location_state
+  });
+  return (generated && String(generated).trim()) ? String(generated).trim() : 'General Practitioner';
+}
+
+// True when a non-internal row's raw `title` would leak the real practice
+// name. Zoho job openings normally store a role title (Posting_Title) in
+// `title` and the practice in `practice_name` (Client_Name), but some legacy
+// rows stored the practice name AS the posting title — that (and only that) is
+// what must never surface. A safe generic role title (e.g. "General
+// Practitioner", "Locum GP") is kept as-is.
+function careerRoleTitleLeaksPracticeName(row) {
+  const title = String((row && row.title) || '').trim().toLowerCase();
+  const practice = String((row && row.practice_name) || '').trim().toLowerCase();
+  if (!title || !practice) return false;
+  return title === practice || title.includes(practice) || practice.includes(title);
+}
+
+// The doctor-facing "Role" title. Internal-ATS jobs keep the admin-written job
+// title (safe, doctor-facing copy). Otherwise the vetted masked_title wins;
+// then the raw title is used only when it does NOT leak the practice name;
+// otherwise a generated masked title / generic label.
+function careerRoleTypeLabel(row) {
+  if (row && row.provider === 'internal_ats') {
+    const t = (row.title && String(row.title).trim()) || (row.masked_title && String(row.masked_title).trim());
+    return t ? String(t) : 'General Practitioner';
+  }
+  if (row && row.masked_title && String(row.masked_title).trim()) return String(row.masked_title).trim();
+  if (row && row.title && String(row.title).trim() && !careerRoleTitleLeaksPracticeName(row)) {
+    return String(row.title).trim();
+  }
+  return careerRoleMaskedTitleFallback(row);
+}
+
+// Resolve the practice intro video for a career role, checking every place the
+// practice-intake pipeline may have stored it, in precedence order:
+//   1. career_roles.source_payload.practice_intro.video_url (set at intake job
+//      creation — see createPendingJobFromIntake)
+//   2. career_roles.details jsonb (org_type_job_details migration)
+//   3. the linked practices row: intro_video_url column, then
+//      metadata.intake.intro_video_url
+// Returns a trimmed URL string, or null when none is stored. NEVER surfaced on
+// the public jobs payload or the card list — detail endpoint only.
+function resolveCareerRoleIntroVideoUrl(row, practiceRow) {
+  const candidates = [];
+  const sp = getCareerRoleSourcePayload(row);
+  if (sp && sp.practice_intro && sp.practice_intro.video_url) candidates.push(sp.practice_intro.video_url);
+  const details = (row && row.details && typeof row.details === 'object') ? row.details : {};
+  if (details.intro_video_url) candidates.push(details.intro_video_url);
+  if (details.introVideoUrl) candidates.push(details.introVideoUrl);
+  if (practiceRow) {
+    if (practiceRow.intro_video_url) candidates.push(practiceRow.intro_video_url);
+    if (practiceRow.metadata && practiceRow.metadata.intake && practiceRow.metadata.intake.intro_video_url) {
+      candidates.push(practiceRow.metadata.intake.intro_video_url);
+    }
+  }
+  for (const c of candidates) {
+    const v = String(c || '').trim();
+    if (v) return v;
+  }
+  return null;
+}
+
 function mapCareerRoleRowToClient(row) {
   const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const location = buildLocationLabel([
@@ -18048,11 +18139,13 @@ function mapCareerRoleRowToClient(row) {
     filterTokens,
     support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
-    // masked_title wins over the raw title (same rule as the public mapper) —
-    // pipeline jobs' raw title is practice-typed free text that may embed the
-    // real practice name. This also feeds mapCareerRoleDetailToClient's
-    // detail-card "Role" value.
-    roleType: (row && (row.masked_title || row.title)) ? String(row.masked_title || row.title) : 'General Practitioner',
+    // Doctor-facing "Role" title. Internal-ATS rows keep their admin-written
+    // job title; Zoho / legacy rows go through the masked fallback because their
+    // raw `title` can literally BE the real practice name. Never a raw Zoho
+    // title. This also feeds mapCareerRoleDetailToClient's detail-card "Role".
+    roleType: careerRoleTypeLabel(row),
+    // Deterministic 15–23 applicant band (NOT the real gp_applications count).
+    applicantBand: careerApplicantBand(makeCareerRoleId(row && row.provider, row && row.provider_role_id)),
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
     footnote: row && row.employment_type
       ? String(row.employment_type)
@@ -18154,6 +18247,7 @@ let _publicJobsCountCache = null; // { value, at }
 let _publicJobsRowsCache = null; // { rows, at }
 
 function mapCareerRoleRowToPublicJob(row) {
+  const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const locationLabel = buildLocationLabel([
     row && row.location_label,
     !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
@@ -18161,11 +18255,17 @@ function mapCareerRoleRowToPublicJob(row) {
   ]);
   return {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
-    // masked_title (set by the practice-client pipeline, task 6) always wins
-    // over the raw title — the raw `title` column may itself carry the real
-    // practice name for older/legacy rows, so masked_title is the only safe
-    // public-facing value once it exists.
-    title: (row && row.masked_title) ? String(row.masked_title) : (row && row.title ? String(row.title) : ''),
+    // masked_title (set by the practice-client pipeline, task 6) always wins.
+    // Internal-ATS rows may then use their admin-written title. For Zoho/legacy
+    // rows the raw title is kept ONLY when it does not leak the practice name
+    // (see careerRoleTitleLeaksPracticeName) — otherwise a masked fallback.
+    title: (row && row.masked_title && String(row.masked_title).trim())
+      ? String(row.masked_title).trim()
+      : ((row && row.provider === 'internal_ats' && row.title && String(row.title).trim())
+        ? String(row.title).trim()
+        : ((row && row.title && String(row.title).trim() && !careerRoleTitleLeaksPracticeName(row))
+          ? String(row.title).trim()
+          : careerRoleMaskedTitleFallback(row))),
     display_label: practicePipeline.buildMaskedDisplayLabel({
       billingStyle: row && row.billing_model,
       dpa: !!(row && row.dpa),
@@ -18180,7 +18280,13 @@ function mapCareerRoleRowToPublicJob(row) {
     dpa: !!(row && row.dpa),
     mmm: row && row.mmm ? String(row.mmm) : '',
     earnings_text: row && row.earnings_text ? String(row.earnings_text) : '',
-    summary: row && row.summary ? String(row.summary) : '',
+    // In-app ATS jobs: the admin-written "About the role" copy IS the public
+    // doctor-facing text. Zoho / legacy rows must NOT emit their raw summary
+    // (it can embed the real practice name) — use the same redacted public
+    // intro the card mapper uses.
+    summary: (row && row.provider === 'internal_ats' && row.summary && String(row.summary).trim())
+      ? String(row.summary).trim()
+      : (gpLinkMeta.publicIntro || ''),
     employment_type: row && row.employment_type ? String(row.employment_type) : '',
     tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
     published_at: row && row.published_at ? row.published_at : null
@@ -29924,6 +30030,20 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Two-tier intro video: surfaced to ANY authenticated, qualified GP viewing
+    // the detail (owner decision — lean generous for logged-in GPs), pre-reveal
+    // is fine. NEVER emitted on the public jobs payload or the card list. Source
+    // from the role's own stored value first, then fall back to the linked
+    // practice row only if needed.
+    let introVideoUrl = resolveCareerRoleIntroVideoUrl(finalRoleRow, null);
+    if (!introVideoUrl && finalRoleRow.practice_id) {
+      try {
+        const introPracticeRow = await atsGetPracticeRow(finalRoleRow.practice_id);
+        introVideoUrl = resolveCareerRoleIntroVideoUrl(finalRoleRow, introPracticeRow);
+      } catch (e) { /* leave null */ }
+    }
+    roleClientPayload.introVideoUrl = introVideoUrl || null;
+
     // Reveal gate: only ever add the real practice name/address once
     // canRevealPracticeIdentity says this GP has earned it for this role
     // (admin-applied origin, an explicit revealed flag, or an accepted offer).
@@ -30521,6 +30641,9 @@ async function handleApi(req, res, pathname) {
         status: moOffer.status || 'sent'
       },
       applicationId: String(moApp.id),
+      // Client career-role id so the job detail page can recognise "this role
+      // has a live offer" (matches the id served by /api/career/role?id=).
+      roleId: moRole ? makeCareerRoleId(moRole.provider, moRole.provider_role_id) : null,
       practiceName: moPracticeName,
       // Masked branch must prefer the pre-vetted masked_title over the raw
       // (potentially identifying) offer/job title — same reveal-safety rule
