@@ -17,9 +17,9 @@ describe('mapZohoClientToPracticeRow', () => {
     expect(row2.org_type).toBe('corporation');
   });
 
-  it('seeds org_type != corporation for an unknown/independent zoho id', () => {
-    const row = mapZohoClientToPracticeRow({ Client_Name: 'Independent Clinic' }, '99999999999');
-    expect(row.org_type).not.toBe('corporation');
+  it('seeds org_type=practice for an unknown/non-corporation zoho id', () => {
+    const row = mapZohoClientToPracticeRow({ Client_Name: 'Non-Corporation Clinic' }, '99999999999');
+    expect(row.org_type).toBe('practice');
   });
 
   it('exposes the corporation ids as data (CORPORATION_ZOHO_IDS)', () => {
