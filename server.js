@@ -9052,7 +9052,12 @@ async function sendPracticeIntakeEmail(practice) {
   }
 
   var intakeUrl = APP_BASE_URL + '/pages/practice-intake?token=' + encodeURIComponent(token);
-  var copy = practicePipeline.buildIntakeEmailCopy({ practiceName: practice.name, intakeUrl: intakeUrl });
+  var copy = practicePipeline.buildIntakeEmailCopy({
+    practiceName: practice.name,
+    contactName: practice.contact_name,
+    intakeUrl: intakeUrl,
+    logoUrl: APP_BASE_URL + '/media/images/gp-link-logo.png'
+  });
 
   var result = await sendEmail({
     to: practice.contact_email,
@@ -25814,7 +25819,7 @@ async function sendPushNotification(userId, { title, body, data }) {
   } catch {}
 }
 
-function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, secondaryCtaText, secondaryCtaUrl, footer }) {
+function buildCareerEmailHtml({ title, body, bodyHtml, ctaText, ctaUrl, secondaryCtaText, secondaryCtaUrl, signatureHtml, footer }) {
   var ctaHtml = '';
   if (ctaText && ctaUrl) {
     ctaHtml += '<div style="text-align:center;margin:24px 0">';
@@ -25831,9 +25836,10 @@ function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, secondaryCtaText, 
 <div style="text-align:center;margin-bottom:24px">
 <span style="font-size:22px;font-weight:800;color:#0f172a">GP Link</span>
 </div>
-<h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px">${title || ''}</h1>
-<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">${body || ''}</p>
+${title ? '<h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px">' + title + '</h1>' : ''}
+${bodyHtml ? bodyHtml : '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">' + (body || '') + '</p>'}
 ${ctaHtml}
+${signatureHtml || ''}
 ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px">' + footer + '</p>' : ''}
 </div>
 <p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="${APP_BASE_URL}" style="color:#64748b">app.mygplink.com.au</a></p>
