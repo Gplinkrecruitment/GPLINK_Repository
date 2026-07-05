@@ -209,9 +209,9 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
   });
 
   it('title prefers masked_title over the raw title when present', () => {
-    const row = makeRawRow({ title: 'Dr Smith GP role at Riverside', masked_title: 'GP Job near Brisbane | Mixed Billing' });
+    const row = makeRawRow({ title: 'Dr Smith GP role at Riverside', masked_title: 'DPA - Brisbane - Mixed Billing' });
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
-    expect(mapped.title).toBe('GP Job near Brisbane | Mixed Billing');
+    expect(mapped.title).toBe('DPA - Brisbane - Mixed Billing');
   });
 
   it('falls back to the raw title when masked_title is absent (legacy/pre-migration rows)', () => {

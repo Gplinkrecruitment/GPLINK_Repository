@@ -25847,7 +25847,8 @@ async function atsUpdateJobRow(id, patch) {
 async function createPendingJobFromIntake(practice, intake) {
   var maskedTitleArgs = {
     nearestCity: intake.nearest_city, suburb: intake.suburb, billingStyle: intake.billing_style,
-    dpa: intake.dpa === true, visaSponsorship: intake.visa_sponsorship === true, earningsText: intake.earnings_text
+    dpa: intake.dpa === true, visaSponsorship: intake.visa_sponsorship === true, earningsText: intake.earnings_text,
+    state: intake.state
   };
   var intakeJobRow = {
     provider: 'internal_ats', provider_role_id: 'ats_' + atsLocalId(''),
