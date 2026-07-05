@@ -27130,6 +27130,59 @@ function atsJobCard(job, practicesById, appsByJob) {
   };
 }
 
+// Phase 3 (Zoho decommission): the admin job-detail editor's prefill payload —
+// every intake-parity field in intake-form vocabulary (billing_style, ownership,
+// visa_sponsorship, …) so the client edits the same keys it PATCHes back.
+// ADMIN-ONLY surface (requireAtsSession callers) — operational detail like
+// address/percentage_split must never be copied onto GP/public payloads.
+function atsJobEditorPayload(job) {
+  var j = job || {};
+  var details = (j.details && typeof j.details === 'object') ? j.details : {};
+  var sp = (j.source_payload && typeof j.source_payload === 'object') ? j.source_payload : {};
+  var intro = (sp.practice_intro && typeof sp.practice_intro === 'object') ? sp.practice_intro : {};
+  // Reverse-map the stored billing_model (intake stores 'mixed'|'bulk'|'private';
+  // legacy rows may hold labels like 'Mixed Billing') back to the intake enum.
+  var bm = String(j.billing_model || '').trim().toLowerCase();
+  var billingStyle = '';
+  if (/^mixed/.test(bm)) billingStyle = 'mixed';
+  else if (/^bulk/.test(bm)) billingStyle = 'bulk';
+  else if (/^private/.test(bm)) billingStyle = 'private';
+  var detailStr = function (key) { return details[key] == null ? '' : String(details[key]); };
+  return {
+    title: j.title || '',
+    billing_style: billingStyle,
+    billing_model: j.billing_model || '',
+    dpa: (typeof j.dpa === 'boolean') ? j.dpa : null,
+    suburb: j.suburb || '',
+    nearest_city: j.nearest_city || '',
+    state: j.location_state || '',
+    city: j.location_city || '',
+    address: j.address || '',
+    mmm: j.mmm || '',
+    earnings_text: j.earnings_text || '',
+    ownership: j.practice_type || '',
+    visa_sponsorship: (typeof j.visa_pathway_aligned === 'boolean') ? j.visa_pathway_aligned : null,
+    role_summary: j.summary || '',
+    gp_count: detailStr('gp_count'),
+    percentage_split: detailStr('percentage_split'),
+    incentives: detailStr('incentives'),
+    nursing_on_site: (typeof details.nursing_on_site === 'boolean') ? details.nursing_on_site : null,
+    years_operating: detailStr('years_operating'),
+    general_location: detailStr('general_location'),
+    // Details win when set (the editor writes them); otherwise fall back to the
+    // intake-era stash so pre-editor rows still prefill.
+    intro_text: detailStr('intro_text') || String(intro.text || ''),
+    intro_video_url: detailStr('intro_video_url') || String(intro.video_url || ''),
+    masked_title: j.masked_title || '',
+    approval_status: j.approval_status || 'approved',
+    header_image_url: j.header_image_url || '',
+    job_status: j.job_status || (j.is_active === false ? 'closed' : 'open'),
+    employment_type: j.employment_type || '',
+    practice_id: j.practice_id || '',
+    practice_name: j.practice_name || ''
+  };
+}
+
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -50185,6 +50238,37 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/ats/jobs' && req.method === 'POST') {
     var ctxJC = requireAtsSession(req, res); if (!ctxJC) return;
     var bodyJ; try { bodyJ = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    // Phase 3 (Zoho decommission): full manual job creation. When the body
+    // carries `intake: {…}` the admin is entering the SAME fields the practice
+    // intake form collects — validate with the SAME rules (full, non-partial)
+    // and create the job through createPendingJobFromIntake so it lands as a
+    // pending row behind the unchanged approval + suburb-photo gate. Without
+    // `intake` the legacy minimal add-job behavior below is untouched.
+    if (bodyJ && bodyJ.intake && typeof bodyJ.intake === 'object') {
+      var jiPid = String(bodyJ.practice_id || '').trim();
+      if (!jiPid) { sendJson(res, 400, { ok: false, message: 'Choose a practice before creating a job from full details.' }); return; }
+      var jiVal = practicePipeline.validatePracticeIntakePayload(bodyJ.intake);
+      if (!jiVal.ok) { sendJson(res, 400, { ok: false, message: jiVal.error }); return; }
+      var jiParsed = atsParsePracticeId(jiPid);
+      var jiRow = null;
+      if (jiParsed.name) {
+        // Synthetic name-id (job-derived practice with no stored row) — upsert
+        // a real row first, same as PATCH /api/ats/practice.
+        var jiStored = await atsListPracticeRows();
+        jiRow = jiStored.find(function (p) { return String(p.name || '').trim().toLowerCase() === jiParsed.name.toLowerCase(); }) || null;
+        if (!jiRow) {
+          jiRow = await atsInsertPracticeRow({ name: jiParsed.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxJC.email || '' });
+        }
+      } else {
+        jiRow = await atsGetPracticeRow(jiParsed.rowId);
+      }
+      if (!jiRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+      var jiCreated = await createPendingJobFromIntake(jiRow, jiVal.value);
+      if (!jiCreated) { sendJson(res, 502, { ok: false, message: 'Could not create job.' }); return; }
+      var jiMap = {}; jiMap[jiRow.id] = jiRow;
+      sendJson(res, 200, { ok: true, job: atsJobCard(jiCreated, jiMap, {}), editor: atsJobEditorPayload(jiCreated) });
+      return;
+    }
     if (!bodyJ || !String(bodyJ.title || '').trim()) { sendJson(res, 400, { ok: false, message: 'Job title is required.' }); return; }
     var practiceName = String(bodyJ.practice_name || '');
     var practiceRowId = null;
@@ -50213,7 +50297,7 @@ Return ONLY valid JSON with no markdown formatting:
     var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
-    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow });
+    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow, editor: atsJobEditorPayload(jrow) });
     return;
   }
 
@@ -50221,10 +50305,14 @@ Return ONLY valid JSON with no markdown formatting:
     var ctxJP = requireAtsSession(req, res); if (!ctxJP) return;
     var jpId = url.searchParams.get('id'); if (!jpId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyJP; try { bodyJP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyJP = bodyJP || {};
+    // Fetched up-front: the intake-parity path below needs the CURRENT row to
+    // merge details jsonb and to recompute the masked title from merged state.
+    var jobRowJP = await atsGetJobRow(jpId);
+    if (!jobRowJP) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var patchJ = {};
     if (typeof bodyJP.title === 'string') patchJ.title = bodyJP.title.trim();
     if (typeof bodyJP.city === 'string') patchJ.location_city = bodyJP.city;
-    if (typeof bodyJP.state === 'string') patchJ.location_state = bodyJP.state;
     if (typeof bodyJP.type === 'string') patchJ.employment_type = bodyJP.type;
     if (typeof bodyJP.billing === 'string') patchJ.billing_model = bodyJP.billing;
     if (typeof bodyJP.summary === 'string') patchJ.summary = bodyJP.summary.trim();
@@ -50237,9 +50325,83 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     if (typeof bodyJP.job_status === 'string' && ['open', 'filled', 'closed'].indexOf(bodyJP.job_status) !== -1) patchJ.job_status = bodyJP.job_status;
+
+    // Phase 3 (Zoho decommission): full intake-field parity. Any intake-form
+    // key present in the body is validated with the SAME rules as the practice
+    // intake form (lib/practice-pipeline.js, partial mode) — invalid values
+    // 400 with the field named, nothing half-applied.
+    var jpIntakeKeys = ['billing_style', 'dpa', 'mmm', 'visa_sponsorship', 'ownership', 'years_operating',
+      'nursing_on_site', 'gp_count', 'percentage_split', 'incentives', 'earnings_text', 'suburb',
+      'nearest_city', 'state', 'address', 'general_location', 'role_summary', 'intro_text', 'intro_video_url'];
+    var jpSubset = {}; var jpHasIntake = false;
+    jpIntakeKeys.forEach(function (k) {
+      if (Object.prototype.hasOwnProperty.call(bodyJP, k)) { jpSubset[k] = bodyJP[k]; jpHasIntake = true; }
+    });
+    if (jpHasIntake) {
+      var jpVal = practicePipeline.validatePracticeIntakePayload(jpSubset, { partial: true });
+      if (!jpVal.ok) { sendJson(res, 400, { ok: false, message: jpVal.error }); return; }
+      var jpv = jpVal.value;
+      // Column-mapped fields.
+      if ('billing_style' in jpv) {
+        patchJ.billing_model = jpv.billing_style;
+        patchJ.mixed_billing = jpv.billing_style === 'mixed';
+        patchJ.private_billing = jpv.billing_style === 'private';
+      }
+      if ('dpa' in jpv) patchJ.dpa = jpv.dpa === true;
+      if ('suburb' in jpv) patchJ.suburb = jpv.suburb;
+      if ('nearest_city' in jpv) patchJ.nearest_city = jpv.nearest_city;
+      if ('state' in jpv) patchJ.location_state = jpv.state;
+      if ('address' in jpv) patchJ.address = jpv.address;
+      if ('mmm' in jpv) patchJ.mmm = jpv.mmm;
+      if ('earnings_text' in jpv) patchJ.earnings_text = jpv.earnings_text;
+      if ('ownership' in jpv) patchJ.practice_type = jpv.ownership;
+      if ('visa_sponsorship' in jpv) patchJ.visa_pathway_aligned = jpv.visa_sponsorship;
+      if ('role_summary' in jpv) patchJ.summary = jpv.role_summary;
+      // Jsonb-mapped fields → career_roles.details (merge — unknown keys kept).
+      var jpDetailKeys = ['gp_count', 'percentage_split', 'incentives', 'nursing_on_site',
+        'years_operating', 'general_location', 'intro_text', 'intro_video_url'];
+      var jpDetailsPatch = {}; var jpHasDetails = false;
+      jpDetailKeys.forEach(function (k) { if (k in jpv) { jpDetailsPatch[k] = jpv[k]; jpHasDetails = true; } });
+      if (jpHasDetails) {
+        var jpExistingDetails = (jobRowJP.details && typeof jobRowJP.details === 'object') ? jobRowJP.details : {};
+        patchJ.details = Object.assign({}, jpExistingDetails, jpDetailsPatch);
+      }
+      // Editor authority for the practice intro: resolveCareerRoleIntroVideoUrl
+      // reads source_payload.practice_intro.video_url BEFORE details.intro_video_url,
+      // so an edit must write BOTH — otherwise the stale intake value would keep
+      // winning (and a cleared value would resurrect). Merge, never clobber the
+      // rest of source_payload (the archived intake lives there).
+      if ('intro_video_url' in jpv || 'intro_text' in jpv) {
+        var jpSp = (jobRowJP.source_payload && typeof jobRowJP.source_payload === 'object') ? jobRowJP.source_payload : {};
+        var jpIntro = Object.assign({}, (jpSp.practice_intro && typeof jpSp.practice_intro === 'object') ? jpSp.practice_intro : {});
+        if ('intro_video_url' in jpv) jpIntro.video_url = jpv.intro_video_url;
+        if ('intro_text' in jpv) jpIntro.text = jpv.intro_text;
+        patchJ.source_payload = Object.assign({}, jpSp, { practice_intro: jpIntro });
+      }
+    }
+    // Note: `state` is deliberately NO LONGER a raw passthrough — it is one of
+    // the intake-parity keys above, so it now gets AU-state-code validation
+    // (case-insensitive; stored uppercase) instead of accepting any string.
+    // Masked-title recompute: the stored masked_title is the doctor-facing name
+    // (careerRoleMaskedTitleFallback only regenerates when it's BLANK), so any
+    // change to one of its ingredient columns must recompute + persist it from
+    // the MERGED row state — a dpa flip moves it between "DPA - …" and "Non-DPA - …".
+    var jpTitleCols = ['suburb', 'nearest_city', 'billing_model', 'dpa', 'visa_pathway_aligned', 'earnings_text', 'location_state'];
+    if (jpTitleCols.some(function (c) { return Object.prototype.hasOwnProperty.call(patchJ, c); })) {
+      var jpMerged = Object.assign({}, jobRowJP, patchJ);
+      patchJ.masked_title = practicePipeline.buildMaskedTitle({
+        suburb: jpMerged.suburb,
+        nearestCity: jpMerged.nearest_city || jpMerged.location_city || '',
+        billingStyle: jpMerged.billing_model,
+        dpa: jpMerged.dpa === true,
+        visaSponsorship: jpMerged.visa_pathway_aligned === true,
+        earningsText: jpMerged.earnings_text,
+        state: jpMerged.location_state
+      });
+    }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
     if (!updatedJ) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
-    sendJson(res, 200, { ok: true, job: atsJobCard(updatedJ, {}, {}) });
+    sendJson(res, 200, { ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayload(updatedJ) });
     return;
   }
 
@@ -51069,6 +51231,9 @@ Return ONLY valid JSON with no markdown formatting:
     var mcParsed = mcDataUrl ? parseDataUrlPayload(mcDataUrl) : null;
     if (!mcParsed) { sendJson(res, 400, { ok: false, message: 'The contract file could not be read — please attach it again.' }); return; }
     if (String(mcParsed.mimeType || '').toLowerCase() !== 'application/pdf') { sendJson(res, 400, { ok: false, message: 'The contract must be a PDF.' }); return; }
+    // Magic-byte sniff: the data URL can CLAIM application/pdf while carrying
+    // anything — a real PDF always starts with "%PDF-".
+    if (mcParsed.buffer.length < 5 || mcParsed.buffer.subarray(0, 5).toString('latin1') !== '%PDF-') { sendJson(res, 400, { ok: false, message: 'That file does not look like a real PDF — please attach the PDF again.' }); return; }
     if (mcParsed.buffer.length > 10 * 1024 * 1024) { sendJson(res, 400, { ok: false, message: 'The contract file is too large (10 MB max).' }); return; }
     // Resolve the practice — a synthetic name-id (job-derived practice with no
     // stored row) is upserted into a real row first, same as PATCH above.
