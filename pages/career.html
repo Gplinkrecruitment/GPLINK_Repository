@@ -6547,6 +6547,523 @@
         max-width: 1360px;
       }
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+       ATLAS BROWSE LAYER (Phase 2 Task 2)
+       New browse experience per docs/mockups/career-redesign/variant-b.html.
+       All classes are at-* and are ONLY used by the browse/saved/offers UI.
+       Secured-mode styles above are untouched — do not mix layers.
+       ════════════════════════════════════════════════════════════════════ */
+    :root {
+      --at-navy0: #0b1322;
+      --at-navy1: #14203a;
+      --at-navy2: #0e1a30;
+      --at-sky: #4eb7f5;
+      --at-ease: cubic-bezier(.22, .61, .21, 1);
+    }
+
+    /* ── Masthead (navy, serif headline, sky glow — NO stats/counts) ── */
+    .page-hero.at-head {
+      padding: 0;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+      display: block;
+    }
+    .at-mast {
+      position: relative;
+      background: linear-gradient(160deg, var(--at-navy0) 0%, var(--at-navy1) 58%, var(--at-navy2) 100%);
+      color: #fff;
+      padding: 26px 18px 52px;
+      overflow: hidden;
+      border-radius: var(--gp-r-xl, 24px);
+    }
+    .at-mast::before {
+      content: "";
+      position: absolute;
+      right: -150px;
+      top: -130px;
+      width: 420px;
+      height: 420px;
+      background: radial-gradient(circle, rgba(78, 183, 245, .2), transparent 66%);
+    }
+    .at-mast-inner { position: relative; z-index: 2; max-width: 720px; margin: 0 auto; }
+    .at-eyeb {
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--at-sky);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .at-eyeb::before { content: ""; width: 16px; height: 2px; background: var(--at-sky); }
+    .at-headline {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-weight: 700;
+      font-size: clamp(25px, 5.4vw, 33px);
+      letter-spacing: -.015em;
+      line-height: 1.16;
+      margin: 11px 0 0;
+      color: #fff;
+    }
+    .at-sub { color: #c2dbff; font-size: 14px; margin: 8px 0 0; max-width: 44ch; }
+
+    /* ── Search dock (overlaps the masthead) + tabs + dropdown filters ── */
+    .at-dock { position: relative; z-index: 10; margin-top: -24px; max-width: 720px; margin-left: auto; margin-right: auto; padding: 0 6px; }
+    .at-search {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, .98);
+      border: 1px solid rgba(255, 255, 255, .6);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 13px 15px;
+      box-shadow: var(--gp-shadow-lg);
+      cursor: text;
+    }
+    .at-search svg { flex: none; color: var(--gp-faint, #94a3b8); }
+    .at-search-input {
+      border: 0;
+      outline: 0;
+      font: inherit;
+      width: 100%;
+      color: var(--gp-ink, #0f172a);
+      background: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .at-search-input::placeholder { color: var(--gp-faint, #94a3b8); }
+    .at-search-input::-webkit-search-cancel-button { display: none; }
+    .at-search-clear {
+      flex: none;
+      border: 0;
+      background: var(--gp-surface-sunken, #f8fafd);
+      color: var(--gp-muted, #64748b);
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .at-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: 999px;
+      padding: 4px;
+      margin-top: 14px;
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-tabs button {
+      flex: 1;
+      font: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--gp-muted, #64748b);
+      padding: 9px;
+      border: 0;
+      background: none;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all .18s var(--at-ease);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .at-tabs button.on { background: var(--gp-ink, #0f172a); color: #fff; }
+    .at-badge {
+      min-width: 17px;
+      height: 17px;
+      font-size: 10px;
+      font-weight: 800;
+      background: var(--gp-blue, #2563eb);
+      color: #fff;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0 4px;
+    }
+    .at-tabs button.on .at-badge { background: var(--at-sky); color: var(--at-navy0); }
+    .at-filters {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .at-filters .at-sel:first-child { grid-column: 1 / -1; }
+    @media (min-width: 560px) {
+      .at-filters { grid-template-columns: 1.3fr 1fr 1fr; }
+      .at-filters .at-sel:first-child { grid-column: auto; }
+    }
+    .at-sel { position: relative; }
+    .at-sel select {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      font: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--gp-ink, #0f172a);
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 11px 34px 11px 13px;
+      box-shadow: var(--gp-shadow-sm);
+      cursor: pointer;
+      transition: border-color .16s var(--at-ease), box-shadow .16s var(--at-ease);
+    }
+    .at-sel select:focus {
+      outline: 0;
+      border-color: var(--gp-blue, #2563eb);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+    }
+    .at-sel::after {
+      content: "";
+      position: absolute;
+      right: 13px;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid var(--gp-faint, #94a3b8);
+      border-bottom: 2px solid var(--gp-faint, #94a3b8);
+      transform: translateY(-70%) rotate(45deg);
+      pointer-events: none;
+    }
+    .at-sel.hasval select {
+      border-color: var(--gp-blue-border, #d6e2fb);
+      background: var(--gp-blue-soft, #eff4ff);
+      color: var(--gp-blue-deep, #1d4ed8);
+    }
+
+    /* ── Role list + Atlas rows ── */
+    .at-list { display: grid; gap: 11px; max-width: 720px; margin: 0 auto; width: 100%; }
+    .view-panel[data-view-panel="browse"],
+    .view-panel[data-view-panel="saved"],
+    .view-panel[data-view-panel="applications"] { max-width: 720px; margin: 0 auto; width: 100%; }
+    .at-row {
+      display: flex;
+      gap: 13px;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 12px;
+      box-shadow: var(--gp-shadow-sm);
+      cursor: pointer;
+      position: relative;
+      transition: transform .22s var(--at-ease), box-shadow .22s var(--at-ease), border-color .22s var(--at-ease);
+    }
+    .at-row:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--gp-shadow-md);
+      border-color: var(--gp-border-strong, #cbd7ea);
+    }
+    .at-row--offer { border-color: var(--gp-green-border, #c5ecd4); }
+    .at-thumb {
+      flex: none;
+      width: 100px;
+      border-radius: 12px;
+      align-self: stretch;
+      min-height: 104px;
+      overflow: hidden;
+      position: relative;
+    }
+    .at-thumb-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .at-scene {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(120% 90% at 78% 12%, rgba(78, 183, 245, .16), transparent 55%),
+        linear-gradient(158deg, var(--at-navy1), var(--at-navy0) 82%);
+    }
+    .at-scene::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .5;
+      background:
+        repeating-linear-gradient(0deg, rgba(148, 183, 240, .09) 0 1px, transparent 1px 22px),
+        repeating-linear-gradient(90deg, rgba(148, 183, 240, .09) 0 1px, transparent 1px 22px);
+    }
+    .at-scene::after {
+      content: "";
+      position: absolute;
+      left: -30%;
+      bottom: -60%;
+      width: 160%;
+      height: 150%;
+      border-radius: 44%;
+      background: radial-gradient(circle, rgba(37, 99, 235, .28), transparent 60%);
+    }
+    .at-spin {
+      position: absolute;
+      left: 50%;
+      top: 46%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      color: #cfe0ff;
+      opacity: .9;
+    }
+    .at-slabel {
+      position: absolute;
+      left: 9px;
+      bottom: 8px;
+      right: 6px;
+      z-index: 2;
+      color: #fff;
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: -.01em;
+      line-height: 1.2;
+      text-shadow: 0 1px 8px rgba(2, 6, 23, .5);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .at-scode {
+      position: absolute;
+      right: 7px;
+      top: 7px;
+      z-index: 2;
+      font-size: 9.5px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      color: #bcd4f5;
+      background: rgba(11, 19, 34, .5);
+      border: 1px solid rgba(148, 183, 240, .28);
+      border-radius: 6px;
+      padding: 2px 6px;
+    }
+    .at-rbody { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .at-rtop { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+    .at-pill {
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      padding: 3px 9px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--gp-green-soft, #eafaf0);
+      color: var(--gp-green-ink, #166534);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+    }
+    .at-pill svg { width: 10px; height: 10px; }
+    .at-pill--review,
+    .at-pill--interview {
+      background: var(--gp-blue-soft, #eff4ff);
+      color: var(--gp-blue-deep, #1d4ed8);
+      border-color: var(--gp-blue-border, #d6e2fb);
+    }
+    .at-pill--secured,
+    .at-pill--offer {
+      background: var(--gp-green-soft, #eafaf0);
+      color: var(--gp-green-ink, #166534);
+      border-color: var(--gp-green-border, #c5ecd4);
+    }
+    .at-demand {
+      margin-left: auto;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--gp-muted, #64748b);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .at-demand svg { width: 11px; height: 11px; color: #e0872a; }
+    .at-rtitle {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-weight: 600;
+      font-size: 16.5px;
+      color: var(--gp-ink, #0f172a);
+      line-height: 1.25;
+      letter-spacing: -.005em;
+      margin: 0;
+    }
+    .at-rmeta { font-size: 12.5px; color: var(--gp-muted, #64748b); margin: 4px 0 0; }
+    .at-dot { color: var(--gp-border-strong, #cbd7ea); margin: 0 5px; }
+    .at-rearn {
+      font-size: 13px;
+      color: var(--gp-ink, #0f172a);
+      font-weight: 700;
+      margin: 7px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .at-rearn svg { width: 13px; height: 13px; color: var(--gp-blue, #2563eb); flex: none; }
+    .at-rfoot { margin-top: auto; padding-top: 10px; display: flex; align-items: center; gap: 8px; }
+    .at-mini {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--gp-faint, #94a3b8);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .at-mini svg { flex: none; }
+    .at-mblur {
+      width: 70px;
+      height: 8px;
+      border-radius: 4px;
+      background: repeating-linear-gradient(90deg, #cbd6e8 0 20px, #dde5f3 20px 30px, #cbd6e8 30px 52px);
+      filter: blur(2.6px);
+      opacity: .85;
+      flex: none;
+    }
+    .at-rsave {
+      flex: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: var(--gp-faint, #94a3b8);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      background: var(--gp-surface, #fff);
+      cursor: pointer;
+      transition: all .16s var(--at-ease);
+    }
+    .at-rsave.on {
+      color: var(--gp-blue, #2563eb);
+      background: var(--gp-blue-soft, #eff4ff);
+      border-color: var(--gp-blue-border, #d6e2fb);
+    }
+    .at-rstatus {
+      position: absolute;
+      top: -7px;
+      right: 14px;
+      z-index: 3;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      padding: 3px 9px;
+      border-radius: 999px;
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-rstatus--applied { background: var(--gp-ink, #0f172a); color: #fff; }
+    .at-rstatus--offer { background: var(--gp-green, #16a34a); color: #fff; }
+    .at-cta-link {
+      flex: none;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--gp-blue-deep, #1d4ed8);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .at-cta-link--offer { color: var(--gp-green-ink, #166534); }
+
+    /* Blurred non-qualifying stub (Task 11 concept, Atlas skin) */
+    .at-row--blurred { cursor: default; pointer-events: none; }
+    .at-row--blurred:hover { transform: none; box-shadow: var(--gp-shadow-sm); border-color: var(--gp-border, #e3e9f4); }
+    .at-row--blurred .at-rbody { filter: blur(4px); opacity: .55; user-select: none; }
+    .at-row--blurred .at-scene { filter: saturate(.4); opacity: .8; }
+    .at-blur-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--gp-muted, #64748b);
+      background: rgba(255, 255, 255, .45);
+      border-radius: inherit;
+    }
+
+    /* ── Group labels + empty states ── */
+    .at-grouplbl {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--gp-faint, #94a3b8);
+      margin: 7px 2px 2px;
+    }
+    .at-empty-host { display: none; }
+    .at-empty-host.is-visible { display: block; }
+    .at-empty { padding: 52px 20px; text-align: center; color: var(--gp-muted, #64748b); }
+    .at-empty-ico {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      display: grid;
+      place-items: center;
+      margin: 0 auto 14px;
+      color: var(--gp-faint, #94a3b8);
+    }
+    .at-empty b {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 18px;
+      color: var(--gp-ink, #0f172a);
+      display: block;
+      margin-bottom: 5px;
+    }
+    .at-empty small { font-size: 13px; }
+
+    /* Saved-tab alerts toggle, restyled quietly */
+    .at-alerts-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gp-muted, #64748b);
+      background: var(--gp-surface, #fff);
+      border: 1px dashed var(--gp-border-strong, #cbd7ea);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 11px 13px;
+      cursor: pointer;
+      max-width: 720px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .at-alerts-toggle input { accent-color: var(--gp-blue, #2563eb); }
+
+    /* Full-bleed masthead on phones (inside the app shell) */
+    @media (max-width: 640px) {
+      .at-mast {
+        margin-left: -16px;
+        margin-right: -16px;
+        border-radius: 0;
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+    }
+
+    /* Dark mode: keep the Atlas surfaces legible */
+    html.dark-mode .at-search { background: rgba(21, 30, 46, .98); border-color: rgba(148, 183, 240, .18); }
+    html.dark-mode .at-search-input { color: #e8eefb; }
+    html.dark-mode .at-tabs,
+    html.dark-mode .at-sel select,
+    html.dark-mode .at-row,
+    html.dark-mode .at-rsave,
+    html.dark-mode .at-empty-ico,
+    html.dark-mode .at-alerts-toggle { background: #151e2e; border-color: #26324a; }
+    html.dark-mode .at-tabs button.on { background: #e8eefb; color: #0f172a; }
+    html.dark-mode .at-sel select,
+    html.dark-mode .at-rtitle,
+    html.dark-mode .at-rearn { color: #e8eefb; }
+    html.dark-mode .at-empty b { color: #e8eefb; }
+    html.dark-mode .at-blur-overlay { background: rgba(11, 19, 34, .45); color: #c2dbff; }
   </style>
 </head>
 <body>
@@ -6575,85 +7092,56 @@
     </header>
 
     <main class="main">
-      <section class="page-hero gp-reveal gp-reveal-1">
-        <div class="hero-copy">
-          <div class="desktop-hero-copy">
-            <h1 id="pageHeroTitle">My Practice</h1>
-            <p class="page-subtitle" id="pageHeroSubtitle">Your secured placement details.</p>
+      <!-- ═══════ ATLAS BROWSE HEAD (Phase 2 Task 2) — hidden entirely in secured mode via body.career-mode-secured .page-hero ═══════ -->
+      <section class="page-hero at-head gp-reveal gp-reveal-1">
+        <header class="at-mast">
+          <div class="at-mast-inner">
+            <div class="at-eyeb">Career</div>
+            <h1 class="at-headline">Your next practice,<br>matched to you.</h1>
+            <p class="at-sub">Confidential GP roles across Australia &mdash; every one checked against your eligibility, with your Registration Support Officer negotiating for you.</p>
           </div>
-          <div class="hero-search-card">
-            <div class="hero-search-bar">
-              <svg class="hero-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-              <input class="hero-search-input" id="heroSearchInput" type="text" placeholder="Search roles, locations, billing..." autocomplete="off" />
-              <button class="hero-search-clear" id="heroSearchClear" type="button" hidden aria-label="Clear search">&times;</button>
-            </div>
-            <div class="hero-search-meta">
-              <label class="hero-filter-field">
-                <select class="hero-filter-select" id="heroLocationSelect" aria-label="Filter by location"></select>
-                <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
-              </label>
-              <label class="hero-filter-field">
-                <select class="hero-filter-select" id="heroBillingSelect" aria-label="Filter by billing type"></select>
-                <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
-              </label>
-            </div>
-          </div>
-          <nav class="hero-nav" id="heroNav">
-            <button class="hero-nav-item" id="savedJobsShortcutBtn" type="button">
-              Saved <span class="hero-nav-count" id="savedJobsShortcutCount">0</span>
-            </button>
-            <button class="hero-nav-item" id="applicationsShortcutBtn" type="button">
-              Applications
-            </button>
+        </header>
+        <div class="at-dock">
+          <label class="at-search">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg>
+            <input class="at-search-input" id="heroSearchInput" type="search" placeholder="Search suburb or region&hellip;" autocomplete="off" />
+            <button class="at-search-clear" id="heroSearchClear" type="button" hidden aria-label="Clear search">&times;</button>
+          </label>
+          <nav class="at-tabs" id="careerTabs" aria-label="Career sections">
+            <button type="button" data-career-tab="browse" class="on">Roles</button>
+            <button type="button" data-career-tab="saved">Saved<span class="at-badge" id="savedTabBadge" hidden></span></button>
+            <button type="button" data-career-tab="applications">Offers<span class="at-badge" id="offersTabBadge" hidden></span></button>
           </nav>
+          <div class="at-filters" id="careerFilters">
+            <div class="at-sel hasval">
+              <select id="heroEligibilitySelect" aria-label="Filter by eligibility">
+                <option value="elig">Jobs I'm eligible for</option>
+                <option value="all">All roles</option>
+              </select>
+            </div>
+            <div class="at-sel"><select id="heroBillingSelect" aria-label="Filter by billing type"></select></div>
+            <div class="at-sel"><select id="heroLocationSelect" aria-label="Filter by location"></select></div>
+          </div>
         </div>
       </section>
 
       <section class="view-panel is-active" data-view-panel="browse">
-        <div class="section-head">
-          <h2 class="section-title">Recommended for you</h2>
-        </div>
-
-        <div class="role-grid" id="recommendedRoles"></div>
-        <div class="empty-state" id="rolesEmptyState">
-          <h3 class="empty-state-title">No roles match your current filters</h3>
-          <p class="empty-state-copy">Try a different filter or clear your search.</p>
-        </div>
+        <div class="at-list" id="recommendedRoles"></div>
+        <div class="at-empty-host" id="rolesEmptyState"></div>
       </section>
 
       <section class="view-panel" data-view-panel="applications">
-        <section class="summary-strip">
-          <div class="summary-strip-copy">
-            <h2 class="summary-strip-title">Your applications</h2>
-            <p class="summary-strip-text">Track your applied roles, interviews and offers.</p>
-          </div>
-          <button class="btn-secondary" id="browseRolesBtn" type="button">Browse roles</button>
-        </section>
-
-        <div class="application-grid" id="applicationsGrid"></div>
-        <div class="empty-state" id="applicationsEmptyState">
-          <h3 class="empty-state-title">No active applications yet</h3>
-          <p class="empty-state-copy">Apply to a role to start tracking it here.</p>
-        </div>
+        <div class="at-list" id="applicationsGrid"></div>
+        <div class="at-empty-host" id="applicationsEmptyState"></div>
       </section>
 
       <section class="view-panel" data-view-panel="saved">
-        <section class="summary-strip">
-          <div class="summary-strip-copy">
-            <h2 class="summary-strip-title">Saved Jobs</h2>
-            <p class="summary-strip-text">Roles you've bookmarked for later.</p>
-            <label class="alerts-toggle" id="alertsToggle">
-              <input type="checkbox" id="alertsCheckbox" />
-              <span class="alerts-toggle-label">Email me new roles</span>
-            </label>
-          </div>
-          <button class="btn-secondary" id="browseSavedBtn" type="button">Browse roles</button>
-        </section>
-        <div class="role-grid" id="savedRolesGrid"></div>
-        <div class="empty-state" id="savedEmptyState">
-          <h3 class="empty-state-title">No saved jobs yet</h3>
-          <p class="empty-state-copy">Save a role from the browse list and it will appear here.</p>
-        </div>
+        <label class="at-alerts-toggle" id="alertsToggle">
+          <input type="checkbox" id="alertsCheckbox" />
+          <span class="at-alerts-toggle-label">Email me when new roles open up</span>
+        </label>
+        <div class="at-list" id="savedRolesGrid"></div>
+        <div class="at-empty-host" id="savedEmptyState"></div>
       </section>
 
       <section class="view-panel" data-view-panel="secured">
@@ -6804,74 +7292,6 @@
       </section>
     </main>
 
-  </div>
-
-  <div class="modal" id="roleModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="roleModalTitle">
-      <button class="modal-close" id="roleModalCloseBtn" type="button" aria-label="Close role details">
-        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
-      <div>
-        <h2 class="modal-title" id="roleModalTitle">Role title</h2>
-        <p class="role-display-label" id="roleModalDisplayLabel" hidden></p>
-        <p class="role-location" id="roleModalLocation"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>Location</span></p>
-      </div>
-      <p class="modal-summary" id="roleModalSummary"></p>
-      <div class="badge-row" id="roleModalBadges"></div>
-      <div class="modal-section">
-        <div class="modal-section-head">
-          <span class="detail-label">Why GPs consider this role</span>
-          <span class="detail-subcopy" id="roleModalAiStatus">Building profile</span>
-        </div>
-        <div class="benefit-grid" id="roleModalBenefits"></div>
-      </div>
-      <div class="modal-detail-grid" id="roleModalDetails"></div>
-      <div class="modal-map-card" id="roleModalMapCard">
-        <div class="modal-section-head">
-          <div>
-            <span class="detail-label">Area map</span>
-            <p class="detail-subcopy" id="roleModalMapHint">Explore the suburb surrounding this confidential practice profile.</p>
-          </div>
-          <button class="ghost-btn" id="roleModalMapToggleBtn" type="button">Show suburb map</button>
-        </div>
-        <div class="map-embed-wrap" id="roleModalMapWrap" hidden>
-          <iframe class="map-embed" id="roleModalMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="roleModalSaveBtn" type="button">Save job</button>
-        <button class="btn-primary" id="roleModalApplyBtn" type="button">Apply now</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="howToApplyModal" aria-hidden="true">
-    <div class="modal-card search-modal-card" role="dialog" aria-modal="true" aria-labelledby="howToApplyTitle">
-      <button class="modal-close" id="howToApplyCloseBtn" type="button" aria-label="Close how to apply">
-        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
-      <div class="search-modal-header">
-        <h2 class="modal-title" id="howToApplyTitle">How to apply</h2>
-        <p class="page-subtitle" style="max-width:none;">GP Link keeps the early process confidential and only releases practice identity after the practice accepts your application.</p>
-      </div>
-      <div class="detail-grid">
-        <div class="detail-row">
-          <span class="detail-label">Step 1</span>
-          <span class="detail-value">Open a role, review the summary, suburb and benefits, then save it if you want to return later.</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Step 2</span>
-          <span class="detail-value">Apply through GP Link so your profile, documents and preferences can be checked before submission.</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Step 3</span>
-          <span class="detail-value">Once the practice accepts your application, GP Link releases the practice identity and coordinates the next conversation.</span>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-primary" id="howToApplyDoneBtn" type="button">Close</button>
-      </div>
-    </div>
   </div>
 
   <div class="toast" id="careerToast"></div>
@@ -7604,6 +8024,7 @@
           filterLocation: "",
           filterBilling: "",
           filterSearch: "",
+          filterEligibility: "elig",
           filterChips: [],
           showSavedOnly: false,
           savedJobs: [],
@@ -7616,6 +8037,7 @@
         filterLocation: "",
         filterBilling: "",
         filterSearch: "",
+        filterEligibility: "elig",
         filterChips: [],
         showSavedOnly: false,
         savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
@@ -7701,6 +8123,7 @@
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
         filterSearch: typeof source.filterSearch === "string" ? source.filterSearch : fallback.filterSearch,
+        filterEligibility: source.filterEligibility === "all" ? "all" : "elig",
         filterChips: Array.isArray(source.filterChips) ? source.filterChips.filter(c => typeof c === "string") : fallback.filterChips,
         showSavedOnly: hasLockedPlacement ? false : source.showSavedOnly === true,
         savedJobs: Array.isArray(source.savedJobs)
@@ -7746,38 +8169,16 @@
     const pageHeroSubtitleEl = document.getElementById("pageHeroSubtitle");
     const heroLocationSelectEl = document.getElementById("heroLocationSelect");
     const heroBillingSelectEl = document.getElementById("heroBillingSelect");
-    const savedJobsShortcutBtnEl = document.getElementById("savedJobsShortcutBtn");
-    const applicationsShortcutBtnEl = document.getElementById("applicationsShortcutBtn");
-    const howToApplyShortcutBtnEl = document.getElementById("howToApplyShortcutBtn");
-    const savedJobsShortcutCountEl = document.getElementById("savedJobsShortcutCount");
-    const applicationsShortcutCountEl = document.getElementById("applicationsShortcutCount");
+    const heroEligibilitySelectEl = document.getElementById("heroEligibilitySelect");
+    const careerTabsEl = document.getElementById("careerTabs");
+    const careerFiltersEl = document.getElementById("careerFilters");
+    const savedTabBadgeEl = document.getElementById("savedTabBadge");
+    const offersTabBadgeEl = document.getElementById("offersTabBadge");
     const recommendedRolesEl = document.getElementById("recommendedRoles");
     const rolesEmptyStateEl = document.getElementById("rolesEmptyState");
     const applicationsGridEl = document.getElementById("applicationsGrid");
     const applicationsEmptyStateEl = document.getElementById("applicationsEmptyState");
     const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
-    const howToApplyModalEl = document.getElementById("howToApplyModal");
-    const howToApplyCloseBtnEl = document.getElementById("howToApplyCloseBtn");
-    const howToApplyDoneBtnEl = document.getElementById("howToApplyDoneBtn");
-    const clearFiltersBtnEl = document.getElementById("clearFiltersBtn");
-    const browseRolesBtnEl = document.getElementById("browseRolesBtn");
-    const roleModalEl = document.getElementById("roleModal");
-    const roleModalCloseBtnEl = document.getElementById("roleModalCloseBtn");
-    const roleModalTitleEl = document.getElementById("roleModalTitle");
-    const roleModalDisplayLabelEl = document.getElementById("roleModalDisplayLabel");
-    const roleModalLocationEl = document.getElementById("roleModalLocation");
-    const roleModalSummaryEl = document.getElementById("roleModalSummary");
-    const roleModalBadgesEl = document.getElementById("roleModalBadges");
-    const roleModalBenefitsEl = document.getElementById("roleModalBenefits");
-    const roleModalAiStatusEl = document.getElementById("roleModalAiStatus");
-    const roleModalDetailsEl = document.getElementById("roleModalDetails");
-    const roleModalMapCardEl = document.getElementById("roleModalMapCard");
-    const roleModalMapHintEl = document.getElementById("roleModalMapHint");
-    const roleModalMapToggleBtnEl = document.getElementById("roleModalMapToggleBtn");
-    const roleModalMapWrapEl = document.getElementById("roleModalMapWrap");
-    const roleModalMapFrameEl = document.getElementById("roleModalMapFrame");
-    const roleModalSaveBtnEl = document.getElementById("roleModalSaveBtn");
-    const roleModalApplyBtnEl = document.getElementById("roleModalApplyBtn");
     const practiceLifestyleHeadingEl = document.getElementById("practiceLifestyleHeading");
     const practiceLifestyleIntroEl = document.getElementById("practiceLifestyleIntro");
     const securedPracticeNameEl = document.getElementById("securedPracticeName");
@@ -7813,7 +8214,6 @@
     const securedLoadingTitleEl = document.getElementById("securedLoadingTitle");
     const securedLoadingCopyEl = document.getElementById("securedLoadingCopy");
     const toastEl = document.getElementById("careerToast");
-    let roleModalMapVisible = false;
     let currentChecklistOpenKey = "";
     let currentPracticeLifestyleKey = "";
     let practiceLifestyleHousingSearchTimer = 0;
@@ -9933,47 +10333,6 @@
       roleDetailCache.set(nextRole.id, { ...(roleDetailCache.get(nextRole.id) || {}), ...nextRole });
     }
 
-    function buildBenefitTilesHtml(benefits) {
-      const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
-      if (!items.length) {
-        return '<div class="modal-detail-card"><span class="detail-value">Benefits will appear here once GP Link finalises the public profile.</span></div>';
-      }
-      return items.map((benefit, index) => `
-        <div class="benefit-tile">
-          <span class="benefit-label">Benefit ${index + 1}</span>
-          <p class="benefit-copy">${escapeHtml(benefit)}</p>
-        </div>
-      `).join("");
-    }
-
-    function buildRoleDetailCardsHtml(role) {
-      const cards = Array.isArray(role && role.detailCards) && role.detailCards.length
-        ? role.detailCards
-        : [
-            { label: "Role", value: role && role.roleType ? role.roleType : "General Practitioner" },
-            { label: "Practice profile", value: role && role.practiceType ? role.practiceType : "Confidential GP practice" },
-            { label: "Support", value: role && role.support ? role.support : "GP Link will coordinate further practice details." },
-            { label: "Location profile", value: role && role.locationSummary ? role.locationSummary : "Australian community setting" },
-            { label: "Earnings note", value: role && role.earningNote ? role.earningNote : "Compensation details provided on request." },
-            { label: "Employment type", value: role && role.footnote ? role.footnote : "Live opening via Zoho Recruit" }
-          ];
-      return cards.map((item) => `
-        <div class="modal-detail-card">
-          <span class="detail-label">${escapeHtml(item.label)}</span>
-          <span class="detail-value">${escapeHtml(item.value)}</span>
-        </div>
-      `).join("");
-    }
-
-    function getConfidentialNote() {
-      return "Practice identity is shared once the practice accepts your application.";
-    }
-
-    function getConfidentialRoleTitle(role) {
-      const roleType = String(role && role.roleType ? role.roleType : "General Practitioner").trim();
-      return `Confidential ${roleType} opportunity`;
-    }
-
     function getRoleLocationOptions() {
       const options = new Set();
       roleData.forEach((role) => {
@@ -10001,9 +10360,20 @@
       selectEl.value = options.includes(selectedValue) ? selectedValue : "";
     }
 
+    function syncSelectAccent(selectEl, hasValue) {
+      if (!selectEl || !selectEl.parentElement) return;
+      selectEl.parentElement.classList.toggle("hasval", !!hasValue);
+    }
+
     function renderSearchFilterControls() {
-      setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Any location", careerState.filterLocation);
-      setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing type", careerState.filterBilling);
+      setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Anywhere", careerState.filterLocation);
+      setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing", careerState.filterBilling);
+      if (heroEligibilitySelectEl) {
+        heroEligibilitySelectEl.value = careerState.filterEligibility === "all" ? "all" : "elig";
+      }
+      syncSelectAccent(heroLocationSelectEl, !!heroLocationSelectEl.value);
+      syncSelectAccent(heroBillingSelectEl, !!heroBillingSelectEl.value);
+      syncSelectAccent(heroEligibilitySelectEl, careerState.filterEligibility !== "all");
       const heroSearchInputEl = document.getElementById("heroSearchInput");
       const heroSearchClearEl = document.getElementById("heroSearchClear");
       if (heroSearchInputEl && heroSearchInputEl.value !== (careerState.filterSearch || "")) {
@@ -10012,177 +10382,140 @@
       if (heroSearchClearEl) heroSearchClearEl.hidden = !careerState.filterSearch;
     }
 
-    function openHowToApplyModal() {
-      if (!howToApplyModalEl) return;
-      howToApplyModalEl.classList.add("is-open");
-      howToApplyModalEl.setAttribute("aria-hidden", "false");
-    }
-
-    function closeHowToApplyModal() {
-      if (!howToApplyModalEl) return;
-      howToApplyModalEl.classList.remove("is-open");
-      howToApplyModalEl.setAttribute("aria-hidden", "true");
-    }
-
+    // Atlas tab bar: Roles / Saved / Offers. Badges show the GP's OWN saved
+    // and application counts (never role-inventory counts).
     function renderHeroShortcuts() {
-      if (savedJobsShortcutCountEl) savedJobsShortcutCountEl.textContent = String(careerState.savedJobs.length);
-      if (applicationsShortcutCountEl) applicationsShortcutCountEl.textContent = String(careerState.applications.length);
-      if (savedJobsShortcutBtnEl) {
-        savedJobsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "saved");
+      if (careerTabsEl) {
+        const activeTab = ["browse", "saved", "applications"].includes(careerState.activeView)
+          ? careerState.activeView
+          : "browse";
+        [...careerTabsEl.querySelectorAll("[data-career-tab]")].forEach((btn) => {
+          btn.classList.toggle("on", btn.dataset.careerTab === activeTab);
+        });
       }
-      if (applicationsShortcutBtnEl) {
-        applicationsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "applications");
+      if (savedTabBadgeEl) {
+        savedTabBadgeEl.hidden = careerState.savedJobs.length === 0;
+        savedTabBadgeEl.textContent = String(careerState.savedJobs.length);
+      }
+      if (offersTabBadgeEl) {
+        offersTabBadgeEl.hidden = careerState.applications.length === 0;
+        offersTabBadgeEl.textContent = String(careerState.applications.length);
+      }
+      if (careerFiltersEl) {
+        careerFiltersEl.style.display = careerState.activeView === "browse" ? "" : "none";
       }
     }
 
-    function buildPracticeMaskHtml(role, options = {}) {
-      const shouldReveal = options.reveal === true;
-      const note = shouldReveal ? "Practice identity released after placement confirmation." : getConfidentialNote();
-      return `
-        <div class="practice-mask${shouldReveal ? " revealed" : ""}">
-          <p class="practice-mask-text">${escapeHtml(role && role.practiceName ? role.practiceName : "Confidential practice profile")}</p>
-          <div class="practice-mask-note">${escapeHtml(note)}</div>
-        </div>
-      `;
+    // ── Atlas card helpers (Phase 2 Task 2) ──────────────────────────────
+    // Application count shown on cards is ALWAYS the server's deterministic
+    // presentation band (15–23) — never a real applicant count. If a cached
+    // role predates the field, recompute the identical band client-side from
+    // a stable hash of the role id (same djb2 as server careerApplicantBand)
+    // so the number never flickers between visits.
+    function getApplicantBand(role) {
+      const explicit = role && role.applicantBand;
+      if (Number.isInteger(explicit) && explicit >= 15 && explicit <= 23) return explicit;
+      const s = String((role && role.id) || "");
+      let h = 5381;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+      }
+      return 15 + (h % 9);
     }
 
-    function buildRoleMetricsHtml(role) {
-      const metrics = [
-        role && role.location ? `<span class="role-metric"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span></span>` : "",
-        role && role.geography ? `<span class="role-metric"><span>${escapeHtml(role.geography)}</span></span>` : "",
-        role && role.earnings ? `<span class="role-metric"><span>${escapeHtml(role.earnings)}</span></span>` : ""
-      ].filter(Boolean);
-      return metrics.length ? `<div class="role-metrics">${metrics.join("")}</div>` : "";
+    // Suburb label derived ONLY from masked fields: the masked headline
+    // ("DPA - Werribee (Melbourne) - Bulk Billing") or server-approved
+    // suburb/city fields. Never a raw title or real practice name.
+    function getRoleSuburbLabel(role) {
+      const masked = String((role && role.practiceName) || "");
+      const match = masked.match(/^(?:non-?)?dpa\s*[-–]\s*([^-–]+?)(?:\s*[-–]|$)/i);
+      if (match && match[1].trim()) return match[1].trim();
+      return String((role && (role.mapLabel || role.nearest_city || role.majorCity || role.location)) || "Australia").trim();
     }
 
-    function buildBenefitListHtml(benefits) {
-      const items = Array.isArray(benefits) ? benefits.filter(Boolean).slice(0, 3) : [];
-      const displayItems = items.length ? items : ["GP Link is preparing a public benefits summary for this confidential role."];
-      return `
-        <ul class="benefit-list">
-          ${displayItems.map((benefit) => `
-            <li class="benefit-item">
-              <span class="benefit-check" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg>
-              </span>
-              <span>${escapeHtml(benefit)}</span>
-            </li>
-          `).join("")}
-        </ul>
-      `;
+    function getRoleStateCode(role) {
+      const raw = String((role && role.state) || "");
+      if (/nsw|new south/i.test(raw)) return "NSW";
+      if (/vic/i.test(raw)) return "VIC";
+      if (/qld|queensland/i.test(raw)) return "QLD";
+      if (/wa|western/i.test(raw)) return "WA";
+      if (/sa|south australia/i.test(raw)) return "SA";
+      if (/tas/i.test(raw)) return "TAS";
+      if (/nt|northern/i.test(raw)) return "NT";
+      if (/act|capital/i.test(raw)) return "ACT";
+      return raw ? raw.toUpperCase().slice(0, 3) : "AU";
     }
+
+    // Photo-less scenery: refined map motif (grid + glow + pin) per the Atlas
+    // mockup — production roles have no practice photos while masked.
+    function buildRoleSceneHtml(role, options = {}) {
+      const suburb = options.hideLabel ? "" : getRoleSuburbLabel(role);
+      return `<div class="at-scene" aria-hidden="true">
+        <span class="at-scode">${escapeHtml(getRoleStateCode(role))}</span>
+        <span class="at-spin"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></span>
+        ${suburb ? `<span class="at-slabel">${escapeHtml(suburb)}</span>` : ""}
+      </div>`;
+    }
+
+    function buildRoleThumbHtml(role, options = {}) {
+      // A practice-uploaded header image (task 9) always wins over the
+      // AI-sourced scenery photo — it's a real photo of the actual location.
+      const heroUrl = String((role && (role.headerImageUrl || role.heroImageUrl)) || "");
+      const inner = heroUrl
+        ? `<img class="at-thumb-img" src="${escapeHtml(heroUrl)}" alt="" loading="lazy" />`
+        : buildRoleSceneHtml(role, options);
+      return `<div class="at-thumb" data-role-thumb="${escapeHtml((role && role.id) || "")}">${inner}</div>`;
+    }
+
+    const AT_LOCK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+    const AT_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
     // Task 11: a non-qualifying role (server-side DPA gate) arrives already
     // redacted (buildRedactedRoleStub) — no identifying fields at all. Render
-    // it as a blurred filler card: no save button, no clickable CTA, no modal.
+    // it as a blurred filler card: no save button, no clickable CTA.
     function buildBlurredRoleCardHtml(role) {
       const location = String((role && role.location) || "Australia");
       const billingLabel = String((role && role.billing) || "");
-      return `<article class="role-card role-card--blurred" data-role-id="${escapeHtml((role && role.id) || "")}">
-        <div class="role-card-content role-card-body">
-          <div class="role-card-header">
-            <div class="role-card-tags">
-              ${billingLabel ? `<span class="role-tag">${escapeHtml(billingLabel)}</span>` : ""}
-            </div>
-          </div>
-          <p class="role-card-location">${escapeHtml(location)}</p>
-          <button class="role-card-cta" type="button" tabindex="-1" aria-hidden="true">View details</button>
+      return `<article class="at-row at-row--blurred role-card--blurred" data-role-id="${escapeHtml((role && role.id) || "")}">
+        <div class="at-thumb">${buildRoleSceneHtml(role, { hideLabel: true })}</div>
+        <div class="at-rbody">
+          <h2 class="at-rtitle">General Practice</h2>
+          <p class="at-rmeta">${escapeHtml([billingLabel, location].filter(Boolean).join(" · "))}</p>
+          <div class="at-rfoot"><span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span></div>
         </div>
-        <div class="role-blur-overlay">You don't currently qualify for this role</div>
+        <div class="at-blur-overlay">You don't currently qualify for this role</div>
       </article>`;
     }
 
     function buildRoleCardHtml(role) {
       if (role && role.blurred) return buildBlurredRoleCardHtml(role);
       const saved = isSaved(role.id);
-      const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
-      const location = String(role.location || "Australia");
+      const applied = isApplied(role.id);
+      const suburb = getRoleSuburbLabel(role);
+      const billingLabel = String(role.billing || "Billing on request");
+      const roleTypeLabel = String(role.roleType || "Permanent");
+      const locationLabel = String(role.locationLine || role.location || "");
       const earnings = String(role.earnings || "");
-      // A practice-uploaded header image (task 9) always wins over the
-      // AI-sourced scenery photo — it's a real photo of the actual location.
-      const heroUrl = String(role.headerImageUrl || role.heroImageUrl || "");
-
-      return `<article class="role-card">
-        <div class="role-card-content">
-          <div class="role-card-header">
-            <div class="role-card-tags">
-              <span class="role-tag">${escapeHtml(billingLabel)}</span>
-              ${earnings ? `<span class="role-tag role-tag-muted">${escapeHtml(earnings)}</span>` : ""}
-            </div>
-            <button class="role-save-btn${saved ? " saved" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
-              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+      const band = getApplicantBand(role);
+      return `<article class="at-row" data-open-role="${escapeHtml(role.id)}">
+        ${applied ? '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>' : ""}
+        ${buildRoleThumbHtml(role)}
+        <div class="at-rbody">
+          <div class="at-rtop">
+            <span class="at-pill">${AT_CHECK_SVG}Eligible for you</span>
+            <span class="at-demand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>${band} applied</span>
+          </div>
+          <h2 class="at-rtitle">General Practice · ${escapeHtml(suburb)}</h2>
+          <p class="at-rmeta">${escapeHtml(billingLabel)}<span class="at-dot">·</span>${escapeHtml(roleTypeLabel)}${locationLabel ? `<span class="at-dot">·</span>${escapeHtml(locationLabel)}` : ""}</p>
+          ${earnings ? `<p class="at-rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${escapeHtml(earnings)}</p>` : ""}
+          <div class="at-rfoot">
+            <span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>
+            <button class="at-rsave${saved ? " on" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="${saved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
             </button>
           </div>
-          <p class="role-card-location">${escapeHtml(location)}</p>
-          ${role.qualifyHint ? `<span class="role-qualify-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${escapeHtml(role.qualifyHint)}</span>` : ""}
-          ${heroUrl ? `<div class="role-card-scenery"><img class="role-card-scenery-img" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(location)}" loading="lazy" /></div>` : ""}
-          <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
         </div>
       </article>`;
-    }
-
-    // Once the server marks a role as revealed (accepted offer / admin-applied
-    // origin — see canRevealPracticeIdentity in server.js), swap the suburb-only
-    // map for the exact-address map at a tighter zoom.
-    function getRoleMapContext(role) {
-      if (role && role.revealed && role.revealedMapQuery) {
-        return { query: role.revealedMapQuery, zoom: 15 };
-      }
-      if (role && role.mapQuery) {
-        return { query: role.mapQuery, zoom: 13 };
-      }
-      return null;
-    }
-
-    function resetRoleMap(role) {
-      roleModalMapVisible = false;
-      const mapContext = getRoleMapContext(role);
-      const hasMap = !!mapContext;
-      roleModalMapCardEl.hidden = !hasMap;
-      roleModalMapWrapEl.hidden = true;
-      roleModalMapFrameEl.removeAttribute("src");
-      roleModalMapHintEl.textContent = (role && role.revealed)
-        ? `Explore the exact location of ${role.realPracticeName || "this practice"}.`
-        : hasMap
-          ? `Explore the suburb surrounding ${role.mapLabel || "this confidential practice profile"}.`
-          : "Area mapping will appear when suburb data is available.";
-      roleModalMapToggleBtnEl.textContent = "Show suburb map";
-      roleModalMapToggleBtnEl.disabled = !hasMap;
-    }
-
-    function toggleRoleMap(role) {
-      const mapContext = getRoleMapContext(role);
-      if (!mapContext) return;
-      roleModalMapVisible = !roleModalMapVisible;
-      roleModalMapWrapEl.hidden = !roleModalMapVisible;
-      roleModalMapToggleBtnEl.textContent = roleModalMapVisible ? "Hide suburb map" : "Show suburb map";
-      if (roleModalMapVisible && !roleModalMapFrameEl.getAttribute("src")) {
-        roleModalMapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(mapContext.query) + "&z=" + mapContext.zoom + "&output=embed");
-      }
-    }
-
-    function setRoleModalLoading(role) {
-      roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role && role.benefits);
-      roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(role);
-    }
-
-    async function loadRoleDetail(roleId) {
-      if (!roleId) return null;
-      if (!String(roleId).includes(":")) {
-        return findRole(roleId);
-      }
-      if (roleDetailCache.has(roleId)) {
-        return roleDetailCache.get(roleId);
-      }
-      const response = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), { credentials: "same-origin" });
-      if (!response.ok) throw new Error("career_role_detail_failed");
-      const payload = await response.json().catch(() => null);
-      if (!payload || payload.ok !== true || !payload.role) throw new Error("career_role_detail_invalid");
-      roleDetailCache.set(roleId, payload.role);
-      updateRoleInData(payload.role);
-      persistCareerState();
-      renderPage();
-      return payload.role;
     }
 
     function isSaved(roleId) {
@@ -10206,102 +10539,13 @@
       }
       persistCareerState();
       renderPage();
-      if (currentRoleId === roleId) renderRoleModal(roleId);
-    }
-
-    async function applyForRole(roleId) {
-      const role = findRole(roleId);
-      if (!role) return;
-      const existingApplication = careerState.applications.find((job) => job && job.roleId === roleId) || null;
-      if (existingApplication) {
-        setView(existingApplication.isPlacementSecured ? "secured" : "applications");
-        closeRoleModal();
-        showToast(existingApplication.isPlacementSecured ? "Placement already secured" : "Application already tracked");
-        return;
-      }
-
-      // Disable button while applying
-      if (roleModalApplyBtnEl) {
-        roleModalApplyBtnEl.disabled = true;
-        roleModalApplyBtnEl.textContent = "Applying...";
-      }
-
-      try {
-        const resp = await fetch("/api/career/apply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roleId: role.id })
-        });
-        const data = await resp.json();
-
-        if (!resp.ok) {
-          if (data.requiresCv) {
-            showToast("Please upload your CV first");
-            closeRoleModal();
-            window.location.href = "/pages/my-documents";
-            return;
-          }
-          if (resp.status === 409) {
-            if (data && data.code === "already_placed") {
-              showToast(data.message || "You already have a secured placement — contact your recruitment officer if anything needs to change.");
-              closeRoleModal();
-              return;
-            }
-            showToast("You've already applied for this role");
-            setView("applications");
-            closeRoleModal();
-            return;
-          }
-          if (resp.status === 429) {
-            showToast("Too many applications — please try again later");
-            return;
-          }
-          showToast(data.message || "Could not submit application");
-          return;
-        }
-
-        careerState.applications = [
-          normalizeCareerApplication({
-            roleId: role.id,
-            practiceName: role.practiceName,
-            location: role.location,
-            rawStatus: "under_review",
-            meta: [
-              { label: "Applied", value: "Just now" },
-              { label: "Billing", value: (role.billing || "").replace(" Billing", "") },
-              { label: "Next step", value: "GP Link screening" }
-            ]
-          }),
-          ...careerState.applications
-        ];
-        careerState.activeView = "applications";
-        persistCareerState();
-        closeRoleModal();
-        renderPage();
-        showToast("Application submitted successfully");
-
-        // Invalidate cached applications so next SWR fetch hits network
-        var gpCacheRef = null;
-        try {
-          gpCacheRef = (window.gpCache) || (window.parent && window.parent.gpCache) || null;
-        } catch (e) {}
-        if (gpCacheRef && gpCacheRef.invalidate) {
-          gpCacheRef.invalidate("/api/career/applications");
-        }
-      } catch (err) {
-        showToast("Network error — please try again");
-      } finally {
-        if (roleModalApplyBtnEl) {
-          roleModalApplyBtnEl.disabled = false;
-          roleModalApplyBtnEl.textContent = "Apply Now";
-        }
-      }
     }
 
     function getFilteredRoles() {
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
       const filterBilling = careerState.filterBilling.trim().toLowerCase();
       const filterSearch = (careerState.filterSearch || "").trim().toLowerCase();
+      const showAllRoles = careerState.filterEligibility === "all";
       // Task 11: blurred (non-qualifying) filler roles carry no searchable/
       // filterable data by design (buildRedactedRoleStub strips it all), so
       // they can never truthfully match a filter or a Saved Jobs view.
@@ -10316,10 +10560,14 @@
         if (!matchesBilling) return false;
 
         if (filterSearch) {
+          // Search haystack is masked-field ONLY: the masked headline, the
+          // public location line and server-approved suburb/billing text.
+          // Never a raw title or the real practice name (which never reaches
+          // the client anyway — belt and braces).
           const searchFields = [
-            role.practiceName, role.location, role.billing, role.summary,
-            ...(Array.isArray(role.tags) ? role.tags : []),
-            ...(Array.isArray(role.filterTokens) ? role.filterTokens : [])
+            role.practiceName, role.displayLabel, role.location, role.locationLine,
+            role.nearest_city, role.mapLabel, role.majorCity, role.state,
+            role.billing, role.summary
           ].filter(Boolean).join(" ").toLowerCase();
           if (!searchFields.includes(filterSearch)) return false;
         }
@@ -10327,11 +10575,11 @@
         return true;
       });
 
-      // Stubs only ever appear in the plain, unfiltered, non-Saved-Jobs browse
-      // view — never in Saved Jobs and never once a location/billing/search
-      // filter is active (a stub couldn't have matched that filter anyway, so
-      // appending it there would just be padding a filtered view with noise).
-      const isDefaultBrowseView = !careerState.showSavedOnly && !filterLocation && !filterBilling && !filterSearch;
+      // Blurred stubs only ever appear when the GP explicitly switches the
+      // eligibility dropdown to "All roles" — and even then only in the plain,
+      // unfiltered, non-Saved-Jobs browse view (a stub carries no data, so it
+      // could never truthfully match a search/billing/location filter).
+      const isDefaultBrowseView = showAllRoles && !careerState.showSavedOnly && !filterLocation && !filterBilling && !filterSearch;
       const list = isDefaultBrowseView ? filteredQualifying.concat(blurredRoles) : filteredQualifying.slice();
       // Empty-state visibility must key off the REAL (qualifying) match count,
       // never the stub-padded count — otherwise blurred filler could mask a
@@ -10468,50 +10716,106 @@
       }
     }
 
+    // \u2500\u2500 Atlas empty states (no counts, ever) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    function buildAtlasEmptyHtml(kind) {
+      if (kind === "saved") {
+        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div><b>No saved roles yet</b><small>Tap the bookmark on any role to keep it here while you decide.</small></div>`;
+      }
+      if (kind === "offers") {
+        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No offers yet</b><small>When you apply, your review progress and any practice offers show here \u2014 your Registration Support Officer champions every application.</small></div>`;
+      }
+      return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg></div><b>No roles match those filters</b><small>Widen your billing or location \u2014 or ask your Registration Support Officer for a private shortlist.</small></div>`;
+    }
+
     function renderRoles() {
       const roles = getFilteredRoles();
       recommendedRolesEl.innerHTML = "";
       rolesEmptyStateEl.innerHTML = careerState.showSavedOnly
-        ? '<h3 class="empty-state-title">No saved jobs yet</h3><p class="empty-state-copy">Save a role from the list and it will appear here when Saved Jobs is active.</p>'
-        : '<h3 class="empty-state-title">No roles match your current filters</h3><p class="empty-state-copy">Try a different filter or clear your search.</p>';
+        ? buildAtlasEmptyHtml("saved")
+        : buildAtlasEmptyHtml("filters");
       rolesEmptyStateEl.classList.toggle("is-visible", (roles.qualifyingCount != null ? roles.qualifyingCount : roles.length) === 0);
       recommendedRolesEl.innerHTML = roles.map((role) => buildRoleCardHtml(role)).join("");
     }
 
-    function renderApplications() {
-      applicationsGridEl.innerHTML = "";
-      const hasApplications = careerState.applications.length > 0;
-      applicationsEmptyStateEl.classList.toggle("is-visible", !hasApplications);
-      applicationsGridEl.innerHTML = careerState.applications.map((application) => {
-        const metaText = (application.meta || [])
-          .slice(0, 3)
-          .map(m => `<span class="app-meta-inline"><span class="app-meta-key">${escapeHtml(m.label)}</span> ${escapeHtml(m.value)}</span>`)
-          .join('<span class="app-meta-dot">&middot;</span>');
+    // One Atlas row per application. Offer-received rows get the green accent
+    // + a CTA into the existing offer-review flow; interview rows keep the
+    // interview-prep link; everything else opens application-detail.
+    function buildApplicationRowHtml(application) {
+      const role = findRole(application.roleId);
+      const thumbSource = role || {
+        id: application.roleId,
+        practiceName: application.practiceName,
+        location: application.location,
+        state: ""
+      };
+      const suburb = getRoleSuburbLabel(thumbSource);
+      const actionAppId = application.id || application.applicationId || "";
+      const actionStatusKey = normalizeStatusKey(application.rawStatus);
+      const isOffer = application.offerPending === true;
+      const isInterview = actionStatusKey === "interview" || actionStatusKey === "interview_scheduled";
+      const tone = isOffer ? "offer" : (application.tone || "review");
 
-        var statusAction = '';
-        var actionAppId = application.id || application.applicationId || '';
-        var actionStatusKey = normalizeStatusKey(application.rawStatus);
-        if (application.offerPending) {
-          statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
-        } else if (actionStatusKey === 'interview' || actionStatusKey === 'interview_scheduled') {
-          statusAction = '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
-        }
+      let ribbon = "";
+      if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
+      else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
+      else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
-        return `<article class="application-card">
-          <div class="app-card-header">
-            <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
+      let metaLine = "";
+      if (application.isPlacementSecured) {
+        metaLine = "Placement secured \u2014 open your placement for the full details.";
+      } else if (isOffer) {
+        metaLine = "The practice would like to move forward \u2014 review your offer and schedule the interview.";
+      } else if (isInterview) {
+        metaLine = "Interview scheduled \u2014 your Registration Support Officer will join you, so you're never in the room alone.";
+      } else {
+        metaLine = "Your Registration Support Officer is reviewing your application before it reaches the practice.";
+      }
+
+      let statusAction = "";
+      if (isOffer) {
+        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review offer \u2192</a>';
+      } else if (isInterview) {
+        statusAction = '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="at-cta-link" onclick="event.stopPropagation();">Interview strategy \u2192</a>';
+      }
+
+      const openAttrs = application.isPlacementSecured
+        ? 'data-open-placement="true"'
+        : `data-open-application="${escapeHtml(application.id || "")}" data-open-application-role="${escapeHtml(application.roleId || "")}"`;
+
+      return `<article class="at-row${isOffer ? " at-row--offer" : ""}" ${openAttrs}>
+        ${ribbon}
+        ${buildRoleThumbHtml(thumbSource)}
+        <div class="at-rbody">
+          <div class="at-rtop">
+            <span class="at-pill at-pill--${escapeHtml(tone)}">${escapeHtml(isOffer ? "Offer received" : application.status)}</span>
           </div>
-          <p class="app-card-location">${escapeHtml(application.location || application.practiceName || "")}</p>
-          <div class="app-card-meta">${metaText}</div>
-          <div class="app-card-footer">
-            ${application.isPlacementSecured
-              ? `<button class="role-card-cta" data-open-placement="true">Open placement</button>`
-              : `<button class="role-card-cta" data-open-application="${escapeHtml(application.id || '')}" data-open-application-role="${escapeHtml(application.roleId || '')}">View details</button>`
-            }
+          <h2 class="at-rtitle">General Practice \u00b7 ${escapeHtml(suburb)}</h2>
+          <p class="at-rmeta">${escapeHtml(metaLine)}</p>
+          <div class="at-rfoot">
+            <span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>
             ${statusAction}
           </div>
-        </article>`;
-      }).join("");
+        </div>
+      </article>`;
+    }
+
+    function renderApplications() {
+      applicationsGridEl.innerHTML = "";
+      const applications = careerState.applications.filter(Boolean);
+      applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("offers");
+      applicationsEmptyStateEl.classList.toggle("is-visible", applications.length === 0);
+      if (!applications.length) return;
+      const offers = applications.filter((application) => application.offerPending === true);
+      const others = applications.filter((application) => application.offerPending !== true);
+      let html = "";
+      if (offers.length) {
+        html += '<p class="at-grouplbl">Offers</p>' + offers.map((application) => buildApplicationRowHtml(application)).join("");
+      }
+      if (offers.length && others.length) {
+        html += '<p class="at-grouplbl">Your applications</p>';
+      }
+      html += others.map((application) => buildApplicationRowHtml(application)).join("");
+      applicationsGridEl.innerHTML = html;
     }
 
     function renderSecuredPlacement() {
@@ -10592,85 +10896,6 @@
 
     }
 
-    // Masked (displayLabel) name under the headline by default; switches to
-    // the real practice name once the server marks the role as revealed.
-    function renderRoleModalDisplayLabel(role) {
-      if (role && role.revealed && role.realPracticeName) {
-        roleModalDisplayLabelEl.textContent = role.realPracticeName;
-        roleModalDisplayLabelEl.hidden = false;
-      } else if (role && role.displayLabel) {
-        roleModalDisplayLabelEl.textContent = role.displayLabel;
-        roleModalDisplayLabelEl.hidden = false;
-      } else {
-        roleModalDisplayLabelEl.hidden = true;
-        roleModalDisplayLabelEl.textContent = "";
-      }
-    }
-
-    async function renderRoleModal(roleId) {
-      if (shouldLockCareerToSecuredView()) {
-        setView("secured");
-        return;
-      }
-      const role = findRole(roleId);
-      if (!role) return;
-      currentRoleId = roleId;
-      roleModalTitleEl.textContent = getConfidentialRoleTitle(role);
-      renderRoleModalDisplayLabel(role);
-      roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span>`;
-      roleModalSummaryEl.textContent = role.summary;
-      roleModalBadgesEl.innerHTML = `
-        <span class="badge">${escapeHtml(role.billing)}</span>
-        <span class="badge">${escapeHtml(role.geography)}</span>
-        <span class="badge-dark">${escapeHtml(role.earnings)}</span>
-      `;
-      roleModalAiStatusEl.textContent = role.aiStatus === "success" ? "AI enriched" : (role.aiStatus === "fallback" ? "Profile ready" : "Building profile");
-      roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role.benefits);
-      setRoleModalLoading(role);
-      resetRoleMap(role);
-      roleModalSaveBtnEl.textContent = isSaved(roleId) ? "Remove saved job" : "Save job";
-      const existingApplication = careerState.applications.find((job) => job && job.roleId === roleId) || null;
-      roleModalApplyBtnEl.textContent = existingApplication
-        ? (existingApplication.isPlacementSecured ? "Open placement" : "Open application")
-        : "Apply now";
-      roleModalEl.classList.add("is-open");
-      roleModalEl.setAttribute("aria-hidden", "false");
-      replaceCareerUrlState(careerState.activeView, roleId);
-
-      try {
-        const detailRole = await loadRoleDetail(roleId);
-        if (!detailRole || currentRoleId !== roleId) return;
-        roleModalTitleEl.textContent = getConfidentialRoleTitle(detailRole);
-        renderRoleModalDisplayLabel(detailRole);
-        roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(detailRole.location)}</span>`;
-        roleModalSummaryEl.textContent = detailRole.summary;
-        roleModalBadgesEl.innerHTML = `
-          <span class="badge">${escapeHtml(detailRole.billing)}</span>
-          <span class="badge">${escapeHtml(detailRole.geography)}</span>
-          <span class="badge-dark">${escapeHtml(detailRole.earnings)}</span>
-        `;
-        roleModalAiStatusEl.textContent = detailRole.aiStatus === "success" ? "AI enriched" : "Profile ready";
-        roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(detailRole.benefits);
-        roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(detailRole);
-        resetRoleMap(detailRole);
-      } catch (err) {
-        if (currentRoleId !== roleId) return;
-        roleModalAiStatusEl.textContent = "Profile ready";
-        roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role.benefits);
-        roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(role);
-      }
-    }
-
-    function closeRoleModal() {
-      roleModalEl.classList.remove("is-open");
-      roleModalEl.setAttribute("aria-hidden", "true");
-      replaceCareerUrlState(careerState.activeView, null);
-      roleModalMapVisible = false;
-      roleModalMapWrapEl.hidden = true;
-      roleModalMapFrameEl.removeAttribute("src");
-      currentRoleId = null;
-    }
-
     function setView(view) {
       const nextView = shouldLockCareerToSecuredView()
         ? "secured"
@@ -10691,13 +10916,13 @@
         .map(saved => findRole(saved.id) || saved)
         .filter(Boolean);
 
-      if (savedRoles.length === 0) {
-        savedGrid.innerHTML = "";
-        if (savedEmpty) savedEmpty.hidden = false;
-        return;
+      if (savedEmpty) {
+        savedEmpty.innerHTML = buildAtlasEmptyHtml("saved");
+        savedEmpty.classList.toggle("is-visible", savedRoles.length === 0);
       }
-      if (savedEmpty) savedEmpty.hidden = true;
-      savedGrid.innerHTML = savedRoles.map(role => buildRoleCardHtml(role)).join("");
+      savedGrid.innerHTML = savedRoles.length
+        ? savedRoles.map(role => buildRoleCardHtml(role)).join("")
+        : "";
     }
 
     function renderPage() {
@@ -10756,56 +10981,24 @@
       });
     }
 
-    savedJobsShortcutBtnEl.addEventListener("click", () => {
-      setView("saved");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-
-    applicationsShortcutBtnEl.addEventListener("click", () => {
-      careerState.showSavedOnly = false;
-      setView("applications");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-
-    if (howToApplyShortcutBtnEl) howToApplyShortcutBtnEl.addEventListener("click", openHowToApplyModal);
-    if (howToApplyCloseBtnEl) howToApplyCloseBtnEl.addEventListener("click", closeHowToApplyModal);
-    if (howToApplyDoneBtnEl) howToApplyDoneBtnEl.addEventListener("click", closeHowToApplyModal);
-    if (howToApplyModalEl) howToApplyModalEl.addEventListener("click", (event) => {
-      if (event.target === howToApplyModalEl) closeHowToApplyModal();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        if (howToApplyModalEl && howToApplyModalEl.classList.contains("is-open")) closeHowToApplyModal();
-        if (roleModalEl.classList.contains("is-open")) closeRoleModal();
-      }
-    });
-
-    if (clearFiltersBtnEl) {
-      clearFiltersBtnEl.addEventListener("click", () => {
-        careerState.filterLocation = "";
-        careerState.filterBilling = "";
-        careerState.filterSearch = "";
-        careerState.filterChips = [];
+    // Atlas tab bar: Roles / Saved / Offers ("applications" panel).
+    if (careerTabsEl) {
+      careerTabsEl.addEventListener("click", (event) => {
+        const tabBtn = event.target.closest("[data-career-tab]");
+        if (!tabBtn) return;
         careerState.showSavedOnly = false;
-        if (heroSearchInputEl) heroSearchInputEl.value = "";
-        if (heroSearchClearEl) heroSearchClearEl.hidden = true;
+        setView(tabBtn.dataset.careerTab);
         persistCareerState();
         renderPage();
         window.scrollTo({ top: 0, behavior: "smooth" });
       });
     }
 
-    browseRolesBtnEl.addEventListener("click", () => {
-      careerState.showSavedOnly = false;
-      setView("browse");
-    });
-
-    const browseSavedBtn = document.getElementById("browseSavedBtn");
-    if (browseSavedBtn) {
-      browseSavedBtn.addEventListener("click", () => {
-        setView("browse");
-        window.scrollTo({ top: 0, behavior: "smooth" });
+    if (heroEligibilitySelectEl) {
+      heroEligibilitySelectEl.addEventListener("change", () => {
+        careerState.filterEligibility = heroEligibilitySelectEl.value === "all" ? "all" : "elig";
+        persistCareerState();
+        renderPage();
       });
     }
 
@@ -11064,26 +11257,6 @@
       }
     });
 
-    roleModalCloseBtnEl.addEventListener("click", closeRoleModal);
-    roleModalEl.addEventListener("click", (event) => {
-      if (event.target === roleModalEl) closeRoleModal();
-    });
-
-    roleModalSaveBtnEl.addEventListener("click", () => {
-      if (!currentRoleId) return;
-      toggleSavedJob(currentRoleId);
-    });
-
-    roleModalMapToggleBtnEl.addEventListener("click", () => {
-      if (!currentRoleId) return;
-      toggleRoleMap(roleDetailCache.get(currentRoleId) || findRole(currentRoleId));
-    });
-
-    roleModalApplyBtnEl.addEventListener("click", () => {
-      if (!currentRoleId) return;
-      applyForRole(currentRoleId);
-    });
-
     window.addEventListener("hashchange", () => {
       const previousView = careerState.activeView;
       syncCareerViewFromLocation();
@@ -11132,46 +11305,31 @@
       moveNavGlass(activeNavItem);
     });
 
+    // Swap a card's map-motif scenery for the real area photo once the
+    // hero-image endpoint has one. Blurred stubs carry no data-role-thumb id,
+    // so they keep the anonymous motif.
     async function loadRoleCardHeroImages() {
-      const cards = document.querySelectorAll(".role-card:not(.hero-loaded)");
-      await Promise.allSettled(Array.from(cards).map(async (card) => {
-        const roleBtn = card.querySelector("[data-open-role]");
-        if (!roleBtn) return;
-        const id = roleBtn.getAttribute("data-open-role");
+      const thumbs = document.querySelectorAll("[data-role-thumb]:not(.hero-loaded)");
+      await Promise.allSettled(Array.from(thumbs).map(async (thumb) => {
+        const id = thumb.getAttribute("data-role-thumb");
         if (!id) return;
 
-        const existingScenery = card.querySelector(".role-card-scenery-img");
-        if (existingScenery && existingScenery.src && !existingScenery.src.includes("data:")) {
-          card.classList.add("hero-loaded");
+        const existingImg = thumb.querySelector(".at-thumb-img");
+        if (existingImg && existingImg.src && !existingImg.src.includes("data:")) {
+          thumb.classList.add("hero-loaded");
           return;
         }
 
         try {
           const res = await fetch("/api/career/hero-image?roleId=" + encodeURIComponent(id), { credentials: "same-origin" });
-          if (!res.ok) { card.classList.add("hero-loaded"); return; }
+          if (!res.ok) { thumb.classList.add("hero-loaded"); return; }
           const data = await res.json();
           if (data.ok && data.heroImageUrl) {
-            const content = card.querySelector(".role-card-content");
-            if (!content) { card.classList.add("hero-loaded"); return; }
-            let sceneryDiv = content.querySelector(".role-card-scenery");
-            if (!sceneryDiv) {
-              sceneryDiv = document.createElement("div");
-              sceneryDiv.className = "role-card-scenery";
-              const cta = content.querySelector(".role-card-cta");
-              if (cta) {
-                content.insertBefore(sceneryDiv, cta);
-              } else {
-                content.appendChild(sceneryDiv);
-              }
-            }
-            const locationLabel = (card.querySelector(".role-card-location") || {}).textContent || "";
-            sceneryDiv.innerHTML = '<img class="role-card-scenery-img" src="' + escapeHtml(data.heroImageUrl) + '" alt="' + escapeHtml(locationLabel) + '" loading="lazy" />';
-            card.classList.add("hero-loaded");
-          } else {
-            card.classList.add("hero-loaded");
+            thumb.innerHTML = '<img class="at-thumb-img" src="' + escapeHtml(data.heroImageUrl) + '" alt="" loading="lazy" />';
           }
+          thumb.classList.add("hero-loaded");
         } catch {
-          card.classList.add("hero-loaded");
+          thumb.classList.add("hero-loaded");
         }
       }));
     }
