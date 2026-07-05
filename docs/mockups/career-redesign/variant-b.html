@@ -3,18 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Career — Variant B · Atlas</title>
+<title>Career — Atlas</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,600;0,8..60,700;1,8..60,600&display=swap" rel="stylesheet">
 <style>
 :root{
   --blue:#2563eb; --blue-deep:#1d4ed8; --blue-soft:#eff4ff; --blue-border:#d6e2fb; --sky:#4eb7f5;
   --ink:#0f172a; --text:#1f2b43; --muted:#64748b; --faint:#94a3b8;
-  --border:#e3e9f4; --border-strong:#cbd7ea;
+  --border:#e3e9f4; --border-strong:#cbd7ea; --hair:#eef2f9;
   --canvas:#f4f6fb; --surface:#fff; --sunken:#f8fafd;
   --navy0:#0b1322; --navy1:#14203a; --navy2:#0e1a30;
   --green:#16a34a; --green-soft:#eafaf0; --green-border:#c5ecd4; --green-ink:#166534;
-  --amber-soft:#fdf3e1; --amber-ink:#92400e; --amber-border:#f4ddb0;
   --serif:"Source Serif 4",Georgia,serif; --sans:"DM Sans",-apple-system,sans-serif;
   --r-md:14px; --r-lg:18px; --r-xl:24px;
   --sh-sm:0 1px 2px rgba(15,23,42,.05),0 2px 10px -4px rgba(15,23,42,.08);
@@ -25,143 +24,166 @@
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:var(--sans);background:var(--canvas);color:var(--text);font-size:15px;line-height:1.5;padding-bottom:calc(var(--nav-clear) + 24px)}
-button{font-family:inherit;cursor:pointer;border:0;background:none}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
 img{display:block;max-width:100%}
 .wrap{max-width:720px;margin:0 auto;padding:0 16px}
-@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.rv{animation:fadeUp .5s var(--ease) both}
-.rv1{animation-delay:.04s}.rv2{animation-delay:.1s}.rv3{animation-delay:.16s}.rv4{animation-delay:.22s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.rv{animation:fadeUp .46s var(--ease) both}
+.rv1{animation-delay:.04s}.rv2{animation-delay:.09s}.rv3{animation-delay:.14s}.rv4{animation-delay:.19s}
 
-/* ————— Navy masthead ————— */
-.mast{position:relative;background:linear-gradient(160deg,var(--navy0) 0%,var(--navy1) 55%,var(--navy2) 100%);color:#fff;padding:30px 0 58px;overflow:hidden}
-.mast::before{content:"";position:absolute;right:-140px;top:-120px;width:420px;height:420px;background:radial-gradient(circle,rgba(78,183,245,.24),transparent 65%)}
-.mast::after{content:"";position:absolute;left:-80px;bottom:-160px;width:340px;height:340px;background:radial-gradient(circle,rgba(37,99,235,.28),transparent 60%)}
+/* ————— Masthead (no counts) ————— */
+.mast{position:relative;background:linear-gradient(160deg,var(--navy0) 0%,var(--navy1) 58%,var(--navy2) 100%);color:#fff;padding:28px 0 52px;overflow:hidden}
+.mast::before{content:"";position:absolute;right:-150px;top:-130px;width:420px;height:420px;background:radial-gradient(circle,rgba(78,183,245,.2),transparent 66%)}
 .mast .wrap{position:relative;z-index:2}
 .eyeb{font-size:11.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--sky);display:flex;align-items:center;gap:8px}
 .eyeb::before{content:"";width:16px;height:2px;background:var(--sky)}
-.mast h1{font-family:var(--serif);font-weight:700;font-size:clamp(26px,5.6vw,34px);letter-spacing:-.015em;line-height:1.15;margin-top:10px}
-.mast .sub{color:#c2dbff;font-size:14px;margin-top:7px}
-.stats{display:flex;gap:22px;margin-top:18px}
-.stat b{font-family:var(--serif);font-size:22px;font-weight:700;display:block;letter-spacing:-.01em}
-.stat span{font-size:11px;color:#9dc0f0;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.mast h1{font-family:var(--serif);font-weight:700;font-size:clamp(25px,5.4vw,33px);letter-spacing:-.015em;line-height:1.16;margin-top:11px}
+.mast .sub{color:#c2dbff;font-size:14px;margin-top:8px;max-width:44ch}
 
-/* search floats over the seam */
-.searchdock{position:relative;z-index:10;margin-top:-26px}
-.search{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.97);border:1px solid rgba(255,255,255,.6);border-radius:var(--r-md);padding:13px 15px;box-shadow:var(--sh-lg)}
+.searchdock{position:relative;z-index:10;margin-top:-24px}
+.search{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.98);border:1px solid rgba(255,255,255,.6);border-radius:var(--r-md);padding:13px 15px;box-shadow:var(--sh-lg)}
 .search svg{flex:none;color:var(--faint)}
 .search input{border:0;outline:0;font:inherit;width:100%;color:var(--ink);background:none}
 .search input::placeholder{color:var(--faint)}
 
-/* segmented filters */
-.filters{position:sticky;top:0;z-index:30;background:linear-gradient(var(--canvas) 82%,rgba(244,246,251,0));padding:12px 0 8px}
-.seg{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;padding:2px}
-.seg::-webkit-scrollbar{display:none}
-.seg button{flex:none;font-size:12.5px;font-weight:700;color:var(--muted);background:var(--surface);border:1px solid var(--border);padding:7px 13px;border-radius:10px;transition:all .16s var(--ease);display:flex;align-items:center;gap:6px}
-.seg button.on{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 6px 16px -8px rgba(37,99,235,.6)}
-.seg .cnt{font-size:10.5px;background:rgba(100,116,139,.12);border-radius:999px;padding:1px 6px}
-.seg button.on .cnt{background:rgba(255,255,255,.22)}
+/* ————— Tabs (primary nav) ————— */
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px;margin-top:14px;box-shadow:var(--sh-sm)}
+.tabs button{flex:1;font-size:13.5px;font-weight:700;color:var(--muted);padding:9px;border-radius:999px;transition:all .18s var(--ease);position:relative}
+.tabs button .badge{position:absolute;top:5px;right:calc(50% - 34px);min-width:16px;height:16px;font-size:10px;font-weight:800;background:var(--blue);color:#fff;border-radius:999px;display:inline-grid;place-items:center;padding:0 4px}
+.tabs button.on{background:var(--ink);color:#fff}
 
-/* ————— List cards (horizontal) ————— */
-.list{display:grid;gap:12px;padding-top:6px}
-.row{display:flex;gap:13px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px;box-shadow:var(--sh-sm);cursor:pointer;position:relative;transition:transform .22s var(--ease),box-shadow .22s var(--ease)}
-.row:hover{transform:translateY(-2px);box-shadow:var(--sh-md)}
-.thumb{flex:none;width:104px;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(140deg,#16233f,#0b1322);align-self:stretch;min-height:104px}
+/* ————— Filter dropdowns ————— */
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+@media(min-width:560px){.filters{grid-template-columns:1.3fr 1fr 1fr}}
+.sel{position:relative}
+.sel select{-webkit-appearance:none;appearance:none;width:100%;font:inherit;font-size:13.5px;font-weight:600;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:11px 34px 11px 13px;box-shadow:var(--sh-sm);cursor:pointer;transition:border-color .16s var(--ease),box-shadow .16s var(--ease)}
+.sel select:focus{outline:0;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.sel::after{content:"";position:absolute;right:13px;top:50%;width:8px;height:8px;border-right:2px solid var(--faint);border-bottom:2px solid var(--faint);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.sel.hasval select{border-color:var(--blue-border);background:var(--blue-soft);color:var(--blue-deep)}
+
+/* ————— List cards (unified, restrained) ————— */
+.list{display:grid;gap:11px;padding-top:14px}
+.row{display:flex;gap:13px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px;box-shadow:var(--sh-sm);cursor:pointer;position:relative;transition:transform .22s var(--ease),box-shadow .22s var(--ease),border-color .22s var(--ease)}
+.row:hover{transform:translateY(-2px);box-shadow:var(--sh-md);border-color:var(--border-strong)}
+.thumb{flex:none;width:100px;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(140deg,#16233f,#0b1322);align-self:stretch;min-height:104px}
 .thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.thumb .st{position:absolute;left:6px;top:6px;background:rgba(11,19,34,.72);backdrop-filter:blur(4px);color:#cfe0ff;font-size:10px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:2px 7px;z-index:2}
+.thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(11,19,34,.35))}
+.thumb .loc{position:absolute;left:7px;bottom:6px;z-index:2;color:#fff;font-size:10px;font-weight:700;letter-spacing:.02em;text-shadow:0 1px 6px rgba(2,6,23,.6)}
 .rbody{flex:1;min-width:0;display:flex;flex-direction:column}
-.rtags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
-.t{font-size:10.5px;font-weight:800;letter-spacing:.03em;padding:3px 8px;border-radius:999px}
-.t.dpa{background:var(--green-soft);color:var(--green-ink);border:1px solid var(--green-border)}
-.t.bil{background:var(--blue-soft);color:var(--blue-deep);border:1px solid var(--blue-border)}
-.t.bon{background:var(--amber-soft);color:var(--amber-ink);border:1px solid var(--amber-border)}
+.rtop{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+/* ONE accent pill (DPA / eligible). Everything else is muted meta text. */
+.pill{font-size:10.5px;font-weight:800;letter-spacing:.03em;padding:3px 9px;border-radius:999px;display:inline-flex;align-items:center;gap:4px;background:var(--green-soft);color:var(--green-ink);border:1px solid var(--green-border)}
+.pill svg{width:10px;height:10px}
+.demand{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:4px}
+.demand svg{width:11px;height:11px;color:#e0872a}
 .rtitle{font-family:var(--serif);font-weight:600;font-size:16.5px;color:var(--ink);line-height:1.25;letter-spacing:-.005em}
-.rloc{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:5px}
-.rfoot{margin-top:auto;padding-top:9px;display:flex;align-items:center;gap:7px}
-.minivault{flex:1;display:flex;align-items:center;gap:6px;min-width:0}
-.minivault .mlock{flex:none;color:var(--faint)}
-.minivault .mblur{flex:1;max-width:110px;height:9px;border-radius:4px;background:repeating-linear-gradient(90deg,#c9d4e8 0 22px,#dde5f3 22px 34px,#c9d4e8 34px 58px);filter:blur(3px);opacity:.85}
-.minivault em{font-size:10px;color:var(--faint);font-style:normal;font-weight:700;letter-spacing:.05em;white-space:nowrap}
+.rmeta{font-size:12.5px;color:var(--muted);margin-top:4px}
+.rmeta .dot{color:var(--border-strong);margin:0 5px}
+.rearn{font-size:13px;color:var(--ink);font-weight:700;margin-top:7px;display:flex;align-items:center;gap:6px}
+.rearn svg{width:13px;height:13px;color:var(--blue)}
+.rfoot{margin-top:auto;padding-top:10px;display:flex;align-items:center;gap:8px}
+.mini{flex:1;display:flex;align-items:center;gap:6px;color:var(--faint);font-size:10.5px;font-weight:700;letter-spacing:.04em}
+.mini .mblur{width:70px;height:8px;border-radius:4px;background:repeating-linear-gradient(90deg,#cbd6e8 0 20px,#dde5f3 20px 30px,#cbd6e8 30px 52px);filter:blur(2.6px);opacity:.85}
 .rsave{flex:none;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--faint);border:1px solid var(--border);background:var(--surface);transition:all .16s var(--ease)}
 .rsave.on{color:var(--blue);background:var(--blue-soft);border-color:var(--blue-border)}
-.rapplied{position:absolute;top:-7px;right:12px;background:var(--green);color:#fff;font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:999px;box-shadow:var(--sh-sm)}
-.empty{padding:56px 18px;text-align:center;color:var(--muted)}
+.rstatus{position:absolute;top:-7px;right:14px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:3px 9px;border-radius:999px;box-shadow:var(--sh-sm)}
+.rstatus.applied{background:var(--ink);color:#fff}
+.rstatus.offer{background:var(--green);color:#fff}
+
+.empty{padding:52px 20px;text-align:center;color:var(--muted)}
+.empty .ico{width:52px;height:52px;border-radius:16px;background:var(--surface);border:1px solid var(--border);display:grid;place-items:center;margin:0 auto 14px;color:var(--faint)}
 .empty b{font-family:var(--serif);font-size:18px;color:var(--ink);display:block;margin-bottom:5px}
+.empty small{font-size:13px}
+
+/* section label inside tabs */
+.grouplbl{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin:18px 2px 2px}
 
 /* ————— Detail ————— */
 .detail{display:none}
 body.md .browse{display:none}
 body.md .detail{display:block}
-.dmast{position:relative;background:linear-gradient(160deg,var(--navy0),var(--navy1) 60%,var(--navy2));color:#fff;padding:14px 0 74px;overflow:hidden}
-.dmast::before{content:"";position:absolute;right:-120px;top:-100px;width:380px;height:380px;background:radial-gradient(circle,rgba(78,183,245,.22),transparent 62%)}
+.dmast{position:relative;background:linear-gradient(160deg,var(--navy0),var(--navy1) 60%,var(--navy2));color:#fff;padding:14px 0 70px;overflow:hidden}
+.dmast::before{content:"";position:absolute;right:-120px;top:-100px;width:360px;height:360px;background:radial-gradient(circle,rgba(78,183,245,.2),transparent 63%)}
 .dmast .wrap{position:relative;z-index:2}
 .dback{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:13px;color:#cfe0ff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:8px 14px}
-.dtags{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
-.dt{font-size:11px;font-weight:800;letter-spacing:.04em;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);color:#e5efff}
-.dt.dpa{background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.4);color:#a7f3c7}
-.dmast h1{font-family:var(--serif);font-weight:700;font-size:clamp(24px,5.4vw,31px);letter-spacing:-.015em;line-height:1.17;margin-top:12px}
+.dhtags{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;align-items:center}
+.dpill{font-size:11px;font-weight:800;letter-spacing:.03em;padding:4px 11px;border-radius:999px;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.36);color:#a7f3c7;display:inline-flex;gap:5px;align-items:center}
+.dmeta{color:#c2dbff;font-size:12.5px;font-weight:600}
+.dmast h1{font-family:var(--serif);font-weight:700;font-size:clamp(23px,5.2vw,30px);letter-spacing:-.015em;line-height:1.18;margin-top:12px}
 .dmast .dloc{color:#c2dbff;font-size:13.5px;margin-top:6px;display:flex;align-items:center;gap:6px}
-.dphotowrap{position:relative;z-index:11;margin-top:-58px}
-.dphoto{position:relative;border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-lg);aspect-ratio:16/8.4;background:#16233f}
+.dphotowrap{position:relative;z-index:11;margin-top:-54px}
+.dphoto{position:relative;border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-lg);aspect-ratio:16/8.2;background:#16233f}
 .dphoto img{width:100%;height:100%;object-fit:cover}
-.dphoto figcaption{position:absolute;left:12px;bottom:11px;background:rgba(11,19,34,.68);backdrop-filter:blur(6px);color:#e5efff;font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:999px}
-.dcontent{padding-top:18px}
-/* earnings banner */
-.earnrow{display:flex;gap:10px}
-.earnrow .cell{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;box-shadow:var(--sh-sm)}
-.cell b{font-family:var(--serif);font-size:17px;color:var(--ink);display:block;letter-spacing:-.01em;line-height:1.3}
-.cell span{font-size:10.5px;color:var(--faint);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.dphoto figcaption{position:absolute;left:12px;bottom:11px;background:rgba(11,19,34,.66);backdrop-filter:blur(6px);color:#e5efff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;display:flex;gap:6px;align-items:center}
+
+/* PRIORITY / urgency panel — the hero of the detail */
+.priority{margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-sm);position:relative;overflow:hidden}
+.priority::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(var(--blue),var(--sky))}
+.priority .ph{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:800;color:var(--ink)}
+.priority .ph .live{width:8px;height:8px;border-radius:999px;background:#e0872a;box-shadow:0 0 0 0 rgba(224,135,42,.5);animation:ping 1.8s var(--ease) infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(224,135,42,.45)}70%{box-shadow:0 0 0 7px rgba(224,135,42,0)}100%{box-shadow:0 0 0 0 rgba(224,135,42,0)}}
+.priority .pcount{margin-left:auto;font-family:var(--serif);font-size:19px;font-weight:700;color:var(--ink)}
+.priority .pcount span{font-size:11px;font-weight:700;color:var(--faint);font-family:var(--sans);letter-spacing:.04em}
+.priority .pbar{height:6px;border-radius:999px;background:var(--hair);margin:12px 0 11px;overflow:hidden}
+.priority .pbar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--blue),var(--sky));width:0;transition:width 1s var(--ease)}
+.priority .pnote{font-size:13px;color:var(--text);line-height:1.5}
+.priority .pnote b{color:var(--green-ink)}
+.priority .pyou{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px;font-weight:700;color:var(--green-ink);background:var(--green-soft);border:1px solid var(--green-border);border-radius:999px;padding:6px 12px}
+.priority .pyou svg{width:13px;height:13px}
+
 .sech{font-size:11.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:24px 0 11px;display:flex;align-items:center;gap:10px}
 .sech::after{content:"";flex:1;height:1px;background:var(--border)}
+.earnrow{display:flex;gap:10px}
+.earnrow .cell{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;box-shadow:var(--sh-sm)}
+.cell b{font-family:var(--serif);font-size:16px;color:var(--ink);display:block;letter-spacing:-.01em;line-height:1.3}
+.cell span{font-size:10px;color:var(--faint);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
 .intro{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-sm);font-size:14.5px}
 .intro em{font-family:var(--serif)}
 .bene{display:grid;gap:9px}
 .bene li{list-style:none;display:flex;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:11px 13px;font-size:13.5px}
 .bene .bi{flex:none;width:24px;height:24px;border-radius:8px;background:var(--green-soft);color:var(--green-ink);display:grid;place-items:center}
-/* vault — full banner */
 .vault{position:relative;border-radius:var(--r-lg);overflow:hidden;background:linear-gradient(120deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);color:#fff;box-shadow:var(--sh-md)}
-.vault::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 82% 18%,rgba(255,255,255,.22),transparent 45%)}
-.vshine{position:absolute;top:0;bottom:0;width:70px;background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);animation:sweep 3.6s var(--ease) infinite}
-@keyframes sweep{0%{left:-90px}55%,100%{left:110%}}
+.vault::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 82% 18%,rgba(255,255,255,.2),transparent 46%)}
+.vshine{position:absolute;top:0;bottom:0;width:64px;background:linear-gradient(100deg,transparent,rgba(255,255,255,.26),transparent);animation:sweep 3.8s var(--ease) infinite}
+@keyframes sweep{0%{left:-80px}55%,100%{left:110%}}
 .vault-in{position:relative;padding:18px;display:flex;gap:13px;align-items:center}
 .vlock{flex:none;width:42px;height:42px;border-radius:13px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center}
-.vname{height:15px;border-radius:5px;max-width:220px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.65) 0 38px,rgba(255,255,255,.35) 38px 55px,rgba(255,255,255,.65) 55px 100px);filter:blur(4.5px);margin-bottom:8px}
+.vname{height:15px;border-radius:5px;max-width:210px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.62) 0 36px,rgba(255,255,255,.32) 36px 52px,rgba(255,255,255,.62) 52px 96px);filter:blur(4.5px);margin-bottom:8px}
 .vcap{font-size:12.5px;color:#d6e7ff;line-height:1.45}
 .vcap b{color:#fff}
 .vault.shake{animation:vshake .4s var(--ease)}
 @keyframes vshake{0%,100%{transform:none}25%{transform:translateX(-5px)}60%{transform:translateX(4px)}}
-/* video */
 .video{display:flex;gap:13px;align-items:center;background:var(--navy0);border-radius:var(--r-lg);padding:13px;color:#fff;cursor:pointer;box-shadow:var(--sh-md)}
 .vthumb{flex:none;width:100px;aspect-ratio:16/10;border-radius:11px;overflow:hidden;position:relative}
-.vthumb img{width:100%;height:100%;object-fit:cover;opacity:.62}
+.vthumb img{width:100%;height:100%;object-fit:cover;opacity:.6}
 .vplay{position:absolute;inset:0;display:grid;place-items:center}
 .vplay span{width:32px;height:32px;border-radius:999px;background:#fff;display:grid;place-items:center;color:var(--navy0)}
 .video h4{font-size:14px;font-weight:700}
 .video p{font-size:12px;color:#9dc0f0;margin-top:2px}
-/* map */
 .maphint{position:relative;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--border);aspect-ratio:16/6.6;background:
- radial-gradient(circle at 50% 50%,rgba(37,99,235,.15),rgba(37,99,235,.04) 44%,transparent 62%),
+ radial-gradient(circle at 50% 50%,rgba(37,99,235,.14),rgba(37,99,235,.04) 44%,transparent 62%),
  repeating-linear-gradient(0deg,#eef2f9 0 24px,#e8edf7 24px 25px),
  repeating-linear-gradient(90deg,#eef2f9 0 24px,#e8edf7 24px 25px)}
 .pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-.ring{width:64px;height:64px;border-radius:999px;border:2px dashed rgba(37,99,235,.5);display:grid;place-items:center;animation:pulse 2.6s var(--ease) infinite}
-.dot{width:13px;height:13px;border-radius:999px;background:var(--blue);box-shadow:0 0 0 5px rgba(37,99,235,.18)}
+.ring{width:60px;height:60px;border-radius:999px;border:2px dashed rgba(37,99,235,.5);display:grid;place-items:center;animation:pulse 2.6s var(--ease) infinite}
+.dot{width:12px;height:12px;border-radius:999px;background:var(--blue);box-shadow:0 0 0 5px rgba(37,99,235,.18)}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14);opacity:.55}}
 .maphint figcaption{position:absolute;left:11px;bottom:9px;font-size:11.5px;font-weight:700;color:var(--muted);background:rgba(255,255,255,.88);border-radius:999px;padding:4px 10px}
-/* rso strip */
 .rso{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--r-lg);padding:14px 15px}
 .rso .ava{flex:none;width:38px;height:38px;border-radius:999px;background:linear-gradient(135deg,#2e6bf0,#1d4ed8);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px}
 .rso p{font-size:13px}
 .rso b{color:var(--ink)}
-/* apply bar */
+
 .applybar{position:fixed;left:0;right:0;bottom:var(--nav-clear);z-index:50;padding:10px 16px 12px;background:linear-gradient(rgba(244,246,251,0),var(--canvas) 45%);display:none}
 body.md .applybar{display:block}
-.applybar .in{max-width:720px;margin:0 auto;display:flex;gap:9px}
-.btn-apply{flex:1;background:linear-gradient(135deg,#2e6bf0,#1d4ed8);color:#fff;font-weight:800;font-size:15.5px;border-radius:var(--r-md);padding:15px;box-shadow:0 12px 28px -12px rgba(37,99,235,.55);transition:transform .16s var(--ease)}
-.btn-apply:active{transform:scale(.98)}
-.btn-apply.done{background:var(--green)}
+.applybar .in{max-width:720px;margin:0 auto;display:flex;gap:9px;align-items:stretch}
+.btn-apply{flex:1;background:linear-gradient(135deg,#2e6bf0,#1d4ed8);color:#fff;font-weight:800;font-size:15.5px;border-radius:var(--r-md);padding:15px;box-shadow:0 12px 28px -12px rgba(37,99,235,.55);transition:transform .16s var(--ease);display:flex;flex-direction:column;align-items:center;line-height:1.15}
+.btn-apply small{font-weight:600;font-size:11px;opacity:.82;margin-top:2px}
+.btn-apply:active{transform:scale(.985)}
+.btn-apply.done{background:var(--green);box-shadow:0 12px 28px -12px rgba(22,163,74,.5)}
 .btn-save2{flex:none;width:52px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--border);color:var(--muted);display:grid;place-items:center}
 .btn-save2.on{color:var(--blue);border-color:var(--blue-border);background:var(--blue-soft)}
-.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:calc(var(--nav-clear) + 82px);z-index:80;background:var(--ink);color:#fff;font-size:13px;font-weight:700;padding:11px 17px;border-radius:999px;box-shadow:var(--sh-lg);opacity:0;pointer-events:none;transition:all .34s var(--ease)}
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:calc(var(--nav-clear) + 82px);z-index:80;background:var(--ink);color:#fff;font-size:13px;font-weight:700;padding:11px 17px;border-radius:999px;box-shadow:var(--sh-lg);opacity:0;pointer-events:none;transition:all .34s var(--ease);max-width:88vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .navmock{position:fixed;left:0;right:0;bottom:0;height:var(--nav-clear);background:rgba(255,255,255,.92);backdrop-filter:saturate(1.5) blur(18px);border-top:1px solid var(--border);display:flex;z-index:60}
 .navmock button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:700;color:var(--faint)}
@@ -170,44 +192,71 @@ body.md .applybar{display:block}
 </head>
 <body>
 
-<!-- ═══════ BROWSE ═══════ -->
+<!-- ═══════ BROWSE (tabbed) ═══════ -->
 <div class="browse">
   <header class="mast">
     <div class="wrap rv rv1">
-      <div class="eyeb">Career · Live openings</div>
+      <div class="eyeb">Career</div>
       <h1>Your next practice,<br>matched to you.</h1>
-      <p class="sub">Confidential roles across Australia — vetted, DPA-checked, negotiated for you.</p>
-      <div class="stats" id="stats"></div>
+      <p class="sub">Confidential GP roles across Australia — every one checked against your eligibility, with your Registration Support Officer negotiating for you.</p>
     </div>
   </header>
   <div class="wrap">
     <div class="searchdock rv rv2">
       <label class="search">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg>
-        <input id="q" type="search" placeholder="Search suburb, region or billing type…">
+        <input id="q" type="search" placeholder="Search suburb or region…">
       </label>
     </div>
-    <div class="filters rv rv3"><div class="seg" id="seg"></div></div>
+    <nav class="tabs rv rv3" id="tabs">
+      <button data-tab="roles" class="on">Roles</button>
+      <button data-tab="saved">Saved<span class="badge" id="savedBadge" style="display:none"></span></button>
+      <button data-tab="offers">Offers<span class="badge" id="offersBadge" style="display:none"></span></button>
+    </nav>
+
+    <div id="filters" class="filters rv rv4">
+      <div class="sel hasval">
+        <select id="fElig">
+          <option value="elig">Jobs I'm eligible for</option>
+          <option value="all">All roles</option>
+        </select>
+      </div>
+      <div class="sel">
+        <select id="fBill">
+          <option value="">Any billing</option>
+          <option>Bulk Billing</option>
+          <option>Mixed Billing</option>
+          <option>Private Billing</option>
+        </select>
+      </div>
+      <div class="sel">
+        <select id="fLoc">
+          <option value="">Anywhere</option>
+          <option>NSW</option><option>VIC</option><option>QLD</option><option>WA</option>
+        </select>
+      </div>
+    </div>
+
     <main class="list" id="list"></main>
-    <div class="empty" id="empty" style="display:none"><b>Nothing here — yet.</b>Many roles are matched privately before listing. Ask your RSO for a shortlist.</div>
+    <div id="tabEmpty"></div>
   </div>
 </div>
 
 <!-- ═══════ DETAIL ═══════ -->
 <div class="detail">
   <header class="dmast"><div class="wrap">
-    <button class="dback" onclick="go('')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>All roles</button>
+    <button class="dback" onclick="back()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Back</button>
     <div id="dhead"></div>
   </div></header>
   <div class="wrap">
     <div class="dphotowrap rv rv1" id="dphoto"></div>
-    <div class="dcontent" id="dbody"></div>
+    <div id="dbody"></div>
   </div>
 </div>
 
 <div class="applybar"><div class="in">
   <button class="btn-save2" id="dSave"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
-  <button class="btn-apply" id="dApply">Apply — your RSO reviews first</button>
+  <button class="btn-apply" id="dApply"></button>
 </div></div>
 
 <div class="toast" id="toast"></div>
@@ -220,135 +269,198 @@ body.md .applybar{display:block}
 </nav>
 
 <script>
-const S={jobs:[],f:'All',q:'',saved:new Set(JSON.parse(localStorage.vb_saved||'[]')),applied:new Set(JSON.parse(localStorage.vb_applied||'[]')),cur:null};
+const S={jobs:[],tab:'roles',q:'',elig:'elig',bill:'',loc:'',
+  saved:new Set(JSON.parse(localStorage.at_saved||'[]')),
+  applied:new Set(JSON.parse(localStorage.at_applied||'[]')),
+  cur:null, cvComplete:true};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-fetch('data.json').then(r=>r.json()).then(d=>{S.jobs=d;init()});
 const stateOf=j=>(j.state||'').match(/NSW|New South/i)?'NSW':(j.state||'').match(/VIC|Victoria/i)?'VIC':(j.state||'').match(/QLD|Queensland/i)?'QLD':(j.state||'').match(/WA|Western/i)?'WA':'AU';
 const suburbOf=j=>{const m=(j.title||'').match(/^(?:Non-)?DPA - ([^-]+?)(?: -|$)/);return m?m[1].trim():(j.suburb||'')};
+const billOf=j=>j.billing||'Billing on request';
+/* demand + eligibility are illustrative here; in the real build these bind to
+   real gp_applications counts + the GP's DPA/profile eligibility. */
+const demandOf=i=>22+((i*17+9)%46);           /* 22–67, stable */
+const eligibleOf=j=>j.dpa!==false;            /* all current roles DPA */
+const OFFER_IDX=0;                            /* demo: one seeded offer so the state is visible */
+
+fetch('data.json').then(r=>r.json()).then(d=>{S.jobs=d;init()});
 
 function init(){
-  const dpaN=S.jobs.filter(j=>j.dpa).length, states=new Set(S.jobs.map(stateOf));
-  $('#stats').innerHTML=`<div class="stat"><b>${S.jobs.length}</b><span>Live roles</span></div>
-    <div class="stat"><b>${dpaN}</b><span>DPA approved</span></div>
-    <div class="stat"><b>${states.size}</b><span>States</span></div>`;
-  paintSeg();
   $('#q').oninput=e=>{S.q=e.target.value.toLowerCase();render()};
+  $('#fElig').onchange=e=>{S.elig=e.target.value;mark('#fElig',S.elig!=='all');render()};
+  $('#fBill').onchange=e=>{S.bill=e.target.value;mark('#fBill',!!S.bill);render()};
+  $('#fLoc').onchange=e=>{S.loc=e.target.value;mark('#fLoc',!!S.loc);render()};
+  $('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.tab=b.dataset.tab;
+    [...$('#tabs').children].forEach(x=>x.classList.toggle('on',x.dataset.tab===S.tab));
+    $('#filters').style.display=S.tab==='roles'?'':'none';render()};
   render();route();
 }
-function segCounts(){
-  const c={All:S.jobs.length,Saved:S.saved.size};
-  for(const st of ['NSW','VIC','QLD','WA'])c[st]=S.jobs.filter(j=>stateOf(j)===st).length;
-  for(const b of ['Bulk Billing','Mixed Billing','Private Billing'])c[b]=S.jobs.filter(j=>j.billing===b).length;
-  return c;
+function mark(sel,on){$(sel).parentElement.classList.toggle('hasval',on)}
+function badges(){
+  const sv=$('#savedBadge'),of=$('#offersBadge');
+  const nOffers=(S.applied.size)+(S.applied.has(OFFER_IDX)?0:1); /* applied + 1 seeded offer */
+  sv.style.display=S.saved.size?'grid':'none';sv.textContent=S.saved.size;
+  of.style.display=nOffers?'grid':'none';of.textContent=nOffers;
 }
-function paintSeg(){
-  const c=segCounts();
-  const F=['All','NSW','VIC','QLD','WA','Bulk Billing','Mixed Billing','Private Billing','Saved'];
-  $('#seg').innerHTML=F.map(f=>`<button class="${f===S.f?'on':''}" data-f="${f}">${f==='Saved'?'♥ Saved':f}<span class="cnt">${c[f]||0}</span></button>`).join('');
-  $('#seg').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.f=b.dataset.f;paintSeg();render()};
-}
-function filtered(){
-  return S.jobs.map((j,i)=>i).filter(i=>{const j=S.jobs[i];
-    if(S.f==='Saved'&&!S.saved.has(i))return false;
-    if(/Billing/.test(S.f)&&j.billing!==S.f)return false;
-    if(/^(NSW|VIC|QLD|WA)$/.test(S.f)&&stateOf(j)!==S.f)return false;
-    if(S.q&&!((j.title||'')+' '+(j.loc||'')).toLowerCase().includes(S.q))return false;
-    return true});
+function baseFilter(i){const j=S.jobs[i];
+  if(S.elig==='elig'&&!eligibleOf(j))return false;
+  if(S.bill&&billOf(j)!==S.bill)return false;
+  if(S.loc&&stateOf(j)!==S.loc)return false;
+  if(S.q&&!((j.title||'')+' '+(j.loc||'')).toLowerCase().includes(S.q))return false;
+  return true;
 }
 function render(){
-  const idx=filtered();
-  $('#empty').style.display=idx.length?'none':'block';
-  $('#list').innerHTML=idx.map((i,k)=>{const j=S.jobs[i];return `
-  <article class="row rv rv${Math.min(k+1,4)}" onclick="go('job/${i}')">
-    ${S.applied.has(i)?'<span class="rapplied">✓ APPLIED</span>':''}
-    <div class="thumb"><span class="st">${stateOf(j)}</span><img src="${esc(j.hero)}" loading="lazy" onerror="this.remove()"></div>
+  badges();
+  const L=$('#list'),E=$('#tabEmpty');E.innerHTML='';
+  if(S.tab==='offers'){L.innerHTML='';renderOffers(E);return}
+  let idx=S.jobs.map((_,i)=>i);
+  if(S.tab==='saved')idx=idx.filter(i=>S.saved.has(i));
+  if(S.tab==='roles')idx=idx.filter(baseFilter);
+  if(!idx.length){L.innerHTML='';E.innerHTML=emptyFor(S.tab);return}
+  L.innerHTML=idx.map((i,k)=>rowHtml(i,k)).join('');
+}
+function rowHtml(i,k){const j=S.jobs[i];const dem=demandOf(i);const applied=S.applied.has(i);
+  return `<article class="row rv rv${Math.min(k+1,4)}" onclick="open_(${i})">
+    ${applied?'<span class="rstatus applied">UNDER REVIEW</span>':''}
+    <div class="thumb"><img src="${esc(j.hero)}" loading="lazy" onerror="this.style.display='none'"><span class="loc">${esc(stateOf(j))}</span></div>
     <div class="rbody">
-      <div class="rtags">
-        ${j.dpa?'<span class="t dpa">DPA</span>':''}
-        ${j.billing?`<span class="t bil">${esc(j.billing.replace(' Billing',''))}</span>`:''}
-        ${j.earnings?`<span class="t bon">${esc(j.earnings.length>20?j.earnings.slice(0,18)+'…':j.earnings)}</span>`:''}
+      <div class="rtop">
+        ${eligibleOf(j)?'<span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Eligible for you</span>':'<span class="pill" style="background:var(--sunken);color:var(--muted);border-color:var(--border)">Role</span>'}
+        <span class="demand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>${dem} applied</span>
       </div>
       <h2 class="rtitle">General Practice · ${esc(suburbOf(j))}</h2>
-      <p class="rloc"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>${esc(j.loc)}</p>
+      <p class="rmeta">${esc(billOf(j))}<span class="dot">·</span>Permanent<span class="dot">·</span>${esc(j.loc||'')}</p>
+      ${j.earnings?`<p class="rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${esc(j.earnings)}</p>`:''}
       <div class="rfoot">
-        <span class="minivault">
-          <span class="mlock"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
-          <span class="mblur"></span><em>ON ACCEPTANCE</em>
-        </span>
-        <button class="rsave${S.saved.has(i)?' on':''}" onclick="event.stopPropagation();toggleSave(${i})">
+        <span class="mini"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span class="mblur"></span>NAME ON ACCEPTANCE</span>
+        <button class="rsave${S.saved.has(i)?' on':''}" onclick="event.stopPropagation();toggleSave(${i})" title="Save">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="${S.saved.has(i)?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
       </div>
     </div>
-  </article>`}).join('');
+  </article>`;
 }
-function toggleSave(i){S.saved.has(i)?S.saved.delete(i):S.saved.add(i);localStorage.vb_saved=JSON.stringify([...S.saved]);paintSeg();render();if(S.cur===i)paintApply();toast(S.saved.has(i)?'Saved ♥':'Removed')}
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2100)}
-function go(h){location.hash=h}
+function emptyFor(tab){
+  if(tab==='saved')return `<div class="empty"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div><b>No saved roles yet</b><small>Tap the bookmark on any role to keep it here while you decide.</small></div>`;
+  return `<div class="empty"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg></div><b>No roles match those filters</b><small>Widen your billing or location — or ask your RSO for a private shortlist.</small></div>`;
+}
+function renderOffers(E){
+  const appliedIdx=[...S.applied];
+  const offerIdx=OFFER_IDX;
+  let html='';
+  html+=`<p class="grouplbl">Offers</p>`;
+  const j=S.jobs[offerIdx];
+  html+=`<article class="row" onclick="open_(${offerIdx})" style="border-color:var(--green-border)">
+    <span class="rstatus offer">OFFER</span>
+    <div class="thumb"><img src="${esc(j.hero)}" onerror="this.style.display='none'"><span class="loc">${esc(stateOf(j))}</span></div>
+    <div class="rbody">
+      <div class="rtop"><span class="pill">Offer received</span><span class="demand" style="color:var(--green-ink)">Respond within 5 days</span></div>
+      <h2 class="rtitle">General Practice · ${esc(suburbOf(j))}</h2>
+      <p class="rmeta">Your RSO has secured an offer — review the details and full practice identity.</p>
+      <div class="rfoot"><span class="mini" style="color:var(--green-ink)">✓ IDENTITY UNLOCKED</span></div>
+    </div>
+  </article>`;
+  html+=`<p class="grouplbl">Your applications</p>`;
+  if(!appliedIdx.length){
+    html+=`<div class="empty" style="padding:34px 20px"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No applications in progress</b><small>When you apply, your RSO's review progress shows here.</small></div>`;
+  } else {
+    html+=`<div class="list" style="padding-top:8px">`+appliedIdx.map(i=>{const jj=S.jobs[i];return `
+    <article class="row" onclick="open_(${i})">
+      <span class="rstatus applied">UNDER REVIEW</span>
+      <div class="thumb"><img src="${esc(jj.hero)}" onerror="this.style.display='none'"><span class="loc">${esc(stateOf(jj))}</span></div>
+      <div class="rbody">
+        <div class="rtop"><span class="pill" style="background:var(--blue-soft);color:var(--blue-deep);border-color:var(--blue-border)">With your RSO</span></div>
+        <h2 class="rtitle">General Practice · ${esc(suburbOf(jj))}</h2>
+        <p class="rmeta">Your RSO is reviewing your application before it reaches the practice.</p>
+        <div class="rfoot"><span class="mini"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span class="mblur"></span>NAME ON ACCEPTANCE</span></div>
+      </div>
+    </article>`}).join('')+`</div>`;
+  }
+  E.innerHTML=html;
+}
+function toggleSave(i){S.saved.has(i)?S.saved.delete(i):S.saved.add(i);localStorage.at_saved=JSON.stringify([...S.saved]);render();if(S.cur===i)paintApply();toast(S.saved.has(i)?'Saved to your shortlist':'Removed from shortlist')}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2300)}
+
+/* ————— detail ————— */
+function open_(i){location.hash='job/'+i}
+function back(){history.length>1?history.back():(location.hash='')}
 addEventListener('hashchange',route);
 function route(){
   const m=location.hash.match(/^#job\/(\d+)/);
-  if(m&&S.jobs[+m[1]]){S.cur=+m[1];renderDetail(S.jobs[S.cur]);document.body.classList.add('md');scrollTo(0,0)}
-  else{S.cur=null;document.body.classList.remove('md')}
+  if(m&&S.jobs[+m[1]]){S.cur=+m[1];renderDetail(S.cur);document.body.classList.add('md');scrollTo(0,0)}
+  else{S.cur=null;document.body.classList.remove('md');render()}
 }
-function renderDetail(j){
-  const bene=(j.benefits||[]).slice(0,3);
+function renderDetail(i){
+  const j=S.jobs[i],bene=(j.benefits||[]).slice(0,3),dem=demandOf(i);
+  const isOffer=(i===OFFER_IDX);
   $('#dhead').innerHTML=`
-    <div class="dtags">
-      ${j.dpa?'<span class="dt dpa">✓ DPA approved</span>':''}
-      ${j.billing?`<span class="dt">${esc(j.billing)}</span>`:''}
-      <span class="dt">Permanent</span>
+    <div class="dhtags">
+      ${eligibleOf(j)?'<span class="dpill"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Eligible for you</span>':''}
+      <span class="dmeta">${esc(billOf(j))} · Permanent</span>
     </div>
     <h1>General Practice in ${esc(suburbOf(j))}</h1>
     <p class="dloc"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>${esc(j.loc)}</p>`;
-  $('#dphoto').innerHTML=`<figure class="dphoto"><img src="${esc(j.hero)}" onerror="this.remove()"><figcaption>🔒 Confidential listing · area preview</figcaption></figure>`;
+  $('#dphoto').innerHTML=`<figure class="dphoto"><img src="${esc(j.hero)}" onerror="this.style.display='none'"><figcaption><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Confidential listing · area preview</figcaption></figure>`;
+
+  const pct=Math.min(92,44+(dem%40));
   $('#dbody').innerHTML=`
+    <section class="priority rv rv2">
+      <div class="ph"><span class="live"></span>High interest in this role<span class="pcount">${dem}<span> applied</span></span></div>
+      <div class="pbar"><i id="pbarFill"></i></div>
+      <p class="pnote">Doctors with a <b>complete CV and profile</b> are shortlisted first — the practice sees them before anyone else. ${S.cvComplete?'':'Finish your profile to move up the queue.'}</p>
+      ${S.cvComplete?`<span class="pyou"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Your CV is complete — you'll be prioritised</span>`:''}
+    </section>
+
     ${j.earnings?`<div class="sech">The package</div>
     <div class="earnrow rv rv2">
       <div class="cell"><span>Headline</span><b>${esc(j.earnings)}</b></div>
       <div class="cell"><span>Structure</span><b>% of billings</b></div>
     </div>`:''}
+
     <div class="sech">About the role</div>
-    <div class="intro rv rv2">${esc(j.intro||'A well-established practice partnered with GP Link. Structured onboarding, supportive team, and a stable patient base.')} <em>Full profile unlocks as your application progresses.</em></div>
+    <div class="intro rv rv3">${esc(j.intro||'A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.')} <em>The full profile unlocks as your application progresses.</em></div>
+
     <div class="sech">Why GPs choose it</div>
-    <ul class="bene rv rv3">${bene.map(b=>`<li><span class="bi"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>${esc(b)}</li>`).join('')||'<li><span class="bi">✓</span>Structured onboarding and stable patient base.</li>'}</ul>
+    <ul class="bene rv rv3">${bene.map(b=>`<li><span class="bi"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>${esc(b)}</li>`).join('')||'<li><span class="bi">✓</span>Structured onboarding and a stable patient base.</li>'}</ul>
+
     <div class="sech">The practice</div>
-    <div class="vault rv rv3" onclick="this.classList.remove('shake');void this.offsetWidth;this.classList.add('shake');toast('Unlocks when your application is accepted')">
+    <div class="vault rv rv3" onclick="shakeVault(this)">
       <span class="vshine"></span>
       <div class="vault-in">
         <span class="vlock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
         <div style="flex:1;min-width:0">
           <div class="vname"></div>
-          <p class="vcap"><b>Identity protected while you decide.</b> Name, address &amp; team revealed the moment you're <b>accepted</b> — it keeps matching fair for you and the practice.</p>
+          <p class="vcap"><b>Identity protected while you decide.</b> Name, address &amp; team are revealed the moment you're <b>accepted</b> — keeping matching fair for you and the practice.</p>
         </div>
       </div>
     </div>
+
     <div class="sech">Meet them on video</div>
     <div class="video rv rv4" onclick="toast('Intro video plays here in the app')">
-      <span class="vthumb"><img src="${esc(j.hero)}" onerror="this.remove()"><span class="vplay"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></span></span>
+      <span class="vthumb"><img src="${esc(j.hero)}" onerror="this.style.display='none'"><span class="vplay"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></span></span>
       <div><h4>Practice introduction · 2 min</h4><p>The team, the patient mix, your typical week — identity kept private.</p></div>
     </div>
+
     <div class="sech">The area</div>
-    <figure class="maphint rv rv4">
-      <span class="pin"><span class="ring"><span class="dot"></span></span></span>
-      <figcaption>${esc(suburbOf(j))} area — exact address on acceptance</figcaption>
-    </figure>
+    <figure class="maphint rv rv4"><span class="pin"><span class="ring"><span class="dot"></span></span></span><figcaption>${esc(suburbOf(j))} area — exact address on acceptance</figcaption></figure>
+
     <div class="sech">In your corner</div>
-    <div class="rso rv rv4">
-      <span class="ava">RS</span>
-      <p><b>Your RSO reviews before the practice sees it</b> — and negotiates your terms. Free for doctors, always.</p>
-    </div>`;
+    <div class="rso rv rv4"><span class="ava">RS</span><p><b>Your RSO reviews every application before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>`;
+
+  requestAnimationFrame(()=>{const f=$('#pbarFill');if(f)f.style.width=pct+'%'});
   paintApply();
 }
+function shakeVault(el){el.classList.remove('shake');void el.offsetWidth;el.classList.add('shake');toast('The practice name unlocks when your application is accepted')}
 function paintApply(){
   const i=S.cur;if(i==null)return;
   const a=$('#dApply'),s=$('#dSave');
-  if(S.applied.has(i)){a.textContent='✓ Submitted — RSO reviewing';a.classList.add('done')}
-  else{a.textContent='Apply — your RSO reviews first';a.classList.remove('done')}
+  if(S.applied.has(i)){a.innerHTML='✓ Submitted<small>Your RSO is reviewing it now</small>';a.classList.add('done')}
+  else{a.innerHTML='Apply for this role<small>Your RSO reviews before the practice does</small>';a.classList.remove('done')}
   s.className='btn-save2'+(S.saved.has(i)?' on':'');
-  a.onclick=()=>{if(S.applied.has(i))return toast('Already in — hang tight');
-    S.applied.add(i);localStorage.vb_applied=JSON.stringify([...S.applied]);paintApply();render();toast('Sent ✓ Your RSO will be in touch')};
+  a.onclick=()=>{if(S.applied.has(i))return toast('Already applied — your RSO is on it');
+    S.applied.add(i);localStorage.at_applied=JSON.stringify([...S.applied]);paintApply();
+    toast('Application sent ✓ Your RSO will be in touch shortly')};
   s.onclick=()=>toggleSave(i);
 }
 </script>
