@@ -232,6 +232,65 @@ describe('masked-title fallback — card roleType + public title never leak a re
   });
 });
 
+describe('careerRoleTitleLeaksPracticeName hardening — partial phrases, punctuation, missing practice', () => {
+  // Suburb/nearest_city deliberately do NOT contain any word under test — the
+  // masked fallback legitimately surfaces the suburb, so the assertions below
+  // isolate practice-name leakage only.
+  const zooRow = (over) => ({
+    id: 'role-hard', provider: 'zoho_recruit', provider_role_id: 'z_hard1',
+    is_active: true, dpa: true, location_state: 'QLD', suburb: 'Acacia Ridge',
+    nearest_city: 'Brisbane', billing_model: 'bulk', updated_at: NOW, ...over
+  });
+
+  it('partial-phrase leak: a title containing the distinctive practice token is masked', () => {
+    const row = zooRow({
+      title: 'GP wanted at Sunnybank Family Medical',
+      practice_name: 'Sunnybank Family Medical Centre'
+    });
+    const card = tu.mapCareerRoleRowToClient(row);
+    const pub = tu.mapCareerRoleRowToPublicJob(row);
+    expect(card.roleType).not.toContain('Sunnybank');
+    expect(pub.title).not.toContain('Sunnybank');
+    expect(String(card.roleType).trim()).toBeTruthy();
+    expect(String(pub.title).trim()).toBeTruthy();
+  });
+
+  it('punctuation variant: "Smith & Jones Medical" vs "Smith and Jones Medical Pty Ltd" is masked', () => {
+    const row = zooRow({
+      title: 'Smith & Jones Medical',
+      practice_name: 'Smith and Jones Medical Pty Ltd'
+    });
+    const card = tu.mapCareerRoleRowToClient(row);
+    const pub = tu.mapCareerRoleRowToPublicJob(row);
+    expect(card.roleType).not.toContain('Smith');
+    expect(card.roleType).not.toContain('Jones');
+    expect(pub.title).not.toContain('Smith');
+    expect(pub.title).not.toContain('Jones');
+  });
+
+  it('null practice_name + practice-looking title on a Zoho row is masked (cannot prove safe)', () => {
+    const row = zooRow({ title: 'Bramble & Voss Family Doctors', practice_name: null });
+    const card = tu.mapCareerRoleRowToClient(row);
+    const pub = tu.mapCareerRoleRowToPublicJob(row);
+    expect(card.roleType).not.toContain('Bramble');
+    expect(card.roleType).not.toContain('Voss');
+    expect(pub.title).not.toContain('Bramble');
+    expect(pub.title).not.toContain('Voss');
+    expect(String(card.roleType).trim()).toBeTruthy();
+  });
+
+  it('a genuine role title that shares no distinctive practice token is kept', () => {
+    const row = zooRow({
+      title: 'Locum GP — VR',
+      practice_name: 'Sunnybank Family Medical Centre'
+    });
+    const card = tu.mapCareerRoleRowToClient(row);
+    const pub = tu.mapCareerRoleRowToPublicJob(row);
+    expect(card.roleType).toBe('Locum GP — VR');
+    expect(pub.title).toBe('Locum GP — VR');
+  });
+});
+
 describe('applicantBand — fixed 15–23 deterministic band, never the real count, never on public', () => {
   it('is an integer within [15,23]', () => {
     const card = tu.mapCareerRoleRowToClient(INTERNAL_ROW);

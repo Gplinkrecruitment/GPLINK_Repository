@@ -18018,33 +18018,98 @@ function careerRoleMaskedTitleFallback(row) {
   return (generated && String(generated).trim()) ? String(generated).trim() : 'General Practitioner';
 }
 
+// Company-name suffixes that carry no identifying signal — dropped from BOTH
+// the title and the practice name before comparison so "Smith & Jones Medical"
+// matches "Smith and Jones Medical Pty Ltd".
+const CAREER_COMPANY_SUFFIX_TOKENS = new Set(['pty', 'ltd']);
+// Generic (non-distinctive) practice words. A practice name made up entirely of
+// these has NO identifying token, so token-overlap detection is skipped and we
+// rely on the normalized-substring check only. Real identifiers like
+// "Sunnybank" are NOT in this list, so they still trigger a leak.
+const CAREER_PRACTICE_STOPWORDS = new Set([
+  'medical', 'centre', 'center', 'clinic', 'practice', 'family', 'health',
+  'care', 'group', 'the', 'of', 'and', 'at', 'dr'
+]);
+
+// Normalize a title/practice name for leak comparison: lowercase, expand `&` to
+// `and`, strip ALL punctuation to single spaces (so "—", ".", "'", "()" don't
+// hide a match), drop company suffixes (pty / ltd), collapse whitespace.
+function normalizeCareerLeakString(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((token) => token && !CAREER_COMPANY_SUFFIX_TOKENS.has(token))
+    .join(' ')
+    .trim();
+}
+
 // True when a non-internal row's raw `title` would leak the real practice
 // name. Zoho job openings normally store a role title (Posting_Title) in
 // `title` and the practice in `practice_name` (Client_Name), but some legacy
 // rows stored the practice name AS the posting title — that (and only that) is
 // what must never surface. A safe generic role title (e.g. "General
-// Practitioner", "Locum GP") is kept as-is.
+// Practitioner", "Locum GP") is kept as-is. Matching is done on NORMALIZED
+// strings and also flags any distinctive practice token appearing in the title
+// (e.g. "GP wanted at Sunnybank Family Medical" vs "Sunnybank Family Medical
+// Centre"). When the practice name is missing we cannot PROVE the title is safe,
+// so we treat it as a leak (the caller then uses a masked fallback).
 function careerRoleTitleLeaksPracticeName(row) {
-  const title = String((row && row.title) || '').trim().toLowerCase();
-  const practice = String((row && row.practice_name) || '').trim().toLowerCase();
-  if (!title || !practice) return false;
-  return title === practice || title.includes(practice) || practice.includes(title);
+  const titleNorm = normalizeCareerLeakString(row && row.title);
+  const practiceNorm = normalizeCareerLeakString(row && row.practice_name);
+  if (!titleNorm) return false;               // nothing to leak
+  if (!practiceNorm) return true;             // can't prove safe → mask
+  if (titleNorm === practiceNorm || titleNorm.includes(practiceNorm) || practiceNorm.includes(titleNorm)) {
+    return true;
+  }
+  const practiceTokens = practiceNorm.split(' ').filter(Boolean);
+  const distinctive = practiceTokens.filter((token) => !CAREER_PRACTICE_STOPWORDS.has(token));
+  if (distinctive.length === 0) return false; // only generic words → substring check already ran
+  const titleTokens = new Set(titleNorm.split(' ').filter(Boolean));
+  // Two or more of the practice's identifying words appearing in the title is a
+  // clear leak (e.g. "Bramble Voss ..." → "... Bramble Voss ...").
+  if (distinctive.filter((token) => titleTokens.has(token)).length >= 2) return true;
+  // A contiguous run of the practice name (>=2 words including at least one
+  // distinctive word) appearing verbatim in the title is a strong identity leak
+  // even when only ONE distinctive word is shared — this is what flags
+  // "GP wanted at Sunnybank Family Medical" against "Sunnybank Family Medical
+  // Centre" while leaving a generic "Outback Rural Locum GP" (practice "Outback
+  // Family Practice") — a lone shared descriptor — untouched.
+  const paddedTitle = ' ' + titleNorm + ' ';
+  for (let i = 0; i < practiceTokens.length - 1; i++) {
+    const a = practiceTokens[i];
+    const b = practiceTokens[i + 1];
+    if (CAREER_PRACTICE_STOPWORDS.has(a) && CAREER_PRACTICE_STOPWORDS.has(b)) continue;
+    if (paddedTitle.includes(' ' + a + ' ' + b + ' ')) return true;
+  }
+  return false;
 }
 
-// The doctor-facing "Role" title. Internal-ATS jobs keep the admin-written job
-// title (safe, doctor-facing copy). Otherwise the vetted masked_title wins;
-// then the raw title is used only when it does NOT leak the practice name;
-// otherwise a generated masked title / generic label.
-function careerRoleTypeLabel(row) {
+// Single leak-aware precedence for the doctor-facing role title, shared by the
+// card `roleType` and the public `title`. The ONE intentional difference is
+// `internalTitleFirst`:
+//   - card (roleType): internal-ATS rows show their real admin-written title
+//     BEFORE the masked_title.
+//   - public (title):  the masked_title wins first, even for internal rows.
+// Non-internal (Zoho/legacy) rows: masked_title wins; else the raw title only
+// when it can be PROVEN not to leak the practice name; else a masked fallback.
+function resolveCareerRoleDisplayTitle(row, { internalTitleFirst } = {}) {
+  const masked = (row && row.masked_title && String(row.masked_title).trim()) ? String(row.masked_title).trim() : '';
+  const rawTitle = (row && row.title && String(row.title).trim()) ? String(row.title).trim() : '';
   if (row && row.provider === 'internal_ats') {
-    const t = (row.title && String(row.title).trim()) || (row.masked_title && String(row.masked_title).trim());
-    return t ? String(t) : 'General Practitioner';
+    if (internalTitleFirst) return rawTitle || masked || 'General Practitioner';
+    return masked || rawTitle || careerRoleMaskedTitleFallback(row);
   }
-  if (row && row.masked_title && String(row.masked_title).trim()) return String(row.masked_title).trim();
-  if (row && row.title && String(row.title).trim() && !careerRoleTitleLeaksPracticeName(row)) {
-    return String(row.title).trim();
-  }
+  if (masked) return masked;
+  if (rawTitle && !careerRoleTitleLeaksPracticeName(row)) return rawTitle;
   return careerRoleMaskedTitleFallback(row);
+}
+
+// The doctor-facing "Role" title (card list). Internal-ATS jobs keep the
+// admin-written job title first; otherwise the leak-aware masked precedence.
+function careerRoleTypeLabel(row) {
+  return resolveCareerRoleDisplayTitle(row, { internalTitleFirst: true });
 }
 
 // Resolve the practice intro video for a career role, checking every place the
@@ -18259,13 +18324,10 @@ function mapCareerRoleRowToPublicJob(row) {
     // Internal-ATS rows may then use their admin-written title. For Zoho/legacy
     // rows the raw title is kept ONLY when it does not leak the practice name
     // (see careerRoleTitleLeaksPracticeName) — otherwise a masked fallback.
-    title: (row && row.masked_title && String(row.masked_title).trim())
-      ? String(row.masked_title).trim()
-      : ((row && row.provider === 'internal_ats' && row.title && String(row.title).trim())
-        ? String(row.title).trim()
-        : ((row && row.title && String(row.title).trim() && !careerRoleTitleLeaksPracticeName(row))
-          ? String(row.title).trim()
-          : careerRoleMaskedTitleFallback(row))),
+    // Shares the exact leak-aware precedence as the card roleType; the only
+    // difference is that the public title puts masked_title ahead of an
+    // internal-ATS row's real title.
+    title: resolveCareerRoleDisplayTitle(row, { internalTitleFirst: false }),
     display_label: practicePipeline.buildMaskedDisplayLabel({
       billingStyle: row && row.billing_model,
       dpa: !!(row && row.dpa),
