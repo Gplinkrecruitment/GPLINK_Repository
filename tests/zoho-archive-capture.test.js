@@ -40,3 +40,25 @@ describe('upsertCandidateLeads filtering (pure part)', () => {
     U.__setSupabaseDbRequestForTests(null);
   });
 });
+
+describe('captureZohoArchive', () => {
+  it('pulls all three modules, archives, and builds leads', async () => {
+    U.__setZohoAccessForTests(async () => ({ accessToken: 't', apiDomain: 'https://recruit.example', connection: {} }));
+    const byPath = {
+      JobOpenings: [{ id: 'j1' }], Clients: [{ id: 'c1' }],
+      Candidates: [{ id: 'k1', Email: 'a@x.com', Full_Name: 'A' }, { id: 'k2', Email: 'b@x.com', Candidate_Status: 'Hired' }],
+    };
+    U.__setZohoRecordFetcherForTests(async (paths, q) => {
+      const key = paths[0];
+      return { records: q.page === 1 ? (byPath[key] || []) : [], data: { info: { more_records: false } } };
+    });
+    const writes = [];
+    U.__setSupabaseDbRequestForTests(async (path, q, opts) => { writes.push({ path, n: opts.body.length }); return { ok: true }; });
+    const res = await U.captureZohoArchive();
+    expect(res.ok).toBe(true);
+    expect(res.jobOpenings.fetched).toBe(1);
+    expect(res.candidates.fetched).toBe(2);
+    expect(res.leads).toEqual({ inserted: 1, skippedHired: 1, skippedNoEmail: 0 });
+    U.__setZohoAccessForTests(null); U.__setZohoRecordFetcherForTests(null); U.__setSupabaseDbRequestForTests(null);
+  });
+});

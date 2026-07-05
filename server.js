@@ -19562,6 +19562,34 @@ async function upsertCandidateLeads(candidateRecords) {
   return { inserted: inserted, skippedHired: skippedHired, skippedNoEmail: skippedNoEmail };
 }
 
+// test seam: allow tests to stub the Zoho access-token/domain lookup
+let _zohoAccessForTests = null;
+function __setZohoAccessForTests(fn) { _zohoAccessForTests = fn; }
+
+// Orchestrator: pull all Zoho Recruit modules, archive raw records, and build candidate leads.
+async function captureZohoArchive() {
+  const zoho = _zohoAccessForTests ? await _zohoAccessForTests() : await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho || !zoho.accessToken) return { ok: false, error: 'zoho_not_connected' };
+  const pulledAt = new Date().toISOString();
+
+  const jobs = await fetchAllZohoRecruitJobOpenings(zoho);
+  const clients = await fetchAllZohoRecruitClients(zoho);
+  const candidates = await fetchAllZohoRecruitCandidates(zoho);
+
+  const jw = await writeZohoArchiveRecords('job_opening', jobs, pulledAt);
+  const cw = await writeZohoArchiveRecords('client', clients, pulledAt);
+  const nw = await writeZohoArchiveRecords('candidate', candidates, pulledAt);
+  const leads = await upsertCandidateLeads(candidates);
+
+  return {
+    ok: true, pulledAt: pulledAt,
+    jobOpenings: { fetched: jobs.length, archived: jw.written },
+    clients: { fetched: clients.length, archived: cw.written },
+    candidates: { fetched: candidates.length, archived: nw.written },
+    leads: leads,
+  };
+}
+
 async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, apiDomain, resourcePaths) {
   const paths = Array.isArray(resourcePaths) ? resourcePaths.filter(Boolean) : [];
   if (paths.length === 0) return null;
@@ -51042,6 +51070,8 @@ module.exports.__testUtils = {
   writeZohoArchiveRecords,
   upsertCandidateLeads,
   __setSupabaseDbRequestForTests,
+  captureZohoArchive,
+  __setZohoAccessForTests,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,
