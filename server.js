@@ -26197,7 +26197,11 @@ async function atsListPracticesDerived() {
         // them) — they always report as an existing/mainstream practice.
         stage: 'active', agreement_status: 'unsigned', website: '', dpa: null,
         suburb: '', nearest_city: '', intro_text: '', intro_video_url: '',
-        agreement_signed_pdf_key: '', intake_token: '', metadata: {}
+        agreement_signed_pdf_key: '', intake_token: '', metadata: {},
+        // Phase 3: name-only practices have no row, so no org_type column and
+        // no manually uploaded contract — always plain 'practice' defaults.
+        org_type: 'practice',
+        agreement_manual_pdf_key: '', agreement_manual_uploaded_at: '', agreement_manual_uploaded_by: ''
       };
     }
     var e = byKey[k];
@@ -26235,6 +26239,10 @@ async function atsListPracticesDerived() {
     e.agreement_signed_pdf_key = p.agreement_signed_pdf_key || '';
     e.intake_token = p.intake_token || '';
     e.metadata = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
+    e.org_type = (p.org_type === 'corporation') ? 'corporation' : 'practice';
+    e.agreement_manual_pdf_key = p.agreement_manual_pdf_key || '';
+    e.agreement_manual_uploaded_at = p.agreement_manual_uploaded_at || '';
+    e.agreement_manual_uploaded_by = p.agreement_manual_uploaded_by || '';
   });
   return Object.keys(byKey).map(function (k) { return byKey[k]; });
 }
@@ -26260,7 +26268,11 @@ async function atsResolvePractice(id) {
     suburb: row.suburb || '', nearest_city: row.nearest_city || '',
     intro_text: row.intro_text || '', intro_video_url: row.intro_video_url || '',
     agreement_signed_pdf_key: row.agreement_signed_pdf_key || '', intake_token: row.intake_token || '',
-    metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {}
+    metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
+    org_type: (row.org_type === 'corporation') ? 'corporation' : 'practice',
+    agreement_manual_pdf_key: row.agreement_manual_pdf_key || '',
+    agreement_manual_uploaded_at: row.agreement_manual_uploaded_at || '',
+    agreement_manual_uploaded_by: row.agreement_manual_uploaded_by || ''
   };
 }
 
@@ -50911,11 +50923,18 @@ Return ONLY valid JSON with no markdown formatting:
     var plCards = derived.map(function (p) {
       var cand = 0;
       (p.jobs || []).forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; }); });
+      // Contract on file = either the e-signed agreement key or the manually
+      // uploaded one (including the degraded metadata stash the sign endpoint
+      // writes when migration 20260705100000 isn't applied).
+      var plMetaAgr = (p.metadata && p.metadata.pipeline_agreement) || null;
+      var plSignedKey = p.agreement_signed_pdf_key || (plMetaAgr && plMetaAgr.agreement_signed_pdf_key) || '';
       return {
         id: p.id, name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
         contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
         job_count: (p.jobs || []).length, candidate_count: cand,
-        stage: p.stage || 'active', agreement_status: p.agreement_status || 'unsigned', source: p.source || ''
+        stage: p.stage || 'active', agreement_status: p.agreement_status || 'unsigned', source: p.source || '',
+        org_type: p.org_type === 'corporation' ? 'corporation' : 'practice',
+        has_contract: !!(plSignedKey || p.agreement_manual_pdf_key)
       };
     });
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
@@ -50928,11 +50947,16 @@ Return ONLY valid JSON with no markdown formatting:
     var ctxPC = requireAtsSession(req, res); if (!ctxPC) return;
     var bodyP; try { bodyP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     if (!bodyP || !String(bodyP.name || '').trim()) { sendJson(res, 400, { ok: false, message: 'Practice name is required.' }); return; }
+    var pcOrgType = 'practice';
+    if (bodyP.org_type !== undefined && bodyP.org_type !== null && bodyP.org_type !== '') {
+      if (bodyP.org_type !== 'practice' && bodyP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
+      pcOrgType = bodyP.org_type;
+    }
     var pracRow = {
       name: String(bodyP.name).trim(), location_city: String(bodyP.city || ''), location_state: String(bodyP.state || ''),
       location_country: 'Australia', practice_type: String(bodyP.type || ''), contact_name: String(bodyP.contact || ''),
       contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
-      source: 'internal_ats', is_active: true, created_by: ctxPC.email || ''
+      source: 'internal_ats', is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
     };
     var createdP = await atsInsertPracticeRow(pracRow);
     if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
@@ -50965,6 +50989,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (pgSignedKey && pgSignedKey.indexOf('local:') !== 0) {
       try { pgSignedUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pgSignedKey, 'agreement.pdf')) || null; } catch (e) { pgSignedUrl = null; }
     }
+    // Manually uploaded contract (Phase 3) — separate key, same signed-URL treatment.
+    var pgManualKey = pg.agreement_manual_pdf_key || '';
+    var pgManualUrl = null;
+    if (pgManualKey && pgManualKey.indexOf('local:') !== 0) {
+      try { pgManualUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pgManualKey, 'agreement-manual.pdf')) || null; } catch (e) { pgManualUrl = null; }
+    }
     var pgIntake = (pg.metadata && pg.metadata.intake) || null;
     sendJson(res, 200, {
       ok: true,
@@ -50973,10 +51003,15 @@ Return ONLY valid JSON with no markdown formatting:
         practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
         stage: pg.stage || 'active', agreement_status: pgAgreementStatus,
+        org_type: pg.org_type === 'corporation' ? 'corporation' : 'practice',
         website: pg.website || '', dpa: (typeof pg.dpa === 'boolean') ? pg.dpa : null,
         suburb: pg.suburb || '', nearest_city: pg.nearest_city || '',
         intro_text: pg.intro_text || '', intro_video_url: pg.intro_video_url || '',
-        intake: pgIntake, agreement_signed_pdf_url: pgSignedUrl
+        intake: pgIntake, agreement_signed_pdf_url: pgSignedUrl,
+        agreement_manual_pdf_url: pgManualUrl,
+        agreement_manual_uploaded_at: pg.agreement_manual_uploaded_at || '',
+        agreement_manual_uploaded_by: pg.agreement_manual_uploaded_by || '',
+        has_contract: !!(pgSignedKey || pgManualKey)
       },
       jobs: pgJobCards, candidates: pgCands
     });
@@ -50994,6 +51029,10 @@ Return ONLY valid JSON with no markdown formatting:
       var validStagesPP = ['prospective', 'active', 'declined', 'archived'];
       if (validStagesPP.indexOf(bodyPP.stage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
       patchP.stage = bodyPP.stage;
+    }
+    if (bodyPP.org_type !== undefined) {
+      if (bodyPP.org_type !== 'practice' && bodyPP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
+      patchP.org_type = bodyPP.org_type;
     }
     if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var parsedPP = atsParsePracticeId(ppgId);
@@ -51015,6 +51054,84 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
     sendJson(res, 200, { ok: true, practice: updatedP });
+    return;
+  }
+
+  // Manual signed-agreement upload (Phase 3): admins attach an already-signed
+  // contract PDF to a practice. Stored under a SEPARATE storage key from the
+  // e-signed agreement — this endpoint NEVER writes agreement_signed_pdf_key.
+  if (pathname === '/api/ats/practice/contract' && req.method === 'POST') {
+    var ctxMC = requireAtsSession(req, res); if (!ctxMC) return;
+    var bodyMC; try { bodyMC = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var mcId = String((bodyMC && bodyMC.id) || url.searchParams.get('id') || '').trim();
+    if (!mcId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var mcDataUrl = typeof (bodyMC && bodyMC.file_data) === 'string' ? bodyMC.file_data.trim() : '';
+    var mcParsed = mcDataUrl ? parseDataUrlPayload(mcDataUrl) : null;
+    if (!mcParsed) { sendJson(res, 400, { ok: false, message: 'The contract file could not be read — please attach it again.' }); return; }
+    if (String(mcParsed.mimeType || '').toLowerCase() !== 'application/pdf') { sendJson(res, 400, { ok: false, message: 'The contract must be a PDF.' }); return; }
+    if (mcParsed.buffer.length > 10 * 1024 * 1024) { sendJson(res, 400, { ok: false, message: 'The contract file is too large (10 MB max).' }); return; }
+    // Resolve the practice — a synthetic name-id (job-derived practice with no
+    // stored row) is upserted into a real row first, same as PATCH above.
+    var mcParsedId = atsParsePracticeId(mcId);
+    var mcRow = null;
+    if (mcParsedId.name) {
+      var mcStored = await atsListPracticeRows();
+      mcRow = mcStored.find(function (p) { return String(p.name || '').trim().toLowerCase() === mcParsedId.name.toLowerCase(); }) || null;
+      if (!mcRow) {
+        mcRow = await atsInsertPracticeRow({ name: mcParsedId.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxMC.email || '' });
+      }
+      if (!mcRow) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
+    } else {
+      mcRow = await atsGetPracticeRow(mcParsedId.rowId);
+      if (!mcRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    }
+    // Store the PDF BEFORE recording a key pointing at it (same order as the
+    // e-sign endpoint) — a failed upload aborts with no row changes.
+    var mcKey;
+    if (isSupabaseDbConfigured()) {
+      mcKey = 'practices/' + mcRow.id + '/agreement-manual.pdf';
+      var mcUploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, mcKey, mcDataUrl, 'application/pdf');
+      if (!mcUploaded) { sendJson(res, 502, { ok: false, message: 'Could not store the contract file — please try again.' }); return; }
+    } else {
+      try {
+        var mcDir = path.join(process.cwd(), 'data', 'practice-agreements');
+        fs.mkdirSync(mcDir, { recursive: true });
+        fs.writeFileSync(path.join(mcDir, mcRow.id + '-manual.pdf'), mcParsed.buffer);
+        mcKey = 'local:data/practice-agreements/' + mcRow.id + '-manual.pdf';
+      } catch (err) {
+        console.error('[ats/practice/contract] local write failed:', err && err.message);
+        sendJson(res, 502, { ok: false, message: 'Could not store the contract file — please try again.' });
+        return;
+      }
+    }
+    var mcPatch = {
+      agreement_manual_pdf_key: mcKey,
+      agreement_manual_uploaded_at: new Date().toISOString(),
+      agreement_manual_uploaded_by: ctxMC.email || ''
+    };
+    // Promote to signed, but NEVER regress an e-signed practice (nor touch
+    // agreement_signed_pdf_key). Check the degraded metadata stash too.
+    var mcMetaAgr = (mcRow.metadata && mcRow.metadata.pipeline_agreement) || null;
+    var mcAlreadySigned = mcRow.agreement_status === 'signed' || (mcMetaAgr && mcMetaAgr.agreement_status === 'signed');
+    if (!mcAlreadySigned) mcPatch.agreement_status = 'signed';
+    var mcSaved = await atsUpdatePracticeRow(mcRow.id, mcPatch);
+    if (!mcSaved) {
+      console.error('[ats/practice/contract] could not persist manual agreement — run migration 20260706120000');
+      sendJson(res, 503, { ok: false, message: 'Could not save the contract (the manual-agreement columns may not be set up yet).' });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      practice: {
+        id: mcSaved.id, name: mcSaved.name,
+        stage: mcSaved.stage || 'active',
+        agreement_status: mcSaved.agreement_status || (mcAlreadySigned ? 'signed' : 'unsigned'),
+        org_type: mcSaved.org_type === 'corporation' ? 'corporation' : 'practice',
+        agreement_manual_uploaded_at: mcSaved.agreement_manual_uploaded_at || mcPatch.agreement_manual_uploaded_at,
+        agreement_manual_uploaded_by: mcSaved.agreement_manual_uploaded_by || mcPatch.agreement_manual_uploaded_by,
+        has_contract: true
+      }
+    });
     return;
   }
 
