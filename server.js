@@ -163,6 +163,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
+const onboardingNudge = require('./lib/onboarding-nudge.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -7775,6 +7776,83 @@ async function releasePepWaitlist(email) {
     }
   }
   return true;
+}
+
+// ── Onboarding nudge reminders ─────────────────────────────────────────────
+// GPs who started but never finished the 5-step onboarding wizard get a chase
+// sequence (1h/24h/3d/weekly to day 31) from notifications@. Pure scheduling
+// lives in lib/onboarding-nudge.js; these helpers own storage + sending.
+
+function onbUnsubToken(userId) {
+  return crypto.createHmac('sha256', SECRET).update('onb-unsub:' + String(userId || '')).digest('hex');
+}
+function onbUnsubTokenValid(userId, token) {
+  var expect = onbUnsubToken(userId);
+  var got = String(token || '');
+  if (got.length !== expect.length) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expect, 'utf8')); } catch (e) { return false; }
+}
+
+async function listOnboardingReminders() {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('onboarding_reminders', 'select=*&limit=5000');
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  var out = [];
+  var map = dbState.onboardingReminders || {};
+  Object.keys(map).forEach(function (k) { out.push(map[k]); });
+  return out;
+}
+
+// Upsert by user_id (Supabase) / lowercased email (local). patch always includes email.
+async function upsertOnboardingReminder(userId, patch) {
+  var nowIso = new Date().toISOString();
+  var body = Object.assign({}, patch, { updated_at: nowIso });
+  if (isSupabaseDbConfigured()) {
+    var q = 'select=id&user_id=eq.' + encodeURIComponent(String(userId));
+    var existing = await supabaseDbRequest('onboarding_reminders', q);
+    if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+      await supabaseDbRequest('onboarding_reminders', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: body });
+    } else {
+      await supabaseDbRequest('onboarding_reminders', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [Object.assign({ user_id: userId, created_at: nowIso }, body)] });
+    }
+    return;
+  }
+  if (!dbState.onboardingReminders) dbState.onboardingReminders = {};
+  var key = String((patch && patch.email) || userId || '').trim().toLowerCase();
+  var prev = dbState.onboardingReminders[key] || { user_id: userId, created_at: nowIso, steps_sent: [], unsubscribed: false, stopped: false };
+  dbState.onboardingReminders[key] = Object.assign({}, prev, body, { user_id: prev.user_id || userId });
+  saveDbState();
+}
+
+// Send one nudge. row = onboarding_reminders row. Returns sendEmail's result.
+async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
+  if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
+  var to = String((row && row.email) || '').trim();
+  if (!to) return { ok: false, error: 'No email on reminder row' };
+  var firstName = String((row && row.name) || '').split(' ')[0] || '';
+  var copy = onboardingNudge.copyForStep(stepIndex, { name: firstName || 'there', stepsLeft: stepsLeft });
+  var step = (row && row.last_step != null && row.last_step >= 0 && row.last_step < 5) ? row.last_step : 0;
+  var ctaUrl = APP_BASE_URL + '/pages/onboarding.html?step=' + step;
+  var unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
+  var footer = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
+  // NOTE: buildCareerEmailHtml already wraps `body` in its own <p> tag, so pass
+  // copy.body as plain text here (not pre-wrapped) — matches the working call
+  // pattern in sendGpNotificationEmail just above.
+  var html = buildCareerEmailHtml({
+    title: copy.title,
+    body: copy.body,
+    ctaText: 'Continue where you left off',
+    ctaUrl: ctaUrl,
+    footer: footer
+  });
+  return sendEmail({
+    to: to,
+    subject: copy.subject,
+    html: html,
+    text: copy.body + '\n\nContinue: ' + ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    headers: { 'List-Unsubscribe': '<' + unsubUrl + '>' }
+  });
 }
 
 /**
@@ -24898,7 +24976,7 @@ function isEmailConfigured() {
 // attachments (optional): [{ filename, content (base64 string), contentType? }]
 // — forwarded to Resend's native attachments field (used by the in-app
 // submit-to-practice candidate introduction to carry the GP's CV).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
@@ -24926,6 +25004,8 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
     // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
     // per-task sequences without a queue table or cron on serverless.
     if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
+    // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
+    if (headers && typeof headers === 'object') emailPayload.headers = headers;
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       signal: controller.signal,
@@ -27322,6 +27402,37 @@ async function handleApi(req, res, pathname) {
       console.error('[Cron] Interview reminders failed:', err);
       sendJson(res, 500, { ok: false, error: err.message });
     }
+    return;
+  }
+
+  // GET /api/onboarding-reminders/unsubscribe?u=<userId>&t=<hmac> — one-click,
+  // no login (clicked from email). Valid token: mark unsubscribed (upsert a row
+  // if the cron hasn't created one yet, so the opt-out survives). Invalid: a
+  // generic page, no user enumeration.
+  if (req.method === 'GET' && pathname === '/api/onboarding-reminders/unsubscribe') {
+    var onbuU = String(url.searchParams.get('u') || '').trim();
+    var onbuT = String(url.searchParams.get('t') || '').trim();
+    var onbuPage = function (title, msg) {
+      return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>' + title + '</title></head><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1220;color:#e8ecf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+        + '<div style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 12px">' + title + '</h2><p style="color:#8a94a6">' + msg + '</p></div></body></html>';
+    };
+    if (!onbuU || !onbuT || !onbUnsubTokenValid(onbuU, onbuT)) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbuPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    try {
+      var onbuRows = await listOnboardingReminders();
+      var onbuRow = onbuRows.find(function (r) { return String(r.user_id) === onbuU; }) || null;
+      await upsertOnboardingReminder(onbuU, {
+        email: (onbuRow && onbuRow.email) || null,
+        unsubscribed: true,
+        unsubscribed_at: new Date().toISOString()
+      });
+    } catch (e) { console.error('[OnbNudge] unsubscribe write failed:', e.message); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbuPage('Unsubscribed', 'You won’t get onboarding reminder emails anymore. You can still sign in and finish your setup any time.'));
     return;
   }
 
