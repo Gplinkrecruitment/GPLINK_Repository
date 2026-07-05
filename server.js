@@ -18320,6 +18320,9 @@ async function maybeNotifySiteEnquiry(row) {
 }
 
 async function syncZohoRecruitRoles() {
+  // Phase 1 (Zoho decommission): job data is now owned (zoho_archive + backfill).
+  // The sync would overwrite owner-controlled dpa/billing/practice_name — hard off.
+  return { ok: false, disabled: true, error: 'zoho_job_sync_decommissioned' };
   if (!isZohoRecruitConfigured()) {
     return { ok: false, status: 503, message: 'Zoho Recruit integration is not configured.' };
   }
@@ -51432,6 +51435,7 @@ module.exports.__testUtils = {
   __setSupabaseDbRequestForTests,
   captureZohoArchive,
   __setZohoAccessForTests,
+  syncZohoRecruitRoles,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,

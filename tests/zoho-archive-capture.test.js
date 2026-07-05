@@ -62,3 +62,15 @@ describe('captureZohoArchive', () => {
     U.__setZohoAccessForTests(null); U.__setZohoRecordFetcherForTests(null); U.__setSupabaseDbRequestForTests(null);
   });
 });
+
+describe('syncZohoRecruitRoles — Phase 1 decommission kill-switch', () => {
+  it('resolves to the disabled contract immediately, without touching any Zoho/DB seam', async () => {
+    // Deliberately NOT setting any seam stubs (no __setZohoAccessForTests, no
+    // __setSupabaseDbRequestForTests, no __setZohoRecordFetcherForTests). If the
+    // sync attempted any real I/O in this test env it would throw/reject with a
+    // different shape (missing config, network error, etc). Resolving to exactly
+    // this object proves it exits before any Zoho/DB call.
+    const res = await U.syncZohoRecruitRoles();
+    expect(res).toEqual({ ok: false, disabled: true, error: 'zoho_job_sync_decommissioned' });
+  });
+});
