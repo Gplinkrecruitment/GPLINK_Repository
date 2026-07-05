@@ -44,7 +44,7 @@ describe('mapZohoClientToPracticeRow', () => {
       contact_phone: '0399999999',
       location_city: 'Bendigo',
       location_state: 'VIC',
-      source: 'zoho_import',
+      source: 'backfill',
       is_active: true,
     });
   });
@@ -79,7 +79,7 @@ describe('mapZohoClientToPracticeRow', () => {
       contact_phone: '',
       location_city: '',
       location_state: '',
-      source: 'zoho_import',
+      source: 'backfill',
       is_active: true,
     });
   });
