@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_onboarding_reminders_active ON onboarding_reminde
 -- service-role-only RLS, same DO-block pattern as pep_waitlist (20260705110000).
 ```
 
-Migration file: `supabase/migrations/20260705120000_onboarding_reminders.sql`. **Not** applied automatically — applied via `rpc/exec_sql` with the service key (repo convention). Local-DB fallback: `dbState.onboardingReminders` keyed by lowercased email.
+Migration file: `supabase/migrations/20260705130000_onboarding_reminders.sql`. **Not** applied automatically — applied via `rpc/exec_sql` with the service key (repo convention). Local-DB fallback: `dbState.onboardingReminders` keyed by lowercased email.
 
 ### Unit B — the reminder engine (pure) + hourly cron (new)
 
@@ -144,7 +144,7 @@ Idempotent: `steps_sent` guarantees no double-send within an anchor window even 
 
 ## Files touched
 
-- **New:** `supabase/migrations/20260705120000_onboarding_reminders.sql`, `lib/onboarding-nudge.js`, `tests/onboarding-nudge.test.js`, `tests/onboarding-incomplete-endpoint.test.js`, `docs/onboarding-nudge-waitlist.md` (ops note).
+- **New:** `supabase/migrations/20260705130000_onboarding_reminders.sql`, `lib/onboarding-nudge.js`, `tests/onboarding-nudge.test.js`, `tests/onboarding-incomplete-endpoint.test.js`, `docs/onboarding-nudge-waitlist.md` (ops note).
 - **Edit:** `server.js` (cron branch, `/api/ceo/onboarding-incomplete`, `/api/onboarding-reminders/unsubscribe`, funnel-exclusion guard, reminder-send helper), `vercel.json` (cron entry), `pages/ceo-dashboard.html` (2-tab Waitlist), `js/onboarding.js` (`?step=` honor + cache-buster), `CLAUDE.md`/cache-buster conventions as needed.
 
 ## Out of scope (YAGNI)

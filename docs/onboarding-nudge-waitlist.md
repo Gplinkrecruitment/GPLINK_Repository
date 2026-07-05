@@ -27,7 +27,7 @@ The emails are sent on this schedule:
 
 **Database Table:** `onboarding_reminders` — tracks each GP's last email date, which step they're on, unsubscribe status, and whether reminders are paused
 
-**Migration:** `supabase/migrations/20260705120000_onboarding_reminders.sql` — creates the table (must be applied to prod via the standard exec_sql route before the cron can store state)
+**Migration:** `supabase/migrations/20260705130000_onboarding_reminders.sql` — creates the table (must be applied to prod via the standard exec_sql route before the cron can store state)
 
 ## CEO Dashboard
 

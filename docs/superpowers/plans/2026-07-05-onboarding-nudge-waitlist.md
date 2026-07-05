@@ -28,7 +28,7 @@
 **Files:**
 - Create: `lib/onboarding-nudge.js`
 - Create: `tests/onboarding-nudge.test.js`
-- Create: `supabase/migrations/20260705120000_onboarding_reminders.sql`
+- Create: `supabase/migrations/20260705130000_onboarding_reminders.sql`
 
 **Interfaces:**
 - Produces (consumed by Tasks 2–4):
@@ -217,7 +217,7 @@ module.exports = { NUDGE_SCHEDULE_MS, ONBOARDING_STEP_LABELS, nextDueStep, isExh
 
 - [ ] **Step 4: Run tests** — `npx vitest run tests/onboarding-nudge.test.js` → PASS.
 
-- [ ] **Step 5: Create the migration** `supabase/migrations/20260705120000_onboarding_reminders.sql` (mirror the `pep_waitlist` file's conventions exactly — loose user_id, service-role RLS DO-block):
+- [ ] **Step 5: Create the migration** `supabase/migrations/20260705130000_onboarding_reminders.sql` (mirror the `pep_waitlist` file's conventions exactly — loose user_id, service-role RLS DO-block):
 
 ```sql
 -- Onboarding reminders — chase GPs who started but never finished onboarding.
@@ -267,7 +267,7 @@ END $$;
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/onboarding-nudge.js tests/onboarding-nudge.test.js supabase/migrations/20260705120000_onboarding_reminders.sql
+git add lib/onboarding-nudge.js tests/onboarding-nudge.test.js supabase/migrations/20260705130000_onboarding_reminders.sql
 git commit -m "feat(nudge): pure onboarding-nudge engine + onboarding_reminders migration"
 ```
 
@@ -955,6 +955,6 @@ git push origin worktree-onboarding-nudge-waitlist
 #   git -C "<repo root>" push origin main
 ```
 
-- [ ] **Step 5: Apply the migration to PROD Supabase** via the established `rpc/exec_sql` path (service key in `.env`, param name `query`, schema-qualify names) — run the SQL from `supabase/migrations/20260705120000_onboarding_reminders.sql`, then verify with a `select count(*) from public.onboarding_reminders` roundtrip.
+- [ ] **Step 5: Apply the migration to PROD Supabase** via the established `rpc/exec_sql` path (service key in `.env`, param name `query`, schema-qualify names) — run the SQL from `supabase/migrations/20260705130000_onboarding_reminders.sql`, then verify with a `select count(*) from public.onboarding_reminders` roundtrip.
 - [ ] **Step 6: Verify Vercel picked up the deploy** (list deployments; confirm READY) and that `vercel.json` cron count increased. Note: Vercel Hobby/Pro cron limits — if the deploy rejects the 16th cron, consolidate: fold onboarding-nudge into an existing hourly cron path (`process-gmail` runs hourly) ONLY if rejected; otherwise leave standalone.
 - [ ] **Step 7: Report** — plain-language summary; flag that the first live email send should be observed in Resend's dashboard.
