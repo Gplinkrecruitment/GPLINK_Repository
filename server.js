@@ -31753,14 +31753,16 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === '/api/integrations/zoho-recruit/archive-capture' && (req.method === 'POST' || req.method === 'GET')) {
     // Allow either the cron secret (Authorization: Bearer <secret>) OR an
-    // authenticated integration-admin session — same primitives as
-    // requireZohoRecruitCronAuth / requireIntegrationAdminSession above, but
-    // checked read-only first so we never double-write the response.
+    // authenticated super-admin session (admin cookie, not the user cookie —
+    // this is candidate-PII, and the CEO/super-admin dashboard authenticates
+    // via the admin cookie, so requireIntegrationAdminSession's user-session
+    // guard 401'd every legitimate CEO-dashboard call). Checked read-only
+    // first so we never double-write the response.
     const cronToken = getBearerToken(req);
     const cronOk = !!(ZOHO_RECRUIT_SYNC_CRON_SECRET && cronToken && timingSafeEqualStrings(cronToken, ZOHO_RECRUIT_SYNC_CRON_SECRET));
     if (!cronOk) {
-      const adminCtx = requireIntegrationAdminSession(req, res);
-      if (!adminCtx) return; // requireIntegrationAdminSession already wrote the 401/403
+      const adminCtx = requireSuperAdminSession(req, res);
+      if (!adminCtx) return; // requireSuperAdminSession already wrote the 401/403
     }
 
     try {
