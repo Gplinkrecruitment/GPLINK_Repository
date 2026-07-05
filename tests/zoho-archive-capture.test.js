@@ -63,6 +63,147 @@ describe('captureZohoArchive', () => {
   });
 });
 
+// Task 5 — server-side backfill runners: materializePracticesFromArchive
+// (client archive -> practices rows) and backfillCareerRolesFromArchive
+// (career_roles patched with dpa/masked_title/practice_id). Every DB call
+// goes through the archiveDb seam, stubbed here via a small path+method router
+// so we never touch a real Supabase instance.
+function makeBackfillRouter() {
+  const posts = [];
+  const patches = [];
+  let postN = 0;
+
+  const archiveClients = [
+    // Known corporation-group id (see lib/zoho-backfill.js CORPORATION_ZOHO_IDS)
+    // — no existing practice matches it, so it should be INSERTed.
+    {
+      zoho_id: '11734000000817081',
+      payload: { Client_Name: 'ForHealth Group', Client_Email: '', Billing_City: 'Sydney', Billing_State: 'NSW' },
+    },
+    // Matches the existing 'Bay village medical centre' practice by
+    // case-insensitive/trimmed name (not by zoho_client_id, which is unset).
+    {
+      zoho_id: '999',
+      payload: {
+        Client_Name: 'Bay Village Medical Centre',
+        Client_Email: 'zoho-contact@bayvillage.example',
+        Billing_City: 'Perth', Billing_State: 'WA',
+      },
+    },
+  ];
+
+  const existingPractices = [
+    {
+      id: 'existing-bay-village',
+      name: 'Bay village medical centre',
+      zoho_client_id: null,
+      contact_email: 'owner@bayvillage.example', // non-empty — must survive untouched
+      contact_phone: '',
+      contact_name: '',
+      org_type: 'practice',
+    },
+  ];
+
+  const archiveRoles = [
+    {
+      id: 'role-1',
+      billing_model: '',
+      nearest_city: 'Perth',
+      location_state: 'WA',
+      source_payload: {
+        zoho: {
+          DPA: 'Yes', City: 'Perth', Location: '12 Smith St', Zip_Code: '6000',
+          Billing_Type: 'Bulk billing', Client_Name: { id: '999' },
+        },
+      },
+    },
+    // No `.zoho` key on source_payload -> not a Zoho-sourced row -> must be skipped.
+    { id: 'role-2', billing_model: '', nearest_city: '', location_state: '', source_payload: {} },
+  ];
+
+  async function router(path, q, opts) {
+    const method = (opts && opts.method) || 'GET';
+    if (path === 'zoho_archive' && method === 'GET') return { ok: true, data: archiveClients };
+    if (path === 'practices' && method === 'GET') return { ok: true, data: existingPractices };
+    if (path === 'practices' && method === 'POST') {
+      postN++;
+      posts.push({ q, body: opts.body });
+      return { ok: true, data: [{ id: 'new-uuid-' + postN }] };
+    }
+    if (path === 'practices' && method === 'PATCH') {
+      patches.push({ table: 'practices', q, body: opts.body });
+      return { ok: true };
+    }
+    if (path === 'career_roles' && method === 'GET') return { ok: true, data: archiveRoles };
+    if (path === 'career_roles' && method === 'PATCH') {
+      patches.push({ table: 'career_roles', q, body: opts.body });
+      return { ok: true };
+    }
+    return { ok: false, status: 500, data: null };
+  }
+
+  return { router, posts, patches };
+}
+
+describe('materializePracticesFromArchive', () => {
+  it('inserts a new corporation practice and links/fills an existing match by name without overwriting owner data', async () => {
+    const { router, posts, patches } = makeBackfillRouter();
+    U.__setSupabaseDbRequestForTests(router);
+
+    const res = await U.materializePracticesFromArchive();
+
+    expect(res.ok).toBe(true);
+    expect(res.created).toBe(1);
+    expect(res.updated).toBe(1);
+
+    // (a) ForHealth INSERTed with org_type 'corporation'.
+    expect(posts.length).toBe(1);
+    expect(posts[0].body[0].org_type).toBe('corporation');
+    expect(posts[0].body[0].zoho_client_id).toBe('11734000000817081');
+    expect(res.byId['11734000000817081']).toBe('new-uuid-1');
+
+    // (b) Bay Village matched by name gets zoho_client_id, but its non-empty
+    // contact_email is NOT in the PATCH body (never overwrite owner data).
+    const bayPatch = patches.find(p => p.table === 'practices');
+    expect(bayPatch).toBeTruthy();
+    expect(bayPatch.q).toBe('id=eq.existing-bay-village');
+    expect(bayPatch.body.zoho_client_id).toBe('999');
+    expect(bayPatch.body.org_type).toBe('practice');
+    expect(bayPatch.body).not.toHaveProperty('contact_email');
+    expect(res.byId['999']).toBe('existing-bay-village');
+
+    U.__setSupabaseDbRequestForTests(null);
+  });
+});
+
+describe('backfillCareerRolesFromArchive', () => {
+  it('patches Zoho-sourced roles with dpa/masked_title/practice_id and skips non-Zoho rows', async () => {
+    const { router, patches } = makeBackfillRouter();
+    U.__setSupabaseDbRequestForTests(router);
+
+    const res = await U.backfillCareerRolesFromArchive();
+
+    expect(res.ok).toBe(true);
+    expect(res.patched).toBe(1);
+    expect(res.skipped).toBe(1);
+
+    // (c) role-1 patch carries dpa/masked_title/practice_id, linked via the
+    // practice materialized/matched for zoho_id '999' (Bay Village).
+    const rolePatch = patches.find(p => p.table === 'career_roles' && p.q === 'id=eq.role-1');
+    expect(rolePatch).toBeTruthy();
+    expect(rolePatch.body.dpa).toBe(true);
+    expect(typeof rolePatch.body.masked_title).toBe('string');
+    expect(rolePatch.body.masked_title.length).toBeGreaterThan(0);
+    expect(rolePatch.body.practice_id).toBe('existing-bay-village');
+
+    // (d) role-2 has no source_payload.zoho -> no PATCH issued for it.
+    const skippedPatch = patches.find(p => p.table === 'career_roles' && p.q === 'id=eq.role-2');
+    expect(skippedPatch).toBeFalsy();
+
+    U.__setSupabaseDbRequestForTests(null);
+  });
+});
+
 describe('syncZohoRecruitRoles — Phase 1 decommission kill-switch', () => {
   it('resolves to the disabled contract immediately, without touching any Zoho/DB seam', async () => {
     // Deliberately NOT setting any seam stubs (no __setZohoAccessForTests, no

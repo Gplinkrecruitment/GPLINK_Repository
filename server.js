@@ -155,6 +155,7 @@ const practicePipeline = require('./lib/practice-pipeline');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const { isZohoCandidateHired, toCandidateLead, normalizeArchiveRow } = require('./lib/zoho-archive.js');
+const { mapZohoClientToPracticeRow, buildCareerRoleBackfillPatch } = require('./lib/zoho-backfill.js');
 const {
   normalizeIchcReference, isValidIchcReference,
   isExampleIchcReference, isExampleIchcFile,
@@ -19813,6 +19814,104 @@ async function captureZohoArchive() {
     candidates: { fetched: candidates.length, archived: nw.written },
     leads: leads,
   };
+}
+
+// Contact fields on a `practices` row we'll fill from a Zoho client, but ONLY
+// when the existing owner-entered value is empty — we never clobber real data
+// with whatever happens to be sitting in the Zoho archive. Deliberately does
+// NOT include location_city/location_state: the existing-practices read below
+// doesn't select those columns, so we have no "existing value" to compare
+// against and must not guess.
+const PRACTICE_BACKFILL_FILL_ONLY_IF_EMPTY = ['contact_email', 'contact_phone', 'contact_name'];
+
+// Materialize `practices` rows from the archived Zoho `client` records: link
+// existing practices to their Zoho id (matching by zoho_client_id, then by
+// case-insensitive trimmed name) or insert a new row when there's no match.
+// Every DB call goes through the archiveDb seam so tests can stub it.
+async function materializePracticesFromArchive() {
+  const clientsRes = await archiveDb('zoho_archive', 'entity_type=eq.client&select=zoho_id,payload&limit=100');
+  if (!clientsRes || !clientsRes.ok) return { ok: false, error: 'archive_read_failed' };
+  const practicesRes = await archiveDb('practices', 'select=id,name,zoho_client_id,contact_email,contact_phone,contact_name,org_type&limit=500');
+  if (!practicesRes || !practicesRes.ok) return { ok: false, error: 'practices_read_failed' };
+
+  const existing = Array.isArray(practicesRes.data) ? practicesRes.data : [];
+  const byZohoClientId = {};
+  const byNameLower = {};
+  for (const p of existing) {
+    if (p && p.zoho_client_id) byZohoClientId[p.zoho_client_id] = p;
+    if (p && p.name) byNameLower[String(p.name).trim().toLowerCase()] = p;
+  }
+
+  let created = 0, updated = 0;
+  const byId = {};
+  const clients = Array.isArray(clientsRes.data) ? clientsRes.data : [];
+
+  for (const client of clients) {
+    const row = mapZohoClientToPracticeRow(client && client.payload, client && client.zoho_id);
+    if (!row.zoho_client_id) continue;
+
+    const match = byZohoClientId[row.zoho_client_id] || byNameLower[row.name.trim().toLowerCase()];
+
+    if (!match) {
+      const insertRes = await archiveDb('practices', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [row],
+      });
+      const newRow = insertRes && insertRes.ok && Array.isArray(insertRes.data) ? insertRes.data[0] : null;
+      if (newRow && newRow.id) {
+        created++;
+        byId[row.zoho_client_id] = newRow.id;
+      }
+      continue;
+    }
+
+    const patch = { zoho_client_id: row.zoho_client_id, org_type: row.org_type };
+    for (const field of PRACTICE_BACKFILL_FILL_ONLY_IF_EMPTY) {
+      const existingVal = match[field];
+      const mappedVal = row[field];
+      const existingEmpty = existingVal == null || String(existingVal).trim() === '';
+      const mappedNonEmpty = mappedVal != null && String(mappedVal).trim() !== '';
+      if (existingEmpty && mappedNonEmpty) patch[field] = mappedVal;
+    }
+
+    const patchRes = await archiveDb('practices', 'id=eq.' + encodeURIComponent(match.id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: patch,
+    });
+    if (patchRes && patchRes.ok) updated++;
+    byId[row.zoho_client_id] = match.id;
+  }
+
+  return { ok: true, created: created, updated: updated, byId: byId };
+}
+
+// Patch career_roles rows sourced from Zoho Recruit (`provider = 'zoho_recruit'`)
+// with the derived dpa/masked_title/practice_id fields, using the practice id
+// map built by materializePracticesFromArchive. Rows without a Zoho payload
+// (buildCareerRoleBackfillPatch returns null) are skipped, never patched.
+async function backfillCareerRolesFromArchive() {
+  const mat = await materializePracticesFromArchive();
+  if (!mat.ok) return { ok: false };
+
+  const rolesRes = await archiveDb('career_roles', 'provider=eq.zoho_recruit&select=id,billing_model,nearest_city,location_state,source_payload&limit=200');
+  if (!rolesRes || !rolesRes.ok) return { ok: false };
+
+  let patched = 0, skipped = 0;
+  const roles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+  for (const role of roles) {
+    const patch = buildCareerRoleBackfillPatch(role, mat.byId);
+    if (!patch) { skipped++; continue; }
+    const res = await archiveDb('career_roles', 'id=eq.' + encodeURIComponent(role.id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: patch,
+    });
+    if (res && res.ok) patched++;
+  }
+
+  return { ok: true, patched: patched, skipped: skipped };
 }
 
 async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, apiDomain, resourcePaths) {
@@ -51434,6 +51533,8 @@ module.exports.__testUtils = {
   upsertCandidateLeads,
   __setSupabaseDbRequestForTests,
   captureZohoArchive,
+  materializePracticesFromArchive,
+  backfillCareerRolesFromArchive,
   __setZohoAccessForTests,
   syncZohoRecruitRoles,
   ingestPracticeAvailabilityReply,
