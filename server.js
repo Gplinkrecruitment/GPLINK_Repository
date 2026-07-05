@@ -31529,6 +31529,27 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/integrations/zoho-recruit/archive-capture' && (req.method === 'POST' || req.method === 'GET')) {
+    // Allow either the cron secret (Authorization: Bearer <secret>) OR an
+    // authenticated integration-admin session — same primitives as
+    // requireZohoRecruitCronAuth / requireIntegrationAdminSession above, but
+    // checked read-only first so we never double-write the response.
+    const cronToken = getBearerToken(req);
+    const cronOk = !!(ZOHO_RECRUIT_SYNC_CRON_SECRET && cronToken && timingSafeEqualStrings(cronToken, ZOHO_RECRUIT_SYNC_CRON_SECRET));
+    if (!cronOk) {
+      const adminCtx = requireIntegrationAdminSession(req, res);
+      if (!adminCtx) return; // requireIntegrationAdminSession already wrote the 401/403
+    }
+
+    try {
+      const result = await captureZohoArchive();
+      sendJson(res, result.ok ? 200 : 502, result);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+    }
+    return;
+  }
+
   // Admin: initialize Gmail watch for monitored VA emails
   // ── Purge all GP user accounts (preserves admin accounts) ──
   if (req.method === 'POST' && pathname === '/api/admin/purge-all-users') {
