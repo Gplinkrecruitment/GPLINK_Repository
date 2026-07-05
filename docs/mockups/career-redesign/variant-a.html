@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Career — Variant A · The Journal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
+<style>
+/* ————— GP Link tokens (from css/gp-tokens.css) ————— */
+:root{
+  --gp-blue:#2563eb; --gp-blue-deep:#1d4ed8; --gp-blue-soft:#eff4ff; --gp-blue-border:#d6e2fb;
+  --gp-ink:#0f172a; --gp-text:#1f2b43; --gp-muted:#64748b; --gp-faint:#94a3b8;
+  --gp-border:#e3e9f4; --gp-border-strong:#cbd7ea;
+  --gp-canvas:#f4f6fb; --gp-surface:#fff; --gp-sunken:#f8fafd;
+  --gp-green:#16a34a; --gp-green-soft:#eafaf0; --gp-green-border:#c5ecd4; --gp-green-ink:#166534;
+  --gp-amber-soft:#fdf3e1; --gp-amber-ink:#92400e; --gp-amber-border:#f4ddb0;
+  --serif:"Source Serif 4",Georgia,serif; --sans:"DM Sans",-apple-system,sans-serif;
+  --r-sm:10px; --r-md:14px; --r-lg:18px; --r-xl:24px;
+  --sh-sm:0 1px 2px rgba(15,23,42,.05),0 2px 10px -4px rgba(15,23,42,.08);
+  --sh-md:0 10px 30px -18px rgba(15,23,42,.28);
+  --sh-lg:0 24px 55px -24px rgba(2,6,23,.42);
+  --ease:cubic-bezier(.22,.61,.21,1);
+  --nav-clear:70px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--gp-canvas);color:var(--gp-text);font-size:15px;line-height:1.55;padding-bottom:calc(var(--nav-clear) + 24px)}
+button{font-family:inherit;cursor:pointer;border:0;background:none}
+img{display:block;max-width:100%}
+.wrap{max-width:760px;margin:0 auto;padding:0 18px}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.rv{animation:fadeUp .5s var(--ease) both}
+.rv1{animation-delay:.04s}.rv2{animation-delay:.1s}.rv3{animation-delay:.16s}.rv4{animation-delay:.22s}.rv5{animation-delay:.28s}
+
+/* ————— Masthead ————— */
+.masthead{padding:30px 0 6px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gp-blue);display:flex;align-items:center;gap:8px}
+.eyebrow::before{content:"";width:18px;height:2px;background:var(--gp-blue);border-radius:2px}
+.masthead h1{font-family:var(--serif);font-weight:700;font-size:clamp(28px,6vw,38px);color:var(--gp-ink);letter-spacing:-.015em;line-height:1.12;margin-top:10px}
+.masthead h1 em{font-style:italic;color:var(--gp-blue-deep)}
+.masthead p{color:var(--gp-muted);margin-top:8px;max-width:46ch}
+.masthead .count{color:var(--gp-ink);font-weight:600}
+
+/* ————— Search + filters ————— */
+.controls{position:sticky;top:0;z-index:30;background:linear-gradient(var(--gp-canvas) 78%,rgba(244,246,251,0));padding:14px 0 10px;margin-top:14px}
+.search{display:flex;align-items:center;gap:10px;background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--r-md);padding:12px 14px;box-shadow:var(--sh-sm);transition:box-shadow .16s var(--ease),border-color .16s var(--ease)}
+.search:focus-within{border-color:var(--gp-blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.search svg{flex:none;color:var(--gp-faint)}
+.search input{border:0;outline:0;font:inherit;width:100%;color:var(--gp-ink);background:none}
+.search input::placeholder{color:var(--gp-faint)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;font-size:13px;font-weight:600;color:var(--gp-muted);background:var(--gp-surface);border:1px solid var(--gp-border);padding:7px 14px;border-radius:999px;transition:all .16s var(--ease)}
+.chip:active{transform:scale(.96)}
+.chip.on{background:var(--gp-ink);border-color:var(--gp-ink);color:#fff}
+
+/* ————— Role cards ————— */
+.feed{display:grid;gap:18px;padding-top:8px}
+@media(min-width:640px){.feed{grid-template-columns:1fr 1fr}}
+.card{background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm);transition:transform .28s var(--ease),box-shadow .28s var(--ease);cursor:pointer;position:relative}
+.card:hover{transform:translateY(-3px);box-shadow:var(--sh-md)}
+.card-photo{position:relative;aspect-ratio:16/9.4;background:linear-gradient(140deg,#dbe7fb,#eef3fb)}
+.card-photo img{width:100%;height:100%;object-fit:cover}
+.card-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,19,34,0) 55%,rgba(11,19,34,.38))}
+.photo-loc{position:absolute;left:14px;bottom:11px;color:#fff;font-size:12.5px;font-weight:600;letter-spacing:.02em;display:flex;align-items:center;gap:6px;text-shadow:0 1px 8px rgba(2,6,23,.5);z-index:2}
+.save{position:absolute;top:12px;right:12px;z-index:3;width:36px;height:36px;border-radius:999px;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);display:grid;place-items:center;color:var(--gp-muted);box-shadow:var(--sh-sm);transition:all .16s var(--ease)}
+.save:hover{color:var(--gp-blue)}
+.save.on{color:var(--gp-blue);background:#fff}
+.save.on svg{fill:currentColor}
+.card-body{padding:16px 16px 18px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.tag{font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;letter-spacing:.02em}
+.tag.dpa{background:var(--gp-green-soft);color:var(--gp-green-ink);border:1px solid var(--gp-green-border)}
+.tag.billing{background:var(--gp-blue-soft);color:var(--gp-blue-deep);border:1px solid var(--gp-blue-border)}
+.tag.bonus{background:var(--gp-amber-soft);color:var(--gp-amber-ink);border:1px solid var(--gp-amber-border)}
+.card-title{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1.25;color:var(--gp-ink);letter-spacing:-.01em}
+.card-sub{margin-top:5px;color:var(--gp-muted);font-size:13.5px}
+/* identity ribbon */
+.vault-line{display:flex;align-items:center;gap:8px;margin-top:13px;padding-top:12px;border-top:1px dashed var(--gp-border-strong)}
+.vault-line .lockchip{flex:none;width:26px;height:26px;border-radius:8px;background:var(--gp-ink);display:grid;place-items:center;color:#fff}
+.vault-blur{position:relative;flex:1;height:14px;border-radius:5px;overflow:hidden;background:repeating-linear-gradient(90deg,#c9d4e8 0 34px,#dde5f3 34px 52px,#c9d4e8 52px 90px);filter:blur(4.5px);opacity:.8}
+.vault-note{flex:none;font-size:11px;color:var(--gp-faint);font-weight:600;letter-spacing:.03em}
+.applied-flag{position:absolute;top:12px;left:12px;z-index:3;background:var(--gp-green);color:#fff;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px;box-shadow:var(--sh-sm)}
+
+/* ————— Detail ————— */
+.detail{display:none}
+body.mode-detail .browse{display:none}
+body.mode-detail .detail{display:block}
+.backbar{position:sticky;top:0;z-index:40;background:rgba(244,246,251,.88);backdrop-filter:saturate(1.5) blur(14px);padding:12px 0}
+.backbar .wrap{display:flex;align-items:center;gap:10px}
+.backbtn{display:flex;align-items:center;gap:7px;font-weight:600;font-size:14px;color:var(--gp-ink);background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:999px;padding:8px 15px;box-shadow:var(--sh-sm)}
+.hero{position:relative;border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-md);aspect-ratio:16/9.6;background:#dbe7fb}
+.hero img{width:100%;height:100%;object-fit:cover}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,19,34,.05) 40%,rgba(11,19,34,.55))}
+.hero-badge{position:absolute;top:14px;left:14px;z-index:2;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);border-radius:999px;font-size:12px;font-weight:700;color:var(--gp-ink);padding:6px 13px;display:flex;gap:6px;align-items:center}
+.hero-loc{position:absolute;left:18px;bottom:15px;z-index:2;color:#fff;font-weight:600;font-size:14px;text-shadow:0 1px 10px rgba(2,6,23,.6)}
+.sheet{background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--r-xl);margin-top:-30px;position:relative;z-index:5;padding:24px 20px 26px;box-shadow:var(--sh-sm)}
+.sheet .tags{margin-bottom:12px}
+.d-title{font-family:var(--serif);font-weight:700;font-size:clamp(24px,5.4vw,30px);line-height:1.16;color:var(--gp-ink);letter-spacing:-.015em}
+.d-intro{margin-top:12px;color:var(--gp-text);font-size:15px}
+.d-intro em{font-family:var(--serif);font-style:italic}
+.earn{margin-top:18px;display:flex;align-items:baseline;gap:10px;background:var(--gp-sunken);border:1px solid var(--gp-border);border-radius:var(--r-md);padding:14px 16px}
+.earn b{font-family:var(--serif);font-size:22px;color:var(--gp-ink);font-weight:700;letter-spacing:-.01em}
+.earn span{font-size:12.5px;color:var(--gp-muted);font-weight:600}
+.sec{margin-top:26px}
+.sec-h{font-size:12px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gp-faint);display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.sec-h::after{content:"";flex:1;height:1px;background:var(--gp-border)}
+.bene{display:grid;gap:10px}
+.bene li{list-style:none;display:flex;gap:11px;align-items:flex-start;background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--r-md);padding:12px 14px;font-size:14px;color:var(--gp-text)}
+.bene .bi{flex:none;width:26px;height:26px;border-radius:8px;background:var(--gp-blue-soft);color:var(--gp-blue-deep);display:grid;place-items:center;margin-top:1px}
+/* identity vault */
+.vault{position:relative;border-radius:var(--r-lg);border:1px solid var(--gp-border-strong);overflow:hidden;background:linear-gradient(160deg,#0b1322,#16233f 60%,#101b31)}
+.vault::before{content:"";position:absolute;inset:-40%;background:radial-gradient(circle at 75% 20%,rgba(78,140,245,.35),transparent 55%)}
+.vault-in{position:relative;padding:20px 18px;display:flex;gap:14px;align-items:center}
+.vault-lock{flex:none;width:44px;height:44px;border-radius:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);display:grid;place-items:center;color:#cfe0ff}
+.vault-txt{flex:1;min-width:0}
+.vault-name{height:17px;border-radius:6px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.5) 0 42px,rgba(255,255,255,.28) 42px 60px,rgba(255,255,255,.5) 60px 108px);filter:blur(5px);margin-bottom:9px;max-width:240px}
+.vault-cap{font-size:12.5px;color:#b9d0f5;line-height:1.45}
+.vault-cap b{color:#fff}
+.vault.shake{animation:vshake .4s var(--ease)}
+@keyframes vshake{0%,100%{transform:none}25%{transform:translateX(-5px)}60%{transform:translateX(4px)}}
+/* video teaser */
+.video{display:flex;gap:14px;align-items:center;background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--r-lg);padding:14px;box-shadow:var(--sh-sm)}
+.video .vthumb{flex:none;width:104px;aspect-ratio:16/10;border-radius:12px;position:relative;overflow:hidden;background:#0b1322}
+.video .vthumb img{width:100%;height:100%;object-fit:cover;opacity:.7}
+.vplay{position:absolute;inset:0;display:grid;place-items:center}
+.vplay span{width:34px;height:34px;border-radius:999px;background:rgba(255,255,255,.92);display:grid;place-items:center;color:var(--gp-ink);box-shadow:var(--sh-md)}
+.video h4{font-size:14.5px;color:var(--gp-ink);font-weight:700}
+.video p{font-size:12.5px;color:var(--gp-muted);margin-top:3px}
+/* map hint */
+.maphint{position:relative;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--gp-border);aspect-ratio:16/7;background:
+  radial-gradient(circle at 50% 50%,rgba(37,99,235,.16),rgba(37,99,235,.05) 42%,transparent 60%),
+  repeating-linear-gradient(0deg,#eef2f9 0 26px,#e8edf7 26px 27px),
+  repeating-linear-gradient(90deg,#eef2f9 0 26px,#e8edf7 26px 27px)}
+.pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+.pin .ring{width:74px;height:74px;border-radius:999px;border:2px dashed rgba(37,99,235,.45);display:grid;place-items:center;animation:pulse 2.6s var(--ease) infinite}
+.pin .dot{width:14px;height:14px;border-radius:999px;background:var(--gp-blue);box-shadow:0 0 0 5px rgba(37,99,235,.2)}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.12);opacity:.5}}
+.maphint figcaption{position:absolute;left:12px;bottom:10px;font-size:12px;font-weight:600;color:var(--gp-muted);background:rgba(255,255,255,.85);border-radius:999px;padding:4px 11px}
+/* rso */
+.rso{display:flex;gap:13px;align-items:center;background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);border-radius:var(--r-lg);padding:15px 16px}
+.rso .ava{flex:none;width:40px;height:40px;border-radius:999px;background:var(--gp-blue);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+.rso p{font-size:13.5px;color:var(--gp-text)}
+.rso b{color:var(--gp-ink)}
+/* apply bar */
+.applybar{position:fixed;left:0;right:0;bottom:var(--nav-clear);z-index:50;padding:10px 18px 12px;background:linear-gradient(rgba(244,246,251,0),var(--gp-canvas) 40%);display:none}
+body.mode-detail .applybar{display:block}
+.applybar .in{max-width:760px;margin:0 auto;display:flex;gap:10px}
+.btn-apply{flex:1;background:linear-gradient(135deg,#2e6bf0,#1d4ed8);color:#fff;font-weight:700;font-size:16px;border-radius:var(--r-md);padding:15px;box-shadow:0 12px 28px -12px rgba(37,99,235,.55);transition:transform .16s var(--ease)}
+.btn-apply:active{transform:scale(.98)}
+.btn-apply.done{background:var(--gp-green);box-shadow:0 12px 28px -12px rgba(22,163,74,.5)}
+.btn-save2{flex:none;width:54px;border-radius:var(--r-md);background:var(--gp-surface);border:1px solid var(--gp-border);color:var(--gp-muted);display:grid;place-items:center}
+.btn-save2.on{color:var(--gp-blue);border-color:var(--gp-blue-border);background:var(--gp-blue-soft)}
+/* toast */
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:calc(var(--nav-clear) + 84px);z-index:80;background:var(--gp-ink);color:#fff;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:999px;box-shadow:var(--sh-lg);opacity:0;pointer-events:none;transition:all .34s var(--ease)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* bottom nav mock */
+.navmock{position:fixed;left:0;right:0;bottom:0;height:var(--nav-clear);background:rgba(255,255,255,.9);backdrop-filter:saturate(1.5) blur(18px);border-top:1px solid var(--gp-border);display:flex;z-index:60}
+.navmock button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--gp-faint)}
+.navmock button.on{color:var(--gp-blue)}
+.empty{padding:60px 20px;text-align:center;color:var(--gp-muted)}
+.empty b{font-family:var(--serif);font-size:19px;color:var(--gp-ink);display:block;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<!-- ═══════ BROWSE ═══════ -->
+<div class="browse">
+  <div class="wrap">
+    <header class="masthead rv rv1">
+      <div class="eyebrow">GP Link · Careers</div>
+      <h1>Find the practice<br>that <em>fits your life.</em></h1>
+      <p><span class="count" id="countLine">— live roles</span> across Australia — every one DPA-checked against your profile, with your Registration Support Officer alongside you.</p>
+    </header>
+    <div class="controls rv rv2">
+      <label class="search">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg>
+        <input id="q" type="search" placeholder="Suburb, state or billing — e.g. Newcastle, bulk…">
+      </label>
+      <div class="chips" id="chips"></div>
+    </div>
+    <main class="feed" id="feed"></main>
+    <div class="empty" id="empty" style="display:none"><b>No matches — yet.</b>Many of our best roles are matched privately. Your RSO can shortlist for you.</div>
+  </div>
+</div>
+
+<!-- ═══════ DETAIL ═══════ -->
+<div class="detail">
+  <div class="backbar"><div class="wrap">
+    <button class="backbtn" onclick="go('')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>All roles</button>
+  </div></div>
+  <div class="wrap" id="detailBody"></div>
+</div>
+
+<div class="applybar"><div class="in">
+  <button class="btn-save2" id="dSave" title="Save role"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
+  <button class="btn-apply" id="dApply">Apply for this role</button>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<nav class="navmock">
+  <button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</button>
+  <button class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Career</button>
+  <button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>Documents</button>
+  <button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Account</button>
+</nav>
+
+<script>
+const S={jobs:[],filter:'All',q:'',saved:new Set(JSON.parse(localStorage.va_saved||'[]')),applied:new Set(JSON.parse(localStorage.va_applied||'[]')),cur:null};
+const FILTERS=['All','Bulk Billing','Mixed Billing','Private Billing','NSW','VIC','QLD','WA','Saved'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+fetch('data.json').then(r=>r.json()).then(d=>{S.jobs=d;init()});
+
+function init(){
+  $('#countLine').textContent=S.jobs.length+' live roles';
+  $('#chips').innerHTML=FILTERS.map(f=>`<button class="chip${f===S.filter?' on':''}" data-f="${f}">${f}</button>`).join('');
+  $('#chips').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;S.filter=b.dataset.f;init();render()};
+  $('#q').oninput=e=>{S.q=e.target.value.toLowerCase();render()};
+  render();route();
+}
+function stateOf(j){return (j.state||'').match(/NSW|New South Wales/i)?'NSW':(j.state||'').match(/VIC|Victoria/i)?'VIC':(j.state||'').match(/QLD|Queensland/i)?'QLD':(j.state||'').match(/WA|Western/i)?'WA':''}
+function filtered(){
+  return S.jobs.filter((j,i)=>{
+    if(S.filter==='Saved'&&!S.saved.has(i))return false;
+    if(/Billing/.test(S.filter)&&(j.billing||'')!==S.filter)return false;
+    if(/^(NSW|VIC|QLD|WA)$/.test(S.filter)&&stateOf(j)!==S.filter)return false;
+    if(S.q&&!((j.title||'')+' '+(j.loc||'')+' '+(j.billing||'')).toLowerCase().includes(S.q))return false;
+    return true;
+  }).map(j=>S.jobs.indexOf(j));
+}
+function suburbOf(j){const m=(j.title||'').match(/^(?:Non-)?DPA - ([^-]+?)(?: -|$)/);return m?m[1].trim():(j.suburb||j.loc||'')}
+function render(){
+  const idx=filtered();
+  $('#empty').style.display=idx.length?'none':'block';
+  $('#feed').innerHTML=idx.map((i,k)=>{const j=S.jobs[i];return `
+  <article class="card rv rv${Math.min(k+1,5)}" onclick="go('job/${i}')">
+    ${S.applied.has(i)?'<span class="applied-flag">✓ Applied</span>':''}
+    <div class="card-photo">
+      <img src="${esc(j.hero)}" alt="" loading="lazy" onerror="this.remove()">
+      <button class="save${S.saved.has(i)?' on':''}" onclick="event.stopPropagation();toggleSave(${i})" title="Save">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <span class="photo-loc"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>${esc(j.loc)}</span>
+    </div>
+    <div class="card-body">
+      <div class="tags">
+        ${j.dpa?'<span class="tag dpa">DPA</span>':''}
+        ${j.billing?`<span class="tag billing">${esc(j.billing)}</span>`:''}
+        ${j.earnings?`<span class="tag bonus">${esc(short(j.earnings))}</span>`:''}
+      </div>
+      <h2 class="card-title">General Practice · ${esc(suburbOf(j))}</h2>
+      <p class="card-sub">${esc(j.prox||j.locLine||('Permanent role · '+(j.loc||'Australia')))}</p>
+      <div class="vault-line">
+        <span class="lockchip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+        <span class="vault-blur"></span>
+        <span class="vault-note">NAME ON ACCEPTANCE</span>
+      </div>
+    </div>
+  </article>`}).join('');
+}
+function short(t){t=String(t);return t.length>26?t.slice(0,24)+'…':t}
+function toggleSave(i){S.saved.has(i)?S.saved.delete(i):S.saved.add(i);localStorage.va_saved=JSON.stringify([...S.saved]);render();if(S.cur===i)paintApply();toast(S.saved.has(i)?'Saved to your shortlist':'Removed from shortlist')}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
+
+/* ————— routing ————— */
+function go(h){location.hash=h}
+window.addEventListener('hashchange',route);
+function route(){
+  const m=location.hash.match(/^#job\/(\d+)/);
+  if(m&&S.jobs[+m[1]]){S.cur=+m[1];renderDetail(S.jobs[S.cur]);document.body.classList.add('mode-detail');scrollTo(0,0)}
+  else{S.cur=null;document.body.classList.remove('mode-detail')}
+}
+function renderDetail(j){
+  const i=S.cur, benefits=(j.benefits||[]).slice(0,3);
+  $('#detailBody').innerHTML=`
+  <figure class="hero rv rv1">
+    <img src="${esc(j.hero)}" alt="" onerror="this.remove()">
+    <span class="hero-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Confidential listing</span>
+    <span class="hero-loc">${esc(j.loc||'')}</span>
+  </figure>
+  <section class="sheet rv rv2">
+    <div class="tags">
+      ${j.dpa?'<span class="tag dpa">DPA approved</span>':''}
+      ${j.billing?`<span class="tag billing">${esc(j.billing)}</span>`:''}
+      <span class="tag" style="background:var(--gp-sunken);color:var(--gp-muted);border:1px solid var(--gp-border)">Permanent</span>
+    </div>
+    <h1 class="d-title">General Practice in ${esc(suburbOf(j))}</h1>
+    <p class="d-intro">${esc(j.intro||'A well-established practice partnered with GP Link, ready to support your registration journey end-to-end.')} <em>Full practice profile unlocks as you progress.</em></p>
+    ${j.earnings?`<div class="earn"><b>${esc(j.earnings)}</b><span>+ percentage of billings</span></div>`:''}
+
+    <div class="sec">
+      <div class="sec-h">Why GPs choose this role</div>
+      <ul class="bene">${benefits.map(b=>`<li><span class="bi"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>${esc(b)}</li>`).join('')||'<li><span class="bi">✓</span>Structured onboarding and a stable, loyal patient base.</li>'}</ul>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">The practice</div>
+      <div class="vault" onclick="this.classList.remove('shake');void this.offsetWidth;this.classList.add('shake');toast('Identity unlocks when your application is accepted')">
+        <div class="vault-in">
+          <span class="vault-lock"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+          <div class="vault-txt">
+            <div class="vault-name"></div>
+            <p class="vault-cap"><b>Practice identity protected.</b> The name, address and team are revealed the moment your application is <b>accepted</b> — protecting you and the practice during matching.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">Meet the practice on video</div>
+      <div class="video" onclick="toast('Intro video plays here in the app')">
+        <span class="vthumb"><img src="${esc(j.hero)}" alt="" onerror="this.remove()"><span class="vplay"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></span></span>
+        <div><h4>2-minute practice introduction</h4><p>Hear how the team works, the patient mix, and what your week would look like — identity kept private.</p></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">Where you'd be living</div>
+      <figure class="maphint">
+        <span class="pin"><span class="ring"><span class="dot"></span></span></span>
+        <figcaption>Within the ${esc(suburbOf(j))} area — exact address on acceptance</figcaption>
+      </figure>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">You're not applying alone</div>
+      <div class="rso">
+        <span class="ava">RS</span>
+        <p><b>Your Registration Support Officer</b> reviews every application before it reaches the practice, and negotiates on your behalf — at no cost to you.</p>
+      </div>
+    </div>
+  </section>`;
+  paintApply();
+}
+function paintApply(){
+  const i=S.cur;if(i==null)return;
+  const a=$('#dApply'),s=$('#dSave');
+  if(S.applied.has(i)){a.textContent='✓ Application submitted';a.classList.add('done')}
+  else{a.textContent='Apply for this role';a.classList.remove('done')}
+  s.className='btn-save2'+(S.saved.has(i)?' on':'');
+  a.onclick=()=>{ if(S.applied.has(i))return toast('Already applied — your RSO is on it');
+    S.applied.add(i);localStorage.va_applied=JSON.stringify([...S.applied]);paintApply();render();
+    toast('Application sent — your RSO will be in touch') };
+  s.onclick=()=>toggleSave(i);
+}
+</script>
+</body>
+</html>
