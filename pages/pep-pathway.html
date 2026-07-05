@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>PEP Pathway - GP Link</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --green: #16a34a;
+      --green-soft: #dcfce7;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --card: #ffffff;
+      --bg: #f1f5f9;
+    }
+
+    html, body {
+      min-height: 100%;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    .gate {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+    }
+
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+      padding: 32px 26px;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--primary);
+      background: #eff6ff;
+      border-radius: 999px;
+      padding: 7px 14px;
+      margin-bottom: 20px;
+    }
+    .badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+
+    h1 {
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+
+    p {
+      font-size: 15.5px;
+      line-height: 1.6;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    p:last-of-type { margin-bottom: 0; }
+    p strong { color: var(--text); font-weight: 600; }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 26px 0 24px;
+    }
+
+    .btn {
+      width: 100%;
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--primary);
+      border-radius: 14px;
+      padding: 15px 20px;
+      transition: background 0.18s ease, transform 0.08s ease, opacity 0.18s ease;
+    }
+    .btn:hover { background: var(--primary-dark); }
+    .btn:active { transform: scale(0.985); }
+    .btn:disabled { opacity: 0.7; cursor: default; }
+
+    .subline {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 14px;
+      margin-bottom: 0;
+    }
+
+    .error {
+      display: none;
+      font-size: 13.5px;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-top: 14px;
+    }
+    .error.show { display: block; }
+
+    .confirmed {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      text-align: left;
+      background: var(--green-soft);
+      border: 1px solid #bbf7d0;
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .confirmed .tick {
+      flex: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--green);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+      margin-top: 1px;
+    }
+    .confirmed .msg {
+      font-size: 14.5px;
+      line-height: 1.5;
+      color: #14532d;
+      font-weight: 500;
+    }
+
+    .signout {
+      margin-top: 26px;
+      font-size: 13px;
+    }
+    .signout a {
+      color: var(--muted);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }
+    .signout a:hover {
+      color: var(--text);
+      border-bottom-color: var(--muted);
+    }
+
+    @media (max-width: 380px) {
+      .card { padding: 28px 20px; }
+      h1 { font-size: 21px; }
+    }
+  </style>
+  <script src="/js/auth-guard.js?v=20260705a"></script>
+</head>
+<body>
+  <div class="gate">
+    <main class="card" role="main">
+      <span class="badge">PEP Pathway</span>
+      <h1>You qualify for the PEP Substantially Comparable pathway</h1>
+
+      <p>
+        Because your specialist qualification was obtained before the expedited
+        specialist pathway cutoff date, you qualify for the
+        <strong>PEP (Practice Experience Program) Substantially Comparable</strong>
+        pathway.
+      </p>
+      <p>
+        Right now we only facilitate the Expedited Specialist Pathway inside the
+        app &mdash; but we&rsquo;re opening GP Link up to the PEP pathway
+        <strong>within the next 30 days</strong>.
+      </p>
+
+      <div class="divider"></div>
+
+      <div id="actionZone">
+        <button type="button" id="notifyBtn" class="btn">Notify me when this is available</button>
+        <p class="subline">We&rsquo;ll notify you by WhatsApp and email.</p>
+        <div id="notifyError" class="error" role="alert">
+          Something went wrong. Please check your connection and try again.
+        </div>
+      </div>
+
+      <div class="signout">
+        <a href="#" id="signoutLink">Sign out</a>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var CONFIRMED_HTML =
+        '<div class="confirmed">' +
+          '<span class="tick">&#10003;</span>' +
+          '<span class="msg">You&rsquo;re on the list &#10003; &mdash; we&rsquo;ll message you by WhatsApp and email the moment it opens.</span>' +
+        '</div>';
+
+      var actionZone = document.getElementById("actionZone");
+      var notifyBtn = document.getElementById("notifyBtn");
+      var notifyError = document.getElementById("notifyError");
+
+      function showConfirmed() {
+        actionZone.innerHTML = CONFIRMED_HTML;
+      }
+
+      function showError() {
+        notifyError.classList.add("show");
+      }
+
+      // --- Notify-me flow -------------------------------------------------
+      notifyBtn.addEventListener("click", function () {
+        notifyError.classList.remove("show");
+        notifyBtn.disabled = true;
+        notifyBtn.textContent = "Adding you…";
+
+        fetch("/api/pep/notify-me", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; });
+          })
+          .then(function (data) {
+            if (data && (data.ok || data.alreadyRequested === true)) {
+              showConfirmed();
+            } else {
+              throw new Error("request-failed");
+            }
+          })
+          .catch(function () {
+            notifyBtn.disabled = false;
+            notifyBtn.textContent = "Notify me when this is available";
+            showError();
+          });
+      });
+
+      // --- Sign out -------------------------------------------------------
+      document.getElementById("signoutLink").addEventListener("click", function (e) {
+        e.preventDefault();
+        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+          .catch(function () {})
+          .then(function () {
+            window.location.replace("/pages/signin");
+          });
+      });
+
+      // --- Self-correction: release check --------------------------------
+      // Belt-and-braces with auth-guard: if this GP is no longer on the PEP
+      // waitlist, they've been released — send them into the app.
+      fetch("/api/account/status", { credentials: "same-origin" })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var status = data && data.accountStatus;
+          if (status && status !== "pep_waitlist") {
+            window.location.replace("/pages/index");
+          }
+        })
+        .catch(function () { /* stay on the gate if the check fails */ });
+    })();
+  </script>
+</body>
+</html>

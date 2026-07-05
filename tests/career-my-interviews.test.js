@@ -60,7 +60,7 @@ beforeAll(async () => {
       { id: 'job1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', provider: 'internal_ats', is_active: true, job_status: 'open' },
       // Masked pipeline job — its application below has NO accepted offer, so
       // its interview must never surface the real practice name.
-      { id: 'job2', title: 'GP — Hidden Hills flagship role', masked_title: 'GP Job near Brisbane | Bulk Billing', practice_name: 'Hidden Hills Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
+      { id: 'job2', title: 'GP — Hidden Hills flagship role', masked_title: 'DPA - Brisbane - Bulk Billing', practice_name: 'Hidden Hills Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
     ],
     atsApplications: [
       { id: 'appA', user_id: ME.userId, career_role_id: 'job1', status: 'applied', ats_stage: 'interview' },
@@ -181,8 +181,8 @@ describe('GET /api/career/my-interviews', () => {
     // appM has no offer at all → masked: role's masked_title, never the real
     // name — even though the stored interview row AND the career_roles row
     // both carry it.
-    expect(masked.practice_name).toBe('GP Job near Brisbane | Bulk Billing');
-    expect(masked.job_title).toBe('GP Job near Brisbane | Bulk Billing'); // raw title embeds the name → masked title wins
+    expect(masked.practice_name).toBe('DPA - Brisbane - Bulk Billing');
+    expect(masked.job_title).toBe('DPA - Brisbane - Bulk Billing'); // raw title embeds the name → masked title wins
     expect(res.raw).not.toContain('Hidden Hills Medical');
     expect(res.raw).not.toContain('Hidden Hills'); // also embedded in the raw job title
   });

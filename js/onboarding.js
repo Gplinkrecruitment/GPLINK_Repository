@@ -657,6 +657,14 @@
 
       if (data.ok && data.verification) {
         const v = data.verification;
+        // PEP pathway: a genuine specialist certificate that predates the expedited
+        // cutoff means this GP belongs on the PEP (Substantially Comparable) waitlist.
+        // The server has already locked the account (account_status = 'pep_waitlist');
+        // hand the GP straight to the PEP pathway gate page instead of the app.
+        if (v.pepEligible) {
+          window.location.replace("/pages/pep-pathway");
+          return;
+        }
         const nameConfirmed = v.nameMatch === "exact" || v.nameMatch === "fuzzy";
         if (v.verified && nameConfirmed) {
           state.qualDocs[docKey].status = "verified";
@@ -1337,6 +1345,13 @@
 
       // If onboarding already completed and navigated here directly, allow re-entry
       // (removed auto-redirect to dashboard so users can redo onboarding via button)
+
+      // Deep link from the reminder emails: ?step=N opens the step the GP was on
+      // when they left (their local device may not have the saved progress).
+      var urlStep = parseInt(new URLSearchParams(window.location.search).get("step"), 10);
+      if (!isNaN(urlStep) && urlStep >= 0 && urlStep < TOTAL_STEPS) {
+        currentStep = urlStep;
+      }
       goToStep(currentStep);
     })
     .catch(() => {

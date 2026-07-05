@@ -56,7 +56,7 @@ const db = {
     {
       id: 'role-dpa-1', provider: 'internal_ats', provider_role_id: 'ats_dpa1',
       title: 'GP — DPA role', practice_name: 'ULTRA SECRET Toowoomba Bush Medical',
-      masked_title: 'GP Job near Toowoomba | DPA Approved',
+      masked_title: 'DPA - Toowoomba',
       is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
       dpa: true, location_state: 'QLD', nearest_city: 'Toowoomba', updated_at: NOW
     },
@@ -64,7 +64,7 @@ const db = {
     {
       id: 'role-nondpa-1', provider: 'internal_ats', provider_role_id: 'ats_nondpa1',
       title: 'GP — Non-DPA role', practice_name: 'ULTRA SECRET Melbourne Family Clinic',
-      masked_title: 'GP Job near Melbourne | Non-DPA',
+      masked_title: 'Non-DPA - Melbourne',
       is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
       dpa: false, location_state: 'VIC', nearest_city: 'Melbourne', updated_at: NOW
     }
@@ -231,7 +231,7 @@ describe('GET /api/career/roles — DPA gate for an overseas-trained GP', () => 
     expect(dpaEntry.blurred).toBeFalsy();
     expect(dpaEntry.qualifies).toBe(true);
     // Crisp = shows the (Task 10) masked identity, never the real practice name.
-    expect(dpaEntry.practiceName).toBe('GP Job near Toowoomba | DPA Approved');
+    expect(dpaEntry.practiceName).toBe('DPA - Toowoomba');
 
     const nonDpaEntry = res.body.roles.find((r) => r.id === 'internal_ats:ats_nondpa1');
     expect(nonDpaEntry).toBeTruthy();
@@ -266,7 +266,7 @@ describe('GET /api/career/roles — an Australia-trained GP sees everything cris
     expect(nonDpaEntry.qualifies).toBe(true);
     // Still masked (Task 10's identity reveal gate is independent of the DPA
     // gate) — the real practice name never leaks regardless of qualification.
-    expect(nonDpaEntry.practiceName).toBe('GP Job near Melbourne | Non-DPA');
+    expect(nonDpaEntry.practiceName).toBe('Non-DPA - Melbourne');
     expect(res.raw).not.toContain('ULTRA SECRET');
   });
 });

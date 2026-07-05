@@ -195,36 +195,34 @@ describe('validatePracticeIntakePayload', () => {
 });
 
 describe('buildMaskedTitle', () => {
-  it('builds the exact Melbourne example string', () => {
-    const title = buildMaskedTitle({
-      nearestCity: 'Melbourne',
-      suburb: 'Fitzroy',
-      billingStyle: 'mixed',
-      dpa: true,
-      visaSponsorship: false,
-      earningsText: '$8k/wk',
-    });
-    expect(title).toBe('GP Job near Melbourne | Mixed Billing | DPA Approved | Earnings ~$8k/wk');
+  it('builds "DPA - Suburb (City) - Billing" when suburb and city both present', () => {
+    const title = buildMaskedTitle({ suburb: 'Werribee', nearestCity: 'Melbourne', billingStyle: 'bulk', dpa: true });
+    expect(title).toBe('DPA - Werribee (Melbourne) - Bulk Billing');
   });
 
-  it('treats a null visaSponsorship (unknown) as no segment, not as a "no"', () => {
-    const title = buildMaskedTitle({
-      nearestCity: 'Melbourne',
-      billingStyle: 'mixed',
-      dpa: false,
-      visaSponsorship: null,
-    });
-    expect(title).toBe('GP Job near Melbourne | Mixed Billing');
+  it('passes through a raw human billing label untouched (legacy: town only, no parens)', () => {
+    const title = buildMaskedTitle({ suburb: 'Erina', billingStyle: 'Private Billing', dpa: true });
+    expect(title).toBe('DPA - Erina - Private Billing');
   });
 
-  it('does not double the ~ when earningsText already starts with one', () => {
-    const title = buildMaskedTitle({
-      nearestCity: 'Melbourne',
-      billingStyle: 'mixed',
-      dpa: true,
-      earningsText: '~$8k/wk',
-    });
-    expect(title).toBe('GP Job near Melbourne | Mixed Billing | DPA Approved | Earnings ~$8k/wk');
+  it('renders Non-DPA and uses city-only location when suburb is absent', () => {
+    const title = buildMaskedTitle({ nearestCity: 'Melbourne', billingStyle: 'mixed', dpa: false });
+    expect(title).toBe('Non-DPA - Melbourne - Mixed Billing');
+  });
+
+  it('drops the billing segment entirely when no billingStyle is given', () => {
+    const title = buildMaskedTitle({ suburb: 'Cobblebank', dpa: true });
+    expect(title).toBe('DPA - Cobblebank');
+  });
+
+  it('falls back to "GP Opportunity near <state>" when there is no location at all', () => {
+    const title = buildMaskedTitle({ dpa: true, state: 'NSW' });
+    expect(title).toBe('GP Opportunity near NSW');
+  });
+
+  it('falls back to "GP Opportunity near you" when there is no location and no state', () => {
+    const title = buildMaskedTitle({ dpa: false });
+    expect(title).toBe('GP Opportunity near you');
   });
 });
 
