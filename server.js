@@ -30707,12 +30707,17 @@ async function handleApi(req, res, pathname) {
       // has a live offer" (matches the id served by /api/career/role?id=).
       roleId: moRole ? makeCareerRoleId(moRole.provider, moRole.provider_role_id) : null,
       practiceName: moPracticeName,
-      // Masked branch must prefer the pre-vetted masked_title over the raw
-      // (potentially identifying) offer/job title — same reveal-safety rule
-      // moPracticeName already follows above.
+      // Masked branch goes through the hardened leak-aware precedence
+      // (resolveCareerRoleDisplayTitle): masked_title wins, a raw title only
+      // survives when it can be PROVEN not to leak the practice name, else a
+      // generated masked fallback. Without a role row, the offer's own
+      // job_title gets the same leak check against the offer's practice name.
       roleTitle: moRevealed
         ? (moOffer.job_title || (moRole && moRole.title) || '')
-        : ((moRole && moRole.masked_title) || moOffer.job_title || (moRole && moRole.title) || ''),
+        : resolveCareerRoleDisplayTitle(
+          moRole || { title: moOffer.job_title || '', practice_name: moOffer.practice_name || '' },
+          { internalTitleFirst: false }
+        ),
       location: moLocation,
       practiceContact: {
         name: moRevealed

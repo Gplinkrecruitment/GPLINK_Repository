@@ -71,11 +71,17 @@ const db = {
   career_roles: [ ZOHO_LEAK, INTERNAL_ROW, VIDEO_ROW ],
   gp_applications: [
     { id: 'app-offer-1', user_id: GP.userId, career_role_id: 'role-video', provider_role_id: 'ats_vid1',
+      status: 'offered', ats_stage: 'offer', origin: 'gp_applied', applied_at: NOW },
+    // Task 4: offer on the leaky Zoho row (NO masked_title, raw title IS the
+    // practice name) — the my-offer masked branch must still mask roleTitle.
+    { id: 'app-offer-zoho', user_id: GP.userId, career_role_id: 'role-zoho-leak', provider_role_id: 'z_leak1',
       status: 'offered', ats_stage: 'offer', origin: 'gp_applied', applied_at: NOW }
   ],
   ats_offers: [
     { id: 'offer-1', application_id: 'app-offer-1', status: 'sent',
-      job_title: 'GP — Coastal practice', practice_name: 'Secret Torquay Practice', sent_at: NOW }
+      job_title: 'GP — Coastal practice', practice_name: 'Secret Torquay Practice', sent_at: NOW },
+    { id: 'offer-zoho', application_id: 'app-offer-zoho', status: 'sent',
+      job_title: 'Bramble & Voss Family Doctors', practice_name: 'Bramble & Voss Family Doctors', sent_at: NOW }
   ],
   scheduled_calls: [],
   registration_cases: []
@@ -365,6 +371,23 @@ describe('/api/career/my-offer — includes the client roleId', () => {
     expect(res.body.roleId).toBe('internal_ats:ats_vid1');
     // Pre-reveal: the real practice name must not leak.
     expect(res.raw).not.toContain('Secret Torquay Practice');
+  });
+});
+
+describe('/api/career/my-offer — masked branch roleTitle never leaks the practice name (Task 4)', () => {
+  it('empty masked_title + leaky raw/job title → roleTitle comes back masked', async () => {
+    const res = await httpReq('GET', '/api/career/my-offer?applicationId=app-offer-zoho', {
+      cookie: userCookie(GP.email, GP.userId)
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.revealed).toBe(false);
+    // A usable (non-empty) title still comes back…
+    expect(String(res.body.roleTitle || '').trim()).toBeTruthy();
+    // …but nothing in the whole payload carries the real practice name.
+    expect(res.raw).not.toContain('Bramble');
+    expect(res.raw).not.toContain('Voss');
+    expect(res.raw).not.toContain('Family Doctors');
   });
 });
 

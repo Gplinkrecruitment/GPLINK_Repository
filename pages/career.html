@@ -6916,6 +6916,7 @@
       min-width: 0;
     }
     .at-mini svg { flex: none; }
+    .at-mini--unlocked { color: var(--gp-green-ink, #166534); }
     .at-mblur {
       width: 70px;
       height: 8px;
@@ -7935,6 +7936,7 @@
         id: source.id || source.applicationId || "",
         roleId: source.roleId || "",
         practiceName: source.practiceName || "",
+        revealed: source.revealed === true,
         location: source.location || "",
         rawStatus: source.rawStatus || source.status || meta.label,
         // In-app (standalone ATS) applications carry a server-built friendly
@@ -10652,6 +10654,9 @@
         id: app.id || "",
         roleId: app.role && app.role.id ? app.role.id : app.id,
         practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
+        // Server-decided ONLY: true just when THIS application passed the
+        // reveal rule and practiceName is the real practice name.
+        revealed: !!(app.role && app.role.revealed === true),
         location: app.role && app.role.location ? app.role.location : "",
         rawStatus: app.status,
         statusLabel: app.statusLabel || "",
@@ -10782,6 +10787,19 @@
         ? 'data-open-placement="true"'
         : `data-open-application="${escapeHtml(application.id || "")}" data-open-application-role="${escapeHtml(application.roleId || "")}"`;
 
+      // Identity reveal (Task 4 polish): only when the SERVER marked this
+      // application revealed does the row show the real practice name +
+      // unlocked chip \u2014 otherwise the locked NAME ON ACCEPTANCE treatment.
+      const revealedName = (application.revealed === true
+        && application.practiceName
+        && !isConfidentialText(application.practiceName))
+        ? String(application.practiceName)
+        : "";
+      const rowTitle = revealedName || `General Practice \u00b7 ${suburb}`;
+      const identityChip = revealedName
+        ? '<span class="at-mini at-mini--unlocked">\u2713 IDENTITY UNLOCKED</span>'
+        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+
       return `<article class="at-row${isOffer ? " at-row--offer" : ""}" ${openAttrs}>
         ${ribbon}
         ${buildRoleThumbHtml(thumbSource)}
@@ -10789,10 +10807,10 @@
           <div class="at-rtop">
             <span class="at-pill at-pill--${escapeHtml(tone)}">${escapeHtml(isOffer ? "Offer received" : application.status)}</span>
           </div>
-          <h2 class="at-rtitle">General Practice \u00b7 ${escapeHtml(suburb)}</h2>
+          <h2 class="at-rtitle">${escapeHtml(rowTitle)}</h2>
           <p class="at-rmeta">${escapeHtml(metaLine)}</p>
           <div class="at-rfoot">
-            <span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>
+            ${identityChip}
             ${statusAction}
           </div>
         </div>

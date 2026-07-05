@@ -40,9 +40,13 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
     // careerApplicantBand and career.html's getApplicantBand)...
     expect(html).toContain('function getApplicantBand');
     expect(html).toMatch(/15 \+ \(h % 9\)/);
-    // ...and never a random or real count (comment mentions are fine —
-    // no actual Math.random() invocation may exist).
-    expect(html).not.toMatch(/Math\.random\(\)/);
+    // ...and never a random or real count. The Task-4 confetti legitimately
+    // uses Math.random for particle physics, so the ban is scoped to the
+    // band helper + any applicant-count context.
+    const bandFn = html.match(/function getApplicantBand\(role\) \{[\s\S]*?\n  \}/);
+    expect(bandFn).toBeTruthy();
+    expect(bandFn[0]).not.toMatch(/Math\.random/);
+    expect(html).not.toMatch(/Math\.random\(\)[^\n]*(applied|applicant|band)/i);
   });
 
   it('band fallback is deterministic and within 15–23', () => {

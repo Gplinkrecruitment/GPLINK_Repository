@@ -145,7 +145,7 @@
     .at-dcontent {
       max-width: 720px;
       margin: 0 auto;
-      padding: 0 16px calc(160px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
+      padding: 0 16px calc(160px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 70px));
     }
 
     /* ── Hero photo / scenery (overlaps the masthead) ── */
@@ -588,7 +588,7 @@
       right: 0;
       bottom: 0;
       z-index: 100;
-      padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
+      padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 70px));
       background: linear-gradient(rgba(244, 246, 251, 0), var(--gp-canvas, #f4f6fb) 45%);
     }
     .at-applybar[hidden] { display: none; }
@@ -682,7 +682,7 @@
       position: fixed;
       left: 50%;
       transform: translateX(-50%) translateY(20px);
-      bottom: calc(96px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
+      bottom: calc(96px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 70px));
       z-index: 200;
       background: var(--gp-ink, #0f172a);
       color: #fff;
@@ -797,6 +797,242 @@
     .cv-btn-upload:hover { opacity: 0.9; transform: translateY(-1px); }
     .cv-btn-upload:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
     .cv-modal-status { font-size: 12px; color: var(--gp-muted, #64748b); margin: 12px 0 0; text-align: center; min-height: 20px; }
+
+    /* ════════════════════════════════════════════════════════════════════
+       OFFER MODE (Phase 2 Task 4)
+       Green offer banner, unlocked identity + inline interview scheduling
+       per the offer-mode sections of variant-b.html (renderOffer/renderSched).
+       ════════════════════════════════════════════════════════════════════ */
+    .at-offerbanner {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--gp-r-lg, 18px);
+      background: linear-gradient(135deg, #0f7a3b, #16a34a 55%, #22c55e);
+      color: #fff;
+      padding: 18px;
+      box-shadow: 0 14px 34px -18px rgba(22, 163, 74, .6);
+      margin-top: 16px;
+    }
+    .at-offerbanner::before {
+      content: "";
+      position: absolute;
+      right: -30px;
+      top: -40px;
+      width: 150px;
+      height: 150px;
+      background: radial-gradient(circle, rgba(255, 255, 255, .25), transparent 62%);
+    }
+    .at-offerbanner > * { position: relative; }
+    .at-oh { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 15px; }
+    .at-oh .at-tada { flex: none; width: 26px; height: 26px; border-radius: 8px; background: rgba(255, 255, 255, .2); display: grid; place-items: center; }
+    .at-offerbanner p { font-size: 13px; color: #eafff2; margin: 8px 0 0; line-height: 1.5; }
+    .at-offerbanner .at-cd {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 11px;
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(255, 255, 255, .16);
+      border: 1px solid rgba(255, 255, 255, .28);
+      border-radius: 999px;
+      padding: 6px 12px;
+    }
+    .at-cd svg { width: 13px; height: 13px; }
+    .at-offer-actions { display: flex; gap: 9px; margin-top: 14px; }
+    .at-offer-accept {
+      flex: 1;
+      background: #fff;
+      color: var(--gp-green-ink, #166534);
+      font-weight: 800;
+      font-size: 14.5px;
+      border: 0;
+      border-radius: var(--gp-r-md, 14px);
+      padding: 12px 14px;
+      cursor: pointer;
+      box-shadow: 0 10px 24px -12px rgba(2, 6, 23, .5);
+      transition: transform .16s var(--at-ease), opacity .16s var(--at-ease);
+    }
+    .at-offer-accept:active { transform: scale(.985); }
+    .at-offer-accept:disabled { opacity: .6; cursor: default; transform: none; }
+    .at-offer-decline {
+      flex: none;
+      background: rgba(255, 255, 255, .12);
+      color: #eafff2;
+      font-weight: 700;
+      font-size: 13px;
+      border: 1px solid rgba(255, 255, 255, .3);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 12px 16px;
+      cursor: pointer;
+    }
+    .at-offer-decline:disabled { opacity: .6; cursor: default; }
+    .at-offer-notes {
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 12px 14px;
+      box-shadow: var(--gp-shadow-sm);
+      font-size: 13.5px;
+      margin-top: 10px;
+    }
+    .at-offer-notes span { display: block; font-size: 10px; color: var(--gp-faint, #94a3b8); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 3px; }
+
+    /* ── Inline interview scheduler (mirrors secure-interview wiring) ── */
+    .at-sched {
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 16px;
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-tzline { font-size: 12px; color: var(--gp-muted, #64748b); margin: 0 0 13px; display: flex; gap: 7px; align-items: flex-start; line-height: 1.45; }
+    .at-tzline svg { flex: none; width: 14px; height: 14px; color: var(--gp-blue, #2563eb); margin-top: 1px; }
+    .at-dayscroll { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; margin-bottom: 13px; }
+    .at-dayscroll::-webkit-scrollbar { display: none; }
+    .at-day {
+      flex: none;
+      text-align: center;
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: 12px;
+      padding: 9px 13px;
+      background: var(--gp-surface, #fff);
+      color: var(--gp-text, #1f2b43);
+      cursor: pointer;
+      transition: all .16s var(--at-ease);
+      min-width: 60px;
+    }
+    .at-day.on { background: var(--gp-ink, #0f172a); border-color: var(--gp-ink, #0f172a); color: #fff; }
+    .at-day small { display: block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--gp-faint, #94a3b8); }
+    .at-day.on small { color: #9db4d8; }
+    .at-day b { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-size: 18px; font-weight: 700; display: block; margin-top: 2px; }
+    .at-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .at-slot {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gp-text, #1f2b43);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: 11px;
+      padding: 11px 6px;
+      background: var(--gp-surface, #fff);
+      cursor: pointer;
+      transition: all .14s var(--at-ease);
+    }
+    .at-slot:hover { border-color: var(--gp-blue-border, #d6e2fb); background: var(--gp-blue-soft, #eff4ff); }
+    .at-slot.on { background: var(--gp-blue, #2563eb); border-color: var(--gp-blue, #2563eb); color: #fff; box-shadow: 0 8px 18px -10px rgba(37, 99, 235, .6); }
+    .at-confirmslot {
+      margin-top: 14px;
+      width: 100%;
+      background: linear-gradient(135deg, #2e6bf0, #1d4ed8);
+      color: #fff;
+      font-weight: 800;
+      font-size: 15px;
+      border: 0;
+      border-radius: var(--gp-r-md, 14px);
+      padding: 14px;
+      box-shadow: 0 12px 26px -14px rgba(37, 99, 235, .6);
+      opacity: .5;
+      pointer-events: none;
+      transition: opacity .18s;
+      cursor: pointer;
+    }
+    .at-confirmslot.ready { opacity: 1; pointer-events: auto; }
+    .at-sched-note { text-align: center; color: var(--gp-muted, #64748b); font-size: 13.5px; padding: 14px 6px; margin: 0; }
+    .at-sched-note a { color: var(--gp-blue, #2563eb); font-weight: 700; }
+
+    /* ── Booked card ── */
+    .at-booked {
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 17px;
+      text-align: center;
+    }
+    .at-booked .at-bk {
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      background: var(--gp-green, #16a34a);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 11px;
+      box-shadow: 0 10px 22px -10px rgba(22, 163, 74, .7);
+    }
+    .at-booked h4 { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-size: 19px; color: var(--gp-green-ink, #166534); font-weight: 700; margin: 0; }
+    .at-booked .at-when { font-size: 14px; color: var(--gp-ink, #0f172a); font-weight: 700; margin-top: 4px; }
+    .at-booked .at-acts { display: flex; gap: 9px; margin-top: 14px; }
+    .at-booked .at-acts a {
+      flex: 1;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 11px;
+      border-radius: var(--gp-r-md, 14px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .at-booked .at-join { background: var(--gp-green, #16a34a); color: #fff; }
+    .at-booked .at-cal { background: var(--gp-surface, #fff); border: 1px solid var(--gp-green-border, #c5ecd4); color: var(--gp-green-ink, #166534); }
+    .at-booked .at-resched {
+      display: inline-block;
+      margin-top: 11px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--gp-muted, #64748b);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      background: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    /* Offer-mode sticky bar */
+    .at-bapply.at-bapply--offer { background: linear-gradient(135deg, #12833d, #16a34a); box-shadow: 0 12px 28px -12px rgba(22, 163, 74, .55); }
+
+    /* ── Bottom sheets (booking confirm + decline confirm) ── */
+    .at-sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .45);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      z-index: 1000;
+      padding: 0;
+    }
+    .at-sheet-overlay[hidden] { display: none; }
+    @media (min-width: 640px) { .at-sheet-overlay { align-items: center; padding: 20px; } }
+    .at-sheet {
+      background: var(--gp-surface, #fff);
+      border-radius: var(--gp-r-xl, 24px) var(--gp-r-xl, 24px) 0 0;
+      box-shadow: var(--gp-shadow-lg);
+      padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+      width: 100%;
+      max-width: 480px;
+    }
+    @media (min-width: 640px) { .at-sheet { border-radius: var(--gp-r-xl, 24px); } }
+    .at-sheet h2 { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-size: 21px; color: var(--gp-ink, #0f172a); margin: 0 0 8px; }
+    .at-sheet p { color: var(--gp-muted, #64748b); font-size: 14px; margin: 0 0 4px; line-height: 1.5; }
+    .at-sheet .at-sheet-time { font-weight: 700; color: var(--gp-ink, #0f172a); font-size: 15px; margin: 4px 0 22px; }
+    .at-sheet-actions { display: flex; gap: 10px; margin-top: 18px; }
+    .at-sheet-actions button {
+      flex: 1;
+      border-radius: var(--gp-r-md, 14px);
+      padding: 12px 16px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .at-sheet-actions .at-sheet-secondary { background: var(--gp-surface, #fff); color: var(--gp-text, #1f2b43); border-color: var(--gp-border-strong, #cbd7ea); }
+    .at-sheet-actions .at-sheet-primary { background: linear-gradient(135deg, #2e6bf0, #1d4ed8); color: #fff; box-shadow: 0 10px 24px -10px rgba(37, 99, 235, .55); }
+    .at-sheet-actions .at-sheet-primary:disabled { opacity: .6; cursor: default; }
+    .at-sheet-actions .at-sheet-danger { background: var(--gp-red-soft, #fdecec); color: var(--gp-red-ink, #b91c1c); border-color: var(--gp-red-border, #f5c8c8); }
+    .at-sheet-actions .at-sheet-danger:disabled { opacity: .6; cursor: default; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -917,6 +1153,32 @@
       </div>
 
       <p class="cv-modal-status" id="cvUploadStatus"></p>
+    </div>
+  </div>
+
+  <!-- Interview booking confirm sheet (offer mode) -->
+  <div class="at-sheet-overlay" id="bookOverlay" hidden>
+    <div class="at-sheet">
+      <h2>Confirm your interview</h2>
+      <p>You're booking for:</p>
+      <div class="at-sheet-time" id="bookTimeLabel"></div>
+      <p>We'll lock in the Zoom call instantly — invite sent to your email, and your Registration Support Officer joins you on the call.</p>
+      <div class="at-sheet-actions">
+        <button class="at-sheet-secondary" id="bookCancelBtn" type="button">Back</button>
+        <button class="at-sheet-primary" id="bookConfirmBtn" type="button">Confirm booking</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Decline offer confirm sheet (offer mode) -->
+  <div class="at-sheet-overlay" id="declineOverlay" hidden>
+    <div class="at-sheet">
+      <h2>Decline this offer?</h2>
+      <p>This can't be undone — the practice will be told you've passed. If anything about the terms doesn't feel right, your Registration Support Officer can usually renegotiate them, so it's worth talking to them first.</p>
+      <div class="at-sheet-actions">
+        <button class="at-sheet-secondary" id="declineCancelBtn" type="button">Keep the offer</button>
+        <button class="at-sheet-danger" id="declineConfirmBtn" type="button">Decline offer</button>
+      </div>
     </div>
   </div>
 
@@ -1099,7 +1361,22 @@
   // closed | not_qualified | onboarding. Disabled variants for outcomes where
   // re-tapping is pointless.
   let applyState = "idle";
+  // Terminal guard outcomes must survive re-renders: when the enriched detail
+  // render lands after a guard fired, the bar must NOT reset back to idle.
+  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding"];
   let heroImageLookupRequestId = 0;
+
+  /* ── Offer-mode state (Phase 2 Task 4) ── */
+  let pageRoleId = "";
+  let offerContext = null;          // the /api/career/my-offer payload when it targets THIS role
+  let offerBookedInterview = null;  // { scheduled_at, zoom_join_url } | null
+  let offerSlots = [];              // [{ startUtc, local: { gp: { tz, label } } }]
+  let offerSlotsStatus = "idle";    // idle | loading | ready | error | not_available
+  let offerSelectedDayKey = null;
+  let offerSelectedSlotUtc = null;
+  let offerPendingSlot = null;      // slot shown in the booking confirm sheet
+  let offerAccepting = false;
+  let offerDeclining = false;
 
   /* ── Get role ID from URL ── */
   function getRoleIdFromUrl() {
@@ -1209,9 +1486,12 @@
     const locText = revealed
       ? String(role.practiceAddress || role.locationLine || role.location || "")
       : String(role.locationLine || role.location || "Australia");
+    const pillText = (renderContext && renderContext.mode === "offer")
+      ? "Offer received"
+      : (revealed ? "Identity unlocked" : "Eligible for you");
     dheadEl.innerHTML =
       '<div class="at-dhtags">' +
-        '<span class="at-dpill">' + AT_CHECK_SVG + (revealed ? "Identity unlocked" : "Eligible for you") + '</span>' +
+        '<span class="at-dpill">' + AT_CHECK_SVG + pillText + '</span>' +
         '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>' +
       '</div>' +
       '<h1 class="at-dtitle">' + escapeHtml(headline) + '</h1>' +
@@ -1430,7 +1710,552 @@
       '<p><b>Your Registration Support Officer reviews every application before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>';
   }
 
+  /* ════════════════════════════════════════════════════════════════════
+     OFFER MODE (Phase 2 Task 4)
+     When /api/career/my-offer targets this role (status sent|accepted), the
+     page transforms: green offer banner, accept/decline, unlocked identity
+     (server-gated) and inline interview scheduling that mirrors the proven
+     pages/secure-interview.html wiring. Existing offer-review /
+     secure-interview / interview-prep pages keep working unchanged.
+     ════════════════════════════════════════════════════════════════════ */
+  const OFFER_CLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>';
+  // No reschedule endpoint exists — rescheduling goes through the
+  // Registration Support Officer, never a fake in-page reschedule.
+  const OFFICER_RESCHEDULE_MAILTO = "mailto:hello@mygplink.com.au?subject=" +
+    encodeURIComponent("Interview reschedule request") + "&body=" +
+    encodeURIComponent("Hi team, I need a different time for my practice interview. Could you help me reschedule?");
+
+  function redirectToSignIn() {
+    // Same next-param contract as js/auth-guard.js so sign-in returns here.
+    const dest = window.location.pathname + window.location.search;
+    window.location.href = "/pages/signin?next=" + encodeURIComponent(dest);
+  }
+
+  function isOfferMode() {
+    return !!(renderContext && renderContext.mode === "offer" && offerContext && offerContext.offer);
+  }
+
+  function isOfferAccepted() {
+    return !!(offerContext && offerContext.offer && offerContext.offer.status === "accepted");
+  }
+
+  function getBookedInterview() {
+    return offerBookedInterview && offerBookedInterview.scheduled_at ? offerBookedInterview : null;
+  }
+
+  function offerTargetsRole(offerData, roleId) {
+    if (!offerData || offerData.ok !== true || !offerData.offer) return false;
+    const status = String(offerData.offer.status || "");
+    if (status !== "sent" && status !== "accepted") return false;
+    return !!roleId && String(offerData.roleId || "") === String(roleId);
+  }
+
+  async function loadMyOffer() {
+    try {
+      const res = await fetch("/api/career/my-offer", { credentials: "same-origin" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true) return null;
+      return data;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // ── Confetti (ported from pages/secure-interview.html — self-contained
+  // canvas burst, removes its own canvas after) ──
+  function launchConfetti() {
+    const palette = ["#2563eb", "#22c55e", "#f59e0b", "#ef4444", "#a855f7"];
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;";
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    resize();
+    window.addEventListener("resize", resize);
+    const pieces = [];
+    for (let i = 0; i < 140; i++) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height * 0.5,
+        w: 6 + Math.random() * 6,
+        h: 4 + Math.random() * 8,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        vx: (Math.random() - 0.5) * 2.2,
+        vy: 2 + Math.random() * 3.2,
+        rotation: Math.random() * 360,
+        vr: (Math.random() - 0.5) * 12
+      });
+    }
+    let startTs = null;
+    const DURATION_MS = 2800;
+    function frame(ts) {
+      if (!startTs) startTs = ts;
+      const elapsed = ts - startTs;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < pieces.length; i++) {
+        const p = pieces[i];
+        p.x += p.vx; p.y += p.vy; p.rotation += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (elapsed < DURATION_MS) {
+        requestAnimationFrame(frame);
+      } else {
+        window.removeEventListener("resize", resize);
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ── Slot label helpers — same grouping rules as secure-interview.html ── */
+  function slotDayKey(slot) {
+    try {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: slot.local.gp.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(slot.startUtc));
+    } catch (err) {
+      return String(slot.startUtc || "").slice(0, 10);
+    }
+  }
+
+  function slotDayHeading(slot) {
+    try {
+      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, weekday: "long", day: "numeric", month: "long" }).format(new Date(slot.startUtc));
+    } catch (err) {
+      return slotDayKey(slot);
+    }
+  }
+
+  // Day-pill parts for the mockup's DAYS strip: short weekday + day number.
+  function slotDayParts(slot) {
+    try {
+      const date = new Date(slot.startUtc);
+      const weekday = new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, weekday: "short" }).format(date).toUpperCase();
+      const dayNum = new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, day: "numeric" }).format(date);
+      return { weekday: weekday, dayNum: dayNum };
+    } catch (err) {
+      const key = slotDayKey(slot);
+      return { weekday: key, dayNum: "" };
+    }
+  }
+
+  function slotTimeLabel(slot) {
+    try {
+      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(slot.startUtc));
+    } catch (err) {
+      return slot.local && slot.local.gp && slot.local.gp.label ? slot.local.gp.label : String(slot.startUtc || "");
+    }
+  }
+
+  function groupSlotsByDay(slots) {
+    const groups = [];
+    const groupsByKey = {};
+    (Array.isArray(slots) ? slots : []).forEach((slot) => {
+      if (!slot || !slot.startUtc) return;
+      const key = slotDayKey(slot);
+      if (!groupsByKey[key]) {
+        groupsByKey[key] = { key: key, heading: slotDayHeading(slot), parts: slotDayParts(slot), slots: [] };
+        groups.push(groupsByKey[key]);
+      }
+      groupsByKey[key].slots.push(slot);
+    });
+    return groups;
+  }
+
+  function formatBookedLabel(iso) {
+    try {
+      const label = new Date(iso).toLocaleString(undefined, { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" });
+      return label && label !== "Invalid Date" ? label : String(iso || "");
+    } catch (err) {
+      return String(iso || "");
+    }
+  }
+
+  // https-only guard on server-provided Zoom links (same rule as
+  // secure-interview.html) — anything else renders no join button.
+  function getSafeZoomUrl(booked) {
+    const zoomUrl = String((booked && booked.zoom_join_url) || "");
+    return zoomUrl.indexOf("https://") === 0 ? zoomUrl : "";
+  }
+
+  // Google Calendar template URL: scheduled_at + 45 minutes, Zoom link in the
+  // details, and the title masked-or-real exactly as the reveal gate says.
+  function formatCalendarStamp(date) {
+    return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  }
+
+  function buildCalendarUrl(booked) {
+    const start = new Date(booked && booked.scheduled_at);
+    if (Number.isNaN(start.getTime())) return "";
+    const end = new Date(start.getTime() + 45 * 60 * 1000);
+    const revealed = !!(currentRole && currentRole.revealed && currentRole.realPracticeName);
+    const title = revealed ? ("Interview — " + String(currentRole.realPracticeName)) : "GP Link practice interview";
+    const zoomUrl = getSafeZoomUrl(booked);
+    const details = "Video interview arranged by GP Link — your Registration Support Officer joins you on the call." +
+      (zoomUrl ? "\n\nJoin on Zoom: " + zoomUrl : "");
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: title,
+      dates: formatCalendarStamp(start) + "/" + formatCalendarStamp(end),
+      details: details,
+      location: zoomUrl || "Zoom"
+    });
+    return "https://calendar.google.com/calendar/render?" + params.toString();
+  }
+
+  /* ── Offer-mode sections ── */
+  function buildOfferBannerHtml(role, offer) {
+    const accepted = offer.status === "accepted";
+    const booked = getBookedInterview();
+    // Identity in the banner copy comes ONLY from server reveal fields.
+    const revealedName = (role && role.revealed && role.realPracticeName) ? String(role.realPracticeName) : "";
+    const intro = accepted
+      ? ("Great news — <b>" + escapeHtml(revealedName || "the practice") + "</b> reviewed your profile and wants to meet. " +
+         (booked
+           ? "Your video interview is locked in — your Registration Support Officer joins you on the call."
+           : "Choose a time below and we'll set up a video interview with the practice and your Registration Support Officer."))
+      : ("Great news — the practice reviewed your profile and wants to meet. " +
+         "Review the offer terms below; accepting unlocks the practice identity and lets you schedule the interview. " +
+         "Your Registration Support Officer negotiated these terms for you.");
+    const chip = booked ? "Interview confirmed" : (accepted ? "Pick a time below" : "Please respond within 5 days");
+    const actions = accepted ? "" :
+      '<div class="at-offer-actions">' +
+        '<button class="at-offer-accept" type="button" data-offer-accept' + (offerAccepting ? " disabled" : "") + '>' +
+          (offerAccepting ? "Accepting…" : "Accept offer") + '</button>' +
+        '<button class="at-offer-decline" type="button" data-offer-decline' + (offerDeclining ? " disabled" : "") + '>Decline</button>' +
+      '</div>';
+    return '<section class="at-offerbanner at-rv at-rv1">' +
+      '<div class="at-oh"><span class="at-tada"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>The practice would like to interview you</div>' +
+      '<p>' + intro + '</p>' +
+      '<span class="at-cd">' + OFFER_CLOCK_SVG + escapeHtml(chip) + '</span>' +
+      actions +
+    '</section>';
+  }
+
+  function formatOfferStartDate(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+  }
+
+  function buildOfferTermsHtml(offer) {
+    const cells = [
+      { label: "Billing split", value: offer.billing_split },
+      { label: "Sessions / week", value: offer.sessions_per_week },
+      { label: "Compensation", value: offer.compensation_range },
+      { label: "Start date", value: formatOfferStartDate(offer.start_date) }
+    ].filter((cell) => String(cell.value || "").trim());
+    const notes = String(offer.notes || "").trim();
+    if (!cells.length && !notes) return "";
+    return '<div class="at-sech">The offer</div>' +
+      (cells.length
+        ? '<div class="at-earnrow at-rv at-rv2">' +
+          cells.map((cell) => '<div class="at-cell"><span>' + escapeHtml(cell.label) + '</span><b>' + escapeHtml(cell.value) + '</b></div>').join("") +
+          '</div>'
+        : "") +
+      (notes ? '<div class="at-offer-notes at-rv at-rv2"><span>From your Registration Support Officer</span>' + escapeHtml(notes) + '</div>' : "");
+  }
+
+  function buildOfferSupportHtml() {
+    return '<div class="at-sech">In your corner</div>' +
+      '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
+      '<p><b>Your Registration Support Officer arranged this offer</b> and will join the interview with you — so you’re never in the room alone.</p></div>';
+  }
+
+  function renderOfferBody(role) {
+    const offer = offerContext.offer;
+    const accepted = offer.status === "accepted";
+    dbodyEl.innerHTML =
+      buildOfferBannerHtml(role, offer) +
+      (accepted
+        ? '<div class="at-sech">Schedule your interview</div><div id="schedWrap" class="at-rv at-rv2"></div>'
+        : "") +
+      buildOfferTermsHtml(offer) +
+      buildPracticeIdentityHtml(role) +
+      buildIntroVideoHtml(role) +
+      buildMapHtml(role) +
+      buildOfferSupportHtml();
+    if (accepted) renderSched();
+  }
+
+  /* ── Inline scheduler — mirrors secure-interview.html's loadSlots/bookSlot ── */
+  function renderSched() {
+    const wrap = document.getElementById("schedWrap");
+    if (!wrap) return;
+    const booked = getBookedInterview();
+
+    if (booked) {
+      const zoomUrl = getSafeZoomUrl(booked);
+      const calUrl = buildCalendarUrl(booked);
+      wrap.innerHTML = '<div class="at-booked">' +
+        '<div class="at-bk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>' +
+        '<h4>Interview confirmed</h4>' +
+        '<div class="at-when">' + escapeHtml(formatBookedLabel(booked.scheduled_at)) + '</div>' +
+        '<div class="at-acts">' +
+          (zoomUrl ? '<a class="at-join" href="' + escapeHtml(zoomUrl) + '" target="_blank" rel="noopener noreferrer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 10l4.5-2.5v9L15 14M4 8h9a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z"/></svg>Join on Zoom</a>' : "") +
+          (calUrl ? '<a class="at-cal" href="' + escapeHtml(calUrl) + '" target="_blank" rel="noopener noreferrer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>Add to calendar</a>' : "") +
+        '</div>' +
+        '<a class="at-resched" href="' + OFFICER_RESCHEDULE_MAILTO + '">Need a different time? Message your Registration Support Officer</a>' +
+      '</div>';
+      return;
+    }
+
+    if (!offerContext.interviewBookable) {
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Interview times aren’t open yet — <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
+      return;
+    }
+
+    if (offerSlotsStatus === "loading" || offerSlotsStatus === "idle") {
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Finding times that work for you, the practice and your Registration Support Officer…</p></div>';
+      return;
+    }
+
+    if (offerSlotsStatus === "not_available") {
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Your interview isn’t available to book yet — <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
+      return;
+    }
+
+    if (offerSlotsStatus === "error") {
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Something went wrong loading your interview times. <a href="#" data-offer-retry>Try again</a></p></div>';
+      return;
+    }
+
+    const groups = groupSlotsByDay(offerSlots);
+    if (!groups.length) {
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">No times are available right now — please check back shortly, or <a href="' + OFFICER_RESCHEDULE_MAILTO + '">message your Registration Support Officer</a>.</p></div>';
+      return;
+    }
+
+    if (!offerSelectedDayKey || !groups.some((group) => group.key === offerSelectedDayKey)) {
+      offerSelectedDayKey = groups[0].key;
+    }
+    const activeGroup = groups.find((group) => group.key === offerSelectedDayKey) || groups[0];
+    const selectedSlot = activeGroup.slots.find((slot) => slot.startUtc === offerSelectedSlotUtc) || null;
+
+    wrap.innerHTML = '<div class="at-sched">' +
+      '<p class="at-tzline">' + OFFER_CLOCK_SVG + 'Times shown in your timezone. We’ve matched slots that work for you, the practice and your Registration Support Officer.</p>' +
+      '<div class="at-dayscroll">' +
+        groups.map((group) =>
+          '<button type="button" class="at-day' + (group.key === activeGroup.key ? " on" : "") + '" data-offer-day="' + escapeHtml(group.key) + '" aria-label="' + escapeHtml(group.heading) + '">' +
+            '<small>' + escapeHtml(group.parts.weekday) + '</small><b>' + escapeHtml(group.parts.dayNum) + '</b>' +
+          '</button>'
+        ).join("") +
+      '</div>' +
+      '<div class="at-slots">' +
+        activeGroup.slots.map((slot) =>
+          '<button type="button" class="at-slot' + (slot.startUtc === offerSelectedSlotUtc ? " on" : "") + '" data-offer-slot="' + escapeHtml(slot.startUtc) + '">' + escapeHtml(slotTimeLabel(slot)) + '</button>'
+        ).join("") +
+      '</div>' +
+      '<button type="button" class="at-confirmslot' + (selectedSlot ? " ready" : "") + '" data-offer-confirm>' +
+        (selectedSlot ? escapeHtml("Confirm " + slotDayHeading(selectedSlot) + ", " + slotTimeLabel(selectedSlot)) : "Select a time to continue") +
+      '</button>' +
+    '</div>';
+  }
+
+  async function loadOfferSlots() {
+    if (!offerContext || !offerContext.applicationId) return;
+    offerSlotsStatus = "loading";
+    renderSched();
+    try {
+      const res = await fetch("/api/career/interview/slots?applicationId=" + encodeURIComponent(offerContext.applicationId), { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 200 && data && data.ok) {
+        offerSlots = Array.isArray(data.slots) ? data.slots : [];
+        offerSlotsStatus = "ready";
+      } else if (res.status === 403 && data && data.error === "not_available") {
+        offerSlotsStatus = "not_available";
+      } else if (res.status === 401) {
+        redirectToSignIn();
+        return;
+      } else {
+        offerSlotsStatus = "error";
+      }
+    } catch (err) {
+      offerSlotsStatus = "error";
+    }
+    renderSched();
+  }
+
+  /* ── Booking confirm sheet ── */
+  const bookOverlayEl = document.getElementById("bookOverlay");
+  const bookTimeLabelEl = document.getElementById("bookTimeLabel");
+  const bookConfirmBtnEl = document.getElementById("bookConfirmBtn");
+  const bookCancelBtnEl = document.getElementById("bookCancelBtn");
+  const declineOverlayEl = document.getElementById("declineOverlay");
+  const declineConfirmBtnEl = document.getElementById("declineConfirmBtn");
+  const declineCancelBtnEl = document.getElementById("declineCancelBtn");
+
+  function openBookConfirm(slot) {
+    offerPendingSlot = slot;
+    bookTimeLabelEl.textContent = slotDayHeading(slot) + " at " + slotTimeLabel(slot);
+    bookOverlayEl.hidden = false;
+  }
+
+  function closeBookConfirm() {
+    bookOverlayEl.hidden = true;
+    offerPendingSlot = null;
+    bookConfirmBtnEl.disabled = false;
+    bookConfirmBtnEl.textContent = "Confirm booking";
+  }
+
+  async function bookOfferSlot(slot) {
+    if (!offerContext || !slot) return;
+    bookConfirmBtnEl.disabled = true;
+    bookConfirmBtnEl.textContent = "Booking…";
+    try {
+      const res = await fetch("/api/career/interview/book", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: offerContext.applicationId, slot_start_utc: slot.startUtc })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 200 && data && data.ok) {
+        closeBookConfirm();
+        offerBookedInterview = data.booked || null;
+        renderSched();
+        paintApply();
+        launchConfetti();
+        showToast("Interview booked ✓ Calendar invite & Zoom link sent");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (res.status === 409 && data && data.error === "slot_taken") {
+        closeBookConfirm();
+        showToast("That time was just taken — please pick another.");
+        offerSelectedSlotUtc = null;
+        loadOfferSlots();
+        return;
+      }
+      if (res.status === 403 && data && data.error === "not_available") {
+        closeBookConfirm();
+        offerSlotsStatus = "not_available";
+        renderSched();
+        return;
+      }
+      if (res.status === 401) {
+        redirectToSignIn();
+        return;
+      }
+      closeBookConfirm();
+      showToast("Something went wrong booking that time — please try again.");
+    } catch (err) {
+      closeBookConfirm();
+      showToast("Something went wrong booking that time — please try again.");
+    }
+  }
+
+  /* ── Accept / decline — server is the source of truth ── */
+  async function refreshOfferState() {
+    const [freshRole, offerData] = await Promise.all([
+      loadRoleDetail(pageRoleId, 25000, { bypassCache: true }),
+      loadMyOffer()
+    ]);
+    if (offerData && offerTargetsRole(offerData, pageRoleId)) {
+      offerContext = offerData;
+      offerBookedInterview = offerData.bookedInterview || null;
+      const merged = mergeRoleData(currentRole, freshRole || {});
+      renderRole(merged, { mode: "offer" });
+      if (isOfferAccepted() && !getBookedInterview() && offerContext.interviewBookable) {
+        loadOfferSlots();
+      }
+    } else if (freshRole) {
+      offerContext = null;
+      renderRole(mergeRoleData(currentRole, freshRole), { mode: "standard" });
+    }
+  }
+
+  async function acceptOffer() {
+    if (!offerContext || offerAccepting) return;
+    offerAccepting = true;
+    renderOfferBody(currentRole);
+    try {
+      const res = await fetch("/api/career/offer/accept", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: offerContext.applicationId })
+      });
+      const data = await res.json().catch(() => null);
+      offerAccepting = false;
+      if (res.status === 401) {
+        redirectToSignIn();
+        return;
+      }
+      if (res.ok && data && data.ok) {
+        // Celebratory moment, then re-fetch detail + my-offer so the reveal
+        // comes from the server — never assumed client-side.
+        launchConfetti();
+        showToast("Offer accepted 🎉 Unlocking the practice…");
+        await refreshOfferState();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      renderOfferBody(currentRole);
+      showToast((data && data.message) || "That didn’t go through — please try again.");
+    } catch (err) {
+      offerAccepting = false;
+      renderOfferBody(currentRole);
+      showToast("Network error — please try again.");
+    }
+  }
+
+  function openDeclineConfirm() {
+    declineOverlayEl.hidden = false;
+  }
+
+  function closeDeclineConfirm() {
+    declineOverlayEl.hidden = true;
+    declineConfirmBtnEl.disabled = false;
+    declineConfirmBtnEl.textContent = "Decline offer";
+  }
+
+  async function declineOffer() {
+    if (!offerContext || offerDeclining) return;
+    offerDeclining = true;
+    declineConfirmBtnEl.disabled = true;
+    declineConfirmBtnEl.textContent = "Declining…";
+    try {
+      const res = await fetch("/api/career/offer/decline", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: offerContext.applicationId })
+      });
+      const data = await res.json().catch(() => null);
+      offerDeclining = false;
+      if (res.status === 401) {
+        redirectToSignIn();
+        return;
+      }
+      if (res.ok && data && data.ok) {
+        closeDeclineConfirm();
+        offerContext = null;
+        offerBookedInterview = null;
+        renderRole(currentRole, { mode: "standard" });
+        showToast("Offer declined — your Registration Support Officer will be in touch about other options.");
+        return;
+      }
+      closeDeclineConfirm();
+      showToast((data && data.message) || "We couldn’t record that just now — please try again.");
+    } catch (err) {
+      offerDeclining = false;
+      closeDeclineConfirm();
+      showToast("Network error — please try again.");
+    }
+  }
+
   function renderBody(role, ctx) {
+    if (ctx && ctx.mode === "offer" && offerContext && offerContext.offer) {
+      // Offer mode: no urgency/applicant counts — the offer is the story.
+      renderOfferBody(role);
+      return;
+    }
     const summary = String(role.summary || "A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.");
     dbodyEl.innerHTML =
       (isApplied(role.id) ? buildReceivedHtml() : "") +
@@ -1469,7 +2294,9 @@
     renderHeroImage(role);
     ensureHeroImage(role);
     renderBody(role, renderContext);
-    if (applyState !== "applying") {
+    // Never reset a terminal guard outcome (already_placed/closed/
+    // not_qualified/onboarding) back to idle when a later render lands.
+    if (applyState !== "applying" && !TERMINAL_APPLY_STATES.includes(applyState)) {
       applyState = isApplied(role.id) ? "applied" : "idle";
     }
     paintApply();
@@ -1478,6 +2305,22 @@
 
   /* ── Apply bar painting ── */
   function paintApply() {
+    // Offer mode repurposes the sticky bar: respond → schedule → booked.
+    if (isOfferMode()) {
+      const booked = getBookedInterview();
+      applyBtnEl.disabled = false;
+      if (!isOfferAccepted()) {
+        applyBtnEl.className = "at-bapply at-bapply--offer";
+        applyBtnEl.innerHTML = "Respond to your offer<small>Accept to unlock the practice &amp; schedule your interview</small>";
+      } else if (booked) {
+        applyBtnEl.className = "at-bapply at-bapply--offer at-bapply--done";
+        applyBtnEl.innerHTML = "✓ Interview booked<small>" + escapeHtml(formatBookedLabel(booked.scheduled_at)) + "</small>";
+      } else {
+        applyBtnEl.className = "at-bapply at-bapply--offer";
+        applyBtnEl.innerHTML = "Schedule your interview<small>Video call with the practice + your Registration Support Officer</small>";
+      }
+      return;
+    }
     const states = {
       idle: {
         cls: "at-bapply",
@@ -1561,9 +2404,19 @@
     }
   }
 
-  async function loadRoleDetail(roleId, timeoutMs) {
-    const cached = readCachedRoleDetail(roleId);
-    if (cached) return cached;
+  // options.bypassCache: skip (and refresh) the 10-minute localStorage cache —
+  // used whenever an offer is detected so reveal fields are never stale.
+  // loadRoleDetail._fromCache reports where the last resolved role came from.
+  async function loadRoleDetail(roleId, timeoutMs, options) {
+    const bypassCache = !!(options && options.bypassCache);
+    if (!bypassCache) {
+      const cached = readCachedRoleDetail(roleId);
+      if (cached) {
+        loadRoleDetail._fromCache = true;
+        return cached;
+      }
+    }
+    loadRoleDetail._fromCache = false;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -1657,6 +2510,14 @@
 
   async function applyForRole() {
     if (!currentRole) return;
+    if (isOfferMode()) {
+      // The bar is a scroll affordance in offer mode — booking happens inline.
+      const target = isOfferAccepted()
+        ? (document.getElementById("schedWrap") || dbodyEl)
+        : (dbodyEl.querySelector(".at-offerbanner") || dbodyEl);
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     if (applyState === "onboarding") {
       window.location.href = "onboarding";
       return;
@@ -1689,6 +2550,43 @@
     updateSaveButton();
     showToast(nowSaved ? "Saved to your shortlist" : "Removed from shortlist");
   });
+
+  // Offer-mode controls (banner actions + scheduler) — event delegation, the
+  // scheduler re-renders its own innerHTML on every state change.
+  dbodyEl.addEventListener("click", (event) => {
+    if (event.target.closest("[data-offer-accept]")) { acceptOffer(); return; }
+    if (event.target.closest("[data-offer-decline]")) { openDeclineConfirm(); return; }
+    const retryLink = event.target.closest("[data-offer-retry]");
+    if (retryLink) {
+      event.preventDefault();
+      loadOfferSlots();
+      return;
+    }
+    const dayBtn = event.target.closest("[data-offer-day]");
+    if (dayBtn) {
+      offerSelectedDayKey = dayBtn.getAttribute("data-offer-day");
+      offerSelectedSlotUtc = null;
+      renderSched();
+      return;
+    }
+    const slotBtn = event.target.closest("[data-offer-slot]");
+    if (slotBtn) {
+      offerSelectedSlotUtc = slotBtn.getAttribute("data-offer-slot");
+      renderSched();
+      return;
+    }
+    if (event.target.closest("[data-offer-confirm]")) {
+      const slot = offerSlots.find((item) => item && item.startUtc === offerSelectedSlotUtc);
+      if (slot) openBookConfirm(slot);
+    }
+  });
+
+  bookCancelBtnEl.addEventListener("click", closeBookConfirm);
+  bookOverlayEl.addEventListener("click", (event) => { if (event.target === bookOverlayEl) closeBookConfirm(); });
+  bookConfirmBtnEl.addEventListener("click", () => { if (offerPendingSlot) bookOfferSlot(offerPendingSlot); });
+  declineCancelBtnEl.addEventListener("click", closeDeclineConfirm);
+  declineOverlayEl.addEventListener("click", (event) => { if (event.target === declineOverlayEl) closeDeclineConfirm(); });
+  declineConfirmBtnEl.addEventListener("click", declineOffer);
 
   // Identity vault: tap → shake + explainer (mockup interaction).
   dbodyEl.addEventListener("click", (event) => {
@@ -1861,6 +2759,7 @@
   /* ── Init ── */
   async function init() {
     const roleId = getRoleIdFromUrl();
+    pageRoleId = roleId;
     if (!roleId) {
       showError("No role specified. Please select a role from the career page.");
       return;
@@ -1876,6 +2775,9 @@
 
     const previewPromise = previewRole ? Promise.resolve(previewRole) : loadRolePreview(roleId);
     const detailPromise = loadRoleDetail(roleId, 25000);
+    // Offer detection runs alongside the detail fetch: a live offer on THIS
+    // role flips the page into offer mode.
+    const offerPromise = loadMyOffer();
 
     const fastRole = await previewPromise;
     if (!currentRole && fastRole) {
@@ -1883,7 +2785,29 @@
       renderRole(fastRole, { mode: "standard" });
     }
 
-    const enrichedRole = await detailPromise;
+    let enrichedRole = await detailPromise;
+    const offerData = await offerPromise;
+
+    if (offerData && offerTargetsRole(offerData, roleId)) {
+      offerContext = offerData;
+      offerBookedInterview = offerData.bookedInterview || null;
+      // Never trust the 10-minute detail cache once an offer exists — the
+      // reveal fields could be up to 10 minutes stale. Re-fetch fresh.
+      if (!enrichedRole || loadRoleDetail._fromCache) {
+        const freshRole = await loadRoleDetail(roleId, 25000, { bypassCache: true });
+        if (freshRole) enrichedRole = freshRole;
+      }
+      const offerRole = mergeRoleData(currentRole || previewRole, enrichedRole || {});
+      if (offerRole && offerRole.id) {
+        renderRole(offerRole, { mode: "offer" });
+        clearPreviewRole(roleId);
+        if (isOfferAccepted() && !getBookedInterview() && offerContext.interviewBookable) {
+          loadOfferSlots();
+        }
+        return;
+      }
+    }
+
     if (enrichedRole) {
       renderRole(mergeRoleData(currentRole || previewRole, enrichedRole), { mode: "standard" });
       clearPreviewRole(roleId);
