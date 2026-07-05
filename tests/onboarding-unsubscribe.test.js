@@ -55,7 +55,7 @@ function unsubToken(userId) {
   return crypto2.createHmac('sha256', process.env.AUTH_SECRET).update('onb-unsub:' + String(userId)).digest('hex');
 }
 
-describe('GET /api/onboarding-reminders/unsubscribe', () => {
+describe('GET /api/onboarding-reminders/unsubscribe (scanner-proof: renders a confirm page, never writes)', () => {
   it('rejects a tampered token with the generic page (no user enumeration)', async () => {
     const r = await req('GET', '/api/onboarding-reminders/unsubscribe?u=user-1&t=deadbeef');
     expect(r.status).toBe(400);
@@ -65,7 +65,27 @@ describe('GET /api/onboarding-reminders/unsubscribe', () => {
     const r = await req('GET', '/api/onboarding-reminders/unsubscribe?u=user-1');
     expect(r.status).toBe(400);
   });
-  it('accepts a valid token and marks the reminder row unsubscribed', async () => {
+  it('a valid token renders a 200 confirm page with a POST form, but does NOT flip the row', async () => {
+    const uid = 'user-get-noop';
+    const r = await req('GET', '/api/onboarding-reminders/unsubscribe?u=' + uid + '&t=' + unsubToken(uid));
+    expect(r.status).toBe(200);
+    expect(r.raw).toContain('method="POST"');
+    expect(r.raw).toContain('action="/api/onboarding-reminders/unsubscribe"');
+    expect(r.raw.toLowerCase()).toContain('unsubscribe');
+    // Email-security link prefetchers follow GET automatically — this must be a no-op.
+    const serverModule = await import('../server.js');
+    const rows = await serverModule.__testUtils.listOnboardingReminders();
+    expect(rows.find((row) => row.user_id === uid)).toBeUndefined();
+  });
+});
+
+describe('POST /api/onboarding-reminders/unsubscribe', () => {
+  it('rejects a tampered token with the generic page (no user enumeration)', async () => {
+    const r = await req('POST', '/api/onboarding-reminders/unsubscribe?u=user-1&t=deadbeef');
+    expect(r.status).toBe(400);
+    expect(r.raw).not.toContain('user-1');
+  });
+  it('accepts a valid token via query params (RFC 8058 one-click, no body needed) and marks the reminder row unsubscribed', async () => {
     // seed a reminder row directly into the local DB file, then restart-read via the endpoint
     const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     db.onboardingReminders = { 'helen@example.com': { user_id: 'user-helen', email: 'helen@example.com', name: 'Helen', anchor_at: new Date().toISOString(), last_step: 2, steps_sent: [], unsubscribed: false, stopped: false } };
@@ -73,12 +93,17 @@ describe('GET /api/onboarding-reminders/unsubscribe', () => {
     // server holds dbState in memory; POST-boot file edits are invisible — so the
     // endpoint's "valid token, no existing row" path (pre-emptive opt-out upsert)
     // is what makes this hermetic, not the file seed above.
-    const r = await req('GET', '/api/onboarding-reminders/unsubscribe?u=user-helen&t=' + unsubToken('user-helen'));
+    const r = await req('POST', '/api/onboarding-reminders/unsubscribe?u=user-helen&t=' + unsubToken('user-helen'));
     expect(r.status).toBe(200);
     expect(r.raw.toLowerCase()).toContain('unsubscribed');
+    const serverModule = await import('../server.js');
+    const rows = await serverModule.__testUtils.listOnboardingReminders();
+    const row = rows.find((r2) => r2.user_id === 'user-helen');
+    expect(row).toBeTruthy();
+    expect(row.unsubscribed).toBe(true);
   });
   it('is idempotent — second click also 200', async () => {
-    const r = await req('GET', '/api/onboarding-reminders/unsubscribe?u=user-helen&t=' + unsubToken('user-helen'));
+    const r = await req('POST', '/api/onboarding-reminders/unsubscribe?u=user-helen&t=' + unsubToken('user-helen'));
     expect(r.status).toBe(200);
     expect(r.raw.toLowerCase()).toContain('unsubscribed');
   });
@@ -88,7 +113,7 @@ describe('GET /api/onboarding-reminders/unsubscribe', () => {
     // upserts the same GP WITH a real email, it must hit the SAME row — not
     // fork a second email-keyed row that silently loses unsubscribed:true.
     const uid = 'user-fork-check';
-    const r1 = await req('GET', '/api/onboarding-reminders/unsubscribe?u=' + uid + '&t=' + unsubToken(uid));
+    const r1 = await req('POST', '/api/onboarding-reminders/unsubscribe?u=' + uid + '&t=' + unsubToken(uid));
     expect(r1.status).toBe(200);
     // saveDbState writes DB_FILE synchronously — observe the on-disk row.
     const db1 = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));

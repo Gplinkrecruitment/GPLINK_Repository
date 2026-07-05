@@ -7792,14 +7792,30 @@ function onbUnsubTokenValid(userId, token) {
   if (got.length !== expect.length) return false;
   try { return crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expect, 'utf8')); } catch (e) { return false; }
 }
+function onbuEscHtml(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Shared confirm/result page for the unsubscribe flow. `bodyHtml` (optional)
+// lets the GET confirm page embed the one-click POST form.
+function onbUnsubPage(title, msg, bodyHtml) {
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>' + title + '</title></head><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1220;color:#e8ecf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+    + '<div style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 12px">' + title + '</h2><p style="color:#8a94a6">' + msg + '</p>'
+    + (bodyHtml || '') + '</div></body></html>';
+}
 
 // Enumerate incomplete-onboarding GPs: active accounts, not staff, that haven't
 // finished the 5-step wizard. Shared by the hourly cron (/api/cron/onboarding-nudge)
 // and the CEO onboarding-incomplete waitlist endpoint — do not duplicate this logic.
+// Excludes GPs who already have a gp_applications row: they're real candidates
+// in the ATS pipeline (the funnel already keeps them in their own bucket — see
+// /api/ceo/candidates + /api/ceo/pipeline-summary) and must not also appear on
+// the onboarding waitlist or get chase emails.
 // Returns [{ userId, email, name, country, lastActiveMs, lastStep, completed }].
 async function enumerateIncompleteOnboardingGps() {
   var onbNow = Date.now();
   var onbGps = [];
+  var onbHasAppsIds = {}; // key = user_id or (lowercased) email of any GP with >=1 gp_applications row
   if (isSupabaseDbConfigured()) {
     var onbAdminIds = await getAdminUserIdSet();
     var onbProfRes = await supabaseDbRequest('user_profiles',
@@ -7835,6 +7851,10 @@ async function enumerateIncompleteOnboardingGps() {
         completed: completed
       });
     });
+    // GPs with any gp_applications row are real ATS candidates, not waitlist
+    // (same limit=5000 the /api/ceo/candidates + pipeline-summary funnel uses).
+    var onbAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id&limit=5000');
+    (((onbAppsRes.ok && onbAppsRes.data) || [])).forEach(function (a) { if (a && a.user_id) onbHasAppsIds[String(a.user_id)] = true; });
   } else {
     // Local-JSON mode: users + userState keyed by email.
     Object.keys(dbState.users || {}).forEach(function (em) {
@@ -7863,7 +7883,17 @@ async function enumerateIncompleteOnboardingGps() {
     var onbAdminEmails = String(process.env.SUPER_ADMIN_EMAILS || '').toLowerCase() + ',' + String(process.env.ADMIN_EMAILS || '').toLowerCase()
       + ',' + MONITORED_VA_EMAILS.map(function (e) { return String(e || '').toLowerCase(); }).join(',');
     onbGps = onbGps.filter(function (g) { return onbAdminEmails.indexOf(g.email) === -1; });
+    // GPs with any application on their local atsCandidates row are real ATS
+    // candidates, not waitlist. Local users are keyed by email, so match by
+    // BOTH user_id and email fallback (mirrors the Supabase gp_applications check).
+    (dbState.atsCandidates || []).forEach(function (c) {
+      if (c && Array.isArray(c.apps) && c.apps.length > 0) {
+        if (c.user_id) onbHasAppsIds[String(c.user_id)] = true;
+        if (c.email) onbHasAppsIds[String(c.email).toLowerCase()] = true;
+      }
+    });
   }
+  onbGps = onbGps.filter(function (g) { return !onbHasAppsIds[String(g.userId)] && !onbHasAppsIds[String(g.email || '').toLowerCase()]; });
   return onbGps;
 }
 
@@ -7929,7 +7959,11 @@ async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
     subject: copy.subject,
     html: html,
     text: copy.body + '\n\nContinue: ' + ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
-    headers: { 'List-Unsubscribe': '<' + unsubUrl + '>' }
+    // List-Unsubscribe-Post (RFC 8058) tells Gmail/Yahoo's native "Unsubscribe"
+    // affordance to POST to the List-Unsubscribe URL instead of just showing a
+    // link — handled by the POST branch on /api/onboarding-reminders/unsubscribe,
+    // which reads u/t from the URL's own query params.
+    headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
   });
 }
 
@@ -27483,34 +27517,57 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // GET /api/onboarding-reminders/unsubscribe?u=<userId>&t=<hmac> — one-click,
-  // no login (clicked from email). Valid token: mark unsubscribed (upsert a row
-  // if the cron hasn't created one yet, so the opt-out survives). Invalid: a
-  // generic page, no user enumeration.
+  // GET /api/onboarding-reminders/unsubscribe?u=<userId>&t=<hmac> — no login
+  // (opened from email), but performs NO write. Email-security link
+  // prefetchers (e.g. Outlook SafeLinks) follow GET links automatically and
+  // would silently unsubscribe people if GET wrote anything, so a valid token
+  // here only renders a confirm page with a one-click POST form. Invalid
+  // token: a generic 400 page, no user enumeration, on either method.
   if (req.method === 'GET' && pathname === '/api/onboarding-reminders/unsubscribe') {
     var onbuU = String(url.searchParams.get('u') || '').trim();
     var onbuT = String(url.searchParams.get('t') || '').trim();
-    var onbuPage = function (title, msg) {
-      return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        + '<title>' + title + '</title></head><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1220;color:#e8ecf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
-        + '<div style="max-width:420px;padding:32px;text-align:center"><h2 style="margin:0 0 12px">' + title + '</h2><p style="color:#8a94a6">' + msg + '</p></div></body></html>';
-    };
     if (!onbuU || !onbuT || !onbUnsubTokenValid(onbuU, onbuT)) {
       res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(onbuPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    var onbuForm = '<form method="POST" action="/api/onboarding-reminders/unsubscribe" style="margin-top:8px">'
+      + '<input type="hidden" name="u" value="' + onbuEscHtml(onbuU) + '">'
+      + '<input type="hidden" name="t" value="' + onbuEscHtml(onbuT) + '">'
+      + '<button type="submit" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;cursor:pointer">Unsubscribe</button>'
+      + '</form>';
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbUnsubPage('Unsubscribe from these reminders?', 'Click below to stop onboarding reminder emails. You can still sign in and finish your setup any time.', onbuForm));
+    return;
+  }
+
+  // POST /api/onboarding-reminders/unsubscribe — u/t via query params (RFC 8058
+  // one-click: Gmail/Yahoo POST straight to the List-Unsubscribe URL, which
+  // already carries u/t as query params) OR via an application/x-www-form-urlencoded
+  // body (the confirm page's own form submit). Valid token: mark unsubscribed
+  // (upsert a row if the cron hasn't created one yet, so the opt-out survives).
+  if (req.method === 'POST' && pathname === '/api/onboarding-reminders/unsubscribe') {
+    var onbuBodyBuf = Buffer.alloc(0);
+    try { onbuBodyBuf = await readRawBody(req, 8192); } catch (e) { onbuBodyBuf = Buffer.alloc(0); }
+    var onbuFormParams = new URLSearchParams(onbuBodyBuf.toString('utf8'));
+    var onbuU2 = String(url.searchParams.get('u') || onbuFormParams.get('u') || '').trim();
+    var onbuT2 = String(url.searchParams.get('t') || onbuFormParams.get('t') || '').trim();
+    if (!onbuU2 || !onbuT2 || !onbUnsubTokenValid(onbuU2, onbuT2)) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
       return;
     }
     try {
       var onbuRows = await listOnboardingReminders();
-      var onbuRow = onbuRows.find(function (r) { return String(r.user_id) === onbuU; }) || null;
-      await upsertOnboardingReminder(onbuU, {
+      var onbuRow = onbuRows.find(function (r) { return String(r.user_id) === onbuU2; }) || null;
+      await upsertOnboardingReminder(onbuU2, {
         email: (onbuRow && onbuRow.email) || null,
         unsubscribed: true,
         unsubscribed_at: new Date().toISOString()
       });
     } catch (e) { console.error('[OnbNudge] unsubscribe write failed:', e.message); }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(onbuPage('Unsubscribed', 'You won’t get onboarding reminder emails anymore. You can still sign in and finish your setup any time.'));
+    res.end(onbUnsubPage('Unsubscribed', 'You won’t get onboarding reminder emails anymore. You can still sign in and finish your setup any time.'));
     return;
   }
 
@@ -27524,6 +27581,13 @@ async function handleApi(req, res, pathname) {
     if (!onbSecret || onbAuth !== 'Bearer ' + onbSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     try {
       var onbNow = Date.now();
+      var onbHandlerStart = onbNow;
+      // vercel.json maxDuration is 60s — bail out of the per-GP loop with margin
+      // to spare so a big backfill run returns a clean partial result instead of
+      // being killed mid-loop and 504ing. Reruns are idempotent and pick up
+      // where this one left off (each GP is independently up-to-date or not).
+      var ONB_CRON_TIME_BUDGET_MS = 45000;
+      var onbPartial = false;
       var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
@@ -27536,6 +27600,7 @@ async function handleApi(req, res, pathname) {
       onbRows.forEach(function (r) { if (r && r.user_id != null) onbByUser[String(r.user_id)] = r; });
 
       for (var onbG of onbGps) {
+        if (Date.now() - onbHandlerStart > ONB_CRON_TIME_BUDGET_MS) { onbPartial = true; break; }
         onbScanned++;
         var onbRow = onbByUser[String(onbG.userId)] || null;
         if (onbG.completed) {
@@ -27546,10 +27611,14 @@ async function handleApi(req, res, pathname) {
           continue;
         }
         if (!onbRow) {
-          // First sight — anchor at their current last-active (backfills existing incomplete GPs).
+          // First sight (backfills existing incomplete GPs). A GP already inactive
+          // 24h+ anchors at NOW so the sequence starts fresh and properly spaced
+          // instead of every threshold firing back-to-back; a fresh dropout (<24h)
+          // keeps their true last-active anchor. See backfillAnchorMs.
+          var onbAnchorNew = onboardingNudge.backfillAnchorMs(onbG.lastActiveMs, onbNow);
           await upsertOnboardingReminder(onbG.userId, {
             email: onbG.email, name: onbG.name,
-            anchor_at: new Date(onbG.lastActiveMs).toISOString(),
+            anchor_at: new Date(onbAnchorNew).toISOString(),
             last_step: onbG.lastStep, steps_sent: []
           });
           onbCreated++;
@@ -27595,8 +27664,8 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', reset ' + onbReset + ', stopped ' + onbStopped);
-      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped });
+      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', reset ' + onbReset + ', stopped ' + onbStopped + (onbPartial ? ', PARTIAL (time-boxed)' : ''));
+      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       sendJson(res, 500, { ok: false, error: onbErr.message });

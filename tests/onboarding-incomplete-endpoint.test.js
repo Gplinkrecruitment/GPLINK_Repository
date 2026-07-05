@@ -75,6 +75,20 @@ beforeAll(async () => {
     ob: { completed: false, fieldsFilled: 0.2 }, docs: { cv: false, coverLetter: false, primaryDegree: false, idDoc: false },
     regStage: 'myintealth', blockedDays: 0, lastActiveDays: 0, calls: [], comms: null, aiHandover: '', apps: []
   });
+  // Inject Isla: incomplete onboarding too, BUT she already has a real
+  // gp_applications entry (apps.length > 0) — a genuine ATS candidate, not a
+  // waitlist drop-out. Must NOT be chased and must NOT appear on the
+  // onboarding-incomplete waitlist, but must still show up in her app bucket
+  // on /api/ceo/candidates (partition: every GP lands in exactly one place).
+  seeded.users['isla@test.local'] = { firstName: 'Isla', lastName: 'Fraser', email: 'isla@test.local', registrationCountry: 'IE', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  seeded.userState['isla@test.local'] = { state: { gp_onboarding: { currentStep: 1 } }, updatedAt: new Date(Date.now() - 2 * 3600000).toISOString() };
+  seeded.atsCandidates.push({
+    id: 'isla1', user_id: 'isla1', name: 'Dr Isla Fraser', email: 'isla@test.local', phone: '',
+    country: 'Ireland', reg: '', account_status: 'active', joined: new Date().toISOString(), rso: 'Hazel', zoho: '',
+    ob: { completed: false, fieldsFilled: 0.2 }, docs: { cv: false, coverLetter: false, primaryDegree: false, idDoc: false },
+    regStage: 'myintealth', blockedDays: 0, lastActiveDays: 0, calls: [], comms: null, aiHandover: '',
+    apps: [{ id: 'isla-app1', ats_stage: 'applied', practice_name: 'Riverside Clinic' }]
+  });
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded));
 
   const { createServer } = await import('../server.js');
@@ -108,6 +122,29 @@ describe('GET /api/ceo/onboarding-incomplete', () => {
     expect(helen.emails_sent).toBe(0);
     expect(helen.unsubscribed).toBe(false);
     expect(helen.stopped).toBe(false);
+  });
+
+  it('excludes Isla — she has a gp_applications row (real ATS candidate), even though her onboarding is incomplete too', async () => {
+    // This is the partition-violation regression: on the old code (no has-apps
+    // exclusion in enumerateIncompleteOnboardingGps), Isla would show up here
+    // AND in her app bucket on /api/ceo/candidates, and would also get chase
+    // emails from the cron — a real candidate mistaken for a waitlist drop-out.
+    const r = await req('GET', '/api/ceo/onboarding-incomplete', { host: SUPER_HOST, cookie: superCookie() });
+    expect(r.status).toBe(200);
+    const j = parse(r.raw);
+    expect(j.ok).toBe(true);
+    const isla = (j.items || []).find((i) => i.email === 'isla@test.local');
+    expect(isla).toBeUndefined();
+  });
+
+  it('Isla still appears on /api/ceo/candidates under her applied app bucket', async () => {
+    const r = await req('GET', '/api/ceo/candidates', { host: SUPER_HOST, cookie: superCookie() });
+    expect(r.status).toBe(200);
+    const j = parse(r.raw);
+    expect(j.ok).toBe(true);
+    const isla = (j.candidates || []).find((c) => c.email === 'isla@test.local');
+    expect(isla).toBeTruthy();
+    expect(isla.pipeline_bucket).toBe('applied');
   });
 });
 

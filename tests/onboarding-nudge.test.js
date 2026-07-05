@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 import { describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
-const { NUDGE_SCHEDULE_MS, nextDueStep, isExhausted, copyForStep, ONBOARDING_STEP_LABELS } = require('../lib/onboarding-nudge.js');
+const { NUDGE_SCHEDULE_MS, nextDueStep, isExhausted, copyForStep, ONBOARDING_STEP_LABELS, backfillAnchorMs } = require('../lib/onboarding-nudge.js');
 
 const H = 3600000, D = 24 * H;
 
@@ -73,5 +73,31 @@ describe('copyForStep', () => {
 describe('ONBOARDING_STEP_LABELS', () => {
   it('has 5 labels matching the 5-step wizard', () => {
     expect(ONBOARDING_STEP_LABELS.length).toBe(5);
+  });
+});
+
+describe('backfillAnchorMs', () => {
+  const NOW = 1700000000000;
+  it('fresh dropout (<24h inactive) keeps the true last-active anchor', () => {
+    expect(backfillAnchorMs(NOW - (H - 1), NOW)).toBe(NOW - (H - 1));
+    expect(backfillAnchorMs(NOW - 1, NOW)).toBe(NOW - 1);
+  });
+  it('exactly 24h inactive anchors at now (boundary is stale, not fresh)', () => {
+    expect(backfillAnchorMs(NOW - D, NOW)).toBe(NOW);
+  });
+  it('long-dormant GP (backfill) anchors at now, not their stale last-active', () => {
+    expect(backfillAnchorMs(NOW - 45 * D, NOW)).toBe(NOW);
+  });
+  it('a NOW anchor for a stale GP never lets reset-on-return fire falsely', () => {
+    // Cron compares lastActiveMs > anchor_at to detect a return. With anchor
+    // pinned to NOW and lastActiveMs in the past (the same stale value that
+    // triggered the backfill), lastActiveMs can never exceed the anchor.
+    const lastActiveMs = NOW - 45 * D;
+    const anchor = backfillAnchorMs(lastActiveMs, NOW);
+    expect(lastActiveMs > anchor).toBe(false);
+  });
+  it('tolerates junk input', () => {
+    expect(backfillAnchorMs(undefined, NOW)).toBe(NOW);
+    expect(backfillAnchorMs(NaN, NOW)).toBe(NOW);
   });
 });

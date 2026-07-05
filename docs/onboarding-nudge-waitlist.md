@@ -15,7 +15,9 @@ The emails are sent on this schedule:
 - If a GP comes back to the app and makes progress (even if they don't finish), the reminder clock resets
 - If a GP finishes onboarding, the reminders stop silently with no further emails
 - Every email includes a "Continue where you left off" button that opens their exact last step
-- Every email has an unsubscribe link that works without needing to sign in
+- Every email has an unsubscribe link. Clicking it opens a short confirm page with one "Unsubscribe" button — clicking the button is what actually turns off the emails. (This two-step design stops email-security scanners that auto-open links from silently unsubscribing people before a human ever saw the email.) Gmail/Yahoo's own built-in "Unsubscribe" option next to the email also works, with no extra click needed
+- When the feature first turns on (or first notices a GP who's been gone a while), existing drop-outs don't get bombarded with every overdue email at once — the reminder sequence starts fresh from that moment, properly spaced out (~1 hour, then 1 day, then 3 days, and so on), exactly as if they'd just left today
+- GPs who already have a job application in progress are treated as real candidates, not waitlist drop-outs — they never get chase emails and never show up on the onboarding-incomplete list, even if their onboarding profile is still unfinished
 
 ## Where Things Live
 
