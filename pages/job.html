@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0b1322" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Role Details - GP Link</title>
@@ -22,30 +22,19 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
   <style>
-    /* ── Local aliases → tokens ── */
+    /* ════════════════════════════════════════════════════════════════════
+       ATLAS DETAIL LAYER (Phase 2 Task 3)
+       Job detail experience per docs/mockups/career-redesign/variant-b.html
+       (the detail/pre-offer view). Shares the visual system with the Atlas
+       browse layer in pages/career.html: same at-* tokens, same scenery
+       motif, same DM Sans + Source Serif 4 pairing.
+       ════════════════════════════════════════════════════════════════════ */
     :root {
-      --bg: var(--gp-canvas);
-      --panel: var(--gp-surface);
-      --panel-soft: var(--gp-surface-sunken);
-      --panel-muted: var(--gp-surface-sunken);
-      --text: var(--gp-text);
-      --muted: var(--gp-muted);
-      --ink: var(--gp-ink);
-      --charcoal: var(--gp-ink);
-      --line: var(--gp-border);
-      --line-strong: var(--gp-border-strong);
-      --blue: var(--gp-blue);
-      --blue2: var(--gp-blue-deep);
-      --blue3: var(--gp-blue-ink);
-      --success: var(--gp-green);
-      --success-soft: var(--gp-green-soft);
-      --warning: var(--gp-amber);
-      --warning-soft: var(--gp-amber-soft);
-      --shadow-soft: var(--gp-shadow-sm);
-      --shadow-card: var(--gp-shadow-lg);
-      --radius-lg: var(--gp-r-xl);
-      --radius-md: var(--gp-r-md);
-      --radius-sm: var(--gp-r-sm);
+      --at-navy0: #0b1322;
+      --at-navy1: #14203a;
+      --at-navy2: #0e1a30;
+      --at-sky: #4eb7f5;
+      --at-ease: cubic-bezier(.22, .61, .21, 1);
     }
 
     :focus-visible { outline: none; box-shadow: var(--gp-focus-ring); }
@@ -54,730 +43,663 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
-      font-family: var(--gp-font-body);
-      background:
-        radial-gradient(720px 360px at 50% -10%, rgba(37, 99, 235, 0.08), transparent 55%),
-        var(--gp-canvas);
-      color: var(--gp-text);
+      font-family: var(--gp-font-body, "DM Sans", -apple-system, sans-serif);
+      background: var(--gp-canvas, #f4f6fb);
+      color: var(--gp-text, #1f2b43);
+      font-size: 15px;
+      line-height: 1.5;
       padding: 0;
     }
-
     button, input { font: inherit; }
+    img { display: block; max-width: 100%; }
 
-    /* ── Back bar ── */
-    .back-bar {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 16px;
-      background: var(--gp-glass-bg);
-      backdrop-filter: var(--gp-glass-blur);
-      -webkit-backdrop-filter: var(--gp-glass-blur);
-      border-bottom: 1px solid var(--gp-border);
+    @keyframes atFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .at-rv { animation: atFadeUp .46s var(--at-ease) both; }
+    .at-rv1 { animation-delay: .04s; }
+    .at-rv2 { animation-delay: .09s; }
+    .at-rv3 { animation-delay: .14s; }
+    .at-rv4 { animation-delay: .19s; }
+
+    /* ── Detail masthead (navy) ── */
+    .at-dmast {
+      position: relative;
+      background: linear-gradient(160deg, var(--at-navy0), var(--at-navy1) 60%, var(--at-navy2));
+      color: #fff;
+      padding: 14px 0 70px;
+      overflow: hidden;
     }
-
-    .back-btn {
+    .at-dmast::before {
+      content: "";
+      position: absolute;
+      right: -120px;
+      top: -100px;
+      width: 360px;
+      height: 360px;
+      background: radial-gradient(circle, rgba(78, 183, 245, .2), transparent 63%);
+    }
+    .at-dmast--revealed::before { background: radial-gradient(circle, rgba(34, 197, 94, .28), transparent 60%); }
+    .at-dwrap { max-width: 720px; margin: 0 auto; padding: 0 16px; position: relative; z-index: 2; }
+    .at-dnav { display: flex; align-items: center; gap: 8px; }
+    .at-dback {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
+      font-weight: 700;
+      font-size: 13px;
+      color: #cfe0ff;
+      background: rgba(255, 255, 255, .1);
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 999px;
       padding: 8px 14px;
-      border: none;
-      border-radius: var(--gp-r-sm);
-      background: rgba(15, 23, 42, 0.06);
-      color: var(--gp-text);
-      font-size: var(--gp-fs-sm);
-      font-weight: 600;
-      cursor: pointer;
       text-decoration: none;
-      transition: background var(--gp-dur-fast) var(--gp-ease);
+      cursor: pointer;
+      transition: background .16s var(--at-ease);
     }
-    .back-btn:hover { background: rgba(15, 23, 42, 0.1); }
-    .back-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-
-    .back-bar-share {
+    .at-dback:hover { background: rgba(255, 255, 255, .16); }
+    .at-dback svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+    .at-dshare {
       margin-left: auto;
       width: 36px;
       height: 36px;
-      border: none;
-      border-radius: var(--gp-r-sm);
-      background: transparent;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .1);
       cursor: pointer;
       display: grid;
       place-items: center;
-      transition: background var(--gp-dur-fast) var(--gp-ease);
+      color: #cfe0ff;
+      transition: background .16s var(--at-ease);
     }
-    .back-bar-share svg { stroke: var(--gp-muted); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .back-bar-share:hover { background: var(--gp-surface-sunken); }
+    .at-dshare:hover { background: rgba(255, 255, 255, .16); }
+    .at-dshare svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-    .back-bar-title,
-    .title-block,
-    .role-title,
-    .public-location-caption {
-      display: none !important;
+    .at-dhtags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; align-items: center; }
+    .at-dpill {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      padding: 4px 11px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, .16);
+      border: 1px solid rgba(34, 197, 94, .36);
+      color: #a7f3c7;
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .at-dpill svg { width: 11px; height: 11px; }
+    .at-dmeta { color: #c2dbff; font-size: 12.5px; font-weight: 600; }
+    .at-dtitle {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-weight: 700;
+      font-size: clamp(23px, 5.2vw, 30px);
+      letter-spacing: -.015em;
+      line-height: 1.18;
+      margin: 12px 0 0;
+      color: #fff;
+    }
+    .at-dloc { color: #c2dbff; font-size: 13.5px; margin: 6px 0 0; display: flex; align-items: center; gap: 6px; }
+    .at-dloc svg { flex: none; }
+
+    /* ── Content column ── */
+    .at-dcontent {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 16px calc(160px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
     }
 
-    /* ── Hero image ── */
-    #heroArea {
-      max-width: 460px;
-      margin: 18px auto 0;
-      padding: 0 16px;
-    }
-
-    .hero-media-card {
-      border-radius: var(--gp-r-xl);
+    /* ── Hero photo / scenery (overlaps the masthead) ── */
+    .at-dphotowrap { position: relative; z-index: 11; margin-top: -54px; }
+    .at-dphoto {
+      position: relative;
+      margin: 0;
+      border-radius: var(--gp-r-xl, 24px);
       overflow: hidden;
-      border: 1px solid var(--gp-border);
       box-shadow: var(--gp-shadow-lg);
-      background: var(--gp-border-strong);
-      position: relative;
-      min-height: 270px;
+      aspect-ratio: 16/8.2;
+      background: var(--at-navy1);
     }
+    .at-dphoto-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .at-dphoto figcaption {
+      position: absolute;
+      left: 12px;
+      bottom: 11px;
+      z-index: 3;
+      background: rgba(11, 19, 34, .66);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      color: #e5efff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 999px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .at-dphoto figcaption svg { flex: none; }
 
-    .hero-image {
+    /* Photo-less scenery motif — identical to career.html's .at-scene */
+    .at-scene {
       position: absolute;
       inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-      background: linear-gradient(135deg, var(--gp-blue-soft) 0%, var(--gp-blue-border) 50%, #93c5fd 100%);
-      opacity: 1;
-      transition: opacity var(--gp-dur) var(--gp-ease);
-      z-index: 0;
-    }
-
-    .hero-image[hidden] {
-      display: none;
-    }
-
-    .hero-media-card.has-image .hero-image-placeholder {
-      background:
-        linear-gradient(180deg, rgba(15, 23, 42, 0.14), rgba(15, 23, 42, 0.52));
-    }
-
-    .hero-media-card.has-image .hero-image-placeholder::before {
-      opacity: 0.36;
-    }
-
-    .hero-media-card.has-image .hero-image-placeholder::after {
-      opacity: 0.72;
-    }
-
-    .hero-image-placeholder {
-      width: 100%;
-      height: 270px;
-      display: flex;
-      align-items: stretch;
-      justify-content: stretch;
-      position: relative;
       overflow: hidden;
       background:
-        linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.32)),
-        linear-gradient(135deg, #b7d5fb 0%, #76a9fa 55%, #4f46e5 100%);
-      z-index: 1;
+        radial-gradient(120% 90% at 78% 12%, rgba(78, 183, 245, .16), transparent 55%),
+        linear-gradient(158deg, var(--at-navy1), var(--at-navy0) 82%);
     }
-
-    .hero-image-placeholder::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background:
-        radial-gradient(ellipse 84% 64% at 24% 34%, rgba(255, 255, 255, 0.2), transparent),
-        radial-gradient(ellipse 56% 44% at 70% 68%, rgba(255, 255, 255, 0.14), transparent);
-      opacity: 0.85;
-    }
-
-    .hero-image-placeholder::after {
+    .at-scene::before {
       content: "";
       position: absolute;
-      left: -8%;
-      right: -8%;
-      bottom: -18%;
-      height: 54%;
+      inset: 0;
+      opacity: .5;
       background:
-        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.26), transparent 18%),
-        linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.4)),
-        linear-gradient(0deg, rgba(15, 23, 42, 0.42), rgba(30, 64, 175, 0.18));
-      clip-path: polygon(0 62%, 12% 48%, 28% 55%, 40% 38%, 56% 44%, 70% 24%, 88% 34%, 100% 16%, 100% 100%, 0 100%);
+        repeating-linear-gradient(0deg, rgba(148, 183, 240, .09) 0 1px, transparent 1px 22px),
+        repeating-linear-gradient(90deg, rgba(148, 183, 240, .09) 0 1px, transparent 1px 22px);
     }
-
-    .hero-overlay {
-      position: relative;
+    .at-scene::after {
+      content: "";
+      position: absolute;
+      left: -30%;
+      bottom: -60%;
+      width: 160%;
+      height: 150%;
+      border-radius: 44%;
+      background: radial-gradient(circle, rgba(37, 99, 235, .28), transparent 60%);
+    }
+    .at-spin {
+      position: absolute;
+      left: 50%;
+      top: 46%;
+      transform: translate(-50%, -50%);
       z-index: 2;
-      width: 100%;
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
+      color: #cfe0ff;
+      opacity: .9;
     }
-
-    .hero-topline {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 7px 10px;
-      border-radius: var(--gp-r-pill);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
-    .hero-badge-dark {
-      background: rgba(15, 23, 42, 0.62);
+    .at-slabel {
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      z-index: 2;
       color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .hero-bottomline {
-      display: grid;
-      gap: 10px;
-      align-self: stretch;
-    }
-
-    .hero-location-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      width: fit-content;
-      padding: 8px 12px;
-      border-radius: var(--gp-r-pill);
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.24);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-    }
-
-    .hero-location-label svg {
-      width: 14px;
-      height: 14px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      flex-shrink: 0;
-    }
-
-    .hero-display-label {
-      color: #fff;
-      font-size: 13px;
-      font-weight: 700;
-      opacity: 0.94;
-    }
-
-    .hero-caption {
-      max-width: 300px;
-      display: grid;
-      gap: 3px;
-      color: #fff;
-    }
-
-    .hero-caption-title {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-      opacity: 0.86;
-    }
-
-    .hero-caption-copy {
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 500;
-      opacity: 0.94;
-    }
-
-    /* ── Shell ── */
-    .shell {
-      max-width: 460px;
-      margin: 0 auto;
-      padding: 0 16px 156px;
-    }
-
-    .modal-sheet {
-      position: relative;
-      margin-top: 18px;
-      padding: 0 0 18px;
-    }
-
-    /* ── Billing pill floating ── */
-    .billing-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 0;
-      padding: 0;
-    }
-
-    .billing-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 7px 14px;
-      border-radius: var(--gp-r-pill);
-      background: var(--gp-blue-soft);
-      color: var(--gp-blue-ink);
-      border: 1px solid var(--gp-blue-border);
-      font-size: var(--gp-fs-xs);
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-    }
-
-    .geography-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 7px 14px;
-      border-radius: var(--gp-r-pill);
-      background: var(--gp-surface-sunken);
-      border: 1px solid var(--gp-border-strong);
-      color: var(--gp-muted);
-      font-size: var(--gp-fs-xs);
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-    }
-
-    .detail-section {
-      margin-top: 20px;
-      display: grid;
-      gap: 14px;
-    }
-
-    .detail-section-head {
-      display: grid;
-      gap: 4px;
-    }
-
-    .detail-section-title {
-      margin: 0;
-      font-family: var(--gp-font-display);
-      font-size: var(--gp-fs-lg);
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
       font-weight: 600;
-      letter-spacing: -0.01em;
-      color: var(--gp-ink);
+      font-size: 15px;
+      letter-spacing: -.01em;
+      text-shadow: 0 1px 8px rgba(2, 6, 23, .5);
+    }
+    .at-scode {
+      position: absolute;
+      right: 9px;
+      top: 9px;
+      z-index: 2;
+      font-size: 9.5px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      color: #bcd4f5;
+      background: rgba(11, 19, 34, .5);
+      border: 1px solid rgba(148, 183, 240, .28);
+      border-radius: 6px;
+      padding: 2px 6px;
     }
 
-    .detail-section-copy {
-      margin: 0;
-      font-size: var(--gp-fs-sm);
-      line-height: 1.55;
-      font-weight: 500;
-      color: var(--gp-muted);
+    /* ── "Application received" confirmation moment ── */
+    .at-received {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 16px;
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 14px 15px;
     }
+    .at-received-ico {
+      flex: none;
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: var(--gp-green, #16a34a);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 10px 22px -10px rgba(22, 163, 74, .7);
+    }
+    .at-received b { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); color: var(--gp-green-ink, #166534); font-size: 15.5px; display: block; }
+    .at-received p { margin: 2px 0 0; font-size: 12.5px; color: var(--gp-text, #1f2b43); }
+
+    /* ── Urgency / priority panel ── */
+    .at-priority {
+      margin-top: 16px;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 16px;
+      box-shadow: var(--gp-shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .at-priority::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: linear-gradient(var(--gp-blue, #2563eb), var(--at-sky));
+    }
+    .at-ph { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 800; color: var(--gp-ink, #0f172a); }
+    .at-ph .at-live { width: 8px; height: 8px; border-radius: 999px; background: #e0872a; animation: atPing 1.8s var(--at-ease) infinite; }
+    @keyframes atPing {
+      0% { box-shadow: 0 0 0 0 rgba(224, 135, 42, .45); }
+      70% { box-shadow: 0 0 0 7px rgba(224, 135, 42, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(224, 135, 42, 0); }
+    }
+    .at-pcount {
+      margin-left: auto;
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--gp-ink, #0f172a);
+    }
+    .at-pcount span { font-size: 11px; font-weight: 700; color: var(--gp-faint, #94a3b8); font-family: var(--gp-font-body, "DM Sans", sans-serif); letter-spacing: .04em; }
+    .at-pbar { height: 6px; border-radius: 999px; background: var(--gp-hair, #eef2f9); margin: 12px 0 11px; overflow: hidden; }
+    .at-pbar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--gp-blue, #2563eb), var(--at-sky)); width: 0; transition: width 1s var(--at-ease); }
+    .at-pnote { font-size: 13px; color: var(--gp-text, #1f2b43); line-height: 1.5; margin: 0; }
+    .at-pnote b { color: var(--gp-green-ink, #166534); }
+
+    /* ── Section headers ── */
+    .at-sech {
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      color: var(--gp-faint, #94a3b8);
+      margin: 24px 0 11px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .at-sech::after { content: ""; flex: 1; height: 1px; background: var(--gp-border, #e3e9f4); }
+
+    /* ── Package cells ── */
+    .at-earnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .at-cell {
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 12px 14px;
+      box-shadow: var(--gp-shadow-sm);
+      min-width: 0;
+    }
+    .at-cell b {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 16px;
+      color: var(--gp-ink, #0f172a);
+      display: block;
+      letter-spacing: -.01em;
+      line-height: 1.3;
+      overflow-wrap: break-word;
+    }
+    .at-cell span { font-size: 10px; color: var(--gp-faint, #94a3b8); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+    /* ── About / intro ── */
+    .at-intro {
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 16px;
+      box-shadow: var(--gp-shadow-sm);
+      font-size: 14.5px;
+    }
+    .at-intro em { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); }
 
     /* ── Benefits ── */
-    .benefit-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
+    .at-bene { display: grid; gap: 9px; list-style: none; margin: 0; padding: 0; }
+    .at-bene li {
+      display: flex;
       gap: 10px;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 11px 13px;
+      font-size: 13.5px;
+      align-items: flex-start;
     }
-
-    .benefit-item {
+    .at-bi {
+      flex: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: var(--gp-green-soft, #eafaf0);
+      color: var(--gp-green-ink, #166534);
       display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 10px;
-      align-items: start;
-      padding: 12px 14px;
-      border-radius: var(--gp-r-lg);
-      background: var(--gp-surface);
-      border: 1px solid var(--gp-border);
-      box-shadow: var(--gp-shadow-sm);
-      transition: box-shadow var(--gp-dur) var(--gp-ease), transform var(--gp-dur) var(--gp-ease);
-    }
-    .benefit-item:hover {
-      box-shadow: var(--gp-shadow-md);
-      transform: translateY(-2px);
-    }
-
-    .benefit-check {
-      width: 22px;
-      height: 22px;
-      border-radius: var(--gp-r-pill);
-      background: var(--gp-blue-soft);
-      color: var(--gp-blue);
-      display: inline-grid;
       place-items: center;
-      flex-shrink: 0;
       margin-top: 1px;
     }
+    .at-bi svg { width: 12px; height: 12px; }
 
-    .benefit-check svg {
-      width: 13px;
-      height: 13px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2.4;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .benefit-copy {
-      margin: 0;
-      color: var(--gp-text);
-      font-size: var(--gp-fs-sm);
-      line-height: 1.5;
-      font-weight: 500;
-    }
-
-    /* ── Map ── */
-    .map-section {
-      margin-top: 22px;
-      border-radius: var(--gp-r-lg);
-      overflow: hidden;
-      border: 1px solid var(--gp-border);
-      box-shadow: var(--gp-shadow-sm);
-      background: var(--gp-surface);
-      transition: box-shadow var(--gp-dur) var(--gp-ease);
-    }
-    .map-section:hover { box-shadow: var(--gp-shadow-md); }
-
-    .map-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 16px 18px;
-    }
-
-    .map-header-text {
-      display: grid;
-      gap: 3px;
-    }
-
-    .map-title {
-      margin: 0;
-      font-family: var(--gp-font-display);
-      font-size: var(--gp-fs-base);
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      color: var(--gp-ink);
-    }
-
-    .map-hint {
-      margin: 0;
-      font-size: var(--gp-fs-xs);
-      font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-      color: var(--gp-muted);
-    }
-
-    .map-toggle-btn {
-      padding: 8px 14px;
-      border: 1px solid var(--gp-border-strong);
-      border-radius: var(--gp-r-sm);
-      background: var(--gp-surface);
-      color: var(--gp-blue);
-      font-size: var(--gp-fs-xs);
-      font-weight: 700;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
-    }
-    .map-toggle-btn:hover { background: var(--gp-surface-sunken); border-color: var(--gp-blue); }
-
-    .map-preview {
-      margin: 0 18px 18px;
-      border-radius: var(--gp-r-lg);
-      border: 1px solid var(--gp-border);
-      background: linear-gradient(180deg, var(--gp-surface) 0%, var(--gp-surface-sunken) 100%);
-      overflow: hidden;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    }
-
-    .map-preview-graphic {
-      min-height: 170px;
+    /* ── Identity vault (pre-reveal) ── */
+    .at-vault {
       position: relative;
-      background:
-        linear-gradient(0deg, rgba(37, 99, 235, 0.06), rgba(37, 99, 235, 0.06)),
-        linear-gradient(180deg, var(--gp-surface) 0%, var(--gp-blue-soft) 100%);
+      border-radius: var(--gp-r-lg, 18px);
       overflow: hidden;
+      background: linear-gradient(120deg, #0c2e66 0%, #0d5ee0 55%, #2b8ef0 100%);
+      color: #fff;
+      box-shadow: var(--gp-shadow-md);
+      cursor: pointer;
     }
-
-    .map-preview-graphic::before,
-    .map-preview-graphic::after {
-      content: "";
+    .at-vault::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 82% 18%, rgba(255, 255, 255, .2), transparent 46%); }
+    .at-vshine {
       position: absolute;
-      border-radius: var(--gp-r-lg);
-      border: 3px solid rgba(15, 23, 42, 0.68);
-      background:
-        linear-gradient(90deg, rgba(15, 23, 42, 0.08) 0 8%, transparent 8% 92%, rgba(15, 23, 42, 0.08) 92% 100%),
-        linear-gradient(180deg, transparent 0 9%, rgba(15, 23, 42, 0.08) 9% 17%, transparent 17% 100%);
+      top: 0;
+      bottom: 0;
+      width: 64px;
+      background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .26), transparent);
+      animation: atSweep 3.8s var(--at-ease) infinite;
     }
-
-    .map-preview-graphic::before {
-      width: 84px;
-      height: 120px;
-      top: 18px;
-      left: 24px;
-    }
-
-    .map-preview-graphic::after {
-      width: 84px;
-      height: 120px;
-      bottom: -26px;
-      right: 22px;
-      opacity: 0.22;
-      transform: rotate(-9deg);
-    }
-
-    .map-preview-route {
-      position: absolute;
-      left: 52px;
-      top: 48px;
-      width: 150px;
-      height: 86px;
-      border: 3px solid rgba(37, 99, 235, 0.5);
-      border-right: 0;
-      border-top: 0;
-      border-radius: 0 0 0 28px;
-      transform: rotate(7deg);
-    }
-
-    .map-preview-route::before,
-    .map-preview-route::after {
-      content: "";
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      border-radius: var(--gp-r-pill);
-      background: var(--gp-blue);
-      box-shadow: 0 0 0 5px var(--gp-blue-soft);
-    }
-
-    .map-preview-route::before {
-      top: -8px;
-      left: -8px;
-    }
-
-    .map-preview-route::after {
-      right: -2px;
-      bottom: -2px;
-      background: var(--gp-ink);
-      box-shadow: 0 0 0 5px rgba(15, 23, 42, 0.08);
-    }
-
-    .map-preview-copy {
-      padding: 14px 16px;
+    @keyframes atSweep { 0% { left: -80px; } 55%, 100% { left: 110%; } }
+    .at-vault-in { position: relative; padding: 18px; display: flex; gap: 13px; align-items: center; }
+    .at-vlock {
+      flex: none;
+      width: 42px;
+      height: 42px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, .16);
+      border: 1px solid rgba(255, 255, 255, .3);
       display: grid;
-      gap: 4px;
+      place-items: center;
+    }
+    /* Placeholder graphic ONLY — never real text under a blur. */
+    .at-vname {
+      height: 15px;
+      border-radius: 5px;
+      max-width: 210px;
+      background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .62) 0 36px, rgba(255, 255, 255, .32) 36px 52px, rgba(255, 255, 255, .62) 52px 96px);
+      filter: blur(4.5px);
+      margin-bottom: 8px;
+    }
+    .at-vtag { font-size: 9.5px; font-weight: 800; letter-spacing: .1em; color: #bfdcff; margin-bottom: 6px; }
+    .at-vcap { font-size: 12.5px; color: #d6e7ff; line-height: 1.45; margin: 0; }
+    .at-vcap b { color: #fff; }
+    .at-vault.at-shake { animation: atVshake .4s var(--at-ease); }
+    @keyframes atVshake {
+      0%, 100% { transform: none; }
+      25% { transform: translateX(-5px); }
+      60% { transform: translateX(4px); }
     }
 
-    .map-preview-title {
-      font-size: var(--gp-fs-xs);
+    /* ── Unlocked practice identity (revealed) ── */
+    .at-unlocked {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 16px;
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-ua {
+      flex: none;
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--gp-green-soft, #eafaf0);
+      color: var(--gp-green-ink, #166534);
+      display: grid;
+      place-items: center;
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
       font-weight: 700;
-      letter-spacing: var(--gp-tracking-label);
-      text-transform: uppercase;
-      color: var(--gp-muted);
+      font-size: 19px;
+    }
+    .at-uname { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-weight: 700; font-size: 17px; color: var(--gp-ink, #0f172a); letter-spacing: -.01em; }
+    .at-uaddr { font-size: 13px; color: var(--gp-muted, #64748b); margin-top: 2px; }
+    .at-ubadge {
+      margin-left: auto;
+      flex: none;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      color: var(--gp-green-ink, #166534);
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: 999px;
+      padding: 4px 9px;
     }
 
-    .map-preview-note {
-      font-size: var(--gp-fs-sm);
-      line-height: 1.5;
-      font-weight: 500;
-      color: var(--gp-text);
+    /* ── Intro video ── */
+    .at-video-embed {
+      position: relative;
+      border-radius: var(--gp-r-lg, 18px);
+      overflow: hidden;
+      background: var(--at-navy0);
+      box-shadow: var(--gp-shadow-md);
+      aspect-ratio: 16/9;
     }
-
-    .map-embed-wrap {
-      width: 100%;
-      aspect-ratio: 16/10;
-      border-top: 1px solid var(--gp-border);
-    }
-
-    .map-embed-wrap[hidden] { display: none; }
-
-    .map-embed {
+    .at-video-embed iframe,
+    .at-video-embed video {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
-      border: none;
+      border: 0;
       display: block;
+      background: var(--at-navy0);
     }
+    .at-video-note { font-size: 12px; color: var(--gp-muted, #64748b); margin: 8px 2px 0; }
+    .at-video-link {
+      display: flex;
+      gap: 13px;
+      align-items: center;
+      background: var(--at-navy0);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 13px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: var(--gp-shadow-md);
+      text-decoration: none;
+    }
+    .at-vthumb { flex: none; width: 100px; aspect-ratio: 16/10; border-radius: 11px; overflow: hidden; position: relative; }
+    .at-vplay { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; }
+    .at-vplay span { width: 32px; height: 32px; border-radius: 999px; background: #fff; display: grid; place-items: center; color: var(--at-navy0); }
+    .at-video-link h4 { font-size: 14px; font-weight: 700; margin: 0; color: #fff; }
+    .at-video-link p { font-size: 12px; color: #9dc0f0; margin: 2px 0 0; }
 
-    /* ── Sticky bottom actions ── */
-    .sticky-actions {
+    /* ── Area map (fuzzy pre-reveal / exact post-reveal) ── */
+    .at-map {
+      position: relative;
+      border-radius: var(--gp-r-lg, 18px);
+      overflow: hidden;
+      border: 1px solid var(--gp-border, #e3e9f4);
+      aspect-ratio: 16/9;
+      background: var(--gp-surface-sunken, #f8fafd);
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-map iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+    .at-map-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+    .at-map-overlay.at-map-overlay--fuzzy { background: radial-gradient(circle at 50% 50%, rgba(37, 99, 235, .14), rgba(37, 99, 235, .04) 44%, transparent 62%); }
+    .at-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+    .at-ring {
+      width: 60px;
+      height: 60px;
+      border-radius: 999px;
+      border: 2px dashed rgba(37, 99, 235, .55);
+      display: grid;
+      place-items: center;
+      animation: atPulse 2.6s var(--at-ease) infinite;
+      background: rgba(255, 255, 255, .08);
+    }
+    .at-ring.at-ring--exact { border-color: rgba(22, 163, 74, .6); animation: none; }
+    .at-dotpin { width: 12px; height: 12px; border-radius: 999px; background: var(--gp-blue, #2563eb); box-shadow: 0 0 0 5px rgba(37, 99, 235, .18); }
+    .at-dotpin.at-dotpin--exact { background: var(--gp-green, #16a34a); box-shadow: 0 0 0 5px rgba(22, 163, 74, .18); }
+    @keyframes atPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.14); opacity: .55; }
+    }
+    .at-map-caption {
+      position: absolute;
+      left: 11px;
+      bottom: 9px;
+      z-index: 3;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--gp-muted, #64748b);
+      background: rgba(255, 255, 255, .9);
+      border-radius: 999px;
+      padding: 4px 10px;
+      max-width: calc(100% - 22px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .at-map-address { font-size: 13px; font-weight: 600; color: var(--gp-text, #1f2b43); margin: 9px 2px 0; display: flex; align-items: center; gap: 6px; }
+    .at-map-address svg { flex: none; color: var(--gp-green, #16a34a); }
+
+    /* ── Registration Support Officer strip ── */
+    .at-support {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: var(--gp-surface, #fff);
+      border: 1px dashed var(--gp-border-strong, #cbd7ea);
+      border-radius: var(--gp-r-lg, 18px);
+      padding: 14px 15px;
+    }
+    .at-support .at-ava {
+      flex: none;
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #2e6bf0, #1d4ed8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .at-support p { font-size: 13px; margin: 0; }
+    .at-support b { color: var(--gp-ink, #0f172a); }
+
+    /* ── Sticky apply bar ── */
+    .at-applybar {
       position: fixed;
-      bottom: 0;
       left: 0;
       right: 0;
+      bottom: 0;
       z-index: 100;
-      padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
-      background: var(--gp-glass-bg);
-      backdrop-filter: var(--gp-glass-blur);
-      -webkit-backdrop-filter: var(--gp-glass-blur);
-      border-top: 1px solid var(--gp-border);
+      padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
+      background: linear-gradient(rgba(244, 246, 251, 0), var(--gp-canvas, #f4f6fb) 45%);
     }
-
-    .sticky-actions-inner {
-      max-width: 420px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 12px;
+    .at-applybar[hidden] { display: none; }
+    .at-applybar .at-abin { max-width: 720px; margin: 0 auto; display: flex; gap: 9px; align-items: stretch; }
+    .at-bsave {
+      flex: none;
+      width: 52px;
+      border-radius: var(--gp-r-md, 14px);
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      color: var(--gp-muted, #64748b);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all .16s var(--at-ease);
     }
-    .btn-apply {
+    .at-bsave.on { color: var(--gp-blue, #2563eb); border-color: var(--gp-blue-border, #d6e2fb); background: var(--gp-blue-soft, #eff4ff); }
+    .at-bapply {
       flex: 1;
-      padding: 16px 32px;
-      border: none;
-      border-radius: var(--gp-r-md);
-      background: var(--gp-grad-brand);
+      background: linear-gradient(135deg, #2e6bf0, #1d4ed8);
       color: #fff;
-      font-size: var(--gp-fs-base);
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.55);
-      transition: transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
-      text-align: center;
-    }
-    .btn-apply:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(29, 78, 216, 0.65); }
-    .btn-apply:active { transform: scale(0.98); }
-    .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-
-    .btn-save-bottom {
-      width: fit-content;
-      min-width: 138px;
-      height: auto;
-      justify-self: center;
-      padding: 10px 14px;
-      border-radius: var(--gp-r-pill);
-      border: 1px solid var(--gp-border-strong);
-      background: var(--gp-surface);
-      color: var(--gp-text);
-      display: inline-flex;
+      font-weight: 800;
+      font-size: 15.5px;
+      border: 0;
+      border-radius: var(--gp-r-md, 14px);
+      padding: 13px 15px;
+      box-shadow: 0 12px 28px -12px rgba(37, 99, 235, .55);
+      transition: transform .16s var(--at-ease), opacity .16s var(--at-ease);
+      display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 8px;
+      line-height: 1.15;
       cursor: pointer;
-      flex-shrink: 0;
-      transition: background var(--gp-dur-fast) var(--gp-ease), color var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
     }
-    .btn-save-bottom:hover { transform: translateY(-1px); background: var(--gp-surface-sunken); }
-    .btn-save-bottom svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .btn-save-bottom.saved { background: var(--gp-blue-soft); color: var(--gp-blue-ink); border-color: var(--gp-blue-border); }
-    .btn-save-bottom.saved svg { fill: currentColor; }
-    .btn-save-bottom-label {
-      font-size: var(--gp-fs-xs);
-      font-weight: 700;
-      letter-spacing: 0.02em;
+    .at-bapply small { font-weight: 600; font-size: 11px; opacity: .82; margin-top: 2px; }
+    .at-bapply:active { transform: scale(.985); }
+    .at-bapply.at-bapply--done { background: var(--gp-green, #16a34a); box-shadow: 0 12px 28px -12px rgba(22, 163, 74, .5); }
+    .at-bapply:disabled { cursor: default; transform: none; }
+    .at-bapply.at-bapply--muted {
+      background: var(--gp-surface, #fff);
+      color: var(--gp-muted, #64748b);
+      border: 1px solid var(--gp-border-strong, #cbd7ea);
+      box-shadow: none;
     }
 
     /* ── Loading state ── */
-    .page-loading {
-      display: grid;
-      place-items: center;
-      min-height: 60vh;
-      gap: 16px;
-    }
-
-    .page-loading[hidden] {
-      display: none !important;
-    }
-
-    .page-loading-text {
-      font-size: var(--gp-fs-sm);
-      font-weight: 600;
-      color: var(--gp-muted);
-    }
-
+    .page-loading { display: grid; place-items: center; min-height: 40vh; gap: 16px; padding: 40px 0; }
+    .page-loading[hidden] { display: none !important; }
+    .page-loading-text { font-size: 13px; font-weight: 600; color: var(--gp-muted, #64748b); margin: 0; }
     .spinner {
       width: 32px;
       height: 32px;
-      border: 3px solid var(--gp-border);
-      border-top-color: var(--gp-blue);
+      border: 3px solid var(--gp-border, #e3e9f4);
+      border-top-color: var(--gp-blue, #2563eb);
       border-radius: 50%;
       animation: spin .7s linear infinite;
     }
-
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Error state ── */
-    .page-error {
-      display: grid;
-      place-items: center;
-      min-height: 50vh;
-      gap: 12px;
-      text-align: center;
-      padding: 40px 20px;
-    }
-
-    .page-error[hidden] {
-      display: none !important;
-    }
-
+    .page-error { display: grid; place-items: center; min-height: 36vh; gap: 12px; text-align: center; padding: 40px 20px; }
+    .page-error[hidden] { display: none !important; }
     .page-error-title {
       margin: 0;
-      font-family: var(--gp-font-display);
-      font-size: var(--gp-fs-xl);
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 21px;
       font-weight: 600;
-      letter-spacing: -0.01em;
-      color: var(--gp-ink);
+      letter-spacing: -.01em;
+      color: var(--gp-ink, #0f172a);
     }
-
-    .page-error-text {
-      margin: 0;
-      font-size: var(--gp-fs-sm);
-      font-weight: 500;
-      color: var(--gp-muted);
-    }
-
+    .page-error-text { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--gp-muted, #64748b); }
     .btn-secondary {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       padding: 12px 20px;
-      border: 1px solid var(--gp-border-strong);
-      border-radius: var(--gp-r-md);
-      background: var(--gp-surface);
-      color: var(--gp-text);
-      font-size: var(--gp-fs-sm);
+      border: 1px solid var(--gp-border-strong, #cbd7ea);
+      border-radius: var(--gp-r-md, 14px);
+      background: var(--gp-surface, #fff);
+      color: var(--gp-text, #1f2b43);
+      font-size: 13.5px;
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
-      transition: background var(--gp-dur-fast) var(--gp-ease), border-color var(--gp-dur-fast) var(--gp-ease);
+      transition: background .16s var(--at-ease), border-color .16s var(--at-ease);
     }
-    .btn-secondary:hover { background: var(--gp-surface-sunken); border-color: var(--gp-blue); }
+    .btn-secondary:hover { background: var(--gp-surface-sunken, #f8fafd); border-color: var(--gp-blue, #2563eb); }
 
     /* ── Toast ── */
     .toast {
       position: fixed;
-      bottom: 100px;
       left: 50%;
       transform: translateX(-50%) translateY(20px);
-      padding: 12px 22px;
-      border-radius: var(--gp-r-md);
-      background: var(--gp-ink);
+      bottom: calc(96px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
+      z-index: 200;
+      background: var(--gp-ink, #0f172a);
       color: #fff;
-      font-size: var(--gp-fs-sm);
-      font-weight: 600;
-      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 11px 17px;
+      border-radius: 999px;
+      box-shadow: var(--gp-shadow-lg);
       opacity: 0;
       pointer-events: none;
-      transition: opacity var(--gp-dur) var(--gp-ease), transform var(--gp-dur) var(--gp-ease);
-      z-index: 200;
+      transition: all .34s var(--at-ease);
+      max-width: 88vw;
+      text-align: center;
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
 
-    /* ── CV Upload Modal ── */
+    /* ── CV Upload Modal (preserved machinery) ── */
     .cv-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -791,27 +713,22 @@
     }
     .cv-modal-backdrop[hidden] { display: none; }
     .cv-modal {
-      background: var(--gp-surface);
-      border-radius: var(--gp-r-xl);
+      background: var(--gp-surface, #fff);
+      border-radius: var(--gp-r-xl, 24px);
       padding: 28px;
       max-width: 420px;
       width: 100%;
       box-shadow: var(--gp-shadow-lg);
-      border: 1px solid var(--gp-border);
+      border: 1px solid var(--gp-border, #e3e9f4);
     }
-    .cv-modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
+    .cv-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .cv-modal-title {
-      font-family: var(--gp-font-display);
-      font-size: var(--gp-fs-lg);
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 18px;
       font-weight: 600;
-      letter-spacing: -0.01em;
+      letter-spacing: -.01em;
       margin: 0;
-      color: var(--gp-ink);
+      color: var(--gp-ink, #0f172a);
     }
     .cv-modal-close {
       width: 32px;
@@ -819,118 +736,67 @@
       border: none;
       background: none;
       font-size: 22px;
-      color: var(--gp-muted);
+      color: var(--gp-muted, #64748b);
       cursor: pointer;
-      border-radius: var(--gp-r-sm);
-      transition: background var(--gp-dur-fast) var(--gp-ease);
+      border-radius: 8px;
+      transition: background .16s var(--at-ease);
     }
-    .cv-modal-close:hover { background: var(--gp-surface-sunken); }
-    .cv-modal-desc {
-      font-size: var(--gp-fs-sm);
-      color: var(--gp-muted);
-      margin: 0 0 20px;
-      line-height: 1.5;
-    }
+    .cv-modal-close:hover { background: var(--gp-surface-sunken, #f8fafd); }
+    .cv-modal-desc { font-size: 13.5px; color: var(--gp-muted, #64748b); margin: 0 0 20px; line-height: 1.5; }
     .cv-upload-area {
-      border: 2px dashed var(--gp-border-strong);
-      border-radius: var(--gp-r-md);
+      border: 2px dashed var(--gp-border-strong, #cbd7ea);
+      border-radius: var(--gp-r-md, 14px);
       padding: 32px 20px;
       text-align: center;
       cursor: pointer;
-      transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease);
+      transition: border-color .16s var(--at-ease), background .16s var(--at-ease);
       position: relative;
     }
-    .cv-upload-area:hover { border-color: var(--gp-blue); background: var(--gp-blue-soft); }
+    .cv-upload-area:hover { border-color: var(--gp-blue, #2563eb); background: var(--gp-blue-soft, #eff4ff); }
     .cv-upload-area[hidden] { display: none; }
-    .cv-upload-label {
-      display: block;
-      margin-top: 12px;
-      font-size: var(--gp-fs-sm);
-      font-weight: 600;
-      color: var(--gp-muted);
-    }
-    .cv-upload-input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
+    .cv-upload-label { display: block; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: var(--gp-muted, #64748b); }
+    .cv-upload-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .cv-file-preview {
       display: flex;
       align-items: center;
       gap: 10px;
       padding: 12px 14px;
-      background: var(--gp-surface-sunken);
-      border-radius: var(--gp-r-sm);
-      border: 1px solid var(--gp-border);
+      background: var(--gp-surface-sunken, #f8fafd);
+      border-radius: 10px;
+      border: 1px solid var(--gp-border, #e3e9f4);
       margin-top: 12px;
     }
     .cv-file-preview[hidden] { display: none; }
-    .cv-file-name {
-      flex: 1;
-      font-size: var(--gp-fs-sm);
-      font-weight: 600;
-      color: var(--gp-text);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .cv-file-name { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--gp-text, #1f2b43); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cv-file-remove {
       width: 24px;
       height: 24px;
       border: none;
       background: none;
       font-size: 18px;
-      color: var(--gp-muted);
+      color: var(--gp-muted, #64748b);
       cursor: pointer;
       border-radius: 6px;
-      transition: background var(--gp-dur-fast) var(--gp-ease);
+      transition: background .16s var(--at-ease);
     }
-    .cv-file-remove:hover { background: var(--gp-surface-sunken); }
-    .cv-modal-actions {
-      margin-top: 20px;
-    }
+    .cv-file-remove:hover { background: var(--gp-surface-sunken, #f8fafd); }
+    .cv-modal-actions { margin-top: 20px; }
     .cv-btn-upload {
       width: 100%;
       padding: 14px;
       border: none;
-      border-radius: var(--gp-r-md);
-      background: var(--gp-grad-brand);
+      border-radius: var(--gp-r-md, 14px);
+      background: linear-gradient(135deg, #2e6bf0, #1d4ed8);
       color: #fff;
-      font-size: var(--gp-fs-base);
-      font-weight: 600;
+      font-size: 15px;
+      font-weight: 700;
       cursor: pointer;
       box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.55);
-      transition: opacity var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
+      transition: opacity .16s var(--at-ease), transform .16s var(--at-ease);
     }
     .cv-btn-upload:hover { opacity: 0.9; transform: translateY(-1px); }
     .cv-btn-upload:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-    .cv-modal-status {
-      font-size: var(--gp-fs-xs);
-      color: var(--gp-muted);
-      margin: 12px 0 0;
-      text-align: center;
-      min-height: 20px;
-    }
-
-    /* ── Responsive ── */
-    @media (max-width: 600px) {
-      #heroArea {
-        margin-top: 12px;
-        padding: 0 12px;
-      }
-      .shell {
-        padding: 0 12px 156px;
-      }
-      .modal-sheet {
-        margin-top: 16px;
-        padding-bottom: 18px;
-      }
-      .hero-image, .hero-image-placeholder { height: 220px; }
-      .hero-caption {
-        max-width: 100%;
-      }
-    }
+    .cv-modal-status { font-size: 12px; color: var(--gp-muted, #64748b); margin: 12px 0 0; text-align: center; min-height: 20px; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -956,66 +822,45 @@
       --gp-blue-soft: rgba(59,130,246,0.12);
       --gp-blue-border: rgba(59,130,246,0.25);
       --gp-green: #22c55e;
-      --gp-green-soft: #052e16;
-      --gp-amber: #f59e0b;
-      --gp-amber-soft: #422006;
-      --gp-glass-bg: rgba(30, 41, 59, 0.88);
+      --gp-green-soft: rgba(34,197,94,0.12);
+      --gp-green-border: rgba(34,197,94,0.3);
+      --gp-green-ink: #86efac;
+      --gp-hair: #1e293b;
       --gp-shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 2px 10px -4px rgba(0,0,0,0.4);
       --gp-shadow-md: 0 10px 30px -18px rgba(0,0,0,0.55);
       --gp-shadow-lg: 0 24px 55px -24px rgba(0,0,0,0.65);
     }
-
-    html.dark-mode body {
-      background: var(--gp-canvas);
-      color: var(--gp-text);
-    }
-
-    html.dark-mode .back-bar { background: var(--gp-glass-bg); border-color: var(--gp-border); }
-    html.dark-mode .sticky-actions { background: var(--gp-glass-bg); border-color: var(--gp-border); }
-    html.dark-mode .map-section { border-color: var(--gp-border); }
-    html.dark-mode .map-preview { background: linear-gradient(180deg, var(--gp-surface) 0%, var(--gp-surface-sunken) 100%); border-color: var(--gp-border); }
+    html.dark-mode body { background: var(--gp-canvas); color: var(--gp-text); }
+    html.dark-mode .at-applybar { background: linear-gradient(rgba(15, 23, 42, 0), var(--gp-canvas) 45%); }
+    html.dark-mode .at-map-caption { background: rgba(15, 23, 42, .88); color: #c2dbff; }
+    html.dark-mode .at-bapply.at-bapply--muted { background: var(--gp-surface); color: var(--gp-muted); }
   </style>
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
 
-  <!-- Back bar -->
-  <div class="back-bar gp-reveal gp-reveal-1">
-    <a class="back-btn" href="career" id="backBtn">
-      <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
-      Back
-    </a>
-    <button class="back-bar-share" id="shareBtn" type="button" aria-label="Share">
-      <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-    </button>
-  </div>
-
-  <!-- Hero image area -->
-  <div id="heroArea" hidden>
-    <div class="hero-media-card">
-      <img class="hero-image" id="heroImage" alt="Confidential role location atmosphere" />
-      <div class="hero-image-placeholder" id="heroPlaceholder">
-        <div class="hero-overlay">
-          <div class="hero-topline">
-            <span class="hero-badge hero-badge-dark" id="heroPrivacyBadge">Confidential listing</span>
-          </div>
-          <div class="hero-bottomline">
-            <div class="hero-location-label" id="heroLocationLabel">
-              <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
-              <span>Location reference</span>
-            </div>
-            <div class="hero-display-label" id="heroDisplayLabel" hidden></div>
-            <div class="hero-caption">
-              <span class="hero-caption-title">Practice summary</span>
-              <span class="hero-caption-copy" id="heroCaptionCopy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
-            </div>
-          </div>
-        </div>
+  <!-- ═══════ Detail masthead ═══════ -->
+  <header class="at-dmast" id="dmast">
+    <div class="at-dwrap">
+      <div class="at-dnav at-rv">
+        <a class="at-dback" href="career" id="backBtn">
+          <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+          Back
+        </a>
+        <button class="at-dshare" id="shareBtn" type="button" aria-label="Share">
+          <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
       </div>
+      <div id="dhead"></div>
     </div>
-  </div>
+  </header>
 
-  <div class="shell gp-reveal gp-reveal-3">
+  <div class="at-dcontent">
+    <!-- Hero photo / scenery (overlaps masthead) -->
+    <div class="at-dphotowrap at-rv at-rv1" id="dphotoWrap" hidden>
+      <figure class="at-dphoto" id="dphoto"></figure>
+    </div>
+
     <!-- Loading state -->
     <div class="page-loading" id="loadingState">
       <div class="spinner"></div>
@@ -1029,54 +874,17 @@
       <a class="btn-secondary" href="career">Browse all roles</a>
     </div>
 
-    <!-- Content (hidden until loaded) -->
-    <div id="roleContent" hidden>
-      <div class="modal-sheet">
-        <div class="billing-row">
-          <span class="billing-pill" id="billingPill">Billing</span>
-        </div>
-
-        <section class="detail-section" id="benefitsSection">
-          <div class="detail-section-head">
-            <h2 class="detail-section-title">Why GPs consider this role</h2>
-            <p class="detail-section-copy">AI-built highlights from the Zoho Recruit profile and the practice website.</p>
-          </div>
-          <ul class="benefit-list" id="benefitGrid"></ul>
-        </section>
-
-        <div class="map-section" id="mapSection" hidden>
-          <div class="map-header">
-            <div class="map-header-text">
-              <h3 class="map-title">Area map</h3>
-              <p class="map-hint" id="mapHint">Explore the suburb surrounding this confidential role while the practice identity remains protected.</p>
-            </div>
-            <button class="map-toggle-btn" id="mapToggleBtn" type="button">Show map</button>
-          </div>
-          <div class="map-preview" id="mapPreview">
-            <div class="map-preview-graphic" aria-hidden="true">
-              <div class="map-preview-route"></div>
-            </div>
-            <div class="map-preview-copy">
-              <span class="map-preview-title">Interactive suburb map</span>
-              <span class="map-preview-note">Open the map to inspect the broader suburb catchment while the practice identity remains confidential.</span>
-            </div>
-          </div>
-          <div class="map-embed-wrap" id="mapWrap" hidden>
-            <iframe class="map-embed" id="mapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Detail body (single render target — offer mode extends this in Task 4) -->
+    <div id="dbody" hidden></div>
   </div>
 
-  <!-- Sticky bottom actions -->
-  <div class="sticky-actions" id="stickyActions" hidden>
-    <div class="sticky-actions-inner">
-      <button class="btn-apply" id="applyBtn" type="button">Apply</button>
-      <button class="btn-save-bottom" id="saveBtn" type="button" aria-label="Save for later">
-        <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
-        <span class="btn-save-bottom-label">Save for later</span>
+  <!-- Sticky apply bar -->
+  <div class="at-applybar" id="stickyActions" hidden>
+    <div class="at-abin">
+      <button class="at-bsave" id="saveBtn" type="button" aria-label="Save for later">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
       </button>
+      <button class="at-bapply" id="applyBtn" type="button"></button>
     </div>
   </div>
 
@@ -1090,7 +898,7 @@
         <h3 class="cv-modal-title">Upload Your CV</h3>
         <button class="cv-modal-close" id="cvModalClose" type="button" aria-label="Close">&times;</button>
       </div>
-      <p class="cv-modal-desc">A signed and dated CV is required to apply. Upload a PDF (max 10 MB).</p>
+      <p class="cv-modal-desc">A signed and dated CV is required to apply. Upload a PDF (max 10 MB). Doctors with a complete CV are shortlisted first.</p>
 
       <div class="cv-upload-area" id="cvUploadArea">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
@@ -1183,7 +991,7 @@
     el.textContent = message;
     el.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => el.classList.remove("show"), 2200);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 2600);
   }
 
   /* ── Career state helpers (shared with career.html) ── */
@@ -1198,14 +1006,18 @@
     window.dispatchEvent(new Event("gp-career-updated"));
   }
 
+  // Same snapshot shape as career.html's createSavedSnapshot so a save made
+  // here shows up correctly in the career page's Saved tab.
   function createSavedSnapshot(role) {
+    const benefits = Array.isArray(role.benefits) ? role.benefits.filter(Boolean) : [];
+    const tags = Array.isArray(role.tags) ? role.tags.filter(Boolean) : [];
     return {
       id: role.id,
       practiceName: role.practiceName,
       location: role.location,
       billing: role.billing,
       earnings: role.earnings,
-      tags: Array.isArray(role.benefits) && role.benefits.length ? role.benefits.slice(0, 2) : [],
+      tags: (benefits.length ? benefits : tags).slice(0, 2),
       summary: role.summary
     };
   }
@@ -1240,6 +1052,15 @@
     );
   }
 
+  function recordApplication(role) {
+    const state = getCareerState();
+    if (!Array.isArray(state.applications)) state.applications = [];
+    if (!state.applications.some((a) => a && a.roleId === role.id)) {
+      state.applications.unshift(createApplicationSnapshot(role));
+      persistCareerState(state);
+    }
+  }
+
   function toggleSaved(roleId) {
     const state = getCareerState();
     if (!Array.isArray(state.savedJobs)) state.savedJobs = [];
@@ -1260,32 +1081,24 @@
   }
 
   /* ── DOM refs ── */
+  const dmastEl = document.getElementById("dmast");
+  const dheadEl = document.getElementById("dhead");
+  const dphotoWrapEl = document.getElementById("dphotoWrap");
+  const dphotoEl = document.getElementById("dphoto");
+  const dbodyEl = document.getElementById("dbody");
   const loadingEl = document.getElementById("loadingState");
   const errorEl = document.getElementById("errorState");
   const errorTextEl = document.getElementById("errorText");
-  const contentEl = document.getElementById("roleContent");
   const stickyEl = document.getElementById("stickyActions");
-  const heroAreaEl = document.getElementById("heroArea");
-  const heroCardEl = document.querySelector(".hero-media-card");
-  const heroImageEl = document.getElementById("heroImage");
-  const heroPlaceholderEl = document.getElementById("heroPlaceholder");
-  const heroLocationLabelEl = document.getElementById("heroLocationLabel");
-  const heroDisplayLabelEl = document.getElementById("heroDisplayLabel");
-  const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
-  const heroPrivacyBadgeEl = document.getElementById("heroPrivacyBadge");
-  const billingPillEl = document.getElementById("billingPill");
-  const benefitGridEl = document.getElementById("benefitGrid");
-  const mapSectionEl = document.getElementById("mapSection");
-  const mapHintEl = document.getElementById("mapHint");
-  const mapToggleBtnEl = document.getElementById("mapToggleBtn");
-  const mapPreviewEl = document.getElementById("mapPreview");
-  const mapWrapEl = document.getElementById("mapWrap");
-  const mapFrameEl = document.getElementById("mapFrame");
   const applyBtnEl = document.getElementById("applyBtn");
   const saveBtnEl = document.getElementById("saveBtn");
 
   let currentRole = null;
-  let mapVisible = false;
+  let renderContext = { mode: "standard" };
+  // Apply-bar state machine: idle | applying | applied | already_placed |
+  // closed | not_qualified | onboarding. Disabled variants for outcomes where
+  // re-tapping is pointless.
+  let applyState = "idle";
   let heroImageLookupRequestId = 0;
 
   /* ── Get role ID from URL ── */
@@ -1304,6 +1117,13 @@
     }
   }
 
+  function writePreviewRole(role) {
+    if (!role || !role.id) return;
+    try {
+      sessionStorage.setItem(ROLE_PREVIEW_SESSION_KEY, JSON.stringify(role));
+    } catch (err) {}
+  }
+
   function clearPreviewRole(roleId) {
     try {
       const raw = sessionStorage.getItem(ROLE_PREVIEW_SESSION_KEY);
@@ -1311,170 +1131,113 @@
       if (parsed && (!roleId || parsed.id === roleId)) {
         sessionStorage.removeItem(ROLE_PREVIEW_SESSION_KEY);
       }
-    } catch (err) {
-      // Ignore storage failures.
-    }
-  }
-
-  function stripLegacyTitleUi() {
-    document.querySelectorAll(".back-bar-title, .title-block, .role-title, .public-location-caption").forEach((node) => {
-      if (node && typeof node.remove === "function") node.remove();
-    });
+    } catch (err) {}
   }
 
   function setPageState(mode, message) {
     const isContent = mode === "content";
-    const isLoading = mode === "loading";
-    const isError = mode === "error";
-
-    loadingEl.hidden = !isLoading;
-    errorEl.hidden = !isError;
-    contentEl.hidden = !isContent;
+    loadingEl.hidden = mode !== "loading";
+    errorEl.hidden = mode !== "error";
+    dbodyEl.hidden = !isContent;
+    dphotoWrapEl.hidden = !isContent;
     stickyEl.hidden = !isContent;
-    heroAreaEl.hidden = !isContent;
-
-    if (isError && message) errorTextEl.textContent = message;
+    dheadEl.hidden = !isContent;
+    if (mode === "error" && message) errorTextEl.textContent = message;
   }
 
-  /* ── Render functions ── */
-  function renderBenefits(benefits) {
-    const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
-    if (!items.length) {
-      benefitGridEl.innerHTML = `
-        <li class="benefit-item">
-          <span class="benefit-check" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg>
-          </span>
-          <p class="benefit-copy">GP Link is preparing the public benefits summary for this confidential role.</p>
-        </li>
-      `;
-      return;
+  /* ── Masked-field helpers (same rules as career.html's Atlas layer) ── */
+  function getRoleSuburbLabel(role) {
+    const masked = String((role && role.practiceName) || "");
+    const match = masked.match(/^(?:non-?)?dpa\s*[-–]\s*([^-–]+?)(?:\s*[-–]|$)/i);
+    if (match && match[1].trim()) return match[1].trim();
+    return String((role && (role.mapLabel || role.nearest_city || role.majorCity || role.location)) || "Australia").trim();
+  }
+
+  function getRoleStateCode(role) {
+    const raw = String((role && role.state) || "");
+    if (/nsw|new south/i.test(raw)) return "NSW";
+    if (/vic/i.test(raw)) return "VIC";
+    if (/qld|queensland/i.test(raw)) return "QLD";
+    if (/wa|western/i.test(raw)) return "WA";
+    if (/sa|south australia/i.test(raw)) return "SA";
+    if (/tas/i.test(raw)) return "TAS";
+    if (/nt|northern/i.test(raw)) return "NT";
+    if (/act|capital/i.test(raw)) return "ACT";
+    return raw ? raw.toUpperCase().slice(0, 3) : "AU";
+  }
+
+  // Applicant count is ALWAYS the server's deterministic presentation band
+  // (15-23) — never a real applicant count and never Math.random. Fallback
+  // recomputes the identical band (same djb2 as server careerApplicantBand
+  // and career.html getApplicantBand) so both pages show the same number.
+  function getApplicantBand(role) {
+    const explicit = role && role.applicantBand;
+    if (Number.isInteger(explicit) && explicit >= 15 && explicit <= 23) return explicit;
+    const s = String((role && role.id) || "");
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
     }
-    benefitGridEl.innerHTML = items.slice(0, 4).map((benefit) => `
-      <li class="benefit-item">
-        <span class="benefit-check" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg>
-        </span>
-        <p class="benefit-copy">${escapeHtml(benefit)}</p>
-      </li>
-    `).join("");
+    return 15 + (h % 9);
   }
 
-  function extractStateCode(location) {
-    const raw = String(location || "").trim();
-    if (!raw) return "";
-    const match = raw.match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
-    return match ? match[1].toUpperCase() : "";
+  const AT_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  const AT_LOCK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+  const AT_PIN_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
+
+  // Photo-less scenery: refined map motif — ported from career.html so the
+  // two pages share one visual system.
+  function buildRoleSceneHtml(role, options) {
+    const opts = options || {};
+    const suburb = opts.hideLabel ? "" : getRoleSuburbLabel(role);
+    const pinSize = opts.large ? 30 : 22;
+    return '<div class="at-scene" aria-hidden="true">' +
+      '<span class="at-scode">' + escapeHtml(getRoleStateCode(role)) + '</span>' +
+      '<span class="at-spin"><svg width="' + pinSize + '" height="' + pinSize + '" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></span>' +
+      (suburb ? '<span class="at-slabel">' + escapeHtml(suburb) + '</span>' : "") +
+      '</div>';
   }
 
-  function getPublicLocationReference(role) {
-    const rawLocation = String(role && role.location ? role.location : "").trim();
-    const geography = String(role && role.geography ? role.geography : "").trim();
-    const stateCode = extractStateCode(rawLocation);
-    const cityMatches = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Canberra", "Hobart", "Darwin"];
-    const knownCity = cityMatches.find((city) => rawLocation.toLowerCase().includes(city.toLowerCase()));
-    if (knownCity) {
-      if (geography && /regional/i.test(geography) && stateCode) return `Regional ${stateCode}`;
-      return geography && /regional/i.test(geography) ? `Regional ${knownCity}` : knownCity;
-    }
-    if (geography && stateCode) {
-      return `${geography} ${stateCode}`.trim();
-    }
-    if (geography) return geography;
-    if (stateCode) return stateCode;
-    if (rawLocation.includes(",")) {
-      const parts = rawLocation.split(",").map((part) => part.trim()).filter(Boolean);
-      return parts[parts.length - 1] || parts[0];
-    }
-    return rawLocation || "Australia";
+  /* ── Masthead ── */
+  function renderMast(role) {
+    const revealed = !!(role && role.revealed && role.realPracticeName);
+    dmastEl.classList.toggle("at-dmast--revealed", revealed);
+    const suburb = getRoleSuburbLabel(role);
+    const billing = String(role.billing || "Billing on request");
+    const roleType = String(role.roleType || "Permanent");
+    const headline = revealed ? role.realPracticeName : ("General Practice in " + suburb);
+    const locText = revealed
+      ? String(role.practiceAddress || role.locationLine || role.location || "")
+      : String(role.locationLine || role.location || "Australia");
+    dheadEl.innerHTML =
+      '<div class="at-dhtags">' +
+        '<span class="at-dpill">' + AT_CHECK_SVG + (revealed ? "Identity unlocked" : "Eligible for you") + '</span>' +
+        '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>' +
+      '</div>' +
+      '<h1 class="at-dtitle">' + escapeHtml(headline) + '</h1>' +
+      (locText ? '<p class="at-dloc">' + AT_PIN_SVG + escapeHtml(locText) + '</p>' : "");
   }
 
-  function getLocationDisplayLabel(publicLocationReference) {
-    const value = String(publicLocationReference || "").trim();
-    if (!value) return "Australia";
-    if (/^(regional|metro|australia)/i.test(value)) return value;
-    return `Near ${value}`;
-  }
-
-  function getHeroLocationText(role) {
-    const locationLine = String(role && role.locationLine ? role.locationLine : "").trim();
-    const proximityNote = String(role && role.proximityNote ? role.proximityNote : "").trim();
-    const fallback = getLocationDisplayLabel(getPublicLocationReference(role));
-    if (!locationLine) return fallback;
-    return proximityNote ? `${locationLine} (${proximityNote})` : locationLine;
-  }
-
-  function getHeroCaption(role) {
-    const summary = String(role && role.summary ? role.summary : "").trim();
-    if (summary) return summary;
-    if (!role) {
-      return "Exact suburb and practice identity are only released once the practice accepts your application.";
-    }
-    return "AI is preparing the public practice summary for this confidential listing.";
-  }
-
-  function getRolePalette(role) {
-    const seed = String(role && (role.location || role.id || role.mapLabel) ? (role.location || role.id || role.mapLabel) : "gplink");
-    let hash = 0;
-    for (let index = 0; index < seed.length; index += 1) {
-      hash = ((hash << 5) - hash) + seed.charCodeAt(index);
-      hash |= 0;
-    }
-    const hue = Math.abs(hash % 360);
-    const accentHue = (hue + 34) % 360;
-    return {
-      top: `hsl(${hue} 72% 72%)`,
-      mid: `hsl(${(hue + 18) % 360} 68% 58%)`,
-      base: `hsl(${accentHue} 70% 42%)`
-    };
-  }
-
-  function applyHeroPalette(role) {
-    if (!heroPlaceholderEl) return;
-    const palette = getRolePalette(role);
-    heroPlaceholderEl.style.background = [
-      "linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.32))",
-      `linear-gradient(135deg, ${palette.top} 0%, ${palette.mid} 55%, ${palette.base} 100%)`
-    ].join(",");
-  }
-
+  /* ── Hero photo / scenery ── */
   function renderHeroImage(role) {
-    // A practice-uploaded header image (task 9) always wins over the
-    // AI-sourced scenery photo — it's a real photo of the actual location.
+    // A practice-uploaded header image always wins over the AI-sourced
+    // scenery photo — it's a real photo of the actual location.
     const imageUrl = String(role && (role.headerImageUrl || role.heroImageUrl) ? (role.headerImageUrl || role.heroImageUrl) : "").trim();
-    const label = String(role && (role.locationLine || role.location || role.mapLabel) ? (role.locationLine || role.location || role.mapLabel) : "the surrounding suburb").trim();
-
-    if (!imageUrl) {
-      if (heroImageEl) {
-        heroImageEl.hidden = true;
-        heroImageEl.removeAttribute("src");
-        heroImageEl.removeAttribute("data-src");
-      }
-      if (heroCardEl) heroCardEl.classList.remove("has-image");
-      applyHeroPalette(role);
-      return;
+    const revealed = !!(role && role.revealed && role.realPracticeName);
+    const suburb = getRoleSuburbLabel(role);
+    const caption = revealed
+      ? AT_CHECK_SVG.replace('viewBox', 'width="11" height="11" viewBox') + 'Identity unlocked · ' + escapeHtml(suburb)
+      : AT_LOCK_SVG + 'Confidential listing · area preview';
+    const media = imageUrl
+      ? '<img class="at-dphoto-img" src="' + escapeHtml(imageUrl) + '" alt="Landscape view near ' + escapeHtml(suburb) + '" onerror="this.remove()" />' +
+        buildRoleSceneHtml(role, { large: true, hideLabel: true }).replace('class="at-scene"', 'class="at-scene" style="z-index:-1"')
+      : buildRoleSceneHtml(role, { large: true });
+    dphotoEl.innerHTML = media + '<figcaption>' + caption + '</figcaption>';
+    if (imageUrl) {
+      // Keep the image above the fallback scene once it loads.
+      const img = dphotoEl.querySelector(".at-dphoto-img");
+      if (img) img.style.zIndex = "1";
     }
-
-    if (heroImageEl) {
-      heroImageEl.hidden = false;
-      heroImageEl.alt = `Landscape view of ${label}`;
-      if (heroCardEl) heroCardEl.classList.add("has-image");
-      if (heroImageEl.dataset.src !== imageUrl) {
-        heroImageEl.dataset.src = imageUrl;
-        heroImageEl.onload = null;
-        heroImageEl.onerror = () => {
-          heroImageEl.hidden = true;
-          if (heroCardEl) heroCardEl.classList.remove("has-image");
-          applyHeroPalette(role);
-        };
-        heroImageEl.src = imageUrl;
-      }
-    }
-  }
-
-  function parseStateCodeFromText(value) {
-    const match = String(value || "").match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
-    return match ? match[1].toUpperCase() : "";
   }
 
   function buildHeroImageLookupParams(role) {
@@ -1485,19 +1248,10 @@
     if (role.locationLine) params.set("locationLine", role.locationLine);
     if (role.location) params.set("location", role.location);
     if (role.mapQuery) params.set("mapQuery", role.mapQuery);
-    const state = parseStateCodeFromText(role.locationLine || role.location || role.mapQuery || "");
-    if (state) params.set("state", state);
+    const stateMatch = String(role.locationLine || role.location || role.mapQuery || "").match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
+    if (stateMatch) params.set("state", stateMatch[1].toUpperCase());
     params.set("country", "Australia");
     return params;
-  }
-
-  function writePreviewRole(role) {
-    if (!role || !role.id) return;
-    try {
-      sessionStorage.setItem(ROLE_PREVIEW_SESSION_KEY, JSON.stringify(role));
-    } catch (err) {
-      // Ignore storage failures.
-    }
   }
 
   async function ensureHeroImage(role) {
@@ -1520,17 +1274,256 @@
       writePreviewRole(currentRole);
       renderHeroImage(currentRole);
     } catch (err) {
-      // Keep the gradient fallback if lookup fails.
+      // Keep the scenery motif if lookup fails.
     }
+  }
+
+  /* ── Intro video (two-tier: only in the authenticated detail payload) ── */
+  function buildIntroVideoHtml(role) {
+    const raw = String((role && role.introVideoUrl) || "").trim();
+    if (!raw) return "";
+    let parsed;
+    try { parsed = new URL(raw, window.location.href); } catch { return ""; }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+
+    let embedSrc = "";
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+      let videoId = parsed.searchParams.get("v") || "";
+      if (!videoId) {
+        const pathMatch = parsed.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]+)/);
+        if (pathMatch) videoId = pathMatch[1];
+      }
+      if (videoId) embedSrc = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(videoId);
+    } else if (host === "youtu.be") {
+      const videoId = parsed.pathname.replace(/^\//, "").split("/")[0];
+      if (videoId) embedSrc = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(videoId);
+    } else if (host === "vimeo.com" || host === "player.vimeo.com") {
+      const vimeoMatch = parsed.pathname.match(/\/(\d+)/);
+      if (vimeoMatch) embedSrc = "https://player.vimeo.com/video/" + vimeoMatch[1];
+    }
+
+    let block = "";
+    let note = '<p class="at-video-note">The team, the patient mix, your typical week — identity kept private until acceptance.</p>';
+    if (embedSrc) {
+      block = '<div class="at-video-embed"><iframe src="' + escapeHtml(embedSrc) + '" title="Practice introduction video" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>';
+    } else if (/\.(mp4|webm|m4v|mov|ogv)(?:[?#]|$)/i.test(parsed.pathname)) {
+      block = '<div class="at-video-embed"><video controls playsinline preload="metadata" src="' + escapeHtml(parsed.href) + '"></video></div>';
+    } else {
+      block = '<a class="at-video-link" href="' + escapeHtml(parsed.href) + '" target="_blank" rel="noopener noreferrer">' +
+        '<span class="at-vthumb">' + buildRoleSceneHtml(role || {}, { hideLabel: true }) +
+          '<span class="at-vplay"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></span>' +
+        '</span>' +
+        '<span><h4>Practice introduction</h4><p>The team, the patient mix, your typical week — identity kept private until acceptance.</p></span>' +
+      '</a>';
+      note = "";
+    }
+    return '<div class="at-sech">Meet them on video</div>' +
+      '<div class="at-rv at-rv3">' + block + note + '</div>';
+  }
+
+  /* ── Area map: fuzzy pre-reveal, exact post-reveal ── */
+  function buildMapHtml(role) {
+    const revealed = !!(role && role.revealed && role.revealedMapQuery);
+    const query = revealed ? role.revealedMapQuery : (role && role.mapQuery);
+    if (!query) return "";
+    const zoom = revealed ? 15 : 13;
+    const src = "https://www.google.com/maps?q=" + encodeURIComponent(query) + "&z=" + zoom + "&output=embed";
+    const suburb = getRoleSuburbLabel(role);
+    const caption = revealed
+      ? "Exact location" + (role.realPracticeName ? " · " + role.realPracticeName : "")
+      : suburb + " area — exact address shared on acceptance";
+    const overlay = revealed
+      ? '<span class="at-map-overlay"><span class="at-pin"><span class="at-ring at-ring--exact"><span class="at-dotpin at-dotpin--exact"></span></span></span></span>'
+      : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span></span>';
+    return '<div class="at-sech">The area</div>' +
+      '<div class="at-rv at-rv4">' +
+        '<figure class="at-map" style="margin:0">' +
+          '<iframe src="' + escapeHtml(src) + '" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role area map"></iframe>' +
+          overlay +
+          '<figcaption class="at-map-caption">' + escapeHtml(caption) + '</figcaption>' +
+        '</figure>' +
+        (revealed && role.practiceAddress
+          ? '<p class="at-map-address">' + AT_PIN_SVG + escapeHtml(role.practiceAddress) + '</p>'
+          : "") +
+      '</div>';
+  }
+
+  /* ── The practice: identity vault (pre-reveal) or unlocked card ── */
+  function buildPracticeIdentityHtml(role) {
+    const revealed = !!(role && role.revealed && role.realPracticeName);
+    if (revealed) {
+      const initials = (String(role.realPracticeName).match(/\b\w/g) || ["G", "P"]).slice(0, 2).join("").toUpperCase();
+      return '<div class="at-sech">The practice</div>' +
+        '<div class="at-unlocked at-rv at-rv3">' +
+          '<span class="at-ua">' + escapeHtml(initials) + '</span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="at-uname">' + escapeHtml(role.realPracticeName) + '</div>' +
+            (role.practiceAddress ? '<div class="at-uaddr">' + escapeHtml(role.practiceAddress) + '</div>' : "") +
+          '</div>' +
+          '<span class="at-ubadge">&#10003; UNLOCKED</span>' +
+        '</div>';
+    }
+    // Pre-reveal: placeholder graphic only (never real text under a blur).
+    return '<div class="at-sech">The practice</div>' +
+      '<div class="at-vault at-rv at-rv3" data-vault role="button" tabindex="0" aria-label="Practice identity is protected until acceptance">' +
+        '<span class="at-vshine"></span>' +
+        '<div class="at-vault-in">' +
+          '<span class="at-vlock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="at-vtag">NAME ON ACCEPTANCE</div>' +
+            '<div class="at-vname" aria-hidden="true"></div>' +
+            '<p class="at-vcap"><b>Identity protected while you decide.</b> Name, address &amp; team are revealed the moment you’re <b>accepted</b> — keeping matching fair for you and the practice.</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ── Detail body ── */
+  function buildPackageCellsHtml(role) {
+    const cells = [
+      { label: "Earnings", value: role.earnings || "Package on request" },
+      { label: "Billing", value: role.billing || "Billing on request" },
+      { label: "Role type", value: role.roleType || "Permanent" },
+      { label: "Location", value: role.locationLine || role.location || "Australia" }
+    ];
+    return '<div class="at-sech">The package</div>' +
+      '<div class="at-earnrow at-rv at-rv2">' +
+      cells.map((cell) =>
+        '<div class="at-cell"><span>' + escapeHtml(cell.label) + '</span><b>' + escapeHtml(cell.value) + '</b></div>'
+      ).join("") +
+      '</div>';
+  }
+
+  function buildBenefitsHtml(role) {
+    const items = (Array.isArray(role.benefits) ? role.benefits.filter(Boolean) : []).slice(0, 4);
+    const lis = items.length
+      ? items.map((benefit) =>
+          '<li><span class="at-bi">' + AT_CHECK_SVG + '</span>' + escapeHtml(benefit) + '</li>'
+        ).join("")
+      : '<li><span class="at-bi">' + AT_CHECK_SVG + '</span>Structured onboarding, a supportive team and a stable patient base.</li>';
+    return '<div class="at-sech">Why GPs choose it</div><ul class="at-bene at-rv at-rv3">' + lis + '</ul>';
+  }
+
+  function buildUrgencyHtml(role) {
+    const band = getApplicantBand(role);
+    // Band-driven, deterministic progress width (same formula as the mockup).
+    const pct = Math.min(88, 50 + (band % 30));
+    return '<section class="at-priority at-rv at-rv2" data-band-pct="' + pct + '">' +
+      '<div class="at-ph"><span class="at-live"></span>High interest in this role' +
+        '<span class="at-pcount">' + band + '<span> applied</span></span></div>' +
+      '<div class="at-pbar"><i id="pbarFill"></i></div>' +
+      '<p class="at-pnote">Doctors with a <b>complete CV and profile</b> are shortlisted first — the practice sees them before anyone else.</p>' +
+    '</section>';
+  }
+
+  function buildReceivedHtml() {
+    return '<div class="at-received at-rv" id="appliedBanner">' +
+      '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
+      '<div><b>Application received</b><p>In review — your Registration Support Officer checks it before the practice sees it.</p></div>' +
+    '</div>';
+  }
+
+  function buildSupportHtml() {
+    return '<div class="at-sech">In your corner</div>' +
+      '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
+      '<p><b>Your Registration Support Officer reviews every application before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>';
+  }
+
+  function renderBody(role, ctx) {
+    const summary = String(role.summary || "A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.");
+    dbodyEl.innerHTML =
+      (isApplied(role.id) ? buildReceivedHtml() : "") +
+      buildUrgencyHtml(role) +
+      buildPackageCellsHtml(role) +
+      '<div class="at-sech">About the role</div>' +
+      '<div class="at-intro at-rv at-rv3">' + escapeHtml(summary) + ' <em>The full profile unlocks as your application progresses.</em></div>' +
+      buildBenefitsHtml(role) +
+      buildPracticeIdentityHtml(role) +
+      buildIntroVideoHtml(role) +
+      buildMapHtml(role) +
+      buildSupportHtml();
+    requestAnimationFrame(() => {
+      const fill = document.getElementById("pbarFill");
+      const panel = dbodyEl.querySelector(".at-priority");
+      if (fill && panel) fill.style.width = panel.getAttribute("data-band-pct") + "%";
+    });
+  }
+
+  /* ── Single render entry point.
+     ctx.mode: "standard" today; Task 4 adds "offer" (offer banner +
+     interview scheduling) by branching here without restructuring. ── */
+  function renderRole(role, ctx) {
+    renderContext = ctx || renderContext || { mode: "standard" };
+    // A blurred (non-qualifying) filler stub has no real practice details to
+    // show — never render it as an openable job page.
+    if (role && role.blurred) {
+      currentRole = null;
+      setPageState("error", "This role is unavailable — you don't currently qualify for it.");
+      return;
+    }
+    currentRole = role;
+    document.title = "Role Details - GP Link";
+    setPageState("content");
+    renderMast(role);
+    renderHeroImage(role);
+    ensureHeroImage(role);
+    renderBody(role, renderContext);
+    if (applyState !== "applying") {
+      applyState = isApplied(role.id) ? "applied" : "idle";
+    }
+    paintApply();
+    updateSaveButton();
+  }
+
+  /* ── Apply bar painting ── */
+  function paintApply() {
+    const states = {
+      idle: {
+        cls: "at-bapply",
+        html: "Apply for this role<small>Your Registration Support Officer reviews it before the practice does</small>",
+        disabled: false
+      },
+      applying: { cls: "at-bapply", html: "Applying…", disabled: true },
+      applied: {
+        cls: "at-bapply at-bapply--done",
+        html: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
+        disabled: true
+      },
+      already_placed: {
+        cls: "at-bapply at-bapply--muted",
+        html: "You're already placed<small>Contact your Registration Support Officer about any change</small>",
+        disabled: true
+      },
+      closed: {
+        cls: "at-bapply at-bapply--muted",
+        html: "This position has been filled<small>Browse other roles — we'll help you find the right fit</small>",
+        disabled: true
+      },
+      not_qualified: {
+        cls: "at-bapply at-bapply--muted",
+        html: "Not available for your pathway<small>This role needs a different eligibility profile</small>",
+        disabled: true
+      },
+      onboarding: {
+        cls: "at-bapply",
+        html: "Finish onboarding to apply<small>It only takes a few minutes</small>",
+        disabled: false
+      }
+    };
+    const spec = states[applyState] || states.idle;
+    applyBtnEl.className = spec.cls;
+    applyBtnEl.innerHTML = spec.html;
+    applyBtnEl.disabled = spec.disabled;
   }
 
   function updateSaveButton() {
     if (!currentRole) return;
     const saved = isSaved(currentRole.id);
-    saveBtnEl.classList.toggle("saved", saved);
+    saveBtnEl.classList.toggle("on", saved);
     saveBtnEl.setAttribute("aria-label", saved ? "Remove saved job" : "Save for later");
-    const labelEl = saveBtnEl.querySelector(".btn-save-bottom-label");
-    if (labelEl) labelEl.textContent = saved ? "Saved for later" : "Save for later";
+    const icon = saveBtnEl.querySelector("svg path");
+    if (icon) saveBtnEl.querySelector("svg").setAttribute("fill", saved ? "currentColor" : "none");
   }
 
   function mergeRoleData(baseRole, nextRole) {
@@ -1545,71 +1538,6 @@
       locationSummary: nextRole.locationSummary || baseRole.locationSummary,
       mapQuery: nextRole.mapQuery || baseRole.mapQuery
     };
-  }
-
-  function renderRole(role) {
-    // Task 11: a blurred (non-qualifying) filler stub has no real practice
-    // details to show — never render it as an openable job page.
-    if (role && role.blurred) {
-      currentRole = null;
-      setPageState("error", "This role is unavailable — you don't currently qualify for it.");
-      return;
-    }
-    currentRole = role;
-    mapVisible = false;
-    stripLegacyTitleUi();
-    setPageState("content");
-    const heroLocationText = getHeroLocationText(role);
-    document.title = "Role Details - GP Link";
-    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
-    if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
-    if (heroDisplayLabelEl) {
-      // Real practice name once the server marks this role as revealed
-      // (accepted offer / admin-applied origin); masked displayLabel otherwise.
-      if (role && role.revealed && role.realPracticeName) {
-        heroDisplayLabelEl.textContent = role.realPracticeName;
-        heroDisplayLabelEl.hidden = false;
-      } else if (role && role.displayLabel) {
-        heroDisplayLabelEl.textContent = role.displayLabel;
-        heroDisplayLabelEl.hidden = false;
-      } else {
-        heroDisplayLabelEl.hidden = true;
-        heroDisplayLabelEl.textContent = "";
-      }
-    }
-    if (heroPrivacyBadgeEl) {
-      heroPrivacyBadgeEl.textContent = (role && role.revealed) ? "Practice revealed" : "Confidential listing";
-    }
-    billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    renderHeroImage(role);
-    ensureHeroImage(role);
-
-    renderBenefits(role.benefits);
-
-    var effectiveMapQuery = (role && role.revealed && role.revealedMapQuery) ? role.revealedMapQuery : (role && role.mapQuery);
-    if (effectiveMapQuery) {
-      mapSectionEl.hidden = false;
-      if (mapPreviewEl) mapPreviewEl.hidden = false;
-      mapWrapEl.hidden = true;
-      mapFrameEl.removeAttribute("src");
-      mapToggleBtnEl.textContent = "Show map";
-      mapHintEl.textContent = (role && role.revealed)
-        ? `Explore the exact location of ${role.realPracticeName || "this practice"}.`
-        : "Explore the suburb surrounding this confidential role while the practice identity remains protected.";
-    } else {
-      mapSectionEl.hidden = true;
-      if (mapPreviewEl) mapPreviewEl.hidden = true;
-    }
-
-    if (isApplied(role.id)) {
-      applyBtnEl.textContent = "Application submitted";
-      applyBtnEl.disabled = true;
-    } else {
-      applyBtnEl.textContent = "Apply";
-      applyBtnEl.disabled = false;
-    }
-
-    updateSaveButton();
   }
 
   function showError(message) {
@@ -1656,11 +1584,86 @@
     }
   }
 
-  /* ── Apply ── */
+  /* ── Apply outcome handling — one explicit branch per server guard ── */
+  function markAppliedLocally() {
+    if (!currentRole) return;
+    recordApplication(currentRole);
+    applyState = "applied";
+    paintApply();
+    renderBody(currentRole, renderContext);
+  }
+
+  // Returns "success" | "cv_required" | one of the terminal guard states.
+  function handleApplyOutcome(status, data, options) {
+    const opts = options || {};
+    if (data && data.ok) {
+      // Confirmation moment: applied state + "Application received" banner.
+      markAppliedLocally();
+      showToast(opts.afterCvUpload
+        ? "CV uploaded & application sent ✓ Your Registration Support Officer will be in touch shortly"
+        : "Application sent ✓ Your Registration Support Officer will be in touch shortly");
+      return "success";
+    }
+    if (data && data.requiresCv) {
+      // Missing signed CV → the in-page CV upload modal.
+      applyState = "idle";
+      paintApply();
+      if (!opts.afterCvUpload) openCvModal();
+      return "cv_required";
+    }
+    if (data && data.code === "already_placed") {
+      applyState = "already_placed";
+      paintApply();
+      showToast("You're already placed — your Registration Support Officer manages any change from here.");
+      return "already_placed";
+    }
+    if (data && data.code === "job_closed") {
+      applyState = "closed";
+      paintApply();
+      showToast(data.message || "This position is no longer open.");
+      return "closed";
+    }
+    if (data && data.error === "not_qualified") {
+      applyState = "not_qualified";
+      paintApply();
+      showToast("You don't currently qualify for this role — ask your Registration Support Officer about your options.");
+      return "not_qualified";
+    }
+    if (status === 429) {
+      // Gentle rate-limit toast; the button stays usable for later.
+      applyState = "idle";
+      paintApply();
+      showToast("You're applying quickly — give it a few minutes and try again.");
+      return "rate_limited";
+    }
+    if (status === 403) {
+      // Onboarding incomplete: repurpose the button as the onboarding link.
+      applyState = "onboarding";
+      paintApply();
+      showToast("Finish onboarding first — tap the button below to continue.");
+      return "onboarding";
+    }
+    if (status === 409) {
+      // Duplicate application — reflect the truth: it's already in.
+      markAppliedLocally();
+      showToast("You've already applied — your Registration Support Officer is on it.");
+      return "duplicate";
+    }
+    applyState = "idle";
+    paintApply();
+    showToast((data && data.message) || "Could not apply. Try again.");
+    return "error";
+  }
+
   async function applyForRole() {
     if (!currentRole) return;
-    applyBtnEl.disabled = true;
-    applyBtnEl.textContent = "Applying...";
+    if (applyState === "onboarding") {
+      window.location.href = "onboarding";
+      return;
+    }
+    if (applyState !== "idle") return;
+    applyState = "applying";
+    paintApply();
     try {
       const res = await fetch("/api/career/apply", {
         method: "POST",
@@ -1668,59 +1671,39 @@
         credentials: "same-origin",
         body: JSON.stringify({ roleId: currentRole.id })
       });
-      const data = await res.json();
-      if (data.ok) {
-        applyBtnEl.textContent = "Application submitted";
-        applyBtnEl.disabled = true;
-        const state = getCareerState();
-        if (!Array.isArray(state.applications)) state.applications = [];
-        if (!state.applications.some((a) => a && a.roleId === currentRole.id)) {
-          state.applications.unshift(createApplicationSnapshot(currentRole));
-          persistCareerState(state);
-        }
-        showToast("Application submitted");
-      } else if (data.requiresCv) {
-        applyBtnEl.textContent = "Apply";
-        applyBtnEl.disabled = false;
-        if (document.getElementById("cvModal")) {
-          openCvModal();
-        } else {
-          showToast("Please upload your CV first");
-          window.location.href = "my-documents";
-        }
-      } else {
-        applyBtnEl.textContent = "Apply";
-        applyBtnEl.disabled = false;
-        showToast(data.message || "Could not apply. Try again.");
-      }
+      const data = await res.json().catch(() => null);
+      handleApplyOutcome(res.status, data, {});
     } catch {
-      applyBtnEl.textContent = "Apply";
-      applyBtnEl.disabled = false;
+      applyState = "idle";
+      paintApply();
       showToast("Network error. Please try again.");
     }
   }
 
   /* ── Event listeners ── */
-  mapToggleBtnEl.addEventListener("click", () => {
-    var revealed = !!(currentRole && currentRole.revealed && currentRole.revealedMapQuery);
-    var query = revealed ? currentRole.revealedMapQuery : (currentRole && currentRole.mapQuery);
-    if (!query) return;
-    mapVisible = !mapVisible;
-    mapWrapEl.hidden = !mapVisible;
-    if (mapPreviewEl) mapPreviewEl.hidden = mapVisible;
-    mapToggleBtnEl.textContent = mapVisible ? "Hide map" : "Show map";
-    if (mapVisible && !mapFrameEl.getAttribute("src")) {
-      mapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(query) + "&z=" + (revealed ? 15 : 13) + "&output=embed");
-    }
-  });
-
   applyBtnEl.addEventListener("click", applyForRole);
 
   saveBtnEl.addEventListener("click", () => {
     if (!currentRole) return;
     const nowSaved = toggleSaved(currentRole.id);
     updateSaveButton();
-    showToast(nowSaved ? "Saved for later" : "Removed from saved");
+    showToast(nowSaved ? "Saved to your shortlist" : "Removed from shortlist");
+  });
+
+  // Identity vault: tap → shake + explainer (mockup interaction).
+  dbodyEl.addEventListener("click", (event) => {
+    const vault = event.target.closest("[data-vault]");
+    if (!vault) return;
+    vault.classList.remove("at-shake");
+    void vault.offsetWidth;
+    vault.classList.add("at-shake");
+    showToast("The practice name unlocks when your application is accepted");
+  });
+  dbodyEl.addEventListener("keydown", (event) => {
+    if ((event.key === "Enter" || event.key === " ") && event.target.closest && event.target.closest("[data-vault]")) {
+      event.preventDefault();
+      event.target.closest("[data-vault]").click();
+    }
   });
 
   const shareBtnEl = document.getElementById("shareBtn");
@@ -1847,7 +1830,8 @@
           return;
         }
 
-        // CV uploaded, now retry the application
+        // CV uploaded, now retry the application through the same
+        // guard-aware outcome handling as the main apply path.
         cvUploadBtn.textContent = "Applying...";
 
         var applyRes = await fetch("/api/career/apply", {
@@ -1856,21 +1840,13 @@
           credentials: "same-origin",
           body: JSON.stringify({ roleId: currentRole.id })
         });
-        var applyData = await applyRes.json();
+        var applyData = await applyRes.json().catch(function () { return null; });
+        var outcome = handleApplyOutcome(applyRes.status, applyData, { afterCvUpload: true });
 
-        if (applyData.ok) {
+        if (outcome === "success" || outcome === "duplicate") {
           closeCvModal();
-          applyBtnEl.textContent = "Application submitted";
-          applyBtnEl.disabled = true;
-          var state = getCareerState();
-          if (!Array.isArray(state.applications)) state.applications = [];
-          if (!state.applications.some(function (a) { return a && a.roleId === currentRole.id; })) {
-            state.applications.unshift(createApplicationSnapshot(currentRole));
-            persistCareerState(state);
-          }
-          showToast("CV uploaded & application submitted!");
         } else {
-          cvUploadStatus.textContent = applyData.message || "Application failed after upload.";
+          cvUploadStatus.textContent = (applyData && applyData.message) || "Application failed after upload.";
           cvUploadBtn.disabled = false;
           cvUploadBtn.textContent = "Upload & Apply";
         }
@@ -1891,12 +1867,11 @@
     }
 
     document.title = "Role Details - GP Link";
-    stripLegacyTitleUi();
     setPageState("loading");
 
     let previewRole = readPreviewRole(roleId);
     if (previewRole) {
-      renderRole(previewRole);
+      renderRole(previewRole, { mode: "standard" });
     }
 
     const previewPromise = previewRole ? Promise.resolve(previewRole) : loadRolePreview(roleId);
@@ -1905,12 +1880,12 @@
     const fastRole = await previewPromise;
     if (!currentRole && fastRole) {
       previewRole = fastRole;
-      renderRole(fastRole);
+      renderRole(fastRole, { mode: "standard" });
     }
 
     const enrichedRole = await detailPromise;
     if (enrichedRole) {
-      renderRole(mergeRoleData(currentRole || previewRole, enrichedRole));
+      renderRole(mergeRoleData(currentRole || previewRole, enrichedRole), { mode: "standard" });
       clearPreviewRole(roleId);
       return;
     }
