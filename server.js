@@ -35378,6 +35378,27 @@ async function handleApi(req, res, pathname) {
             body: profileUpdate
           });
         }
+        // Optional "How did you hear about us?" (Phase 6 H2) — whitelisted keys
+        // only; skipping the question never blocks onboarding (no value = no
+        // write). Sent as a SEPARATE best-effort PATCH so a DB that doesn't
+        // have the lead_source columns yet can never sink the main profile
+        // update above.
+        var obLeadSource = ceoMetrics.sanitizeLeadSource(body.leadSource);
+        if (obLeadSource) {
+          var obLeadPatch = { lead_source: obLeadSource };
+          var obLeadDetail = (typeof body.leadSourceDetail === 'string') ? body.leadSourceDetail.trim().slice(0, 200) : '';
+          if (obLeadDetail) obLeadPatch.lead_source_detail = obLeadDetail;
+          try {
+            var obLeadRes = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: obLeadPatch
+            });
+            if (!obLeadRes.ok) console.error('[Onboarding] lead_source write failed (ignored):', obLeadRes.status);
+          } catch (obLeadErr) {
+            console.error('[Onboarding] lead_source write failed (ignored):', obLeadErr.message);
+          }
+        }
       }
     } else {
       const dbState = loadDbState();
@@ -35394,6 +35415,12 @@ async function handleApi(req, res, pathname) {
       if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
       if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
       if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
+      var obLeadSourceLocal = ceoMetrics.sanitizeLeadSource(body.leadSource);
+      if (obLeadSourceLocal) {
+        dbState.userProfiles[email].lead_source = obLeadSourceLocal;
+        var obLeadDetailLocal = (typeof body.leadSourceDetail === 'string') ? body.leadSourceDetail.trim().slice(0, 200) : '';
+        if (obLeadDetailLocal) dbState.userProfiles[email].lead_source_detail = obLeadDetailLocal;
+      }
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
       saveDbState(dbState);
     }
@@ -49385,6 +49412,80 @@ Return ONLY valid JSON with no markdown formatting:
     // see computeWeeklyTrendSeries() so the email and the dashboard always agree.
     var weekList = await computeWeeklyTrendSeries();
     sendJson(res, 200, { ok: true, weeks: weekList });
+    return;
+  }
+
+  // GET /api/ceo/conversion-funnel — cross-system business funnel + time-to-
+  // placement (Phase 6 H2). Counts/durations only, NO revenue (Xero owns money).
+  // Every fetch is bounded; the math lives in lib/ceo-metrics.js so it is
+  // unit-testable and never re-derived elsewhere.
+  if (pathname === '/api/ceo/conversion-funnel' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var cfCtx = requireCeoSession(req, res);
+    if (!cfCtx) return;
+    var cfPeriodRaw = url.searchParams.get('period') || 'all';
+    var cfPeriod = ['current', '7d', '14d', '30d', 'all'].indexOf(cfPeriodRaw) !== -1 ? cfPeriodRaw : 'all';
+
+    var [cfEnqRes, cfPracRes, cfRolesRes, cfAppsRes, cfIvRes, cfCasesRes, cfPlaceRes, cfProfRes] = await Promise.all([
+      supabaseDbRequest('site_enquiries', 'select=id,kind,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('practices', 'select=id,source,agreement_status,agreement_signed_at,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('career_roles', 'select=id,is_active,approval_status,published_at,created_at&is_active=eq.true&limit=5000'),
+      supabaseDbRequest('gp_applications', 'select=id,user_id,status,applied_at,updated_at&order=applied_at.desc&limit=10000'),
+      supabaseDbRequest('career_interviews', 'select=id,status,created_at&status=neq.cancelled&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('registration_cases', 'select=id,user_id,created_at&order=created_at.desc&limit=5000'),
+      // placements is additive DDL — tolerate the table not existing (res.ok=false -> []).
+      supabaseDbRequest('placements', 'select=id,user_id,status,placed_at,created_at&order=placed_at.desc&limit=5000'),
+      supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&limit=10000')
+    ]);
+
+    var cfFunnel = ceoMetrics.computeConversionFunnel({
+      enquiries: (cfEnqRes.ok && Array.isArray(cfEnqRes.data)) ? cfEnqRes.data : [],
+      practices: (cfPracRes.ok && Array.isArray(cfPracRes.data)) ? cfPracRes.data : [],
+      roles: (cfRolesRes.ok && Array.isArray(cfRolesRes.data)) ? cfRolesRes.data : [],
+      apps: (cfAppsRes.ok && Array.isArray(cfAppsRes.data)) ? cfAppsRes.data : [],
+      interviews: (cfIvRes.ok && Array.isArray(cfIvRes.data)) ? cfIvRes.data : [],
+      cases: (cfCasesRes.ok && Array.isArray(cfCasesRes.data)) ? cfCasesRes.data : [],
+      placements: (cfPlaceRes.ok && Array.isArray(cfPlaceRes.data)) ? cfPlaceRes.data : [],
+      profiles: (cfProfRes.ok && Array.isArray(cfProfRes.data)) ? cfProfRes.data : []
+    }, cfPeriod, Date.now());
+
+    sendJson(res, 200, {
+      ok: true,
+      period: cfPeriod,
+      practice_funnel: cfFunnel.practice_funnel,
+      gp_funnel: cfFunnel.gp_funnel,
+      time_to_placement: cfFunnel.time_to_placement
+    });
+    return;
+  }
+
+  // GET /api/ceo/source-attribution — "How GPs found us" breakdown (Phase 6 H2).
+  // GP signups by lead_source over a period, incl. 'unknown' for skipped answers.
+  if (pathname === '/api/ceo/source-attribution' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var saCtx = requireCeoSession(req, res);
+    if (!saCtx) return;
+    var saPeriodRaw = url.searchParams.get('period') || 'all';
+    var saPeriod = ['current', '7d', '14d', '30d', 'all'].indexOf(saPeriodRaw) !== -1 ? saPeriodRaw : 'all';
+
+    var [saCasesRes, saProfRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=id,user_id,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('user_profiles', 'select=user_id,lead_source,lead_source_detail,onboarding_completed_at,created_at&limit=10000')
+    ]);
+
+    var saBreakdown = ceoMetrics.computeSourceAttribution(
+      (saCasesRes.ok && Array.isArray(saCasesRes.data)) ? saCasesRes.data : [],
+      (saProfRes.ok && Array.isArray(saProfRes.data)) ? saProfRes.data : [],
+      saPeriod, Date.now()
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      period: saPeriod,
+      total: saBreakdown.total,
+      sources: saBreakdown.sources,
+      details: saBreakdown.details
+    });
     return;
   }
 

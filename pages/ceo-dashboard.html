@@ -389,6 +389,46 @@
       flex-shrink: 0;
     }
 
+    /* ═══ CONVERSION FUNNEL + SOURCE ATTRIBUTION (H2) ═══ */
+    .cf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 900px) { .cf-grid { grid-template-columns: 1fr; } }
+    .cf-side-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    .cf-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      padding: 4px 6px;
+      margin-left: -6px;
+      margin-right: -6px;
+      border-radius: 6px;
+    }
+    .cf-step:last-child { margin-bottom: 0; }
+    .cf-step .funnel-label { width: 116px; }
+    .cf-conv {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-dim);
+      width: 52px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .src-label { text-transform: none; }
+    .src-total { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
+    .ttp-strip { display: flex; gap: 18px; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+    .ttp-cell { flex: 1; }
+    .ttp-num { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--text); }
+    .ttp-unit { font-size: 11px; font-weight: 600; color: var(--text-dim); margin-left: 4px; }
+    .ttp-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; line-height: 1.5; }
+
     /* ═══ PEP WAITLIST ═══ */
     .pep-wl-summary { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 10px; }
     .pep-wl-empty { font-size: 12px; color: var(--text-dim); padding: 8px 0; }
@@ -1427,6 +1467,8 @@
     /* ── Globals ── */
     var dashboardData = null;
     var trendsData = null;
+    var funnelData = null;   // /api/ceo/conversion-funnel payload (H2); keyed by .period
+    var sourceData = null;   // /api/ceo/source-attribution payload (H2); keyed by .period
     var autoRefresh = true;
     var lastRefreshAt = 0;
     var refreshTimerId = null;
@@ -1702,6 +1744,8 @@
       html += '<div class="section-grid">';
       html += renderPipelineSection(data.pipeline, data.ats_funnel);
       html += renderTrendsSection();
+      html += renderConversionFunnelSection();
+      html += renderSourcesSection();
       html += renderWaitlistSection();
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
@@ -1718,6 +1762,9 @@
       // Populate the Waitlist tabs asynchronously (separate endpoints).
       loadPepWaitlist();
       loadOnbWaitlist();
+      // H2: conversion funnel + source attribution (separate period-aware endpoints).
+      loadConversionFunnel();
+      loadSourceAttribution();
       // A8b: populate the per-placement list under Placements & Career.
       loadPlacementsList();
 
@@ -1964,6 +2011,101 @@
     }
     function renderTrendsSection() {
       return sectionCard('trends', '&#x1F4C8;', '12-Week Trends', '<div id="trendsBody">' + renderTrendsBodyHtml() + '</div>', true);
+    }
+
+    /* ── Conversion funnel + time-to-placement (Phase 6 H2) ─────────────
+       Cross-system business funnel from GET /api/ceo/conversion-funnel —
+       hand-rolled HTML stepped bars (no chart libs; CSP blocks CDNs).
+       Counts and durations only: revenue lives in Xero, never here. */
+    function funnelStepsHtml(steps, colorSeq) {
+      steps = steps || [];
+      var maxCount = 1;
+      for (var i = 0; i < steps.length; i++) { if (steps[i].count > maxCount) maxCount = steps[i].count; }
+      var html = '';
+      for (var j = 0; j < steps.length; j++) {
+        var st = steps[j];
+        var w = st.count > 0 ? Math.max(2, Math.round(st.count / maxCount * 100)) : 0;
+        var color = colorSeq[j % colorSeq.length];
+        var conv = (st.conversion_pct === null || st.conversion_pct === undefined)
+          ? ''
+          : '&#x2193; ' + st.conversion_pct + '%';
+        html += '<div class="cf-step">';
+        html += '<span class="funnel-label" title="' + esc(st.label) + '">' + esc(st.label) + '</span>';
+        html += '<div class="funnel-bar-wrap"><div class="funnel-bar ' + color + '" style="width:' + w + '%"></div></div>';
+        html += '<span class="funnel-count">' + fmtNum(st.count) + '</span>';
+        html += '<span class="cf-conv">' + conv + '</span>';
+        html += '</div>';
+      }
+      return html;
+    }
+    function ttpFigure(stats, label) {
+      if (!stats || stats.sample_size === 0) {
+        return '<div class="ttp-cell"><div class="ttp-num">--</div><div class="ttp-label">' + esc(label) + '<br>no placements yet</div></div>';
+      }
+      return '<div class="ttp-cell"><div class="ttp-num">' + stats.median_days + '<span class="ttp-unit">days</span></div>'
+        + '<div class="ttp-label">' + esc(label) + '<br>median &middot; avg ' + stats.avg_days + 'd &middot; n=' + stats.sample_size + '</div></div>';
+    }
+    function renderConversionFunnelBodyHtml() {
+      if (!funnelData || funnelData.period !== currentPeriod) {
+        return '<div class="pep-wl-empty">Loading conversion funnel&hellip;</div>';
+      }
+      var barColors = ['blue', 'purple', 'amber', 'blue', 'purple', 'green'];
+      var html = '<div class="cf-grid">';
+      html += '<div><div class="cf-side-title">Practice side</div>' + funnelStepsHtml(funnelData.practice_funnel, barColors) + '</div>';
+      html += '<div><div class="cf-side-title">GP side</div>' + funnelStepsHtml(funnelData.gp_funnel, ['blue', 'amber', 'green']);
+      var ttp = funnelData.time_to_placement || {};
+      html += '<div class="ttp-strip">' + ttpFigure(ttp.from_signup, 'Signup &rarr; placement') + ttpFigure(ttp.from_application, 'Application &rarr; placement') + '</div>';
+      html += '</div></div>';
+      return html;
+    }
+    function renderConversionFunnelSection() {
+      return sectionCard('conversion', '&#x1F503;', 'Conversion Funnel', '<div id="conversionFunnelBody">' + renderConversionFunnelBodyHtml() + '</div>', true);
+    }
+    function loadConversionFunnel() {
+      var p = currentPeriod || 'all';
+      apiFetch('/api/ceo/conversion-funnel?period=' + encodeURIComponent(p)).then(function (d) {
+        if (!d.ok) return;
+        funnelData = d;
+        var body = document.getElementById('conversionFunnelBody');
+        if (body) body.innerHTML = renderConversionFunnelBodyHtml();
+      }).catch(function () { /* card keeps its loading/last state */ });
+    }
+
+    /* ── "How GPs found us" — lead-source attribution (Phase 6 H2) ── */
+    function renderSourcesBodyHtml() {
+      if (!sourceData || sourceData.period !== currentPeriod) {
+        return '<div class="pep-wl-empty">Loading source breakdown&hellip;</div>';
+      }
+      var total = sourceData.total || 0;
+      if (!total) return '<div class="pep-wl-empty">No GP signups in this period yet.</div>';
+      var rows = sourceData.sources || [];
+      var maxCount = 1;
+      for (var i = 0; i < rows.length; i++) { if (rows[i].count > maxCount) maxCount = rows[i].count; }
+      var html = '<div class="src-total">' + total + ' GP signup' + (total === 1 ? '' : 's') + ' in this period</div>';
+      for (var j = 0; j < rows.length; j++) {
+        var r = rows[j];
+        var w = r.count > 0 ? Math.max(2, Math.round(r.count / maxCount * 100)) : 0;
+        var color = r.key === 'unknown' ? 'red' : (j % 2 === 0 ? 'blue' : 'purple');
+        html += '<div class="cf-step">';
+        html += '<span class="funnel-label src-label" title="' + esc(r.label) + '">' + esc(r.label) + '</span>';
+        html += '<div class="funnel-bar-wrap"><div class="funnel-bar ' + color + '" style="width:' + w + '%"></div></div>';
+        html += '<span class="funnel-count">' + fmtNum(r.count) + '</span>';
+        html += '<span class="cf-conv">' + r.pct + '%</span>';
+        html += '</div>';
+      }
+      return html;
+    }
+    function renderSourcesSection() {
+      return sectionCard('sources', '&#x1F4E3;', 'How GPs Found Us', '<div id="sourcesBody">' + renderSourcesBodyHtml() + '</div>');
+    }
+    function loadSourceAttribution() {
+      var p = currentPeriod || 'all';
+      apiFetch('/api/ceo/source-attribution?period=' + encodeURIComponent(p)).then(function (d) {
+        if (!d.ok) return;
+        sourceData = d;
+        var body = document.getElementById('sourcesBody');
+        if (body) body.innerHTML = renderSourcesBodyHtml();
+      }).catch(function () { /* card keeps its loading/last state */ });
     }
 
     /* ── PEP (Substantially Comparable) waitlist ── */
@@ -2830,7 +2972,7 @@
         var card = cardHeader.closest('.section-card');
         if (card) {
           var sec = card.getAttribute('data-section');
-          if (sec && sec !== 'velocity' && sec !== 'completions') {
+          if (sec && sec !== 'velocity' && sec !== 'completions' && sec !== 'conversion' && sec !== 'sources') {
             handleDrilldownClick(sec, '', card);
           }
         }
