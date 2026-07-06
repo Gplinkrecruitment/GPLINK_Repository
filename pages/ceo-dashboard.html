@@ -408,6 +408,22 @@
     .wl-pane.active { display:block; }
     .onb-wl-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; background:rgba(59,130,246,0.15); color:#7fb3ff; }
     .onb-wl-badge.muted { background:rgba(255,255,255,0.07); color:var(--text-dim); }
+    .pep-wl-summary-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+    .pep-wl-launch { font-size:11px; font-weight:700; color:var(--amber); background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.45); border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
+    .pep-wl-launch:hover:not(:disabled) { border-color:var(--amber); }
+    .pep-wl-launch:disabled { opacity:0.5; cursor:default; }
+
+    /* ═══ 12-WEEK TRENDS CARD (Phase 6 H1) ═══ */
+    .trend-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .trend-chip { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text-muted); border-radius:8px; padding:5px 11px; font-size:12px; cursor:pointer; transition:all 0.15s; }
+    .trend-chip.active { background:rgba(255,255,255,0.04); color:#fff; }
+    .digest-now-btn { margin-left:auto; font-size:11px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid transparent; border-radius:6px; padding:6px 12px; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
+    .digest-now-btn:hover:not(:disabled) { border-color:var(--blue); }
+    .digest-now-btn:disabled { opacity:0.5; cursor:default; }
+    .trend-summary { font-size:12px; color:var(--text-muted); margin-bottom:8px; }
+    .trend-summary .trend-cur { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--text); }
+    .trend-empty { padding:28px 0; text-align:center; font-size:12px; color:var(--text-dim); }
+    .trend-chart-svg { width:100%; height:auto; display:block; }
 
     /* ═══ BLOCKERS LIST ═══ */
     .blocker-row {
@@ -1419,6 +1435,18 @@
     var activeDrilldown = null; // { section, param, cardEl }
     var currentPeriod = 'all';
 
+    // 12-week trends chart (Phase 6 H1): series keys MUST match the field names
+    // /api/ceo/trends returns on each week row (see computeWeeklyTrendSeries).
+    var TREND_SERIES = [
+      { key: 'applications_submitted', label: 'Applications', color: '#60a5fa' },
+      { key: 'stage_transitions', label: 'Stage moves', color: '#a78bfa' },
+      { key: 'tasks_completed', label: 'Tasks completed', color: '#34d399' },
+      { key: 'placements_secured', label: 'Placements', color: '#fbbf24' },
+      { key: 'completions_done', label: 'Completions', color: '#f472b6' },
+      { key: 'tickets_opened', label: 'Tickets', color: '#22d3ee' }
+    ];
+    var selectedTrendSeries = 'applications_submitted';
+
     var STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
     var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa', practice_contact: 'Medical Practice Contact' };
     var STAGE_COLORS = { career: 'amber', myintealth: 'blue', amc: 'purple', ahpra: 'green', pbs: 'blue', commencement: 'purple', complete: 'green', visa: 'red' };
@@ -1673,6 +1701,7 @@
       // Section Grid
       html += '<div class="section-grid">';
       html += renderPipelineSection(data.pipeline, data.ats_funnel);
+      html += renderTrendsSection();
       html += renderWaitlistSection();
       html += renderBlockersSection(data.blockers);
       html += renderTaskHealthSection(data.task_health);
@@ -1831,6 +1860,112 @@
       return sectionCard('pipeline', '&#x1F4CA;', 'Pipeline Funnel', rows);
     }
 
+    /* ── 12-week trends chart (Phase 6 H1) ─────────────────────────────
+       Hand-rolled inline SVG (no external chart libs — CSP blocks CDNs).
+       One selectable series at a time; each series keeps its own fixed color
+       (color follows the entity, matching the KPI-card accent language). */
+    function trendWeekLabel(ws) {
+      try {
+        var d = new Date(ws + 'T00:00:00Z');
+        if (isNaN(d.getTime())) return ws;
+        var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return d.getUTCDate() + ' ' + mo[d.getUTCMonth()];
+      } catch (e) { return ws; }
+    }
+    function trendNiceMax(v) {
+      if (!(v > 0)) return 5;
+      if (v <= 5) return 5;
+      var mag = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+      var norm = v / mag;
+      var nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+      return nice * mag;
+    }
+    function buildTrendChartSvg(weeks, series) {
+      var W = 660, H = 230, padL = 42, padR = 18, padT = 16, padB = 26;
+      var plotW = W - padL - padR, plotH = H - padT - padB;
+      var n = weeks.length;
+      var vals = weeks.map(function (w) { return Number(w[series.key]) || 0; });
+      var maxV = trendNiceMax(Math.max.apply(null, vals));
+      function px(i) { return padL + (n === 1 ? plotW / 2 : i * plotW / (n - 1)); }
+      function py(v) { return padT + plotH - (v / maxV) * plotH; }
+
+      var svg = '<svg class="trend-chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(series.label) + ' per week, last 12 weeks">';
+
+      // Faint gridlines + y labels (0 / half / max) — recessive, data stays dominant.
+      var gridVals = [0, maxV / 2, maxV];
+      for (var g = 0; g < gridVals.length; g++) {
+        var gy = py(gridVals[g]);
+        svg += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>';
+        svg += '<text x="' + (padL - 8) + '" y="' + (gy + 3.5) + '" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.3)" font-family="JetBrains Mono, monospace">' + (gridVals[g] % 1 === 0 ? gridVals[g] : gridVals[g].toFixed(1)) + '</text>';
+      }
+
+      // Area fill (soft) under a 2px line.
+      var linePts = '';
+      for (var i = 0; i < n; i++) linePts += (i === 0 ? 'M' : 'L') + px(i).toFixed(1) + ' ' + py(vals[i]).toFixed(1) + ' ';
+      var baseline = py(0);
+      var areaPath = linePts + 'L' + px(n - 1).toFixed(1) + ' ' + baseline + ' L' + px(0).toFixed(1) + ' ' + baseline + ' Z';
+      svg += '<path d="' + areaPath + '" fill="' + series.color + '" fill-opacity="0.12"/>';
+      svg += '<path d="' + linePts + '" fill="none" stroke="' + series.color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+
+      // Per-week points + native hover tooltips (title on an enlarged hit circle).
+      for (var p = 0; p < n; p++) {
+        var isLast = p === n - 1;
+        var cx = px(p).toFixed(1), cy = py(vals[p]).toFixed(1);
+        if (isLast) {
+          // Emphasized latest point: bigger dot ringed with the panel surface.
+          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="5.5" fill="' + series.color + '" stroke="#1a1d27" stroke-width="2"/>';
+          var lx = Math.min(Number(cx), W - padR - 8);
+          svg += '<text x="' + lx + '" y="' + (Number(cy) - 10) + '" text-anchor="end" font-size="12" font-weight="700" fill="#e2e8f0" font-family="JetBrains Mono, monospace">' + vals[p] + '</text>';
+        } else {
+          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="' + series.color + '"/>';
+        }
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="transparent"><title>Week of ' + esc(weeks[p].week_start) + ' — ' + vals[p] + ' ' + esc(series.label.toLowerCase()) + '</title></circle>';
+      }
+
+      // Sparse x labels: first / middle / latest week.
+      var xIdx = [0, Math.floor((n - 1) / 2), n - 1];
+      for (var x = 0; x < xIdx.length; x++) {
+        var xi = xIdx[x];
+        if (x > 0 && xi === xIdx[x - 1]) continue;
+        var anchor = xi === 0 ? 'start' : (xi === n - 1 ? 'end' : 'middle');
+        svg += '<text x="' + px(xi).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '" font-size="10" fill="rgba(255,255,255,0.3)">' + esc(trendWeekLabel(weeks[xi].week_start)) + '</text>';
+      }
+
+      svg += '</svg>';
+      return svg;
+    }
+    function renderTrendsBodyHtml() {
+      var html = '<div class="trend-controls">';
+      for (var i = 0; i < TREND_SERIES.length; i++) {
+        var s = TREND_SERIES[i];
+        var active = s.key === selectedTrendSeries;
+        html += '<button class="trend-chip' + (active ? ' active' : '') + '" data-trend-series="' + s.key + '"'
+          + (active ? ' style="border-color:' + s.color + ';color:' + s.color + '"' : '')
+          + '>' + esc(s.label) + '</button>';
+      }
+      html += '<button class="digest-now-btn" id="sendDigestBtn" title="Emails the weekly operational digest to the owner inbox right now">&#x2709;&#xFE0F; Send me the digest now</button>';
+      html += '</div>';
+
+      var weeks = trendsData && trendsData.weeks;
+      if (!weeks || weeks.length < 2) {
+        html += '<div class="trend-empty">Trends are still loading&hellip;</div>';
+        return html;
+      }
+      var sel = TREND_SERIES.filter(function (t) { return t.key === selectedTrendSeries; })[0] || TREND_SERIES[0];
+      var cur = Number(weeks[weeks.length - 1][sel.key]) || 0;
+      var prev = Number(weeks[weeks.length - 2][sel.key]) || 0;
+      var diff = cur - prev;
+      var moveHtml = diff > 0 ? '<span style="color:var(--green)">&#x25B2; +' + diff + ' vs last week</span>'
+        : diff < 0 ? '<span style="color:var(--red)">&#x25BC; ' + diff + ' vs last week</span>'
+        : '<span style="color:var(--text-dim)">&#x2014; unchanged vs last week</span>';
+      html += '<div class="trend-summary">' + esc(sel.label) + ' this week: <span class="trend-cur">' + cur + '</span> &middot; ' + moveHtml + '</div>';
+      html += buildTrendChartSvg(weeks, sel);
+      return html;
+    }
+    function renderTrendsSection() {
+      return sectionCard('trends', '&#x1F4C8;', '12-Week Trends', '<div id="trendsBody">' + renderTrendsBodyHtml() + '</div>', true);
+    }
+
     /* ── PEP (Substantially Comparable) waitlist ── */
     // GPs whose specialist qualification predates the expedited cutoff are gated onto
     // the PEP pathway page until we launch that pathway. This section lists them and
@@ -1852,7 +1987,12 @@
     function renderPepWaitlistBody(data) {
       if (!data || !data.ok) return '<div class="pep-wl-empty">Could not load the waitlist.</div>';
       var items = (data.items || []).filter(function (i) { return !i.released; });
-      var summary = '<div class="pep-wl-summary">' + items.length + ' waiting &middot; ' + (data.notifyCount || 0) + ' asked to be notified</div>';
+      // Launch button (Phase 6 H1): releases EVERYONE still gated + notifies
+      // opt-ins via POST /api/ceo/pep-waitlist/launch (super-admin only).
+      var summary = '<div class="pep-wl-summary-row">'
+        + '<div class="pep-wl-summary">' + items.length + ' waiting &middot; ' + (data.notifyCount || 0) + ' asked to be notified</div>'
+        + '<button class="pep-wl-launch" data-pep-launch="1" title="Releases every waitlisted GP into the app and notifies everyone who asked">&#x1F680; Launch PEP pathway</button>'
+        + '</div>';
       if (items.length === 0) return summary + '<div class="pep-wl-empty">No GPs on the PEP waitlist yet.</div>';
       var rows = '';
       for (var i = 0; i < items.length; i++) {
@@ -3182,6 +3322,56 @@
         var btn = e.target.closest('.ceo-mc-toggle-btn[data-mc-status]');
         if (!btn) return;
         setMedicalCentresStatus(btn.getAttribute('data-mc-status'));
+      });
+    })();
+
+    /* ── Trends card: series toggle + "Send me the digest now" ── */
+    (function () {
+      var mainEl = document.getElementById('mainContent');
+      if (!mainEl) return;
+      mainEl.addEventListener('click', function (e) {
+        var chip = e.target.closest('[data-trend-series]');
+        if (chip) {
+          selectedTrendSeries = chip.getAttribute('data-trend-series');
+          var body = document.getElementById('trendsBody');
+          if (body) body.innerHTML = renderTrendsBodyHtml();
+          return;
+        }
+        var dg = e.target.closest('#sendDigestBtn');
+        if (!dg) return;
+        dg.disabled = true; dg.textContent = 'Sending…';
+        apiFetch('/api/ceo/owner-digest/send', { method: 'POST', body: {} }).then(function (d) {
+          dg.disabled = false; dg.innerHTML = '&#x2709;&#xFE0F; Send me the digest now';
+          if (d && d.ok) showToast('Digest emailed (week of ' + (d.week_start || 'this week') + ')', 'success');
+          else showToast('Digest send failed: ' + ((d && d.message) || 'unknown error'), 'error');
+        }).catch(function (err) {
+          dg.disabled = false; dg.innerHTML = '&#x2709;&#xFE0F; Send me the digest now';
+          showToast('Digest send failed: ' + (err && err.message ? err.message : 'network error'), 'error');
+        });
+      });
+    })();
+
+    /* ── PEP waitlist: launch the pathway (release everyone + notify) ── */
+    (function () {
+      var mainEl = document.getElementById('mainContent');
+      if (!mainEl) return;
+      mainEl.addEventListener('click', function (e) {
+        var launchBtn = e.target.closest('[data-pep-launch]');
+        if (!launchBtn) return;
+        if (!window.confirm('Launch the PEP pathway now?\n\nThis releases EVERY GP still on the PEP waitlist back into the app and notifies everyone who asked to be told (email + WhatsApp). Released GPs regain full access immediately — this can’t be undone from here.')) return;
+        launchBtn.disabled = true; launchBtn.textContent = 'Launching…';
+        apiFetch('/api/ceo/pep-waitlist/launch', { method: 'POST', body: {} }).then(function (d) {
+          if (d && d.ok) {
+            showToast('PEP pathway launched — released ' + (d.released || 0) + ' GP' + ((d.released || 0) === 1 ? '' : 's') + ', notified ' + (d.notified || 0), 'success');
+            loadPepWaitlist();
+          } else {
+            launchBtn.disabled = false; launchBtn.innerHTML = '&#x1F680; Launch PEP pathway';
+            showToast('Launch failed: ' + ((d && d.message) || 'unknown error'), 'error');
+          }
+        }).catch(function (err) {
+          launchBtn.disabled = false; launchBtn.innerHTML = '&#x1F680; Launch PEP pathway';
+          showToast('Launch failed: ' + (err && err.message ? err.message : 'network error'), 'error');
+        });
       });
     })();
 

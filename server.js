@@ -7012,7 +7012,10 @@ const CRON_SCHEDULES = {
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
-  'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 }
+  'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
+  // Sunday 21:00 UTC = Monday ~7am AEST — the digest lands at the start of the
+  // owner's week. Weekly cadence (10080 min).
+  'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -7035,6 +7038,281 @@ async function recordCronRun(name, status, detail, ms) {
   } catch (cronErr) {
     console.error('[recordCronRun] heartbeat write failed (ignored):', cronErr && cronErr.message);
   }
+}
+
+// ── Weekly trend series (shared: GET /api/ceo/trends + the owner digest) ────
+// 12 Monday-anchored (UTC) weeks × 9 operational series. Extracted from the
+// /api/ceo/trends handler (Phase 6 H1) so the weekly owner-digest email reuses
+// EXACTLY the numbers the dashboard shows — never a second computation.
+function trendsWeekStartKey(dateStr) {
+  var d = new Date(dateStr);
+  var day = d.getUTCDay();
+  var diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+  var monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
+  return monday.toISOString().slice(0, 10);
+}
+
+async function computeWeeklyTrendSeries() {
+  var tDAY_MS = 86400000;
+  var tWEEK_MS = 7 * tDAY_MS;
+  var tNow = Date.now();
+  var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
+
+  var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
+    supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
+    supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
+    supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
+    // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
+    supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
+    supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
+    // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
+    supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
+  ]);
+
+  var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
+  var trTasks = (trTasksRes.ok && Array.isArray(trTasksRes.data)) ? trTasksRes.data : [];
+  var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
+  var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
+  var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
+  var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
+
+  var getWeekStart = trendsWeekStartKey;
+
+  var weeks = {};
+  var securedUserIdsByWeek = {}; // week_start -> Set(user_id) to dedupe placements (#42)
+  for (var wi = 0; wi < 12; wi++) {
+    var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
+    weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0, completions_done: 0 };
+    securedUserIdsByWeek[ws] = new Set();
+  }
+
+  for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
+  for (var wti = 0; wti < trTasks.length; wti++) {
+    if (trTasks[wti].created_at) { var wk2 = getWeekStart(trTasks[wti].created_at); if (weeks[wk2]) weeks[wk2].tasks_created++; }
+    if (trTasks[wti].completed_at) { var wk3 = getWeekStart(trTasks[wti].completed_at); if (weeks[wk3]) weeks[wk3].tasks_completed++; }
+  }
+  for (var wtki = 0; wtki < trTickets.length; wtki++) {
+    if (trTickets[wtki].created_at) { var wk4 = getWeekStart(trTickets[wtki].created_at); if (weeks[wk4]) weeks[wk4].tickets_opened++; }
+    if (trTickets[wtki].resolved_at) { var wk5 = getWeekStart(trTickets[wtki].resolved_at); if (weeks[wk5]) weeks[wk5].tickets_resolved++; }
+  }
+  for (var wai = 0; wai < trApps.length; wai++) {
+    if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
+    // Secured bucketed by updated_at (its only timestamp), counted once per GP per week (#18/#42/#43)
+    if (ceoMetrics.isSecuredStatus(trApps[wai].status) && trApps[wai].updated_at) {
+      var wk7 = getWeekStart(trApps[wai].updated_at);
+      if (weeks[wk7] && trApps[wai].user_id && !securedUserIdsByWeek[wk7].has(trApps[wai].user_id)) {
+        securedUserIdsByWeek[wk7].add(trApps[wai].user_id);
+        weeks[wk7].placements_secured++;
+      }
+    }
+  }
+  for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
+  // Real completions series so the 'Completed' KPI arrow reflects GPs completing, not placements (#16/#25)
+  for (var wcdi = 0; wcdi < trComplete.length; wcdi++) {
+    if (trComplete[wcdi].completed_at) { var wk9 = getWeekStart(trComplete[wcdi].completed_at); if (weeks[wk9]) weeks[wk9].completions_done++; }
+  }
+
+  return Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
+}
+
+// ── Weekly owner digest (Phase 6 H1 / audit B2) ─────────────────────────────
+// Every KPI in the app requires a login, so the owner never sees the numbers
+// unless they go looking. This composes the key OPERATIONAL metrics (money is
+// deliberately excluded — Xero owns revenue) + week-over-week movement into a
+// branded email to GP_OWNER_EMAIL. Idempotent per Monday-anchored week via
+// runtime_kv 'owner_digest_last_sent'; the manual "send now" button forces a
+// one-off send WITHOUT consuming the weekly slot (so the scheduled email still
+// arrives after a test send).
+var _ownerDigestLastSentLocal = null; // in-memory fallback when Supabase is not configured
+
+async function getOwnerDigestLastSent() {
+  if (isSupabaseDbConfigured()) {
+    try {
+      var odRes = await supabaseDbRequest('runtime_kv', 'key=eq.owner_digest_last_sent&select=value');
+      if (odRes.ok && Array.isArray(odRes.data) && odRes.data[0] && odRes.data[0].value) return odRes.data[0].value;
+      if (odRes.ok) return null; // no row yet — an empty result is authoritative
+    } catch (e) { /* fall through to local */ }
+  }
+  return _ownerDigestLastSentLocal;
+}
+
+async function setOwnerDigestLastSent(entry) {
+  _ownerDigestLastSentLocal = entry;
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: [{ key: 'owner_digest_last_sent', value: entry }]
+    });
+  } catch (e) {
+    console.error('[owner-digest] dedupe marker write failed (ignored):', e && e.message);
+  }
+}
+
+// Gathers the digest's numbers from the SAME builders the dashboard uses:
+// computeWeeklyTrendSeries (trends card), ceoMetrics.computeKpis (KPI strip)
+// and ceoMetrics.computePipeline (funnel) — reuse, never a re-derivation.
+async function buildOwnerDigestData() {
+  var odNowMs = Date.now();
+  var odTodayStr = new Date(odNowMs).toISOString().slice(0, 10);
+  var odFortnightAgo = new Date(odNowMs - 14 * 86400000).toISOString();
+
+  var weeks = await computeWeeklyTrendSeries();
+
+  var [odCasesRes, odTasksRes, odAppsRes, odIvRes] = await Promise.all([
+    supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,blocker_status,completed_at,last_gp_activity_at,updated_at,created_at&order=updated_at.desc&limit=5000'),
+    supabaseDbRequest('registration_tasks', 'select=id,case_id,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&limit=5000'),
+    supabaseDbRequest('gp_applications', 'select=user_id,status&limit=10000'),
+    supabaseDbRequest('career_interviews', 'select=created_at&status=neq.cancelled&created_at=gte.' + odFortnightAgo + '&limit=2000')
+  ]);
+  var odCases = (odCasesRes.ok && Array.isArray(odCasesRes.data)) ? odCasesRes.data : [];
+  var odTasks = (odTasksRes.ok && Array.isArray(odTasksRes.data)) ? odTasksRes.data : [];
+  var odApps = (odAppsRes.ok && Array.isArray(odAppsRes.data)) ? odAppsRes.data : [];
+  var odIvs = (odIvRes.ok && Array.isArray(odIvRes.data)) ? odIvRes.data : [];
+
+  var kpi = ceoMetrics.computeKpis({
+    cases: odCases, tasks: odTasks, apps: odApps,
+    period: 'current', nowMs: odNowMs, todayStr: odTodayStr
+  });
+  var odActiveCases = ceoMetrics.filterActiveCases(odCases, { nowMs: odNowMs });
+  var funnel = ceoMetrics.computePipeline(odActiveCases);
+
+  // Interviews booked (career_interviews created) this week vs last — the one
+  // digest series the trends endpoint doesn't carry.
+  var odThisWeekKey = trendsWeekStartKey(new Date(odNowMs).toISOString());
+  var odLastWeekKey = trendsWeekStartKey(new Date(odNowMs - 7 * 86400000).toISOString());
+  var ivThisWeek = 0, ivLastWeek = 0;
+  for (var odi = 0; odi < odIvs.length; odi++) {
+    if (!odIvs[odi].created_at) continue;
+    var ivWk = trendsWeekStartKey(odIvs[odi].created_at);
+    if (ivWk === odThisWeekKey) ivThisWeek++;
+    else if (ivWk === odLastWeekKey) ivLastWeek++;
+  }
+
+  return {
+    weeks: weeks,
+    thisWeek: weeks.length ? weeks[weeks.length - 1] : null,
+    lastWeek: weeks.length > 1 ? weeks[weeks.length - 2] : null,
+    kpi: kpi,
+    funnel: funnel,
+    interviews: { thisWeek: ivThisWeek, lastWeek: ivLastWeek },
+    weekKey: odThisWeekKey
+  };
+}
+
+function ownerDigestDeltaHtml(cur, prev) {
+  var d = (Number(cur) || 0) - (Number(prev) || 0);
+  if (d > 0) return '<span style="color:#059669;font-weight:700">&#9650; +' + d + '</span>';
+  if (d < 0) return '<span style="color:#dc2626;font-weight:700">&#9660; ' + d + '</span>';
+  return '<span style="color:#94a3b8">&#8212;</span>';
+}
+
+// { force } — force=true is the CEO-dashboard "Send me the digest now" button:
+// it always sends and does NOT record the weekly dedupe marker.
+async function sendOwnerDigestEmail(opts) {
+  var odForce = !!(opts && opts.force);
+  var odEsc = function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  var digest = await buildOwnerDigestData();
+  var weekKey = digest.weekKey;
+  if (!odForce) {
+    var odLast = await getOwnerDigestLastSent();
+    if (odLast && odLast.week_start === weekKey) {
+      return { ok: true, sent: false, skipped: true, week_start: weekKey };
+    }
+  }
+
+  var tw = digest.thisWeek || {};
+  var lw = digest.lastWeek || {};
+  var odRows = [
+    { label: 'New applications', cur: tw.applications_submitted, prev: lw.applications_submitted },
+    { label: 'Interviews booked', cur: digest.interviews.thisWeek, prev: digest.interviews.lastWeek },
+    { label: 'Placements secured', cur: tw.placements_secured, prev: lw.placements_secured },
+    { label: 'Registrations completed', cur: tw.completions_done, prev: lw.completions_done },
+    { label: 'Tasks completed', cur: tw.tasks_completed, prev: lw.tasks_completed },
+    { label: 'Stage transitions', cur: tw.stage_transitions, prev: lw.stage_transitions },
+    { label: 'New GPs joined', cur: tw.new_gps, prev: lw.new_gps },
+    { label: 'Tickets opened', cur: tw.tickets_opened, prev: lw.tickets_opened },
+    { label: 'Tickets resolved', cur: tw.tickets_resolved, prev: lw.tickets_resolved }
+  ];
+
+  var odCell = 'padding:8px 10px;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0';
+  var tableHtml = '<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px">'
+    + '<tr><th style="' + odCell + ';text-align:left;color:#64748b;font-size:12px;text-transform:uppercase">This week</th>'
+    + '<th style="' + odCell + ';text-align:right;color:#64748b;font-size:12px;text-transform:uppercase">Count</th>'
+    + '<th style="' + odCell + ';text-align:right;color:#64748b;font-size:12px;text-transform:uppercase">vs last week</th></tr>';
+  for (var odr = 0; odr < odRows.length; odr++) {
+    var r = odRows[odr];
+    tableHtml += '<tr><td style="' + odCell + '">' + odEsc(r.label) + '</td>'
+      + '<td style="' + odCell + ';text-align:right;font-weight:700;color:#0f172a">' + (Number(r.cur) || 0) + '</td>'
+      + '<td style="' + odCell + ';text-align:right">' + ownerDigestDeltaHtml(r.cur, r.prev) + '</td></tr>';
+  }
+  tableHtml += '</table>';
+
+  // Biggest movers: top 3 series by absolute week-over-week change.
+  var movers = odRows
+    .map(function (r) { return { label: r.label, delta: (Number(r.cur) || 0) - (Number(r.prev) || 0) }; })
+    .filter(function (m) { return m.delta !== 0; })
+    .sort(function (a, b) { return Math.abs(b.delta) - Math.abs(a.delta); })
+    .slice(0, 3);
+  var moversHtml = '';
+  if (movers.length) {
+    moversHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Biggest movers</p><ul style="margin:0 0 20px;padding-left:18px">';
+    for (var odm = 0; odm < movers.length; odm++) {
+      moversHtml += '<li style="font-size:14px;color:#334155;line-height:1.7">' + odEsc(movers[odm].label) + ': '
+        + (movers[odm].delta > 0 ? '+' : '') + movers[odm].delta + ' vs last week</li>';
+    }
+    moversHtml += '</ul>';
+  }
+
+  var kpi = digest.kpi || {};
+  var snapshotHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Where things stand</p>'
+    + '<p style="font-size:14px;color:#334155;line-height:1.8;margin:0 0 20px">'
+    + 'Active GPs: <strong>' + (Number(kpi.total_gps) || 0) + '</strong> &middot; '
+    + 'Placed: <strong>' + (Number(kpi.placed) || 0) + '</strong> &middot; '
+    + 'Open tasks: <strong>' + (Number(kpi.open_tasks) || 0) + '</strong> &middot; '
+    + 'Overdue: <strong>' + (Number(kpi.overdue_tasks) || 0) + '</strong> &middot; '
+    + 'Blocked: <strong>' + (Number(kpi.blocked_cases) || 0) + '</strong> &middot; '
+    + 'Completed (all-time): <strong>' + (Number(kpi.completed_gps) || 0) + '</strong></p>';
+
+  var funnelHtml = '';
+  if (Array.isArray(digest.funnel) && digest.funnel.length) {
+    funnelHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Registration funnel</p>'
+      + '<p style="font-size:14px;color:#334155;line-height:1.8;margin:0 0 20px">'
+      + digest.funnel.map(function (f) {
+          return odEsc(f.label) + ': <strong>' + (Number(f.count) || 0) + '</strong>'
+            + ((Number(f.blocked) || 0) > 0 ? ' <span style="color:#d97706">(' + f.blocked + ' blocked)</span>' : '');
+        }).join(' &middot; ')
+      + '</p>';
+  }
+
+  var odBodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 20px">'
+    + 'Here&rsquo;s how GP Link moved in the week of <strong>' + odEsc(weekKey) + '</strong>.</p>'
+    + tableHtml + moversHtml + snapshotHtml + funnelHtml;
+
+  var odSendRes = await sendEmail({
+    to: GP_OWNER_EMAIL,
+    subject: 'GP Link weekly digest — week of ' + weekKey,
+    html: buildCareerEmailHtml({
+      title: 'Your weekly GP Link digest',
+      bodyHtml: odBodyHtml,
+      ctaText: 'View full dashboard',
+      ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
+      footer: 'Operational metrics only — financials live in Xero. Sent automatically once a week; use the dashboard&rsquo;s &ldquo;Send me the digest now&rdquo; button for an on-demand copy.'
+    }),
+    category: 'transactional'
+  });
+
+  if (odSendRes && odSendRes.ok) {
+    if (!odForce) {
+      await setOwnerDigestLastSent({ week_start: weekKey, sent_at: new Date().toISOString() });
+    }
+    return { ok: true, sent: true, skipped: false, week_start: weekKey, forced: odForce };
+  }
+  return { ok: false, sent: false, skipped: false, week_start: weekKey, message: (odSendRes && odSendRes.error) || 'Email send failed.' };
 }
 
 // ── Migration ledger (C4) ────────────────────────────────────────────────────
@@ -27178,6 +27456,24 @@ async function handleApi(req, res, pathname) {
   // Sequence per lib/onboarding-nudge.js: 1h, 24h, 3d, then weekly to day 31.
   // Reset on return: fresh activity re-anchors the clock and clears steps_sent.
   // Stops on completion (silent), unsubscribe, or exhaustion.
+  // ── Weekly owner digest (Phase 6 H1 / audit B2) ──
+  // GET (Vercel cron invokes with GET), cron-secret-gated; the /api dispatcher
+  // records the heartbeat because 'owner-digest' is in CRON_SCHEDULES.
+  if (req.method === 'GET' && pathname === '/api/cron/owner-digest') {
+    var odCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var odCronAuth = req.headers['authorization'] || '';
+    if (!odCronSecret || odCronAuth !== 'Bearer ' + odCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var odCronResult = await sendOwnerDigestEmail({ force: false });
+    try {
+      res.gpCronDetail = odCronResult.skipped
+        ? ('skipped — already sent for week ' + odCronResult.week_start)
+        : (odCronResult.sent ? ('sent for week ' + odCronResult.week_start) : ('send failed: ' + (odCronResult.message || 'unknown')));
+    } catch (e) {}
+    sendJson(res, odCronResult.ok ? 200 : 500, odCronResult);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/onboarding-nudge') {
     var onbSecret = String(process.env.CRON_SECRET || '').trim();
     var onbAuth = req.headers['authorization'] || '';
@@ -48502,6 +48798,18 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // POST /api/ceo/owner-digest/send — "Send me the digest now" (super-admin
+  // only). Forces a one-off send for testing; deliberately does NOT consume
+  // the weekly dedupe slot, so the scheduled Sunday email still goes out.
+  if (pathname === '/api/ceo/owner-digest/send' && req.method === 'POST') {
+    const ceoCtxDigest = requireCeoSession(req, res);
+    if (!ceoCtxDigest) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const digestSendResult = await sendOwnerDigestEmail({ force: true });
+    sendJson(res, digestSendResult.ok ? 200 : 500, digestSendResult);
+    return;
+  }
+
   if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var ceoCtx = requireCeoSession(req, res);
@@ -49073,73 +49381,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
-
-    var tDAY_MS = 86400000;
-    var tWEEK_MS = 7 * tDAY_MS;
-    var tNow = Date.now();
-    var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
-
-    var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
-      supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
-      supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
-      supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
-      // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
-      supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
-      supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
-      // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
-      supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
-    ]);
-
-    var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
-    var trTasks = (trTasksRes.ok && Array.isArray(trTasksRes.data)) ? trTasksRes.data : [];
-    var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
-    var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
-    var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
-    var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
-
-    function getWeekStart(dateStr) {
-      var d = new Date(dateStr);
-      var day = d.getUTCDay();
-      var diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-      var monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
-      return monday.toISOString().slice(0, 10);
-    }
-
-    var weeks = {};
-    var securedUserIdsByWeek = {}; // week_start -> Set(user_id) to dedupe placements (#42)
-    for (var wi = 0; wi < 12; wi++) {
-      var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
-      weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0, completions_done: 0 };
-      securedUserIdsByWeek[ws] = new Set();
-    }
-
-    for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
-    for (var wti = 0; wti < trTasks.length; wti++) {
-      if (trTasks[wti].created_at) { var wk2 = getWeekStart(trTasks[wti].created_at); if (weeks[wk2]) weeks[wk2].tasks_created++; }
-      if (trTasks[wti].completed_at) { var wk3 = getWeekStart(trTasks[wti].completed_at); if (weeks[wk3]) weeks[wk3].tasks_completed++; }
-    }
-    for (var wtki = 0; wtki < trTickets.length; wtki++) {
-      if (trTickets[wtki].created_at) { var wk4 = getWeekStart(trTickets[wtki].created_at); if (weeks[wk4]) weeks[wk4].tickets_opened++; }
-      if (trTickets[wtki].resolved_at) { var wk5 = getWeekStart(trTickets[wtki].resolved_at); if (weeks[wk5]) weeks[wk5].tickets_resolved++; }
-    }
-    for (var wai = 0; wai < trApps.length; wai++) {
-      if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
-      // Secured bucketed by updated_at (its only timestamp), counted once per GP per week (#18/#42/#43)
-      if (ceoMetrics.isSecuredStatus(trApps[wai].status) && trApps[wai].updated_at) {
-        var wk7 = getWeekStart(trApps[wai].updated_at);
-        if (weeks[wk7] && trApps[wai].user_id && !securedUserIdsByWeek[wk7].has(trApps[wai].user_id)) {
-          securedUserIdsByWeek[wk7].add(trApps[wai].user_id);
-          weeks[wk7].placements_secured++;
-        }
-      }
-    }
-    for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
-    // Real completions series so the 'Completed' KPI arrow reflects GPs completing, not placements (#16/#25)
-    for (var wcdi = 0; wcdi < trComplete.length; wcdi++) {
-      if (trComplete[wcdi].completed_at) { var wk9 = getWeekStart(trComplete[wcdi].completed_at); if (weeks[wk9]) weeks[wk9].completions_done++; }
-    }
-
-    var weekList = Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
+    // Series computation shared with the weekly owner digest (Phase 6 H1) —
+    // see computeWeeklyTrendSeries() so the email and the dashboard always agree.
+    var weekList = await computeWeeklyTrendSeries();
     sendJson(res, 200, { ok: true, weeks: weekList });
     return;
   }
