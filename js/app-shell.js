@@ -597,6 +597,11 @@
 
     var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
     var careerSecured = hasCareerSecured();
+    // Visa/PBS keep no local progress objects — their DISPLAY "done" state is derived
+    // from the server-written case stage (gp_admin_stage_override advances on every
+    // stage change), mirroring how the forced*Done flags below are derived.
+    var visaDone = false;
+    var pbsDone = false;
 
     // Admin stage override — forces locking based on CEO-set stage
     var adminOverride = parseStorage("gp_admin_stage_override");
@@ -608,6 +613,8 @@
         var forcedEpicDone = overrideIdx > 1;
         var forcedAmcDone = overrideIdx > 2;
         var forcedAhpraDone = overrideIdx > 4;
+        visaDone = overrideIdx > 5;
+        pbsDone = overrideIdx > 6;
         if (overrideAt) {
           epicDone = forcedEpicDone || (epicDone && wasProgressUpdatedAfter(epic, overrideAt));
           amcDone = forcedAmcDone || (amcDone && wasProgressUpdatedAfter(amc, overrideAt));
@@ -629,6 +636,8 @@
       amcDone: amcDone,
       amcCurrentLabel: amcCurrentLabel,
       ahpraDone: ahpraDone,
+      visaDone: visaDone,
+      pbsDone: pbsDone,
       careerSecured: careerSecured
     };
   }
@@ -683,18 +692,18 @@
         title: "5. Visa Application",
         sub: "Your pathway to permanent residency.",
         mobileDetail: "Information about your 482 and 186 visa pathway.",
-        mobileStatus: "View pathway",
+        mobileStatus: snap.visaDone ? "Completed" : "View pathway",
         locked: false,
-        done: false,
+        done: snap.visaDone,
         href: "/pages/visa"
       }),
       buildRegistrationRow("pbs", {
         title: "6. PBS & Medicare",
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
-        mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
+        mobileStatus: snap.pbsDone ? "Completed" : !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
         locked: !bypassLocks && !snap.ahpraDone,
-        done: false,
+        done: snap.pbsDone,
         href: "/pages/pbs"
       }),
     ];

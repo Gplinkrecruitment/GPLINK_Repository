@@ -1380,6 +1380,11 @@
 
       var careerSecured = hasCareerSecured();
       var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      // Visa/PBS keep no local progress objects — their DISPLAY "done" state is derived
+      // from the server-written case stage (gp_admin_stage_override advances on every
+      // stage change), mirroring how the forced*Done flags below are derived.
+      var visaDone = false;
+      var pbsDone = false;
 
       // Admin stage override — forces locking based on CEO-set stage
       var adminOverride = parseStorage("gp_admin_stage_override");
@@ -1391,6 +1396,8 @@
           var forcedEpicDone = overrideIdx > 1;
           var forcedAmcDone = overrideIdx > 2;
           var forcedAhpraDone = overrideIdx > 4;
+          visaDone = overrideIdx > 5;
+          pbsDone = overrideIdx > 6;
           if (overrideAt) {
             epicDone = forcedEpicDone || (epicDone && wasProgressUpdatedAfter(epic, overrideAt));
             amcDone = forcedAmcDone || (amcDone && wasProgressUpdatedAfter(amc, overrideAt));
@@ -1422,9 +1429,6 @@
           supervisedReady === UK_SUPERVISED_KEYS.length
         : false;
 
-      // Visa case tracking managed server-side
-      const pbsDone = false;
-
       const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
@@ -1440,7 +1444,7 @@
         epicDone, epicCurrentLabel,
         amcDone, amcCurrentLabel,
         careerSecured, ahpraDone,
-        pbsDone,
+        visaDone, pbsDone,
         docsDone, preparedUploaded, institutionRequested, supervisedReady,
         completedSteps, progressPercent,
         currentRoute, currentTitle, currentSub
@@ -1491,7 +1495,7 @@
 
       const allSteps = [
         { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
-        { key: "visa", title: "Visa Application", sub: "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: false, locked: false, href: "visa" },
+        { key: "visa", title: "Visa Application", sub: snap.visaDone ? "Completed" : "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: snap.visaDone, locked: false, href: "visa" },
         { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs" }
       ];
       const steps = allSteps.filter(Boolean).map((s, i) => ({ ...s, num: i + 1 }));
@@ -1641,16 +1645,16 @@
           title: "5. Visa Application",
           sub: "Your pathway to permanent residency.",
           mobileDetail: "Information about your 482 and 186 visa pathway.",
-          mobileStatus: "View pathway",
+          mobileStatus: snap.visaDone ? "Completed" : "View pathway",
           locked: false,
-          done: false,
+          done: snap.visaDone,
           href: "visa"
         }),
         buildRegistrationRow("pbs", {
           title: "6. PBS & Medicare",
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
-          mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
+          mobileStatus: snap.pbsDone ? "Completed" : !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
           locked: !bypassAll && !snap.ahpraDone,
           done: snap.pbsDone,
           href: "pbs"
