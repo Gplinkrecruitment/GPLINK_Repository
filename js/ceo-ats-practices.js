@@ -81,6 +81,13 @@
     });
   }
 
+  // "Part of <Corporation>" line on a member practice's card. Plain text (no
+  // data-ats) so clicking it still opens the practice card it sits on.
+  function partOfLineHtml(p) {
+    if (!p || !p.parent_corporation_name) return '';
+    return '<div class="pc-loc" style="margin-bottom:4px">🏢 Part of ' + ATS.esc(p.parent_corporation_name) + '</div>';
+  }
+
   function practiceCardHtml(p) {
     var name = p.name || '—';
     return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
@@ -89,6 +96,7 @@
         '<div><h3>' + ATS.esc(name) + corpBadge(p, 'margin-left:6px;vertical-align:middle') + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
       '</div>' +
       '<div class="pc-loc" style="margin-bottom:4px">' + ATS.esc(p.type || '—') + '</div>' +
+      partOfLineHtml(p) +
       '<div class="ats-pc-stats">' +
         '<div class="ats-pc-stat"><div class="s-val">' + (p.job_count != null ? p.job_count : 0) + '</div><div class="s-lbl">Jobs</div></div>' +
         '<div class="ats-pc-stat"><div class="s-val">' + (p.candidate_count != null ? p.candidate_count : 0) + '</div><div class="s-lbl">In pipeline</div></div>' +
@@ -425,6 +433,34 @@
     reader.readAsDataURL(file);
   }
 
+  // Corporation-only rollup card: member practices under this group (each row
+  // opens that practice) + the group aggregate. Data comes with the detail
+  // payload (d.members / d.rollup) — no extra fetches.
+  function rollupCardHtml(d) {
+    var p = (d && d.practice) || {};
+    if (p.org_type !== 'corporation') return '';
+    var members = (d && d.members) || [];
+    var roll = (d && d.rollup) || { member_count: members.length, total_jobs: 0 };
+    var rows = members.length ? members.map(function (m) {
+      return '<div class="ats-mini-job" data-ats="open-practice" data-id="' + ATS.escAttr(m.id) + '">' +
+        '<div><div class="mj-title">' + ATS.esc(m.name || '—') + '</div>' +
+        '<div class="mj-sub">' + ATS.esc(m.city || '—') + ', ' + ATS.esc(m.state || '') + ' · ' + ATS.esc(practiceStageLabel(m.stage)) + '</div></div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span class="ats-pill ' + agreementPillClass(m.agreement_status) + '">' + ATS.esc(agreementLabel(m.agreement_status)) + '</span>' +
+          '<span class="ats-cand-count"><b>' + (m.job_count != null ? m.job_count : 0) + '</b> jobs ›</span>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div class="ats-empty">No member practices linked yet — edit a practice and set "Part of corporation".</div>';
+    return '<div class="ats-card" style="margin-bottom:16px">' +
+      '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Group rollup</div>' +
+      '<div class="ats-pc-stats" style="margin-bottom:12px">' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (roll.member_count != null ? roll.member_count : members.length) + '</div><div class="s-lbl">Member practices</div></div>' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (roll.total_jobs != null ? roll.total_jobs : 0) + '</div><div class="s-lbl">Live jobs (group)</div></div>' +
+      '</div>' +
+      rows +
+    '</div>';
+  }
+
   function renderDetail(panel, d) {
     var p = d.practice || {};
     var jobs = d.jobs || [];
@@ -433,6 +469,12 @@
 
     var loc = '📍 ' + ATS.esc(p.location_city || '—') + ', ' + ATS.esc(p.location_state || '');
     if (p.practice_type) loc += ' · ' + ATS.esc(p.practice_type);
+
+    // "Part of <Corp>" chip next to the name — clicking it opens the parent
+    // corporation (same open-practice delegation as the cards).
+    var partOfChip = (p.parent_corporation_id && p.parent_corporation_name)
+      ? '<span class="ats-pill muted" data-ats="open-practice" data-id="' + ATS.escAttr(p.parent_corporation_id) + '" style="margin-left:10px;vertical-align:middle;cursor:pointer">🏢 Part of ' + ATS.esc(p.parent_corporation_name) + '</span>'
+      : '';
 
     var stageHtml = '<select id="atsStageSelect">' + PRACTICE_STAGES.map(function (s) {
       return '<option value="' + s + '"' + (s === (p.stage || 'active') ? ' selected' : '') + '>' + practiceStageLabel(s) + '</option>';
@@ -472,13 +514,14 @@
       '<div class="ats-section-head" style="margin-bottom:16px">' +
         '<div style="display:flex;align-items:center;gap:14px">' +
           '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
-          '<div><h2>' + ATS.esc(name) + corpBadge(p, 'margin-left:10px;vertical-align:middle') + '</h2><p>' + loc + '</p></div>' +
+          '<div><h2>' + ATS.esc(name) + corpBadge(p, 'margin-left:10px;vertical-align:middle') + partOfChip + '</h2><p>' + loc + '</p></div>' +
         '</div>' +
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="edit-practice">✎ Edit</button>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
         '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + '</div>' +
         '<div>' +
+          rollupCardHtml(d) +
           '<div class="ats-card" style="margin-bottom:16px">' +
             '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Jobs at this practice</div>' +
             '<p style="font-size:12px;color:var(--ats-dim);margin:0 0 10px">Billing, DPA, address and role details live on each job.</p>' +
@@ -505,7 +548,30 @@
 
   function ivAttr(x) { return x ? ' value="' + ATS.escAttr(x) + '"' : ''; }
 
-  // opts: { title, btn, action ('create-practice'|'save-practice'), vals }
+  // Corporations available as a parent (for the modal dropdown) — fetched at
+  // modal-open time from the same practices list the directory uses.
+  function fetchCorporationChoices(excludeId) {
+    return fetchPractices('').then(function (d) {
+      var list = (d && d.practices) || [];
+      return list.filter(function (p) {
+        return p.org_type === 'corporation' && String(p.id) !== String(excludeId || '');
+      }).map(function (p) { return { id: p.id, name: p.name }; });
+    });
+  }
+
+  // Hidden while "Organisation type" is Corporation (a corporation has no
+  // parent) — toggled live by onOverlayChange.
+  function parentCorpSelectHtml(corps, v) {
+    var opts = '<option value="">— None —</option>' + (corps || []).map(function (c) {
+      return '<option value="' + ATS.escAttr(c.id) + '"' + (String(c.id) === String(v.parent_corporation_id || '') ? ' selected' : '') + '>' + ATS.esc(c.name || '—') + '</option>';
+    }).join('');
+    return '<div id="atsFParentCorpWrap"' + (v.org_type === 'corporation' ? ' style="display:none"' : '') + '>' +
+      '<label>Part of corporation (optional)</label>' +
+      '<select id="atsFParentCorp">' + opts + '</select>' +
+    '</div>';
+  }
+
+  // opts: { title, btn, action ('create-practice'|'save-practice'), vals, corps }
   function practiceModalHtml(opts) {
     var v = opts.vals || {};
     return '<div class="ats-modal-wrap open" data-ats="modal-backdrop">' +
@@ -527,6 +593,7 @@
               '</select>' +
             '</div>' +
           '</div>' +
+          parentCorpSelectHtml(opts.corps, v) +
           '<div class="ats-form-row">' +
             '<div><label>Contact name</label><input type="text" id="atsFContact" placeholder="Dr. Helen Carter"' + ivAttr(v.contact) + ' /></div>' +
             '<div><label>Contact email</label><input type="text" id="atsFEmail" placeholder="admin@practice.com.au"' + ivAttr(v.email) + ' /></div>' +
@@ -554,34 +621,43 @@
       email: val('atsFEmail').trim(),
       phone: val('atsFPhone').trim(),
       ahpra: val('atsFAhpra').trim(),
-      org_type: val('atsFOrgType') || 'practice'
+      org_type: val('atsFOrgType') || 'practice',
+      parent_corporation_id: val('atsFParentCorp')
     };
   }
 
   function closeModal() { ATS.setOverlay(''); }
 
   function openAddModal() {
-    ATS.setOverlay(practiceModalHtml({
-      title: 'Add a practice', btn: 'Create practice', action: 'create-practice', vals: {}
-    }));
+    fetchCorporationChoices('').then(function (corps) {
+      ATS.setOverlay(practiceModalHtml({
+        title: 'Add a practice', btn: 'Create practice', action: 'create-practice', vals: {}, corps: corps
+      }));
+    });
   }
 
   function openEditModal() {
     var p = currentPractice;
     if (!p) return;
-    ATS.setOverlay(practiceModalHtml({
-      title: 'Edit practice', btn: 'Save changes', action: 'save-practice',
-      vals: {
-        name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
-        contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
-        org_type: p.org_type
-      }
-    }));
+    fetchCorporationChoices(p.id).then(function (corps) {
+      ATS.setOverlay(practiceModalHtml({
+        title: 'Edit practice', btn: 'Save changes', action: 'save-practice',
+        vals: {
+          name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
+          contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
+          org_type: p.org_type, parent_corporation_id: p.parent_corporation_id || ''
+        },
+        corps: corps
+      }));
+    });
   }
 
   function createPractice() {
     var body = readForm();
     if (!body.name) { ATS.toast('Enter a practice name'); return; }
+    // Only send a parent link when one is actually chosen (and never for a
+    // corporation — the dropdown is hidden but may still hold a stale value).
+    if (body.org_type === 'corporation' || !body.parent_corporation_id) delete body.parent_corporation_id;
     ATS.api('/api/ats/practices', { method: 'POST', body: body }).then(function (d) {
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not create practice'); return; }
       closeModal();
@@ -595,12 +671,16 @@
     if (!p) { closeModal(); return; }
     var cur = readForm();
     if (!cur.name) { ATS.toast('Enter a practice name'); return; }
+    // A corporation carries no parent — ignore any stale hidden-dropdown value
+    // (the server also force-clears the link on an org_type flip).
+    if (cur.org_type === 'corporation') cur.parent_corporation_id = '';
     var orig = {
       name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
       contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
-      org_type: p.org_type || 'practice'
+      org_type: p.org_type || 'practice',
+      parent_corporation_id: p.parent_corporation_id || ''
     };
-    var keys = ['name', 'city', 'state', 'type', 'contact', 'email', 'phone', 'ahpra', 'org_type'];
+    var keys = ['name', 'city', 'state', 'type', 'contact', 'email', 'phone', 'ahpra', 'org_type', 'parent_corporation_id'];
     var body = {};
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
@@ -653,6 +733,15 @@
     else if (e.target.id === 'atsContractFile') uploadContract(e.target);
   }
 
+  // Modal-level change events: hide the parent-corporation dropdown while the
+  // org type is Corporation (a corporation has no parent).
+  function onOverlayChange(e) {
+    if (e.target && e.target.id === 'atsFOrgType') {
+      var wrap = document.getElementById('atsFParentCorpWrap');
+      if (wrap) wrap.style.display = e.target.value === 'corporation' ? 'none' : '';
+    }
+  }
+
   function onOverlayClick(e) {
     var t = e.target;
     // Click directly on the dimmed backdrop closes the modal.
@@ -674,7 +763,10 @@
     panel.addEventListener('input', onPanelInput);
     panel.addEventListener('change', onPanelChange);
     var overlay = document.getElementById('atsOverlayRoot');
-    if (overlay) overlay.addEventListener('click', onOverlayClick);
+    if (overlay) {
+      overlay.addEventListener('click', onOverlayClick);
+      overlay.addEventListener('change', onOverlayChange);
+    }
   }
 
   // -------------------- exports --------------------

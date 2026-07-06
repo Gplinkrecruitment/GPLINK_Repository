@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260617d";
+  var VERSION = "20260707a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -34,7 +34,8 @@
     "/js/qualification-camera.js?v=20260527a",
     "/js/account-dropdown.js?v=20260527a",
     "/js/onboarding.js?v=20260610a",
-    "/js/error-reporter.js?v=20260527a"
+    "/js/error-reporter.js?v=20260527a",
+    "/js/web-push.js?v=20260707a"
   ];
 
   function toUrl(value) {
@@ -207,6 +208,56 @@
     if (data.type === "GP_CACHE_URLS") {
       event.waitUntil(warmUrls(data.urls || []));
     }
+  });
+
+  /* ── Web Push (VAPID) — Phase 6 J1 ── */
+  var NOTIFICATION_ICON = "/media/icons/gp-link-icon-192.png";
+  var DEFAULT_NOTIFICATION_URL = "/pages/app-shell.html";
+
+  self.addEventListener("push", function (event) {
+    var payload = {};
+    try {
+      payload = event.data ? event.data.json() : {};
+    } catch (err) {
+      payload = { body: event.data ? String(event.data.text() || "") : "" };
+    }
+    if (!payload || typeof payload !== "object") payload = {};
+    var title = payload.title || "GP Link";
+    var options = {
+      body: payload.body || "",
+      icon: NOTIFICATION_ICON,
+      badge: NOTIFICATION_ICON,
+      data: { url: payload.url || DEFAULT_NOTIFICATION_URL }
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  });
+
+  self.addEventListener("notificationclick", function (event) {
+    event.notification.close();
+    var rawUrl = event.notification && event.notification.data && event.notification.data.url
+      ? event.notification.data.url
+      : DEFAULT_NOTIFICATION_URL;
+    var target = toUrl(rawUrl);
+    if (!isSameOrigin(target)) target = toUrl(DEFAULT_NOTIFICATION_URL);
+
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (windowClients) {
+        for (var i = 0; i < windowClients.length; i++) {
+          var client = windowClients[i];
+          if (!isSameOrigin(toUrl(client.url))) continue;
+          var focused = "focus" in client ? client.focus() : Promise.resolve(client);
+          if ("navigate" in client && client.url !== target.href) {
+            return Promise.resolve(focused).then(function (c) {
+              var live = c || client;
+              return live.navigate(target.href).catch(function () { return live; });
+            });
+          }
+          return focused;
+        }
+        if (self.clients.openWindow) return self.clients.openWindow(target.href);
+        return null;
+      }).catch(function () {})
+    );
   });
 
   self.addEventListener("fetch", function (event) {

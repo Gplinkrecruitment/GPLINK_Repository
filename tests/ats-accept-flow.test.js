@@ -2,7 +2,7 @@
 // congrats + "Secure My Interview" email.
 //
 // Boots the real server against the same in-memory PostgREST emulator pattern
-// as tests/ats-offer-flow.test.js. Outbound email (Resend) and push (FCM) are
+// as tests/ats-offer-flow.test.js. Outbound email (Resend) and Web Push (J1) are
 // captured by wrapping global fetch.
 //
 // Covers:
@@ -66,11 +66,16 @@ const db = {
     { user_id: GP4.userId, email: GP4.email, first_name: 'Degraded', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [
-    { user_id: GP.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-1' }] }, updated_at: NOW },
+    { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: GP3.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-acc-3' }] }, updated_at: NOW },
+    { user_id: GP3.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP4.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
+  push_subscriptions: [
+    { id: 'ps-acc-1', user_id: GP.userId, email: GP.email, endpoint: 'https://push.example.test/acc-1', p256dh: 'p256dh-acc-1', auth: 'auth-acc-1', created_at: NOW },
+    { id: 'ps-acc-3', user_id: GP3.userId, email: GP3.email, endpoint: 'https://push.example.test/acc-3', p256dh: 'p256dh-acc-3', auth: 'auth-acc-3', created_at: NOW }
+  ],
+  notification_preferences: [],
   registration_cases: [
     { id: 'case-acc-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
     { id: 'case-acc-2', user_id: GP2.userId, status: 'active', assigned_rso: null, assigned_va: null },
@@ -298,7 +303,9 @@ beforeAll(async () => {
   process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
   process.env.ADMIN_EMAILS = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
-  process.env.FCM_SERVER_KEY = 'test-fcm-key';
+  process.env.VAPID_PUBLIC_KEY = 'test-vapid-public-key';
+  process.env.VAPID_PRIVATE_KEY = 'test-vapid-private-key';
+  process.env.VAPID_SUBJECT = 'mailto:hello@mygplink.com.au';
 
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
@@ -308,15 +315,16 @@ beforeAll(async () => {
       resendCalls.push({ url: u, body: parsed });
       return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
     }
-    if (u.startsWith('https://fcm.googleapis.com/')) {
-      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
-      fcmCalls.push({ url: u, body: parsed });
-      return Promise.resolve(new Response('{}', { status: 200 }));
-    }
     return realFetch(url, opts);
   };
 
-  const { createServer } = await import('../server.js');
+  const serverModule = await import('../server.js');
+  serverModule.__testUtils.__setWebPushSendForTests(async (subscription, payload) => {
+    let parsed = null; try { parsed = JSON.parse(payload); } catch {}
+    fcmCalls.push({ endpoint: subscription.endpoint, body: parsed });
+    return { statusCode: 201 };
+  });
+  const { createServer } = serverModule;
   server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
 });
@@ -366,7 +374,7 @@ describe('POST /api/ats/application/accept', () => {
     expect(String(sends[0].body.html)).toContain('Secure My Interview');
     expect(String(sends[0].body.html)).toContain('Greenslopes Family Medical');
 
-    expect(fcmCalls.some((c) => c.body && c.body.to === 'push-tok-acc-1')).toBe(true);
+    expect(fcmCalls.some((c) => c.endpoint === 'https://push.example.test/acc-1')).toBe(true);
   });
 
   it('is idempotent on a second call (already revealed + offer on file)', async () => {

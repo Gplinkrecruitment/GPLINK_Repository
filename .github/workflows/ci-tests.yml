@@ -17,7 +17,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 20.19+ enables require() of ESM by default (vitest's std-env dep is
+          # ESM-only). NODE_OPTIONS below keeps it working on any 20.17+ runner.
+          node-version: "20.19"
           cache: npm
 
       - name: Install dependencies
@@ -26,3 +28,5 @@ jobs:
       # package.json "test" is "vitest run" — exits non-zero on any failure.
       - name: Run tests
         run: npm test
+        env:
+          NODE_OPTIONS: --experimental-require-module

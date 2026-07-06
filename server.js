@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const hybridAgents = require('./scripts/agents.js');
 const adminTotp = require('./lib/totp.js');
+const webPush = require('web-push');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
@@ -94,6 +95,7 @@ const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, 
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
+const documentRequirements = require('./lib/document-requirements.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -3843,9 +3845,10 @@ function preFilterEmail(emailMeta) {
 }
 
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
-var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
+var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail, resolveEmailRouting } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
 var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
+var emailTemplatesLib = require('./lib/email-templates.js');
 var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
@@ -5395,27 +5398,41 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // Contact" category rather than the GP's current registration stage, so practice
         // correspondence is never mistaken for a step the GP is personally working through.
         // AHPRA mail keeps its own 'ahpra' stage; GP-sent mail stays on the GP's stage.
-        var emailRelatedStage;
-        if (isAhpra) {
-          emailRelatedStage = 'ahpra';
-        } else if (gpCase) {
+        //
+        // Phase 6 I1: the triage category now drives the stage group + priority
+        // (visa \u2192 visa, Medicare/PBS \u2192 pbs, practice enquiry \u2192 practice_contact,
+        // regulator/college senders (AMC/RACGP/ACRRM/Medical Board) \u2192 amc/ahpra).
+        // resolveEmailRouting is pure and allowlist-based; unmatched mail keeps the
+        // existing low-priority Support behaviour. The AHPRA 6-mode path is untouched \u2014
+        // this whole block is gated on !isAhpra.
+        var _senderIsGp = false;
+        if (gpCase) {
           var _gpEmailLookup = gpCase.user_id
             ? await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(gpCase.user_id) + '&limit=1')
             : { ok: false };
           var _gpOwnEmail = ((_gpEmailLookup.ok && _gpEmailLookup.data && _gpEmailLookup.data[0] && _gpEmailLookup.data[0].email) || '').toLowerCase();
           var _senderAddr = ((emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
-          emailRelatedStage = (_gpOwnEmail && _senderAddr === _gpOwnEmail) ? (gpCase.stage || '') : 'practice_contact';
-        } else {
-          emailRelatedStage = '';
+          _senderIsGp = !!(_gpOwnEmail && _senderAddr === _gpOwnEmail);
         }
+        var emailRouting = resolveEmailRouting({
+          sender: emailMeta.sender || '',
+          subject: emailMeta.subject || '',
+          bodySnippet: emailMeta.bodyText || '',
+          category: triageResult.category,
+          urgency: triageResult.urgency,
+          matched: !!gpCase,
+          gpStage: gpCase ? (gpCase.stage || '') : '',
+          senderIsGp: _senderIsGp
+        });
+        var emailRelatedStage = isAhpra ? 'ahpra' : emailRouting.related_stage;
 
         // Route GP-matched email tasks to that GP's RSO (assigned_va, default Hazel).
         var taskAssignee = gpCase ? await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va) : null;
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
           task_type: 'email_triage',
-          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
           description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
-          priority: triageResult.urgency === 'urgent' ? 'urgent' : gpCase ? 'normal' : 'low',
+          priority: emailRouting.priority,
           source_trigger: 'gmail_triage',
           related_stage: emailRelatedStage,
           assignee: taskAssignee,
@@ -25017,35 +25034,88 @@ async function sendPracticePackEmail(userId, practiceName) {
 
 // 14. Candidate Hired Email — sent to Zoho Recruit candidates when status changes to "Hired"
 // This goes to candidates who may NOT have a GP Link account yet, so it uses sendEmail() directly.
-/* ───────── Push notifications via FCM ───────── */
+/* ───────── Push notifications — standards-based Web Push (RFC 8291/8292, VAPID) ─────────
+   Phase 6 J1. Replaces the legacy FCM path (fcm.googleapis.com/fcm/send was shut
+   down by Google in 2024). Subscriptions live in public.push_subscriptions —
+   one row per browser PushSubscription (endpoint + p256dh + auth), created by
+   POST /api/push/subscribe. Push is a NON-CRITICAL channel: sends respect the
+   per-GP `push` notification preference (F4), and a push failure must never
+   fail the action that triggered it. If VAPID keys are unset, sending is a
+   logged no-op (generate keys with `npx web-push generate-vapid-keys`). */
 
-async function sendPushNotification(userId, { title, body, data }) {
-  if (!process.env.FCM_SERVER_KEY) return;
+let vapidMissingWarned = false;
+let webPushSendImpl = null; // test hook — overrides webPush.sendNotification
+
+function getVapidConfig() {
+  const publicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+  const privateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+  if (!publicKey || !privateKey) return null;
+  const subject = String(process.env.VAPID_SUBJECT || '').trim() || 'mailto:hello@mygplink.com.au';
+  return { subject, publicKey, privateKey };
+}
+
+async function getPushSubscriptionsForUser(userId) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('push_subscriptions',
+      `select=endpoint,p256dh,auth,email&user_id=eq.${encodeURIComponent(userId)}&limit=10`);
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  const list = Array.isArray(dbState.pushSubscriptions) ? dbState.pushSubscriptions : [];
+  return list.filter((s) => s && s.user_id === userId);
+}
+
+async function deletePushSubscriptionByEndpoint(endpoint, userId) {
+  if (!endpoint) return;
+  if (isSupabaseDbConfigured()) {
+    let query = 'endpoint=eq.' + encodeURIComponent(endpoint);
+    if (userId) query += '&user_id=eq.' + encodeURIComponent(userId);
+    await supabaseDbRequest('push_subscriptions', query, { method: 'DELETE' });
+    return;
+  }
+  const list = Array.isArray(dbState.pushSubscriptions) ? dbState.pushSubscriptions : [];
+  dbState.pushSubscriptions = list.filter((s) => !(s && s.endpoint === endpoint && (!userId || s.user_id === userId)));
+  saveDbState();
+}
+
+async function sendPushNotification(userId, { title, body, data, url } = {}) {
   try {
-    const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-      ? stateResult.data[0].state
-      : {};
-    const pushTokens = Array.isArray(currentState.gp_push_tokens) ? currentState.gp_push_tokens : [];
-    if (pushTokens.length === 0) return;
+    if (!userId) return;
+    const vapid = getVapidConfig();
+    if (!vapid) {
+      if (!vapidMissingWarned) {
+        console.log('[web-push] VAPID keys not set (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY) — push notifications are disabled.');
+        vapidMissingWarned = true;
+      }
+      return;
+    }
 
-    for (const entry of pushTokens) {
-      if (!entry || !entry.token) continue;
-      const fcmController = new AbortController();
-      const fcmTimeout = setTimeout(() => fcmController.abort(), 10000);
-      fetch('https://fcm.googleapis.com/fcm/send', {
-        method: 'POST',
-        signal: fcmController.signal,
-        headers: {
-          'Authorization': 'key=' + process.env.FCM_SERVER_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          to: entry.token,
-          notification: { title: title || 'GP Link', body: body || '' },
-          data: data || {}
-        })
-      }).catch(() => {}).finally(() => clearTimeout(fcmTimeout));
+    const subscriptions = await getPushSubscriptionsForUser(userId);
+    if (!subscriptions.length) return;
+
+    // Non-critical channel: skip entirely when the GP has opted out of push.
+    const prefEmail = (subscriptions.find((s) => s && s.email) || {}).email || '';
+    if (prefEmail && !(await allowsNonCriticalNotification(prefEmail, 'push'))) return;
+
+    const payload = JSON.stringify({
+      title: title || 'GP Link',
+      body: body || '',
+      url: url || (data && data.url) || '/pages/index.html',
+      data: data || {}
+    });
+
+    for (const sub of subscriptions) {
+      if (!sub || !sub.endpoint || !sub.p256dh || !sub.auth) continue;
+      try {
+        const subscription = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+        const sendFn = webPushSendImpl || webPush.sendNotification.bind(webPush);
+        await sendFn(subscription, payload, { vapidDetails: vapid, TTL: 24 * 60 * 60 });
+      } catch (err) {
+        const status = err && (err.statusCode || err.status);
+        if (status === 404 || status === 410) {
+          // The push service says this subscription is gone — clean it up.
+          await deletePushSubscriptionByEndpoint(sub.endpoint).catch(() => {});
+        }
+      }
     }
   } catch {}
 }
@@ -25346,7 +25416,8 @@ async function atsListPracticesDerived() {
         agreement_signed_pdf_key: '', intake_token: '', metadata: {},
         // Phase 3: name-only practices have no row, so no org_type column and
         // no manually uploaded contract — always plain 'practice' defaults.
-        org_type: 'practice',
+        // (Same for the Phase 6 parent-corporation link: link-less.)
+        org_type: 'practice', parent_corporation_id: null,
         agreement_manual_pdf_key: '', agreement_manual_uploaded_at: '', agreement_manual_uploaded_by: ''
       };
     }
@@ -25386,6 +25457,7 @@ async function atsListPracticesDerived() {
     e.intake_token = p.intake_token || '';
     e.metadata = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
     e.org_type = (p.org_type === 'corporation') ? 'corporation' : 'practice';
+    e.parent_corporation_id = p.parent_corporation_id || null;
     e.agreement_manual_pdf_key = p.agreement_manual_pdf_key || '';
     e.agreement_manual_uploaded_at = p.agreement_manual_uploaded_at || '';
     e.agreement_manual_uploaded_by = p.agreement_manual_uploaded_by || '';
@@ -25416,10 +25488,26 @@ async function atsResolvePractice(id) {
     agreement_signed_pdf_key: row.agreement_signed_pdf_key || '', intake_token: row.intake_token || '',
     metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
     org_type: (row.org_type === 'corporation') ? 'corporation' : 'practice',
+    parent_corporation_id: row.parent_corporation_id || null,
     agreement_manual_pdf_key: row.agreement_manual_pdf_key || '',
     agreement_manual_uploaded_at: row.agreement_manual_uploaded_at || '',
     agreement_manual_uploaded_by: row.agreement_manual_uploaded_by || ''
   };
+}
+
+// Phase 6 I2: validate a parent_corporation_id write (POST + PATCH share it).
+// Returns { ok:true, value } — value null means "clear the link" — or
+// { ok:false, message }. The parent must be a real practices-table row whose
+// org_type is 'corporation', and an org can never be its own parent (enforced
+// logically here rather than as a DB constraint — see the migration comment).
+async function atsValidateParentCorporation(rawValue, selfRowId) {
+  var v = (rawValue === undefined || rawValue === null) ? '' : String(rawValue).trim();
+  if (!v) return { ok: true, value: null };
+  if (selfRowId && String(selfRowId) === v) return { ok: false, message: 'An organisation cannot be its own parent.' };
+  var parentRow = await atsGetPracticeRow(v);
+  if (!parentRow) return { ok: false, message: 'Parent corporation not found.' };
+  if (parentRow.org_type !== 'corporation') return { ok: false, message: 'The selected parent is not a corporation.' };
+  return { ok: true, value: parentRow.id };
 }
 
 // ---- Jobs (career_roles) ---------------------------------------------------
@@ -35509,6 +35597,115 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Phase 6 J1: standards-based Web Push (VAPID) ──────────────────────────
+  // Public: the VAPID public key the browser needs to create a subscription.
+  if (pathname === '/api/push/vapid-public-key' && req.method === 'GET') {
+    const vapid = getVapidConfig();
+    if (!vapid) {
+      sendJson(res, 200, { ok: false, configured: false, message: 'Push notifications are not configured on this server.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, configured: true, publicKey: vapid.publicKey });
+    return;
+  }
+
+  // GP session: store this browser's PushSubscription (dedup by endpoint).
+  if (pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let subBody;
+    try { subBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    if (!subBody || typeof subBody !== 'object') {
+      sendJson(res, 400, { ok: false, message: 'Provide a push subscription.' });
+      return;
+    }
+    const subKeys = subBody.keys && typeof subBody.keys === 'object' ? subBody.keys : {};
+    const endpoint = String(subBody.endpoint || '').trim().slice(0, 1000);
+    const p256dh = String(subKeys.p256dh || subBody.p256dh || '').trim().slice(0, 300);
+    const authKey = String(subKeys.auth || subBody.auth || '').trim().slice(0, 100);
+    if (!/^https:\/\//i.test(endpoint) || !p256dh || !authKey) {
+      sendJson(res, 400, { ok: false, message: 'Provide a push subscription (endpoint + keys.p256dh + keys.auth).' });
+      return;
+    }
+
+    try {
+      const nowIso = new Date().toISOString();
+      const emailLower = String(email).trim().toLowerCase();
+      if (isSupabaseDbConfigured()) {
+        // Upsert by endpoint: a browser endpoint belongs to whoever is
+        // currently signed in on that device.
+        const w = await supabaseDbRequest('push_subscriptions', 'on_conflict=endpoint', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [{ user_id: userId, email: emailLower, endpoint, p256dh, auth: authKey, updated_at: nowIso }]
+        });
+        if (!w.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the push subscription.' }); return; }
+        // Keep at most 5 devices per user.
+        const all = await supabaseDbRequest('push_subscriptions',
+          `select=endpoint,created_at&user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
+        if (all.ok && Array.isArray(all.data) && all.data.length > 5) {
+          for (const stale of all.data.slice(5)) {
+            await deletePushSubscriptionByEndpoint(stale && stale.endpoint, userId).catch(() => {});
+          }
+        }
+      } else {
+        if (!Array.isArray(dbState.pushSubscriptions)) dbState.pushSubscriptions = [];
+        const list = dbState.pushSubscriptions;
+        const row = { user_id: userId, email: emailLower, endpoint, p256dh, auth: authKey, created_at: nowIso, updated_at: nowIso };
+        const existing = list.findIndex((s) => s && s.endpoint === endpoint);
+        if (existing >= 0) {
+          row.created_at = list[existing].created_at || nowIso;
+          list[existing] = row;
+        } else {
+          list.push(row);
+        }
+        const mine = list.filter((s) => s && s.user_id === userId);
+        if (mine.length > 5) {
+          const drop = new Set(mine.slice(0, mine.length - 5).map((s) => s.endpoint));
+          dbState.pushSubscriptions = list.filter((s) => !(s && s.user_id === userId && drop.has(s.endpoint)));
+        }
+        saveDbState();
+      }
+      sendJson(res, 200, { ok: true });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to save the push subscription.' });
+    }
+    return;
+  }
+
+  // GP session: remove this browser's PushSubscription (own rows only).
+  if (pathname === '/api/push/unsubscribe' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let unsubBody;
+    try { unsubBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const endpoint = String(unsubBody && unsubBody.endpoint || '').trim().slice(0, 1000);
+    if (!endpoint) { sendJson(res, 400, { ok: false, message: 'Missing subscription endpoint.' }); return; }
+    try {
+      await deletePushSubscriptionByEndpoint(endpoint, userId);
+      sendJson(res, 200, { ok: true });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to remove the push subscription.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/push/register' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -41930,6 +42127,173 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Per-country document requirements (single source of truth) ──
+  // Serves the ordered institution-sent + GP-prepared document lists that
+  // pages/my-documents.html renders. Country is validated to uk/ie/nz — an
+  // unknown country gets an explicit "unsupported" response, never a silent
+  // UK default. When ?country= is omitted the GP's own country is resolved
+  // through the same chain the rest of the server uses
+  // (user_profiles.registration_country || user_state.gp_selected_country).
+  if (pathname === '/api/gp/document-requirements' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    const supported = documentRequirements.SUPPORTED_DOCUMENT_REQUIREMENT_COUNTRIES;
+    const rawParam = String(url.searchParams.get('country') || '').trim();
+    let rawCountry = rawParam;
+    if (!rawCountry) {
+      // Resolve from the GP's own record (own-data only — no user param accepted).
+      try {
+        if (isSupabaseDbConfigured()) {
+          const drUserId = await getSupabaseUserIdByEmail(email);
+          if (drUserId) {
+            const profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(drUserId) + '&limit=1');
+            rawCountry = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0] && profRes.data[0].registration_country) || '';
+            if (!rawCountry) {
+              const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(drUserId) + '&limit=1');
+              const st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) || {};
+              let sel = st.gp_selected_country;
+              if (typeof sel === 'string') { try { const p = JSON.parse(sel); if (typeof p === 'string') sel = p; } catch (e) {} }
+              rawCountry = sel || '';
+            }
+          }
+        } else {
+          const localState = dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : {};
+          let sel = localState.gp_selected_country;
+          if (typeof sel === 'string') { try { const p = JSON.parse(sel); if (typeof p === 'string') sel = p; } catch (e) {} }
+          rawCountry = sel || '';
+        }
+      } catch (e) {
+        rawCountry = '';
+      }
+    }
+
+    const resolved = documentRequirements.getDocumentRequirements(rawCountry);
+    if (!resolved) {
+      sendJson(res, 400, {
+        ok: false,
+        unsupported: true,
+        country: String(rawCountry || ''),
+        supported,
+        message: 'Unsupported country for document requirements. Supported: ' + supported.join(', ') + '.'
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      country: resolved.country,
+      supported,
+      requirements: resolved.requirements
+    });
+    return;
+  }
+
+  // ── Cross-device alert read-state sync ──
+  // The bell panel (js/updates-sync.js) is local-first: read/unread state lives
+  // in localStorage so it keeps working offline. This endpoint is the merge
+  // layer that makes a read on one device show as read on the GP's other
+  // devices. The set of read alert ids is stored server-side in the GP's OWN
+  // user_state row under 'gp_alerts_read_sync' — a server-managed key that the
+  // client /api/state sync can neither read nor overwrite (it is not in
+  // USER_STATE_KEYS), so full-state pushes from a stale device can't un-read
+  // alerts. POST is union-only (ids are added, never removed).
+  if (pathname === '/api/gp/alerts/read-state' && (req.method === 'GET' || req.method === 'POST')) {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    // Load the GP's own user_state row (Supabase in production, local JSON in dev).
+    let arsCurrent = {};
+    let arsUserId = null;
+    if (isSupabaseDbConfigured()) {
+      const arsRemote = await getSupabaseUserStateByEmail(email);
+      if (arsRemote) {
+        arsCurrent = arsRemote.state && typeof arsRemote.state === 'object' ? arsRemote.state : {};
+        arsUserId = arsRemote.userId || null;
+      }
+      if (!arsUserId) arsUserId = getSessionSupabaseUserId(session);
+    } else {
+      arsCurrent = dbState.userState[email] && typeof dbState.userState[email] === 'object'
+        ? dbState.userState[email]
+        : {};
+    }
+
+    let readMap = arsCurrent.gp_alerts_read_sync;
+    if (typeof readMap === 'string') { try { readMap = JSON.parse(readMap); } catch (e) { readMap = null; } }
+    if (!readMap || typeof readMap !== 'object' || Array.isArray(readMap)) readMap = {};
+
+    if (req.method === 'GET') {
+      sendJson(res, 200, { ok: true, read: readMap });
+      return;
+    }
+
+    // POST — union-merge the submitted alert ids into the stored map.
+    let arsBody;
+    try {
+      arsBody = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const arsIds = arsBody && Array.isArray(arsBody.ids) ? arsBody.ids : null;
+    if (!arsIds) {
+      sendJson(res, 400, { ok: false, message: 'ids must be an array of alert ids.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    let arsChanged = false;
+    arsIds.slice(0, 200).forEach((id) => {
+      if (typeof id !== 'string') return;
+      const clean = id.trim().slice(0, 300);
+      if (!clean) return;
+      if (!Object.prototype.hasOwnProperty.call(readMap, clean)) {
+        readMap[clean] = nowIso;
+        arsChanged = true;
+      }
+    });
+
+    // Prune to the newest 500 entries so the map can't grow unbounded.
+    const arsKeys = Object.keys(readMap);
+    if (arsKeys.length > 500) {
+      arsKeys
+        .sort((a, b) => (Date.parse(readMap[a]) || 0) - (Date.parse(readMap[b]) || 0))
+        .slice(0, arsKeys.length - 500)
+        .forEach((k) => { delete readMap[k]; arsChanged = true; });
+    }
+
+    if (arsChanged) {
+      const arsNext = { ...arsCurrent, gp_alerts_read_sync: readMap };
+      if (isSupabaseDbConfigured()) {
+        if (!arsUserId) {
+          sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for alert read-state.' });
+          return;
+        }
+        const arsSaved = await upsertSupabaseUserState(arsUserId, arsNext, nowIso);
+        if (!arsSaved) {
+          sendJson(res, 502, { ok: false, message: 'Failed to persist alert read-state.' });
+          return;
+        }
+      } else {
+        dbState.userState[email] = arsNext;
+        saveDbState();
+      }
+    }
+
+    sendJson(res, 200, { ok: true, read: readMap });
+    return;
+  }
+
   if (pathname === '/api/state' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'State API requires Supabase database configuration.' });
@@ -44742,6 +45106,164 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── Email triage: suggest reply via AI ──
+  // ── Phase 6 I1 (audit M2): outbound email template library ──────────────────
+  // GET   /api/admin/email-templates  — merged defaults + DB rows (any admin)
+  // POST  /api/admin/email-templates  — add a custom template (super admin)
+  // PATCH /api/admin/email-templates  — edit by id, or override a default by key (super admin)
+  // DELETE /api/admin/email-templates — deactivate by id or key (super admin)
+  // Defaults live in lib/email-templates.js so the library works with no DB rows.
+  // Dual-mode storage: public.email_templates (prod) / dbState.emailTemplates (dev).
+  if (pathname === '/api/admin/email-templates') {
+    const listTemplateRows = async () => {
+      if (isSupabaseDbConfigured()) {
+        const r = await supabaseDbRequest('email_templates', 'select=*&order=created_at.asc&limit=500');
+        return (r.ok && Array.isArray(r.data)) ? r.data : [];
+      }
+      return Array.isArray(dbState.emailTemplates) ? dbState.emailTemplates.slice() : [];
+    };
+
+    if (req.method === 'GET') {
+      const tplCtx = requireAdminSession(req, res);
+      if (!tplCtx) return;
+      const rows = await listTemplateRows();
+      sendJson(res, 200, { ok: true, templates: emailTemplatesLib.mergeEmailTemplates(emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES, rows) });
+      return;
+    }
+
+    // All writes are CEO/super-admin only.
+    const tplAdmin = requireSuperAdminSession(req, res);
+    if (!tplAdmin) return;
+
+    if (req.method === 'POST' || req.method === 'PATCH') {
+      let tplBody;
+      try { tplBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+      tplBody = tplBody || {};
+      const tplFields = {};
+      ['name', 'category', 'stage', 'subject', 'body'].forEach((f) => {
+        if (tplBody[f] !== undefined) tplFields[f] = String(tplBody[f] || '');
+      });
+      if (tplBody.active !== undefined) tplFields.active = !!tplBody.active;
+
+      if (req.method === 'POST') {
+        if (!String(tplFields.name || '').trim() || !String(tplFields.body || '').trim()) {
+          sendJson(res, 400, { ok: false, message: 'name and body are required.' });
+          return;
+        }
+        const newRow = {
+          id: crypto.randomUUID(),
+          template_key: String(tplBody.key || tplBody.template_key || '').trim() || null,
+          name: tplFields.name, category: tplFields.category || '', stage: tplFields.stage || '',
+          subject: tplFields.subject || '', body: tplFields.body,
+          active: tplFields.active !== false,
+          created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const ins = await supabaseDbRequest('email_templates', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [newRow] });
+          if (!ins.ok) { sendJson(res, 500, { ok: false, message: 'Failed to save template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(newRow);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true, template: newRow });
+        return;
+      }
+
+      // PATCH: target an existing row by id, or a default template by key
+      // (creating an override row seeded from the default when none exists yet).
+      const tplId = String(tplBody.id || '').trim();
+      const tplKey = String(tplBody.key || tplBody.template_key || '').trim();
+      if (!tplId && !tplKey) { sendJson(res, 400, { ok: false, message: 'id or key required.' }); return; }
+      const rows = await listTemplateRows();
+      let target = null;
+      if (tplId) target = rows.find((r) => String(r.id) === tplId) || null;
+      if (!target && tplKey) target = rows.find((r) => String(r.template_key || '') === tplKey) || null;
+      if (!target) {
+        // Overriding a built-in default: seed a new row from the default + patch.
+        const def = emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES.find((d) => d.key === tplKey);
+        if (!def) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+        const override = {
+          id: crypto.randomUUID(), template_key: def.key,
+          name: tplFields.name !== undefined ? tplFields.name : def.name,
+          category: tplFields.category !== undefined ? tplFields.category : def.category,
+          stage: tplFields.stage !== undefined ? tplFields.stage : def.stage,
+          subject: tplFields.subject !== undefined ? tplFields.subject : def.subject,
+          body: tplFields.body !== undefined ? tplFields.body : def.body,
+          active: tplFields.active !== undefined ? tplFields.active : true,
+          created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const ins2 = await supabaseDbRequest('email_templates', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [override] });
+          if (!ins2.ok) { sendJson(res, 500, { ok: false, message: 'Failed to save template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(override);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true, template: override });
+        return;
+      }
+      const patch = Object.assign({}, tplFields, { updated_at: new Date().toISOString() });
+      if (isSupabaseDbConfigured()) {
+        const up = await supabaseDbRequest('email_templates', 'id=eq.' + encodeURIComponent(target.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+        if (!up.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update template.' }); return; }
+        sendJson(res, 200, { ok: true, template: (Array.isArray(up.data) && up.data[0]) || Object.assign({}, target, patch) });
+      } else {
+        Object.assign(target, patch);
+        saveDbState();
+        sendJson(res, 200, { ok: true, template: target });
+      }
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      const delId = String(url.searchParams.get('id') || '').trim();
+      const delKey = String(url.searchParams.get('key') || '').trim();
+      if (!delId && !delKey) { sendJson(res, 400, { ok: false, message: 'id or key required.' }); return; }
+      const rows = await listTemplateRows();
+      let target = null;
+      if (delId) target = rows.find((r) => String(r.id) === delId) || null;
+      if (!target && delKey) target = rows.find((r) => String(r.template_key || '') === delKey) || null;
+      if (!target && delKey) {
+        // Hiding a built-in default: store an inactive override row.
+        const def = emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES.find((d) => d.key === delKey);
+        if (!def) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+        const hideRow = {
+          id: crypto.randomUUID(), template_key: def.key, name: def.name,
+          category: def.category, stage: def.stage, subject: def.subject, body: def.body,
+          active: false, created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const insH = await supabaseDbRequest('email_templates', '', { method: 'POST', body: [hideRow] });
+          if (!insH.ok) { sendJson(res, 500, { ok: false, message: 'Failed to remove template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(hideRow);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (!target) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+      if (isSupabaseDbConfigured()) {
+        const del = await supabaseDbRequest('email_templates', 'id=eq.' + encodeURIComponent(target.id), { method: 'PATCH', body: { active: false, updated_at: new Date().toISOString() } });
+        if (!del.ok) { sendJson(res, 500, { ok: false, message: 'Failed to remove template.' }); return; }
+      } else {
+        target.active = false;
+        target.updated_at = new Date().toISOString();
+        saveDbState();
+      }
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 405, { ok: false, message: 'Method not allowed.' });
+    return;
+  }
+
   if (pathname === '/api/admin/email-triage/suggest-reply' && req.method === 'POST') {
     var adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
@@ -54808,6 +55330,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (st === 'prospective') plCounts.prospective++;
       else if (st === 'active') plCounts.active++;
     });
+    // Phase 6 I2: corporation display names, keyed by row id, so member
+    // practices can carry "Part of <Corporation>" without extra lookups.
+    var plCorpNames = {};
+    derived.forEach(function (p) {
+      if (p.org_type === 'corporation' && p.id) plCorpNames[String(p.id)] = p.name || '';
+    });
     var plCards = derived.map(function (p) {
       var cand = 0;
       (p.jobs || []).forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; }); });
@@ -54822,6 +55350,8 @@ Return ONLY valid JSON with no markdown formatting:
         job_count: (p.jobs || []).length, candidate_count: cand,
         stage: p.stage || 'active', agreement_status: p.agreement_status || 'unsigned', source: p.source || '',
         org_type: p.org_type === 'corporation' ? 'corporation' : 'practice',
+        parent_corporation_id: p.parent_corporation_id || null,
+        parent_corporation_name: (p.parent_corporation_id && plCorpNames[String(p.parent_corporation_id)]) || '',
         has_contract: !!(plSignedKey || p.agreement_manual_pdf_key)
       };
     });
@@ -54840,12 +55370,23 @@ Return ONLY valid JSON with no markdown formatting:
       if (bodyP.org_type !== 'practice' && bodyP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
       pcOrgType = bodyP.org_type;
     }
+    // Phase 6 I2: optional parent-corporation link. Only stored when actually
+    // set (a null is never sent), so creates keep working on a DB where the
+    // parent_corporation_id migration hasn't been applied yet.
+    var pcParent = null;
+    if (bodyP.parent_corporation_id !== undefined && bodyP.parent_corporation_id !== null && String(bodyP.parent_corporation_id).trim() !== '') {
+      if (pcOrgType === 'corporation') { sendJson(res, 400, { ok: false, message: 'A corporation cannot have a parent corporation.' }); return; }
+      var pcParentCheck = await atsValidateParentCorporation(bodyP.parent_corporation_id, null);
+      if (!pcParentCheck.ok) { sendJson(res, 400, { ok: false, message: pcParentCheck.message }); return; }
+      pcParent = pcParentCheck.value;
+    }
     var pracRow = {
       name: String(bodyP.name).trim(), location_city: String(bodyP.city || ''), location_state: String(bodyP.state || ''),
       location_country: 'Australia', practice_type: String(bodyP.type || ''), contact_name: String(bodyP.contact || ''),
       contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
       source: 'internal_ats', is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
     };
+    if (pcParent) pracRow.parent_corporation_id = pcParent;
     var createdP = await atsInsertPracticeRow(pracRow);
     if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
     sendJson(res, 200, { ok: true, practice: createdP });
@@ -54884,6 +55425,33 @@ Return ONLY valid JSON with no markdown formatting:
       try { pgManualUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pgManualKey, 'agreement-manual.pdf')) || null; } catch (e) { pgManualUrl = null; }
     }
     var pgIntake = (pg.metadata && pg.metadata.intake) || null;
+    // Phase 6 I2: parent-corporation display name (member practices) + the
+    // member rollup (corporations). Both come from data already loaded or a
+    // single bounded call — no per-member fetches.
+    var pgParentName = '';
+    if (pg.parent_corporation_id) {
+      try {
+        var pgParentRow = await atsGetPracticeRow(pg.parent_corporation_id);
+        if (pgParentRow) pgParentName = pgParentRow.name || '';
+      } catch (e) { pgParentName = ''; }
+    }
+    var pgMembers = null, pgRollup = null;
+    if (pg.org_type === 'corporation') {
+      var pgAllOrgs = await atsListPracticesDerived();
+      pgMembers = pgAllOrgs.filter(function (m) {
+        return m.parent_corporation_id && String(m.parent_corporation_id) === String(pg.id);
+      }).map(function (m) {
+        return {
+          id: m.id, name: m.name, city: m.location_city || '', state: m.location_state || '',
+          stage: m.stage || 'active', agreement_status: m.agreement_status || 'unsigned',
+          job_count: (m.jobs || []).length
+        };
+      });
+      pgMembers.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
+      var pgGroupJobs = 0;
+      pgMembers.forEach(function (m) { pgGroupJobs += m.job_count; });
+      pgRollup = { member_count: pgMembers.length, total_jobs: pgGroupJobs };
+    }
     sendJson(res, 200, {
       ok: true,
       practice: {
@@ -54892,6 +55460,8 @@ Return ONLY valid JSON with no markdown formatting:
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
         stage: pg.stage || 'active', agreement_status: pgAgreementStatus,
         org_type: pg.org_type === 'corporation' ? 'corporation' : 'practice',
+        parent_corporation_id: pg.parent_corporation_id || null,
+        parent_corporation_name: pgParentName,
         website: pg.website || '', dpa: (typeof pg.dpa === 'boolean') ? pg.dpa : null,
         suburb: pg.suburb || '', nearest_city: pg.nearest_city || '',
         intro_text: pg.intro_text || '', intro_video_url: pg.intro_video_url || '',
@@ -54901,7 +55471,8 @@ Return ONLY valid JSON with no markdown formatting:
         agreement_manual_uploaded_by: pg.agreement_manual_uploaded_by || '',
         has_contract: !!(pgSignedKey || pgManualKey)
       },
-      jobs: pgJobCards, candidates: pgCands
+      jobs: pgJobCards, candidates: pgCands,
+      members: pgMembers, rollup: pgRollup
     });
     return;
   }
@@ -54922,8 +55493,37 @@ Return ONLY valid JSON with no markdown formatting:
       if (bodyPP.org_type !== 'practice' && bodyPP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
       patchP.org_type = bodyPP.org_type;
     }
-    if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var parsedPP = atsParsePracticeId(ppgId);
+    // Phase 6 I2: parent-corporation link. '' / null clears; a non-empty value
+    // must point at a corporation row, and a corporation itself can never
+    // carry a parent (write-path enforcement — no DB constraint).
+    if (bodyPP.parent_corporation_id !== undefined) {
+      var ppParentCheck = await atsValidateParentCorporation(bodyPP.parent_corporation_id, parsedPP.rowId || null);
+      if (!ppParentCheck.ok) { sendJson(res, 400, { ok: false, message: ppParentCheck.message }); return; }
+      if (ppParentCheck.value) {
+        var ppEffectiveOrg = patchP.org_type;
+        if (!ppEffectiveOrg) {
+          var ppCurOrg = await atsResolvePractice(ppgId);
+          ppEffectiveOrg = (ppCurOrg && ppCurOrg.org_type === 'corporation') ? 'corporation' : 'practice';
+        }
+        if (ppEffectiveOrg === 'corporation') { sendJson(res, 400, { ok: false, message: 'A corporation cannot have a parent corporation.' }); return; }
+      }
+      patchP.parent_corporation_id = ppParentCheck.value;
+    } else if (patchP.org_type === 'corporation') {
+      // Re-typing an org to corporation drops any existing parent link. Only
+      // send the clear when the row actually has one, so plain org_type edits
+      // keep working on a DB where the parent-corporation migration hasn't
+      // been applied yet.
+      var ppCurForClear = null;
+      if (parsedPP.rowId) {
+        ppCurForClear = await atsGetPracticeRow(parsedPP.rowId);
+      } else {
+        var ppStoredForClear = await atsListPracticeRows();
+        ppCurForClear = ppStoredForClear.find(function (p) { return String(p.name || '').trim().toLowerCase() === parsedPP.name.toLowerCase(); }) || null;
+      }
+      if (ppCurForClear && ppCurForClear.parent_corporation_id) patchP.parent_corporation_id = null;
+    }
+    if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var updatedP = null;
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
@@ -56635,6 +57235,10 @@ module.exports.__testUtils = {
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
   enumerateIncompleteOnboardingGps,
+  sendPushNotification,
+  getVapidConfig,
+  __setWebPushSendForTests: function (fn) { webPushSendImpl = typeof fn === 'function' ? fn : null; },
+  __resetVapidWarningForTests: function () { vapidMissingWarned = false; },
   buildCandidateSubmissionEmailHtml,
   generateCandidateRecommendation,
   buildCandidateIntro: careerIntro.buildCandidateIntro

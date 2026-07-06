@@ -35,7 +35,7 @@
 ### Task 1: Migration + Shortlist stage plumbing
 
 **Files:**
-- Create: `supabase/migrations/20260707170000_ai_matching.sql`
+- Create: `supabase/migrations/20260707190000_ai_matching.sql`
 - Modify: `js/ceo-ats-jobs.js:16-25` (STAGES), server.js ats-stage validation (grep `not_proceeding` in server.js to find the allowed-stage list(s) used by `/api/ats/application` PATCH and pipeline grouping — update every list)
 - Test: `tests/ai-matching-stage.test.js`
 

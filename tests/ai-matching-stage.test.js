@@ -84,8 +84,8 @@ describe('AI Matching Task 1 — shortlisted stage', () => {
     });
   });
 
-  describe('supabase/migrations/20260707170000_ai_matching.sql', () => {
-    const sql = fs.readFileSync(path.join(root, 'supabase/migrations/20260707170000_ai_matching.sql'), 'utf8');
+  describe('supabase/migrations/20260707190000_ai_matching.sql', () => {
+    const sql = fs.readFileSync(path.join(root, 'supabase/migrations/20260707190000_ai_matching.sql'), 'utf8');
 
     it('adds all ten new gp_applications match columns, guarded with IF NOT EXISTS', () => {
       [

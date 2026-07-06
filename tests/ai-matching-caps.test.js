@@ -21,7 +21,7 @@ describe('AI Matching Task 7 — source wiring', () => {
   const jobsSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-jobs.js'), 'utf8');
   const candidatesSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
-  const migrationSql = fs.readFileSync(path.join(ROOT, 'supabase/migrations/20260707180000_ats_stage_event_reason.sql'), 'utf8');
+  const migrationSql = fs.readFileSync(path.join(ROOT, 'supabase/migrations/20260707210000_ats_stage_event_reason.sql'), 'utf8');
 
   it('server.js declares the active-application cap helper + constant at true top-level and exports both', () => {
     expect(serverSrc).toMatch(/async function countActiveApplications\(userId\)/);

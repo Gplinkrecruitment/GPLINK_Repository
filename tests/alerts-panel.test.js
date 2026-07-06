@@ -94,7 +94,12 @@ describe('Team Alerts redesign (Task 9) — js/updates-sync.js', () => {
   });
 
   it('leaves buildAlertItems(), saveGpLinkUpdates/getGpLinkUpdates, and mark-read semantics untouched', () => {
-    expect(src).toMatch(/return out\.slice\(0, 3\);/);
+    // buildAlertItems() still returns a bounded slice. The bound moved from a
+    // literal 3 to MAX_BELL_ITEMS (=12) when main's K1 cross-device read-state
+    // sync landed ("the rest are behind the See all link"); our v9 rendering
+    // redesign did not touch this data plumbing.
+    expect(src).toMatch(/return out\.slice\(0, MAX_BELL_ITEMS\);/);
+    expect(src).toMatch(/const MAX_BELL_ITEMS = 12;/);
     expect(src).toMatch(/function markRead\(alertId\) \{/);
     expect(src).toMatch(/function saveGpLinkUpdates\(updates\) \{/);
     expect(src).toMatch(/function getGpLinkUpdates\(\) \{/);

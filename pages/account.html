@@ -12,6 +12,7 @@
   <script src="../js/document-prep.js?v=20260614a" defer></script>
   <script src="../js/qualification-scan.js?v=20260707a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
+  <script src="../js/web-push.js?v=20260707a" defer></script>
   <title>GP Link - My Account</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -736,7 +737,7 @@
             </label>
             <label class="pref-row">
               <input type="checkbox" id="prefPush" data-pref-key="push" checked />
-              <span class="pref-label"><b>Push notifications</b><small>Optional device notifications (where supported).</small></span>
+              <span class="pref-label"><b>Push notifications</b><small id="prefPushHint">Instant updates on this device — interviews, offers and application progress.</small></span>
             </label>
           </div>
           <p class="security-copy" style="margin-top:10px;">Important messages about your registration, documents, offers, interviews and account security are always sent.</p>
@@ -1764,20 +1765,67 @@
       prefStatusEl.className = "security-status" + (isError ? " error" : "");
     }
 
+    // Web Push (J1): hide the toggle's promise on browsers that can't keep it.
+    var pushPrefInput = document.getElementById("prefPush");
+    var pushPrefHint = document.getElementById("prefPushHint");
+    var pushSupported = ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window);
+    if (pushPrefInput && !pushSupported) {
+      pushPrefInput.checked = false;
+      pushPrefInput.disabled = true;
+      if (pushPrefHint) pushPrefHint.textContent = "Not supported in this browser.";
+    }
+
     async function loadNotificationPrefs() {
       try {
         var response = await fetch("/api/account/notification-preferences", { credentials: "same-origin" });
         var data = await response.json();
         if (!response.ok || !data.ok || !data.preferences) return;
         prefInputs.forEach(function(input) {
+          if (input.disabled) return;
           var key = input.getAttribute("data-pref-key");
           input.checked = data.preferences[key] !== false;
         });
+        // The push toggle reflects THIS device: only show it on when this
+        // browser actually holds a live push subscription.
+        if (pushPrefInput && !pushPrefInput.disabled && pushPrefInput.checked && window.gpWebPush) {
+          try {
+            var pushStatus = await window.gpWebPush.getStatus();
+            if (!pushStatus || !pushStatus.subscribed || pushStatus.permission !== "granted") {
+              pushPrefInput.checked = false;
+            }
+          } catch (statusErr) {}
+        }
       } catch (err) {}
     }
 
     async function saveNotificationPref(input) {
       var key = input.getAttribute("data-pref-key");
+
+      // Web Push (J1): turning push ON needs browser permission + a live
+      // subscription on this device; turning it OFF also removes it.
+      if (key === "push" && input.checked) {
+        if (!(window.gpWebPush && window.gpWebPush.isSupported())) {
+          input.checked = false;
+          setPrefStatus("Push notifications aren't supported in this browser.", true);
+          return;
+        }
+        setPrefStatus("Enabling push notifications...", false);
+        var pushResult = null;
+        try { pushResult = await window.gpWebPush.enable(); } catch (pushErr) {}
+        if (!pushResult || !pushResult.ok) {
+          input.checked = false;
+          var pushReason = pushResult && pushResult.reason;
+          if (pushReason === "denied") {
+            setPrefStatus("Notifications are blocked for this site — allow them in your browser settings, then try again.", true);
+          } else if (pushReason === "not-configured") {
+            setPrefStatus("Push notifications aren't available yet — check back soon.", true);
+          } else {
+            setPrefStatus("Couldn't enable push notifications. Please try again.", true);
+          }
+          return;
+        }
+      }
+
       var payload = {};
       payload[key] = !!input.checked;
       setPrefStatus("Saving...", false);
@@ -1791,6 +1839,10 @@
         var data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't save.");
         setPrefStatus("Preferences saved.", false);
+        if (key === "push" && !input.checked && window.gpWebPush) {
+          // Best-effort: drop this device's subscription too.
+          window.gpWebPush.disable();
+        }
       } catch (err) {
         input.checked = !input.checked;
         setPrefStatus(err.message || "Couldn't save. Check connection.", true);
