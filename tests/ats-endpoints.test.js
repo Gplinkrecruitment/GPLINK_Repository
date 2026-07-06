@@ -344,6 +344,16 @@ describe('Job approval — mandatory suburb header photo (Task 9)', () => {
     expect(String(liveMail.body.subject)).toContain('GP — Rangeville');
     expect(String(liveMail.body.html)).toContain('now live to eligible doctors');
     expect(String(liveMail.body.html)).toContain('What happens next');
+    // D2: the job-live email links the bookmarkable practice status page,
+    // authed by the practice's intake token (generated + persisted on the
+    // fly here — the dev-seeded p1 row has no token of its own).
+    expect(String(liveMail.body.html)).toContain('Track your listing');
+    expect(String(liveMail.body.html)).toContain('/pages/practice-status?token=');
+    expect(String(liveMail.body.text)).toContain('/pages/practice-status?token=');
+    const p1Row = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')).atsPractices.find((p) => p.id === 'p1');
+    const p1Token = p1Row && (p1Row.intake_token || (p1Row.metadata && p1Row.metadata.intake_token));
+    expect(String(p1Token || '').length).toBeGreaterThanOrEqual(16);
+    expect(String(liveMail.body.html)).toContain('/pages/practice-status?token=' + encodeURIComponent(p1Token));
   });
 
   it('approve on a non-pending job → 409', async () => {

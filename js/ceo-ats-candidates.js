@@ -126,6 +126,8 @@
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-sort">Sort: ' + sortTxt + ' ▾</button>' +
         '<select id="ats-cand-stage" style="width:auto;min-width:130px">' + stageOpts + '</select>' +
         '<select id="ats-cand-band" style="width:auto;min-width:120px">' + bandOpts + '</select>' +
+        // Phase 6 E1 (audit B3): owner CSV download of every GP on file.
+        '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="/api/admin/export?entity=gps&format=csv" style="text-decoration:none">Export CSV</a>' +
       '</div>' +
       '<div class="ats-cand-head">' +
         '<span>Candidate</span><span>Country</span><span>Registration stage</span>' +

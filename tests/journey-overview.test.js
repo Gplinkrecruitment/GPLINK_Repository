@@ -1,0 +1,210 @@
+// Phase 6 Batch F1 — G1: one canonical 7-stage journey overview incl Commencement.
+//
+// These pages/scripts are static files served verbatim (no server templating),
+// so reading them straight from disk is an honest check of what the browser
+// receives. Contract pinned here:
+//   - js/journey-stages.js is the single source of truth: the ordered 7-stage
+//     list (Secure Placement → MyIntealth → AMC → AHPRA → Visa → PBS & Medicare
+//     → Commencement) with lock copy, exposed as window.GPJourneyStages.
+//   - BOTH surfaces (pages/index.html journey + js/app-shell.js registration
+//     dropdown) consume GPJourneyStages.getStageStates — so they can't drift.
+//   - registration-stepper.js is no longer dead-loaded: index.html invokes
+//     GPRegistrationStepper.render into #journeyStepper.
+//   - Commencement's lock is explained ("Unlocks once PBS & Medicare is
+//     complete") and a server stage-gate bounce carries ?locked=<stage> which
+//     index.html turns into a visible notice instead of a silent redirect.
+//   - Index has an honest API-failure retry affordance for its server refresh.
+// GP-visible copy must never say the bare "RSO" abbreviation.
+import { describe, it, expect, beforeAll } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STAGES_JS_PATH = path.join(__dirname, '..', 'js', 'journey-stages.js');
+const INDEX_PATH = path.join(__dirname, '..', 'pages', 'index.html');
+const APP_SHELL_JS_PATH = path.join(__dirname, '..', 'js', 'app-shell.js');
+const APP_SHELL_HTML_PATH = path.join(__dirname, '..', 'pages', 'app-shell.html');
+const SERVER_PATH = path.join(__dirname, '..', 'server.js');
+
+const SEVEN_STAGE_TITLES = [
+  'Secure Placement',
+  'MyIntealth Account',
+  'AMC Portfolio',
+  'AHPRA Registration',
+  'Visa Application',
+  'PBS & Medicare',
+  'Commencement'
+];
+const SEVEN_STAGE_KEYS = ['career', 'myinthealth', 'amc', 'ahpra', 'visa', 'pbs', 'commencement'];
+
+let stagesJs;
+let indexHtml;
+let appShellJs;
+let appShellHtml;
+let serverJs;
+
+beforeAll(() => {
+  stagesJs = fs.readFileSync(STAGES_JS_PATH, 'utf8');
+  indexHtml = fs.readFileSync(INDEX_PATH, 'utf8');
+  appShellJs = fs.readFileSync(APP_SHELL_JS_PATH, 'utf8');
+  appShellHtml = fs.readFileSync(APP_SHELL_HTML_PATH, 'utf8');
+  serverJs = fs.readFileSync(SERVER_PATH, 'utf8');
+});
+
+describe('js/journey-stages.js — canonical 7-stage source of truth', () => {
+  it('defines all 7 stage titles in journey order', () => {
+    let lastIdx = -1;
+    for (const title of SEVEN_STAGE_TITLES) {
+      const idx = stagesJs.indexOf(`title: "${title}"`);
+      expect(idx, `missing stage title: ${title}`).toBeGreaterThan(-1);
+      expect(idx, `stage out of order: ${title}`).toBeGreaterThan(lastIdx);
+      lastIdx = idx;
+    }
+  });
+
+  it('defines all 7 stage keys including commencement', () => {
+    for (const key of SEVEN_STAGE_KEYS) {
+      expect(stagesJs).toContain(`key: "${key}"`);
+    }
+  });
+
+  it('exposes window.GPJourneyStages with getStageStates', () => {
+    expect(stagesJs).toContain('window.GPJourneyStages');
+    expect(stagesJs).toContain('function getStageStates(');
+  });
+
+  it('explains the Commencement lock (server-gated after PBS)', () => {
+    expect(stagesJs).toContain('Unlocks once PBS & Medicare is complete');
+  });
+
+  it('actually derives 7 agreeing stage states from a snapshot (behavioural)', () => {
+    // Evaluate the file in a sandbox and drive the derivation both surfaces use.
+    const sandbox = { window: {} };
+    // eslint-disable-next-line no-new-func
+    new Function('window', stagesJs)(sandbox.window);
+    const api = sandbox.window.GPJourneyStages;
+    expect(api).toBeTruthy();
+    expect(api.STAGES.map((s) => s.title)).toEqual(SEVEN_STAGE_TITLES);
+
+    // GP with PBS not done → commencement locked with the explanation.
+    const midway = api.getStageStates({ careerSecured: true, epicDone: true, amcDone: true, ahpraDone: true, visaDone: false, pbsDone: false }, false);
+    expect(midway).toHaveLength(7);
+    const commencement = midway[6];
+    expect(commencement.key).toBe('commencement');
+    expect(commencement.locked).toBe(true);
+    expect(commencement.lockReason).toBe('Unlocks once PBS & Medicare is complete');
+
+    // GP past PBS → commencement unlocked (available), never "done" client-side.
+    const late = api.getStageStates({ careerSecured: true, epicDone: true, amcDone: true, ahpraDone: true, visaDone: true, pbsDone: true }, false);
+    expect(late[6].locked).toBe(false);
+    expect(late[6].done).toBe(false);
+    // Visa/PBS done-flags derive from the snapshot (no hardcoded false).
+    expect(late[4].done).toBe(true);
+    expect(late[5].done).toBe(true);
+  });
+});
+
+describe('pages/index.html — 7-stage journey surface', () => {
+  it('loads the canonical stage list and consumes it in both renderers', () => {
+    expect(indexHtml).toMatch(/js\/journey-stages\.js\?v=/);
+    // Journey list + nav/mobile registration rows both go through the shared list.
+    const consumerCount = (indexHtml.match(/GPJourneyStages\.getStageStates\(/g) || []).length;
+    expect(consumerCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('invokes the registration stepper (no longer dead-loaded)', () => {
+    expect(indexHtml).toMatch(/js\/registration-stepper\.js\?v=/);
+    expect(indexHtml).toContain('id="journeyStepper"');
+    expect(indexHtml).toContain('window.GPRegistrationStepper.render({');
+    // Re-render after deferred scripts execute so render() actually runs.
+    expect(indexHtml).toMatch(/DOMContentLoaded[\s\S]*?renderJourneyList\(\)/);
+  });
+
+  it('stepper navigation is shell-aware (posts gp-shell-route when embedded)', () => {
+    // A raw window.location.href from onStepSelect can't be intercepted by
+    // nav-shell-bridge (it only hooks <a> clicks), which double-nested the
+    // app-shell inside its own iframe. The stepper must route through the
+    // shell-aware helper instead.
+    expect(indexHtml).toContain('onStepSelect(step) { navigateToStagePage(step.page, step.title); }');
+    expect(indexHtml).not.toContain('onStepSelect(step) { window.location.href = step.page; }');
+    // The helper posts the documented gp-shell-route message to the parent…
+    const helper = indexHtml.match(/function navigateToStagePage\([\s\S]*?\n    }\n/);
+    expect(helper).not.toBeNull();
+    expect(helper[0]).toContain('window.self !== window.top');
+    expect(helper[0]).toMatch(/postMessage\(\s*\{ type: "gp-shell-route", intent: "navigate", href: href/);
+    // …and only falls back to a plain navigation when NOT embedded.
+    expect(helper[0]).toContain('window.location.href = href;');
+  });
+
+  it('lock notice is honest when a done stage is not returnable', () => {
+    // ?locked=<stage> bounce for a DONE but non-returnable stage must not
+    // claim the stage "has just unlocked".
+    expect(indexHtml).toMatch(/returnDenied[\s\S]*?isRegistrationReturnAllowed\(stage\.key\)/);
+    expect(indexHtml).toContain("isn't open right now — your Registration Support Officer can help if you need to revisit it.");
+    // The genuinely-open case keeps the unlocked copy.
+    expect(indexHtml).toContain('has just unlocked — you can open it from the journey below.');
+  });
+
+  it('counts progress across all 7 stages (visa included, no 6-step remnant)', () => {
+    expect(indexHtml).toContain('const TOTAL_STEPS = 7;');
+    expect(indexHtml).toMatch(/\[careerSecured, epicDone, amcDone, ahpraDone, visaDone, pbsDone\]/);
+  });
+
+  it('routes the "next step" chain through commencement after PBS', () => {
+    expect(indexHtml).toContain('currentRoute = "commencement"');
+  });
+
+  it('shows the locked-stage bounce notice instead of a silent redirect', () => {
+    expect(indexHtml).toContain('id="stageLockedNotice"');
+    expect(indexHtml).toMatch(/searchParams|URLSearchParams/);
+    expect(indexHtml).toContain('.get("locked")');
+  });
+
+  it('has an honest API-failure retry affordance for the server refresh', () => {
+    expect(indexHtml).toContain('id="dataErrorBanner"');
+    expect(indexHtml).toContain('id="dataErrorRetry"');
+    expect(indexHtml).toContain("We couldn't refresh your latest progress");
+  });
+
+  it('never uses the bare "RSO" abbreviation in GP-visible copy', () => {
+    expect(indexHtml).not.toMatch(/\bRSO\b/);
+  });
+});
+
+describe('js/app-shell.js — registration dropdown agrees with the journey', () => {
+  it('consumes the same canonical stage list', () => {
+    expect(appShellJs).toContain('GPJourneyStages.getStageStates(');
+  });
+
+  it('renders a commencement row with the lock explanation fallback', () => {
+    expect(appShellJs).toContain('commencement: {');
+    expect(appShellJs).toContain('Unlocks once PBS & Medicare is complete');
+    expect(appShellJs).toContain('"/pages/commencement"');
+  });
+
+  it('never uses the bare "RSO" abbreviation', () => {
+    expect(appShellJs).not.toMatch(/\bRSO\b/);
+  });
+});
+
+describe('pages/app-shell.html — script wiring', () => {
+  it('loads journey-stages.js before app-shell.js', () => {
+    const stagesIdx = appShellHtml.indexOf('/js/journey-stages.js');
+    const shellIdx = appShellHtml.indexOf('/js/app-shell.js');
+    expect(stagesIdx).toBeGreaterThan(-1);
+    expect(shellIdx).toBeGreaterThan(-1);
+    expect(stagesIdx).toBeLessThan(shellIdx);
+  });
+});
+
+describe('server.js — stage-gate bounce explains itself (display only)', () => {
+  it('redirects blocked stage pages with ?locked=<stage>', () => {
+    expect(serverJs).toMatch(/\/pages\/index'\s*\+\s*\(lockedStage\s*\?\s*'\?locked='/);
+  });
+
+  it('keeps the access gates untouched (visa/ahpra/career force-allowed)', () => {
+    expect(serverJs).toContain("if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;");
+    expect(serverJs).toMatch(/commencement:\s*\{\s*accessible:\s*bypassAll\s*\|\|\s*pbsApproved/);
+  });
+});

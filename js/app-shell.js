@@ -646,6 +646,11 @@
     var snap = getProgressSnapshot();
     var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
+    // Canonical 7-stage journey (js/journey-stages.js) — single source of
+    // truth for stage order/names/lock state, shared with pages/index.html.
+    if (!window.GPJourneyStages || typeof window.GPJourneyStages.getStageStates !== "function") return [];
+    var stages = window.GPJourneyStages.getStageStates(snap, bypassLocks);
+
     // AHPRA is always navigable — the gate page inside ahpra.html handles
     // the placement-required messaging when career is not yet secured.
     var ahpraStatusHint = snap.ahpraDone ? "Completed"
@@ -653,60 +658,63 @@
       : !snap.amcDone ? "Complete AMC first"
       : "In progress";
 
-    return [
-      buildRegistrationRow("career", {
-        title: "1. Your Practice",
+    var ROW_EXTRAS = {
+      career: {
         sub: "View your secured practice placement.",
         mobileDetail: "Your placed practice details and contact information.",
         mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
-        done: snap.careerSecured,
         href: "/pages/career"
-      }),
-      buildRegistrationRow("myinthealth", {
-        title: "2. MyIntealth Account",
+      },
+      myinthealth: {
         sub: "Create account and complete EPIC verification.",
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
-        done: snap.epicDone,
         href: "/pages/myinthealth?" + REGISTRATION_CONTINUE_PARAM + "=1"
-      }),
-      buildRegistrationRow("amc", {
-        title: "3. AMC Portfolio",
+      },
+      amc: {
         sub: "Create AMC candidate portfolio and upload credentials.",
         mobileDetail: "AMC portfolio is created and connected to your verification.",
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
-        locked: !bypassLocks && !snap.epicDone,
-        done: snap.amcDone,
         href: "/pages/amc"
-      }),
-      buildRegistrationRow("ahpra", {
-        title: "4. AHPRA Registration",
+      },
+      ahpra: {
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
         mobileStatus: ahpraStatusHint,
-        locked: false,
-        done: snap.ahpraDone,
         href: "/pages/ahpra"
-      }),
-      buildRegistrationRow("visa", {
-        title: "5. Visa Application",
+      },
+      visa: {
         sub: "Your pathway to permanent residency.",
         mobileDetail: "Information about your 482 and 186 visa pathway.",
         mobileStatus: snap.visaDone ? "Completed" : "View pathway",
-        locked: false,
-        done: snap.visaDone,
         href: "/pages/visa"
-      }),
-      buildRegistrationRow("pbs", {
-        title: "6. PBS & Medicare",
+      },
+      pbs: {
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
         mobileStatus: snap.pbsDone ? "Completed" : !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
-        locked: !bypassLocks && !snap.ahpraDone,
-        done: snap.pbsDone,
         href: "/pages/pbs"
-      }),
-    ];
+      },
+      commencement: {
+        sub: "Pre-arrival checklist and your first day at the practice.",
+        mobileDetail: "Travel, indemnity, orientation and first-day preparation at your practice.",
+        mobileStatus: snap.pbsDone ? "In progress" : "Unlocks once PBS & Medicare is complete",
+        href: "/pages/commencement"
+      }
+    };
+
+    return stages.map(function (stage) {
+      var extra = ROW_EXTRAS[stage.key] || {};
+      return buildRegistrationRow(stage.key, {
+        title: stage.num + ". " + stage.title,
+        sub: extra.sub || stage.description,
+        mobileDetail: extra.mobileDetail || stage.description,
+        mobileStatus: stage.locked ? (stage.lockReason || extra.mobileStatus) : extra.mobileStatus,
+        locked: stage.locked,
+        done: stage.done,
+        href: extra.href || ("/pages/" + stage.page)
+      });
+    });
   }
 
   function buildRegistrationAction(row) {
