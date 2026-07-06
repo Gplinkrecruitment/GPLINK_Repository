@@ -320,6 +320,11 @@
     var regPill = c.blocked
       ? '<span class="ats-pill red">' + ATS.esc(c.reg_stage_label || '') + ' · blocked ' + (c.blocked_days || 0) + 'd</span>'
       : '<span class="ats-pill blue">' + ATS.esc(c.reg_stage_label || '') + '</span>';
+    // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
+    // 24h, still within its 7-day display window (spec §9). Team-only signal.
+    var velocityChip = c.high_velocity
+      ? ' <span class="ats-pill amber" title="5 or more applications in the last 24 hours">High application velocity</span>'
+      : '';
     var ob = c.onboarding_completed
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
@@ -328,7 +333,7 @@
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
       '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
-      '<div>' + regPill + '</div>' +
+      '<div>' + regPill + velocityChip + '</div>' +
       ATS.intentChip(c.intent_score, c.intent_band) +
       '<div>' + ob + '</div>' +
       '<div class="ats-doc-chips">' +
@@ -913,7 +918,12 @@
             ATS.toast('Interview booked for ' + gpLabel);
             if (caseId) window.atsOpenCandidate(caseId);
           } else {
-            ATS.toast((r && (r.error || r.message)) || 'Could not book the interview.');
+            // AI Matching (Task 7): prefer the human message over a raw error
+            // code — interview_cap's 409 carries both an `error` code AND a
+            // friendly `message` ("This GP has used all 3 interviews this
+            // month (resets …)"); showing `error` first would toast the bare
+            // code string instead.
+            ATS.toast((r && (r.message || r.error)) || 'Could not book the interview.');
             btn.disabled = false;
             btn.innerHTML = ATS.esc(gpLabel) + '<span class="ats-slot-note">(your local time)</span>';
           }

@@ -542,13 +542,72 @@
     return (d && typeof d.redirected === 'number' && d.redirected > 0) ? (' · ' + d.redirected + ' GP(s) redirected') : '';
   }
 
+  // AI Matching (Task 7, spec §9): late-withdrawal reason capture. Moving a
+  // card to `not_proceeding` FROM `submitted` or later prompts staff for an
+  // optional reason — "GP withdrew after submission" is the specific value
+  // Task 8's career-lock work reads as a strike source (stored verbatim on
+  // the stage event by the server as `reason`).
+  var STAGE_RANK = {};
+  STAGES.forEach(function (s, i) { STAGE_RANK[s.key] = i; });
+  function stageNeedsWithdrawReason(fromStageKey) {
+    if (!Object.prototype.hasOwnProperty.call(STAGE_RANK, fromStageKey)) return false;
+    return STAGE_RANK[fromStageKey] >= STAGE_RANK.submitted;
+  }
+  var WITHDRAW_REASONS = [
+    { value: 'gp_withdrew', label: 'GP withdrew after submission' },
+    { value: 'practice_passed', label: 'Practice passed on the candidate' },
+    { value: 'unresponsive', label: 'Candidate went unresponsive' },
+    { value: 'other', label: 'Other' }
+  ];
+  function withdrawReasonModalHtml() {
+    var opts = '<option value="">— No reason (skip) —</option>' + WITHDRAW_REASONS.map(function (r) {
+      return '<option value="' + r.value + '">' + A.esc(r.label) + '</option>';
+    }).join('');
+    return '<div class="ats-modal-wrap" id="atsWithdrawModal">' +
+      '<div class="ats-modal" style="max-width:420px">' +
+        '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="atsWithdrawClose">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<label>Reason (optional — helps track patterns)</label>' +
+          '<select id="atsWithdrawReasonSelect">' + opts + '</select>' +
+        '</div>' +
+        '<div class="ats-modal-foot">' +
+          '<button class="ats-btn ats-btn-ghost" id="atsWithdrawCancel">Cancel</button>' +
+          '<button class="ats-btn ats-btn-primary" id="atsWithdrawSave">Move to Not Proceeding</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+  // onProceed(reason) fires only on "Move to Not Proceeding" (reason may be
+  // '' when skipped); Cancel/close abandons the move entirely — the caller
+  // never PATCHes in that case.
+  function openWithdrawReasonPrompt(onProceed) {
+    A.setOverlay(withdrawReasonModalHtml());
+    function close() { A.setOverlay(''); }
+    on('atsWithdrawClose', 'click', close);
+    on('atsWithdrawCancel', 'click', close);
+    on('atsWithdrawSave', 'click', function () {
+      var reason = val('atsWithdrawReasonSelect') || '';
+      close();
+      onProceed(reason);
+    });
+  }
+
   // PATCH the application's stage, then move the card in the board + update counts.
   function moveCard(id, stage) {
     var found = findCard(id);
     if (!found) return;
     if (found.col.key === stage) return; // already there
     var name = found.card.name || 'Candidate';
+    if (stage === 'not_proceeding' && stageNeedsWithdrawReason(found.col.key)) {
+      openWithdrawReasonPrompt(function (reason) { moveCardCommit(id, stage, name, reason); });
+      return;
+    }
+    moveCardCommit(id, stage, name, null);
+  }
+
+  function moveCardCommit(id, stage, name, reason) {
     var body = { stage: stage };
+    if (reason) body.reason = reason;
     if (stage === 'hired') {
       var redirectOthers = confirmRedirectOthers(id);
       if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
@@ -635,7 +694,18 @@
     var stage = val('atsJobDrawerStage');
     if (!drawerCardId || !stage) return;
     var found = findCard(drawerCardId);
+    if (stage === 'not_proceeding' && found && stageNeedsWithdrawReason(found.col.key)) {
+      var pendingCardId = drawerCardId;
+      openWithdrawReasonPrompt(function (reason) { onDrawerStageChangeCommit(pendingCardId, stage, reason); });
+      return;
+    }
+    onDrawerStageChangeCommit(drawerCardId, stage, null);
+  }
+
+  function onDrawerStageChangeCommit(drawerCardId, stage, reason) {
+    var found = findCard(drawerCardId);
     var body = { stage: stage };
+    if (reason) body.reason = reason;
     if (stage === 'hired' && (!found || found.col.key !== 'hired')) {
       var redirectOthers = confirmRedirectOthers(drawerCardId);
       if (redirectOthers !== undefined) body.redirect_others = redirectOthers;

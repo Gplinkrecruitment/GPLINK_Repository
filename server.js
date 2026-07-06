@@ -25632,7 +25632,7 @@ async function atsInsertApplicationRow(row) {
   saveDbState();
   return local;
 }
-async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
+async function atsUpdateApplicationStageRow(appId, stage, notes, actor, reason) {
   var patch = { ats_stage: stage, ats_stage_updated_at: atsNowIso() };
   if (typeof notes === 'string') patch.ats_notes = notes;
   var updated = null, prevStage = '';
@@ -25645,11 +25645,19 @@ async function atsUpdateApplicationStageRow(appId, stage, notes, actor) {
     var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(appId); });
     if (a) { prevStage = a.ats_stage || ''; Object.assign(a, patch); updated = a; }
   }
-  if (updated) await atsRecordStageEvent(appId, prevStage, stage, actor);
+  if (updated) await atsRecordStageEvent(appId, prevStage, stage, actor, reason);
   return updated ? { row: updated, prevStage: prevStage } : null;
 }
-async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
+// AI Matching (Task 7): optional `reason` — a free-text (or fixed-vocabulary,
+// e.g. 'gp_withdrew') string stored on the stage-event row when staff move a
+// card to `not_proceeding` from an already-submitted-to-practice stage or
+// later, via the ATS drawer/board's withdraw-reason prompt. This is the
+// strike-source data Task 8 reads (a 'gp_withdrew' reason on a submitted+ ->
+// not_proceeding event counts as a late-withdrawal strike). Omitted/falsy on
+// every pre-existing caller — behavior-preserving for all of them.
+async function atsRecordStageEvent(appId, fromStage, toStage, actor, reason) {
   var ev = { application_id: appId, from_stage: fromStage || '', to_stage: toStage || '', actor: actor || '', created_at: atsNowIso() };
+  if (reason) ev.reason = String(reason).trim().slice(0, 200);
   if (isSupabaseDbConfigured()) {
     await supabaseDbRequest('ats_stage_events', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [ev] }).catch(function () {});
   } else {
@@ -26381,6 +26389,129 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
     }
   } catch (opsApplyErr) {
     console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
+  }
+}
+
+// ---- AI Matching (Task 7 of the 2026-07-06 implementation plan) -----------
+// Caps, self-apply-as-accept, velocity flagging (spec §9 anti-time-waster
+// controls). Placed here (true top-level, before handleApi) so these are
+// visible to module.exports.__testUtils at the bottom of the file, same
+// scoping lesson Task 4 already learned the hard way.
+
+// Active-application cap: a GP may have at most 3 applications "in play" at
+// once (a live team match awaiting response, applied, submitted to the
+// practice, reviewing, or a booked interview) — a 4th NEW application is
+// blocked so the team isn't juggling a doctor's attention across too many
+// practices simultaneously. Terminal stages (offer/hired/not_proceeding)
+// never count. Mirrors the same "effective stage" computation used
+// everywhere else in this file for a gp_applications row (raw ats_stage
+// column when set, else derived from the legacy status fields) so an
+// ordinary self-applied row with no ats_stage value still counts as
+// 'applied' rather than silently escaping the cap.
+var ACTIVE_APPLICATION_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+var ACTIVE_APPLICATION_CAP = 3;
+async function countActiveApplications(userId) {
+  var caaRes = await supabaseDbRequest('gp_applications',
+    'select=ats_stage,status,practice_submission_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+  var caaRows = (caaRes.ok && Array.isArray(caaRes.data)) ? caaRes.data : [];
+  return caaRows.filter(function (row) {
+    var stage = row.ats_stage || atsPracticeUtil.deriveAtsStage(row, false);
+    return ACTIVE_APPLICATION_STAGES.indexOf(stage) !== -1;
+  }).length;
+}
+
+// Interview cap: 3 interviews per calendar month, counted the SAME way GET
+// /api/career/my-interviews merges the two interview stores (a review of
+// Task 4's original GET /api/career/interview-usage found it counted ONLY
+// career_interviews, which could under-count vs what the GP's own interviews
+// page shows) — booked/completed scheduled_calls rows (meeting_kind=
+// 'interview'; 'invited' rows with no chosen slot yet, and any cancelled/
+// no_show row on either table, never count) PLUS scheduled/confirmed/
+// completed career_interviews rows, both restricted to the given month
+// window. countMonthlyCareerInterviews is the one place both the meter (GET
+// /api/career/interview-usage) and the two booking endpoints' enforcement
+// read from, so they can never disagree.
+var INTERVIEW_MONTHLY_CAP = 3;
+function currentInterviewMonthWindow(nowDate) {
+  var now = nowDate || new Date();
+  return {
+    start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0)),
+    end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0))
+  };
+}
+async function countMonthlyCareerInterviews(userId, monthStart, monthEnd) {
+  var startIso = monthStart.toISOString();
+  var endIso = monthEnd.toISOString();
+  var results = await Promise.all([
+    supabaseDbRequest('career_interviews',
+      'select=id&user_id=eq.' + encodeURIComponent(userId) +
+      '&status=in.(scheduled,confirmed,completed)' +
+      '&scheduled_at=gte.' + encodeURIComponent(startIso) +
+      '&scheduled_at=lt.' + encodeURIComponent(endIso) +
+      '&limit=500'),
+    supabaseDbRequest('scheduled_calls',
+      'select=id&user_id=eq.' + encodeURIComponent(userId) +
+      '&meeting_kind=eq.interview' +
+      '&status=in.(booked,completed)' +
+      '&scheduled_at=gte.' + encodeURIComponent(startIso) +
+      '&scheduled_at=lt.' + encodeURIComponent(endIso) +
+      '&limit=500')
+  ]);
+  var ciCount = (results[0].ok && Array.isArray(results[0].data)) ? results[0].data.length : 0;
+  var scCount = (results[1].ok && Array.isArray(results[1].data)) ? results[1].data.length : 0;
+  return ciCount + scCount;
+}
+
+// Shared accept mechanics for a LIVE 'shortlisted' row — used by POST
+// /api/career/match/respond (action:'accept') AND the self-apply-as-accept
+// branch in POST /api/career/apply below (spec §7: self-applying to a job
+// you're already team-matched on behaves like accepting the match, instead
+// of the plain "already applied" 409). Caller has ALREADY verified: the row
+// belongs to this user, row.ats_stage === 'shortlisted', and the match has
+// not expired. Does only the AWAITED DB writes (PATCH -> applied/accepted,
+// stage event, VA follow-up task) so callers can send their HTTP response
+// the instant this resolves — the GP confirmation email + ops "Match
+// accepted" email stay fire-and-forget AFTER sendJson at each call site,
+// same non-blocking convention apply's own side effects already use (see
+// notifyGpApplicationSubmitted above) — this is a deliberate choice to keep
+// that timing property intact rather than folding it into this helper.
+async function acceptShortlistedMatchRow(row, userId, actorEmail, profile) {
+  var job = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
+  var nowIso = new Date().toISOString();
+  var patch = { ats_stage: 'applied', match_outcome: 'accepted', ats_stage_updated_at: nowIso, applied_at: nowIso, updated_at: nowIso };
+  var upd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+  var updatedRow = (upd.ok && Array.isArray(upd.data) && upd.data[0]) ? upd.data[0] : Object.assign({}, row, patch);
+  await atsRecordStageEvent(row.id, 'shortlisted', 'applied', actorEmail || '');
+  var caseId = await createCareerApplicationSubmissionTask(userId, profile, job || {}, updatedRow);
+  invalidateAdminDashboardCache();
+  return { updatedRow: updatedRow, job: job, caseId: caseId };
+}
+
+// Velocity flag: 5+ NEW self-applies in the last 24h is a "burst-clicking,
+// not genuine intent" red flag for the team (spec §9) — team-only, never
+// shown to the GP. countApplicationsInLast24h counts ALL of this user's
+// gp_applications rows (any origin/stage) created (applied_at) in the last
+// 24h; flagApplicationVelocity does the read-state -> merge -> upsert dance
+// every user_state write in this file uses (there's no single shared
+// upsert-and-merge helper — supabaseDbRequest's raw PATCH would clobber the
+// whole `state` JSONB column, so every caller reads first).
+var APPLICATION_VELOCITY_THRESHOLD = 5;
+var APPLICATION_VELOCITY_DISPLAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+async function countApplicationsInLast24h(userId) {
+  var sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  var res = await supabaseDbRequest('gp_applications',
+    'select=id&user_id=eq.' + encodeURIComponent(userId) + '&applied_at=gte.' + encodeURIComponent(sinceIso) + '&limit=500');
+  return (res.ok && Array.isArray(res.data)) ? res.data.length : 0;
+}
+async function flagApplicationVelocity(userId, count) {
+  try {
+    var stateRes = await supabaseDbRequest('user_state', 'select=state,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var row = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0) ? stateRes.data[0] : null;
+    var state = (row && row.state && typeof row.state === 'object') ? Object.assign({}, row.state) : {};
+    state.application_velocity_flag = { count: count, at: new Date().toISOString() };
+    await upsertSupabaseUserState(userId, state, new Date().toISOString());
+  } catch (velocityStateErr) {
+    console.error('[career apply] velocity flag write failed:', velocityStateErr && velocityStateErr.message);
   }
 }
 
@@ -27512,6 +27643,19 @@ function atsIntentInputFromFacts(f) {
   var done = calls.filter(function (c) { return c.status === 'completed'; }).length;
   var missed = calls.filter(function (c) { return c.status === 'no_show' || c.status === 'cancelled'; }).length;
   var best = atsPracticeUtil.bestAtsStage((f.apps || []).map(function (a) { return { ats_stage: a.ats_stage }; }));
+  var lastActiveDaysRaw = Number(f.lastActiveDays != null ? f.lastActiveDays : 999);
+  // AI Matching (Task 7): a "high application velocity" flag (5+ applies in
+  // 24h, still <7 days old — spec §9) is a burst-clicking red flag, not
+  // genuine day-to-day engagement. The "Recent app activity" signal exists
+  // to reward the latter, so a flagged candidate doesn't get full recency
+  // credit just for spamming applies — floors the recency bucket at the
+  // 15-30 day tier (v=0.3) instead of full credit when lastActiveDays would
+  // otherwise put them in a higher tier. A modest, few-point dip: same order
+  // of magnitude as the existing blockedDays penalty on the Registration
+  // progress signal (max ~5.6 points there) — not a new weighted signal
+  // (computeIntent's 7-signal/100-weight shape is a tested contract we don't
+  // touch), just a facts-layer input adjustment.
+  var lastActiveDaysForIntent = f.velocityFlagged ? Math.max(lastActiveDaysRaw, 15) : lastActiveDaysRaw;
   return {
     commsEngagementVal: f.comms && typeof f.comms.engagementVal === 'number' ? f.comms.engagementVal : 0,
     onboardingCompleted: !!(f.ob && f.ob.completed),
@@ -27522,9 +27666,18 @@ function atsIntentInputFromFacts(f) {
     blockedDays: Number(f.blockedDays || 0),
     callsCompleted: done,
     callsMissed: missed,
-    lastActiveDays: Number(f.lastActiveDays != null ? f.lastActiveDays : 999),
+    lastActiveDays: lastActiveDaysForIntent,
     bestAtsStage: best
   };
+}
+
+// AI Matching (Task 7): true when a still-fresh (<7d old) velocity flag is
+// present on the state blob. Shared by both facts builders below.
+function atsVelocityFlagIsFresh(flag) {
+  if (!flag || !flag.at) return false;
+  var at = Date.parse(flag.at);
+  if (!isFinite(at)) return false;
+  return (Date.now() - at) <= APPLICATION_VELOCITY_DISPLAY_WINDOW_MS;
 }
 
 function atsSpecialtyFromOnboarding(ob) {
@@ -27604,7 +27757,11 @@ function atsLocalCandidateFacts(row) {
     calls: Array.isArray(row.calls) ? row.calls : [],
     comms: row.comms || null,
     aiHandover: row.aiHandover || '',
-    apps: enrichedApps
+    apps: enrichedApps,
+    // AI Matching (Task 7): local-mode seed rows carry the velocity flag
+    // directly (no separate user_state table in this mode).
+    velocityFlag: row.velocityFlag || null,
+    velocityFlagged: atsVelocityFlagIsFresh(row.velocityFlag)
   };
 }
 
@@ -27711,7 +27868,13 @@ async function atsProdCandidateFacts(regCase) {
     }),
     comms: comms,
     aiHandover: regCase.ai_handover_summary || '',
-    apps: apps
+    apps: apps,
+    // AI Matching (Task 7): read live off user_state — NOT part of the
+    // registration_cases.intent_signals.facts cache (that blob only
+    // refreshes on intent recompute, not on every apply), so a flag written
+    // minutes ago is reflected the next time intent is computed for this GP.
+    velocityFlag: state.application_velocity_flag || null,
+    velocityFlagged: atsVelocityFlagIsFresh(state.application_velocity_flag)
   };
 }
 
@@ -27747,7 +27910,11 @@ function atsCandidateListRow(facts, intent) {
     intent_score: intent.score, intent_band: intent.band,
     onboarding_completed: facts.ob.completed, onboarding_pct: Math.round((facts.ob.completed ? 1 : (facts.ob.fieldsFilled || 0)) * 100),
     docs: { cv: !!facts.docs.cv, coverLetter: !!facts.docs.coverLetter },
-    account_status: facts.account_status, rso: facts.rso
+    account_status: facts.account_status, rso: facts.rso,
+    // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
+    // 24h, still within the 7-day display window (spec §9).
+    high_velocity: !!facts.velocityFlagged,
+    velocity_flag: facts.velocityFlagged ? facts.velocityFlag : null
   };
 }
 
@@ -33029,6 +33196,16 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // AI Matching (Task 7): interview cap — 3 booked/completed interviews per
+    // calendar month (spec §9), counted the SAME merged way GET /api/career/
+    // interview-usage does, so the meter and this block always agree.
+    const cbMonthWindow = currentInterviewMonthWindow(new Date());
+    const cbInterviewCount = await countMonthlyCareerInterviews(cbUserId, cbMonthWindow.start, cbMonthWindow.end);
+    if (cbInterviewCount >= INTERVIEW_MONTHLY_CAP) {
+      sendJson(res, 409, { ok: false, error: 'interview_cap', resetsAt: cbMonthWindow.end.toISOString() });
+      return;
+    }
+
     const cbBooked = await _bookInterviewSlot(cbRow, cbCtx, cbSlotStart, Date.now(), cbEmail || '');
     if (cbBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, error: 'slot_taken' }); return; }
 
@@ -33047,17 +33224,6 @@ async function handleApi(req, res, pathname) {
     if (!session) return;
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
-
-    // Per-user rate limiting
-    const rateLimitUserId = getSessionSupabaseUserId(session) || email;
-    const now = Date.now();
-    const timestamps = (_applyRateLimitStore.get(rateLimitUserId) || []).filter((ts) => now - ts < APPLY_RATE_WINDOW_MS);
-    if (timestamps.length >= APPLY_RATE_MAX) {
-      sendJson(res, 429, { ok: false, message: 'Too many applications. Please try again later.' });
-      return;
-    }
-    timestamps.push(now);
-    _applyRateLimitStore.set(rateLimitUserId, timestamps);
 
     let body;
     try { body = await readJsonBody(req); } catch {
@@ -33150,15 +33316,91 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Check for duplicate application
+    // Check for an existing application on this exact role. AI Matching
+    // (Task 7, spec §7): a LIVE 'shortlisted' row here means the GP is self-
+    // applying to a job they were already team-matched on — route through
+    // the SAME accept path POST /api/career/match/respond uses instead of
+    // blunt-rejecting (select=* so the shared accept helper has the full row
+    // to work with, not just its id).
     const existingApp = await supabaseDbRequest(
       'gp_applications',
-      `select=id&user_id=eq.${encodeURIComponent(userId)}&career_role_id=eq.${encodeURIComponent(roleRow.id)}&limit=1`
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&career_role_id=eq.${encodeURIComponent(roleRow.id)}&limit=1`
     );
-    if (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data.length > 0) {
+    const existingAppRow = (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data[0]) ? existingApp.data[0] : null;
+    if (existingAppRow) {
+      if (existingAppRow.ats_stage === 'shortlisted') {
+        const applyGpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
+        const matchIsExpired = !!(existingAppRow.match_expires_at && Date.parse(existingAppRow.match_expires_at) < Date.now());
+        if (matchIsExpired) {
+          // A still-'shortlisted'-but-past-expiry row the lifecycle cron
+          // hasn't swept yet — same 410-equivalent "still interested"
+          // behavior as /api/career/match/respond's own expired branch.
+          sendJson(res, 410, {
+            ok: false, expired: true,
+            message: "This match has expired — the role may still be open; your team has been told you're interested."
+          });
+          if (isEmailConfigured()) {
+            const expJobTitle = String(existingAppRow.job_title || roleRow.title || 'a role').trim();
+            sendEmail({
+              to: 'hello@mygplink.com.au',
+              subject: 'GP clicked expired match — still interested: ' + applyGpDisplayName + ', ' + expJobTitle,
+              text: applyGpDisplayName + ' tried to apply for an expired match ("' + expJobTitle + '") and is still interested. Application: ' + existingAppRow.id,
+              from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+            }).catch(() => {});
+          }
+          return;
+        }
+        // Self-apply-as-accept: NOT a new application — no active-application
+        // cap, no rate limiter (both apply to new applies only, below).
+        const matchAccept = await acceptShortlistedMatchRow(existingAppRow, userId, email, profile);
+        sendJson(res, 200, {
+          ok: true, matched: true,
+          message: 'Application submitted successfully.',
+          application: matchAccept.updatedRow
+        });
+        notifyGpApplicationSubmitted(userId, email, matchAccept.job || {}, matchAccept.caseId, applyGpDisplayName);
+        if (isEmailConfigured()) {
+          const matchJobTitle = String((matchAccept.job && matchAccept.job.title) || existingAppRow.job_title || 'a role').trim();
+          sendEmail({
+            to: 'hello@mygplink.com.au',
+            subject: 'Match accepted: ' + applyGpDisplayName + ' → ' + matchJobTitle,
+            text: applyGpDisplayName + ' accepted the team match for "' + matchJobTitle + '" via self-apply. Application: ' + matchAccept.updatedRow.id,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          }).catch(() => {});
+        }
+        return;
+      }
+      // Any other stage (applied/submitted/.../not_proceeding, or a legacy
+      // row with no ats_stage at all) — unchanged pre-existing behavior.
       sendJson(res, 409, { ok: false, message: 'You have already applied for this role.' });
       return;
     }
+
+    // AI Matching (Task 7): active-application cap — only reached for a
+    // genuinely NEW application (no existing row on this exact role at all;
+    // accepting a match above already returned). 4th active application →
+    // blocked, per spec §9.
+    const activeApplicationCount = await countActiveApplications(userId);
+    if (activeApplicationCount >= ACTIVE_APPLICATION_CAP) {
+      sendJson(res, 409, {
+        ok: false, error: 'active_cap',
+        message: 'You have 3 active applications — focus on those first, or withdraw one.'
+      });
+      return;
+    }
+
+    // Per-user rate limiting — moved here (from the top of this handler) so
+    // accepting a match above never counts against it; only genuinely new
+    // applications reach this point.
+    const rateLimitUserId = getSessionSupabaseUserId(session) || email;
+    const now = Date.now();
+    const timestamps = (_applyRateLimitStore.get(rateLimitUserId) || []).filter((ts) => now - ts < APPLY_RATE_WINDOW_MS);
+    if (timestamps.length >= APPLY_RATE_MAX) {
+      sendJson(res, 429, { ok: false, message: 'Too many applications. Please try again later.' });
+      return;
+    }
+    timestamps.push(now);
+    _applyRateLimitStore.set(rateLimitUserId, timestamps);
 
     // Zoho Recruit decommissioned — no external application is created; the
     // in-app gp_applications row below is the system of record.
@@ -33239,6 +33481,18 @@ async function handleApi(req, res, pathname) {
     // same order as before this extraction — apply's behavior is unchanged.
     const applyGpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
     const applyOpsCaseId = await createCareerApplicationSubmissionTask(userId, profile, roleRow, savedApplication);
+
+    // AI Matching (Task 7): velocity flag — new self-applies only (never the
+    // accept paths above). 5+ of this GP's applications in the last 24h is a
+    // "burst-clicking, not genuine intent" red flag for the team (spec §9).
+    try {
+      const velocityCount = await countApplicationsInLast24h(userId);
+      if (velocityCount >= APPLICATION_VELOCITY_THRESHOLD) {
+        await flagApplicationVelocity(userId, velocityCount);
+      }
+    } catch (velocityErr) {
+      console.error('[career apply] velocity check failed:', velocityErr && velocityErr.message);
+    }
 
     invalidateAdminDashboardCache();
 
@@ -33382,9 +33636,13 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // GET /api/career/interview-usage — {used, limit:3, resetsAt}, counting
-  // career_interviews rows for this GP with status scheduled/confirmed/
-  // completed and scheduled_at within the CURRENT UTC calendar month.
+  // GET /api/career/interview-usage — {used, limit:3, resetsAt}. AI Matching
+  // (Task 7): counts the SAME merged set GET /api/career/my-interviews shows
+  // the GP (career_interviews scheduled/confirmed/completed + scheduled_calls
+  // booked/completed interviews), restricted to the current UTC calendar
+  // month, via countMonthlyCareerInterviews — the one place this meter and
+  // both booking endpoints' cap enforcement (below) read from, so they can
+  // never disagree.
   if (pathname === '/api/career/interview-usage' && req.method === 'GET') {
     const iuSession = requireSession(req, res);
     if (!iuSession) return;
@@ -33392,17 +33650,9 @@ async function handleApi(req, res, pathname) {
     if (!iuEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
     const iuUserId = getSessionSupabaseUserId(iuSession) || await getSupabaseUserIdByEmail(iuEmail);
     if (!iuUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const iuNow = new Date();
-    const iuStart = new Date(Date.UTC(iuNow.getUTCFullYear(), iuNow.getUTCMonth(), 1, 0, 0, 0));
-    const iuEnd = new Date(Date.UTC(iuNow.getUTCFullYear(), iuNow.getUTCMonth() + 1, 1, 0, 0, 0));
-    const iuRes = await supabaseDbRequest('career_interviews',
-      'select=id&user_id=eq.' + encodeURIComponent(iuUserId) +
-      '&status=in.(scheduled,confirmed,completed)' +
-      '&scheduled_at=gte.' + encodeURIComponent(iuStart.toISOString()) +
-      '&scheduled_at=lt.' + encodeURIComponent(iuEnd.toISOString()) +
-      '&limit=500');
-    const iuUsed = (iuRes.ok && Array.isArray(iuRes.data)) ? iuRes.data.length : 0;
-    sendJson(res, 200, { ok: true, used: iuUsed, limit: 3, resetsAt: iuEnd.toISOString() });
+    const iuWindow = currentInterviewMonthWindow(new Date());
+    const iuUsed = await countMonthlyCareerInterviews(iuUserId, iuWindow.start, iuWindow.end);
+    sendJson(res, 200, { ok: true, used: iuUsed, limit: INTERVIEW_MONTHLY_CAP, resetsAt: iuWindow.end.toISOString() });
     return;
   }
 
@@ -33567,23 +33817,21 @@ async function handleApi(req, res, pathname) {
     }
 
     // accept — self-apply on a matched job (spec §7): identical downstream
-    // flow to a normal apply (shared helpers above), plus match bookkeeping
-    // and its own ops email.
-    const mrAcceptPatch = { ats_stage: 'applied', match_outcome: 'accepted', ats_stage_updated_at: mrNowIso, applied_at: mrNowIso, updated_at: mrNowIso };
-    const mrUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mrAppId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: mrAcceptPatch });
-    const mrUpdatedRow = (mrUpd.ok && Array.isArray(mrUpd.data) && mrUpd.data[0]) ? mrUpd.data[0] : Object.assign({}, mrRow, mrAcceptPatch);
-    await atsRecordStageEvent(mrAppId, 'shortlisted', 'applied', mrEmail);
-
-    const mrCaseId = await createCareerApplicationSubmissionTask(mrUserId, mrProfile, mrJob || {}, mrUpdatedRow);
-    invalidateAdminDashboardCache();
-    sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrUpdatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
-    notifyGpApplicationSubmitted(mrUserId, mrEmail, mrJob || {}, mrCaseId, mrGpDisplayName);
+    // flow to a normal apply, plus match bookkeeping and its own ops email.
+    // AI Matching (Task 7): the PATCH/stage-event/VA-task mechanics are now
+    // the SAME shared helper Task 7's self-apply-as-accept branch in POST
+    // /api/career/apply uses (acceptShortlistedMatchRow, defined above) —
+    // extracted rather than duplicated. Same calls, same order as before
+    // this extraction.
+    const mrAccept = await acceptShortlistedMatchRow(mrRow, mrUserId, mrEmail, mrProfile);
+    sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrAccept.updatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
+    notifyGpApplicationSubmitted(mrUserId, mrEmail, mrAccept.job || {}, mrAccept.caseId, mrGpDisplayName);
     if (isEmailConfigured()) {
-      const mrAcceptJobTitle = String((mrJob && mrJob.title) || mrRow.job_title || 'a role').trim();
+      const mrAcceptJobTitle = String((mrAccept.job && mrAccept.job.title) || mrRow.job_title || 'a role').trim();
       sendEmail({
         to: 'hello@mygplink.com.au',
         subject: 'Match accepted: ' + mrGpDisplayName + ' → ' + mrAcceptJobTitle,
-        text: mrGpDisplayName + ' accepted the team match for "' + mrAcceptJobTitle + '". Application: ' + mrUpdatedRow.id,
+        text: mrGpDisplayName + ' accepted the team match for "' + mrAcceptJobTitle + '". Application: ' + mrAccept.updatedRow.id,
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
       }).catch(() => {});
     }
@@ -53197,7 +53445,13 @@ Return ONLY valid JSON with no markdown formatting:
     var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
     if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
     if (!newStage && typeof bodyAP.notes !== 'string') { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
-    var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '');
+    // AI Matching (Task 7): optional withdraw reason — only meaningful on a
+    // move INTO not_proceeding (the client's withdraw-reason prompt only ever
+    // sends it there); stored on the stage event as the strike-source data
+    // Task 8 reads (a 'gp_withdrew' reason on a submitted+ -> not_proceeding
+    // event is a late-withdrawal strike).
+    var apWithdrawReason = (newStage === 'not_proceeding' && typeof bodyAP.reason === 'string') ? bodyAP.reason.trim().slice(0, 200) : null;
+    var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '', apWithdrawReason);
     var updatedAP = upAP ? upAP.row : null;
     if (!updatedAP && newStage) {
       // stage required but row missing
@@ -53786,6 +54040,21 @@ Return ONLY valid JSON with no markdown formatting:
     var bkCtx = await atsGetApplicationContext(bkAppId);
     if (!bkCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
+    // AI Matching (Task 7): interview cap — same 3/month merged count as the
+    // GP-facing booking endpoint (below), so staff can't accidentally over-
+    // book a GP who's already at their monthly limit. Human-readable message
+    // for the ATS drawer's error toast.
+    var bkMonthWindow = currentInterviewMonthWindow(bkNow);
+    var bkInterviewCount = await countMonthlyCareerInterviews(bkCtx.userId, bkMonthWindow.start, bkMonthWindow.end);
+    if (bkInterviewCount >= INTERVIEW_MONTHLY_CAP) {
+      var bkResetsLabel = bkMonthWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+      sendJson(res, 409, {
+        ok: false, error: 'interview_cap', resetsAt: bkMonthWindow.end.toISOString(),
+        message: 'This GP has used all 3 interviews this month (resets ' + bkResetsLabel + ')'
+      });
+      return;
+    }
+
     var bkBooked = await _bookInterviewSlot(bkRow, bkCtx, bkSlotStart, bkNow.getTime(), ctxBK.email || '');
     if (bkBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
 
@@ -54293,6 +54562,36 @@ Return ONLY valid JSON with no markdown formatting:
         r.onboarding_completed = !!(r.onboarding_completed || byUser2[r.user_id]);
       });
     }
+    // AI Matching (Task 7): "high application velocity" chip — a LIVE
+    // user_state read (NOT part of the cached intent_signals.facts blob,
+    // which only refreshes on intent recompute, not on every apply), so a
+    // flag written minutes ago shows up immediately here — same "batch +
+    // merge after the fact" pattern as the pipeline_bucket merge above.
+    // supabaseDbRequest degrades to {ok:false} when Supabase isn't
+    // configured, so this is a safe no-op in local mode (leaving whatever
+    // atsCandidateListRow already set from the seed's velocityFlag intact).
+    var velUids = rows.map(function (r) { return r.user_id; }).filter(Boolean);
+    var velByUser = {};
+    for (var vi = 0; vi < velUids.length; vi += 200) {
+      var vChunk = velUids.slice(vi, vi + 200);
+      var vListStr = vChunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+      var vRes = await supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + encodeURIComponent(vListStr) + ')&limit=2000');
+      ((vRes.ok && vRes.data) || []).forEach(function (s) {
+        var flag = s.state && s.state.application_velocity_flag;
+        if (flag && flag.at) velByUser[s.user_id] = flag;
+      });
+    }
+    rows.forEach(function (r) {
+      var flag = velByUser[r.user_id];
+      if (flag) {
+        var flagged = atsVelocityFlagIsFresh(flag);
+        r.high_velocity = flagged;
+        r.velocity_flag = flagged ? flag : null;
+      } else if (typeof r.high_velocity !== 'boolean') {
+        r.high_velocity = false;
+        r.velocity_flag = r.velocity_flag || null;
+      }
+    });
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.
     rows = rows.filter(function (r) {
@@ -55563,6 +55862,21 @@ module.exports.__testUtils = {
   sendRedirectEmail,
   redirectOthersForJob,
   buildRedirectAlternativeTags,
+  countActiveApplications,
+  ACTIVE_APPLICATION_CAP,
+  ACTIVE_APPLICATION_STAGES,
+  countMonthlyCareerInterviews,
+  currentInterviewMonthWindow,
+  INTERVIEW_MONTHLY_CAP,
+  acceptShortlistedMatchRow,
+  countApplicationsInLast24h,
+  flagApplicationVelocity,
+  APPLICATION_VELOCITY_THRESHOLD,
+  atsVelocityFlagIsFresh,
+  atsIntentInputFromFacts,
+  atsCandidateListRow,
+  atsUpdateApplicationStageRow,
+  atsRecordStageEvent,
   isEmailSuppressed,
   suppressEmail,
   makeMarketingUnsubToken,
