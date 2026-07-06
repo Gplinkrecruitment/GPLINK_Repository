@@ -27270,8 +27270,11 @@ async function handleApi(req, res, pathname) {
           if (spMeta.sppa_state !== 'sent_to_practice' && spMeta.sppa_state !== 'corrections_requested') continue;
           var spEmail = String(spMeta.sent_to_practice_email || '').trim();
           if (!spEmail) continue;
-          // Dedup anchor: last chase if any, else the original send.
-          var spAnchor = spMeta.practice_chase_last_at || spMeta.sent_to_practice_at || spTask.updated_at;
+          // Dedup anchor: last chase if any, else the most recent action that
+          // put the ball back in the practice's court (corrections asked >
+          // original send), so a practice just asked for corrections isn't
+          // chased prematurely.
+          var spAnchor = spMeta.practice_chase_last_at || spMeta.corrections_requested_at || spMeta.sent_to_practice_at || spTask.updated_at;
           if (chWithinWindow(spAnchor, chPracticeDays)) continue;
           var spGpName = 'the candidate';
           try {
