@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GP Link — Careers Gate + Practice Email (Design Preview)</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gp-blue:#2563eb; --gp-blue-deep:#1d4ed8; --gp-blue-ink:#173da6;
+    --gp-blue-soft:#eff4ff; --gp-blue-border:#d6e2fb;
+    --gp-ink:#0f172a; --gp-text:#1f2b43; --gp-muted:#64748b; --gp-border:#e3e9f4;
+    --gp-canvas:#f4f6fb; --gp-surface:#ffffff; --gp-surface-sunken:#f8fafd;
+    --gp-green:#16a34a; --gp-amber:#d97706; --gp-red:#dc2626;
+    --gp-font-body:"DM Sans",-apple-system,sans-serif;
+    --gp-font-display:"Source Serif 4",Georgia,serif;
+    --gp-r-sm:10px; --gp-r-md:14px; --gp-r-lg:18px; --gp-r-xl:24px; --gp-r-pill:999px;
+    --gp-shadow-md:0 10px 30px rgba(15,23,42,.10);
+    --gp-shadow-lg:0 24px 60px rgba(15,23,42,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--gp-font-body);background:var(--gp-canvas);color:var(--gp-text);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+
+  .preview-wrap{max-width:1180px;margin:0 auto;padding:40px 22px 80px}
+  .preview-head{margin-bottom:34px}
+  .preview-kicker{display:inline-block;background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);color:var(--gp-blue-ink);font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:5px 12px;border-radius:var(--gp-r-pill);margin-bottom:12px}
+  .preview-head h1{font-family:var(--gp-font-display);font-size:30px;color:var(--gp-ink);line-height:1.2}
+  .preview-head p{color:var(--gp-muted);max-width:720px;margin-top:8px}
+
+  .section-label{display:flex;align-items:center;gap:10px;margin:46px 0 16px}
+  .section-num{width:28px;height:28px;border-radius:50%;background:var(--gp-ink);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+  .section-label h2{font-family:var(--gp-font-display);font-size:21px;color:var(--gp-ink)}
+  .section-sub{color:var(--gp-muted);font-size:13.5px;margin:-8px 0 18px 38px;max-width:760px}
+
+  /* ============ SECTION 1: gate popup over careers page ============ */
+  .stage{position:relative;border-radius:var(--gp-r-xl);overflow:hidden;box-shadow:var(--gp-shadow-lg);min-height:660px;background:#0b1c3f}
+  .fake-careers{position:absolute;inset:0;filter:blur(3px) saturate(.85);transform:scale(1.02);opacity:.55}
+  .fake-hero{background:linear-gradient(135deg,#0b1c3f 0%,#173da6 70%,#2563eb 100%);padding:34px 36px 60px;color:#fff}
+  .fake-hero h3{font-family:var(--gp-font-display);font-size:26px}
+  .fake-hero p{opacity:.75;font-size:13px;margin-top:6px}
+  .fake-search{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);height:52px;border-radius:var(--gp-r-md);margin-top:22px;max-width:560px}
+  .fake-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:0 36px;margin-top:-26px}
+  .fake-card{background:#fff;border-radius:var(--gp-r-lg);height:190px;padding:14px}
+  .fake-line{height:10px;border-radius:6px;background:#e3e9f4;margin-bottom:9px}
+  .fake-line.w60{width:60%}.fake-line.w80{width:80%}.fake-line.w40{width:40%}
+  .fake-img{height:86px;border-radius:12px;background:linear-gradient(120deg,#c7d6f5,#e8eefb);margin-bottom:12px}
+  .stage-scrim{position:absolute;inset:0;background:rgba(11,20,42,.45);backdrop-filter:blur(1px)}
+
+  .gate-modal{position:relative;z-index:2;max-width:520px;margin:52px auto;background:var(--gp-surface);border-radius:var(--gp-r-xl);box-shadow:var(--gp-shadow-lg);overflow:hidden}
+  .gate-top{background:linear-gradient(135deg,var(--gp-blue-ink),var(--gp-blue));padding:26px 28px 22px;color:#fff}
+  .gate-top-kicker{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.8}
+  .gate-top h3{font-family:var(--gp-font-display);font-size:23px;margin-top:6px;line-height:1.25}
+  .gate-top p{font-size:13.5px;opacity:.85;margin-top:8px}
+  .gate-body{padding:24px 28px 28px}
+
+  .req-row{display:flex;gap:14px;align-items:flex-start;padding:16px;border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);background:var(--gp-surface-sunken)}
+  .req-row + .req-row{margin-top:14px}
+  .req-ico{width:40px;height:40px;flex:none;border-radius:12px;background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .req-title{font-weight:700;color:var(--gp-ink);font-size:14.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tag{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:var(--gp-r-pill)}
+  .tag-req{background:#fdecec;color:var(--gp-red)}
+  .tag-opt{background:var(--gp-blue-soft);color:var(--gp-blue-ink)}
+  .req-desc{font-size:13px;color:var(--gp-muted);margin-top:3px}
+
+  .dropzone{margin-top:12px;border:1.5px dashed var(--gp-blue-border);border-radius:var(--gp-r-md);background:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .18s}
+  .dropzone:hover{border-color:var(--gp-blue)}
+  .dz-btn{background:var(--gp-blue);color:#fff;font-weight:600;font-size:13px;padding:8px 16px;border-radius:var(--gp-r-md);border:none;cursor:pointer;flex:none}
+  .dz-hint{font-size:12.5px;color:var(--gp-muted)}
+
+  .boost{position:relative;display:flex;gap:13px;align-items:center;margin-top:12px;background:linear-gradient(135deg,#1c1405 0%,#332508 42%,#1f1706 78%,#2a1f08 100%);border:1px solid rgba(212,175,55,.55);border-radius:var(--gp-r-md);padding:13px 16px;overflow:hidden;box-shadow:0 6px 18px rgba(58,43,12,.35), inset 0 1px 0 rgba(247,231,176,.22)}
+  .boost::before{content:"";position:absolute;top:-60%;bottom:-60%;left:-30%;width:36%;background:linear-gradient(105deg,transparent 0%,rgba(255,241,196,.16) 40%,rgba(255,248,222,.34) 50%,rgba(255,241,196,.16) 60%,transparent 100%);transform:skewX(-18deg);animation:sheen 4.2s ease-in-out infinite}
+  @keyframes sheen{0%,55%{left:-40%}85%,100%{left:130%}}
+  .boost-medal{position:relative;width:38px;height:38px;flex:none;border-radius:50%;background:radial-gradient(circle at 32% 28%,#fdf0c0 0%,#e8c565 38%,#a97e1f 78%,#8a6516 100%);border:1px solid rgba(255,240,200,.65);box-shadow:0 3px 9px rgba(0,0,0,.4), inset 0 -2px 4px rgba(90,62,10,.5);display:flex;align-items:center;justify-content:center;font-size:16px;color:#5c430c;text-shadow:0 1px 0 rgba(255,244,210,.6)}
+  .boost-copy{position:relative}
+  .boost-kicker{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;background:linear-gradient(105deg,#c89b3c,#f7e7b0 45%,#d4af37 70%,#f3d67e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#d4af37;margin-bottom:3px}
+  .boost-copy span{font-size:12.5px;color:#e9dcb8;display:block;line-height:1.5}
+  .boost-copy b{background:linear-gradient(105deg,#e8c565,#fdf0c0 45%,#d4af37 75%,#f3d67e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#f3d67e;font-weight:700}
+
+  .scanline{display:flex;align-items:center;gap:10px;margin-top:12px;padding:11px 14px;border-radius:var(--gp-r-md);font-size:13px;font-weight:600}
+  .scan-checking{background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);color:var(--gp-blue-ink)}
+  .scan-ok{background:#ecfdf3;border:1px solid #bbe7cc;color:#0f7a37}
+  .scan-bad{background:#fdecec;border:1px solid #f6c8c8;color:var(--gp-red)}
+  .scan-bad small{display:block;font-weight:500;color:#b25454;margin-top:2px}
+  .spinner{width:15px;height:15px;border:2.5px solid var(--gp-blue-border);border-top-color:var(--gp-blue);border-radius:50%;animation:spin 1s linear infinite;flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .gate-cta{width:100%;margin-top:22px;padding:14px;border-radius:var(--gp-r-md);border:none;font-family:var(--gp-font-body);font-size:15px;font-weight:700;cursor:pointer;transition:all .18s}
+  .gate-cta.disabled{background:#e6ebf5;color:#9aa7bd;cursor:not-allowed}
+  .gate-cta.enabled{background:var(--gp-green);color:#fff;box-shadow:0 8px 22px rgba(22,163,74,.32)}
+  .gate-foot{font-size:12px;color:var(--gp-muted);text-align:center;margin-top:12px}
+
+  .demo-toggle{display:flex;gap:8px;justify-content:center;margin:18px 0 0;position:relative;z-index:3}
+  .demo-toggle button{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;font-family:var(--gp-font-body);font-size:12px;font-weight:600;padding:7px 14px;border-radius:var(--gp-r-pill);cursor:pointer}
+  .demo-toggle button.active{background:#fff;color:var(--gp-blue-ink)}
+
+  /* ============ SECTION 2: email mockup ============ */
+  .email-frame{background:var(--gp-surface);border-radius:var(--gp-r-xl);box-shadow:var(--gp-shadow-lg);overflow:hidden;max-width:680px;margin:0 auto}
+  .email-chrome{background:var(--gp-surface-sunken);border-bottom:1px solid var(--gp-border);padding:16px 24px}
+  .email-chrome .subj{font-weight:700;color:var(--gp-ink);font-size:15.5px}
+  .email-meta{font-size:12.5px;color:var(--gp-muted);margin-top:5px;line-height:1.6}
+  .email-meta b{color:var(--gp-text)}
+  .email-body{padding:0}
+  .em-brandbar{background:linear-gradient(135deg,var(--gp-blue-ink),var(--gp-blue));padding:20px 32px;display:flex;align-items:center;gap:10px}
+  .em-logo{font-family:var(--gp-font-display);font-weight:700;color:#fff;font-size:19px;letter-spacing:.01em}
+  .em-logo small{font-family:var(--gp-font-body);display:block;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+  .em-inner{padding:30px 32px 34px}
+  .em-inner > p{font-size:14.5px;color:var(--gp-text);margin-bottom:14px}
+  .em-card{border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);padding:20px 22px;margin:20px 0;background:var(--gp-surface-sunken)}
+  .em-card-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gp-blue-ink);margin-bottom:9px}
+  .em-card p{font-size:14.5px;color:var(--gp-text)}
+  .em-facts{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .em-fact{background:#fff;border:1px solid var(--gp-blue-border);color:var(--gp-blue-ink);font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:var(--gp-r-pill)}
+  .em-rec{border-left:4px solid var(--gp-blue);background:var(--gp-blue-soft);border-radius:0 var(--gp-r-lg) var(--gp-r-lg) 0;padding:18px 22px;margin:20px 0}
+  .em-rec .em-card-label{display:flex;align-items:center;gap:6px}
+  .em-rec p{font-size:14.5px;color:#22376b;font-style:italic}
+  .em-attach{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 4px}
+  .attach-chip{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--gp-border);border-radius:var(--gp-r-md);padding:10px 14px;font-size:13px;font-weight:600;color:var(--gp-text)}
+  .attach-chip .aico{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
+  .aico-cv{background:#fdecec}
+  .aico-cl{background:var(--gp-blue-soft)}
+  .attach-chip small{display:block;font-weight:500;color:var(--gp-muted);font-size:11px}
+  .em-actions{text-align:center;margin:30px 0 6px}
+  .btn-approve{display:inline-block;background:var(--gp-green);color:#fff;font-family:var(--gp-font-body);font-size:16px;font-weight:700;padding:15px 46px;border-radius:var(--gp-r-md);border:none;cursor:pointer;box-shadow:0 10px 26px rgba(22,163,74,.35);text-decoration:none}
+  .btn-approve small{display:block;font-size:11.5px;font-weight:500;opacity:.85;margin-top:2px}
+  .btn-turndown{display:inline-block;margin-top:13px;font-size:12px;color:#a5b0c2;text-decoration:underline;cursor:pointer;background:none;border:none;font-family:var(--gp-font-body)}
+  .em-footnote{font-size:12px;color:var(--gp-muted);text-align:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--gp-border)}
+
+  /* annotation callouts */
+  .annos{max-width:680px;margin:22px auto 0;display:grid;gap:10px}
+  .anno{display:flex;gap:11px;align-items:flex-start;background:#fffbeb;border:1px dashed #ecc86e;border-radius:var(--gp-r-md);padding:11px 15px;font-size:13px;color:#7a5c14}
+  .anno-n{width:21px;height:21px;flex:none;border-radius:50%;background:var(--gp-amber);color:#fff;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .anno b{color:#5e4405}
+
+  /* ============ SECTION 3: after approve strip ============ */
+  .flow-strip{display:flex;gap:0;align-items:stretch;max-width:900px;margin:0 auto;flex-wrap:wrap}
+  .flow-step{flex:1;min-width:200px;background:var(--gp-surface);border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);padding:20px;position:relative;box-shadow:var(--gp-shadow-md)}
+  .flow-step + .flow-step{margin-left:34px}
+  .flow-step + .flow-step::before{content:"→";position:absolute;left:-26px;top:50%;transform:translateY(-50%);font-size:19px;color:var(--gp-muted)}
+  .flow-ico{width:38px;height:38px;border-radius:12px;background:var(--gp-blue-soft);border:1px solid var(--gp-blue-border);display:flex;align-items:center;justify-content:center;font-size:17px;margin-bottom:11px}
+  .flow-step h4{font-size:14px;color:var(--gp-ink);font-weight:700}
+  .flow-step p{font-size:12.5px;color:var(--gp-muted);margin-top:5px}
+
+  @media (max-width:720px){
+    .fake-cards{grid-template-columns:1fr 1fr}
+    .gate-modal{margin:30px 14px}
+    .em-inner,.em-brandbar{padding-left:20px;padding-right:20px}
+    .flow-step + .flow-step{margin-left:0;margin-top:26px}
+    .flow-step + .flow-step::before{left:50%;top:-24px;transform:translateX(-50%) rotate(90deg)}
+    .flow-strip{flex-direction:column}
+  }
+</style>
+</head>
+<body>
+<div class="preview-wrap">
+
+  <header class="preview-head">
+    <span class="preview-kicker">Design preview — nothing built yet</span>
+    <h1>Careers profile gate &amp; practice submission email</h1>
+    <p>Two designs for your approval, using the app's existing colours and fonts so they'll look native when built. Sample data shown: Dr Smith Miller applying to SOP Medical Centre.</p>
+  </header>
+
+  <!-- ================= SECTION 1 ================= -->
+  <div class="section-label"><span class="section-num">1</span><h2>Careers gate — "Complete your profile" popup</h2></div>
+  <p class="section-sub">Shown the first time a GP (who doesn't yet have a secured position) opens the Careers page. The jobs list is blurred behind it, and they can't search until a genuine CV is on file. Use the buttons below the popup to preview the three AI-check states.</p>
+
+  <div class="stage">
+    <div class="fake-careers">
+      <div class="fake-hero">
+        <h3>Find your next practice</h3>
+        <p>Browse GP positions across Australia</p>
+        <div class="fake-search"></div>
+      </div>
+      <div class="fake-cards">
+        <div class="fake-card"><div class="fake-img"></div><div class="fake-line w80"></div><div class="fake-line w60"></div><div class="fake-line w40"></div></div>
+        <div class="fake-card"><div class="fake-img"></div><div class="fake-line w80"></div><div class="fake-line w60"></div><div class="fake-line w40"></div></div>
+        <div class="fake-card"><div class="fake-img"></div><div class="fake-line w80"></div><div class="fake-line w60"></div><div class="fake-line w40"></div></div>
+      </div>
+    </div>
+    <div class="stage-scrim"></div>
+
+    <div class="gate-modal">
+      <div class="gate-top">
+        <div class="gate-top-kicker">One quick step</div>
+        <h3>Complete your profile to start browsing careers</h3>
+        <p>Medical centres see your CV the moment we introduce you — let's make sure it's ready.</p>
+      </div>
+      <div class="gate-body">
+
+        <div class="req-row">
+          <div class="req-ico">📄</div>
+          <div style="flex:1">
+            <div class="req-title">Your CV <span class="tag tag-req">Required</span></div>
+            <div class="req-desc">PDF or Word. This exact file is what practices receive with your introduction.</div>
+            <div class="dropzone">
+              <button class="dz-btn">Upload CV</button>
+              <span class="dz-hint">or drag &amp; drop here — PDF, DOC, DOCX · max 10&nbsp;MB</span>
+            </div>
+
+            <div class="scanline scan-checking" id="scanChecking">
+              <div class="spinner"></div>
+              Checking this is a genuine CV…
+            </div>
+            <div class="scanline scan-ok" id="scanOk" style="display:none">
+              ✓&nbsp; CV verified — Smith-Miller-CV.pdf is ready to send to practices
+            </div>
+            <div class="scanline scan-bad" id="scanBad" style="display:none">
+              <div>
+                ✕&nbsp; This file doesn't look like a CV (it appears to be a contract).
+                <small>Please upload your actual CV. 2 checks remaining today.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="req-row">
+          <div class="req-ico">✉️</div>
+          <div style="flex:1">
+            <div class="req-title">Cover letter <span class="tag tag-opt">Optional</span></div>
+            <div class="req-desc">A short letter introducing yourself, sent alongside your CV.</div>
+            <div class="boost">
+              <div class="boost-medal">★</div>
+              <div class="boost-copy">
+                <div class="boost-kicker">Your exclusive edge</div>
+                <span>GPs with a cover letter are <b>150% more likely</b> to be offered a position by medical centres.</span>
+              </div>
+            </div>
+            <div class="dropzone">
+              <button class="dz-btn" style="background:#fff;color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border)">Add cover letter</button>
+              <span class="dz-hint">You can also add this later</span>
+            </div>
+          </div>
+        </div>
+
+        <button class="gate-cta disabled" id="gateCta" disabled>Upload your CV to continue</button>
+        <div class="gate-foot">Your documents are only shared with practices when we introduce you to a role.</div>
+      </div>
+    </div>
+
+    <div class="demo-toggle">
+      <button data-state="checking" class="active">State: AI checking</button>
+      <button data-state="ok">State: CV verified</button>
+      <button data-state="bad">State: Not a CV</button>
+    </div>
+  </div>
+
+  <div class="annos" style="max-width:1180px">
+    <div class="anno"><span class="anno-n">A</span><div><b>AI genuine-CV check:</b> every upload is scanned by AI before it's accepted (same engine as the qualification scanner). A contract, certificate or random file gets rejected on the spot — which prevents the wrong-attachment bug you saw with Smith Miller.</div></div>
+    <div class="anno"><span class="anno-n">B</span><div><b>Rate limiting:</b> a GP gets a limited number of AI scans per day (e.g. 5), so repeated junk uploads can't run up AI costs. The message shows attempts remaining.</div></div>
+    <div class="anno"><span class="anno-n">C</span><div><b>Who sees this:</b> only GPs without a secured placement. Placed GPs keep going straight to their placement view as they do today.</div></div>
+  </div>
+
+  <!-- ================= SECTION 2 ================= -->
+  <div class="section-label"><span class="section-num">2</span><h2>Candidate submission email to the practice</h2></div>
+  <p class="section-sub">What SOP Medical Centre would receive. The summary sentences are built from the GP's onboarding answers (country, pathway, hoped start date); the recommendation is AI-written from their verified CV; the attachments are the careers CV + cover letter — never registration-file documents.</p>
+
+  <div class="email-frame">
+    <div class="email-chrome">
+      <div class="subj">Candidate introduction: Dr Smith Miller — General Practitioner (VR)</div>
+      <div class="email-meta">
+        <b>From:</b> GP Link &lt;hello@mygplink.com.au&gt;<br>
+        <b>To:</b> SOP Medical Centre &lt;practicemanager@sopmedical.com.au&gt;
+      </div>
+    </div>
+    <div class="email-body">
+      <div class="em-brandbar">
+        <div class="em-logo">GP Link<small>Candidate introduction</small></div>
+      </div>
+      <div class="em-inner">
+        <p>Dear SOP Medical Centre team,</p>
+        <p>We're delighted to introduce <b>Dr Smith Miller</b> for your <b>General Practitioner (VR)</b> position.</p>
+
+        <div class="em-card">
+          <div class="em-card-label">About Dr Miller</div>
+          <p>Dr Miller is a UK-trained GP holding the MRCGP, coming to Australia via the <b>Expedited Specialist Pathway</b>. He is relocating from the United Kingdom and is hoping to commence work by <b>November 2026</b>, with GP Link managing his registration end-to-end.</p>
+          <div class="em-facts">
+            <span class="em-fact">🇬🇧 Trained in the UK</span>
+            <span class="em-fact">🩺 Expedited Specialist Pathway (MRCGP)</span>
+            <span class="em-fact">📅 Available from Nov 2026</span>
+          </div>
+        </div>
+
+        <div class="em-rec">
+          <div class="em-card-label">⭐ Why we recommend Dr Miller</div>
+          <p>"Dr Miller brings over 12 years of general practice experience across busy NHS surgeries, with particular strengths in chronic disease management and minor procedures. He has led a practice team of eight clinicians and consistently maintained outstanding patient satisfaction results. We highly recommend him as a safe, experienced and personable addition to your team."</p>
+        </div>
+
+        <div class="em-attach">
+          <div class="attach-chip"><span class="aico aico-cv">📄</span><span>Smith-Miller-CV.pdf<small>Verified CV · 240 KB</small></span></div>
+          <div class="attach-chip"><span class="aico aico-cl">✉️</span><span>Smith-Miller-Cover-Letter.pdf<small>Cover letter · 96 KB</small></span></div>
+        </div>
+
+        <div class="em-actions">
+          <a class="btn-approve">Approve Dr Miller<small>and choose interview times</small></a><br>
+          <button class="btn-turndown">Turn down this candidate</button>
+        </div>
+
+        <div class="em-footnote">
+          Approving opens a scheduling page where you pick interview times that suit you — Dr Miller then confirms one.<br>
+          Questions? Just reply to this email and our team will help.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annos">
+    <div class="anno"><span class="anno-n">1</span><div><b>Summary sentences:</b> assembled automatically from the GP's real profile — the pathway shown is whatever their profile actually says (Dr Miller's is set to Expedited Specialist Pathway), plus their country of registration and the "when do you hope to start" date from onboarding. No typing needed by your team.</div></div>
+    <div class="anno"><span class="anno-n">2</span><div><b>AI recommendation (your latest request):</b> three sentences written by AI from the verified CV, always framed as a strong recommendation. Generated once at submission time and shown to your team for a quick glance before sending.</div></div>
+    <div class="anno"><span class="anno-n">3</span><div><b>Attachment fix:</b> the email now only ever attaches the careers CV that passed the AI check (plus cover letter if provided) — it can no longer grab a rejected or mis-filed registration document like the contract that went out in the Smith Miller test.</div></div>
+    <div class="anno"><span class="anno-n">4</span><div><b>Approve / Turn down:</b> big green Approve is the star; Turn down is deliberately small and grey underneath. Both are secure one-click links tied to this specific application.</div></div>
+  </div>
+
+  <!-- ================= SECTION 3 ================= -->
+  <div class="section-label"><span class="section-num">3</span><h2>What happens after the practice clicks Approve</h2></div>
+  <p class="section-sub">Approve leads straight into the existing interview scheduling flow — no new systems needed.</p>
+
+  <div class="flow-strip">
+    <div class="flow-step">
+      <div class="flow-ico">✅</div>
+      <h4>Practice clicks Approve</h4>
+      <p>Lands on a simple page confirming "You've approved Dr Miller" and showing the interview scheduler.</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-ico">🗓️</div>
+      <h4>Practice picks times</h4>
+      <p>They offer a few interview slots that suit the practice (same slot system already in the app).</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-ico">🎉</div>
+      <h4>GP books &amp; everyone's notified</h4>
+      <p>Dr Miller gets an email + in-app prompt to confirm a slot. Your team sees it all in the dashboard.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const states={checking:'scanChecking',ok:'scanOk',bad:'scanBad'};
+  const cta=document.getElementById('gateCta');
+  document.querySelectorAll('.demo-toggle button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.demo-toggle button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      Object.values(states).forEach(id=>document.getElementById(id).style.display='none');
+      document.getElementById(states[btn.dataset.state]).style.display='flex';
+      if(btn.dataset.state==='ok'){
+        cta.classList.remove('disabled');cta.classList.add('enabled');
+        cta.disabled=false;cta.textContent='Start browsing careers';
+      }else{
+        cta.classList.add('disabled');cta.classList.remove('enabled');
+        cta.disabled=true;cta.textContent='Upload your CV to continue';
+      }
+    });
+  });
+</script>
+</body>
+</html>

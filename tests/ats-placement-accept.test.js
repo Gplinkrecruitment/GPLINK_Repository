@@ -124,8 +124,10 @@ const db = {
     { id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW }
   ],
   user_documents: [
-    // CVs so /api/career/apply reaches the already-placed guard.
-    { id: 'doc-cv-gp', user_id: GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' },
+    // CV so /api/career/apply reaches the already-placed guard. Task 4: the
+    // apply CV gate now requires the verified careers CV (document_key
+    // 'career_cv'), not a registration-file document.
+    { id: 'doc-cv-gp', user_id: GP.userId, document_key: 'career_cv', status: 'uploaded' },
     // GP2's offer contract: delivered WITHOUT a storage path (Drive-only shape).
     { id: 'doc-oc-gp2', user_id: GP2.userId, document_key: 'offer_contract', status: 'approved', file_name: 'Contract.pdf' }
   ],

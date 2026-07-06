@@ -139,6 +139,7 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -242,6 +243,26 @@ const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+// Anthropic Messages endpoint — env-overridable so tests can point new AI
+// call sites at a local emulator. Existing call sites keep their inline URL.
+const ANTHROPIC_MESSAGES_URL = process.env.ANTHROPIC_MESSAGES_URL || 'https://api.anthropic.com/v1/messages';
+// Careers CV genuine-document scans allowed per GP per rolling 24h.
+const CAREER_CV_SCAN_MAX_PER_DAY = Number(process.env.CAREER_CV_SCAN_MAX_PER_DAY || 5);
+// Careers profile gate (Task 3) — CV / cover-letter upload limits, shared by
+// the /api/career/profile/cv and /api/career/profile/cover-letter routes.
+const CAREER_PROFILE_DOCUMENT_MAX_BYTES = 3 * 1024 * 1024;
+const CAREER_PROFILE_SCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Shared allowed-upload set for BOTH the CV and cover-letter career endpoints —
+// deliberately identical. Legacy Word .doc (application/msword) is EXCLUDED: the
+// CV AI-check cannot read it (guaranteed rejection) and it would otherwise burn
+// a daily scan attempt, and image/gif is excluded too (never a real CV/letter).
+const CAREER_PROFILE_ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp'
+]);
+// Resend endpoint — env-overridable so tests can capture outbound email.
+const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
 // and COUNTRY_DOCS in js/onboarding.js.
@@ -6243,6 +6264,22 @@ function buildAccountCareerDocumentStoragePath(userId, key) {
   ].join('/');
 }
 
+// Careers profile gate (Task 3) — CV / cover-letter storage path. Unlike the
+// account-career path above (fixed 'current' suffix, one object ever), each
+// upload here gets its own timestamped object name so a rejected/replaced
+// upload never clobbers bytes still referenced by an in-flight signed URL;
+// the user_documents row (see saveCareerProfileDocument) is what actually
+// tracks "current" via its own upsert.
+function buildCareerProfileDocumentStoragePath(userId, key, fileName) {
+  return [
+    'account-career',
+    sanitizeStoragePathSegment(ACCOUNT_CAREER_DOCUMENT_COUNTRY, 20).toLowerCase(),
+    sanitizeStoragePathSegment(userId, 80),
+    sanitizeStoragePathSegment(key, 60),
+    `${Date.now()}-${sanitizeStoragePathSegment(fileName, 140)}`
+  ].join('/');
+}
+
 function sanitizeAccountCareerDocumentPayload(body) {
   const input = body && typeof body === 'object' ? body : {};
   const type = getAccountCareerDocumentType(input.type);
@@ -6754,6 +6791,56 @@ async function saveAccountCareerDocumentForUser(userId, payload) {
   );
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   return mapAccountCareerDocumentRow(payload.type, result.data[0]);
+}
+
+// Careers profile gate (Task 3). Distinct document_keys from the onboarding
+// CV (cv_signed_dated): 'career_cv' (AI-checked) and 'career_cover_letter'
+// (shared with the existing Account-page cover letter slot — same key/country
+// tuple, so either upload path keeps the other in sync). Supabase-only, same
+// as saveAccountCareerDocumentForUser above — there is no dbState.userDocuments
+// local-JSON collection for user_documents.
+async function saveCareerProfileDocument(userId, key, payload) {
+  if (!userId || !payload || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildCareerProfileDocumentStoragePath(userId, key, payload.fileName);
+  const dataUrl = 'data:' + (payload.mimeType || 'application/octet-stream') + ';base64,' + payload.fileBase64;
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, dataUrl, payload.mimeType);
+  if (!uploaded) return null;
+
+  const updatedAt = new Date().toISOString();
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: ACCOUNT_CAREER_DOCUMENT_COUNTRY,
+        document_key: key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+        storage_path: storagePath,
+        mime_type: payload.mimeType,
+        file_size: payload.fileSize,
+        updated_at: updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function getCareerProfileDocument(userId, key) {
+  if (!userId || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest(
+    'user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) +
+      '&document_key=eq.' + encodeURIComponent(key) +
+      '&status=in.(uploaded,approved)&order=updated_at.desc&limit=1'
+  );
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
 }
 
 function now() {
@@ -9975,6 +10062,24 @@ async function checkRateLimitWindow(rateKey, maxCount, windowMs) {
   dbState.rateLimits[rateKey] = current;
   saveDbState();
   return true;
+}
+
+// Non-mutating read of a checkRateLimitWindow(...) counter, for reporting
+// "attempts remaining" to a client without spending an attempt. Mirrors
+// checkRateLimitWindow's storage exactly (runtime_kv in Supabase mode,
+// dbState.rateLimits locally) but never writes.
+async function peekRateLimitRemaining(rateKey, maxCount, windowMs) {
+  const ts = now();
+  if (isSupabaseDbConfigured()) {
+    const runtimeKey = `authratelimit:${rateKey}`;
+    const existing = await getRuntimeKv(runtimeKey);
+    const current = existing && existing.value && typeof existing.value === 'object' ? existing.value : null;
+    if (!current || ts - Number(current.windowStart || 0) > windowMs) return maxCount;
+    return Math.max(0, maxCount - Number(current.count || 0));
+  }
+  const current = dbState.rateLimits[rateKey];
+  if (!current || ts - current.windowStart > windowMs) return maxCount;
+  return Math.max(0, maxCount - current.count);
 }
 
 async function enforceAuthRateLimit(req, res, scope) {
@@ -23046,6 +23151,52 @@ async function extractDocxTextWithMammoth(buffer) {
   }
 }
 
+// Careers profile gate (Task 3) — AI genuine-CV check, run on every
+// /api/career/profile/cv upload before it is stored. Distinct from
+// classifyDocumentWithAI below (which checks a doc matches an EXPECTED type
+// against a fixed catalogue): this asks a single yes/no "is this a CV at
+// all" question and returns a plain-English reason either way.
+//
+// Returns { ok:false, reason } when the AI is unavailable/unconfigured/over
+// budget/erroring — the caller decides the fallback (accept unscanned rather
+// than block a GP on our outage). Otherwise returns
+// { ok:true, isCv:boolean, reason:string }.
+async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
+  if (!ANTHROPIC_API_KEY) return { ok: false, reason: 'ai_unconfigured' };
+  if (!(await checkAnthropicBudget())) return { ok: false, reason: 'ai_budget' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var blocks = [];
+  if (mime === 'application/pdf') {
+    blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+  } else if (/^image\/(png|jpe?g|webp)$/.test(mime)) {
+    blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+  } else if (mime.includes('wordprocessingml') || /\.docx$/i.test(String(fileName || ''))) {
+    var text = await extractDocxTextWithMammoth(buffer);
+    if (!text) return { ok: true, isCv: false, reason: 'We could not read this Word file — please export your CV as a PDF and try again.' };
+    blocks.push({ type: 'text', text: 'DOCUMENT TEXT (extracted from Word file):\n\n' + text.slice(0, 30000) });
+  } else {
+    return { ok: true, isCv: false, reason: 'Unsupported file type — please upload a PDF or Word document.' };
+  }
+  blocks.push({ type: 'text', text: 'Is the document above a genuine curriculum vitae / resume for a medical professional? A CV lists a person\'s career history, education and skills. Contracts, certificates, letters, forms and IDs are NOT CVs. Respond with ONLY valid JSON: {"isCv": true|false, "reason": "<short plain-English reason a non-technical person understands>"}' });
+
+  try {
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_SCAN_MODEL, max_tokens: 300, messages: [{ role: 'user', content: blocks }] })
+    });
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var textOut = (json && json.content && json.content[0] && json.content[0].text) || '';
+    var parsed = JSON.parse(textOut.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim());
+    return { ok: true, isCv: parsed.isCv === true, reason: String(parsed.reason || '') };
+  } catch (err) {
+    console.error('[career-cv-scan] AI scan failed:', err && err.message);
+    return { ok: false, reason: 'ai_error' };
+  }
+}
+
 async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLabel) {
   if (!ANTHROPIC_API_KEY) return { confidence: null, identifiedAs: '', reason: 'AI not configured' };
 
@@ -24319,7 +24470,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
       if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
       // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
       if (plan.headers && typeof plan.headers === 'object') emailPayload.headers = plan.headers;
-      const res = await fetch('https://api.resend.com/emails', {
+      const res = await fetch(RESEND_API_URL, {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -24989,6 +25140,89 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div>
 <p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="${APP_BASE_URL}" style="color:#64748b">app.mygplink.com.au</a></p>
 </div></body></html>`;
+}
+
+// 3-sentence, highly-recommending summary of the GP's experience, written by
+// AI from the verified careers CV. Returns '' on ANY failure — the email
+// simply omits the recommendation block (submit-to-practice must never be
+// blocked on this being available).
+async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName }) {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return '';
+    var mime = String(mimeType || '').toLowerCase();
+    var blocks = [];
+    if (mime === 'application/pdf') blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+    else if (/^image\//.test(mime)) blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+    else if (mime.includes('wordprocessingml')) {
+      var text = await extractDocxTextWithMammoth(buffer);
+      if (!text) return '';
+      blocks.push({ type: 'text', text: 'CV TEXT:\n\n' + text.slice(0, 30000) });
+    } else return '';
+    blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + String(gpName || '').trim() + '\'s experience and strengths, framed as a strong recommendation. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts. Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 400, messages: [{ role: 'user', content: blocks }] })
+    });
+    if (!resp.ok) return '';
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var out = (json && json.content && json.content[0] && json.content[0].text || '').trim();
+    return out.length > 20 && out.length < 1200 ? out : '';
+  } catch (err) {
+    console.warn('[submit-to-practice] recommendation generation failed (email sends without it):', err && err.message);
+    return '';
+  }
+}
+
+// Body of the submit-to-practice introduction email (wrapped by
+// buildCareerEmailHtml). Email-safe inline styles; structure follows the
+// approved mockup (docs/mockups/career-cv-gate-practice-email.html, Section 2):
+// greeting -> "About Dr X" card (intro paragraph + fact chips) -> optional AI
+// recommendation -> attachment line -> big green Approve button + small
+// "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
+// ACTUALLY attached (not just requested) so the copy never claims an
+// attachment that isn't really there.
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter }) {
+  // No shared escapeHtml export exists in this file (every email builder
+  // defines its own inline one-liner — see e.g. the escHtml consts near
+  // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
+  // same established convention here rather than adding a new shared helper.
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var safeIntro = intro || {};
+  var displayName = /^dr\b/i.test(String(gpName || '')) ? gpName : 'Dr ' + gpName;
+  var factsHtml = (safeIntro.facts || []).map(function (f) {
+    return '<span style="display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0">' + esc(f.icon + ' ' + f.label) + '</span>';
+  }).join('');
+  var recHtml = recommendation ? (
+    '<div style="border-left:4px solid #2563eb;background:#eff4ff;border-radius:0 16px 16px 0;padding:16px 20px;margin:20px 0">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">⭐ Why we recommend ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#22376b;font-style:italic;margin:0">&ldquo;' + esc(recommendation) + '&rdquo;</p></div>'
+  ) : '';
+  // Attach-line copy must match reality: only claim an attachment that was
+  // actually fetched (hasCv/hasCoverLetter), never assume the request means
+  // the download succeeded — same "graceful, honest fallback" rule the old
+  // in-app branch followed.
+  var attachLine = hasCv
+    ? (hasCoverLetter ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+    : (hasCoverLetter ? 'Their cover letter is attached — we’ll follow up with their CV shortly.' : 'We’ll follow up with their CV shortly.');
+  // "Dear <practice> team," per the approved mockup; when we have no practice
+  // name, fall back to a plain "Dear team," (never "Dear team team,").
+  var greeting = practiceName ? ('Dear ' + esc(practiceName) + ' team,') : 'Dear team,';
+  return (
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + greeting + '</p>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">We&rsquo;re delighted to introduce <b>' + esc(displayName) + '</b> for your <b>' + esc(roleTitle || 'GP') + '</b> position.</p>' +
+    '<div style="border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">About ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0">' + esc(safeIntro.paragraph) + '</p>' +
+    '<div style="margin-top:10px">' + factsHtml + '</div></div>' +
+    recHtml +
+    '<p style="font-size:13px;color:#64748b;margin:16px 0 4px">' + attachLine + '</p>' +
+    '<div style="text-align:center;margin:28px 0 6px">' +
+    '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
+    '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>'
+  );
 }
 
 // ============================================================================
@@ -26159,6 +26393,225 @@ async function insertScheduledCallRow(row) {
   dbState.scheduledCalls.push(local);
   saveDbState();
   return local;
+}
+
+// ---- Task 7: practice decision + availability (public token-authed) -------
+
+// Look up a gp_applications row by its practice_action_token (Task 6). Dual-mode.
+// A short/empty token never reaches the DB — mirrors the other public token
+// routes (practice-intake) so a near-miss token can never be distinguished
+// from an unknown one via timing/behaviour.
+async function findApplicationByActionToken(token) {
+  var t = String(token || '').trim();
+  if (!t || t.length < 10) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'select=*&practice_action_token=eq.' + encodeURIComponent(t) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.atsApplications || []).find(function (a) { return a.practice_action_token === t; }) || null;
+}
+
+// Dual-mode PATCH for the practice-decision fields on a gp_applications row.
+async function patchApplicationDecisionFields(id, patch) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+    });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(id); });
+  if (!a) return null;
+  Object.assign(a, patch);
+  saveDbState();
+  return a;
+}
+
+// Dual-mode career_roles.title lookup, reusing getCareerRoleRowById in prod
+// (avoids duplicating the REST call) with a local dbState.atsJobs fallback.
+async function careerRoleTitleForApplication(careerRoleId) {
+  if (!careerRoleId) return '';
+  if (isSupabaseDbConfigured()) {
+    var role = await getCareerRoleRowById(careerRoleId);
+    return (role && role.title) || '';
+  }
+  var localRole = (dbState.atsJobs || []).find(function (j) { return String(j.id) === String(careerRoleId); });
+  return (localRole && localRole.title) || '';
+}
+
+// Find (or create) the interview row for an application — mirrors the
+// self-serve GET /api/career/interview/slots creation code exactly (same
+// buildInterviewRow inputs, same correlation_token requirement) EXCEPT it
+// never overrides practice_availability_status away from buildInterviewRow's
+// default of 'requested': the practice is expected to actually supply times
+// via POST .../availability, so it must not be pre-defaulted the way the
+// GP self-serve path defaults it.
+async function ensureInterviewRowForApplication(appId, ctx, actorLabel) {
+  var existingRef = await findInterviewForApplication(appId);
+  if (existingRef) return existingRef;
+  if (!ctx) return null;
+  var newRow = interviewMeetings.buildInterviewRow({
+    caseId: ctx.caseId,
+    userId: ctx.userId,
+    applicationId: appId,
+    careerRoleId: ctx.careerRoleId,
+    practiceName: ctx.practiceName,
+    createdBy: actorLabel || 'practice_decision',
+    nowIso: new Date().toISOString()
+  });
+  // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default
+  // (see /api/ats/interview/request above) — every insert needs a fresh one.
+  newRow.correlation_token = generateCorrelationToken();
+  return await insertScheduledCallRow(newRow);
+}
+
+// Shared "the practice wants this candidate" business event, used by BOTH the
+// CEO drawer's POST /api/ats/application/accept AND the public practice-decision
+// approve branch. It reveals the practice identity (gp_applications
+// {revealed:true, practice_submission_status:'client_approved'}) and drops an
+// in-app offer record so /api/career/my-offer + the GP booking surface
+// (canRevealPracticeIdentity → slots/book) actually unmask. It deliberately
+// does NOT advance the kanban stage or send any GP email — each caller owns
+// those, because the two flows land on different stages ('offer' vs
+// 'interview') and send different GP emails.
+//
+// Idempotent + safe:
+//  - a DECIDED offer (GP already accepted/declined) is authoritative and never
+//    stomped;
+//  - an application already revealed (or its pre-migration proxy
+//    practice_submission_status='client_approved') WITH an offer on file is a
+//    no-op ('already');
+//  - a live 'sent' offer (real terms sent by a consultant) is kept as-is;
+//  - fail-loud when the `revealed` column is missing (migration 20260705100000
+//    not applied): we refuse to reveal/record rather than congratulate a GP
+//    while my-offer would still serve the masked practice.
+//
+// Returns { status: 'ok' | 'already' | 'migration_required' | 'error', offer }.
+async function revealApplicationAndEnsureOffer(appId, ctx, opts) {
+  var options = opts || {};
+  var existingOffer = null;
+  try { existingOffer = await atsOffersStore.getAtsOfferByApplication(String(appId)); }
+  catch (e) { existingOffer = null; }
+
+  // No-stomp: a DECIDED offer (the doctor already accepted or declined) must
+  // never be overwritten back to 'sent'.
+  if (existingOffer && (existingOffer.status === 'accepted' || existingOffer.status === 'declined')) {
+    return { status: 'already', offer: existingOffer };
+  }
+  // Idempotent: acceptance already recorded — revealed, or its pre-migration
+  // proxy practice_submission_status='client_approved' — with an offer on file.
+  var app = ctx && ctx.app;
+  var alreadyApproved = app && (app.revealed === true
+    || String(app.practice_submission_status || '') === 'client_approved');
+  if (alreadyApproved && existingOffer) {
+    return { status: 'already', offer: existingOffer };
+  }
+
+  // PATCH gp_applications {revealed:true, practice_submission_status:'client_approved'}.
+  var patchBody = { revealed: true, practice_submission_status: 'client_approved' };
+  if (isSupabaseDbConfigured()) {
+    if (_gpApplicationsRevealedMissing) {
+      console.error('[reveal-offer] gp_applications.revealed column missing — run migration 20260705100000. Refusing to reveal (the GP would be congratulated while still seeing a masked practice).');
+      return { status: 'migration_required' };
+    }
+    var pRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patchBody
+    });
+    if (!pRes.ok && isMissingColumnInsertError(pRes, 'revealed')) {
+      _gpApplicationsRevealedMissing = true;
+      console.error('[reveal-offer] gp_applications.revealed column missing — run migration 20260705100000. Refusing to reveal.');
+      return { status: 'migration_required' };
+    }
+    if (!pRes.ok && isMissingColumnInsertError(pRes, 'practice_submission_status')) {
+      // The bonus column being absent is tolerable — the reveal is what matters.
+      delete patchBody.practice_submission_status;
+      pRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patchBody
+      });
+    }
+    if (!pRes.ok) {
+      console.error('[reveal-offer] could not persist the reveal for application', appId, ':', pRes && pRes.data);
+      return { status: 'error' };
+    }
+  } else {
+    var localApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(appId); });
+    if (!localApp) return { status: 'error' };
+    Object.assign(localApp, patchBody);
+    saveDbState();
+  }
+
+  // Role/practice context for the offer record (the offer needs practice_id +
+  // the intake's billing split, both of which live on the career_roles row).
+  var role = null;
+  if (ctx && ctx.careerRoleId) {
+    role = isSupabaseDbConfigured()
+      ? await getCareerRoleRowById(ctx.careerRoleId)
+      : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(ctx.careerRoleId); }) || null);
+  }
+  var jobTitle = (role && role.title) || (ctx && ctx.app && ctx.app.job_title) || '';
+  var practiceName = (ctx && ctx.practiceName) || (role && role.practice_name) || '';
+  var intake = (role && role.source_payload && role.source_payload.intake) || {};
+
+  // A live 'sent' offer already on file (a consultant sent real terms before
+  // this event) is kept — never overwritten by the synthetic invite record.
+  var offer = existingOffer;
+  if (!existingOffer || existingOffer.status !== 'sent') {
+    offer = await atsOffersStore.saveAtsOffer({
+      application_id: String(appId),
+      user_id: (ctx && ctx.userId) || null,
+      career_role_id: (ctx && ctx.careerRoleId) || null,
+      practice_id: (role && role.practice_id) || null,
+      job_title: jobTitle,
+      practice_name: practiceName,
+      billing_split: sanitizeUserString(String(intake.percentage_split || ''), 120),
+      status: 'sent',
+      sent_by: options.sentBy || '',
+      sent_at: atsNowIso(),
+      notes: options.notes || 'Practice accepted — interview invitation'
+    });
+    if (!offer) return { status: 'error' };
+  }
+  return { status: 'ok', offer: offer };
+}
+
+// findInterviewForApplication (Supabase branch) only selects id,status for
+// cheap idempotency checks — resolve the FULL row when callers need other
+// columns (practice_availability_status/windows, status='booked', etc).
+async function resolveFullInterviewRow(ref) {
+  if (!ref) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(ref.id) + '&limit=1');
+    return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
+  }
+  return ref; // local-mode rows are never column-filtered — already the full row.
+}
+
+// Validates a practice's proposed interview-availability windows (the shape
+// the scheduler consumes — lib/interview-scheduler.js `overrides`): 1..10
+// entries, real calendar dates from today through +60 days, integer minute
+// bounds with 0 <= fromMin < toMin <= 1560 (26:00 — allows past-midnight).
+// Returns null when valid, else a plain user-facing message.
+function validatePracticeAvailabilityWindows(windows) {
+  if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
+    return 'windows must contain between 1 and 10 entries.';
+  }
+  // Bounds are UTC-based (toISOString() is always UTC), so around midnight a
+  // practice's local "today" can differ from this UTC day by one — acceptable
+  // for a 0..60-day availability horizon, called out here so it isn't mistaken
+  // for a bug later.
+  var todayYmd = new Date().toISOString().slice(0, 10);
+  var maxYmd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  for (var i = 0; i < windows.length; i++) {
+    var w = windows[i];
+    if (!w || typeof w !== 'object') return 'each window must be an object.';
+    var d = String(w.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
+    var parsed = new Date(d + 'T00:00:00Z');
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
+    if (d < todayYmd || d > maxYmd) return 'each window date must be between today and 60 days from now.';
+    if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
+    if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
+  }
+  return null;
 }
 
 // Best-effort practice email send.  A missing transport, empty address, or any
@@ -29896,6 +30349,41 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Practice decision + availability (Task 7, public token-authed) ───────
+  // Reached from the submit-to-practice introduction email's decision buttons
+  // / pages/practice-decision.html — no session, no account. Token is
+  // gp_applications.practice_action_token (Task 6, stable across resubmits).
+  // Every 404 here is uniform ({ok:false, code:'not_found'}) regardless of
+  // whether the token is missing, malformed, or simply unknown — never
+  // reveal whether it "almost" matched a real application.
+  if (pathname === '/api/practice/application/decision-context' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    const token = String(url.searchParams.get('token') || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    // Read-only: resolve labels + interview state, but never create anything.
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const interviewRow = await resolveFullInterviewRow(await findInterviewForApplication(appRow.id));
+    const decision = appRow.practice_decision === 'approved' ? 'approved'
+      : (appRow.practice_decision === 'turned_down' ? 'turned_down' : null);
+
+    sendJson(res, 200, {
+      ok: true,
+      gpName: (ctx && ctx.gpName) || '',
+      roleTitle: roleTitle || '',
+      practiceName: (ctx && ctx.practiceName) || '',
+      decision: decision,
+      availabilitySubmitted: !!(interviewRow && interviewRow.practice_availability_status === 'received'),
+      interviewBooked: !!(interviewRow && interviewRow.status === 'booked')
+    });
+    return;
+  }
+
   // ── Phase 6 D1b: practice one-click response (token-authed, no session) ──
   // GET renders a confirm page ONLY (email-security link scanners auto-fetch
   // GET links — a raw GET must never change state, same model as the
@@ -30214,6 +30702,267 @@ async function handleApi(req, res, pathname) {
       },
       jobs: psJobsOut
     });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/decision' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    const action = String((body && body.action) || '').trim();
+    if (action !== 'approve' && action !== 'turn_down') {
+      sendJson(res, 400, { ok: false, message: 'action must be "approve" or "turn_down".' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Escape every practice-/candidate-supplied value before it lands in a
+    // notification email's HTML body (same inline helper convention the
+    // submission-email builder uses). The `reason` field is fully attacker-
+    // controlled from the public turn-down form, and gpName/practiceName/
+    // roleTitle are DB-sourced but still untrusted for HTML.
+    const esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+
+    if (action === 'approve') {
+      // Idempotent: a repeat click on an already-approved link must not
+      // create a second interview row or re-send the notification emails.
+      if (appRow.practice_decision === 'approved') {
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
+      // Stale-link guard: this token can still resolve to a valid application
+      // long after the pipeline moved on through a DIFFERENT path (the GP
+      // accepted their offer, or the team manually secured the placement) —
+      // even on the very FIRST click of this link. Without this guard the
+      // approve handler would drag status/ats_stage backward to 'interview'
+      // and email an already-placed GP that the practice "would like to
+      // interview" them.
+      let staleCheckOffer = null;
+      try { staleCheckOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); }
+      catch (e) { staleCheckOffer = null; }
+      const offerAlreadyDecided = !!(staleCheckOffer && (staleCheckOffer.status === 'accepted' || staleCheckOffer.status === 'declined'));
+      if (isCareerPlacementSecuredStatus(appRow.status) || offerAlreadyDecided) {
+        // The practice DID click approve — record that fact if it was never
+        // captured — but nothing that would move the pipeline backward.
+        if (appRow.practice_decision !== 'approved') {
+          await patchApplicationDecisionFields(appRow.id, {
+            practice_decision: 'approved',
+            practice_decision_at: nowIso,
+            updated_at: nowIso
+          }).catch(function () {});
+        }
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
+      const ctx = await atsGetApplicationContext(appRow.id);
+
+      // The practice approving IS their acceptance of this candidate — reveal
+      // the practice identity + drop an in-app offer (shared core with the CEO
+      // /api/ats/application/accept flow) so the GP can actually reach the
+      // booking surface (canRevealPracticeIdentity gates the interview
+      // slots/book endpoints + /api/career/my-offer). Without this the whole
+      // flow dead-ends after approval. Idempotent: never duplicates the offer.
+      const reveal = await revealApplicationAndEnsureOffer(appRow.id, ctx, {
+        sentBy: 'practice_decision',
+        notes: 'Practice approved — interview invitation'
+      });
+      if (reveal.status === 'migration_required' || reveal.status === 'error') {
+        sendJson(res, 502, { ok: false, message: 'Could not update the application.' });
+        return;
+      }
+
+      const patched = await patchApplicationDecisionFields(appRow.id, {
+        practice_decision: 'approved',
+        practice_decision_at: nowIso,
+        status: 'interview',
+        updated_at: nowIso
+      });
+      if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+      // Forward-only (mirrors the accept-flow's use of planAtsStageReconciliation):
+      // a card that already advanced past 'interview' via another path (e.g. an
+      // offer was sent while this link sat unread) must never be pulled back.
+      const stageTarget = atsPracticeUtil.planAtsStageReconciliation(appRow.ats_stage || '', 'interview');
+      if (stageTarget) {
+        await atsUpdateApplicationStageRow(appRow.id, stageTarget, undefined, 'practice_approve');
+      }
+      await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+
+      const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+      const practiceName = (ctx && ctx.practiceName) || '';
+      const gpEmail = (ctx && ctx.gpEmail) || '';
+      const gpName = (ctx && ctx.gpName) || 'the candidate';
+
+      // Notifications are best-effort — a Resend outage must never turn an
+      // otherwise-successful approve into a failed request for the practice.
+      // We keep THIS "times coming soon" email (rather than the accept flow's
+      // "secure your interview now" congrats) because at approve-time the
+      // practice has not yet supplied availability — the GP is nudged to book
+      // by the separate notify fired once they do (POST .../availability).
+      if (gpEmail) {
+        sendEmail({
+          to: gpEmail,
+          subject: practiceName + ' would like to interview you!',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: esc(practiceName) + ' would like to interview you!',
+            body: 'Great news — ' + esc(practiceName) + ' has approved your application for ' + esc(roleTitle) + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
+            ctaText: 'View my application',
+            ctaUrl: APP_BASE_URL + '/pages/career.html#applications'
+          })
+        }).catch(function (err) { console.warn('[practice-decision] GP approval email failed:', err && err.message); });
+      }
+
+      sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Practice approved ' + gpName + ' — awaiting their interview times',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Practice approved a candidate',
+          body: esc(practiceName) + ' approved ' + esc(gpName) + ' for ' + esc(roleTitle) + '. Awaiting the practice\'s interview availability.'
+        })
+      }).catch(function (err) { console.warn('[practice-decision] ops notify email failed:', err && err.message); });
+
+      sendJson(res, 200, { ok: true, decision: 'approved' });
+      return;
+    }
+
+    // action === 'turn_down'. No ATS stage exists for a rejection
+    // (ATS_STAGES has no 'rejected'/'not_proceeding' lane reachable from
+    // here) — status/ats_stage are deliberately left untouched, and the team
+    // follows up with the GP personally instead of an automated decline
+    // email (kinder, and avoids a robotic rejection landing unannounced).
+    const reason = String((body && body.reason) || '').trim().slice(0, 500);
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const patched = await patchApplicationDecisionFields(appRow.id, {
+      practice_decision: 'turned_down',
+      practice_decision_at: nowIso,
+      practice_decision_reason: reason || null,
+      updated_at: nowIso
+    });
+    if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const gpName = (ctx && ctx.gpName) || 'the candidate';
+    const practiceName = (ctx && ctx.practiceName) || '';
+
+    sendEmail({
+      to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+      subject: 'Practice turned down ' + gpName + ' for ' + roleTitle,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      html: buildCareerEmailHtml({
+        title: 'Practice turned down a candidate',
+        body: esc(practiceName) + ' turned down ' + esc(gpName) + ' for ' + esc(roleTitle) + (reason ? ('. Reason given: ' + esc(reason)) : '.') + ' The team will follow up with the GP personally.'
+      })
+    }).catch(function (err) { console.warn('[practice-decision] turn-down ops email failed:', err && err.message); });
+
+    sendJson(res, 200, { ok: true, decision: 'turned_down' });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/availability' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    if (appRow.practice_decision !== 'approved') {
+      sendJson(res, 409, { ok: false, code: 'not_approved' });
+      return;
+    }
+
+    const windows = body && body.windows;
+    const validationError = validatePracticeAvailabilityWindows(windows);
+    if (validationError) { sendJson(res, 400, { ok: false, message: validationError }); return; }
+
+    const ctx = await atsGetApplicationContext(appRow.id);
+    // Must exist after approve, but re-create defensively (mirrors the
+    // approve handler's own creation code) if a prior insert never landed.
+    const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+    if (!interviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
+
+    const nowIso = new Date().toISOString();
+    // Store ONLY the canonical scheduler shape — never persist extra keys that
+    // rode in on the public request body (they would land verbatim in
+    // scheduled_calls and could confuse the slot builder downstream).
+    const canonicalWindows = windows.map(function (w) {
+      return { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+    });
+    const patch = {
+      practice_availability_windows: canonicalWindows,
+      practice_availability_status: 'received',
+      practice_availability_received_at: nowIso,
+      updated_at: nowIso
+    };
+    if (isSupabaseDbConfigured()) {
+      const availWriteRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(interviewRef.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      });
+      // The whole point of this endpoint is to persist the practice's times —
+      // if that write failed, tell the practice so they retry, and do NOT fire
+      // the GP "your slots are ready" notify off an unsaved availability.
+      if (!availWriteRes || !availWriteRes.ok) {
+        sendJson(res, 502, { ok: false, message: 'Something went wrong saving your times — please try again.' });
+        return;
+      }
+    } else {
+      Object.assign(interviewRef, patch);
+      saveDbState();
+    }
+
+    // Notify the GP — best-effort, mirrors ingestPracticeAvailabilityReply's
+    // step-4 notify block (WhatsApp + email "your interview times are ready").
+    (async () => {
+      try {
+        const gpUserId = ctx && ctx.userId;
+        if (!gpUserId || !isSupabaseDbConfigured()) return;
+        const pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+        const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+        if (!pRow) return;
+        const firstName = pRow.first_name || 'there';
+        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
+          const dtPhone = normalizePhone(pRow.phone);
+          if (dtPhone) {
+            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
+              signal: AbortSignal.timeout(10000)
+            }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
+          }
+        }
+        if (pRow.email && isEmailConfigured()) {
+          sendEmail({
+            to: pRow.email,
+            subject: 'Your interview slots are ready',
+            text: notifyMsg,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          }).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
+        }
+      } catch (notifyErr) {
+        console.warn('[practice-decision] availability notify error (ignored):', notifyErr && notifyErr.message);
+      }
+    })();
+
+    sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
   }
 
@@ -31329,13 +32078,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Check CV is uploaded
-    const cvResult = await supabaseDbRequest(
-      'user_documents',
-      `select=id&user_id=eq.${encodeURIComponent(userId)}&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=1`
-    );
-    if (!cvResult.ok || !Array.isArray(cvResult.data) || cvResult.data.length === 0) {
-      sendJson(res, 403, { ok: false, message: 'Please upload your CV before applying.', requiresCv: true });
+    // Careers profile gate: applying requires the AI-verified careers CV
+    // (document_key 'career_cv'), NOT registration-file documents.
+    const careerCvRow = await getCareerProfileDocument(userId, 'career_cv');
+    if (!careerCvRow) {
+      sendJson(res, 403, { ok: false, message: 'Please add your CV to your careers profile before applying.', requiresCv: true });
       return;
     }
 
@@ -31572,6 +32319,191 @@ async function handleApi(req, res, pathname) {
       console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
     }
 
+    return;
+  }
+
+  // ── Careers profile gate (Task 3) ───────────────────────────────────────
+  // A GP-facing CV (document_key 'career_cv', AI-checked on upload — distinct
+  // from the onboarding 'cv_signed_dated') plus an optional cover letter
+  // (document_key 'career_cover_letter', shared with the existing Account-page
+  // slot). Consumed by the careers apply-gate (Task 4/5) and the
+  // submit-to-practice email rebuild (Task 6). Auth mirrors /api/career/apply
+  // above verbatim (session -> email -> Supabase user id).
+
+  if (pathname === '/api/career/profile/status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const [cvRow, coverLetterRow, scanRemaining, priorAppsResult] = await Promise.all([
+      getCareerProfileDocument(userId, 'career_cv'),
+      getCareerProfileDocument(userId, 'career_cover_letter'),
+      peekRateLimitRemaining('career-cv-scan:' + userId, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS),
+      // Same already-placed check /api/career/apply uses — server truth so a
+      // stale client-side gpCache entry (up to 10 min fresh, no network) can
+      // never show the non-dismissible gate to a GP who is already placed.
+      supabaseDbRequest('gp_applications', `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`)
+    ]);
+    const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
+    const hasSecuredPlacement = priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status));
+
+    sendJson(res, 200, {
+      ok: true,
+      cv: cvRow ? { fileName: cvRow.file_name, updatedAt: cvRow.updated_at } : null,
+      coverLetter: coverLetterRow ? { fileName: coverLetterRow.file_name, updatedAt: coverLetterRow.updated_at } : null,
+      scanRemaining,
+      gateRequired: !cvRow && !hasSecuredPlacement,
+      placed: hasSecuredPlacement
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cv' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const cvFileName = sanitizeUserString(body && body.fileName, 240) || 'cv.pdf';
+    const cvFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const cvMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const cvFileSize = Number(body && body.fileSize) || 0;
+
+    if (!cvFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
+    if (cvFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    let cvBuffer;
+    try { cvBuffer = Buffer.from(cvFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (cvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    // Reject unsupported types (e.g. legacy .doc) BEFORE spending a daily scan
+    // attempt — the AI check can't read them, so letting them through would
+    // waste one of the GP's limited scans on a guaranteed rejection and could
+    // lock them out of the (non-dismissible) apply gate for 24h. When the
+    // browser sends no/opaque mime we fall back to the filename extension.
+    const cvKnownMime = cvMimeType && cvMimeType !== 'application/octet-stream';
+    const cvTypeAllowed = cvKnownMime
+      ? CAREER_PROFILE_ALLOWED_MIME_TYPES.has(cvMimeType)
+      : /\.(pdf|docx|png|jpe?g|webp)$/i.test(cvFileName);
+    if (!cvTypeAllowed) {
+      sendJson(res, 422, { ok: false, verified: false, reason: 'That file type isn\'t supported — please save your CV as a PDF or Word (.docx) file and try again.' });
+      return;
+    }
+
+    const cvRateKey = 'career-cv-scan:' + userId;
+    const cvAllowed = await checkRateLimitWindow(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+    if (!cvAllowed) {
+      sendJson(res, 429, { ok: false, code: 'rate_limited', message: "You've reached today's CV check limit — please try again tomorrow." });
+      return;
+    }
+
+    const cvScan = await verifyCareerCvWithAI(cvBuffer, cvMimeType, cvFileName);
+    if (cvScan.ok && cvScan.isCv === false) {
+      const attemptsRemaining = await peekRateLimitRemaining(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+      sendJson(res, 422, { ok: false, verified: false, reason: cvScan.reason, attemptsRemaining });
+      return;
+    }
+    if (!cvScan.ok) {
+      // AI down/unconfigured/over budget — never block a GP's upload on our
+      // outage; accept it unscanned and log so ops can see it happened.
+      console.warn('[career-cv-scan] scan unavailable, accepting unscanned:', cvScan.reason);
+    }
+
+    const cvSaved = await saveCareerProfileDocument(userId, 'career_cv', {
+      fileName: cvFileName,
+      fileBase64: cvFileBase64,
+      mimeType: cvMimeType || 'application/octet-stream',
+      fileSize: cvFileSize || cvBuffer.length
+    });
+    if (!cvSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your CV — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, verified: true, fileName: cvFileName });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cover-letter' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const clFileName = sanitizeUserString(body && body.fileName, 240) || 'cover-letter.pdf';
+    const clFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const clMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const clFileSize = Number(body && body.fileSize) || 0;
+
+    if (!clFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
+    if (clFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+
+    let clBuffer;
+    try { clBuffer = Buffer.from(clFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (clBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+
+    if (clMimeType && !CAREER_PROFILE_ALLOWED_MIME_TYPES.has(clMimeType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported file type — please upload a PDF, Word document, or image.' });
+      return;
+    }
+
+    const clSaved = await saveCareerProfileDocument(userId, 'career_cover_letter', {
+      fileName: clFileName,
+      fileBase64: clFileBase64,
+      mimeType: clMimeType || 'application/octet-stream',
+      fileSize: clFileSize || clBuffer.length
+    });
+    if (!clSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your cover letter — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, fileName: clFileName });
     return;
   }
 
@@ -33947,142 +34879,161 @@ async function handleApi(req, res, pathname) {
     const inAppRoleLabel = (inAppRole && inAppRole.title) || 'General Practitioner';
     const inAppPracticeLabel = (inAppPractice && inAppPractice.name) || (inAppRole && inAppRole.practice_name) || 'the practice';
 
-    // Country (user_profiles.registration_country → user_state.gp_selected_country,
-    // the same fallback _resolveGpCountry uses) + qualification summary from the
-    // onboarding answers (same source the candidate drawer shows).
+    // Country (user_profiles.registration_country → user_state.gp_onboarding.country,
+    // read by the candidate-intro builder below) + onboarding state, same
+    // source the candidate drawer shows.
     let inAppStateVal = {};
     try {
       const inAppStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
       inAppStateVal = inAppStateRes.ok && Array.isArray(inAppStateRes.data) && inAppStateRes.data[0] && inAppStateRes.data[0].state
         ? inAppStateRes.data[0].state : {};
     } catch (stateErr) { inAppStateVal = {}; }
-    const inAppCountryNames = { uk: 'United Kingdom', gb: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia' };
-    const inAppCountryRaw = String(inAppProfile.registration_country || inAppStateVal.gp_selected_country || '').trim();
-    const inAppCountryLabel = inAppCountryRaw ? (inAppCountryNames[inAppCountryRaw.toLowerCase()] || inAppCountryRaw) : '';
-    let inAppSpecialty = '';
-    try {
-      inAppSpecialty = atsSpecialtyFromOnboarding(_parseStateVal(inAppStateVal.gp_onboarding) || {});
-    } catch (spErr) { inAppSpecialty = ''; }
 
-    // The GP's CV (user_documents key cv_signed_dated) — same storage-path
-    // download the doc pipeline uses (processDocumentUpload). If there's no CV
-    // row or the file can't be fetched, the email still goes out without the
-    // attachment and says the CV will follow.
+    // The GP's CV attachment. Source order (bug fix, plan 2026-07-06): the
+    // AI-verified careers CV (document_key 'career_cv', Task 3) FIRST — it can
+    // only ever be a genuine CV because it was AI-checked at upload — with a
+    // legacy fallback to the registration-file 'cv_signed_dated' document
+    // ONLY when status is 'uploaded' or 'approved'. Before this fix the
+    // legacy query had no status filter at all, so a REJECTED cv_signed_dated
+    // row (e.g. a contract mistakenly filed under that key) could be the
+    // most-recently updated row and still get emailed out as the candidate's
+    // "CV". Approved docs (reviewed and accepted by admin/RSO) are good docs
+    // and must not be excluded. If there's no CV row or the file can't be
+    // fetched, the email still goes out without the attachment and says the
+    // CV will follow.
+    let inAppCvRow = null;
+    let inAppCvBuffer = null;
     let inAppCvAttachment = null;
     try {
-      const inAppCvRes = await supabaseDbRequest('user_documents',
-        `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1`);
-      const inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      inAppCvRow = await getCareerProfileDocument(appRow.user_id, 'career_cv');
+      if (!inAppCvRow) {
+        const inAppCvRes = await supabaseDbRequest('user_documents',
+          `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&status=in.(uploaded,approved)&order=updated_at.desc&limit=1`);
+        inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      }
       const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';
       if (inAppCvPath && !/^https?:/i.test(inAppCvPath)) {
         const inAppCvDl = await supabaseStorageDownloadObject(inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppCvPath);
         if (inAppCvDl && inAppCvDl.buffer && inAppCvDl.buffer.length) {
+          inAppCvBuffer = inAppCvDl.buffer;
           inAppCvAttachment = {
             filename: inAppCvRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-CV.pdf'),
-            content: inAppCvDl.buffer.toString('base64'),
+            content: inAppCvBuffer.toString('base64'),
             contentType: inAppCvRow.mime_type || inAppCvDl.mimeType || 'application/pdf'
           };
         }
       }
-    } catch (cvErr) { inAppCvAttachment = null; }
+    } catch (cvErr) { inAppCvRow = null; inAppCvBuffer = null; inAppCvAttachment = null; }
 
-    // D1a: cached AI handover summary → a practice-appropriate "Candidate
-    // overview" section. ONLY overview + key_history are shared — concerns and
-    // action_items are internal, RSO-facing notes and must never reach a
-    // practice. Read the cached value only (no generation here); any failure
-    // just skips the section — the introduction email itself must still send.
-    let inAppAiOverview = '';
-    let inAppAiHistory = '';
+    // Optional cover letter (career_cover_letter) — same AI-free profile-doc
+    // pipeline as the CV. Never sourced from registration-file documents.
+    let inAppClAttachment = null;
     try {
-      const inAppAiRes = await supabaseDbRequest('registration_cases',
-        `select=ai_handover_summary&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
-      const inAppAiRow = inAppAiRes.ok && Array.isArray(inAppAiRes.data) && inAppAiRes.data[0] ? inAppAiRes.data[0] : null;
-      const inAppAi = inAppAiRow && inAppAiRow.ai_handover_summary && typeof inAppAiRow.ai_handover_summary === 'object'
-        ? inAppAiRow.ai_handover_summary : null;
-      if (inAppAi) {
-        inAppAiOverview = String(inAppAi.overview || '').trim();
-        inAppAiHistory = String(inAppAi.key_history || '').trim();
+      const inAppClRow = await getCareerProfileDocument(appRow.user_id, 'career_cover_letter');
+      const inAppClPath = inAppClRow ? String(inAppClRow.storage_path || inAppClRow.file_url || '').trim() : '';
+      if (inAppClPath && !/^https?:/i.test(inAppClPath)) {
+        const inAppClDl = await supabaseStorageDownloadObject(inAppClRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppClPath);
+        if (inAppClDl && inAppClDl.buffer && inAppClDl.buffer.length) {
+          inAppClAttachment = {
+            filename: inAppClRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-Cover-Letter.pdf'),
+            content: inAppClDl.buffer.toString('base64'),
+            contentType: inAppClRow.mime_type || inAppClDl.mimeType || 'application/pdf'
+          };
+        }
       }
-    } catch (aiErr) { inAppAiOverview = ''; inAppAiHistory = ''; }
+    } catch (clErr) { inAppClAttachment = null; }
+    const inAppAttachments = [inAppCvAttachment, inAppClAttachment].filter(Boolean);
+
+    // Stable action token — reused across resubmits (an already-submitted
+    // application 409s above, but a token generated once must never rotate
+    // under an approve/turn-down link already sent to a practice inbox).
+    let inAppActionToken = appRow.practice_action_token;
+    if (!inAppActionToken) inAppActionToken = crypto.randomBytes(24).toString('base64url');
+    const inAppApproveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=approve';
+    const inAppTurnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=turn_down';
+
+    // Profile-driven candidate intro (Task 2) — same onboarding read the old
+    // copy used (_parseStateVal(inAppStateVal.gp_onboarding)), now feeding the
+    // shared pure builder instead of hand-rolled sentences.
+    const inAppOb = _parseStateVal(inAppStateVal.gp_onboarding);
+    const inAppIntro = careerIntro.buildCandidateIntro({
+      gpName: inAppGpName,
+      countryCode: inAppProfile.registration_country || inAppOb.country,
+      accountStatus: inAppProfile.account_status || inAppStateVal.account_status,
+      specialty: atsSpecialtyFromOnboarding(inAppOb),
+      targetDate: inAppProfile.target_arrival_date || inAppOb.targetDate,
+      practiceName: inAppPracticeLabel,
+      roleTitle: inAppRoleLabel
+    });
+    const inAppDisplayName = /^dr\b/i.test(inAppGpName) ? inAppGpName : 'Dr ' + inAppGpName;
+
+    // AI 3-sentence recommendation, generated from the actual verified CV
+    // bytes — only attempted when a CV was actually downloaded above. Returns
+    // '' on ANY failure (AI down/unconfigured/over budget) — the email still
+    // sends, it simply omits the recommendation block.
+    const inAppRecommendation = inAppCvBuffer
+      ? ((await generateCandidateRecommendation({
+          buffer: inAppCvBuffer,
+          mimeType: (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf',
+          fileName: inAppCvRow && inAppCvRow.file_name,
+          gpName: inAppGpName
+        })) || '')
+      : '';
+
+    const introSubject = 'Candidate introduction: ' + inAppDisplayName + ' — ' + inAppRoleLabel;
+    // buildCareerEmailHtml drops `title` straight into an <h1> with no
+    // escaping of its own (every other call site in this file only ever
+    // passes a static string, e.g. 'Offer accepted' at ~24109) — so unlike
+    // the plain-text `subject` above, the HTML title must be escaped here
+    // since it now carries the GP's name and the role title.
+    const introTitleEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const introTitleHtml = 'Candidate introduction: ' + introTitleEsc(inAppDisplayName) + ' — ' + introTitleEsc(inAppRoleLabel);
+    const inAppHasCv = !!inAppCvAttachment;
+    const inAppHasCl = !!inAppClAttachment;
+    const introBodyHtml = buildCandidateSubmissionEmailHtml({
+      gpName: inAppGpName,
+      roleTitle: inAppRoleLabel,
+      practiceName: inAppPracticeLabel,
+      intro: inAppIntro,
+      recommendation: inAppRecommendation,
+      approveUrl: inAppApproveUrl,
+      turnDownUrl: inAppTurnDownUrl,
+      hasCv: inAppHasCv,
+      hasCoverLetter: inAppHasCl
+    });
+    // Plain-text fallback mirrors the HTML structure (greeting, intro
+    // paragraph, optional recommendation, attach line, plain-URL decision
+    // links) — every other sendEmail call site in this file provides one.
+    const inAppAttachLine = inAppHasCv
+      ? (inAppHasCl ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+      : (inAppHasCl ? 'Their cover letter is attached — we\'ll follow up with their CV shortly.' : 'We\'ll follow up with their CV shortly.');
+    const introText = [
+      'Dear ' + (inAppPracticeLabel || 'team') + ',',
+      '',
+      'We\'re delighted to introduce ' + inAppDisplayName + ' for your ' + inAppRoleLabel + ' position.',
+      '',
+      inAppIntro.paragraph
+    ]
+      .concat(inAppRecommendation ? ['', 'Why we recommend ' + inAppDisplayName + ':', inAppRecommendation] : [])
+      .concat(['', inAppAttachLine])
+      .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
+      .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
+      .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
+      .join('\n');
 
     // Compose + send the introduction. From/branding matches the other
     // ATS practice-facing emails (interview confirmations): the registration
     // hub mailbox as 'GP Link', via the shared sendEmail helper.
-    const escIntro = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const introFacts = [];
-    if (inAppCountryLabel) introFacts.push('Registration country: ' + inAppCountryLabel);
-    if (inAppSpecialty) introFacts.push('Qualification: ' + inAppSpecialty);
-    const introCvLine = inAppCvAttachment
-      ? 'We\'ve attached ' + inAppGpName + '\'s CV to this email for your review.'
-      : 'We\'ll follow up with the candidate\'s CV shortly.';
-    const introSubject = 'Candidate introduction: ' + inAppGpName + ' — ' + inAppRoleLabel;
-    const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
-    const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
-    const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
-    // D1b: one-click response links. Signed, expiring, purpose-tagged tokens
-    // (makePracticeActionToken); a raw GET of these links only renders a
-    // confirm page — the state change needs the confirmed POST, so email
-    // scanners that auto-fetch links can never accept/decline a candidate.
-    // The reply-by-email fallback (introClose) stays.
-    let introActionsHtml = '';
-    let introActionsText = [];
-    try {
-      const introActionUrl = (action) => APP_BASE_URL + '/api/practice/respond?token='
-        + encodeURIComponent(makePracticeActionToken({ applicationId, action }));
-      const introAcceptUrl = introActionUrl('accept');
-      const introInterviewUrl = introActionUrl('request_interview');
-      const introDeclineUrl = introActionUrl('decline');
-      const introBtn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;margin:0 8px 8px 0;padding:11px 18px;border-radius:8px;background:' + bg + ';color:#ffffff;text-decoration:none;font-weight:600">' + escIntro(label) + '</a>';
-      introActionsHtml = '<br><br><strong>Respond in one click</strong><br><br>'
-        + introBtn(introAcceptUrl, 'Accept this candidate', '#16a34a')
-        + introBtn(introInterviewUrl, 'Request an interview', '#2563eb')
-        + introBtn(introDeclineUrl, 'Not the right fit', '#64748b');
-      introActionsText = ['', 'Respond in one click:',
-        'Accept this candidate: ' + introAcceptUrl,
-        'Request an interview: ' + introInterviewUrl,
-        'Not the right fit: ' + introDeclineUrl];
-    } catch (linkErr) {
-      // Links are additive — the introduction email must still send without them.
-      console.error('[admin career applications] practice one-click links skipped:', linkErr && linkErr.message);
-      introActionsHtml = '';
-      introActionsText = [];
-    }
-    // Candidate overview (D1a): overview + key history only — see the guard
-    // above where concerns/action_items are deliberately never read out.
-    const introOverviewHtml = inAppAiOverview
-      ? '<br><br><strong>Candidate overview</strong><br>' + escIntro(inAppAiOverview)
-        + (inAppAiHistory ? '<br><br><strong>Key history</strong><br>' + escIntro(inAppAiHistory) : '')
-      : '';
-    const introOverviewText = inAppAiOverview
-      ? ['', 'Candidate overview:', inAppAiOverview].concat(inAppAiHistory ? ['', 'Key history:', inAppAiHistory] : [])
-      : [];
-    const introBodyHtml =
-      escIntro(introGreeting) + '<br><br>' +
-      'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
-      (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
-      introOverviewHtml +
-      '<br><br>' + escIntro(introCvLine) +
-      introActionsHtml +
-      '<br><br>' + escIntro(introClose);
-    const introText = [introGreeting, '', introLead]
-      .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
-      .concat(introOverviewText)
-      .concat(['', introCvLine])
-      .concat(introActionsText)
-      .concat(['', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
-      .join('\n');
-
     const introSendResult = await sendEmail({
       to: inAppContactEmail,
       subject: introSubject,
       html: buildCareerEmailHtml({
-        title: 'Candidate introduction',
-        body: introBodyHtml,
-        footer: 'Sent by the GP Link recruitment team on behalf of ' + escIntro(inAppGpName) + '.'
+        title: introTitleHtml,
+        bodyHtml: introBodyHtml
       }),
       text: introText,
       from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
-      attachments: inAppCvAttachment ? [inAppCvAttachment] : undefined
+      attachments: inAppAttachments.length ? inAppAttachments : undefined
     });
     if (!introSendResult || !introSendResult.ok) {
       console.error('[admin career applications] in-app submit-to-practice email failed:', introSendResult && introSendResult.error);
@@ -34100,6 +35051,8 @@ async function handleApi(req, res, pathname) {
       practice_contact_email: inAppContactEmail,
       submitted_to_practice_at: inAppNowIso,
       submitted_to_practice_by: admin.email || '',
+      practice_action_token: inAppActionToken,
+      ai_recommendation: inAppRecommendation || null,
       updated_at: inAppNowIso
     };
     const inAppPatchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
@@ -51216,98 +52169,26 @@ Return ONLY valid JSON with no markdown formatting:
     var acCtx = await atsGetApplicationContext(acAppId);
     if (!acCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
-    // No-stomp guard: a DECIDED offer (the doctor already accepted or
-    // declined) must never be overwritten back to 'sent' by a repeat click.
-    var acExistingOffer = await atsOffersStore.getAtsOfferByApplication(acAppId);
-    if (acExistingOffer && (acExistingOffer.status === 'accepted' || acExistingOffer.status === 'declined')) {
-      sendJson(res, 200, { ok: true, already: true });
+    // Reveal + record the in-app offer via the shared "practice wants this
+    // candidate" core (also used by the public practice-decision approve
+    // branch). It fail-louds on the missing `revealed` column (migration
+    // 20260705100000): we must NOT congratulate the GP while my-offer would
+    // still serve the masked practice.
+    var acReveal = await revealApplicationAndEnsureOffer(acAppId, acCtx, {
+      sentBy: ctxAC.email || '',
+      notes: 'Practice accepted — interview invitation'
+    });
+    if (acReveal.status === 'already') { sendJson(res, 200, { ok: true, already: true }); return; }
+    if (acReveal.status === 'migration_required') {
+      sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
       return;
     }
-    // Idempotent: acceptance already recorded — revealed, or its
-    // pre-migration proxy practice_submission_status='client_approved' —
-    // with an offer on file → no-op repeat click.
-    var acAlreadyApproved = acCtx.app && (acCtx.app.revealed === true
-      || String(acCtx.app.practice_submission_status || '') === 'client_approved');
-    if (acAlreadyApproved && acExistingOffer) {
-      sendJson(res, 200, { ok: true, already: true });
+    if (acReveal.status !== 'ok') {
+      sendJson(res, 502, { ok: false, message: 'Could not record the acceptance — nothing was changed. Please try again.' });
       return;
     }
 
-    // PATCH gp_applications {revealed:true, practice_submission_status:'client_approved'}.
-    // FAIL LOUD when the reveal itself cannot persist: `revealed` ships in
-    // migration 20260705100000, and if that column is missing we must NOT
-    // record an offer or congratulate the GP — the congrats email names the
-    // real practice while /api/career/my-offer would still serve the masked
-    // identity. Same fail-loud rule as the practice-intake/sign 503 above.
-    // practice_submission_status (older, stable column) may persist or not —
-    // it's a bonus signal, never a substitute for the persisted reveal.
-    var acPatchBody = { revealed: true, practice_submission_status: 'client_approved' };
-    if (isSupabaseDbConfigured()) {
-      if (_gpApplicationsRevealedMissing) {
-        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
-        return;
-      }
-      var acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
-        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
-      });
-      if (!acRes.ok && isMissingColumnInsertError(acRes, 'revealed')) {
-        _gpApplicationsRevealedMissing = true;
-        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
-        return;
-      }
-      if (!acRes.ok && isMissingColumnInsertError(acRes, 'practice_submission_status')) {
-        // The bonus column being absent is tolerable — the reveal is what matters.
-        delete acPatchBody.practice_submission_status;
-        acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
-          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
-        });
-      }
-      if (!acRes.ok) {
-        console.error('[ats accept] could not persist the acceptance for application', acAppId, ':', acRes && acRes.data);
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'Could not record the acceptance — nothing was changed. Check the database (migration 20260705100000) and try again.' });
-        return;
-      }
-    } else {
-      var acLocalApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(acAppId); });
-      if (!acLocalApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
-      Object.assign(acLocalApp, acPatchBody);
-      saveDbState();
-    }
-
-    // Role/practice context for the offer record (ctx alone only carries the
-    // denormalised practiceName — the offer needs practice_id + the intake's
-    // billing split too, both of which live on the career_roles row).
-    var acRole = null;
-    if (acCtx.careerRoleId) {
-      acRole = isSupabaseDbConfigured()
-        ? await getCareerRoleRowById(acCtx.careerRoleId)
-        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(acCtx.careerRoleId); }) || null);
-    }
-    var acJobTitle = (acRole && acRole.title) || (acCtx.app && acCtx.app.job_title) || '';
-    var acPracticeName = acCtx.practiceName || (acRole && acRole.practice_name) || '';
-    var acIntake = (acRole && acRole.source_payload && acRole.source_payload.intake) || {};
-
-    // A live 'sent' offer already on file (e.g. the consultant sent a manual
-    // offer with real terms before clicking accept) is kept as-is — never
-    // overwritten by this synthetic interview-invitation record.
-    if (!acExistingOffer || acExistingOffer.status !== 'sent') {
-      var acSaved = await atsOffersStore.saveAtsOffer({
-        application_id: acAppId,
-        user_id: acCtx.userId || null,
-        career_role_id: acCtx.careerRoleId || null,
-        practice_id: (acRole && acRole.practice_id) || null,
-        job_title: acJobTitle,
-        practice_name: acPracticeName,
-        billing_split: sanitizeUserString(String(acIntake.percentage_split || ''), 120),
-        status: 'sent',
-        sent_by: ctxAC.email || '',
-        sent_at: atsNowIso(),
-        notes: 'Practice accepted — interview invitation'
-      });
-      if (!acSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
-    }
+    var acPracticeName = acCtx.practiceName || (acReveal.offer && acReveal.offer.practice_name) || '';
 
     // Kanban → 'offer' via the same forward-only rule as POST /api/ats/offer:
     // a later stage is never yanked backwards and terminal lanes
@@ -52839,6 +53720,10 @@ async function handleRequest(req, res) {
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
+    // Task 8: public decision landing page reached from the submit-to-practice
+    // email's Approve / Turn down buttons — token-authed in the URL, no
+    // session. Same exemption shape as practice-intake.html above.
+    pathname === '/pages/practice-decision.html' ||
     // D2: read-only practice status page — token-authed by the ?token= its
     // own fetch sends to /api/practice/status (same public model as intake).
     pathname === '/pages/practice-status.html' ||
@@ -53649,6 +54534,9 @@ module.exports.__testUtils = {
   sendPushNotification,
   getVapidConfig,
   __setWebPushSendForTests: function (fn) { webPushSendImpl = typeof fn === 'function' ? fn : null; },
-  __resetVapidWarningForTests: function () { vapidMissingWarned = false; }
+  __resetVapidWarningForTests: function () { vapidMissingWarned = false; },
+  buildCandidateSubmissionEmailHtml,
+  generateCandidateRecommendation,
+  buildCandidateIntro: careerIntro.buildCandidateIntro
 };
 // cache-bust 1778597236
