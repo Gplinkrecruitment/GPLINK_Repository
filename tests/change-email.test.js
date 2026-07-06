@@ -308,6 +308,28 @@ describe('verified email change (Phase 6 F4)', () => {
     expect(JSON.stringify(db.user_profiles)).toBe(before);
   });
 
+  it('a used A→B token cannot be replayed once the email has moved on (single-use)', async () => {
+    // After the happy path above, GP1's login email is NEW_EMAIL (B).
+    // The owner now moves it on again: B → C.
+    const EMAIL_C = 'moved-on-again@gplink-test.local';
+    const tokenBC = craftPurposeToken('email_change', { userId: GP1.userId, oldEmail: NEW_EMAIL, newEmail: EMAIL_C }, 60000);
+    const applied = await httpReq('POST', '/api/account/change-email/confirm', { body: { token: tokenBC } });
+    expect(applied.status).toBe(200);
+    expect(authUsers[GP1.userId].email).toBe(EMAIL_C);
+
+    // Inbox B still holds the original (already-consumed) A→B link, well
+    // within its 1h TTL. Replaying it must NOT drag the login email back to B:
+    // the account's current email (C) no longer matches the token's oldEmail (A).
+    const tokenAB = craftPurposeToken('email_change', { userId: GP1.userId, oldEmail: GP1.email, newEmail: NEW_EMAIL }, 60000);
+    const replay = await httpReq('POST', '/api/account/change-email/confirm', { body: { token: tokenAB } });
+    expect(replay.status).toBe(409);
+    expect(replay.body.ok).toBe(false);
+    expect(String(replay.body.message || '')).toContain('already changed');
+    // Nothing changed anywhere.
+    expect(authUsers[GP1.userId].email).toBe(EMAIL_C);
+    expect(db.user_profiles.find((p) => p.user_id === GP1.userId).email).toBe(EMAIL_C);
+  });
+
   it('refuses to confirm when the target address got taken in the meantime', async () => {
     // GP2 requests a change to an address…
     const target = 'race-target@gplink-test.local';

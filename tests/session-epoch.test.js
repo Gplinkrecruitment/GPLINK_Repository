@@ -263,6 +263,25 @@ describe('session epoch kill-switch (Phase 6 F4)', () => {
     expect(stillDead.status).toBe(401);
   });
 
+  it('sign-out-all also revokes OAuth refresh tokens (kill-switch covers every credential)', async () => {
+    // Mint a REAL refresh token via the password grant.
+    const grant = await httpReq('POST', '/api/auth/oauth/token', { body: { grant_type: 'password', email: GP.email, password: GP.password } });
+    expect(grant.status).toBe(200);
+    const refreshToken = grant.body.refresh_token;
+    expect(refreshToken).toBeTruthy();
+
+    // Sign out everywhere (epoch is 1 after the kill-switch test above).
+    const revoke = await httpReq('POST', '/api/account/sign-out-all', { cookie: epochCookie(GP.email, GP.userId, 1) });
+    expect(revoke.status).toBe(200);
+    expect(revoke.body.ok).toBe(true);
+
+    // The refresh token must be dead too — otherwise this device could mint a
+    // brand-new session (carrying the bumped epoch) and defeat the kill-switch.
+    const replay = await httpReq('POST', '/api/auth/oauth/token', { body: { grant_type: 'refresh_token', refresh_token: refreshToken } });
+    expect(replay.status).toBe(401);
+    expect(replay.body.error).toBe('invalid_refresh_token');
+  });
+
   it('a token issued BEFORE deploy stays valid even if the epoch table does not exist yet (fail-open)', async () => {
     // Simulate a pre-migration database: the table 404s like PostgREST would.
     missingTables.add('user_session_epoch');

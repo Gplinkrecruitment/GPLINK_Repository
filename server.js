@@ -9906,10 +9906,41 @@ async function applyVerifiedEmailChange({ userId, oldEmail, newEmail }) {
   }
 
   // 3) Kill every session issued for the old address (they embed the old
-  //    email, so bumping the old key's epoch invalidates all of them).
+  //    email, so bumping the old key's epoch invalidates all of them). OAuth
+  //    refresh tokens for the old address are revoked too — otherwise a device
+  //    holding one could mint a fresh session after the change (F4).
+  revokeAllRefreshTokensForEmail(oldKey);
   const bumped = await bumpSessionEpoch(oldKey);
   if (bumped == null) warnings.push('session revoke failed — old sessions may live until expiry');
   return { ok: true, warnings };
+}
+
+// F4 hardening: an email-change confirm token is bound to the login address it
+// was issued for. Once the account's CURRENT auth email is no longer the
+// token's oldEmail (the token was already used, or a newer change moved the
+// email on), the token is dead — otherwise a stale A→B link sitting in inbox B
+// could be replayed within its 1h TTL to drag the login email back to B after
+// the owner had already moved it elsewhere (re-takeover chain). Returns true
+// when the token should be REJECTED.
+async function isEmailChangeTokenStale({ userId, oldEmail }) {
+  const key = String(oldEmail || '').trim().toLowerCase();
+  if (!key) return true;
+  const uid = String(userId || '').trim();
+  if (isSupabaseDbConfigured()) {
+    try {
+      // Auth system is the source of truth for the CURRENT login email.
+      const a = await supabaseAuthAdminRequest('admin/users?email=' + encodeURIComponent(key));
+      const users = a.ok && a.data && Array.isArray(a.data.users) ? a.data.users : [];
+      const match = users.find((u) => String((u && u.email) || '').trim().toLowerCase() === key);
+      if (match) return uid ? String(match.id || '') !== uid : false;
+    } catch (err) { /* GoTrue shape varies — fall through to the profile check */ }
+    try {
+      const pid = await getSupabaseUserIdByEmail(key);
+      if (pid) return uid ? String(pid) !== uid : false;
+    } catch (err) { /* fall through */ }
+    return true; // old email no longer attached to this account → token is dead
+  }
+  return !(dbState.users[key] || dbState.userProfiles[key]);
 }
 
 // TOTP first, then single-use backup code (consumed on success). Returns
@@ -27973,7 +28004,12 @@ async function handleApi(req, res, pathname) {
     if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
     // Phase 6 F4: invalidate every other device's session too (the dialog
     // promises "signs you out" — make that true everywhere, not just here).
-    if (email) { await bumpSessionEpoch(email); }
+    // Refresh tokens are revoked as well: otherwise a device holding one could
+    // mint a fresh session (with the new epoch) right after deletion.
+    if (email) {
+      revokeAllRefreshTokensForEmail(email);
+      await bumpSessionEpoch(email);
+    }
     clearSession(res, req);
     sendJson(res, 200, { ok: true, purgeAfter, message: 'Your account has been closed. You can reinstate it within 90 days by signing in again.' });
     return;
@@ -27989,6 +28025,11 @@ async function handleApi(req, res, pathname) {
     if (!session) return;
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
+    // Kill EVERY credential, not just session cookies: an OAuth refresh token
+    // held by another device could otherwise mint a brand-new session (with
+    // the new epoch) seconds after "sign out of all devices" — defeating the
+    // kill-switch. Mirrors the password-change flow.
+    revokeAllRefreshTokensForEmail(email);
     const newEpoch = await bumpSessionEpoch(email);
     if (newEpoch == null) {
       sendJson(res, 502, { ok: false, message: 'Could not sign out of all devices right now. Please try again.' });
@@ -28212,6 +28253,13 @@ async function handleApi(req, res, pathname) {
     const newEmail = ceParsed ? String(ceParsed.newEmail || '').trim().toLowerCase() : '';
     if (!ceParsed || !isValidEmail(oldEmail) || !isValidEmail(newEmail)) {
       ceRespond(410, 'This link has expired', 'This email-change link is no longer valid. You can request a new one from your Account page.');
+      return;
+    }
+    // Single-use enforcement: once the account's login email is no longer the
+    // one this token was issued for, the link is dead — a stale link cannot be
+    // replayed to drag the email back to an old address.
+    if (await isEmailChangeTokenStale({ userId: String(ceParsed.userId || ''), oldEmail })) {
+      ceRespond(409, 'This link is no longer valid', 'The login email for this account has already changed since this link was sent. Nothing was changed. If you still want to update your email, request a new link from your Account page.');
       return;
     }
     if (await isChangeEmailAddressTaken(newEmail)) {
