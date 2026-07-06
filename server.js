@@ -34414,6 +34414,7 @@ async function handleApi(req, res, pathname) {
     // Mark no-show (only from booked status)
     const requestedAction = String(body && (body.action || body.status) || '').trim();
     let autoCloseTask = false; // set when a 2nd GP-driven failure should close the task
+    let deferredFollowUp = null; // complete-action follow-up task, created only AFTER the disposition PATCH persists
 
     if (requestedAction === 'no_show') {
       if (call.status !== 'booked') {
@@ -34455,28 +34456,11 @@ async function handleApi(req, res, pathname) {
       // cron applies — only kick a pending fetch when none was ever requested.
       patch.summary_status = (call.summary_status === 'not_requested' || !call.summary_status) ? 'pending' : call.summary_status;
 
-      // Needs follow-up / escalate → raise a follow-up task on the case (existing task path).
+      // Needs follow-up / escalate → raise a follow-up task on the case (existing task
+      // path). Deferred until AFTER the disposition PATCH persists — no side-effects
+      // may run when the disposition itself failed to save.
       if (disposition === 'needs_followup' || disposition === 'escalate') {
-        try {
-          const fuProfRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email', { method: 'GET' });
-          const fuGp = (fuProfRes.ok && Array.isArray(fuProfRes.data) && fuProfRes.data[0]) ? fuProfRes.data[0] : {};
-          const fuName = ((String(fuGp.first_name || '').trim() + ' ' + String(fuGp.last_name || '').trim()).trim()) || fuGp.email || 'the GP';
-          const fuStage = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[call.stage] || (call.stage || '');
-          // task_type 'chase' (not 'followup'): chase is the type the live call-failure
-          // path already inserts, so it is proven against the LIVE task_type constraint.
-          await _createRegTask(call.case_id, {
-            task_type: 'chase',
-            title: (disposition === 'escalate' ? 'Escalated from call — ' : 'Call follow-up — ') + fuName + (fuStage ? ' (' + fuStage + ')' : ''),
-            description: 'Call outcome logged as "' + disposition + '" by ' + (admin.email || 'admin') + ': ' + outcomeNote.slice(0, 800),
-            status: 'open',
-            priority: disposition === 'escalate' ? 'urgent' : 'high',
-            source_trigger: 'call_disposition',
-            related_stage: call.stage,
-            _actor: admin.email || 'admin'
-          });
-        } catch (fuErr) {
-          console.error('[calls complete] follow-up task error:', fuErr && fuErr.message);
-        }
+        deferredFollowUp = { disposition: disposition, outcomeNote: outcomeNote };
       }
     }
 
@@ -34541,6 +34525,40 @@ async function handleApi(req, res, pathname) {
       body: patch,
       headers: { Prefer: 'return=representation' }
     });
+
+    // The row PATCH is the source of truth: if it failed, report the failure honestly
+    // and run NO side-effects (no follow-up task, no linked-task sync) — otherwise we
+    // would create tasks for a disposition that was never persisted.
+    if (!updateRes.ok) {
+      console.error('[calls patch] scheduled_calls update failed:', updateRes.status, JSON.stringify(updateRes.data || null).slice(0, 300));
+      sendJson(res, 500, { ok: false, message: 'Failed to save the call update — the database write did not succeed. Nothing was changed; please try again.' });
+      return;
+    }
+
+    // Complete-action follow-up task (needs_followup/escalate) — only now that the
+    // disposition is persisted.
+    if (deferredFollowUp) {
+      try {
+        const fuProfRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email', { method: 'GET' });
+        const fuGp = (fuProfRes.ok && Array.isArray(fuProfRes.data) && fuProfRes.data[0]) ? fuProfRes.data[0] : {};
+        const fuName = ((String(fuGp.first_name || '').trim() + ' ' + String(fuGp.last_name || '').trim()).trim()) || fuGp.email || 'the GP';
+        const fuStage = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[call.stage] || (call.stage || '');
+        // task_type 'chase' (not 'followup'): chase is the type the live call-failure
+        // path already inserts, so it is proven against the LIVE task_type constraint.
+        await _createRegTask(call.case_id, {
+          task_type: 'chase',
+          title: (deferredFollowUp.disposition === 'escalate' ? 'Escalated from call — ' : 'Call follow-up — ') + fuName + (fuStage ? ' (' + fuStage + ')' : ''),
+          description: 'Call outcome logged as "' + deferredFollowUp.disposition + '" by ' + (admin.email || 'admin') + ': ' + deferredFollowUp.outcomeNote.slice(0, 800),
+          status: 'open',
+          priority: deferredFollowUp.disposition === 'escalate' ? 'urgent' : 'high',
+          source_trigger: 'call_disposition',
+          related_stage: call.stage,
+          _actor: admin.email || 'admin'
+        });
+      } catch (fuErr) {
+        console.error('[calls complete] follow-up task error:', fuErr && fuErr.message);
+      }
+    }
 
     // Sync task status. Normally a call status maps to a task status; on the 2nd
     // GP-driven failure (autoCloseTask) the task is cancelled instead of kept open.
@@ -41605,7 +41623,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     const [casesRes, tasksRes, ticketsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=500'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=1000'),
       supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
     ]);
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
@@ -41623,8 +41641,12 @@ Return ONLY valid JSON with no markdown formatting:
     }
     const dashNowMs = Date.now();
     const dashTodayStr = new Date(dashNowMs).toISOString().slice(0, 10);
+    // Feed the SAME active-case set the CEO card feeds computeRsoWorkload
+    // (excludes withdrawn + >6-month-stale) so the admin caseload strip
+    // numbers match the CEO "RSO Workload" card exactly.
+    const dashActiveCases = ceoMetrics.filterActiveCases(cases, { nowMs: dashNowMs });
     const dashRsoWorkload = ceoMetrics.computeRsoWorkload(
-      cases, tasks,
+      dashActiveCases, tasks,
       dashRosterRows.map(function (rr) { return { rso_id: rr.user_id, rso_name: rr.name }; }),
       dashTodayStr
     ).map(function (w) {

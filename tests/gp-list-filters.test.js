@@ -7,7 +7,10 @@
 //   2. GET /api/admin/va/dashboard users now carry assigned_rso (name),
 //      assigned_rso_email, country, stage and days_in_stage, and the payload
 //      includes an rso_workload rollup computed by the SAME
-//      ceoMetrics.computeRsoWorkload the CEO "RSO Workload" card uses.
+//      ceoMetrics.computeRsoWorkload the CEO "RSO Workload" card uses,
+//      fed the SAME ceoMetrics.filterActiveCases input — withdrawn and
+//      >6-month-stale cases (and their tasks) are excluded, so the admin
+//      caseload strip matches the CEO card exactly.
 //   3. Both endpoints stay auth-gated.
 //   4. Static: pages/admin.html renders the new stage/RSO/country/age filter
 //      selects + "My caseload" chip and filteredCases() references the fields.
@@ -32,11 +35,15 @@ const iso = (offsetDays) => new Date(NOW + offsetDays * 86400000).toISOString();
 const db = {
   user_profiles: [
     { user_id: 'u-assigned', email: 'assigned@gplink-test.local', first_name: 'Alice', last_name: 'Assigned' },
-    { user_id: 'u-loose', email: 'loose@gplink-test.local', first_name: 'Lena', last_name: 'Loose' }
+    { user_id: 'u-loose', email: 'loose@gplink-test.local', first_name: 'Lena', last_name: 'Loose' },
+    { user_id: 'u-withdrawn', email: 'withdrawn@gplink-test.local', first_name: 'Wanda', last_name: 'Withdrawn' },
+    { user_id: 'u-stale', email: 'stale@gplink-test.local', first_name: 'Stan', last_name: 'Stale' }
   ],
   user_state: [
     { user_id: 'u-assigned', state: { gp_selected_country: 'IE' } },
-    { user_id: 'u-loose', state: { gp_selected_country: 'NZ' } }
+    { user_id: 'u-loose', state: { gp_selected_country: 'NZ' } },
+    { user_id: 'u-withdrawn', state: { gp_selected_country: 'UK' } },
+    { user_id: 'u-stale', state: { gp_selected_country: 'UK' } }
   ],
   rso_team: [
     { user_id: 'rso-1', name: 'Rae Officer', email: 'rae@mygplink.com.au', phone: '', active: true, on_leave: false, calendly_event_url: '' }
@@ -45,11 +52,17 @@ const db = {
     // assigned to rso-1, stalled ~20 days in amc
     { id: 'c-assigned', user_id: 'u-assigned', stage: 'amc', substage: '', status: 'active', assigned_rso: 'rso-1', assigned_va: 'rso-1', created_at: iso(-60), updated_at: iso(-20), last_gp_activity_at: iso(-20) },
     // unassigned, fresh ~2 days in ahpra
-    { id: 'c-loose', user_id: 'u-loose', stage: 'ahpra', substage: '', status: 'active', assigned_rso: null, assigned_va: null, created_at: iso(-30), updated_at: iso(-2), last_gp_activity_at: iso(-2) }
+    { id: 'c-loose', user_id: 'u-loose', stage: 'ahpra', substage: '', status: 'active', assigned_rso: null, assigned_va: null, created_at: iso(-30), updated_at: iso(-2), last_gp_activity_at: iso(-2) },
+    // ALSO assigned to rso-1 but withdrawn → must NOT count in rso_workload (filterActiveCases)
+    { id: 'c-withdrawn', user_id: 'u-withdrawn', stage: 'amc', substage: '', status: 'withdrawn', assigned_rso: 'rso-1', assigned_va: 'rso-1', created_at: iso(-90), updated_at: iso(-3), last_gp_activity_at: iso(-3) },
+    // ALSO assigned to rso-1 but >6 months stale (182d cut) → must NOT count in rso_workload
+    { id: 'c-stale', user_id: 'u-stale', stage: 'ahpra', substage: '', status: 'active', assigned_rso: 'rso-1', assigned_va: 'rso-1', created_at: iso(-400), updated_at: iso(-200), last_gp_activity_at: iso(-200) }
   ],
   registration_tasks: [
     // open + overdue task on the assigned case → shows in rso-1's workload numbers
-    { id: crypto.randomUUID(), case_id: 'c-assigned', status: 'open', priority: 'normal', due_date: iso(-1).slice(0, 10), title: 'Chase AMC docs', created_at: iso(-5) }
+    { id: crypto.randomUUID(), case_id: 'c-assigned', status: 'open', priority: 'normal', due_date: iso(-1).slice(0, 10), title: 'Chase AMC docs', created_at: iso(-5) },
+    // open + overdue task on the STALE case → excluded from rso-1's numbers along with its case
+    { id: crypto.randomUUID(), case_id: 'c-stale', status: 'open', priority: 'normal', due_date: iso(-10).slice(0, 10), title: 'Chase stale case', created_at: iso(-190) }
   ],
   support_tickets: [],
   task_timeline: [],
@@ -283,6 +296,25 @@ describe('GET /api/admin/va/dashboard — users + rso_workload', () => {
     const unassigned = r.body.rso_workload.find((w) => w.rso_id === '__unassigned__');
     expect(unassigned).toBeTruthy();
     expect(unassigned.case_count).toBe(1);
+  });
+
+  it('rso_workload excludes withdrawn + >6-month-stale cases (same filterActiveCases input as the CEO card)', async () => {
+    const r = await httpReq('GET', '/api/admin/va/dashboard', { cookie: adminCookie() });
+    expect(r.status).toBe(200);
+
+    // rso-1 owns THREE cases in the raw table (c-assigned, c-withdrawn, c-stale)
+    // but only c-assigned is active: withdrawn and >182-day-stale cases are
+    // filtered out before computeRsoWorkload — exactly like the CEO card.
+    const rae = r.body.rso_workload.find((w) => w.rso_id === 'rso-1');
+    expect(rae).toBeTruthy();
+    expect(rae.case_count).toBe(1);
+    // The open+overdue task on the stale case is excluded along with its case.
+    expect(rae.open_tasks).toBe(1);
+    expect(rae.overdue_tasks).toBe(1);
+
+    // Total caseload across the strip counts only the two active cases.
+    const totalCases = r.body.rso_workload.reduce((sum, w) => sum + w.case_count, 0);
+    expect(totalCases).toBe(2);
   });
 });
 

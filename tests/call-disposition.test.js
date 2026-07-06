@@ -14,6 +14,9 @@
 //      its original completed_at.
 //   5. Invalid source status (invited) → 409. Auth-gated.
 //   6. Static: admin.html ships the outcome modal + disposition rendering.
+//   7. HONESTY: when the disposition PATCH itself fails at the DB, the endpoint
+//      returns 500 (not ok:true) and runs NO side-effects — no follow-up task,
+//      linked task untouched — and the same request succeeds on retry.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -38,8 +41,14 @@ const CALL_RES = crypto.randomUUID();    // booked → resolved (no follow-up ta
 const CALL_BAD = crypto.randomUUID();    // booked → validation failures
 const CALL_DONE = crypto.randomUUID();   // already completed by the cron, summary saved
 const CALL_INV = crypto.randomUUID();    // invited → 409
+const CALL_DBFAIL = crypto.randomUUID(); // booked → simulated DB failure on the PATCH
 const TASK_FU = crypto.randomUUID();     // linked registration task of CALL_FU
+const TASK_DBFAIL = crypto.randomUUID(); // linked registration task of CALL_DBFAIL
 const DONE_COMPLETED_AT = iso(-1);
+
+// When a table name is in here, the NEXT emulator PATCH against it returns 500
+// (then the flag clears) — simulates a real DB write failure.
+const failNextPatch = new Set();
 
 const db = {
   user_profiles: [
@@ -49,7 +58,8 @@ const db = {
     { id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'active', assigned_va: null, created_at: iso(-30), updated_at: iso(-1) }
   ],
   registration_tasks: [
-    { id: TASK_FU, case_id: 'c-call', status: 'waiting', task_type: 'zoom_call', title: 'Zoom call', priority: 'normal', created_at: iso(-2) }
+    { id: TASK_FU, case_id: 'c-call', status: 'waiting', task_type: 'zoom_call', title: 'Zoom call', priority: 'normal', created_at: iso(-2) },
+    { id: TASK_DBFAIL, case_id: 'c-call', status: 'waiting', task_type: 'zoom_call', title: 'Zoom call (db-fail)', priority: 'normal', created_at: iso(-2) }
   ],
   scheduled_calls: [
     { id: CALL_FU, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'booked', registration_task_id: TASK_FU, summary_status: null, scheduled_at: iso(0), created_at: iso(-2) },
@@ -57,7 +67,8 @@ const db = {
     { id: CALL_RES, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'booked', registration_task_id: null, summary_status: null, scheduled_at: iso(0), created_at: iso(-2) },
     { id: CALL_BAD, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'booked', registration_task_id: null, summary_status: null, scheduled_at: iso(0), created_at: iso(-2) },
     { id: CALL_DONE, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'completed', registration_task_id: null, summary_status: 'saved', meeting_summary: 'Zoom said things.', completed_at: DONE_COMPLETED_AT, created_at: iso(-3) },
-    { id: CALL_INV, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'invited', registration_task_id: null, summary_status: null, created_at: iso(-1) }
+    { id: CALL_INV, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'invited', registration_task_id: null, summary_status: null, created_at: iso(-1) },
+    { id: CALL_DBFAIL, case_id: 'c-call', user_id: 'u-gp', stage: 'amc', status: 'booked', registration_task_id: TASK_DBFAIL, summary_status: null, scheduled_at: iso(0), created_at: iso(-2) }
   ],
   task_timeline: []
 };
@@ -133,6 +144,12 @@ function startSupabaseEmulator() {
         return;
       }
       if (req.method === 'PATCH') {
+        if (failNextPatch.has(table)) {
+          failNextPatch.delete(table);
+          await readBody(req);
+          send(500, { message: 'simulated database write failure' });
+          return;
+        }
         const patch = await readBody(req);
         const matched = rows.filter(matches);
         matched.forEach((row) => Object.assign(row, patch || {}));
@@ -295,6 +312,39 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
     expect(r.status).toBe(200);
     expect(followUps().length).toBe(before);
     expect(callRow(CALL_RES).call_disposition).toBe('resolved');
+  });
+
+  it('returns 500 and runs NO side-effects when the disposition PATCH fails at the DB', async () => {
+    const before = followUps().length;
+    failNextPatch.add('scheduled_calls');
+    const r = await httpReq('PATCH', '/api/admin/calls/' + CALL_DBFAIL, {
+      cookie: adminCookie(),
+      body: { action: 'complete', disposition: 'needs_followup', outcome_note: 'DB was down mid-save.' }
+    });
+    // Honest failure — never ok:true on a write that did not persist
+    expect(r.status).toBe(500);
+    expect(r.body.ok).toBe(false);
+
+    // No follow-up task was created
+    expect(followUps().length).toBe(before);
+    // Linked registration task untouched (NOT marked completed)
+    expect(db.registration_tasks.find((t) => t.id === TASK_DBFAIL).status).toBe('waiting');
+    // Call row untouched — still booked, no disposition persisted
+    const row = callRow(CALL_DBFAIL);
+    expect(row.status).toBe('booked');
+    expect(row.call_disposition).toBeUndefined();
+    expect(row.outcome_note).toBeUndefined();
+
+    // Retrying the exact same request once the DB is healthy succeeds end-to-end
+    const retry = await httpReq('PATCH', '/api/admin/calls/' + CALL_DBFAIL, {
+      cookie: adminCookie(),
+      body: { action: 'complete', disposition: 'needs_followup', outcome_note: 'DB was down mid-save.' }
+    });
+    expect(retry.status).toBe(200);
+    expect(retry.body.ok).toBe(true);
+    expect(callRow(CALL_DBFAIL).call_disposition).toBe('needs_followup');
+    expect(followUps().length).toBe(before + 1);
+    expect(db.registration_tasks.find((t) => t.id === TASK_DBFAIL).status).toBe('completed');
   });
 
   it('logging an outcome on a cron-completed call keeps completed_at + the saved Zoom summary', async () => {
