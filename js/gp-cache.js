@@ -27,7 +27,12 @@
     "/api/media-config":        "metadata",
     "/api/career/hero-image":   "metadata",
     "/api/career/applications": "heavy",
-    "/api/user/nudges":         "nudges"
+    "/api/user/nudges":         "nudges",
+    // C4 (audit 2026-07-07): heavy GP pages — short "state" tier (30s fresh /
+    // 2m stale-revalidate) so repeated on-load GETs coalesce without serving
+    // meaningfully stale document status. Both endpoints are idempotent GETs.
+    "/api/ahpra/document-readiness": "state",
+    "/api/gplink-docs-status":       "state"
   };
 
   /* ── Helpers ──────────────────────────────────────────────────── */

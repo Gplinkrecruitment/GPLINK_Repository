@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AHPRA Registration - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script>
     // Hide registration content immediately if intro screen should show (prevents flash)
     (function(){try{
@@ -2067,6 +2068,9 @@
       flex-shrink: 0;
     }
   </style>
+  <meta name="theme-color" content="#0b1322" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/media/icons/gp-link-icon-180.png" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
@@ -2815,9 +2819,25 @@
       var cc = (country || "").toLowerCase();
       if (cc === "gb") cc = "uk";
       try {
-        var resp = await fetch("/api/ahpra/document-readiness?country=" + encodeURIComponent(cc), { credentials: "same-origin" });
-        if (!resp.ok) return false;
-        var data = await resp.json().catch(function() { return {}; });
+        var readinessUrl = "/api/ahpra/document-readiness?country=" + encodeURIComponent(cc);
+        // C4: route through the shared SWR cache when available (own frame or
+        // the app-shell parent) so repeated loads coalesce; identical fallback
+        // to a plain fetch keeps behavior unchanged when gp-cache is absent.
+        var data = null;
+        var gpCacheFetch = null;
+        try {
+          gpCacheFetch = (window.gpCache && window.gpCache.fetch)
+            || (window.parent && window.parent !== window && window.parent.gpCache && window.parent.gpCache.fetch)
+            || null;
+        } catch (e) {}
+        if (gpCacheFetch) {
+          try { data = await gpCacheFetch(readinessUrl); } catch (e) { data = null; }
+        }
+        if (!data) {
+          var resp = await fetch(readinessUrl, { credentials: "same-origin" });
+          if (!resp.ok) return false;
+          data = await resp.json().catch(function() { return {}; });
+        }
         if (!data || !data.ok || !data.docs || typeof data.docs !== "object") return false;
         var state = readJsonStorage(DOC_KEY, { docs: {}, country: cc }) || { docs: {}, country: cc };
         if (!state.docs || typeof state.docs !== "object") state.docs = {};

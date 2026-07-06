@@ -1949,7 +1949,9 @@ const BACKUP_TABLES = [
   'zoho_sign_envelopes', 'processed_zoho_sign_events',
   'incoming_email_todos', 'career_interviews',
   'career_hero_cities', 'career_hero_city_images', 'career_suburb_geo_cache',
-  'doubletick_messages', 'pending_hires',
+  // 'pending_hires' removed 2026-07-07 (audit C4): dead table — created but never
+  // read or written by the app, so backing it up was pure noise. (Left in the DB.)
+  'doubletick_messages',
   'system_bugs', 'client_errors',
   'guide_folders', 'guide_items',
   // Added 2026-07-07 (audit C3) — newer tables that were missing from the backup:
@@ -6710,6 +6712,50 @@ async function recordCronRun(name, status, detail, ms) {
   } catch (cronErr) {
     console.error('[recordCronRun] heartbeat write failed (ignored):', cronErr && cronErr.message);
   }
+}
+
+// ── Migration ledger (C4) ────────────────────────────────────────────────────
+// Migrations are applied to prod manually (exec_sql), so nothing records which
+// supabase/migrations/*.sql files have actually run — missing tables are then
+// 404-skipped at runtime, silently masking drift. public.schema_migrations
+// (migration 20260706180000) is the ledger; these helpers diff the repo's
+// migration files against it for GET /api/admin/migration-status. Local JSON
+// mode keeps the ledger rows in dbState.schemaMigrations so the flow works
+// (and is testable) without Supabase.
+const MIGRATIONS_DIR = path.join(__dirname, 'supabase', 'migrations');
+
+function listMigrationFiles() {
+  try {
+    return fs.readdirSync(MIGRATIONS_DIR)
+      .filter((f) => /\.sql$/i.test(f))
+      .sort();
+  } catch (err) {
+    // Deployed bundle without supabase/migrations (or unreadable dir) — report
+    // an empty repo set rather than breaking the Technical tab.
+    console.warn('[migration-status] cannot read supabase/migrations:', err && err.message);
+    return [];
+  }
+}
+
+function migrationFileChecksum(filename) {
+  try {
+    const buf = fs.readFileSync(path.join(MIGRATIONS_DIR, filename));
+    return crypto.createHash('sha256').update(buf).digest('hex');
+  } catch (err) {
+    return null;
+  }
+}
+
+async function readMigrationLedger() {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('schema_migrations', 'select=filename,applied_at,checksum&limit=2000');
+    if (r.ok && Array.isArray(r.data)) return { rows: r.data, tableMissing: false };
+    return { rows: [], tableMissing: r.status === 404 };
+  }
+  return {
+    rows: Array.isArray(dbState.schemaMigrations) ? dbState.schemaMigrations.slice() : [],
+    tableMissing: false
+  };
 }
 
 async function checkAnthropicBudget() {
@@ -25419,8 +25465,12 @@ async function handleApi(req, res, pathname) {
             var bkQuery = 'select=*&limit=' + bkPageSize + '&offset=' + bkOffset;
             var bkRes = await supabaseDbRequest(bkTable, bkQuery);
             if (!bkRes.ok) {
-              // 404 = table doesn't exist yet (migration not applied) — skip silently
-              if (bkRes.status !== 404) {
+              if (bkRes.status === 404) {
+                // 404 = table doesn't exist yet. Still graceful-continue (the
+                // backup proceeds without it), but make the drift VISIBLE (C4)
+                // instead of silently masking an unapplied migration.
+                console.warn('[weekly-backup] table "' + bkTable + '" missing — migration may be unapplied (check /api/admin/migration-status)');
+              } else {
                 bkErrors.push({ table: bkTable, error: 'HTTP ' + bkRes.status });
               }
               bkHasMore = false;
@@ -45746,6 +45796,72 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
     sendJson(res, 200, { ok: true, generated_at: new Date().toISOString(), crons: chCrons });
+    return;
+  }
+
+  // ── Migration ledger (C4): repo migration files vs schema_migrations rows ──
+  // Same guard as the rest of the Technical tab (requireCeoSession). The diff
+  // is informational: unapplied = in the repo but not recorded in the ledger.
+  if (pathname === '/api/admin/migration-status' && req.method === 'GET') {
+    var msCtx = requireCeoSession(req, res);
+    if (!msCtx) return;
+    var msFiles = listMigrationFiles();
+    var msLedger = await readMigrationLedger();
+    var msRecorded = new Set(msLedger.rows.map(function (r) { return String(r.filename || ''); }));
+    var msUnapplied = msFiles.filter(function (f) { return !msRecorded.has(f); });
+    var msUnknown = msLedger.rows
+      .map(function (r) { return String(r.filename || ''); })
+      .filter(function (f) { return f && msFiles.indexOf(f) === -1; });
+    sendJson(res, 200, {
+      ok: true,
+      generated_at: new Date().toISOString(),
+      total_files: msFiles.length,
+      recorded_count: msRecorded.size,
+      unapplied: msUnapplied,
+      unknown_recorded: msUnknown, // recorded in the DB but no longer in the repo
+      ledger_table_missing: msLedger.tableMissing,
+      files: msFiles
+    });
+    return;
+  }
+
+  // One-time baseline: historically-applied migrations are unknowable, so this
+  // guarded action records EVERY file currently in the repo as applied.
+  // Idempotent — files already in the ledger are skipped (PK upsert).
+  if (pathname === '/api/admin/migration-status/mark-all-applied' && req.method === 'POST') {
+    var msaCtx = requireCeoSession(req, res);
+    if (!msaCtx) return;
+    var msaFiles = listMigrationFiles();
+    var msaLedger = await readMigrationLedger();
+    if (msaLedger.tableMissing) {
+      sendJson(res, 409, { ok: false, message: 'schema_migrations table missing — apply migration 20260706180000_schema_migrations.sql first.' });
+      return;
+    }
+    var msaExisting = new Set(msaLedger.rows.map(function (r) { return String(r.filename || ''); }));
+    var msaNowIso = new Date().toISOString();
+    var msaRows = msaFiles
+      .filter(function (f) { return !msaExisting.has(f); })
+      .map(function (f) { return { filename: f, applied_at: msaNowIso, checksum: migrationFileChecksum(f) }; });
+    if (!msaRows.length) {
+      sendJson(res, 200, { ok: true, recorded: 0, already_recorded: msaFiles.length });
+      return;
+    }
+    if (isSupabaseDbConfigured()) {
+      var msaRes = await supabaseDbRequest('schema_migrations', 'on_conflict=filename', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: msaRows
+      });
+      if (!msaRes.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to record migrations (HTTP ' + msaRes.status + ').' });
+        return;
+      }
+    } else {
+      if (!Array.isArray(dbState.schemaMigrations)) dbState.schemaMigrations = [];
+      dbState.schemaMigrations = dbState.schemaMigrations.concat(msaRows);
+      saveDbState();
+    }
+    sendJson(res, 200, { ok: true, recorded: msaRows.length });
     return;
   }
 

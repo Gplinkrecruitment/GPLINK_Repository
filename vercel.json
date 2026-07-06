@@ -29,6 +29,8 @@
           "documents/**",
           "assets/**",
           "sw.js",
+          "manifest.webmanifest",
+          "supabase/migrations/**",
           "data/.gitkeep"
         ],
         "maxDuration": 60

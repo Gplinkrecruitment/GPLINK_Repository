@@ -141,6 +141,10 @@ describe('C3 — backup table coverage', () => {
     const tables = testUtils.BACKUP_TABLES;
     expect(new Set(tables).size).toBe(tables.length);
   });
+
+  it('BACKUP_TABLES no longer includes the dead pending_hires table (C4)', () => {
+    expect(testUtils.BACKUP_TABLES).not.toContain('pending_hires');
+  });
 });
 
 describe('C7 — legal/blog pages public when logged out', () => {

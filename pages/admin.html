@@ -9839,6 +9839,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       archivedAccountsReinstate(reinstateBtn.getAttribute("data-archived-reinstate"),reinstateBtn);
       return;
     }
+    // Schema-migrations baseline (audit C4)
+    var migBaselineBtn=e.target.closest("[data-migrations-baseline]");
+    if(migBaselineBtn){
+      migrationsMarkBaseline(migBaselineBtn);
+      return;
+    }
     // Bug row expand
     var bugRow=e.target.closest(".tech-bug-row");
     if(bugRow&&!e.target.closest(".btn")){bugRow.classList.toggle("expanded");}
@@ -9930,8 +9936,43 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='</tr>';
       }
       html+='</tbody></table></div>';
+      html+='<div id="techMigrationsCard" class="tech-card" style="margin-top:12px;padding:12px 14px;font-size:0.8rem;color:#6b7280;">Checking schema migrations...</div>';
       el.innerHTML=html;
+      loadMigrationStatus();
     }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  // ── Schema migrations ledger (audit C4) ──────────────────────────────
+  async function loadMigrationStatus(){
+    var card=document.getElementById("techMigrationsCard");
+    if(!card)return;
+    try{
+      var r=await fetch("/api/admin/migration-status",{credentials:"same-origin"});
+      var d=await r.json().catch(function(){return null;});
+      if(!r.ok||!d||!d.ok){card.innerHTML='Schema migrations: failed to load ('+esc((d&&d.message)||('HTTP '+r.status))+')';return;}
+      var unappliedCount=Array.isArray(d.unapplied)?d.unapplied.length:0;
+      var html='<div style="font-weight:600;color:#111827;margin-bottom:4px;">Schema migrations</div>';
+      html+='<div><b>'+esc(String(d.total_files))+'</b> migration files &nbsp; <b>'+unappliedCount+'</b> not recorded as applied</div>';
+      if(d.ledger_table_missing){
+        html+='<div style="margin-top:6px;color:#b45309;">Ledger table missing &mdash; apply migration 20260706180000_schema_migrations.sql, then record the baseline here.</div>';
+      }else if(unappliedCount){
+        html+='<div style="margin-top:6px;max-height:120px;overflow:auto;font-family:monospace;font-size:0.72rem;">'+d.unapplied.map(esc).join('<br>')+'</div>';
+        html+='<button class="tech-reconnect" data-migrations-baseline="1" style="margin-top:8px;">Mark all current as applied (baseline)</button>';
+      }else{
+        html+='<div style="margin-top:6px;color:#15803d;">Ledger up to date.</div>';
+      }
+      card.innerHTML=html;
+    }catch(err){card.innerHTML='Schema migrations: '+esc(err.message);}
+  }
+  async function migrationsMarkBaseline(btn){
+    if(!confirm("Record every migration file currently in the repo as applied? One-time baseline — only do this if the live schema is known to be current."))return;
+    btn.disabled=true;btn.textContent="Recording...";
+    try{
+      var r=await fetch("/api/admin/migration-status/mark-all-applied",{method:"POST",credentials:"same-origin"});
+      var d=await r.json().catch(function(){return null;});
+      if(!r.ok||!d||!d.ok){alert("Failed: "+((d&&d.message)||("HTTP "+r.status)));btn.disabled=false;btn.textContent="Mark all current as applied (baseline)";return;}
+      loadMigrationStatus();
+    }catch(err){alert("Failed: "+err.message);btn.disabled=false;btn.textContent="Mark all current as applied (baseline)";}
   }
 
   // ── Archived Accounts (soft-deleted) ──────────────────────

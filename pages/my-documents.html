@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Your Document Progress - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260706a" defer></script>
@@ -1255,6 +1256,9 @@
       .doc-tab { font-size: 12px; padding: 9px 6px; }
     }
   </style>
+  <meta name="theme-color" content="#0b1322" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/media/icons/gp-link-icon-180.png" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
@@ -2368,9 +2372,19 @@
         renderAll(country, state);
         try { handleReuploadDeepLink(); } catch (e) {}
       }).catch(function() {});
-      // Fetch authoritative GP LINK doc status from server (overrides stale localStorage)
-      fetch("/api/gplink-docs-status", { credentials: "same-origin" })
-        .then(function(r) { return r.json(); })
+      // Fetch authoritative GP LINK doc status from server (overrides stale localStorage).
+      // C4: routed through the shared SWR cache when available (own frame or the
+      // app-shell parent) so repeated loads coalesce; plain-fetch fallback keeps
+      // behavior unchanged when gp-cache is absent.
+      var gplinkStatusFetch = null;
+      try {
+        gplinkStatusFetch = (window.gpCache && window.gpCache.fetch)
+          || (window.parent && window.parent !== window && window.parent.gpCache && window.parent.gpCache.fetch)
+          || null;
+      } catch (e) {}
+      (gplinkStatusFetch
+        ? gplinkStatusFetch("/api/gplink-docs-status")
+        : fetch("/api/gplink-docs-status", { credentials: "same-origin" }).then(function(r) { return r.json(); }))
         .then(function(data) {
           if (!data || !data.ok || !data.docs) return;
           // Store alt supervisor CVs for rendering
