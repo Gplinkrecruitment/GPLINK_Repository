@@ -21855,10 +21855,36 @@ async function listDocScanFailuresForUser(userId) {
 // itself performs the manual-review escalation (save as under_review + create
 // the Registration Support Officer review task + tell the GP) instead of
 // trusting the client's cached copy to still exist.
+// Resolve a GP's OWN document-country bucket ('uk'|'ie'|'nz') from their
+// profile, with NO hard default: user_profiles.registration_country first,
+// then user_state.gp_selected_country (the same resolution chain the rest of
+// the server uses). Returns '' when neither resolves so the caller picks its
+// own last-resort fallback.
+async function resolveGpProfileDocumentCountry(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return '';
+  try {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var raw = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0].registration_country : '';
+    var norm = normalizeDocumentCountry(raw || '');
+    if (norm) return norm;
+    var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : null;
+    return normalizeDocumentCountry((st && st.gp_selected_country) || '');
+  } catch (e) {
+    return '';
+  }
+}
+
 async function escalateDocScanFailureToReview(userId, opts) {
   var docKey = String((opts && opts.docKey) || '');
-  var country = normalizeDocumentCountry((opts && opts.country) || '') || 'uk';
   if (!userId || !docKey || !opts.fileDataUrl) return null;
+  // Country: explicit scan country first, then the GP's OWN profile country —
+  // an IE/NZ GP whose scan call omits the country must NOT have their
+  // under-review doc mis-filed under 'uk' (country_code splits document rows).
+  // 'uk' only as a true last resort when the profile has no country either.
+  var country = normalizeDocumentCountry((opts && opts.country) || '');
+  if (!country) country = await resolveGpProfileDocumentCountry(userId);
+  if (!country) country = 'uk';
   try {
     var saved = await savePreparedDocumentForUser(userId, null, {
       country: country,
@@ -26663,7 +26689,12 @@ async function handleApi(req, res, pathname) {
               await sendEmail({
                 to: wsProf.email,
                 subject: 'GP Link — ' + wsNudgeTitle,
-                category: 'marketing',
+                // Registration-critical reminder: an expired document stalls
+                // the GP's registration, so this must ALWAYS reach them — even
+                // if they unsubscribed from marketing mail. 'transactional'
+                // bypasses the email_suppression gate (only 'marketing'
+                // consults it).
+                category: 'transactional',
                 html: buildCareerEmailHtml({
                   title: wsNudgeTitle,
                   body: (wsProf.first_name ? 'Hi ' + wsProf.first_name + ', ' : '') + wsNudgeMsg,

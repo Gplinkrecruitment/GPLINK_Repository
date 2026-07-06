@@ -25,12 +25,20 @@ let server, port;
 let sbServer, sbPort;
 
 const GP = { userId: 'u-rej-1', email: 'reject-gp@gplink-test.local' };
+// NZ GP: profile carries a loose-cased country; scans that omit `country` must
+// escalate under 'nz', never the hardcoded 'uk' fallback.
+const NZGP = { userId: 'u-rej-nz', email: 'reject-nz@gplink-test.local' };
+// IE GP: NO registration_country on the profile — country only resolvable via
+// user_state.gp_selected_country (second link of the profile-country chain).
+const IEGP = { userId: 'u-rej-ie2', email: 'reject-ie2@gplink-test.local' };
 const SUPER_EMAIL = 'super@gplink-test.local';
 const NOW = new Date().toISOString();
 
 const db = {
   user_profiles: [
-    { user_id: GP.userId, email: GP.email, first_name: 'Re', last_name: 'Ject', registration_country: 'ie' }
+    { user_id: GP.userId, email: GP.email, first_name: 'Re', last_name: 'Ject', registration_country: 'ie' },
+    { user_id: NZGP.userId, email: NZGP.email, first_name: 'Kiwi', last_name: 'Doc', registration_country: 'New Zealand' },
+    { user_id: IEGP.userId, email: IEGP.email, first_name: 'Ir', last_name: 'Ish' }
   ],
   registration_cases: [
     { id: 'case-rej-1', user_id: GP.userId, status: 'active', stage: 'ahpra' }
@@ -41,11 +49,22 @@ const db = {
   ],
   user_documents: [
     // The doc the admin will reject.
-    { id: 'd-rej-1', user_id: GP.userId, document_key: 'cscst_certified', country_code: 'ie', status: 'under_review', file_name: 'cscst.pdf', file_url: 'users/u-rej-1/cscst', updated_at: NOW }
+    { id: 'd-rej-1', user_id: GP.userId, document_key: 'cscst_certified', country_code: 'ie', status: 'under_review', file_name: 'cscst.pdf', file_url: 'users/u-rej-1/cscst', updated_at: NOW },
+    // Expires in 5 days, never nudged -> the weekly sweep must email a renewal
+    // reminder even though GP.email is on the suppression list (transactional).
+    { id: 'd-rej-exp', user_id: GP.userId, document_key: 'certificate_good_standing', country_code: 'ie', status: 'approved', file_name: 'cogs.pdf', file_url: 'users/u-rej-1/cogs', expires_at: new Date(Date.now() + 5 * 86400000).toISOString(), expiry_nudged_at: null, updated_at: NOW }
+  ],
+  // GP.email unsubscribed from marketing mail — registration-critical
+  // transactional sends must ignore this list.
+  email_suppression: [
+    { email: GP.email, reason: 'unsubscribe', source: 'test', created_at: NOW }
   ],
   user_doc_scan_failures: [],
   user_nudges: [],
-  user_state: [],
+  user_state: [
+    // IE GP's country lives ONLY here (profile has no registration_country).
+    { user_id: IEGP.userId, state: { gp_selected_country: 'Ireland' } }
+  ],
   user_roles: [],
   task_timeline: [],
   case_events: [],
@@ -188,6 +207,8 @@ function httpReq(method, p, { cookie, body, headers } = {}) {
 }
 
 let realFetch;
+// Every Resend /emails payload the server tries to send (parsed JSON bodies).
+const resendCalls = [];
 
 beforeAll(async () => {
   await startSupabaseEmulator();
@@ -206,11 +227,18 @@ beforeAll(async () => {
   process.env.ADMIN_EMAILS = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+  process.env.CRON_SECRET = 'test-cron-secret-' + RUN_ID;
 
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
     if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+    if (u.includes('api.resend.com')) {
+      let parsed = null;
+      try { parsed = JSON.parse((opts && opts.body) || 'null'); } catch {}
+      resendCalls.push(parsed);
+      return Promise.resolve(new Response('{"id":"email-test"}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
     if (u.includes('api.anthropic.com')) {
       // Always-failing certification verdict.
       const verdict = {
@@ -360,5 +388,77 @@ describe('rejection produces a user-facing alert with a re-upload deep link', ()
     expect(alert).toBeTruthy();
     expect(alert.type).toBe('action');
     expect(alert.detail).toContain('blurry');
+  });
+});
+
+// F3 fix: when the scan call omits `country`, escalation must file the
+// under-review doc under the GP's OWN profile country — never the hardcoded
+// 'uk' fallback, which would split an IE/NZ GP's document rows across two
+// country buckets.
+describe('escalation country falls back to the GP\'s profile country, not "uk"', () => {
+  function scanWithoutCountry(user) {
+    return httpReq('POST', '/api/ai/verify-certification', {
+      cookie: userCookie(user.email, user.userId),
+      body: {
+        imageBase64: PDF_RAW_B64,
+        mimeType: 'application/pdf',
+        documentType: 'Police check',
+        docKey: 'criminal_history',
+        fileName: 'police-check.pdf'
+        // NO country field — the escalation must resolve it from the profile.
+      }
+    });
+  }
+
+  it('NZ GP (profile registration_country "New Zealand"): 3rd no-country failure files under nz', async () => {
+    let r;
+    for (let i = 0; i < 3; i++) r = await scanWithoutCountry(NZGP);
+    expect(r.status).toBe(200);
+    expect(r.body.scanFailCount).toBe(3);
+    expect(r.body.manualReview).toBe(true);
+
+    const doc = db.user_documents.find((d) => d.user_id === NZGP.userId && d.document_key === 'criminal_history');
+    expect(doc).toBeTruthy();
+    expect(doc.country_code).toBe('nz');
+    expect(doc.status).toBe('under_review');
+    // Nothing mis-filed under the old hardcoded fallback.
+    expect(db.user_documents.some((d) => d.user_id === NZGP.userId && d.country_code === 'uk')).toBe(false);
+  });
+
+  it('IE GP whose country lives only in user_state.gp_selected_country files under ie', async () => {
+    let r;
+    for (let i = 0; i < 3; i++) r = await scanWithoutCountry(IEGP);
+    expect(r.body.manualReview).toBe(true);
+
+    const doc = db.user_documents.find((d) => d.user_id === IEGP.userId && d.document_key === 'criminal_history');
+    expect(doc).toBeTruthy();
+    expect(doc.country_code).toBe('ie');
+    expect(doc.status).toBe('under_review');
+    expect(db.user_documents.some((d) => d.user_id === IEGP.userId && d.country_code === 'uk')).toBe(false);
+  });
+});
+
+// F3 fix: the document-expiry renewal reminder is registration-critical, so it
+// is TRANSACTIONAL — it must reach the GP even when their address sits on the
+// email_suppression list (marketing unsubscribe/bounce).
+describe('document-expiry renewal email is transactional (never suppressed)', () => {
+  it('a GP on the suppression list still receives the expiry reminder email', async () => {
+    // Fixture sanity: GP.email IS suppressed.
+    expect(db.email_suppression.some((s) => s.email === GP.email)).toBe(true);
+
+    resendCalls.length = 0;
+    const r = await httpReq('GET', '/api/cron/weekly-sweep', {
+      headers: { Authorization: 'Bearer ' + process.env.CRON_SECRET }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    // Only d-rej-exp (expires in 5 days, never nudged) is in the 30-day window;
+    // the escalation-saved police checks default to a 12-month validity.
+    expect(r.body.expiryNudged).toBe(1);
+
+    // The renewal email went out to the SUPPRESSED address anyway.
+    const mail = resendCalls.find((c) => c && Array.isArray(c.to) && c.to.includes(GP.email));
+    expect(mail).toBeTruthy();
+    expect(String(mail.subject).toLowerCase()).toContain('expires soon');
   });
 });
