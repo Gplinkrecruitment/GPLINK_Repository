@@ -49024,6 +49024,10 @@ async function handleRequest(req, res) {
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
+    // Task 8: public decision landing page reached from the submit-to-practice
+    // email's Approve / Turn down buttons — token-authed in the URL, no
+    // session. Same exemption shape as practice-intake.html above.
+    pathname === '/pages/practice-decision.html' ||
     // C7 (audit 2026-07-07): legal/blog pages are linked from the public
     // marketing footers (/pages/privacy, /pages/terms, /pages/blog) and must
     // load for anonymous visitors. Extensionless forms are normalized to
