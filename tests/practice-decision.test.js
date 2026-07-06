@@ -24,7 +24,9 @@ const db = {
     { user_id: 'u-notyet-3', email: 'notyet@example.com', first_name: 'Notyet', last_name: 'Approved', registration_country: 'uk' },
     { user_id: 'u-resil-4', email: 'resil@example.com', first_name: 'Resil', last_name: 'Ience', registration_country: 'uk' },
     { user_id: 'u-inject-6', email: 'inject@example.com', first_name: 'Inject', last_name: 'Test', registration_country: 'uk' },
-    { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' }
+    { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' },
+    { user_id: 'u-secured-8', email: 'secured.eight@example.com', first_name: 'Secured', last_name: 'Eight', registration_country: 'uk' },
+    { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' }
   ],
   user_state: [],
   career_roles: [
@@ -36,12 +38,24 @@ const db = {
     { id: 'app-tok-3', user_id: 'u-notyet-3', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-ghi789', applied_at: NOW },
     { id: 'app-tok-4', user_id: 'u-resil-4', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-resil999', applied_at: NOW },
     { id: 'app-tok-6', user_id: 'u-inject-6', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-inject-6', applied_at: NOW },
-    { id: 'app-tok-7', user_id: 'u-e2e-7', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-e2e-7', applied_at: NOW }
+    { id: 'app-tok-7', user_id: 'u-e2e-7', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-e2e-7', applied_at: NOW },
+    // Already secured via a different path (e.g. the GP accepted their offer
+    // through /api/career/offer/accept) BEFORE this stale approve link is
+    // ever clicked — regression fixture for the backward-drag bug.
+    { id: 'app-tok-8', user_id: 'u-secured-8', career_role_id: 'role-1', status: 'placement_secured', ats_stage: 'hired', practice_action_token: 'tok-test-secured8', applied_at: NOW },
+    // Already advanced to the 'offer' lane (offer sent, not yet decided)
+    // through a different path (e.g. an admin/CEO action) BEFORE this stale
+    // approve link is ever clicked — regression fixture for the forward-only
+    // stage guard.
+    { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW }
   ],
   registration_cases: [],
   practices: [],
   scheduled_calls: [],
-  ats_offers: [],
+  ats_offers: [
+    { id: 'off-8', application_id: 'app-tok-8', status: 'accepted', created_at: NOW },
+    { id: 'off-9', application_id: 'app-tok-9', status: 'sent', created_at: NOW }
+  ],
   runtime_kv: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -294,6 +308,42 @@ describe('POST /api/practice/application/decision — approve', () => {
     const opsEmail = resendCaptured.find((m) => m && m.to && [].concat(m.to).some((t) => String(t).includes('hello@mygplink.com.au')));
     expect(opsEmail).toBeTruthy();
     expect(opsEmail.subject).toContain('Practice approved');
+  });
+});
+
+// Final-review fix: a stale approve link (still sitting unread in a
+// practice's inbox) must never drag an already-progressed application
+// backward — whether it fully reached placement_secured/hired through a
+// DIFFERENT path (the GP accepted their offer, or the team manually secured
+// the placement) or merely advanced past 'interview' (offer sent, not yet
+// decided).
+describe('POST /api/practice/application/decision — approve on a stale link (application already progressed)', () => {
+  it('no-ops when the application already reached placement_secured/hired via a different path', async () => {
+    const interviewsBefore = db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length;
+    const capturedBefore = resendCaptured.length;
+
+    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-secured8', action: 'approve' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, decision: 'approved', already: true });
+
+    const row = db.gp_applications.find((a) => a.id === 'app-tok-8');
+    expect(row.status).toBe('placement_secured');
+    expect(row.ats_stage).toBe('hired');
+    expect(db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length).toBe(interviewsBefore);
+    // No emails at all fired off the back of this stale click — in particular
+    // never the "would like to interview you!" copy to an already-placed GP.
+    expect(resendCaptured.length).toBe(capturedBefore);
+  });
+
+  it('does not drag ats_stage backward when the card already advanced to the offer lane', async () => {
+    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-forward9', action: 'approve' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, decision: 'approved' });
+
+    const row = db.gp_applications.find((a) => a.id === 'app-tok-9');
+    expect(row.practice_decision).toBe('approved');
+    // The offer lane outranks 'interview' — the forward-only guard must keep it.
+    expect(row.ats_stage).toBe('offer');
   });
 });
 

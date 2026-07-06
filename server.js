@@ -27585,6 +27585,31 @@ async function handleApi(req, res, pathname) {
         return;
       }
 
+      // Stale-link guard: this token can still resolve to a valid application
+      // long after the pipeline moved on through a DIFFERENT path (the GP
+      // accepted their offer, or the team manually secured the placement) —
+      // even on the very FIRST click of this link. Without this guard the
+      // approve handler would drag status/ats_stage backward to 'interview'
+      // and email an already-placed GP that the practice "would like to
+      // interview" them.
+      let staleCheckOffer = null;
+      try { staleCheckOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); }
+      catch (e) { staleCheckOffer = null; }
+      const offerAlreadyDecided = !!(staleCheckOffer && (staleCheckOffer.status === 'accepted' || staleCheckOffer.status === 'declined'));
+      if (isCareerPlacementSecuredStatus(appRow.status) || offerAlreadyDecided) {
+        // The practice DID click approve — record that fact if it was never
+        // captured — but nothing that would move the pipeline backward.
+        if (appRow.practice_decision !== 'approved') {
+          await patchApplicationDecisionFields(appRow.id, {
+            practice_decision: 'approved',
+            practice_decision_at: nowIso,
+            updated_at: nowIso
+          }).catch(function () {});
+        }
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
       const ctx = await atsGetApplicationContext(appRow.id);
 
       // The practice approving IS their acceptance of this candidate — reveal
@@ -27609,7 +27634,14 @@ async function handleApi(req, res, pathname) {
         updated_at: nowIso
       });
       if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
-      await atsUpdateApplicationStageRow(appRow.id, 'interview', undefined, 'practice_approve');
+
+      // Forward-only (mirrors the accept-flow's use of planAtsStageReconciliation):
+      // a card that already advanced past 'interview' via another path (e.g. an
+      // offer was sent while this link sat unread) must never be pulled back.
+      const stageTarget = atsPracticeUtil.planAtsStageReconciliation(appRow.ats_stage || '', 'interview');
+      if (stageTarget) {
+        await atsUpdateApplicationStageRow(appRow.id, stageTarget, undefined, 'practice_approve');
+      }
       await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
 
       const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
