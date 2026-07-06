@@ -409,6 +409,17 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(String(email.text)).toContain('Candidate overview');
     expect(String(email.text)).not.toContain('INTERNAL-ONLY');
 
+    // D1b: the three one-click response links (signed practice-action tokens)
+    // are in BOTH bodies, and the reply-by-email fallback line stays.
+    for (const bodyPart of [String(email.html), String(email.text)]) {
+      expect(bodyPart).toContain('/api/practice/respond?token=');
+      expect(bodyPart).toContain('Accept this candidate');
+      expect(bodyPart).toContain('Request an interview');
+      expect(bodyPart).toContain('Not the right fit');
+      expect(bodyPart).toContain('just reply to this email');
+    }
+    expect((String(email.html).match(/\/api\/practice\/respond\?token=/g) || []).length).toBe(3);
+
     // gp_applications parity patch.
     const app = db.gp_applications.find((a) => a.id === 'app-1');
     expect(app.practice_submission_status).toBe('submitted_to_practice');

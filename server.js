@@ -7607,6 +7607,44 @@ function onbUnsubPage(title, msg, bodyHtml) {
     + (bodyHtml || '') + '</div></body></html>';
 }
 
+// ── Phase 6 D1b: practice one-click response pages ──────────────────────────
+// Small branded interstitial/confirmation pages for /api/practice/respond.
+// Callers pass PRE-ESCAPED HTML in msg/bodyHtml where markup is intended.
+function practiceRespondPage(title, msg, bodyHtml) {
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<meta name="robots" content="noindex">'
+    + '<title>' + String(title || 'GP Link').replace(/</g, '&lt;') + ' — GP Link</title></head>'
+    + '<body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1220;color:#e8ecf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+    + '<div style="max-width:460px;padding:36px;text-align:center">'
+    + '<div style="font-size:13px;font-weight:700;letter-spacing:2px;color:#4f8df9;margin-bottom:18px">GP LINK</div>'
+    + '<h2 style="margin:0 0 12px">' + title + '</h2>'
+    + '<p style="color:#8a94a6;line-height:1.55">' + msg + '</p>'
+    + (bodyHtml || '')
+    + '</div></body></html>';
+}
+
+function practiceRespondExpiredPage() {
+  return practiceRespondPage(
+    'This link has expired',
+    'This response link is no longer valid. Please reply to your GP Link contact by email instead and they’ll take care of it.'
+  );
+}
+
+// Practice-facing local time label for booked interviews (status endpoint).
+function formatPracticeStatusTimeLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleString('en-AU', {
+      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', timeZone: 'Australia/Sydney', timeZoneName: 'short'
+    });
+  } catch (e) {
+    return d.toISOString();
+  }
+}
+
 // Enumerate incomplete-onboarding GPs: active accounts, not staff, that haven't
 // finished the 5-step wizard. Shared by the hourly cron (/api/cron/onboarding-nudge)
 // and the CEO onboarding-incomplete waitlist endpoint — do not duplicate this logic.
@@ -9387,6 +9425,37 @@ function parseSignedPurposeToken(token, purpose) {
   } catch (err) {
     return null;
   }
+}
+
+// ── Phase 6 D1b: practice one-click action tokens ───────────────────────────
+// Signed links in the submit-to-practice intro email let the practice respond
+// with one click (accept / decline / request an interview). Reuses the SAME
+// HMAC-with-AUTH_SECRET purpose-token scheme as the MFA challenge tokens
+// (createSignedPurposeToken/parseSignedPurposeToken): unforgeable, expiring,
+// and purpose-tagged so a practice-action token can never be replayed as a
+// session cookie, an MFA token, or any other purpose token (and vice versa).
+const PRACTICE_ACTION_TOKEN_PURPOSE = 'practice_action';
+const PRACTICE_ACTION_VALUES = ['accept', 'decline', 'request_interview'];
+
+function makePracticeActionToken(opts) {
+  const applicationId = String((opts && opts.applicationId) || '').trim();
+  const action = String((opts && opts.action) || '').trim();
+  if (!applicationId) throw new Error('makePracticeActionToken: applicationId is required');
+  if (PRACTICE_ACTION_VALUES.indexOf(action) === -1) throw new Error('makePracticeActionToken: invalid action ' + action);
+  const expDaysRaw = opts && opts.expDays;
+  const expDays = (typeof expDaysRaw === 'number' && Number.isFinite(expDaysRaw) && expDaysRaw > 0) ? expDaysRaw : 30;
+  return createSignedPurposeToken(PRACTICE_ACTION_TOKEN_PURPOSE, { applicationId, action }, expDays * 24 * 60 * 60 * 1000);
+}
+
+// → { ok:true, applicationId, action } or { ok:false } (tampered / expired /
+// wrong purpose / malformed — deliberately indistinguishable to the caller).
+function verifyPracticeActionToken(token) {
+  const data = parseSignedPurposeToken(token, PRACTICE_ACTION_TOKEN_PURPOSE);
+  if (!data) return { ok: false };
+  const applicationId = String(data.applicationId || '').trim();
+  const action = String(data.action || '').trim();
+  if (!applicationId || PRACTICE_ACTION_VALUES.indexOf(action) === -1) return { ok: false };
+  return { ok: true, applicationId, action };
 }
 
 // TOTP first, then single-use backup code (consumed on success). Returns
@@ -27062,6 +27131,327 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Phase 6 D1b: practice one-click response (token-authed, no session) ──
+  // GET renders a confirm page ONLY (email-security link scanners auto-fetch
+  // GET links — a raw GET must never change state, same model as the
+  // onboarding-reminders unsubscribe flow). The state change happens on the
+  // confirm page's POST. The accept action records the practice's decision
+  // and notifies a human — it must NOT auto-reveal the candidate's identity
+  // or auto-create an offer (that stays a deliberate human step via the
+  // existing /api/ats/application/accept flow).
+  if (pathname === '/api/practice/respond' && req.method === 'GET') {
+    const prIp = getClientIp(req);
+    const prAllowed = await checkRateLimitWindow('practice_respond_get:' + prIp, 60, 60 * 60 * 1000);
+    if (!prAllowed) {
+      res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('Too many requests', 'Please wait a few minutes, then open the link from your email again.'));
+      return;
+    }
+    const prToken = String(url.searchParams.get('token') || '').trim();
+    const prVerified = verifyPracticeActionToken(prToken);
+    if (!prVerified.ok) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondExpiredPage());
+      return;
+    }
+    let prCtx = null;
+    try { prCtx = await atsGetApplicationContext(prVerified.applicationId); } catch (e) { prCtx = null; }
+    if (!prCtx) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondExpiredPage());
+      return;
+    }
+    // Show only what the practice already knows from the intro email: the
+    // candidate's first name + the masked role label. No extra PII.
+    let prRole = null;
+    try { prRole = prCtx.careerRoleId ? await getCareerRoleRowById(prCtx.careerRoleId) : null; } catch (e) { prRole = null; }
+    const prRoleLabel = prRole
+      ? resolveCareerRoleDisplayTitle(prRole, { internalTitleFirst: false })
+      : 'the General Practitioner role';
+    const prFirstName = String(prCtx.gpName || '').trim().split(/\s+/)[0] || 'this candidate';
+    const prEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const prCopy = ({
+      accept: {
+        title: 'Accept this candidate?',
+        lead: 'You’re about to <strong>accept</strong> ' + prEsc(prFirstName) + ' for <strong>' + prEsc(prRoleLabel) + '</strong>.',
+        button: 'Confirm — accept this candidate'
+      },
+      decline: {
+        title: 'Not the right fit?',
+        lead: 'You’re about to <strong>decline</strong> ' + prEsc(prFirstName) + ' for <strong>' + prEsc(prRoleLabel) + '</strong>.',
+        button: 'Confirm — not the right fit'
+      },
+      request_interview: {
+        title: 'Request an interview?',
+        lead: 'You’re about to <strong>request an interview with</strong> ' + prEsc(prFirstName) + ' for <strong>' + prEsc(prRoleLabel) + '</strong>.',
+        button: 'Confirm — request an interview'
+      }
+    })[prVerified.action];
+    const prForm = '<form method="POST" action="/api/practice/respond" style="margin-top:16px">'
+      + '<input type="hidden" name="token" value="' + prEsc(prToken) + '">'
+      + '<button type="submit" style="background:#16a34a;color:#fff;border:none;border-radius:10px;padding:14px 26px;font-size:15px;font-weight:600;cursor:pointer">' + prCopy.button + '</button>'
+      + '</form>'
+      + '<p style="color:#8a94a6;font-size:13px;margin-top:18px">Clicked this by mistake? Just close this page — nothing is recorded until you press confirm.</p>';
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(practiceRespondPage(prCopy.title, prCopy.lead, prForm));
+    return;
+  }
+
+  if (pathname === '/api/practice/respond' && req.method === 'POST') {
+    const prIp = getClientIp(req);
+    const prAllowed = await checkRateLimitWindow('practice_respond_post:' + prIp, 20, 10 * 60 * 1000);
+    if (!prAllowed) {
+      res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('Too many requests', 'Please wait a few minutes and try again, or reply to your GP Link contact by email.'));
+      return;
+    }
+    // Token arrives from the confirm page's form (urlencoded), a JSON body,
+    // or the query string — accept all three, never trust anything else.
+    let prBodyBuf = Buffer.alloc(0);
+    try { prBodyBuf = await readRawBody(req, 64 * 1024); } catch (e) { prBodyBuf = Buffer.alloc(0); }
+    const prBodyStr = prBodyBuf.toString('utf8');
+    let prToken = '';
+    if (String(req.headers['content-type'] || '').includes('application/json')) {
+      try { const prJson = JSON.parse(prBodyStr || 'null'); prToken = String((prJson && prJson.token) || '').trim(); } catch (e) { prToken = ''; }
+    } else {
+      try { prToken = String(new URLSearchParams(prBodyStr).get('token') || '').trim(); } catch (e) { prToken = ''; }
+    }
+    if (!prToken) prToken = String(url.searchParams.get('token') || '').trim();
+    const prVerified = verifyPracticeActionToken(prToken);
+    if (!prVerified.ok) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondExpiredPage());
+      return;
+    }
+
+    let prApp = null;
+    if (isSupabaseDbConfigured()) {
+      const prAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(prVerified.applicationId) + '&limit=1');
+      prApp = (prAppRes.ok && Array.isArray(prAppRes.data) && prAppRes.data[0]) ? prAppRes.data[0] : null;
+    } else {
+      prApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(prVerified.applicationId); }) || null;
+    }
+    if (!prApp) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondExpiredPage());
+      return;
+    }
+
+    const prAction = prVerified.action;
+    const prTarget = ({ accept: 'client_accepted', decline: 'client_rejected', request_interview: 'client_interview_requested' })[prAction];
+    const prCurrent = normalizeCareerPracticeSubmissionStatus(prApp.practice_submission_status);
+    // Idempotent: an already-recorded (or already-actioned-by-a-human) state
+    // renders a friendly page and does NOT re-notify the team.
+    const prAlreadyStates = ({
+      accept: ['client_accepted', 'client_approved'],
+      decline: ['client_rejected'],
+      request_interview: ['client_interview_requested', 'interview_ready']
+    })[prAction];
+    if (prAlreadyStates.indexOf(prCurrent) !== -1) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('Already recorded', 'Thanks — we already have this response on file and the GP Link team is onto it. No need to do anything else.'));
+      return;
+    }
+
+    const prNowIso = new Date().toISOString();
+    let prSaved = false;
+    if (isSupabaseDbConfigured()) {
+      let prPatchRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(prVerified.applicationId), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: { practice_submission_status: prTarget, practice_responded_at: prNowIso, practice_response_action: prAction, updated_at: prNowIso }
+      });
+      if (!prPatchRes.ok && (isMissingColumnInsertError(prPatchRes, 'practice_responded_at') || isMissingColumnInsertError(prPatchRes, 'practice_response_action'))) {
+        // Migration 20260706093000's audit columns missing — still record the
+        // decision itself (the widened CHECK is part of the same migration,
+        // so if THAT is missing this retry fails too and we fail loud below).
+        prPatchRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(prVerified.applicationId), {
+          method: 'PATCH', headers: { Prefer: 'return=representation' },
+          body: { practice_submission_status: prTarget, updated_at: prNowIso }
+        });
+      }
+      prSaved = !!prPatchRes.ok;
+      if (!prSaved) console.error('[practice-respond] persist failed (run migration 20260706093000?):', prPatchRes.status, JSON.stringify(prPatchRes.data || '').slice(0, 300));
+    } else {
+      Object.assign(prApp, { practice_submission_status: prTarget, practice_responded_at: prNowIso, practice_response_action: prAction, updated_at: prNowIso });
+      saveDbState();
+      prSaved = true;
+    }
+    if (!prSaved) {
+      res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('Something went wrong', 'We couldn’t record your response just now. Please reply to your GP Link contact by email instead — sorry for the hassle.'));
+      return;
+    }
+
+    // Decline mirrors the existing kanban sync (not_proceeding ⇄ client_rejected):
+    // move the card to Not proceeding. Direct row update — the GP milestone
+    // notifier is deliberately NOT fired here (a human confirms first).
+    if (prAction === 'decline' && String(prApp.ats_stage || '') !== 'not_proceeding') {
+      try { await atsUpdateApplicationStageRow(prVerified.applicationId, 'not_proceeding', undefined, 'practice_respond'); }
+      catch (stErr) { console.error('[practice-respond] kanban not_proceeding move failed:', stErr && stErr.message); }
+    }
+
+    // Notify ops (registration hub) + the GP's assigned RSO/consultant so a
+    // HUMAN takes the next step. For accept that next step is the formal
+    // reveal-identity + offer via the existing accept flow — never automatic.
+    let prCtx = null;
+    try { prCtx = await atsGetApplicationContext(prVerified.applicationId); } catch (e) { prCtx = null; }
+    const prGpName = (prCtx && prCtx.gpName) || 'the candidate';
+    let prRoleRow = null;
+    try { prRoleRow = (prCtx && prCtx.careerRoleId) ? await getCareerRoleRowById(prCtx.careerRoleId) : null; } catch (e) { prRoleRow = null; }
+    const prRoleLabel = (prRoleRow && (prRoleRow.title || prRoleRow.masked_title)) || 'General Practitioner';
+    const prPracticeLabel = (prCtx && prCtx.practiceName) || 'The practice';
+    const prOpsEmail = REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL;
+    let prRsoEmail = '';
+    try {
+      let prAssigned = null;
+      if (isSupabaseDbConfigured() && prApp.user_id) {
+        const prCaseRes = await supabaseDbRequest('registration_cases', 'select=assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(prApp.user_id) + '&limit=1');
+        const prCase = (prCaseRes.ok && Array.isArray(prCaseRes.data) && prCaseRes.data[0]) ? prCaseRes.data[0] : null;
+        prAssigned = prCase ? (prCase.assigned_rso || prCase.assigned_va || null) : null;
+      }
+      if (prAssigned) {
+        const prRoster = await loadRsoTeam({ includeInactive: true });
+        const prRso = prRoster.find(function (r) { return String(r.user_id) === String(prAssigned); });
+        if (prRso && prRso.email) prRsoEmail = String(prRso.email).trim().toLowerCase();
+      }
+    } catch (rsoErr) { prRsoEmail = ''; }
+    const prNotify = ({
+      accept: {
+        subject: 'Practice ACCEPTED ' + prGpName + ' for ' + prRoleLabel + ' — reveal identity & send offer',
+        line: prPracticeLabel + ' clicked “Accept this candidate” for ' + prGpName + ' (' + prRoleLabel + '). '
+          + 'Nothing has been revealed or offered automatically — a team member needs to review and run the formal accept (reveal identity + send the offer) from the dashboard.'
+      },
+      decline: {
+        subject: 'Practice declined ' + prGpName + ' for ' + prRoleLabel,
+        line: prPracticeLabel + ' clicked “Not the right fit” for ' + prGpName + ' (' + prRoleLabel + '). '
+          + 'The kanban card has been moved to Not proceeding. Please follow up with the doctor about next options.'
+      },
+      request_interview: {
+        subject: 'Practice requested an interview with ' + prGpName + ' for ' + prRoleLabel + ' — arrange a time',
+        line: prPracticeLabel + ' clicked “Request an interview” for ' + prGpName + ' (' + prRoleLabel + '). '
+          + 'Please coordinate a time with the practice and the doctor.'
+      }
+    })[prAction];
+    const prEscN = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const prRecipients = [prOpsEmail];
+    if (prRsoEmail && prRsoEmail !== String(prOpsEmail).toLowerCase()) prRecipients.push(prRsoEmail);
+    try {
+      await sendEmail({
+        to: prRecipients,
+        subject: prNotify.subject,
+        html: buildCareerEmailHtml({ title: 'Practice response received', body: prEscN(prNotify.line), footer: 'Recorded automatically from the practice’s one-click email response.' }),
+        text: prNotify.line,
+        from: { email: prOpsEmail, name: 'GP Link' }
+      });
+    } catch (mailErr) { console.error('[practice-respond] ops notify failed:', mailErr && mailErr.message); }
+
+    try {
+      if (prCtx && prCtx.caseId) {
+        await _logCaseEvent(prCtx.caseId, null, 'system', 'Practice responded: ' + prAction.replace(/_/g, ' '), prNotify.line, 'practice_respond');
+      }
+    } catch (evErr) { console.error('[practice-respond] case event failed:', evErr && evErr.message); }
+
+    invalidateAdminDashboardCache();
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(practiceRespondPage('Thanks — response recorded', 'We’ve let the GP Link team know. They’ll be in touch with you shortly to take care of the next steps.'));
+    return;
+  }
+
+  // ── Phase 6 D1b: read-only practice status (intake-token-authed) ─────────
+  // Backs the practice status page (D2). Lean by design: practice display
+  // fields + per-job masked label, live/pending, a candidate-submitted COUNT
+  // (never identities) and booked interview times. Invalid token → 404.
+  if (pathname === '/api/practice/status' && req.method === 'GET') {
+    const psIp = getClientIp(req);
+    const psAllowed = await checkRateLimitWindow('practice_status:' + psIp, 60, 60 * 60 * 1000);
+    if (!psAllowed) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests' });
+      return;
+    }
+    const psToken = String(url.searchParams.get('token') || '').trim();
+    if (psToken.length < 16) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+    const psPractice = await findPracticeByIntakeToken(psToken);
+    if (!psPractice) {
+      sendJson(res, 404, { ok: false });
+      return;
+    }
+    let psJobs = [];
+    if (isSupabaseDbConfigured()) {
+      const psJobsRes = await supabaseDbRequest('career_roles',
+        'select=id,title,masked_title,provider,practice_name,practice_id,is_active,job_status,approval_status,location_city,location_state,suburb,nearest_city,billing_model,dpa&practice_id=eq.' + encodeURIComponent(psPractice.id) + '&limit=100');
+      psJobs = (psJobsRes.ok && Array.isArray(psJobsRes.data)) ? psJobsRes.data : [];
+    } else {
+      psJobs = (dbState.atsJobs || []).filter(function (j) { return String(j.practice_id) === String(psPractice.id); });
+    }
+    const psJobIds = psJobs.map(function (j) { return String(j.id); });
+    let psApps = [];
+    if (psJobIds.length) {
+      if (isSupabaseDbConfigured()) {
+        const psAppsRes = await supabaseDbRequest('gp_applications',
+          'select=id,career_role_id,practice_submission_status&career_role_id=in.(' + psJobIds.map(encodeURIComponent).join(',') + ')&limit=2000');
+        psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];
+      } else {
+        psApps = (dbState.atsApplications || []).filter(function (a) { return psJobIds.indexOf(String(a.career_role_id || a.job_id)) !== -1; });
+      }
+    }
+    const psAppIds = psApps.map(function (a) { return String(a.id); });
+    let psCalls = [];
+    if (psAppIds.length) {
+      if (isSupabaseDbConfigured()) {
+        const psCallsRes = await supabaseDbRequest('scheduled_calls',
+          'select=id,application_id,scheduled_at,status&application_id=in.(' + psAppIds.map(encodeURIComponent).join(',') + ')&meeting_kind=eq.interview&status=eq.booked&limit=500');
+        psCalls = (psCallsRes.ok && Array.isArray(psCallsRes.data)) ? psCallsRes.data : [];
+      } else {
+        psCalls = (dbState.scheduledCalls || []).filter(function (c) {
+          return psAppIds.indexOf(String(c.application_id)) !== -1 && c.meeting_kind === 'interview' && c.status === 'booked';
+        });
+      }
+    }
+    const psAppsByJob = {};
+    psApps.forEach(function (a) {
+      const k = String(a.career_role_id || a.job_id);
+      (psAppsByJob[k] = psAppsByJob[k] || []).push(a);
+    });
+    const psCallsByApp = {};
+    psCalls.forEach(function (c) {
+      const k = String(c.application_id);
+      (psCallsByApp[k] = psCallsByApp[k] || []).push(c);
+    });
+    const psJobsOut = psJobs.map(function (j) {
+      const jApps = psAppsByJob[String(j.id)] || [];
+      const jSubmitted = jApps.filter(function (a) {
+        return normalizeCareerPracticeSubmissionStatus(a.practice_submission_status) !== 'pending_va_submission';
+      });
+      const jInterviews = [];
+      jApps.forEach(function (a) {
+        (psCallsByApp[String(a.id)] || []).forEach(function (c) {
+          jInterviews.push({ scheduled_at: c.scheduled_at || '', label: formatPracticeStatusTimeLabel(c.scheduled_at), status: 'booked' });
+        });
+      });
+      jInterviews.sort(function (x, y) { return String(x.scheduled_at).localeCompare(String(y.scheduled_at)); });
+      return {
+        id: String(j.id),
+        role_label: resolveCareerRoleDisplayTitle(j, { internalTitleFirst: false }),
+        status: j.is_active === true ? 'live' : 'pending',
+        candidates_submitted: jSubmitted.length,
+        interviews: jInterviews
+      };
+    });
+    sendJson(res, 200, {
+      ok: true,
+      practice: {
+        name: psPractice.name || '',
+        stage: psPractice.stage || 'prospective',
+        agreement_status: psPractice.agreement_status || 'unsigned'
+      },
+      jobs: psJobsOut
+    });
+    return;
+  }
+
   if (pathname === '/api/public/enquiry' && req.method === 'POST') {
     let body;
     try {
@@ -30250,7 +30640,9 @@ async function handleApi(req, res, pathname) {
           submitted_to_practice: 'Submitted to practice',
           client_reviewed: 'Client reviewed',
           client_approved: 'Client approved',
+          client_accepted: 'Client accepted — action needed',
           client_rejected: 'Client rejected',
+          client_interview_requested: 'Client requested interview',
           interview_ready: 'Ready for interview'
         })[submissionStatus] || 'Awaiting VA submission';
         // Zoho ids are no longer required: apps without them (internal ATS
@@ -30487,6 +30879,34 @@ async function handleApi(req, res, pathname) {
     const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
     const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
     const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
+    // D1b: one-click response links. Signed, expiring, purpose-tagged tokens
+    // (makePracticeActionToken); a raw GET of these links only renders a
+    // confirm page — the state change needs the confirmed POST, so email
+    // scanners that auto-fetch links can never accept/decline a candidate.
+    // The reply-by-email fallback (introClose) stays.
+    let introActionsHtml = '';
+    let introActionsText = [];
+    try {
+      const introActionUrl = (action) => APP_BASE_URL + '/api/practice/respond?token='
+        + encodeURIComponent(makePracticeActionToken({ applicationId, action }));
+      const introAcceptUrl = introActionUrl('accept');
+      const introInterviewUrl = introActionUrl('request_interview');
+      const introDeclineUrl = introActionUrl('decline');
+      const introBtn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;margin:0 8px 8px 0;padding:11px 18px;border-radius:8px;background:' + bg + ';color:#ffffff;text-decoration:none;font-weight:600">' + escIntro(label) + '</a>';
+      introActionsHtml = '<br><br><strong>Respond in one click</strong><br><br>'
+        + introBtn(introAcceptUrl, 'Accept this candidate', '#16a34a')
+        + introBtn(introInterviewUrl, 'Request an interview', '#2563eb')
+        + introBtn(introDeclineUrl, 'Not the right fit', '#64748b');
+      introActionsText = ['', 'Respond in one click:',
+        'Accept this candidate: ' + introAcceptUrl,
+        'Request an interview: ' + introInterviewUrl,
+        'Not the right fit: ' + introDeclineUrl];
+    } catch (linkErr) {
+      // Links are additive — the introduction email must still send without them.
+      console.error('[admin career applications] practice one-click links skipped:', linkErr && linkErr.message);
+      introActionsHtml = '';
+      introActionsText = [];
+    }
     // Candidate overview (D1a): overview + key history only — see the guard
     // above where concerns/action_items are deliberately never read out.
     const introOverviewHtml = inAppAiOverview
@@ -30502,11 +30922,14 @@ async function handleApi(req, res, pathname) {
       (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
       introOverviewHtml +
       '<br><br>' + escIntro(introCvLine) +
+      introActionsHtml +
       '<br><br>' + escIntro(introClose);
     const introText = [introGreeting, '', introLead]
       .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
       .concat(introOverviewText)
-      .concat(['', introCvLine, '', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
+      .concat(['', introCvLine])
+      .concat(introActionsText)
+      .concat(['', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
       .join('\n');
 
     const introSendResult = await sendEmail({
@@ -48942,6 +49365,9 @@ module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  makePracticeActionToken,
+  verifyPracticeActionToken,
+  createSignedPurposeToken,
   recordServerError,
   recordCronRun,
   sendEmail,
