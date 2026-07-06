@@ -29,7 +29,6 @@
 
   var AU_STATES = ['QLD', 'NSW', 'VIC', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
   var JOB_TYPES = ['Permanent · Full-time', 'Permanent · Part-time', 'Locum', 'Contract'];
-  var BILLINGS = ['Mixed billing', 'Private billing', 'Bulk billing'];
   var JOB_STATUSES = [
     { value: 'open', label: 'Open' },
     { value: 'filled', label: 'Filled' },
@@ -145,6 +144,26 @@
     return list.map(function (o) {
       return '<option value="' + A.escAttr(o.value) + '"' + (String(o.value) === String(selected) ? ' selected' : '') + '>' + A.esc(o.label) + '</option>';
     }).join('');
+  }
+  // Settings-modal enum selects where the baseline can be blank/unmapped
+  // (server editor payload returns ''). Without a blank option the select
+  // visually defaults to the first real option, and the diff would then PATCH
+  // that untouched value (silently rewriting the doctor-facing masked title).
+  // Prepend a selected "— Not set —" (value "") whenever the baseline is
+  // empty or not one of the known values; an explicit admin choice still wins.
+  function valueOptionsMaybeBlank(list, selected) {
+    var known = selected != null && selected !== '' &&
+      list.some(function (o) { return String(o.value) === String(selected); });
+    return (known ? '' : '<option value="" selected>— Not set —</option>') + valueOptions(list, selected);
+  }
+  // Same guard for the plain-text `type` select (value === label). Empty
+  // baseline -> selected blank; a real (known or unmapped) value keeps the
+  // existing optionsWithCurrent behaviour so it stays selected + diff-stable.
+  function plainOptionsMaybeBlank(list, selected) {
+    if (selected == null || selected === '') {
+      return '<option value="" selected>— Not set —</option>' + plainOptions(list, '');
+    }
+    return plainOptions(optionsWithCurrent(list, selected), selected);
   }
 
   /* ============================================================
@@ -714,12 +733,16 @@
       intro_video_url: (val('atsNjIntroVideo') || '').trim()
     };
 
+    // Guard against a double-submit while the create round-trips.
+    var createBtn = el('atsAddJobCreate');
+    if (createBtn) { createBtn.disabled = true; createBtn.textContent = 'Creating…'; }
+    function reenableCreate() { if (createBtn) { createBtn.disabled = false; createBtn.textContent = 'Create job'; } }
     A.api('/api/ats/jobs', { method: 'POST', body: { practice_id: practiceId, intake: intake } }).then(function (d) {
-      if (!d || !d.ok) { njError((d && d.message) || 'Could not create job.'); return; }
+      if (!d || !d.ok) { reenableCreate(); njError((d && d.message) || 'Could not create job.'); return; }
       closeAddJobModal();
       A.toast('Job created as PENDING — add a suburb header photo and approve it (Review & approve) to make it live to doctors.');
       loadJobsTab();
-    });
+    }).catch(function () { reenableCreate(); njError('Could not create job.'); });
   }
 
   /* ============================================================
@@ -764,7 +787,7 @@
             '<label>Job title</label>' +
             '<input type="text" id="atsJsTitle" value="' + A.escAttr(e.title || '') + '" />' +
             '<div class="ats-form-row">' +
-              '<div><label>Type</label><select id="atsJsType">' + plainOptions(optionsWithCurrent(JOB_TYPES, e.employment_type), e.employment_type) + '</select></div>' +
+              '<div><label>Type</label><select id="atsJsType">' + plainOptionsMaybeBlank(JOB_TYPES, e.employment_type) + '</select></div>' +
               '<div><label>Status</label><select id="atsJsStatus">' + valueOptions(JOB_STATUSES, e.job_status) + '</select></div>' +
             '</div>' +
             '<label>About the role (shown to doctors)</label>' +
@@ -786,7 +809,7 @@
           ) +
           formSection('Billing &amp; terms',
             '<label>Billing style</label>' +
-            '<select id="atsJsBilling">' + valueOptions(BILLING_STYLE_OPTS, e.billing_style) + '</select>' +
+            '<select id="atsJsBilling">' + valueOptionsMaybeBlank(BILLING_STYLE_OPTS, e.billing_style) + '</select>' +
             '<label style="margin-top:12px">DPA (District of Priority Area)</label>' +
             dpaSegment('atsJsDpa', 'atsJsDpaSeg', e.dpa) +
             '<div class="ats-form-row" style="margin-top:12px">' +
@@ -879,21 +902,24 @@
     if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
 
+    // Guard against a double-submit while the PATCH round-trips.
+    var saveBtn = el('atsJsSave');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    function reenableSave() { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save settings'; } }
     A.api('/api/ats/job?id=' + encodeURIComponent(currentBoardJobId), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) {
         // 400s name the offending field — surface it inline, not just a toast.
+        reenableSave();
         jsError((d && d.message) || 'Could not save job settings');
         return;
       }
-      // Show the recomputed masked title from the PATCH response, then reload.
+      // Modal is destroyed right after; the toast carries the new masked title.
       var newMasked = (d.editor && d.editor.masked_title) || '';
-      var prev = el('atsJsMaskedPreview');
-      if (prev && newMasked) prev.textContent = newMasked;
       settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
       A.toast(newMasked ? 'Saved · ' + newMasked : 'Job settings saved');
       atsOpenJobBoard(currentBoardJobId); // re-open the board with fresh data
-    });
+    }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }
 
   /* ============================================================

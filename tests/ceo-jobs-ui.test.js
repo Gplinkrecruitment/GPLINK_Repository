@@ -83,6 +83,35 @@ describe('CEO Jobs tab UI (Phase 3 Task 4)', () => {
     expect(src).toMatch(/>Non-DPA<\/span>/);
   });
 
+  it('settings enum selects guard against a phantom blank-baseline diff', () => {
+    // A selected "— Not set —" (value "") option is prepended when the baseline
+    // billing_style / type is empty or unmapped, so an untouched select does
+    // not default to the first real option and silently PATCH it.
+    expect(src).toMatch(/— Not set —/);
+    expect(src).toMatch(/<option value="" selected>— Not set —<\/option>/);
+    // Both the billing and type selects use the blank-guarding helpers.
+    expect(src).toMatch(/id="atsJsBilling">'\s*\+\s*valueOptionsMaybeBlank\(BILLING_STYLE_OPTS, e\.billing_style\)/);
+    expect(src).toMatch(/id="atsJsType">'\s*\+\s*plainOptionsMaybeBlank\(JOB_TYPES, e\.employment_type\)/);
+  });
+
+  it('create + save buttons are disabled during their round-trip (no double-submit)', () => {
+    // Add-job create button is disabled while POSTing, re-enabled on error.
+    expect(addJob).toMatch(/atsAddJobCreate/);
+    expect(addJob).toMatch(/createBtn\.disabled = true/);
+    expect(addJob).toMatch(/createBtn\.disabled = false/);
+    // Settings save button is disabled while PATCHing, re-enabled on error.
+    expect(submit).toMatch(/atsJsSave/);
+    expect(submit).toMatch(/saveBtn\.disabled = true/);
+    expect(submit).toMatch(/saveBtn\.disabled = false/);
+  });
+
+  it('drops the dead masked-preview write on save (toast carries the title)', () => {
+    // The modal is destroyed on save, so it must not poke atsJsMaskedPreview.
+    expect(submit).not.toMatch(/atsJsMaskedPreview/);
+    // The now-unused BILLINGS constant is gone.
+    expect(src).not.toMatch(/var BILLINGS\b/);
+  });
+
   it('approval flow is untouched (Task 9 pins still present)', () => {
     expect(src).toMatch(/function openApprovalModal/);
     expect(src).toMatch(/\/api\/ats\/job\/header-image/);
