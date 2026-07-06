@@ -25,3 +25,5 @@ backups/
 *.zip
 agents-output/
 .superpowers/
+tmp/
+data/practice-agreements/
