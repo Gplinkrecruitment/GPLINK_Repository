@@ -102,7 +102,7 @@
   };
 
   // -------------------- master-tab switcher --------------------
-  var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices', 'meetings'];
+  var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices', 'matching', 'meetings'];
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
   function setActiveTab(name, skipLoad) {

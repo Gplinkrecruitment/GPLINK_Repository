@@ -24083,7 +24083,17 @@ function atsApplicationToCard(app, label) {
     // Task 12: lets the CEO drawer hide the "Practice accepted" button once
     // the acceptance has already been recorded.
     revealed: app.revealed === true,
-    practice_submission_status: app.practice_submission_status || ''
+    practice_submission_status: app.practice_submission_status || '',
+    // AI Matching (Task 3): kanban Shortlist-column status line reads these —
+    // match_reasons is stored as {reasons:[...], _history:[...]} (Task 2), so
+    // only the plain reasons array is surfaced here, never the raw column.
+    match_score: (app.match_score != null) ? app.match_score : null,
+    match_reasons: (app.match_reasons && typeof app.match_reasons === 'object' && !Array.isArray(app.match_reasons) && Array.isArray(app.match_reasons.reasons))
+      ? app.match_reasons.reasons : [],
+    matched_at: app.matched_at || null,
+    match_expires_at: app.match_expires_at || null,
+    match_seen_at: app.match_seen_at || null,
+    match_outcome: app.match_outcome || null
   };
 }
 // Insert a new gp_applications row (candidate -> job). Dual-mode.
@@ -48774,6 +48784,46 @@ Return ONLY valid JSON with no markdown formatting:
     var ctxAP = requireAtsSession(req, res); if (!ctxAP) return;
     var apId = url.searchParams.get('id'); if (!apId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var bodyAP; try { bodyAP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+
+    // AI Matching (Task 3): "Extend 5 days" on an expired Shortlist card —
+    // a distinct action from a plain stage move, so it's handled as its own
+    // branch before the stage-validation logic below. Gated: only valid on a
+    // row that was actually matched (matched_at set) — never conjures a match
+    // window on a normal (non-AI) application.
+    if (bodyAP && bodyAP.match_extend === true) {
+      var meRow = null;
+      if (isSupabaseDbConfigured()) {
+        var meSel = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(apId) + '&limit=1');
+        meRow = (meSel.ok && Array.isArray(meSel.data) && meSel.data[0]) ? meSel.data[0] : null;
+      } else {
+        meRow = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(apId); });
+      }
+      if (!meRow) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+      if (!meRow.matched_at) { sendJson(res, 400, { ok: false, message: 'This application was never matched — nothing to extend.' }); return; }
+      var mePrevStage = meRow.ats_stage || '';
+      var meNowIso = atsNowIso();
+      var mePatch = {
+        match_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+        match_outcome: null,
+        match_reminder_sent_at: null,
+        ats_stage: 'shortlisted', ats_stage_updated_at: meNowIso, updated_at: meNowIso
+      };
+      var meUpdated = null;
+      if (isSupabaseDbConfigured()) {
+        var meUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(apId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: mePatch });
+        meUpdated = (meUpd.ok && Array.isArray(meUpd.data) && meUpd.data[0]) ? meUpd.data[0] : null;
+      } else {
+        Object.assign(meRow, mePatch);
+        saveDbState();
+        meUpdated = meRow;
+      }
+      if (!meUpdated) { sendJson(res, 502, { ok: false, message: 'Could not extend the match window.' }); return; }
+      await atsRecordStageEvent(apId, mePrevStage, 'shortlisted', ctxAP.email || '');
+      await logAdminAction(req, ctxAP, 'ats_match_extended', { targetType: 'application', targetId: apId, detail: {} });
+      sendJson(res, 200, { ok: true, application: atsApplicationToCard(meUpdated, null) });
+      return;
+    }
+
     var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
     var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
     if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }

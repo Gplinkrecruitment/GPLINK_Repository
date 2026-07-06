@@ -384,6 +384,30 @@
     '</div>';
   }
 
+  // AI Matching (Task 3): status sub-label for a Shortlist-column card that
+  // was actually matched (matched_at set) — never shown on a manually-dragged
+  // Shortlist card with no match_* data. amber (<24h) uses the same visual
+  // language as the offer-declined flag above.
+  function matchStatusHtml(c) {
+    if (!c || c.ats_stage !== 'shortlisted' || !c.matched_at) return '';
+    var extendBtn = '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats-extend="' + A.escAttr(c.id) + '" style="margin-top:5px;padding:2px 9px;font-size:10.5px">Extend 5 days</button>';
+    if (c.match_outcome === 'expired') {
+      return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn;
+    }
+    if (c.match_seen_at) {
+      return '<div class="ats-match-status">seen — awaiting response</div>';
+    }
+    if (c.match_expires_at) {
+      var msLeft = new Date(c.match_expires_at).getTime() - Date.now();
+      if (msLeft <= 0) return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn; // not yet swept by the lifecycle cron
+      var hoursLeft = Math.floor(msLeft / 3600000);
+      var d = Math.floor(hoursLeft / 24);
+      var h = hoursLeft % 24;
+      return '<div class="ats-match-status' + (hoursLeft < 24 ? ' ats-match-amber' : '') + '">⏳ ' + d + 'd ' + h + 'h left</div>';
+    }
+    return '';
+  }
+
   function cardHtml(c) {
     var notes = c.ats_notes || '';
     var snippet = notes ? '📝 ' + (notes.length > 22 ? notes.slice(0, 22) + '…' : notes) : 'No notes yet';
@@ -397,7 +421,7 @@
         '<div class="ats-avatar" style="background:' + A.avatarColor(c.name) + '">' + A.esc(A.initials(c.name)) + '</div>' +
         '<div><div class="cc-name">' + A.esc(c.name || '—') + '</div><div class="cc-sub">' + A.countryLabel(c.country) + '</div></div>' +
       '</div>' +
-      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark +
+      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark + matchStatusHtml(c) +
     '</div>';
   }
 
@@ -416,6 +440,23 @@
       cards[k].addEventListener('dragend', onDragEnd);
       cards[k].addEventListener('click', onCardClick);
     }
+    // "Extend 5 days" (expired Shortlist cards) — stopPropagation so the click
+    // doesn't also bubble into the card's onCardClick (which opens the drawer).
+    var extendBtns = board.querySelectorAll('[data-ats-extend]');
+    for (var x = 0; x < extendBtns.length; x++) {
+      extendBtns[x].addEventListener('click', onExtendClick);
+    }
+  }
+
+  function onExtendClick(e) {
+    e.stopPropagation();
+    var id = this.getAttribute('data-ats-extend');
+    if (!id) return;
+    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: { match_extend: true } }).then(function (d) {
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not extend the match window'); return; }
+      A.toast('Match window extended 5 days');
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+    });
   }
 
   /* -------------------- drag & drop -------------------- */

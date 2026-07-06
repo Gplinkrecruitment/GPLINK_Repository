@@ -345,7 +345,7 @@
     var el = panel();
     if (!el) return;
     el.innerHTML = ATS.loadingHtml('Loading candidate…');
-    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
+    function render(d) {
       var host = panel();
       if (!host) return;
       if (!d || !d.ok || !d.candidate) {
@@ -360,6 +360,13 @@
       host.innerHTML = detailHtml(d.candidate);
       wireDetailEvents(host, d.candidate);
       if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
+      if (d && d.ok && d.candidate) { render(d); return; }
+      // Some deep-links (the Matching tab's results only carry the GP's
+      // user_id, not their registration_cases.id) pass a user_id here instead
+      // of a case_id — retry once treating it as a user_id before giving up.
+      ATS.api('/api/ceo/candidate?user_id=' + encodeURIComponent(caseId)).then(render);
     });
   };
 
