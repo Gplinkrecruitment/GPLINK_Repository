@@ -17414,12 +17414,329 @@ async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
 function __getPublicJobsRowsCacheForTest() { return _publicJobsRowsCache; }
 function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; }
 
+// ── Phase 6 E2 (audit B5): owner-editable public site stats ────────────────
+// The marketing-site stats were hardcoded in SITE_STATS. Effective value
+// precedence, PER STAT:
+//   1. owner override — stored in runtime_kv key 'site_stats_overrides'
+//      (Supabase) / dbState.siteStatsOverrides (local JSON dev fallback);
+//   2. live-computed value where one exists — gpsPlaced derives from the real
+//      placements count (placements table, falling back to gp_applications at
+//      status placement_secured);
+//   3. the hardcoded SITE_STATS default.
+// jobsCount is the exception: it is ALWAYS live (getPublicJobsCount, with
+// SITE_STATS.jobsFallback only on data failure) and has no override — the
+// live board is the truth for how many jobs are on the live board.
+const SITE_STATS_OVERRIDES_KV_KEY = 'site_stats_overrides';
+const SITE_STATS_OVERRIDE_KEYS = ['locations', 'avgPlacementDays', 'gpsPlaced', 'satisfaction'];
+const SITE_STATS_OVERRIDE_MAX = 1000000;
+
+// Coerces a stored/posted overrides object down to whitelisted keys with
+// clean non-negative integers. Anything else is dropped, never thrown on —
+// a corrupted KV row must not take the public stats endpoint down.
+function sanitizeStoredSiteStatsOverrides(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const key of SITE_STATS_OVERRIDE_KEYS) {
+    const num = Number(source[key]);
+    if (Number.isFinite(num) && num >= 0 && num <= SITE_STATS_OVERRIDE_MAX) out[key] = Math.round(num);
+  }
+  return out;
+}
+
+// Pure validation for POST /api/admin/site-stats (same exported-pure-function
+// convention as validateSiteEnquiryPayload). The posted overrides REPLACE the
+// stored set: omitted / null / '' fields mean "no override — use computed",
+// so "reset to computed" is simply posting {}. Returns { ok, overrides|error }.
+function validateSiteStatsOverridesPayload(body) {
+  const raw = (body && typeof body === 'object')
+    ? ((body.overrides && typeof body.overrides === 'object') ? body.overrides : body)
+    : {};
+  const overrides = {};
+  for (const key of SITE_STATS_OVERRIDE_KEYS) {
+    if (!(key in raw)) continue;
+    const value = raw[key];
+    if (value === null || value === undefined || value === '') continue; // cleared → computed
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+      return { ok: false, error: key + ' must be a non-negative number.' };
+    }
+    if (num > SITE_STATS_OVERRIDE_MAX) {
+      return { ok: false, error: key + ' is too large.' };
+    }
+    if (key === 'satisfaction' && num > 100) {
+      return { ok: false, error: 'satisfaction must be between 0 and 100.' };
+    }
+    overrides[key] = Math.round(num);
+  }
+  return { ok: true, overrides };
+}
+
+async function getSiteStatsOverrides() {
+  if (isSupabaseDbConfigured()) {
+    const record = await getRuntimeKv(SITE_STATS_OVERRIDES_KV_KEY).catch(() => null);
+    return sanitizeStoredSiteStatsOverrides(record && record.value);
+  }
+  return sanitizeStoredSiteStatsOverrides(dbState.siteStatsOverrides);
+}
+
+async function setSiteStatsOverrides(overrides) {
+  const clean = sanitizeStoredSiteStatsOverrides(overrides);
+  if (isSupabaseDbConfigured()) {
+    return setRuntimeKv(SITE_STATS_OVERRIDES_KV_KEY, clean, null);
+  }
+  dbState.siteStatsOverrides = clean;
+  saveDbState();
+  return true;
+}
+
+function __resetSiteStatsOverridesForTest() { dbState.siteStatsOverrides = {}; saveDbState(); }
+function __seedAtsPlacementsForTest(rows) { dbState.atsPlacements = Array.isArray(rows) ? rows.slice() : []; saveDbState(); }
+
+// Real "GPs placed" count: placement-of-record rows first, then the
+// gp_applications placement_secured fallback (same pair the CEO placements
+// list + CSV export use). Returns null when there is no live signal (zero
+// rows / store unavailable) so the caller falls through to the default —
+// a brand-new empty DB must not put "0 GPs placed" on the marketing site.
+async function getGpsPlacedLiveCount() {
+  try {
+    let rows = await atsOffersStore.listAtsPlacements({ limit: 200 });
+    if ((!rows || !rows.length) && isSupabaseDbConfigured()) {
+      rows = await atsDerivePlacementsFromCareerState(200);
+    }
+    const count = Array.isArray(rows) ? rows.length : 0;
+    return count > 0 ? count : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Admin editor view: every stat with its effective value, where it came from
+// ('override' | 'live' | 'default') and the underlying live/default/override
+// values, so the UI can honestly show what the public site is displaying.
+async function buildSiteStatsAdminView() {
+  const [jobsCount, overrides, gpsPlacedLive] = await Promise.all([
+    getPublicJobsCount(),
+    getSiteStatsOverrides(),
+    getGpsPlacedLiveCount()
+  ]);
+  const liveValues = { gpsPlaced: gpsPlacedLive };
+  const view = {
+    jobsCount: {
+      value: jobsCount,
+      source: 'live',
+      live: jobsCount,
+      default: SITE_STATS.jobsFallback,
+      override: null
+    }
+  };
+  for (const key of SITE_STATS_OVERRIDE_KEYS) {
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, key);
+    const live = (liveValues[key] !== null && liveValues[key] !== undefined) ? liveValues[key] : null;
+    view[key] = {
+      value: hasOverride ? overrides[key] : (live !== null ? live : SITE_STATS[key]),
+      source: hasOverride ? 'override' : (live !== null ? 'live' : 'default'),
+      live,
+      default: SITE_STATS[key],
+      override: hasOverride ? overrides[key] : null
+    };
+  }
+  return view;
+}
+
+// Flat shape for GET /api/public/stats — exactly the effective values.
+async function buildPublicSiteStats() {
+  const view = await buildSiteStatsAdminView();
+  return {
+    jobsCount: view.jobsCount.value,
+    locations: view.locations.value,
+    avgPlacementDays: view.avgPlacementDays.value,
+    gpsPlaced: view.gpsPlaced.value,
+    satisfaction: view.satisfaction.value
+  };
+}
+
+// ── Phase 6 E2: job SEO — schema.org JobPosting JSON-LD + meta injection ───
+// LEAK SAFETY: everything below builds ONLY from the already-sanitized public
+// job shape (mapCareerRoleRowToPublicJob → sanitizePublicJob). The real
+// practice name / street address never exists on that object, so it can never
+// reach the structured data, the meta tags or the sitemap. Both entry points
+// re-run sanitizePublicJob defensively in case a future caller passes a
+// richer object.
+function mapEmploymentTypeToSchema(employmentType) {
+  const text = String(employmentType || '').toLowerCase();
+  if (/full[\s-]?time/.test(text)) return 'FULL_TIME';
+  if (/part[\s-]?time|casual/.test(text)) return 'PART_TIME';
+  if (/locum|contract/.test(text)) return 'CONTRACTOR';
+  if (/temp/.test(text)) return 'TEMPORARY';
+  return '';
+}
+
+function buildPublicJobUrl(job) {
+  return PUBLIC_BASE_URL + '/jobs/view?id=' + encodeURIComponent(String((job && job.id) || ''));
+}
+
+function buildJobPostingJsonLd(job) {
+  const sanitized = sanitizePublicJob(job);
+  const url = buildPublicJobUrl(sanitized);
+  const description = String(sanitized.summary || '').trim()
+    || ('General practice opportunity — ' + String(sanitized.location_label || 'Australia')
+      + '. GP Link places overseas-trained GPs with Australian practices and supports the full registration and relocation journey at no cost to the doctor.');
+  const address = { '@type': 'PostalAddress', addressCountry: 'AU' };
+  const locality = String(sanitized.suburb || sanitized.nearest_city || '').trim();
+  if (locality) address.addressLocality = locality;
+  if (sanitized.location_state) address.addressRegion = String(sanitized.location_state);
+  const jsonLd = {
+    '@context': 'https://schema.org/',
+    '@type': 'JobPosting',
+    title: String(sanitized.title || 'General Practitioner'),
+    description,
+    // The practice identity is confidential pre-placement (masked pipeline):
+    // the hiring organization is GP Link, recruiting on the practice's behalf.
+    hiringOrganization: {
+      '@type': 'Organization',
+      name: 'GP Link',
+      url: PUBLIC_BASE_URL,
+      description: 'GP recruitment — hiring on behalf of a confidential Australian general practice.'
+    },
+    jobLocation: { '@type': 'Place', address },
+    identifier: { '@type': 'PropertyValue', name: 'GP Link', value: String(sanitized.id || '') },
+    url,
+    // Applying happens inside the GP Link app after signup, not directly on
+    // the public page.
+    directApply: false
+  };
+  if (sanitized.published_at) jsonLd.datePosted = String(sanitized.published_at);
+  const schemaEmploymentType = mapEmploymentTypeToSchema(sanitized.employment_type);
+  if (schemaEmploymentType) jsonLd.employmentType = schemaEmploymentType;
+  return jsonLd;
+}
+
+function _escapeHtmlTextSeo(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+// Rewrites the static site-job.html head for one specific job: <title>,
+// canonical, og:title/og:description/og:url, plus the JobPosting JSON-LD
+// script — server-rendered so crawlers get indexable markup in the initial
+// HTML (the page's own JS still hydrates the visible content client-side).
+// All replacements use function replacers so '$' in job text is never
+// interpreted as a regex replacement pattern.
+function injectJobSeoIntoHtml(html, job) {
+  const sanitized = sanitizePublicJob(job);
+  const url = buildPublicJobUrl(sanitized);
+  const title = String(sanitized.title || 'GP role') + ' — ' + String(sanitized.location_label || 'Australia') + ' | GP Link';
+  const description = String(sanitized.summary || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+    || 'View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.';
+  // <-escape so job text can never break out of the script element.
+  const jsonLd = JSON.stringify(buildJobPostingJsonLd(sanitized)).replace(/</g, '\\u003c');
+  let out = String(html || '');
+  out = out.replace(/<title>[\s\S]*?<\/title>/, () => '<title>' + _escapeHtmlTextSeo(title) + '</title>');
+  out = out.replace(/(<link rel="canonical" href=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(url) + post);
+  out = out.replace(/(<meta property="og:title" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(title) + post);
+  out = out.replace(/(<meta property="og:description" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(description) + post);
+  out = out.replace(/(<meta property="og:url" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(url) + post);
+  out = out.replace('</head>', '<script type="application/ld+json">' + jsonLd + '</script>\n</head>');
+  return out;
+}
+
+// Serves /jobs/view?id=… with the job-specific SEO head injected. Returns
+// true when it handled the response; false → caller falls back to the plain
+// static file (no id, unknown id, or any failure — never a broken page).
+async function serveJobDetailPageWithSeo(req, res, requestUrl) {
+  try {
+    const id = String(requestUrl.searchParams.get('id') || '').trim();
+    if (!id) return false;
+    const rows = await getPublicJobsRows();
+    const params = new URLSearchParams();
+    params.set('id', id);
+    const result = buildPublicJobsResponse(rows, params);
+    const job = (result && Array.isArray(result.jobs) && result.jobs[0]) || null;
+    if (!job) return false;
+    const html = await fs.promises.readFile(path.join(process.cwd(), 'pages', 'site-job.html'), 'utf8');
+    const body = injectJobSeoIntoHtml(html, job);
+    const headers = {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+      ...SECURITY_HEADERS
+    };
+    if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
+    res.writeHead(200, headers);
+    res.end(body);
+    return true;
+  } catch (err) {
+    console.warn('[job-seo] server render failed, falling back to static:', err && err.message);
+    return false;
+  }
+}
+
+// ── Phase 6 E2: sitemap enrichment ──────────────────────────────────────────
+// Marketing routes + privacy/terms/blog (+ enumerable blog posts) + one URL
+// per live public job (masked ids only — the job id is provider:role_id,
+// never a practice identity). Bounded at SITEMAP_MAX_JOB_URLS.
+const SITEMAP_MAX_JOB_URLS = 500;
+let _blogSlugsCache = null;
+
+function getBlogPostSlugs() {
+  if (_blogSlugsCache) return _blogSlugsCache;
+  try {
+    const src = fs.readFileSync(path.join(process.cwd(), 'pages', 'blog.html'), 'utf8');
+    const slugs = [];
+    const re = /slug:\s*"([a-z0-9-]+)"/g;
+    let match;
+    while ((match = re.exec(src)) !== null && slugs.length < 100) slugs.push(match[1]);
+    _blogSlugsCache = slugs;
+  } catch (err) {
+    _blogSlugsCache = [];
+  }
+  return _blogSlugsCache;
+}
+
+function _xmlEscapeSeo(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[ch]
+  ));
+}
+
+function renderSitemapXml(paths) {
+  const urls = (Array.isArray(paths) ? paths : [])
+    .map((p) => '  <url><loc>' + _xmlEscapeSeo(PUBLIC_BASE_URL + p) + '</loc></url>')
+    .join('\n');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '\n</urlset>\n';
+}
+
+async function buildSitemapXmlBody() {
+  const staticPaths = Object.keys(SITE_PUBLIC_ROUTES);
+  const extraPaths = ['/pages/privacy', '/pages/terms', '/blog'];
+  const blogPaths = getBlogPostSlugs().map((slug) => '/blog/' + slug);
+  let jobPaths = [];
+  try {
+    const rows = await getPublicJobsRows();
+    jobPaths = (Array.isArray(rows) ? rows : [])
+      .map(mapCareerRoleRowToPublicJob)
+      .filter((job) => job && job.id)
+      .slice(0, SITEMAP_MAX_JOB_URLS)
+      .map((job) => '/jobs/view?id=' + encodeURIComponent(String(job.id)));
+  } catch (err) {
+    jobPaths = [];
+  }
+  return renderSitemapXml([...staticPaths, ...extraPaths, ...blogPaths, ...jobPaths]);
+}
+
 // ── Public marketing-site enquiry intake (no session) ─────────────────────
 // POST /api/public/enquiry — practice/GP/general leads from the marketing
 // site. Stored in Supabase `site_enquiries` (prod) or dbState.siteEnquiries
 // (local JSON-db dev fallback); consumed by the admin Website tab (task 13).
 const SITE_ENQUIRY_KINDS = ['practice', 'gp', 'general'];
 const SITE_ENQUIRY_STATUSES = ['new', 'contacted', 'closed'];
+// 'converted' is set ONLY by POST /api/admin/enquiry/convert (which creates
+// the practice + sends the intake email) — never by the manual status-update
+// endpoint, so an enquiry can't be hand-marked converted without a practice.
+// List filtering accepts it; SITE_ENQUIRY_STATUSES stays the manual set.
+// Live prod CHECK verified 2026-07-06 before widening (migration
+// 20260706150000): status IN ('new','contacted','closed').
+const SITE_ENQUIRY_LIST_STATUSES = SITE_ENQUIRY_STATUSES.concat(['converted']);
 const SITE_ENQUIRY_MESSAGE_MAX = 4000;
 const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
 
@@ -17560,6 +17877,55 @@ async function updateSiteEnquiryStatus(id, status) {
   row.status = status;
   saveDbState();
   return { ok: true, notFound: false };
+}
+
+// ── Phase 6 E2: enquiry → practice conversion helpers ───────────────────────
+async function getSiteEnquiryRowById(id) {
+  const key = String(id || '').trim();
+  if (!key) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(key) + '&select=*&limit=1', { method: 'GET' });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).find((r) => String(r.id) === key) || null;
+}
+
+// Marks an enquiry converted and stashes the created practice id in metadata
+// (metadata.converted_practice_id is ALSO the idempotency key for the convert
+// endpoint). If the status CHECK hasn't been widened to include 'converted'
+// yet (migration 20260706150000 unapplied), the status PATCH fails — retry
+// with the metadata alone so idempotency still holds and no duplicate
+// practice can ever be created by a second click.
+async function markSiteEnquiryConverted(id, practiceId) {
+  const nowIso = new Date().toISOString();
+  if (isSupabaseDbConfigured()) {
+    const existing = await getSiteEnquiryRowById(id);
+    if (!existing) return { ok: false, statusSet: false };
+    const metadata = Object.assign(
+      {},
+      (existing.metadata && typeof existing.metadata === 'object') ? existing.metadata : {},
+      { converted_practice_id: String(practiceId || ''), converted_at: nowIso }
+    );
+    const full = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(String(id)), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'converted', metadata }
+    });
+    if (full.ok) return { ok: true, statusSet: true };
+    console.error('[enquiry-convert] status=converted rejected (migration 20260706150000 unapplied?) — recording metadata only');
+    const metaOnly = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(String(id)), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { metadata }
+    });
+    return { ok: !!metaOnly.ok, statusSet: false };
+  }
+  const row = (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).find((r) => String(r.id) === String(id));
+  if (!row) return { ok: false, statusSet: false };
+  row.status = 'converted';
+  row.metadata = Object.assign(
+    {},
+    (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
+    { converted_practice_id: String(practiceId || ''), converted_at: nowIso }
+  );
+  saveDbState();
+  return { ok: true, statusSet: true };
 }
 
 // ── Phase 6 E1 (audit B3/B4): admin CSV exports + lead/archive browser ──────
@@ -27193,15 +27559,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/public/stats' && req.method === 'GET') {
-    const jobsCount = await getPublicJobsCount();
-    sendJson(res, 200, {
-      ok: true,
-      jobsCount,
-      locations: SITE_STATS.locations,
-      avgPlacementDays: SITE_STATS.avgPlacementDays,
-      gpsPlaced: SITE_STATS.gpsPlaced,
-      satisfaction: SITE_STATS.satisfaction
-    });
+    // Phase 6 E2 (audit B5): per-stat precedence owner override > live-derived
+    // (gpsPlaced ← placements) > SITE_STATS default; jobsCount always live.
+    const publicStats = await buildPublicSiteStats();
+    sendJson(res, 200, Object.assign({ ok: true }, publicStats));
     return;
   }
 
@@ -27889,8 +28250,8 @@ async function handleApi(req, res, pathname) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
     const statusFilter = String(url.searchParams.get('status') || '').trim();
-    if (statusFilter && !SITE_ENQUIRY_STATUSES.includes(statusFilter)) {
-      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
+    if (statusFilter && !SITE_ENQUIRY_LIST_STATUSES.includes(statusFilter)) {
+      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_LIST_STATUSES.join(', ') + '.' });
       return;
     }
     const enquiries = await listSiteEnquiryRows(statusFilter);
@@ -27930,6 +28291,166 @@ async function handleApi(req, res, pathname) {
       return;
     }
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Phase 6 E2: POST /api/admin/enquiry/convert ──────────────────────────
+  // One-click "Create practice & send intake" on a website enquiry: creates a
+  // practices row from the enquiry's contact details, sends the themed intake
+  // email (same sendPracticeIntakeEmail the FB-lead webhook uses), and marks
+  // the enquiry status='converted' with metadata.converted_practice_id.
+  // Idempotent: a second call returns the existing practice, creates nothing
+  // and sends nothing. Guard matches the enquiries panel (requireAdminSession).
+  if (pathname === '/api/admin/enquiry/convert' && req.method === 'POST') {
+    const cvAdmin = requireAdminSession(req, res);
+    if (!cvAdmin) return;
+    let cvBody;
+    try {
+      cvBody = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+    const cvEnquiryId = String((cvBody && (cvBody.enquiryId || cvBody.id)) || '').trim();
+    if (!cvEnquiryId) {
+      sendJson(res, 400, { ok: false, error: 'enquiryId is required.' });
+      return;
+    }
+    const cvEnquiry = await getSiteEnquiryRowById(cvEnquiryId);
+    if (!cvEnquiry) {
+      sendJson(res, 404, { ok: false, error: 'Enquiry not found.' });
+      return;
+    }
+    const cvMeta = (cvEnquiry.metadata && typeof cvEnquiry.metadata === 'object') ? cvEnquiry.metadata : {};
+    if (cvEnquiry.status === 'converted' || cvMeta.converted_practice_id) {
+      sendJson(res, 200, {
+        ok: true,
+        alreadyConverted: true,
+        practice_id: String(cvMeta.converted_practice_id || '')
+      });
+      return;
+    }
+    if (!String(cvEnquiry.email || '').trim()) {
+      sendJson(res, 400, { ok: false, error: 'Enquiry has no contact email — cannot send an intake link.' });
+      return;
+    }
+
+    const cvName = String(cvEnquiry.name || '').trim();
+    const cvPracticeName = String(cvEnquiry.practice_name || '').trim()
+      || (cvName ? cvName + "'s practice" : 'Website enquiry practice');
+    const cvRow = {
+      name: cvPracticeName,
+      location_city: '',
+      location_state: String(cvEnquiry.state || '').trim(),
+      location_country: 'Australia',
+      practice_type: '',
+      contact_name: cvName,
+      contact_email: String(cvEnquiry.email || '').trim(),
+      contact_phone: String(cvEnquiry.phone || '').trim(),
+      ahpra_number: '',
+      source: 'website_enquiry',
+      is_active: true,
+      created_by: (cvAdmin && cvAdmin.email) || 'admin',
+      stage: 'prospective',
+      website: '',
+      intake_token: practicePipeline.generateIntakeToken(),
+      agreement_status: 'unsigned',
+      metadata: {
+        site_enquiry_id: String(cvEnquiry.id),
+        enquiry_kind: String(cvEnquiry.kind || ''),
+        enquiry_message: String(cvEnquiry.message || '').slice(0, 1000)
+      }
+    };
+
+    let cvCreated = null;
+    let cvDegraded = false;
+    try {
+      cvCreated = await atsInsertPracticeRow(cvRow);
+      if (!cvCreated && isSupabaseDbConfigured()) {
+        // Missing-column / CHECK tolerance (mirrors the FB-lead webhook): the
+        // pipeline migration (20260705100000) or the source-CHECK widening
+        // (20260706150000) may not be applied. Retry with the legacy column
+        // set + source 'manual' so the convert never 500s on lagging DDL.
+        console.error('[enquiry-convert] practices insert rejected — run migrations 20260705100000 + 20260706150000');
+        cvCreated = await atsInsertPracticeRow({
+          name: cvRow.name,
+          location_city: '',
+          location_state: cvRow.location_state,
+          location_country: 'Australia',
+          practice_type: '',
+          contact_name: cvRow.contact_name,
+          contact_email: cvRow.contact_email,
+          contact_phone: cvRow.contact_phone,
+          ahpra_number: '',
+          source: 'manual',
+          is_active: true,
+          created_by: cvRow.created_by
+        });
+        cvDegraded = true;
+      }
+    } catch (cvErr) {
+      console.error('[enquiry-convert] practice insert failed:', cvErr && cvErr.message);
+      cvCreated = null;
+    }
+    if (!cvCreated) {
+      sendJson(res, 500, { ok: false, error: 'Failed to create the practice from this enquiry.' });
+      return;
+    }
+
+    let cvEmailSent = false;
+    if (cvDegraded) {
+      // The legacy row can't persist an intake token — a link sent now would
+      // be dead. Same reasoning as the FB-lead webhook: skip the send; the
+      // owner can use "Resend intake email" once the migration is applied.
+      console.error('[enquiry-convert] intake token not persistable — intake email skipped');
+    } else {
+      const cvSendResult = await sendPracticeIntakeEmail(cvCreated).catch(function (e) {
+        console.error('[enquiry-convert] intake email send failed:', e && e.message);
+        return null;
+      });
+      cvEmailSent = !!(cvSendResult && cvSendResult.ok);
+    }
+
+    const cvMarked = await markSiteEnquiryConverted(cvEnquiry.id, cvCreated.id);
+    if (!cvMarked.ok) {
+      console.error('[enquiry-convert] failed to mark enquiry converted for', cvEnquiryId);
+    }
+
+    const cvResponse = { ok: true, practice_id: String(cvCreated.id), email_sent: cvEmailSent };
+    if (cvDegraded) cvResponse.degraded = true;
+    sendJson(res, 200, cvResponse);
+    return;
+  }
+
+  // ── Phase 6 E2 (audit B5): owner-editable public site stats ──────────────
+  if (pathname === '/api/admin/site-stats' && req.method === 'GET') {
+    const ssCtx = requireCeoSession(req, res);
+    if (!ssCtx) return;
+    sendJson(res, 200, { ok: true, stats: await buildSiteStatsAdminView() });
+    return;
+  }
+
+  if (pathname === '/api/admin/site-stats' && req.method === 'POST') {
+    const ssCtx = requireCeoSession(req, res);
+    if (!ssCtx) return;
+    let ssBody;
+    try {
+      ssBody = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+    const ssValidated = validateSiteStatsOverridesPayload(ssBody);
+    if (!ssValidated.ok) {
+      sendJson(res, 400, { ok: false, error: ssValidated.error });
+      return;
+    }
+    const ssSaved = await setSiteStatsOverrides(ssValidated.overrides);
+    if (!ssSaved) {
+      sendJson(res, 500, { ok: false, error: 'Failed to save the stats overrides.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, stats: await buildSiteStatsAdminView() });
     return;
   }
 
@@ -49042,15 +49563,27 @@ async function handleRequest(req, res) {
     return;
   }
   if (pathname === '/sitemap.xml') {
-    const urls = Object.keys(SITE_PUBLIC_ROUTES)
-      .map((route) => `  <url><loc>${PUBLIC_BASE_URL}${route === '/' ? '/' : route}</loc></url>`)
-      .join('\n');
-    const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+    // Phase 6 E2: enriched with per-job URLs + privacy/terms/blog. Any data
+    // failure degrades to the static-routes-only sitemap, never a 500.
+    let body;
+    try {
+      body = await buildSitemapXmlBody();
+    } catch (err) {
+      console.warn('[sitemap] enrichment failed, serving static routes only:', err && err.message);
+      body = renderSitemapXml(Object.keys(SITE_PUBLIC_ROUTES));
+    }
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(body);
     return;
   }
   if (pathname !== '/' && Object.prototype.hasOwnProperty.call(SITE_PUBLIC_ROUTES, pathname)) {
+    // Phase 6 E2: /jobs/view?id=… gets a server-rendered SEO head (JobPosting
+    // JSON-LD + canonical/OG for the specific job) so crawlers see indexable
+    // markup in the initial HTML. Falls back to the plain static file.
+    if (pathname === '/jobs/view') {
+      const servedWithSeo = await serveJobDetailPageWithSeo(req, res, url);
+      if (servedWithSeo) return;
+    }
     serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES[pathname]);
     return;
   }
@@ -49920,6 +50453,23 @@ module.exports.__testUtils = {
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
   SITE_STATS,
+  sanitizeStoredSiteStatsOverrides,
+  validateSiteStatsOverridesPayload,
+  getSiteStatsOverrides,
+  setSiteStatsOverrides,
+  getGpsPlacedLiveCount,
+  buildSiteStatsAdminView,
+  buildPublicSiteStats,
+  __resetSiteStatsOverridesForTest,
+  __seedAtsPlacementsForTest,
+  mapEmploymentTypeToSchema,
+  buildJobPostingJsonLd,
+  injectJobSeoIntoHtml,
+  renderSitemapXml,
+  buildSitemapXmlBody,
+  getBlogPostSlugs,
+  getSiteEnquiryRowById,
+  markSiteEnquiryConverted,
   validateSiteEnquiryPayload,
   isSiteEnquiryHoneypotFilled,
   checkSiteEnquiryRateLimit,

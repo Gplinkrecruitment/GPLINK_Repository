@@ -270,7 +270,7 @@ describe('marketing site link audit (Task 14)', () => {
     expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);
   });
 
-  it('/sitemap.xml lists exactly the 7 public routes, no more, no less', async () => {
+  it('/sitemap.xml lists all public routes plus privacy/terms/blog (Phase 6 E2 enrichment)', async () => {
     const res = await cachedGet('/sitemap.xml');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/xml/);
@@ -278,7 +278,19 @@ describe('marketing site link audit (Task 14)', () => {
     const locs = [...res.raw.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
     const paths = locs.map((loc) => loc.replace(PUBLIC_BASE_URL, '') || '/');
 
-    expect(new Set(paths)).toEqual(new Set(PUBLIC_ROUTES));
-    expect(paths.length).toBe(PUBLIC_ROUTES.length);
+    // Every marketing route must still be present…
+    for (const route of PUBLIC_ROUTES) expect(paths).toContain(route);
+    // …plus the Phase 6 E2 additions (privacy/terms/blog; blog posts and
+    // per-job URLs are covered in tests/job-seo.test.js).
+    expect(paths).toContain('/pages/privacy');
+    expect(paths).toContain('/pages/terms');
+    expect(paths).toContain('/blog');
+    // Everything else in the sitemap is only ever a blog post or a public
+    // masked job URL — nothing internal.
+    const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog']);
+    for (const p of paths) {
+      if (known.has(p)) continue;
+      expect(p, `unexpected sitemap path ${p}`).toMatch(/^(\/blog\/[a-z0-9-]+|\/jobs\/view\?id=)/);
+    }
   });
 });

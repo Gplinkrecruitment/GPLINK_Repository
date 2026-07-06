@@ -1282,6 +1282,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .site-enq-status-new{background:#eff6ff;color:#2563eb}
 .site-enq-status-contacted{background:#ecfdf5;color:#059669}
 .site-enq-status-closed{background:#f8fafc;color:#94a3b8}
+.site-enq-status-converted{background:#f5f3ff;color:#7c3aed}
+/* Website stats editor (Phase 6 E2, audit B5) */
+.site-stats-card{border:1px solid var(--line);border-radius:10px;background:#fff;padding:14px 16px;margin-bottom:16px}
+.site-stats-card h3{font-size:14px;font-weight:800;margin:0 0 4px}
+.site-stats-note{font-size:11px;color:var(--muted);margin:0 0 12px;line-height:1.5}
+.site-stats-grid{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.site-stats-field{display:flex;flex-direction:column;gap:4px;min-width:150px}
+.site-stats-field label{font-size:11px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px}
+.site-stats-field input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;width:150px;font-family:inherit}
+.site-stats-live{font-size:13px;font-weight:700;padding:7px 0}
+.site-stats-src{display:inline-block;padding:1px 7px;border-radius:999px;font-size:9px;font-weight:800;text-transform:uppercase}
+.site-stats-src-live{background:#ecfdf5;color:#059669}
+.site-stats-src-override{background:#fff7ed;color:#b45309}
+.site-stats-src-default{background:#f8fafc;color:#94a3b8}
+.site-stats-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .site-enq-message{font-size:12px;color:var(--text);margin-top:8px;line-height:1.5;white-space:pre-wrap}
 .site-enq-actions{display:flex;gap:6px;margin-left:auto}
 /* Call history pane */
@@ -1622,6 +1637,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
     siteEnq:{items:[],loading:false,filter:"",expandedIds:{}},
+    siteStats:{data:null,forbidden:false},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
@@ -10721,8 +10737,70 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // table / dbState.siteEnquiries fallback). Loaded once per tab-open into
   // S.siteEnq.items, then filtered/rendered client-side (no re-fetch per pill).
   var SITE_ENQ_KIND_LABEL = { practice: 'Practice', gp: 'GP', general: 'General' };
-  var SITE_ENQ_STATUS_LABEL = { new: 'New', contacted: 'Contacted', closed: 'Closed' };
+  var SITE_ENQ_STATUS_LABEL = { new: 'New', contacted: 'Contacted', closed: 'Closed', converted: 'Converted' };
   var SITE_ENQ_MESSAGE_TRUNCATE = 160;
+
+  // ── Website stats editor (Phase 6 E2, audit B5) ──────────────────
+  // Owner-editable numbers shown on the public marketing site. The server
+  // reports, per stat, the effective value + where it came from
+  // (override > live-computed > default). CEO-session-gated: non-super
+  // admins get 403 on the endpoint and the card simply doesn't render.
+  var SITE_STATS_FIELDS = [
+    { key: 'jobsCount', label: 'Jobs live', readOnly: true },
+    { key: 'gpsPlaced', label: 'GPs placed' },
+    { key: 'locations', label: 'Locations served' },
+    { key: 'avgPlacementDays', label: 'Avg days to placement' },
+    { key: 'satisfaction', label: 'Satisfaction %' }
+  ];
+
+  async function loadSiteStats() {
+    try {
+      var r = await fetch('/api/admin/site-stats', { credentials: 'same-origin' });
+      if (r.status === 401 || r.status === 403) { S.siteStats.data = null; S.siteStats.forbidden = true; return; }
+      var d = await r.json();
+      S.siteStats.data = (d && d.ok && d.stats) ? d.stats : null;
+      S.siteStats.forbidden = false;
+    } catch (e) {
+      S.siteStats.data = null;
+    }
+  }
+
+  function siteStatsSrcBadge(source) {
+    var label = source === 'override' ? 'Overridden' : (source === 'live' ? 'Live' : 'Default');
+    return '<span class="site-stats-src site-stats-src-' + esc(source) + '">' + esc(label) + '</span>';
+  }
+
+  function renderSiteStatsCardHtml() {
+    var d = S.siteStats && S.siteStats.data;
+    if (!d) return '';
+    var html = '<div class="site-stats-card">';
+    html += '<h3>Website stats</h3>';
+    html += '<div class="site-stats-note">These numbers appear on the public marketing site (mygplink.com.au). '
+      + '"Live" values are computed from real data and update automatically. Type a number to override one; '
+      + 'leave a field blank to use the live/default value. Please keep them honest — visitors see these.</div>';
+    html += '<div class="site-stats-grid">';
+    SITE_STATS_FIELDS.forEach(function(f) {
+      var st = d[f.key];
+      if (!st) return;
+      html += '<div class="site-stats-field">';
+      html += '<label>' + esc(f.label) + ' ' + siteStatsSrcBadge(st.source) + '</label>';
+      if (f.readOnly) {
+        html += '<div class="site-stats-live">' + esc(String(st.value)) + '</div>';
+      } else {
+        var computed = (st.live !== null && st.live !== undefined) ? st.live : st.default;
+        html += '<input type="number" min="0" step="1" data-site-stat-input="' + esc(f.key) + '" '
+          + 'value="' + (st.source === 'override' ? esc(String(st.override)) : '') + '" '
+          + 'placeholder="' + esc(String(computed)) + '">';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<div class="site-stats-actions">';
+    html += '<button class="btn sm" data-site-stats-save>Save overrides</button>';
+    html += '<button class="btn sm ghost" data-site-stats-reset>Reset all to computed</button>';
+    html += '</div></div>';
+    return html;
+  }
 
   function updateWebsiteEnqBadge() {
     var badge = document.getElementById('websiteEnqBadge');
@@ -10755,7 +10833,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var panel = document.getElementById('siteEnquiriesPanel');
     if (!panel) return;
     panel.innerHTML = '<div class="site-enq-panel"><h2>Website enquiries</h2><div style="color:var(--muted);font-size:13px">Loading...</div></div>';
-    await loadSiteEnquiries();
+    await Promise.all([loadSiteEnquiries(), loadSiteStats()]);
     updateWebsiteEnqBadge();
     renderSiteEnquiriesPanelBody();
   }
@@ -10774,8 +10852,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var filtered = filter ? items.filter(function(en) { return en.status === filter; }) : items;
 
     var html = '<div class="site-enq-panel"><h2>Website enquiries</h2>';
+    html += renderSiteStatsCardHtml();
     html += '<div class="site-enq-filters">';
-    [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['closed', 'Closed']].forEach(function(p) {
+    [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['converted', 'Converted'], ['closed', 'Closed']].forEach(function(p) {
       html += '<button class="hub-filt ' + (filter === p[0] ? 'active' : '') + '" data-site-enq-filter="' + esc(p[0]) + '">' + esc(p[1]) + '</button>';
     });
     // Phase 6 E1 (audit B3): CSV download of all enquiries (super-admin only —
@@ -10804,7 +10883,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<span class="site-enq-status site-enq-status-' + esc(en.status || '') + '">' + esc(SITE_ENQ_STATUS_LABEL[en.status] || en.status) + '</span>';
         html += '<span class="site-enq-actions">';
         if (en.status === 'new') html += '<button class="btn sm" data-site-enq-action="contacted" data-site-enq-id="' + esc(en.id) + '">Mark contacted</button>';
-        if (en.status !== 'closed') html += '<button class="btn sm ghost" data-site-enq-action="closed" data-site-enq-id="' + esc(en.id) + '">Close</button>';
+        // Phase 6 E2: one-click enquiry → practice conversion (creates the
+        // practice row + sends the intake email; idempotent server-side).
+        if (en.status === 'new' || en.status === 'contacted') html += '<button class="btn sm" data-site-enq-convert="' + esc(en.id) + '">Create practice &amp; send intake</button>';
+        if (en.status !== 'closed' && en.status !== 'converted') html += '<button class="btn sm ghost" data-site-enq-action="closed" data-site-enq-id="' + esc(en.id) + '">Close</button>';
         html += '</span>';
         html += '</div>';
         if (msg) {
@@ -10836,6 +10918,81 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       renderSiteEnquiriesPanelBody();
       return;
     }
+    // Phase 6 E2: website stats editor save / reset.
+    var statsSaveBtn = e.target.closest('[data-site-stats-save]');
+    var statsResetBtn = e.target.closest('[data-site-stats-reset]');
+    if (statsSaveBtn || statsResetBtn) {
+      var statsBtn = statsSaveBtn || statsResetBtn;
+      var overrides = {};
+      if (statsSaveBtn) {
+        var invalid = null;
+        document.querySelectorAll('[data-site-stat-input]').forEach(function(inp) {
+          var key = inp.getAttribute('data-site-stat-input');
+          var raw = String(inp.value || '').trim();
+          if (!raw) return; // blank = use computed
+          var num = Number(raw);
+          if (!isFinite(num) || num < 0) { invalid = key; return; }
+          overrides[key] = num;
+        });
+        if (invalid) { toast('Enter a valid non-negative number', 'red'); return; }
+      }
+      if (statsResetBtn && !window.confirm('Clear every override and show the live/default values on the public site?')) return;
+      statsBtn.disabled = true;
+      try {
+        var sr = await fetch('/api/admin/site-stats', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ overrides: overrides })
+        });
+        var sd = await sr.json();
+        if (sd && sd.ok && sd.stats) {
+          S.siteStats.data = sd.stats;
+          renderSiteEnquiriesPanelBody();
+          toast(statsResetBtn ? 'Website stats reset to computed values' : 'Website stats saved', 'green');
+        } else {
+          statsBtn.disabled = false;
+          toast((sd && sd.error) || 'Could not save website stats', 'red');
+        }
+      } catch (err) {
+        statsBtn.disabled = false;
+        toast('Could not save website stats', 'red');
+      }
+      return;
+    }
+
+    // Phase 6 E2: one-click enquiry → practice conversion.
+    var convertBtn = e.target.closest('[data-site-enq-convert]');
+    if (convertBtn) {
+      var convId = convertBtn.getAttribute('data-site-enq-convert');
+      if (!window.confirm('Create a practice from this enquiry and email them the intake link?')) return;
+      convertBtn.disabled = true;
+      try {
+        var cr = await fetch('/api/admin/enquiry/convert', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enquiryId: convId })
+        });
+        var cd = await cr.json();
+        if (cd && cd.ok) {
+          var convRow = (S.siteEnq.items || []).find(function(en) { return en.id === convId; });
+          if (convRow) convRow.status = 'converted';
+          updateWebsiteEnqBadge();
+          renderSiteEnquiriesPanelBody();
+          toast(cd.alreadyConverted ? 'Already converted — practice exists'
+            : (cd.email_sent ? 'Practice created & intake email sent' : 'Practice created (intake email not sent — check email settings)'), 'green');
+        } else {
+          convertBtn.disabled = false;
+          toast((cd && cd.error) || 'Could not convert enquiry', 'red');
+        }
+      } catch (err) {
+        convertBtn.disabled = false;
+        toast('Could not convert enquiry', 'red');
+      }
+      return;
+    }
+
     var actionBtn = e.target.closest('[data-site-enq-action]');
     if (actionBtn) {
       var enqId = actionBtn.getAttribute('data-site-enq-id');
