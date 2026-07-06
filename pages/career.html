@@ -11599,6 +11599,13 @@
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) return;
+        // AI Matching (Task 8): a career-locked GP is redirected to the lock
+        // page — server-enforced too (every mutating endpoint 423s), this is
+        // just the friendly client-side bounce so they never see a dead page.
+        if (data.locked === true) {
+          window.location.replace("/pages/career-paused");
+          return;
+        }
         const matches = Array.isArray(data.matches) ? data.matches : [];
         let sawNew = false;
         matches.forEach((m) => {

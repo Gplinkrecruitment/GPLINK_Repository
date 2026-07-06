@@ -383,6 +383,10 @@
     var velocityChip = c.high_velocity
       ? ' <span class="ats-pill amber" title="5 or more applications in the last 24 hours">High application velocity</span>'
       : '';
+    // AI Matching (Task 8): "CAREER LOCKED" chip — 3-strike career lock.
+    var careerLockChip = c.career_locked
+      ? ' <span class="ats-pill red" title="Career page paused after 3 strikes">CAREER LOCKED</span>'
+      : '';
     var ob = c.onboarding_completed
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
@@ -391,7 +395,7 @@
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
       '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
-      '<div>' + regPill + velocityChip + '</div>' +
+      '<div>' + regPill + velocityChip + careerLockChip + '</div>' +
       ATS.intentChip(c.intent_score, c.intent_band) +
       '<div>' + ob + '</div>' +
       '<div class="ats-doc-chips">' +
@@ -461,6 +465,9 @@
           '<div class="ats-card ats-intent-card">' + intentCardInner(c) + '</div>' +
         '</div>' +
         '<div>' +
+          // AI Matching (Task 8): only rendered when this GP has ever been
+          // career-locked (c.career_lock is null otherwise) — no empty card.
+          (c.career_lock ? '<div class="ats-card" style="margin-bottom:16px">' + strikesCardInner(c) + '</div>' : '') +
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + onboardingCardInner(c) + '</div>' +
@@ -726,6 +733,34 @@
         window.atsOpenCandidate(c.case_id);
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not record the practice\'s acceptance.');
+      }
+    });
+  }
+
+  // AI Matching (Task 8): one-click Release (waitlist-release pattern) — the
+  // GP becomes matchable again immediately (atsBuildGpMatchInputs reads the
+  // real career_lock.released_at on its next pool build).
+  function releaseCareerLock(c) {
+    if (!window.confirm('Release ' + (c.name || 'this GP') + '’s career page? They’ll be matchable and able to apply again immediately.')) return;
+    ATS.api('/api/ats/career-lock/release', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Career page released — matchable again.');
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not release the career page.');
+      }
+    });
+  }
+
+  // Optional, independent of Release — recomputes intent fresh (no halving),
+  // same math as the CEO's own "Recompute intent" action.
+  function restoreCareerLockIntent(c) {
+    ATS.api('/api/ats/career-lock/restore-intent', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Intent score restored to ' + res.intent_score + '.');
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not restore the intent score.');
       }
     });
   }
@@ -1213,6 +1248,54 @@
       '<div class="ats-handover-box">' + inner + '</div>';
   }
 
+  // AI Matching (Task 8): "Interviews & strikes" panel (mockup v11) — only
+  // ever rendered when c.career_lock is present (this GP has been locked at
+  // least once). Chips CAREER LOCKED / STRIKES n/3, one row per strike
+  // (practice · location · date · DID NOT PROCEED + the GP's own reason, or
+  // "Not provided yet"), the pre→post intent line, answers status, and the
+  // Release / Restore-intent actions.
+  function strikesCardInner(c) {
+    var lock = c.career_lock || {};
+    var strikes = lock.strikes || [];
+    var lockedChip = lock.locked
+      ? '<span class="ats-pill red">CAREER LOCKED</span>'
+      : '<span class="ats-pill muted">Released</span>';
+    var strikeChip = '<span class="ats-pill amber">STRIKES ' + strikes.length + '/3</span>';
+
+    var rows = strikes.length ? strikes.map(function (s) {
+      var when = s.interviewedAt ? new Date(s.interviewedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+      var metaBits = [s.practiceName || 'Unknown practice', s.location || '', when].filter(Boolean);
+      var reasonHtml = s.reason
+        ? '<div style="font-size:12.5px;color:var(--ats-text,#0f172a);margin-top:6px">' + ATS.esc(s.reason) + '</div>'
+        : '<div style="font-size:12.5px;color:var(--ats-dim,#94a3b8);font-style:italic;margin-top:6px">Not provided yet</div>';
+      return '<div style="border:1px solid var(--ats-border,#e2e8f0);border-radius:10px;padding:10px 12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+          '<span style="font-size:13px;font-weight:600">' + ATS.esc(metaBits.join(' · ')) + '</span>' +
+          '<span class="ats-pill red" style="font-size:10px;white-space:nowrap">DID NOT PROCEED</span>' +
+        '</div>' + reasonHtml +
+      '</div>';
+    }).join('') : '<div class="ats-empty">No strikes recorded.</div>';
+
+    var intentLine = (lock.pre_lock_intent_score != null)
+      ? '<div style="font-size:13px;margin:10px 0"><b>' + ATS.esc(String(lock.pre_lock_intent_score)) + ' → ' + ATS.esc(String((c.intent && c.intent.score != null) ? c.intent.score : '—')) + '</b> <span style="color:var(--ats-dim,#64748b)">(−50% on lock)</span></div>'
+      : '';
+
+    var answersLine = '<div style="font-size:12px;color:var(--ats-dim,#64748b);margin-bottom:4px">' +
+      (lock.answers_submitted_at ? '✓ All three answers submitted' : 'Answers not yet complete') +
+      '</div>';
+    var callLine = '<div style="font-size:12px;color:var(--ats-dim,#64748b);margin-bottom:10px">' +
+      (lock.call_booked_at ? '✓ Call booked' : 'Call not yet booked') +
+      '</div>';
+
+    var actions = '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">' +
+      (lock.locked ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-lock-release">Release career page</button>' : '') +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-lock-restore-intent">Restore intent score</button>' +
+    '</div>';
+
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-red)"></span> Interviews &amp; strikes ' + lockedChip + ' ' + strikeChip + '</div>' +
+      rows + intentLine + answersLine + callLine + actions;
+  }
+
   function wireDetailEvents(host, c) {
     var back = host.querySelector('#ats-cand-back');
     if (back) back.addEventListener('click', function () { window.loadCandidatesTab(); });
@@ -1254,6 +1337,9 @@
       if (plConfirmBtn) { confirmPlacement(plConfirmBtn.getAttribute('data-app-id'), c); return; }
       var plCancelBtn = e.target.closest('.ats-placement-cancel');
       if (plCancelBtn) { closePlacementForm(plCancelBtn.getAttribute('data-app-id'), c); return; }
+      // AI Matching (Task 8): career-lock release / restore-intent.
+      if (e.target.closest('#ats-lock-release')) { releaseCareerLock(c); return; }
+      if (e.target.closest('#ats-lock-restore-intent')) { restoreCareerLockIntent(c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');

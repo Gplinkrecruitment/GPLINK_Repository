@@ -26669,8 +26669,7 @@ async function atsBuildGpMatchInputs(userIds) {
       return a.ats_stage === 'interview' || isCareerInterviewStatus(a.status) || interviewAppIds[String(a.id)];
     });
     var careerLock = state.career_lock || {};
-    var careerLocked = !!careerLock.locked_at
-      && !(careerLock.released_at && new Date(careerLock.released_at) > new Date(careerLock.locked_at));
+    var careerLocked = isCareerLocked(careerLock);
     var onboardingBlob = _parseStateVal(state.gp_onboarding);
     var rawCountry = prof.registration_country || state.gp_selected_country || onboardingBlob.country || '';
     var reg = caseMap[uid] || {};
@@ -26702,6 +26701,217 @@ async function atsBuildGpMatchInputs(userIds) {
   });
 
   return out;
+}
+
+// ---- AI Matching (Task 8): 3-strike career lock ---------------------------
+// Career-lock state lives ENTIRELY inside user_state.state.career_lock (no
+// new DB columns/migration needed) — shape (shared contract, plan doc):
+// { strikes:[{applicationId,practiceName,location,interviewedAt,source}],
+//   locked_at, reasons:{<applicationId>:text}, answers_submitted_at,
+//   released_at, intent_halved_at, pre_lock_intent_score }.
+// A GP is locked when locked_at is set and hasn't been superseded by a LATER
+// release (released_at > locked_at) — this is the ONE formula every
+// enforcement point + the matching pool builder above must agree on.
+function isCareerLocked(careerLock) {
+  var cl = careerLock || {};
+  if (!cl.locked_at) return false;
+  if (cl.released_at && new Date(cl.released_at) > new Date(cl.locked_at)) return false;
+  return true;
+}
+
+// Strike = (a) a completed interview whose application ended at
+// 'not_proceeding' without ever being accepted/hired, or (b) a late
+// withdrawal — an ats_stage_events row Task 7 wrote with reason='gp_withdrew'
+// on a move to not_proceeding. Both sources require the application to
+// currently sit at not_proceeding (interviewing-then-hired never reaches this
+// state; accepted-then-still-in-flight doesn't either). One strike per
+// application max — interview source preferred over a withdrawal event on
+// the same row. Only strikes AFTER the GP's last release count (a released
+// GP starts a fresh 3-strike count) — pass a pre-fetched careerLock via
+// opts.careerLock to avoid a redundant user_state read when the caller
+// (evaluateCareerLocks) already has it.
+async function computeCareerStrikes(userId, opts) {
+  var o = opts || {};
+  var careerLock = o.careerLock;
+  if (!careerLock) {
+    var csStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var csStateRow = (csStateRes.ok && Array.isArray(csStateRes.data) && csStateRes.data[0]) ? csStateRes.data[0] : null;
+    var csState = (csStateRow && csStateRow.state && typeof csStateRow.state === 'object') ? csStateRow.state : {};
+    careerLock = (csState.career_lock && typeof csState.career_lock === 'object') ? csState.career_lock : {};
+  }
+  var sinceMs = careerLock.released_at ? Date.parse(careerLock.released_at) : 0;
+
+  var csAppsRes = await supabaseDbRequest('gp_applications',
+    'select=id,career_role_id,ats_stage,match_outcome&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+  var csApps = (csAppsRes.ok && Array.isArray(csAppsRes.data)) ? csAppsRes.data : [];
+  var csNotProceeding = csApps.filter(function (a) { return a.ats_stage === 'not_proceeding'; });
+  if (!csNotProceeding.length) return [];
+  var csAppIds = csNotProceeding.map(function (a) { return String(a.id); });
+
+  // Source (a): completed interviews on these applications.
+  var csIvRes = await supabaseDbRequest('career_interviews',
+    'select=application_id,scheduled_at,updated_at&application_id=in.(' + encodeURIComponent(_atsInList(csAppIds)) + ')&status=eq.completed&limit=500');
+  var csIvByApp = {};
+  ((csIvRes.ok && csIvRes.data) || []).forEach(function (r) {
+    var key = String(r.application_id);
+    var at = r.scheduled_at || r.updated_at;
+    if (!csIvByApp[key] || Date.parse(at) > Date.parse(csIvByApp[key])) csIvByApp[key] = at;
+  });
+
+  // Source (b): late-withdrawal stage events on these applications.
+  var csEvRes = await supabaseDbRequest('ats_stage_events',
+    'select=application_id,created_at,reason,to_stage&application_id=in.(' + encodeURIComponent(_atsInList(csAppIds)) + ')&reason=eq.gp_withdrew&to_stage=eq.not_proceeding&limit=500');
+  var csEvByApp = {};
+  ((csEvRes.ok && csEvRes.data) || []).forEach(function (r) {
+    var key = String(r.application_id);
+    if (!csEvByApp[key] || Date.parse(r.created_at) > Date.parse(csEvByApp[key])) csEvByApp[key] = r.created_at;
+  });
+
+  // Practice name/location for display (career-paused page + admin panel).
+  var csRoleIds = Array.from(new Set(csNotProceeding.map(function (a) { return a.career_role_id; }).filter(Boolean)));
+  var csRoleMap = {};
+  if (csRoleIds.length) {
+    var csRolesRes = await supabaseDbRequest('career_roles',
+      'select=id,practice_name,location_city,location_state&id=in.(' + encodeURIComponent(_atsInList(csRoleIds)) + ')&limit=500');
+    ((csRolesRes.ok && csRolesRes.data) || []).forEach(function (r) { csRoleMap[r.id] = r; });
+  }
+
+  var strikes = [];
+  csNotProceeding.forEach(function (a) {
+    var id = String(a.id);
+    var interviewedAt = csIvByApp[id] || null;
+    var source = interviewedAt ? 'interview' : (csEvByApp[id] ? 'late_withdrawal' : null);
+    if (!source) return; // not_proceeding for some other reason — not strike-eligible
+    var dateVal = interviewedAt || csEvByApp[id];
+    if (sinceMs && Date.parse(dateVal) <= sinceMs) return; // predates the last release
+    var role = csRoleMap[a.career_role_id] || {};
+    strikes.push({
+      applicationId: id,
+      practiceName: role.practice_name || '',
+      location: [role.location_city, role.location_state].filter(Boolean).join(', '),
+      interviewedAt: dateVal,
+      source: source
+    });
+  });
+
+  strikes.sort(function (x, y) { return Date.parse(x.interviewedAt || 0) - Date.parse(y.interviewedAt || 0); });
+  return strikes;
+}
+
+// Halve the GP's CURRENT intent score once (locking event only) — reads the
+// live facts bundle so the drop is applied to an honest, up-to-date score,
+// exactly like the CEO's own "Recompute intent" action, just with the result
+// halved. Returns {preScore, halvedScore} or null (no registration case /
+// recompute failure — halving is best-effort, never blocks the lock itself).
+async function _halveIntentForCareerLock(userId) {
+  try {
+    var regCase = await _getRegCaseForUser(userId);
+    if (!regCase) return null;
+    var facts = await atsProdCandidateFacts(regCase);
+    var intent = atsComputeIntent(facts);
+    var preScore = intent.score;
+    var halvedScore = Math.round(preScore * 0.5);
+    var halvedBand = String(atsIntent.bandFor(halvedScore) || 'Cold').toLowerCase();
+    // Added signal fact per spec — informational marker only, doesn't change
+    // atsStoreIntentForCase's stored facts shape (that function only reads
+    // the specific keys it already destructures).
+    facts.career_lock = true;
+    await atsStoreIntentForCase(regCase.id, { score: halvedScore, band: halvedBand, signals: intent.signals }, facts);
+    return { preScore: preScore, halvedScore: halvedScore };
+  } catch (e) {
+    return null;
+  }
+}
+
+// evaluateCareerLocks(deadlineTs, onlyUserId) — the shared seam Task 5's cron
+// already calls unconditionally every hour (guarded by `typeof === 'function'`
+// until this task existed), AND the interview-completion PATCH handler calls
+// scoped to ONE GP right after marking an interview 'completed'. deadlineTs is
+// an absolute timestamp (Date.now()-based), matching the cron's own time-box
+// convention. Deterministic + idempotent: a GP already locked is skipped
+// immediately (no re-lock, no second intent halving), so running this twice
+// (or the cron AND the interview hook landing back-to-back) locks at most once.
+async function evaluateCareerLocks(deadlineTs, onlyUserId) {
+  if (!isSupabaseDbConfigured()) return { locked: 0 };
+  var deadline = deadlineTs || (Date.now() + 45000);
+  var lockedCount = 0;
+  var candidateUserIds = [];
+  if (onlyUserId) {
+    candidateUserIds = [String(onlyUserId)];
+  } else {
+    // Every strike (either source) requires the application to currently sit
+    // at not_proceeding, so the most-recently-not_proceeding applications are
+    // exactly where a freshly-crossed 3rd strike would show up. Bounded +
+    // ordered like every other hourly-cron query in this file.
+    var evRes = await supabaseDbRequest('gp_applications',
+      'select=user_id&ats_stage=eq.not_proceeding&order=ats_stage_updated_at.desc.nullslast&limit=500');
+    var evRows = (evRes.ok && Array.isArray(evRes.data)) ? evRes.data : [];
+    var seenUid = {};
+    evRows.forEach(function (r) {
+      var uid = String(r.user_id || '');
+      if (uid && !seenUid[uid]) { seenUid[uid] = true; candidateUserIds.push(uid); }
+    });
+  }
+
+  for (var i = 0; i < candidateUserIds.length; i++) {
+    if (Date.now() > deadline) break;
+    var uid = candidateUserIds[i];
+    try {
+      var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+      var stateRow = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0]) ? stateRes.data[0] : null;
+      var state = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? stateRow.state : {};
+      var careerLock = (state.career_lock && typeof state.career_lock === 'object') ? state.career_lock : {};
+      if (isCareerLocked(careerLock)) continue; // already locked — nothing to do
+
+      var strikes = await computeCareerStrikes(uid, { careerLock: careerLock });
+      if (strikes.length < 3) continue;
+
+      var nowIso = new Date().toISOString();
+      // "Your last three interviews" — cap the frozen snapshot at 3 (the most
+      // recent) even if the batch/hourly cadence let a couple extra strikes
+      // accumulate before this ran.
+      var lockedStrikes = strikes.length > 3 ? strikes.slice(strikes.length - 3) : strikes;
+      var newLock = {
+        strikes: lockedStrikes,
+        locked_at: nowIso,
+        reasons: {},
+        answers_submitted_at: null,
+        released_at: null,
+        intent_halved_at: null,
+        pre_lock_intent_score: null
+      };
+
+      var halveResult = await _halveIntentForCareerLock(uid);
+      if (halveResult) {
+        newLock.intent_halved_at = nowIso;
+        newLock.pre_lock_intent_score = halveResult.preScore;
+      }
+
+      state.career_lock = newLock;
+      var upserted = await upsertSupabaseUserState(uid, state, nowIso);
+      if (!upserted) continue;
+      lockedCount++;
+      invalidateAdminDashboardCache();
+
+      if (isEmailConfigured()) {
+        var lockGpCtx = await getGpEmailContext(uid).catch(function () { return null; });
+        var lockGpName = (lockGpCtx && lockGpCtx.name) || (lockGpCtx && lockGpCtx.email) || uid;
+        await sendEmail({
+          to: GP_OWNER_EMAIL,
+          subject: 'Career lock triggered: ' + lockGpName + ' (3 strikes)',
+          text: lockGpName + ' has been automatically locked out of the careers area after ' + lockedStrikes.length +
+            ' strikes (interviews or late withdrawals that didn\'t lead to acceptance). Review in the ATS candidate file.',
+          from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
+        }).catch(function () {});
+      }
+    } catch (evalErr) {
+      // Per-user isolation, same convention as the cron's own row loops —
+      // one GP's failure must never stop the rest of the batch.
+      console.error('[career-lock] evaluate failed for', uid, evalErr && evalErr.message);
+    }
+  }
+
+  return { locked: lockedCount };
 }
 
 // Compact job summary fed to the AI prompt + returned in ranked responses.
@@ -27769,7 +27979,10 @@ function atsLocalCandidateFacts(row) {
     // AI Matching (Task 7): local-mode seed rows carry the velocity flag
     // directly (no separate user_state table in this mode).
     velocityFlag: row.velocityFlag || null,
-    velocityFlagged: atsVelocityFlagIsFresh(row.velocityFlag)
+    velocityFlagged: atsVelocityFlagIsFresh(row.velocityFlag),
+    // AI Matching (Task 8): same idea for career_lock — local dev fixtures can
+    // set row.career_lock directly (no user_state table in this mode).
+    careerLock: (row.career_lock && typeof row.career_lock === 'object' && row.career_lock.locked_at) ? row.career_lock : null
   };
 }
 
@@ -27882,7 +28095,11 @@ async function atsProdCandidateFacts(regCase) {
     // refreshes on intent recompute, not on every apply), so a flag written
     // minutes ago is reflected the next time intent is computed for this GP.
     velocityFlag: state.application_velocity_flag || null,
-    velocityFlagged: atsVelocityFlagIsFresh(state.application_velocity_flag)
+    velocityFlagged: atsVelocityFlagIsFresh(state.application_velocity_flag),
+    // AI Matching (Task 8): raw career_lock blob (or null if never locked) —
+    // same live user_state read, so a lock/release/answer just written shows
+    // up immediately in the candidate drawer.
+    careerLock: (state.career_lock && typeof state.career_lock === 'object' && state.career_lock.locked_at) ? state.career_lock : null
   };
 }
 
@@ -27922,7 +28139,34 @@ function atsCandidateListRow(facts, intent) {
     // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
     // 24h, still within the 7-day display window (spec §9).
     high_velocity: !!facts.velocityFlagged,
-    velocity_flag: facts.velocityFlagged ? facts.velocityFlag : null
+    velocity_flag: facts.velocityFlagged ? facts.velocityFlag : null,
+    // AI Matching (Task 8): "CAREER LOCKED" chip for the candidates list.
+    career_locked: !!(facts.careerLock && isCareerLocked(facts.careerLock))
+  };
+}
+
+// AI Matching (Task 8): shape the raw career_lock blob for the candidate
+// drawer's "Interviews & strikes" panel — merges each strike with the GP's
+// own post-lock reason (or null, rendered client-side as "Not provided
+// yet"). Returns null when this GP has never been locked (nothing to show).
+function buildCareerLockAdminView(careerLock) {
+  if (!careerLock || !careerLock.locked_at) return null;
+  var reasons = (careerLock.reasons && typeof careerLock.reasons === 'object') ? careerLock.reasons : {};
+  var strikes = Array.isArray(careerLock.strikes) ? careerLock.strikes : [];
+  return {
+    locked: isCareerLocked(careerLock),
+    locked_at: careerLock.locked_at,
+    released_at: careerLock.released_at || null,
+    answers_submitted_at: careerLock.answers_submitted_at || null,
+    pre_lock_intent_score: (careerLock.pre_lock_intent_score != null) ? careerLock.pre_lock_intent_score : null,
+    strikes: strikes.map(function (s) {
+      var reason = reasons[s.applicationId];
+      return {
+        applicationId: s.applicationId, practiceName: s.practiceName || '', location: s.location || '',
+        interviewedAt: s.interviewedAt || null, source: s.source || 'interview',
+        reason: (reason && String(reason).trim()) ? String(reason).trim() : null
+      };
+    })
   };
 }
 
@@ -32500,6 +32744,18 @@ async function handleApi(req, res, pathname) {
     const _gpRolesUserId = getSessionSupabaseUserId(session) || null;
     const _gpRolesEmail = getSessionEmail(session) || null;
 
+    // AI Matching (Task 8): a career-locked GP can't browse roles at all —
+    // deep links + stale tabs must be server-enforced, not just the client
+    // redirect. One cheap user_state read.
+    if (_gpRolesEmail) {
+      const _gpRolesStateResult = await getSupabaseUserStateByEmail(_gpRolesEmail);
+      const _gpRolesState = (_gpRolesStateResult && _gpRolesStateResult.state && typeof _gpRolesStateResult.state === 'object') ? _gpRolesStateResult.state : {};
+      if (isCareerLocked(_gpRolesState.career_lock)) {
+        sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
+        return;
+      }
+    }
+
     // Zoho Recruit decommissioned — career roles are now served from the owned
     // Supabase career_roles table (manual + internal ATS + archived rows).
     if (isSupabaseDbConfigured()) {
@@ -33171,6 +33427,16 @@ async function handleApi(req, res, pathname) {
     const cbUserId = getSessionSupabaseUserId(session) || (cbEmail ? await getSupabaseUserIdByEmail(cbEmail) : null);
     if (!cbUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
 
+    // AI Matching (Task 8): a career-locked GP can't book a NEW interview.
+    if (cbEmail) {
+      const cbStateResult = await getSupabaseUserStateByEmail(cbEmail);
+      const cbState = (cbStateResult && cbStateResult.state && typeof cbStateResult.state === 'object') ? cbStateResult.state : {};
+      if (isCareerLocked(cbState.career_lock)) {
+        sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
+        return;
+      }
+    }
+
     let cbBody; try { cbBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     const cbAppId = String((cbBody && cbBody.applicationId) || '').trim();
     const cbSlotStart = String((cbBody && cbBody.slot_start_utc) || '').trim();
@@ -33289,6 +33555,15 @@ async function handleApi(req, res, pathname) {
     // Check onboarding is complete
     const stateResult = await getSupabaseUserStateByEmail(email);
     const userState = stateResult && stateResult.state && typeof stateResult.state === 'object' ? stateResult.state : {};
+
+    // AI Matching (Task 8): a career-locked GP can't apply — this also blocks
+    // the self-apply-as-accept branch further down (accepting a match while
+    // locked is exactly what the lock exists to stop).
+    if (isCareerLocked(userState.career_lock)) {
+      sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
+      return;
+    }
+
     if (!userState.gp_onboarding_complete) {
       sendJson(res, 403, { ok: false, message: 'Please complete onboarding before applying.' });
       return;
@@ -33558,6 +33833,22 @@ async function handleApi(req, res, pathname) {
 
     const mmStateResult = await getSupabaseUserStateByEmail(mmEmail);
     const mmState = (mmStateResult && mmStateResult.state && typeof mmStateResult.state === 'object') ? mmStateResult.state : {};
+
+    // AI Matching (Task 8): a locked GP gets the lock payload instead of
+    // matches — career.html/job.html redirect to /pages/career-paused on
+    // seeing locked:true. Checked BEFORE the onboarding/account-status gate
+    // below since a locked GP has, by definition, already onboarded.
+    const mmCareerLock = (mmState.career_lock && typeof mmState.career_lock === 'object') ? mmState.career_lock : {};
+    if (isCareerLocked(mmCareerLock)) {
+      sendJson(res, 200, {
+        ok: true, matches: [], positionFilled: [], locked: true,
+        strikes: mmCareerLock.strikes || [],
+        reasons: (mmCareerLock.reasons && typeof mmCareerLock.reasons === 'object') ? mmCareerLock.reasons : {},
+        answersSubmittedAt: mmCareerLock.answers_submitted_at || null
+      });
+      return;
+    }
+
     const mmAcctStatus = String(mmState.account_status || 'active').toLowerCase();
     const mmGated = !mmState.gp_onboarding_complete || mmAcctStatus === 'under_review' || mmAcctStatus === 'pep_waitlist' || mmAcctStatus === 'archived';
     if (mmGated) { sendJson(res, 200, { ok: true, matches: [], positionFilled: [], locked: false }); return; }
@@ -33714,6 +34005,13 @@ async function handleApi(req, res, pathname) {
     const siGated = !siState.gp_onboarding_complete || siAcctStatus === 'under_review' || siAcctStatus === 'pep_waitlist' || siAcctStatus === 'archived';
     if (siGated) { sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' }); return; }
 
+    // AI Matching (Task 8): a locked GP can't page the team via an old
+    // match-email deep link either.
+    if (isCareerLocked(siState.career_lock)) {
+      sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
+      return;
+    }
+
     const siRowRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(siAppId) + '&user_id=eq.' + encodeURIComponent(siUserId) + '&limit=1');
     const siRow = (siRowRes.ok && Array.isArray(siRowRes.data) && siRowRes.data[0]) ? siRowRes.data[0] : null;
     if (!siRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
@@ -33779,6 +34077,14 @@ async function handleApi(req, res, pathname) {
     const mrGated = !mrState.gp_onboarding_complete || mrAcctStatus === 'under_review' || mrAcctStatus === 'pep_waitlist' || mrAcctStatus === 'archived';
     if (mrGated) {
       sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' });
+      return;
+    }
+
+    // AI Matching (Task 8): accept only — a locked GP can still decline (that
+    // reduces, not grows, their commitments) but can't accept a new match
+    // until the career page is released.
+    if (mrAction === 'accept' && isCareerLocked(mrState.career_lock)) {
+      sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
       return;
     }
 
@@ -33866,6 +34172,95 @@ async function handleApi(req, res, pathname) {
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
       }).catch(() => {});
     }
+    return;
+  }
+
+  // POST /api/career/lock/answers {answers:{<applicationId>:text}} — a
+  // career-locked GP's "tell us what wasn't right" answers (career-paused.html
+  // §10). Merges into career_lock.reasons; only ever accepts answers for THIS
+  // lock's own strike application ids (can't be used to write arbitrary data).
+  // Sets answers_submitted_at (once) when all three strikes have text, and
+  // fires the ops email with the full set of answers the FIRST time that
+  // happens. Requires an active lock (409 otherwise — nothing to answer).
+  if (pathname === '/api/career/lock/answers' && req.method === 'POST') {
+    const laSession = requireSession(req, res);
+    if (!laSession) return;
+    const laEmail = getSessionEmail(laSession);
+    if (!laEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const laUserId = getSessionSupabaseUserId(laSession) || await getSupabaseUserIdByEmail(laEmail);
+    if (!laUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let laBody; try { laBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const laAnswers = (laBody && laBody.answers && typeof laBody.answers === 'object' && !Array.isArray(laBody.answers)) ? laBody.answers : {};
+
+    const laStateResult = await getSupabaseUserStateByEmail(laEmail);
+    const laState = (laStateResult && laStateResult.state && typeof laStateResult.state === 'object') ? laStateResult.state : {};
+    const laLock = (laState.career_lock && typeof laState.career_lock === 'object') ? Object.assign({}, laState.career_lock) : {};
+    if (!isCareerLocked(laLock)) {
+      sendJson(res, 409, { ok: false, message: 'Your career page is not currently paused.' });
+      return;
+    }
+
+    const laReasons = (laLock.reasons && typeof laLock.reasons === 'object') ? Object.assign({}, laLock.reasons) : {};
+    const laStrikeIds = (laLock.strikes || []).map((s) => String(s.applicationId));
+    Object.keys(laAnswers).forEach((appId) => {
+      if (laStrikeIds.indexOf(String(appId)) === -1) return; // only this lock's own strikes
+      const text = String(laAnswers[appId] == null ? '' : laAnswers[appId]).trim().slice(0, 2000);
+      if (text) laReasons[appId] = text;
+    });
+    laLock.reasons = laReasons;
+
+    const laAllAnswered = laStrikeIds.length > 0 && laStrikeIds.every((id) => !!(laReasons[id] && String(laReasons[id]).trim()));
+    const laNowIso = new Date().toISOString();
+    const laNewlyComplete = laAllAnswered && !laLock.answers_submitted_at;
+    if (laNewlyComplete) laLock.answers_submitted_at = laNowIso;
+
+    laState.career_lock = laLock;
+    const laOk = await upsertSupabaseUserState(laUserId, laState, laNowIso);
+    if (!laOk) { sendJson(res, 502, { ok: false, message: 'Could not save your answers — please try again.' }); return; }
+
+    // Fetch the GP's display name BEFORE responding (not after) — the same
+    // serverless-freeze rule other match ops emails in this file follow: no
+    // extra `await` between sendJson and sendEmail, or a completed-on-this-
+    // request ops email might never actually fire.
+    let laGpCtx = null;
+    if (laNewlyComplete && isEmailConfigured()) {
+      laGpCtx = await getGpEmailContext(laUserId).catch(() => null);
+    }
+
+    sendJson(res, 200, { ok: true, reasons: laReasons, answersSubmittedAt: laLock.answers_submitted_at || null });
+
+    if (laNewlyComplete && isEmailConfigured()) {
+      const laName = (laGpCtx && laGpCtx.name) || (laGpCtx && laGpCtx.email) || laEmail;
+      const laLines = laStrikeIds.map((id) => {
+        const strike = (laLock.strikes || []).find((s) => String(s.applicationId) === id) || {};
+        return '- ' + (strike.practiceName || 'Unknown practice') + ': ' + (laReasons[id] || '');
+      }).join('\n');
+      sendEmail({
+        to: 'hello@mygplink.com.au',
+        subject: 'Career lock answers submitted: ' + laName,
+        text: laName + ' has answered all three strike questions:\n\n' + laLines,
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // GET /api/career/lock/booking-url — the SAME per-RSO Calendly booking link
+  // every other "book a call" flow uses (resolveAssignedRsoForCareerEmail +
+  // buildCalendlyBookingUrl, server.js's existing Zoom-assistance-call
+  // machinery), personalized to the GP's assigned officer when one is set.
+  // career-paused.html's "Book a call" button opens this URL.
+  if (pathname === '/api/career/lock/booking-url' && req.method === 'GET') {
+    const lbSession = requireSession(req, res);
+    if (!lbSession) return;
+    const lbEmail = getSessionEmail(lbSession);
+    const lbUserId = getSessionSupabaseUserId(lbSession) || (lbEmail ? await getSupabaseUserIdByEmail(lbEmail) : null);
+    if (!lbUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const lbRso = await resolveAssignedRsoForCareerEmail(lbUserId);
+    const lbToken = generateCorrelationToken();
+    const lbUrl = buildCalendlyBookingUrl(lbToken, lbRso && lbRso.calendly_event_url);
+    if (!lbUrl) { sendJson(res, 503, { ok: false, message: 'Booking is not available right now — please try again later.' }); return; }
+    sendJson(res, 200, { ok: true, url: lbUrl });
     return;
   }
 
@@ -37763,6 +38158,19 @@ async function handleApi(req, res, pathname) {
           body: 'Your scheduled interview has been cancelled. GP Link will follow up with next steps.',
           data: { type: 'career', action: 'interview_cancelled', url: '/pages/career.html#applications' }
         }).catch(() => {});
+      }
+    }
+
+    // AI Matching (Task 8): a newly-completed interview may be this GP's 3rd
+    // strike. Evaluate right away, scoped to just this GP (the hourly cron's
+    // evaluateCareerLocks(deadlineTs) sweep covers everyone else) — awaited,
+    // not fire-and-forget, since nothing else runs after sendJson below on
+    // this handler.
+    if (patch.status === 'completed') {
+      const completedInterviewRow = result.data && result.data[0];
+      if (completedInterviewRow && completedInterviewRow.user_id) {
+        try { await evaluateCareerLocks(Date.now() + 15000, completedInterviewRow.user_id); }
+        catch (lockEvalErr) { console.error('[career-lock] interview-completion evaluate failed:', lockEvalErr && lockEvalErr.message); }
       }
     }
 
@@ -54612,6 +55020,9 @@ Return ONLY valid JSON with no markdown formatting:
     // atsCandidateListRow already set from the seed's velocityFlag intact).
     var velUids = rows.map(function (r) { return r.user_id; }).filter(Boolean);
     var velByUser = {};
+    // AI Matching (Task 8): same batch user_state read also carries
+    // career_lock — one extra key off the SAME rows, no extra round-trip.
+    var lockByUser = {};
     for (var vi = 0; vi < velUids.length; vi += 200) {
       var vChunk = velUids.slice(vi, vi + 200);
       var vListStr = vChunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
@@ -54619,6 +55030,8 @@ Return ONLY valid JSON with no markdown formatting:
       ((vRes.ok && vRes.data) || []).forEach(function (s) {
         var flag = s.state && s.state.application_velocity_flag;
         if (flag && flag.at) velByUser[s.user_id] = flag;
+        var lock = s.state && s.state.career_lock;
+        if (lock && lock.locked_at) lockByUser[s.user_id] = lock;
       });
     }
     rows.forEach(function (r) {
@@ -54630,6 +55043,14 @@ Return ONLY valid JSON with no markdown formatting:
       } else if (typeof r.high_velocity !== 'boolean') {
         r.high_velocity = false;
         r.velocity_flag = r.velocity_flag || null;
+      }
+      // AI Matching (Task 8): "CAREER LOCKED" list chip. Only overwrite the
+      // local-mode seed's own career_locked (set via atsCandidateListRow)
+      // when a real Supabase user_state row was actually found here.
+      if (Object.prototype.hasOwnProperty.call(lockByUser, r.user_id)) {
+        r.career_locked = isCareerLocked(lockByUser[r.user_id]);
+      } else if (typeof r.career_locked !== 'boolean') {
+        r.career_locked = false;
       }
     });
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
@@ -54771,18 +55192,29 @@ Return ONLY valid JSON with no markdown formatting:
     var cpUserId = url.searchParams.get('user_id');
     if (!cpCaseId && !cpUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
     var facts = null;
+    var storedIntentScore = null; // raw registration_cases.intent_score — the career-lock admin line's authoritative "Y"
     if (!isSupabaseDbConfigured()) {
       var lrow = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(cpCaseId) || String(r.user_id) === String(cpUserId) || String(r.id) === String(cpUserId); });
       if (!lrow) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
       facts = atsLocalCandidateFacts(lrow);
+      storedIntentScore = (lrow && lrow.intent_score != null) ? lrow.intent_score : null;
     } else {
       var cq = cpCaseId ? ('id=eq.' + encodeURIComponent(cpCaseId)) : ('user_id=eq.' + encodeURIComponent(cpUserId));
       var cRes = await supabaseDbRequest('registration_cases', 'select=*&' + cq + '&limit=1');
       if (!cRes.ok || !cRes.data || !cRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
       facts = await atsProdCandidateFacts(cRes.data[0]);
+      storedIntentScore = (cRes.data[0].intent_score != null) ? cRes.data[0].intent_score : null;
     }
     var intent = atsComputeIntent(facts);
-    if (isSupabaseDbConfigured()) atsStoreIntentForCase(facts.case_id, intent, facts);
+    // AI Matching (Task 8): a career-locked GP's intent_score was deliberately
+    // halved once — simply opening this file must never silently recompute
+    // and overwrite that (the auto-recompute-on-view below is otherwise
+    // unconditional). Only auto-persist a fresh recompute when NOT locked;
+    // while locked, the displayed score is the stored (halved) one too, so
+    // the drawer and the candidates list never disagree.
+    var candidateIsCareerLocked = isCareerLocked(facts.careerLock);
+    if (isSupabaseDbConfigured() && !candidateIsCareerLocked) atsStoreIntentForCase(facts.case_id, intent, facts);
+    var displayIntentScore = (candidateIsCareerLocked && storedIntentScore != null) ? storedIntentScore : intent.score;
     var railIdx = atsRegStageIndex(facts.regStage);
     var rail = ATS_REG_RAIL.map(function (s, i) {
       var dbIdx = ceoMetrics.DB_STAGE_ORDER[s.key];
@@ -54793,9 +55225,12 @@ Return ONLY valid JSON with no markdown formatting:
       candidate: {
         case_id: facts.case_id, user_id: facts.user_id, name: facts.name, email: facts.email, phone: facts.phone,
         country: facts.country, reg: facts.reg, account_status: facts.account_status, joined: facts.joined, rso: facts.rso, zoho: facts.zoho,
-        intent: { score: intent.score, band: intent.bandLabel, signals: intent.signals },
+        intent: { score: displayIntentScore, band: intent.bandLabel, signals: intent.signals },
         reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage), blocked: facts.blockedDays > 0, blocked_days: facts.blockedDays,
-        rail: rail, onboarding: facts.ob, docs: facts.docs, comms: facts.comms, calls: facts.calls, apps: facts.apps, ai_handover: facts.aiHandover
+        rail: rail, onboarding: facts.ob, docs: facts.docs, comms: facts.comms, calls: facts.calls, apps: facts.apps, ai_handover: facts.aiHandover,
+        // AI Matching (Task 8): "Interviews & strikes" panel data — null when
+        // this GP has never been career-locked.
+        career_lock: buildCareerLockAdminView(facts.careerLock)
       }
     });
     return;
@@ -54818,6 +55253,64 @@ Return ONLY valid JSON with no markdown formatting:
     var riIntent = atsComputeIntent(riFacts);
     await atsStoreIntentForCase(riCaseId, riIntent, riFacts);
     sendJson(res, 200, { ok: true, intent_score: riIntent.score, intent_band: riIntent.band, signals: riIntent.signals });
+    return;
+  }
+
+  // AI Matching (Task 8): CEO/consultant career-lock management. Both routes
+  // are Supabase-only (career_lock lives entirely in user_state.state — the
+  // same established precedent as the rest of this feature).
+  if (pathname === '/api/ats/career-lock/release' && req.method === 'POST') {
+    var ctxRelease = requireAtsSession(req, res); if (!ctxRelease) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Career lock management requires Supabase.' }); return; }
+    var bodyRelease; try { bodyRelease = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var releaseUserId = String((bodyRelease && bodyRelease.user_id) || '').trim();
+    if (!releaseUserId) { sendJson(res, 400, { ok: false, message: 'Missing user_id.' }); return; }
+
+    var releaseStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(releaseUserId) + '&limit=1');
+    var releaseStateRow = (releaseStateRes.ok && Array.isArray(releaseStateRes.data) && releaseStateRes.data[0]) ? releaseStateRes.data[0] : null;
+    var releaseState = (releaseStateRow && releaseStateRow.state && typeof releaseStateRow.state === 'object') ? Object.assign({}, releaseStateRow.state) : {};
+    var releaseLock = (releaseState.career_lock && typeof releaseState.career_lock === 'object') ? Object.assign({}, releaseState.career_lock) : {};
+    if (!isCareerLocked(releaseLock)) { sendJson(res, 409, { ok: false, message: 'This GP is not currently career-locked.' }); return; }
+
+    var releaseNowIso = new Date().toISOString();
+    releaseLock.released_at = releaseNowIso;
+    releaseState.career_lock = releaseLock;
+    var releaseOk = await upsertSupabaseUserState(releaseUserId, releaseState, releaseNowIso);
+    if (!releaseOk) { sendJson(res, 502, { ok: false, message: 'Failed to release the career page.' }); return; }
+    invalidateAdminDashboardCache();
+
+    // Fetch the GP's name BEFORE responding — no `await` between sendJson and
+    // sendEmail below, so the ops email reliably fires in the same beat.
+    var relGpCtx = isEmailConfigured() ? await getGpEmailContext(releaseUserId).catch(function () { return null; }) : null;
+    sendJson(res, 200, { ok: true, released_at: releaseNowIso });
+
+    if (isEmailConfigured()) {
+      var relName = (relGpCtx && relGpCtx.name) || (relGpCtx && relGpCtx.email) || releaseUserId;
+      sendEmail({
+        to: 'hello@mygplink.com.au',
+        subject: 'Career page released: ' + relName,
+        text: relName + '’s career page has been released by ' + (ctxRelease.email || 'the team') + ' and is matchable again.',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+      }).catch(function () {});
+    }
+    return;
+  }
+
+  if (pathname === '/api/ats/career-lock/restore-intent' && req.method === 'POST') {
+    var ctxRestoreIntent = requireAtsSession(req, res); if (!ctxRestoreIntent) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Career lock management requires Supabase.' }); return; }
+    var bodyRestoreIntent; try { bodyRestoreIntent = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var restoreUserId = String((bodyRestoreIntent && bodyRestoreIntent.user_id) || '').trim();
+    if (!restoreUserId) { sendJson(res, 400, { ok: false, message: 'Missing user_id.' }); return; }
+
+    var restoreCase = await _getRegCaseForUser(restoreUserId);
+    if (!restoreCase) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+    // Same recompute-fresh-via-the-normal-facts-path the CEO's own "Recompute
+    // intent" action uses — the honest current score, just without halving.
+    var restoreFacts = await atsProdCandidateFacts(restoreCase);
+    var restoreIntent = atsComputeIntent(restoreFacts);
+    await atsStoreIntentForCase(restoreCase.id, restoreIntent, restoreFacts);
+    sendJson(res, 200, { ok: true, intent_score: restoreIntent.score, intent_band: restoreIntent.band, signals: restoreIntent.signals });
     return;
   }
 
@@ -55918,6 +56411,10 @@ module.exports.__testUtils = {
   atsCandidateListRow,
   atsUpdateApplicationStageRow,
   atsRecordStageEvent,
+  isCareerLocked,
+  computeCareerStrikes,
+  evaluateCareerLocks,
+  buildCareerLockAdminView,
   isEmailSuppressed,
   suppressEmail,
   makeMarketingUnsubToken,

@@ -2881,8 +2881,28 @@
     });
   }
 
+  // AI Matching (Task 8): light lock check — a career-locked GP shouldn't be
+  // able to reach a job detail page (deep link, back button, stale tab)
+  // either. Server-side enforcement (423s on apply/roles/etc.) is the real
+  // gate; this is just the friendly bounce so the page never renders content
+  // for them. Returns true if it redirected (caller should stop).
+  async function checkCareerLock() {
+    try {
+      const res = await fetch("/api/career/matches", { credentials: "same-origin" });
+      if (!res.ok) return false;
+      const data = await res.json().catch(function () { return null; });
+      if (data && data.locked === true) {
+        window.location.replace("/pages/career-paused");
+        return true;
+      }
+    } catch (e) { /* stay on the page if the check fails */ }
+    return false;
+  }
+
   /* ── Init ── */
   async function init() {
+    if (await checkCareerLock()) return;
+
     const roleId = getRoleIdFromUrl();
     pageRoleId = roleId;
     if (!roleId) {

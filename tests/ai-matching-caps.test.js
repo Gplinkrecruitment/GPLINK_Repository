@@ -49,7 +49,7 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('both interview-book endpoints enforce the interview cap before booking', () => {
     const gpIdx = serverSrc.indexOf("pathname === '/api/career/interview/book'");
-    const gpFnSrc = serverSrc.slice(gpIdx, gpIdx + 3000);
+    const gpFnSrc = serverSrc.slice(gpIdx, gpIdx + 3400);
     expect(gpFnSrc).toContain("error: 'interview_cap'");
     expect(gpFnSrc).toContain('countMonthlyCareerInterviews(cbUserId');
 
