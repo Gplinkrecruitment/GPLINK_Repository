@@ -172,39 +172,53 @@
         return;
       }
 
+      // Applies a KNOWN account status. "active" is the only status that grants full
+      // access; "under_review" keeps the legitimate restricted overlay; any other
+      // (unknown/unrecognised) status is denied by default via the same restricted
+      // mode instead of failing open to full access.
+      function applyAccountStatusGate(status) {
+        if (applyPepGate(status)) return;
+        if (status === "active") {
+          try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
+          return;
+        }
+        try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
+        enforceRestrictedUI();
+      }
+
       // On the PEP page, always re-fetch fresh status so a released GP is sent back
       // into the app rather than stranded. Elsewhere the cached value is fine.
       if (cachedAccountStatus && !isPepPathwayPage) {
-        if (applyPepGate(cachedAccountStatus)) return;
-        if (cachedAccountStatus === "under_review") {
-          try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
-          enforceRestrictedUI();
-        } else {
-          try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
-        }
+        applyAccountStatusGate(cachedAccountStatus);
       } else {
-        (gpCacheFetch
-          ? gpCacheFetch("/api/account/status")
-          : fetch("/api/account/status", { credentials: "same-origin" }).then(function (r) { return r.json(); })
-        ).then((statusData) => {
-            const accountStatus = statusData && typeof statusData.accountStatus === "string"
-              ? statusData.accountStatus
-              : "active";
-            safeSessionSet(ACCOUNT_STATUS_CACHE_KEY, accountStatus);
-            if (applyPepGate(accountStatus)) return;
-            if (accountStatus === "under_review") {
-              localStorage.setItem("gp_account_under_review", "true");
-              enforceRestrictedUI();
-            } else {
-              localStorage.removeItem("gp_account_under_review");
-            }
-          })
-          .catch((err) => {
-            console.warn("[AuthGuard] Could not check account status, defaulting to restricted:", err);
-            // Default to restricted state on network failure for safety
-            try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) {}
-            enforceRestrictedUI();
-          });
+        var fetchAccountStatus = function (useCache) {
+          return (useCache && gpCacheFetch)
+            ? gpCacheFetch("/api/account/status")
+            : fetch("/api/account/status", { credentials: "same-origin" }).then(function (r) { return r.json(); });
+        };
+        var attemptStatusCheck = function (retriesLeft, useCache) {
+          fetchAccountStatus(useCache).then((statusData) => {
+              if (!statusData || typeof statusData.accountStatus !== "string") {
+                throw new Error("No accountStatus in response");
+              }
+              const accountStatus = statusData.accountStatus;
+              safeSessionSet(ACCOUNT_STATUS_CACHE_KEY, accountStatus);
+              applyAccountStatusGate(accountStatus);
+            })
+            .catch((err) => {
+              if (retriesLeft > 0) {
+                setTimeout(function () { attemptStatusCheck(retriesLeft - 1, false); }, 2000);
+                return;
+              }
+              // Fail-safe on persistent network failure: do NOT fabricate an
+              // "Account Under Review" wall the user can't escape. Leave the cached
+              // restricted state exactly as it was (a genuinely restricted account
+              // already had its flag applied at startup, and the server still gates
+              // everything sensitive) and let the app load normally otherwise.
+              console.warn("[AuthGuard] Could not check account status after retries; keeping cached state:", err);
+            });
+        };
+        attemptStatusCheck(2, true);
       }
 
       return;
