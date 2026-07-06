@@ -164,7 +164,7 @@
         title: typeof c.title === "string" && c.title ? c.title : "Support response",
         kind: "support",
         unread: readState[id] !== true,
-        target: c.id ? `/pages/messages#case-${c.id}` : "/pages/messages#tab-cases",
+        target: c.id ? `/pages/messages#ticket-${encodeURIComponent(c.id)}` : "/pages/messages#tab-cases",
         caseId: c.id || "",
       });
     });

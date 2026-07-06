@@ -8,7 +8,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
   <script src="../js/auth-guard.js?v=20260614a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
-  <script src="../js/updates-sync.js?v=20260612a" defer></script>
+  <script src="../js/updates-sync.js?v=20260706a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
   <script src="../js/qualification-scan.js?v=20260620b" defer></script>
@@ -1449,6 +1449,8 @@
       else if(h==="#new-ticket"){switchView("viewMyTickets");openNewTicket();var urlCat=new URLSearchParams(window.location.search).get("category");if(urlCat&&newCategoryEl){newCategoryEl.value=urlCat;}}
       else if(h.startsWith("#chat-")){const id=decodeURIComponent(h.replace("#chat-",""));switchView("viewChats");if(id)setTimeout(()=>openChatDetail(id),200);}
       else if(h.startsWith("#ticket-")){const id=decodeURIComponent(h.replace("#ticket-",""));switchView("viewMyTickets");if(id)setTimeout(()=>openTicketDetail(id),100);}
+      else if(h==="#tab-cases"){switchView("viewMyTickets");}
+      else if(h==="#tab-updates"){switchView("viewChats");}
       else switchView("viewChats");
     }
 
