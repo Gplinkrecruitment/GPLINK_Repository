@@ -39,8 +39,12 @@ const db = {
     { user_id: PLACED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
-    { id: 'doc-cv-gp', user_id: GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' },
-    { id: 'doc-cv-placed', user_id: PLACED.userId, document_key: 'cv_signed_dated', status: 'uploaded' }
+    // Task 4: /api/career/apply's CV gate now requires the verified careers
+    // CV (document_key 'career_cv'), not a registration-file document — seed
+    // that key so these apply-mechanics tests aren't blocked by the gate
+    // they don't intend to exercise.
+    { id: 'doc-cv-gp', user_id: GP.userId, document_key: 'career_cv', status: 'uploaded', updated_at: NOW },
+    { id: 'doc-cv-placed', user_id: PLACED.userId, document_key: 'career_cv', status: 'uploaded', updated_at: NOW }
   ],
   user_roles: [],
   career_roles: [

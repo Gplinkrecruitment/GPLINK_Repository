@@ -28062,13 +28062,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Check CV is uploaded
-    const cvResult = await supabaseDbRequest(
-      'user_documents',
-      `select=id&user_id=eq.${encodeURIComponent(userId)}&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=1`
-    );
-    if (!cvResult.ok || !Array.isArray(cvResult.data) || cvResult.data.length === 0) {
-      sendJson(res, 403, { ok: false, message: 'Please upload your CV before applying.', requiresCv: true });
+    // Careers profile gate: applying requires the AI-verified careers CV
+    // (document_key 'career_cv'), NOT registration-file documents.
+    const careerCvRow = await getCareerProfileDocument(userId, 'career_cv');
+    if (!careerCvRow) {
+      sendJson(res, 403, { ok: false, message: 'Please add your CV to your careers profile before applying.', requiresCv: true });
       return;
     }
 

@@ -14,8 +14,18 @@ const db = {
   user_state: [{ user_id: 'u-gate-1', state: { gp_onboarding_complete: true } }],
   user_documents: [],
   runtime_kv: [],
-  gp_applications: [], career_roles: [], scheduled_calls: [], ats_offers: []
+  gp_applications: [],
+  // Seeded internal-ATS role for the apply-gate tests below — mirrors the
+  // role fixture in tests/career-internal-apply.test.js. dpa:true so a
+  // uk-registered (non-Australia-trained) test GP still clears the
+  // server-side DPA qualification gate inside /api/career/apply and the
+  // CV gate is the only thing under test.
+  career_roles: [
+    { id: 'role-gate-cv', provider: 'internal_ats', provider_role_id: 'gate_cv_role', title: 'GP — Gate CV Test Role', practice_name: 'Gate Test Practice', is_active: true, job_status: 'open', dpa: true, updated_at: '2026-01-01T00:00:00Z' }
+  ],
+  scheduled_calls: [], ats_offers: []
 };
+const SEEDED_ROLE_ID = 'internal_ats:gate_cv_role';
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
 // Copied (verbatim, plus a multi-column on_conflict fix — see note below) from
@@ -271,5 +281,22 @@ describe('career profile gate', () => {
   it('requires auth', async () => {
     const res = await httpReq('GET', '/api/career/profile/status', {});
     expect([401, 403]).toContain(res.status);
+  });
+});
+
+describe('apply gate requires career_cv', () => {
+  it('403 requiresCv when GP has legacy cv_signed_dated but no career_cv', async () => {
+    db.user_documents.push({ id: 'doc-legacy', user_id: 'u-gate-2', document_key: 'cv_signed_dated', status: 'uploaded', country_code: 'uk', file_name: 'old.pdf', updated_at: '2026-01-01T00:00:00Z' });
+    db.user_profiles.push({ user_id: 'u-gate-2', email: 'gate2@example.com', registration_country: 'uk' });
+    db.user_state.push({ user_id: 'u-gate-2', state: { gp_onboarding_complete: true } });
+    const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
+    expect(res.status).toBe(403);
+    expect(res.body.requiresCv).toBe(true);
+  });
+  it('apply succeeds once career_cv is uploaded', async () => {
+    aiMode = 'genuine_cv';
+    await httpReq('POST', '/api/career/profile/cv', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { fileName: 'cv.pdf', fileBase64: PDF_B64, mimeType: 'application/pdf', fileSize: 900 } });
+    const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
+    expect(res.status).toBe(200);
   });
 });
