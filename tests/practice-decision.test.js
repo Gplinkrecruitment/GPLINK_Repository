@@ -22,7 +22,9 @@ const db = {
     { user_id: 'u-gate-1', email: 'gate.smith@example.com', first_name: 'Gate', last_name: 'Smith', registration_country: 'uk', phone: '+447700900123' },
     { user_id: 'u-ryan-2', email: 'declan.ryan@example.com', first_name: 'Declan', last_name: 'Ryan', registration_country: 'ie' },
     { user_id: 'u-notyet-3', email: 'notyet@example.com', first_name: 'Notyet', last_name: 'Approved', registration_country: 'uk' },
-    { user_id: 'u-resil-4', email: 'resil@example.com', first_name: 'Resil', last_name: 'Ience', registration_country: 'uk' }
+    { user_id: 'u-resil-4', email: 'resil@example.com', first_name: 'Resil', last_name: 'Ience', registration_country: 'uk' },
+    { user_id: 'u-inject-6', email: 'inject@example.com', first_name: 'Inject', last_name: 'Test', registration_country: 'uk' },
+    { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' }
   ],
   user_state: [],
   career_roles: [
@@ -32,11 +34,14 @@ const db = {
     { id: 'app-tok-1', user_id: 'u-gate-1', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-abc123', applied_at: NOW },
     { id: 'app-tok-2', user_id: 'u-ryan-2', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-def456', applied_at: NOW },
     { id: 'app-tok-3', user_id: 'u-notyet-3', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-ghi789', applied_at: NOW },
-    { id: 'app-tok-4', user_id: 'u-resil-4', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-resil999', applied_at: NOW }
+    { id: 'app-tok-4', user_id: 'u-resil-4', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-resil999', applied_at: NOW },
+    { id: 'app-tok-6', user_id: 'u-inject-6', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-inject-6', applied_at: NOW },
+    { id: 'app-tok-7', user_id: 'u-e2e-7', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-e2e-7', applied_at: NOW }
   ],
   registration_cases: [],
   practices: [],
   scheduled_calls: [],
+  ats_offers: [],
   runtime_kv: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -159,10 +164,20 @@ function startResendCaptureServer() {
   });
 }
 
-function httpReq(method, p, { body } = {}) {
+// GP session cookie — built exactly the way tests/career-profile-gate.test.js
+// builds userCookie (b64url(JSON payload) + HMAC-SHA512 over AUTH_SECRET).
+function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+function userCookie(email, userId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId: userId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+}
+
+function httpReq(method, p, { body, cookie } = {}) {
   return new Promise((resolve, reject) => {
     const data = body !== undefined ? JSON.stringify(body) : null;
     const headers = {};
+    if (cookie) headers.Cookie = cookie;
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
       const c = []; res.on('data', (x) => c.push(x));
@@ -400,6 +415,82 @@ describe('POST /api/practice/application/availability', () => {
     expect(res.body.decision).toBe('approved');
     expect(res.body.availabilitySubmitted).toBe(true);
     expect(res.body.interviewBooked).toBe(false);
+  });
+});
+
+describe('notification-email HTML injection is escaped (public turn-down reason)', () => {
+  it('escapes a malicious reason so it can never inject markup into the ops email', async () => {
+    const res = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-inject-6', action: 'turn_down', reason: '<img src=x onerror=alert(1)>' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, decision: 'turned_down' });
+
+    // The ops email is fire-and-forget — give the send time to land in capture.
+    await new Promise((r) => setTimeout(r, 250));
+    const opsEmail = resendCaptured.find((m) => m && m.subject
+      && String(m.subject).includes('turned down') && String(m.subject).includes('Inject'));
+    expect(opsEmail).toBeTruthy();
+    // The raw <img> payload must never appear verbatim; only the escaped form.
+    expect(String(opsEmail.html)).not.toContain('<img');
+    expect(String(opsEmail.html)).toContain('&lt;img');
+  });
+});
+
+describe('availability stores ONLY the canonical window shape (extra keys stripped)', () => {
+  it('drops any extra keys that rode in on the public request body', async () => {
+    // app-tok-4 was approved by the email-resilience test above, so availability is allowed.
+    const soon = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const res = await httpReq('POST', '/api/practice/application/availability', {
+      body: { token: 'tok-test-resil999', windows: [{ date: soon, fromMin: 540, toMin: 600, evil: '<script>', sneaky: 1 }] }
+    });
+    expect(res.status).toBe(200);
+    const interview = db.scheduled_calls.find((r) => r.meeting_kind === 'interview' && r.application_id === 'app-tok-4');
+    expect(interview.practice_availability_windows).toHaveLength(1);
+    expect(interview.practice_availability_windows[0]).toEqual({ date: soon, fromMin: 540, toMin: 600 });
+    expect(interview.practice_availability_windows[0]).not.toHaveProperty('evil');
+    expect(interview.practice_availability_windows[0]).not.toHaveProperty('sneaky');
+  });
+});
+
+describe('CRITICAL — GP can book after practice approval (full end-to-end)', () => {
+  it('approve → availability → GP session sees revealed offer + interview slots (no dead-end)', async () => {
+    // 1) Practice approves. Previously this ONLY set practice_decision/status and
+    //    NEVER revealed the practice or created an offer, so the GP booking
+    //    endpoints (gated on canRevealPracticeIdentity) 403'd forever.
+    const approve = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-e2e-7', action: 'approve' } });
+    expect(approve.status).toBe(200);
+    expect(approve.body).toEqual({ ok: true, decision: 'approved' });
+    // The reveal + in-app offer must now exist.
+    const app7 = db.gp_applications.find((a) => a.id === 'app-tok-7');
+    expect(app7.revealed).toBe(true);
+    expect(app7.practice_submission_status).toBe('client_approved');
+    expect(db.ats_offers.some((o) => o.application_id === 'app-tok-7' && o.status === 'sent')).toBe(true);
+
+    // 2) Practice submits availability (full-day windows on near-future days so
+    //    the 14-day / 48h-lead scheduler reliably yields bookable slots).
+    const days = [3, 4, 5, 6, 7, 8, 9].map((n) => new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+    const avail = await httpReq('POST', '/api/practice/application/availability', {
+      body: { token: 'tok-test-e2e-7', windows: days.map((date) => ({ date, fromMin: 0, toMin: 1440 })) }
+    });
+    expect(avail.status).toBe(200);
+
+    // 3) GP (session-authed) can now fetch interview slots derived from those
+    //    windows — a 200 here (was 403 before the fix) is the headline result.
+    const gpCookie = userCookie('e2e.booker@example.com', 'u-e2e-7');
+    const slots = await httpReq('GET', '/api/career/interview/slots?applicationId=app-tok-7', { cookie: gpCookie });
+    expect(slots.status).toBe(200);
+    expect(Array.isArray(slots.body.slots)).toBe(true);
+    expect(slots.body.slots.length).toBeGreaterThan(0);
+
+    // 4) The GP's offer page unmasks the practice identity + shows the offer.
+    const offer = await httpReq('GET', '/api/career/my-offer?applicationId=app-tok-7', { cookie: gpCookie });
+    expect(offer.status).toBe(200);
+    expect(offer.body.ok).toBe(true);
+    expect(offer.body.revealed).toBe(true);
+    expect(offer.body.practiceName).toBe('SOP Medical Centre');
+    expect(offer.body.offer).toBeTruthy();
   });
 });
 
