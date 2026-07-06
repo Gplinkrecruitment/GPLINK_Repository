@@ -227,9 +227,12 @@ const CAREER_CV_SCAN_MAX_PER_DAY = Number(process.env.CAREER_CV_SCAN_MAX_PER_DAY
 // the /api/career/profile/cv and /api/career/profile/cover-letter routes.
 const CAREER_PROFILE_DOCUMENT_MAX_BYTES = 3 * 1024 * 1024;
 const CAREER_PROFILE_SCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Shared allowed-upload set for BOTH the CV and cover-letter career endpoints —
+// deliberately identical. Legacy Word .doc (application/msword) is EXCLUDED: the
+// CV AI-check cannot read it (guaranteed rejection) and it would otherwise burn
+// a daily scan attempt, and image/gif is excluded too (never a real CV/letter).
 const CAREER_PROFILE_ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
-  'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'image/png', 'image/jpeg', 'image/jpg', 'image/webp'
 ]);
@@ -21153,7 +21156,7 @@ async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
   var blocks = [];
   if (mime === 'application/pdf') {
     blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
-  } else if (/^image\/(png|jpe?g|webp|gif)$/.test(mime)) {
+  } else if (/^image\/(png|jpe?g|webp)$/.test(mime)) {
     blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
   } else if (mime.includes('wordprocessingml') || /\.docx$/i.test(String(fileName || ''))) {
     var text = await extractDocxTextWithMammoth(buffer);
@@ -28941,6 +28944,20 @@ async function handleApi(req, res, pathname) {
     // Authoritative check: enforce 3MB limit on decoded buffer length
     if (cvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
       sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    // Reject unsupported types (e.g. legacy .doc) BEFORE spending a daily scan
+    // attempt — the AI check can't read them, so letting them through would
+    // waste one of the GP's limited scans on a guaranteed rejection and could
+    // lock them out of the (non-dismissible) apply gate for 24h. When the
+    // browser sends no/opaque mime we fall back to the filename extension.
+    const cvKnownMime = cvMimeType && cvMimeType !== 'application/octet-stream';
+    const cvTypeAllowed = cvKnownMime
+      ? CAREER_PROFILE_ALLOWED_MIME_TYPES.has(cvMimeType)
+      : /\.(pdf|docx|png|jpe?g|webp)$/i.test(cvFileName);
+    if (!cvTypeAllowed) {
+      sendJson(res, 422, { ok: false, verified: false, reason: 'That file type isn\'t supported — please save your CV as a PDF or Word (.docx) file and try again.' });
       return;
     }
 

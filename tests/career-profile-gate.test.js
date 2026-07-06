@@ -217,6 +217,27 @@ describe('career profile gate', () => {
     expect(res.body.placed).toBe(false);
   });
 
+  it('rejects an unsupported .doc CV WITHOUT spending a daily scan attempt', async () => {
+    // A legacy Word .doc can never pass the AI CV check, so letting it consume
+    // a scan would burn one of the GP's limited daily attempts (and could lock
+    // them out of the non-dismissible apply gate for 24h). Isolated user so the
+    // scan-budget accounting of the other tests is untouched.
+    db.user_profiles.push({ user_id: 'u-doc-reject', email: 'doc-reject@example.com', registration_country: 'uk' });
+    const c = userCookie('doc-reject@example.com', 'u-doc-reject');
+    const before = await httpReq('GET', '/api/career/profile/status', { cookie: c });
+    const remainingBefore = before.body.scanRemaining;
+    expect(remainingBefore).toBeGreaterThan(0);
+    const res = await httpReq('POST', '/api/career/profile/cv', { cookie: c, body: { fileName: 'legacy.doc', fileBase64: PDF_B64, mimeType: 'application/msword', fileSize: 1000 } });
+    expect(res.status).toBe(422);
+    expect(res.body.verified).toBe(false);
+    expect(res.body.reason).toMatch(/save your CV as a PDF or Word/i);
+    // No scan attempt was consumed — the rejection happens before the spend.
+    const after = await httpReq('GET', '/api/career/profile/status', { cookie: c });
+    expect(after.body.scanRemaining).toBe(remainingBefore);
+    // Nothing was stored either.
+    expect(db.user_documents.filter((d) => d.user_id === 'u-doc-reject')).toHaveLength(0);
+  });
+
   it('a GP with a secured placement and no career_cv gets gateRequired:false (server truth beats a stale client cache)', async () => {
     db.user_profiles.push({ user_id: 'u-gate-placed', email: 'gate-placed@example.com', registration_country: 'uk' });
     db.user_state.push({ user_id: 'u-gate-placed', state: { gp_onboarding_complete: true } });
