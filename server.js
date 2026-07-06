@@ -39669,6 +39669,12 @@ Return ONLY valid JSON with no markdown formatting:
     await _completeRegTask(taskId, task.case_id, adminCtx.email);
 
     var docLabel = getDocumentLabelForKey(docKey) || docKey;
+    // Mirror the reject path's explicit timeline row so the audit trail records
+    // WHAT was approved (the generic "Task completed" row above doesn't name the doc).
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST',
+      body: [{ task_id: taskId, case_id: task.case_id, event_type: 'doc_approved', title: 'Document approved — ' + docLabel, detail: docKey, actor: adminCtx.email }]
+    });
     await pushDocumentNotificationToUser(userId, {
       type: 'success',
       title: docLabel + ' verified',
@@ -47157,15 +47163,12 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   var slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
   if (!slotValid) return { error: 'slot_taken' };
 
-  // ⚠️  Partial-failure risk (accepted for v1):
-  // The three side-effects below — Zoom create → GCal create → row PATCH + stage advance —
-  // are NOT wrapped in a transaction. In Supabase mode, if the row PATCH fails after Zoom
-  // and GCal have already been created, the row stays 'requested' and a client retry would
-  // produce duplicate Zoom meetings and GCal events (no orphan cleanup). This is accepted for
-  // v1 because the window is narrow and duplicates can be cleaned up manually. A future
-  // hardening pass should either (a) set an intermediate 'booking' status before the external
-  // calls and clear it on failure, or (b) run a reconciliation job that detects orphaned
-  // Zoom/GCal entries and removes them.
+  // Partial-failure handling: the side-effects below — Zoom create → GCal create →
+  // row PATCH + stage advance — are not transactional. If anything after the Zoom
+  // create throws, we best-effort delete the just-created Zoom meeting before
+  // surfacing the error, so a failed booking doesn't leave an orphaned meeting a
+  // client retry would then duplicate. No GCal delete helper exists yet, so an event
+  // created before a later failure is left behind (narrow window, manual cleanup).
 
   var zoom = await createZoomInterviewMeeting({
     topic: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
@@ -47173,43 +47176,54 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     durationMin: 45
   });
 
-  var slotEnd = new Date(new Date(slotStartUtc).getTime() + 45 * 60000).toISOString();
-  var gcal = await gcalCreateEvent({
-    summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
-    startUtc: slotStartUtc,
-    endUtc: slotEnd,
-    attendees: [appCtx.gpEmail || '', appCtx.practiceEmail || ''].filter(Boolean),
-    description: 'GP Link interview: ' + appCtx.gpName + ' for ' + (appCtx.practiceName || '') + '. Join: ' + (zoom.join_url || ''),
-    zoomJoinUrl: zoom.join_url || ''
-  });
-
-  // Persist the booking on the interview row (dual-mode).
-  var nowTs = atsNowIso();
-  var patch = {
-    status: 'booked',
-    scheduled_at: slotStartUtc,
-    booked_at: nowTs,
-    zoom_meeting_id: String(zoom.id || ''),
-    zoom_meeting_uuid: String(zoom.uuid || ''),
-    zoom_join_url: String(zoom.join_url || ''),
-    zoom_passcode: String(zoom.passcode || ''),
-    gcal_event_id: String(gcal.id || ''),
-    updated_at: nowTs
-  };
-  if (isSupabaseDbConfigured()) {
-    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+  var gcal;
+  try {
+    var slotEnd = new Date(new Date(slotStartUtc).getTime() + 45 * 60000).toISOString();
+    gcal = await gcalCreateEvent({
+      summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
+      startUtc: slotStartUtc,
+      endUtc: slotEnd,
+      attendees: [appCtx.gpEmail || '', appCtx.practiceEmail || ''].filter(Boolean),
+      description: 'GP Link interview: ' + appCtx.gpName + ' for ' + (appCtx.practiceName || '') + '. Join: ' + (zoom.join_url || ''),
+      zoomJoinUrl: zoom.join_url || ''
     });
-  } else {
-    Object.assign(meetingRow, patch);
-    saveDbState();
-  }
 
-  // Move application stage to 'interview'. Deliberately NO
-  // notifyGpOfAtsStageChange here: the notify block below already emails the
-  // GP their interview confirmation (with the Zoom link), so a second
-  // "you're through to interview" ping would be a duplicate.
-  await atsUpdateApplicationStageRow(appCtx.app.id, 'interview', '', actorEmail || '');
+    // Persist the booking on the interview row (dual-mode).
+    var nowTs = atsNowIso();
+    var patch = {
+      status: 'booked',
+      scheduled_at: slotStartUtc,
+      booked_at: nowTs,
+      zoom_meeting_id: String(zoom.id || ''),
+      zoom_meeting_uuid: String(zoom.uuid || ''),
+      zoom_join_url: String(zoom.join_url || ''),
+      zoom_passcode: String(zoom.passcode || ''),
+      gcal_event_id: String(gcal.id || ''),
+      updated_at: nowTs
+    };
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      });
+    } else {
+      Object.assign(meetingRow, patch);
+      saveDbState();
+    }
+
+    // Move application stage to 'interview'. Deliberately NO
+    // notifyGpOfAtsStageChange here: the notify block below already emails the
+    // GP their interview confirmation (with the Zoom link), so a second
+    // "you're through to interview" ping would be a duplicate.
+    await atsUpdateApplicationStageRow(appCtx.app.id, 'interview', '', actorEmail || '');
+  } catch (bookErr) {
+    if (zoom && zoom.id) {
+      try { await deleteZoomMeeting(zoom.id); }
+      catch (cleanupErr) { console.error('[interview] orphaned Zoom meeting cleanup failed:', cleanupErr && cleanupErr.message); }
+    }
+    // No gcalDeleteEvent helper exists — a GCal event created before a later
+    // failure cannot be cleaned up here yet.
+    throw bookErr;
+  }
 
   // Notify GP + practice — best-effort, must not throw past the caller's response.
   var notifyPromise = (async function () {
