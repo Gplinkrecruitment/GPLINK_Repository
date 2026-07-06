@@ -338,6 +338,33 @@ describe('POST /api/career/interview/book', () => {
     // GP + practice + the ops inbox (hello@) booking notification (GAP A4).
     expect(resendCalls.length - beforeEmails).toBe(3);
 
+    // D1a: the practice AND the GP confirmations both carry a calendar invite
+    // (.ics, METHOD:REQUEST) with a UID stable per interview row, so a later
+    // cancellation (same UID, SEQUENCE 1) removes the event again.
+    const sends = resendCalls.slice(beforeEmails);
+    const toOf = (c) => (Array.isArray(c.body.to) ? c.body.to : [c.body.to]).join(',');
+    const practiceSend = sends.find((c) => toOf(c).includes('anna@greenslopes-test.local'));
+    const gpSend = sends.find((c) => toOf(c).includes(GP.email));
+    expect(practiceSend).toBeTruthy();
+    expect(gpSend).toBeTruthy();
+    for (const send of [practiceSend, gpSend]) {
+      expect(Array.isArray(send.body.attachments)).toBe(true);
+      expect(send.body.attachments.length).toBe(1);
+      const att = send.body.attachments[0];
+      expect(att.filename).toBe('interview.ics');
+      expect(att.content_type).toBe('text/calendar');
+      const ics = Buffer.from(att.content, 'base64').toString('utf8');
+      expect(ics).toContain('METHOD:REQUEST');
+      expect(ics).toContain('STATUS:CONFIRMED');
+      expect(ics).toContain('SEQUENCE:0');
+      expect(ics).toContain('UID:gplink-interview-' + row.id + '@mygplink.com.au');
+      expect(ics).toContain('DTSTART:' + slot.startUtc.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z'));
+    }
+    // The ops inbox notification deliberately has NO calendar attachment.
+    const opsSend = sends.find((c) => toOf(c).includes('hello@mygplink.com.au'));
+    expect(opsSend).toBeTruthy();
+    expect(opsSend.body.attachments).toBeUndefined();
+
     // A local fakeCalendar entry was created — read straight from the on-disk local DB state
     // (fakeCalendar is a dbState-only structure, independent of the Supabase emulator above).
     const localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));

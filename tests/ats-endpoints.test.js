@@ -38,6 +38,11 @@ function req(method, p, { host, cookie, body } = {}) {
 }
 const parse = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
 
+// Outbound Resend sends captured by wrapping global fetch (D1a: the job
+// approval now emails the practice a "your job is live" notice).
+const resendCalls = [];
+let realFetch;
+
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
@@ -59,17 +64,31 @@ beforeAll(async () => {
   const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   seeded.atsJobs = seeded.atsJobs || [];
   seeded.atsJobs.push(
-    { id: 'jp1', provider: 'internal_ats', title: 'GP — Rangeville', masked_title: 'GP | Suburb of Toowoomba | Mixed billing', practice_name: 'Pipeline Practice One', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Rangeville', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'jp2', provider: 'internal_ats', title: 'GP — Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jp1', provider: 'internal_ats', title: 'GP — Rangeville', masked_title: 'GP | Suburb of Toowoomba | Mixed billing', practice_name: 'Pipeline Practice One', practice_id: 'p1', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Rangeville', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jp2', provider: 'internal_ats', title: 'GP — Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', practice_id: 'p2', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     { id: 'jh1', provider: 'internal_ats', title: 'GP — Kearneys Spring', masked_title: '', practice_name: 'Pipeline Practice Three', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Kearneys Spring', is_active: true, job_status: 'open', approval_status: 'approved', header_image_url: 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
   );
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
+
+  process.env.RESEND_API_KEY = 'test-resend-key';
+  realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => {
+    const u = String(url && url.url ? url.url : url);
+    if (u.startsWith('https://api.resend.com/')) {
+      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+      resendCalls.push({ url: u, body: parsed });
+      return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+    }
+    return realFetch(url, opts);
+  };
+
   const { createServer } = await import('../server.js');
   server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
 });
 
 afterAll(async () => {
+  if (realFetch) globalThis.fetch = realFetch;
   if (server) await new Promise((r) => server.close(r));
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
@@ -300,6 +319,7 @@ describe('Job approval — mandatory suburb header photo (Task 9)', () => {
     expect(ub.ok).toBe(true);
     expect(ub.url).toBe(ONE_PX_PNG); // local mode stores the data URL itself
 
+    const beforeEmails = resendCalls.length;
     const ap = await req('POST', '/api/ats/job/approve?id=jp1', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'approve' } });
     expect(ap.status).toBe(200);
     const ab = parse(ap.raw);
@@ -311,6 +331,19 @@ describe('Job approval — mandatory suburb header photo (Task 9)', () => {
     expect(raw.approval_status).toBe('approved');
     expect(typeof raw.published_at).toBe('string');
     expect(raw.published_at.length).toBeGreaterThan(0);
+
+    // D1a: approval emails the practice contact a "your job is live" notice
+    // (jp1 → practice p1 → admin@greenslopesfm.com.au in the dev seed).
+    const sends = resendCalls.slice(beforeEmails);
+    const liveMail = sends.find((c) => {
+      const to = c.body && c.body.to;
+      return (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('admin@greenslopesfm.com.au'));
+    });
+    expect(liveMail).toBeTruthy();
+    expect(String(liveMail.body.subject)).toContain('Your job is live');
+    expect(String(liveMail.body.subject)).toContain('GP — Rangeville');
+    expect(String(liveMail.body.html)).toContain('now live to eligible doctors');
+    expect(String(liveMail.body.html)).toContain('What happens next');
   });
 
   it('approve on a non-pending job → 409', async () => {
@@ -352,7 +385,8 @@ describe('Job approval — mandatory suburb header photo (Task 9)', () => {
     expect(b.url).toBe(EXISTING_HTTPS);
   });
 
-  it('reject → approval_status rejected + is_active false', async () => {
+  it('reject → approval_status rejected + is_active false (and NO practice email)', async () => {
+    const beforeEmails = resendCalls.length;
     const r = await req('POST', '/api/ats/job/approve?id=jp2', { host: SUPER_HOST, cookie: superCookie(), body: { action: 'reject' } });
     expect(r.status).toBe(200);
     const b = parse(r.raw);
@@ -361,6 +395,8 @@ describe('Job approval — mandatory suburb header photo (Task 9)', () => {
     const raw = parse((await req('GET', '/api/ats/job?id=jp2', { host: SUPER_HOST, cookie: superCookie() })).raw).raw;
     expect(raw.is_active).toBe(false);
     expect(raw.approval_status).toBe('rejected');
+    // D1a: the "job is live" email is approve-only — a rejection sends nothing.
+    expect(resendCalls.length).toBe(beforeEmails);
   });
 
   it('blocks the approval endpoints without a session', async () => {

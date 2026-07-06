@@ -66,7 +66,19 @@ const db = {
     { user_id: GP3.userId, state: {}, updated_at: NOW }
   ],
   registration_cases: [
-    { id: 'case-1', user_id: GP.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null },
+    // case-1 carries a cached AI handover summary (D1a): the intro email must
+    // include ONLY overview + key_history — never the internal concerns or
+    // action_items.
+    {
+      id: 'case-1', user_id: GP.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null,
+      ai_handover_summary: {
+        overview: 'Experienced UK-trained GP with a strong chronic-disease focus.',
+        key_history: 'Ten years in NHS general practice across Leeds.',
+        concerns: ['INTERNAL-ONLY: visa timeline is tight'],
+        action_items: ['INTERNAL-ONLY: chase the police check'],
+        generated_at: NOW
+      }
+    },
     { id: 'case-2', user_id: GP2.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null },
     { id: 'case-3', user_id: GP3.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null }
   ],
@@ -386,6 +398,17 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(email.attachments[0].content_type).toBe('application/pdf');
     expect(String(email.html)).not.toContain('CV shortly');
 
+    // D1a: the cached AI handover summary surfaces as a practice-appropriate
+    // "Candidate overview" (overview + key history), while the internal-only
+    // concerns/action_items NEVER reach the practice.
+    expect(String(email.html)).toContain('Candidate overview');
+    expect(String(email.html)).toContain('Experienced UK-trained GP with a strong chronic-disease focus.');
+    expect(String(email.html)).toContain('Key history');
+    expect(String(email.html)).toContain('Ten years in NHS general practice across Leeds.');
+    expect(String(email.html)).not.toContain('INTERNAL-ONLY');
+    expect(String(email.text)).toContain('Candidate overview');
+    expect(String(email.text)).not.toContain('INTERNAL-ONLY');
+
     // gp_applications parity patch.
     const app = db.gp_applications.find((a) => a.id === 'app-1');
     expect(app.practice_submission_status).toBe('submitted_to_practice');
@@ -450,6 +473,9 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(String(email.subject)).toContain('Other Doctor');
     expect(email.attachments).toBeUndefined();
     expect(String(email.html)).toContain('CV shortly');
+    // GP2's case has NO cached AI summary → the overview section is simply
+    // absent (graceful skip, D1a).
+    expect(String(email.html)).not.toContain('Candidate overview');
 
     const app = db.gp_applications.find((a) => a.id === 'app-2');
     expect(app.practice_submission_status).toBe('submitted_to_practice');

@@ -357,6 +357,23 @@ describe('A4 + A2 — book (ops-notified) then cancel & rebook', () => {
     const gpMail = emailsTo(GP.email).pop();
     expect(String(gpMail.body.subject)).toMatch(/cancel/i);
     expect(emailsTo('anna@greenslopes-test.local').length).toBeGreaterThan(beforePractice);
+
+    // D1a: both cancellation emails carry a CANCEL-method .ics with the SAME
+    // UID the booking invite used (the cancelled row's id) and SEQUENCE 1, so
+    // recipient calendars remove the original event.
+    const practiceMail = emailsTo('anna@greenslopes-test.local').pop();
+    for (const mail of [gpMail, practiceMail]) {
+      expect(Array.isArray(mail.body.attachments)).toBe(true);
+      expect(mail.body.attachments.length).toBe(1);
+      const att = mail.body.attachments[0];
+      expect(att.filename).toBe('interview.ics');
+      expect(att.content_type).toBe('text/calendar');
+      const ics = Buffer.from(att.content, 'base64').toString('utf8');
+      expect(ics).toContain('METHOD:CANCEL');
+      expect(ics).toContain('STATUS:CANCELLED');
+      expect(ics).toContain('SEQUENCE:1');
+      expect(ics).toContain('UID:gplink-interview-' + cancelledRows[0].id + '@mygplink.com.au');
+    }
   });
 
   it('A2: the interview is rebookable — GP can pick a new slot and book again', async () => {

@@ -123,6 +123,7 @@ var atsOffersStore = require('./lib/ats-offers').createAtsOffersStore({
 });
 var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
+var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
@@ -23712,6 +23713,68 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     } catch (gpNotifyErr) {
       console.error('[placement] GP congrats notify failed for app', targetApp.id, ':', gpNotifyErr && gpNotifyErr.message);
     }
+    // D1a: confirm the placement to the practice too. Guarded by !isResume
+    // like the other notifies, so it fires exactly once per acceptance. The
+    // real doctor name is fine here — a placement means identity is revealed.
+    try {
+      var pcPracticeEmail = '';
+      var pcContactName = '';
+      if (acceptedOffer && acceptedOffer.practice_id) {
+        var pcPracticeRow = null;
+        try { pcPracticeRow = await atsGetPracticeRow(acceptedOffer.practice_id); } catch (pcPrErr) { pcPracticeRow = null; }
+        if (pcPracticeRow) {
+          pcPracticeEmail = String(pcPracticeRow.contact_email || '').trim();
+          pcContactName = String(pcPracticeRow.contact_name || '').trim();
+        }
+      }
+      if (!pcPracticeEmail && ctx && ctx.practiceEmail) pcPracticeEmail = String(ctx.practiceEmail).trim();
+      if (pcPracticeEmail && isEmailConfigured()) {
+        var escPc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+        var pcGpName = (ctx && ctx.gpName) || 'Your GP Link candidate';
+        var pcDrName = /^dr\b/i.test(pcGpName) ? pcGpName : ('Dr ' + pcGpName);
+        var pcRoleTitle = (acceptedOffer && acceptedOffer.job_title) || (placement && placement.roleTitle) || 'the GP role';
+        var pcStartDate = commencementDate || (acceptedOffer && acceptedOffer.start_date) || '';
+        var pcStartLine = '';
+        if (pcStartDate) {
+          try {
+            pcStartLine = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+              .format(new Date(pcStartDate + (/^\d{4}-\d{2}-\d{2}$/.test(String(pcStartDate)) ? 'T00:00:00Z' : '')));
+          } catch (pcDateErr) { pcStartLine = String(pcStartDate); }
+        }
+        var pcBodyHtml =
+          escPc('Hi ' + (pcContactName || 'there') + ',') + '<br><br>' +
+          'Wonderful news — <strong>' + escPc(pcDrName) + '</strong> has confirmed the placement for <strong>' + escPc(pcRoleTitle) + '</strong> at your practice.' +
+          (pcStartLine ? '<br><br><strong>Expected commencement:</strong> ' + escPc(pcStartLine) : '') +
+          '<br><br><strong>What happens next?</strong><br>' +
+          '&bull; ' + escPc('Our registration team now guides ' + pcDrName + ' through the remaining AHPRA and Medicare steps.') + '<br>' +
+          '&bull; ' + escPc('We\'ll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.') + '<br>' +
+          '&bull; ' + escPc('We\'ll keep you posted on progress and the confirmed start date.') +
+          '<br><br>' + escPc('If you have any questions in the meantime, just reply to this email.');
+        var pcText = 'Hi ' + (pcContactName || 'there') + ',\n\n'
+          + 'Wonderful news — ' + pcDrName + ' has confirmed the placement for ' + pcRoleTitle + ' at your practice.\n'
+          + (pcStartLine ? '\nExpected commencement: ' + pcStartLine + '\n' : '')
+          + '\nWhat happens next?\n'
+          + '- Our registration team now guides ' + pcDrName + ' through the remaining AHPRA and Medicare steps.\n'
+          + '- We\'ll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.\n'
+          + '- We\'ll keep you posted on progress and the confirmed start date.\n\n'
+          + 'If you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team';
+        await sendEmail({
+          to: pcPracticeEmail,
+          subject: 'Placement confirmed — ' + pcDrName,
+          html: buildCareerEmailHtml({
+            title: 'Placement confirmed',
+            body: pcBodyHtml,
+            footer: 'Sent by the GP Link recruitment team.'
+          }),
+          text: pcText,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        });
+      } else if (!pcPracticeEmail) {
+        console.warn('[placement] no practice contact email for app', targetApp.id, '— practice confirmation skipped');
+      }
+    } catch (pcNotifyErr) {
+      console.warn('[placement] practice confirmation email failed (ignored) for app', targetApp.id, ':', pcNotifyErr && pcNotifyErr.message);
+    }
     if (ctx && ctx.caseId) {
       try {
         await _logCaseEvent(ctx.caseId, null, 'system',
@@ -25132,10 +25195,17 @@ async function handleApi(req, res, pathname) {
           // the 2h reminder (never also a nonsensical "tomorrow" one), while an
           // interview booked further out gets the 24h reminder now and the 2h
           // reminder once it crosses into the final two hours.
-          var irScDue = null;
-          if (irScUntil <= 2 * 60 * 60 * 1000 && !irScRem.h2) irScDue = 'h2';
-          else if (irScUntil > 2 * 60 * 60 * 1000 && irScUntil <= 24 * 60 * 60 * 1000 && !irScRem.h24) irScDue = 'h24';
-          if (!irScDue) continue;
+          // D1a: the practice contact now gets its own reminder per window,
+          // deduped independently via the practice_h2/practice_h24 keys (so a
+          // failed practice send retries next run without re-emailing the GP).
+          var irScWindow = null;
+          if (irScUntil <= 2 * 60 * 60 * 1000) irScWindow = 'h2';
+          else if (irScUntil <= 24 * 60 * 60 * 1000) irScWindow = 'h24';
+          if (!irScWindow) continue;
+          var irScGpDue = !irScRem[irScWindow];
+          var irScPrDue = !irScRem['practice_' + irScWindow];
+          if (!irScGpDue && !irScPrDue) continue;
+          var irScPhrase = irScWindow === 'h2' ? 'in about 2 hours' : 'tomorrow';
 
           // Resolve the GP userId (interview rows may carry it, else via the app).
           var irScUserId = irSc.user_id || '';
@@ -25149,25 +25219,69 @@ async function handleApi(req, res, pathname) {
               irScPractice = irScPractice || irScApp.practice_name || irScApp.location_label || '';
             }
           }
-          if (!irScUserId) continue;
-          // Booking an interview requires a revealed offer, so the real practice
-          // name is already known to this GP — safe to name it in the reminder.
-          await sendInterviewReminderEmail(irScUserId, {
-            practiceName: irScPractice,
-            scheduledAt: irSc.scheduled_at,
-            format: irSc.format || 'video',
-            zoomJoinUrl: irSc.zoom_join_url || '',
-            timezone: irSc.timezone || '',
-            whenPhrase: irScDue === 'h2' ? 'in about 2 hours' : 'tomorrow'
-          });
+          var irScChanged = false;
+          if (irScGpDue && irScUserId) {
+            // Booking an interview requires a revealed offer, so the real practice
+            // name is already known to this GP — safe to name it in the reminder.
+            await sendInterviewReminderEmail(irScUserId, {
+              practiceName: irScPractice,
+              scheduledAt: irSc.scheduled_at,
+              format: irSc.format || 'video',
+              zoomJoinUrl: irSc.zoom_join_url || '',
+              timezone: irSc.timezone || '',
+              whenPhrase: irScPhrase
+            });
+            irScRem[irScWindow] = new Date().toISOString();
+            irScChanged = true;
+            irScSent++;
+          }
 
-          // Persist the dedupe flag on the row (merge, never drop existing keys).
-          irScRem[irScDue] = new Date().toISOString();
+          // D1a: practice-side reminder — own try/catch so a practice-email
+          // failure never blocks the GP dedupe flag from persisting below.
+          if (irScPrDue) {
+            try {
+              var irScCtx = null;
+              try { irScCtx = await atsGetApplicationContext(String(irSc.application_id || '')); } catch (ctxErr) { irScCtx = null; }
+              var irScPrEmail = (irScCtx && irScCtx.practiceEmail) || '';
+              if (irScPrEmail && isEmailConfigured()) {
+                var irScGpName = (irScCtx && irScCtx.gpName) || 'your GP Link candidate';
+                // The interview time in the practice's local zone (AU, derived
+                // from the practice/location text like the slot scheduler does).
+                var irScPrTz = interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '');
+                var irScPrWhen;
+                try {
+                  irScPrWhen = new Intl.DateTimeFormat('en-AU', {
+                    weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit',
+                    timeZoneName: 'short', timeZone: irScPrTz
+                  }).format(new Date(irSc.scheduled_at));
+                } catch (fmtErr) {
+                  irScPrWhen = new Date(irSc.scheduled_at).toUTCString();
+                }
+                var irScZoom = /^https:\/\//i.test(String(irSc.zoom_join_url || '')) ? String(irSc.zoom_join_url) : '';
+                await sendEmail({
+                  to: irScPrEmail,
+                  subject: 'Interview reminder — ' + irScGpName + ' ' + irScPhrase,
+                  text: 'A friendly reminder: your interview with ' + irScGpName + ' is ' + irScPhrase + '.\n\n'
+                    + 'When: ' + irScPrWhen + '\n'
+                    + (irScZoom ? 'Zoom link: ' + irScZoom + '\n' : '')
+                    + '\nIf the time no longer works, just reply to this email and we\'ll rearrange.',
+                  from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+                });
+                irScRem['practice_' + irScWindow] = new Date().toISOString();
+                irScChanged = true;
+                irScSent++;
+              }
+            } catch (irScPrErr) {
+              console.warn('[InterviewReminder] practice reminder failed (ignored) for interview', irSc && irSc.id, ':', irScPrErr && irScPrErr.message);
+            }
+          }
+
+          if (!irScChanged) continue;
+          // Persist the dedupe flags on the row (merge, never drop existing keys).
           irScNc.interview_reminders = irScRem;
           await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(irSc.id)), {
             method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { notification_channels: irScNc }
           });
-          irScSent++;
         } catch (irScErr) {
           console.error('[InterviewReminder] scheduled_calls error for interview', irSc && irSc.id, ':', irScErr && irScErr.message);
         }
@@ -30340,6 +30454,25 @@ async function handleApi(req, res, pathname) {
       }
     } catch (cvErr) { inAppCvAttachment = null; }
 
+    // D1a: cached AI handover summary → a practice-appropriate "Candidate
+    // overview" section. ONLY overview + key_history are shared — concerns and
+    // action_items are internal, RSO-facing notes and must never reach a
+    // practice. Read the cached value only (no generation here); any failure
+    // just skips the section — the introduction email itself must still send.
+    let inAppAiOverview = '';
+    let inAppAiHistory = '';
+    try {
+      const inAppAiRes = await supabaseDbRequest('registration_cases',
+        `select=ai_handover_summary&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+      const inAppAiRow = inAppAiRes.ok && Array.isArray(inAppAiRes.data) && inAppAiRes.data[0] ? inAppAiRes.data[0] : null;
+      const inAppAi = inAppAiRow && inAppAiRow.ai_handover_summary && typeof inAppAiRow.ai_handover_summary === 'object'
+        ? inAppAiRow.ai_handover_summary : null;
+      if (inAppAi) {
+        inAppAiOverview = String(inAppAi.overview || '').trim();
+        inAppAiHistory = String(inAppAi.key_history || '').trim();
+      }
+    } catch (aiErr) { inAppAiOverview = ''; inAppAiHistory = ''; }
+
     // Compose + send the introduction. From/branding matches the other
     // ATS practice-facing emails (interview confirmations): the registration
     // hub mailbox as 'GP Link', via the shared sendEmail helper.
@@ -30354,14 +30487,25 @@ async function handleApi(req, res, pathname) {
     const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
     const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
     const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
+    // Candidate overview (D1a): overview + key history only — see the guard
+    // above where concerns/action_items are deliberately never read out.
+    const introOverviewHtml = inAppAiOverview
+      ? '<br><br><strong>Candidate overview</strong><br>' + escIntro(inAppAiOverview)
+        + (inAppAiHistory ? '<br><br><strong>Key history</strong><br>' + escIntro(inAppAiHistory) : '')
+      : '';
+    const introOverviewText = inAppAiOverview
+      ? ['', 'Candidate overview:', inAppAiOverview].concat(inAppAiHistory ? ['', 'Key history:', inAppAiHistory] : [])
+      : [];
     const introBodyHtml =
       escIntro(introGreeting) + '<br><br>' +
       'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
       (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
+      introOverviewHtml +
       '<br><br>' + escIntro(introCvLine) +
       '<br><br>' + escIntro(introClose);
     const introText = [introGreeting, '', introLead]
       .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
+      .concat(introOverviewText)
       .concat(['', introCvLine, '', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
       .join('\n');
 
@@ -46328,6 +46472,64 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var ajUpdated = await atsUpdateJobRow(ajId, ajPatch);
     if (!ajUpdated) { sendJson(res, 502, { ok: false, message: 'Could not update job.' }); return; }
+
+    // D1a: on APPROVE (never reject), tell the practice their listing is live.
+    // Own try/catch — a failed email must never fail the approval itself.
+    if (ajAction === 'approve') {
+      try {
+        var ajContactEmail = '';
+        var ajContactName = '';
+        if (ajJob.practice_id) {
+          var ajPractice = null;
+          try { ajPractice = await atsGetPracticeRow(ajJob.practice_id); } catch (prErr) { ajPractice = null; }
+          if (ajPractice) {
+            ajContactEmail = String(ajPractice.contact_email || '').trim();
+            ajContactName = String(ajPractice.contact_name || '').trim();
+          }
+        }
+        if (!ajContactEmail) {
+          var ajSrc = (ajJob.source_payload && typeof ajJob.source_payload === 'object') ? ajJob.source_payload : {};
+          ajContactEmail = String(ajJob.practice_contact_email || ajJob.contact_email
+            || ajSrc.practice_contact_email || ajSrc.contact_email || '').trim();
+        }
+        if (ajContactEmail && isEmailConfigured()) {
+          var escAj = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+          var ajRoleLabel = ajJob.title || 'your GP role';
+          var ajPracticeLabel = ajJob.practice_name || 'your practice';
+          var ajBodyHtml =
+            escAj('Hi ' + (ajContactName || 'there') + ',') + '<br><br>' +
+            'Great news — your listing <strong>' + escAj(ajRoleLabel) + '</strong> at ' + escAj(ajPracticeLabel) + ' has been approved and is now live to eligible doctors on GP Link.' +
+            '<br><br><strong>What happens next?</strong><br>' +
+            '&bull; ' + escAj('Matched doctors can now see and apply to your role (identities stay protected until you approve a candidate).') + '<br>' +
+            '&bull; ' + escAj('Our team reviews every applicant and will surface matched candidates to you for review.') + '<br>' +
+            '&bull; ' + escAj('When you\'d like to meet someone, we\'ll arrange the interview and take care of the logistics.') +
+            '<br><br>' + escAj('You don\'t need to do anything right now — we\'ll be in touch as soon as there\'s a candidate worth your time. If anything about the role changes, just reply to this email.');
+          var ajText = 'Hi ' + (ajContactName || 'there') + ',\n\n'
+            + 'Great news — your listing "' + ajRoleLabel + '" at ' + ajPracticeLabel + ' has been approved and is now live to eligible doctors on GP Link.\n\n'
+            + 'What happens next?\n'
+            + '- Matched doctors can now see and apply to your role (identities stay protected until you approve a candidate).\n'
+            + '- Our team reviews every applicant and will surface matched candidates to you for review.\n'
+            + '- When you\'d like to meet someone, we\'ll arrange the interview and take care of the logistics.\n\n'
+            + 'You don\'t need to do anything right now — we\'ll be in touch as soon as there\'s a candidate worth your time. If anything about the role changes, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team';
+          await sendEmail({
+            to: ajContactEmail,
+            subject: 'Your job is live on GP Link — ' + ajRoleLabel,
+            html: buildCareerEmailHtml({
+              title: 'Your job is live',
+              body: ajBodyHtml,
+              footer: 'Sent by the GP Link recruitment team.'
+            }),
+            text: ajText,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        } else if (!ajContactEmail) {
+          console.warn('[ats job approve] no practice contact email for job', ajId, '— job-live email skipped');
+        }
+      } catch (ajNotifyErr) {
+        console.warn('[ats job approve] job-live email failed (ignored):', ajNotifyErr && ajNotifyErr.message);
+      }
+    }
+
     sendJson(res, 200, { ok: true, job: atsJobCard(ajUpdated, {}, {}) });
     return;
   }
@@ -47147,12 +47349,36 @@ Return ONLY valid JSON with no markdown formatting:
         var cxPracticeName = (cxCtx && cxCtx.practiceName) || cxRow.practice_name || 'the practice';
         var cxPracticeEmail = (cxCtx && cxCtx.practiceEmail) || '';
         var cxReasonLine = cxReason ? (' Reason: ' + cxReason + '.') : '';
+        // D1a: CANCEL-method .ics with the SAME UID the booking invite used
+        // (keyed on the cancelled row's id) and SEQUENCE 1 (> the booking's 0)
+        // so recipient calendars remove the event. Own try/catch — the plain
+        // cancellation emails must still send if the ICS build fails.
+        var cxIcsAttachment = null;
+        try {
+          if (cxRow.scheduled_at) {
+            cxIcsAttachment = interviewIcs.icsAttachment({
+              uid: _interviewIcsUid(cxRow.id),
+              start: cxRow.scheduled_at,
+              durationMins: 45,
+              summary: 'Interview — ' + cxGpName + ' @ ' + cxPracticeName,
+              description: 'This interview has been cancelled.' + cxReasonLine,
+              organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+              attendeeEmails: [cxGpEmail, cxPracticeEmail].filter(Boolean),
+              method: 'CANCEL',
+              sequence: 1,
+              status: 'CANCELLED'
+            });
+          }
+        } catch (cxIcsErr) {
+          console.warn('[interview] cancel .ics build failed (ignored):', cxIcsErr && cxIcsErr.message);
+        }
         if (cxGpEmail && isEmailConfigured()) {
           await sendEmail({
             to: cxGpEmail,
             subject: 'Your interview has been cancelled',
             text: 'Hi ' + cxGpName + ', your interview with ' + cxPracticeName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch shortly to arrange a new time — or you can pick a new slot in the app.',
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+            attachments: cxIcsAttachment ? [cxIcsAttachment] : undefined
           });
         }
         if (cxPracticeEmail && isEmailConfigured()) {
@@ -47160,7 +47386,8 @@ Return ONLY valid JSON with no markdown formatting:
             to: cxPracticeEmail,
             subject: 'Interview cancelled — ' + cxGpName,
             text: 'The interview with ' + cxGpName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch to rearrange.',
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+            attachments: cxIcsAttachment ? [cxIcsAttachment] : undefined
           });
         }
       } catch (cxNotifyErr) {
@@ -48349,6 +48576,14 @@ async function _interviewSlotContext(applicationId, nowMs) {
 // `await result.notifyPromise`; the admin endpoint deliberately does NOT —
 // it fires-and-forgets exactly as it always has, so its response timing is
 // unchanged by this refactor.
+// Stable per-interview iCalendar UID (keyed on the scheduled_calls row id) —
+// the booking invite (METHOD:REQUEST) and any later cancellation
+// (METHOD:CANCEL, SEQUENCE+1) must carry the SAME UID so the recipient's
+// calendar can match and remove the original event.
+function _interviewIcsUid(interviewRowId) {
+  return 'gplink-interview-' + String(interviewRowId) + '@mygplink.com.au';
+}
+
 async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail) {
   var now = nowMs ? new Date(nowMs) : new Date();
 
@@ -48423,12 +48658,37 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     try {
       var gpEmail = appCtx.gpEmail || '';
       var timeLabel = new Date(slotStartUtc).toUTCString();
+      // D1a: attach a calendar invite (METHOD:REQUEST) so both sides get an
+      // "Add to calendar" card. UID is stable per interview row so a later
+      // cancellation .ics (same UID, SEQUENCE 1) removes the event again.
+      // Built in its own try/catch — a bad date or ICS bug must never stop
+      // the plain-text confirmations below from going out.
+      var bookIcsAttachment = null;
+      try {
+        bookIcsAttachment = interviewIcs.icsAttachment({
+          uid: _interviewIcsUid(meetingRow.id),
+          start: slotStartUtc,
+          durationMins: 45,
+          summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
+          description: 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.'
+            + (zoom.join_url ? ' Join Zoom: ' + zoom.join_url : ''),
+          location: zoom.join_url || '',
+          organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+          attendeeEmails: [gpEmail, appCtx.practiceEmail || ''].filter(Boolean),
+          method: 'REQUEST',
+          sequence: 0,
+          status: 'CONFIRMED'
+        });
+      } catch (icsErr) {
+        console.warn('[interview] booking .ics build failed (ignored):', icsErr && icsErr.message);
+      }
       if (appCtx.practiceEmail && isEmailConfigured()) {
         await sendEmail({
           to: appCtx.practiceEmail,
           subject: 'Interview confirmed — ' + appCtx.gpName,
           text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
-          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
       if (gpEmail && isEmailConfigured()) {
@@ -48436,7 +48696,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           to: gpEmail,
           subject: 'Your interview is confirmed',
           text: 'Your interview at ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
-          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
       // GAP A4: signal the ops inbox so the team sees new interview bookings

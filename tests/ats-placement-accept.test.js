@@ -517,6 +517,17 @@ describe('POST /api/career/offer/accept — offer record exists', () => {
     });
     expect(gpCongrats.length).toBe(1);
 
+    // D1a: exactly one placement confirmation to the practice contact
+    // (practices.contact_email via the offer's practice_id) — real doctor name.
+    const practiceConfirms = resendCalls.filter((c) => {
+      const to = c.body && c.body.to;
+      const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
+      return toPr && /placement confirmed/i.test(String(c.body && c.body.subject || ''));
+    });
+    expect(practiceConfirms.length).toBe(1);
+    expect(String(practiceConfirms[0].body.subject)).toContain('Dr Test Doctor');
+    expect(String(practiceConfirms[0].body.html)).toContain('has confirmed the placement');
+
     // Case timeline audit entry.
     const tl = db.task_timeline.find((t) => t.case_id === 'case-1' && /Offer accepted in-app/.test(String(t.title || '')));
     expect(tl).toBeTruthy();
@@ -677,8 +688,15 @@ describe('POST /api/career/offer/accept — guardrails', () => {
 
 // ── 4c. Resume: offer already 'accepted' but the placement never finished ──
 describe('POST /api/career/offer/accept — resume after a partial first accept', () => {
+  const practiceConfirmCount = () => resendCalls.filter((c) => {
+    const to = c.body && c.body.to;
+    const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
+    return toPr && /placement confirmed/i.test(String(c.body && c.body.subject || ''));
+  }).length;
+
   it('completes the remaining placement steps WITHOUT re-emailing the consultant', async () => {
     const sendersBefore = senderEmails().length;
+    const practiceBefore = practiceConfirmCount();
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-9' }, GP4);
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -700,6 +718,9 @@ describe('POST /api/career/offer/accept — resume after a partial first accept'
     // The consultant email belongs to the sent→accepted transition (which
     // already happened before the crash) — the resume must NOT email again.
     expect(senderEmails().length).toBe(sendersBefore);
+    // D1a: the practice confirmation is also tied to the sent→accepted
+    // transition — the resume path must NOT send it (fires exactly once).
+    expect(practiceConfirmCount()).toBe(practiceBefore);
   });
 
   it('a further repeat accept is the plain idempotent early-return', async () => {

@@ -211,6 +211,16 @@ const secured = () => gpEmails((s) => /placement is secured/i.test(s));
 const remind2h = () => gpEmails((s) => /interview reminder/i.test(s));
 const remind24h = () => gpEmails((s) => /interview tomorrow/i.test(s));
 
+// D1a: practice-facing sends (contact anna@ on practice p-gap-1).
+const practiceMails = (matcher) => resendCalls.filter((c) => {
+  const to = c.body && c.body.to;
+  const toPractice = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
+  return toPractice && matcher(String(c.body && c.body.subject || ''));
+});
+const practiceConfirm = () => practiceMails((s) => /placement confirmed/i.test(s));
+const practiceRemind2h = () => practiceMails((s) => /^interview reminder/i.test(s) && /2 hours/i.test(s));
+const practiceRemind24h = () => practiceMails((s) => /^interview reminder/i.test(s) && /tomorrow/i.test(s));
+
 let realFetch;
 
 beforeAll(async () => {
@@ -276,14 +286,26 @@ describe('G6 — GP congratulated on in-app self-accept', () => {
     const email = secured().slice(-1)[0];
     // Real practice name is fine post-accept (identity is revealed).
     expect(String(email.body.subject)).toMatch(/placement is secured/i);
+
+    // D1a: the practice gets exactly one placement confirmation too — real
+    // doctor name (identity revealed at placement) + the commencement date.
+    expect(practiceConfirm().length).toBe(1);
+    const pMail = practiceConfirm()[0];
+    expect(String(pMail.body.subject)).toContain('Dr Gap Doctor');
+    expect(String(pMail.body.html)).toContain('Dr Gap Doctor');
+    expect(String(pMail.body.html)).toContain('has confirmed the placement');
+    // offer-gap-1 start_date 2026-09-01 → formatted commencement line.
+    expect(String(pMail.body.text)).toContain('1 September 2026');
   });
 
   it('does NOT re-send the GP congratulation on an idempotent repeat accept', async () => {
     const before = secured().length;
+    const beforePractice = practiceConfirm().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-gap-1' });
     expect(r.status).toBe(200);
     expect(r.body.placement_secured).toBe(true);
     expect(secured().length).toBe(before); // no second email
+    expect(practiceConfirm().length).toBe(beforePractice); // practice not re-emailed either (D1a)
   });
 });
 
@@ -321,6 +343,8 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
   it('sends a 2h reminder and a 24h reminder, one each, and skips cancelled/past', async () => {
     const before2 = remind2h().length;
     const before24 = remind24h().length;
+    const beforeP2 = practiceRemind2h().length;
+    const beforeP24 = practiceRemind24h().length;
 
     const r = await cronGet('/api/cron/interview-reminders');
     expect(r.status).toBe(200);
@@ -330,11 +354,23 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
     expect(remind2h().length - before2).toBe(1);
     expect(remind24h().length - before24).toBe(1);
 
+    // D1a: the practice contact gets a reminder per window too, with the GP
+    // name, the local time and the Zoom link.
+    expect(practiceRemind2h().length - beforeP2).toBe(1);
+    expect(practiceRemind24h().length - beforeP24).toBe(1);
+    const pMail = practiceRemind2h().slice(-1)[0];
+    expect(String(pMail.body.subject)).toContain('Gap Doctor');
+    expect(String(pMail.body.text)).toContain('Zoom link: https://zoom.us/j/gap-');
+    expect(String(pMail.body.text)).toContain('When: ');
+
     // Dedupe flags persisted on the two live rows only.
     const soon = db.scheduled_calls.find((c) => c.id === rowSoon.id);
     const day = db.scheduled_calls.find((c) => c.id === rowDay.id);
     expect(soon.notification_channels && soon.notification_channels.interview_reminders && soon.notification_channels.interview_reminders.h2).toBeTruthy();
     expect(day.notification_channels && day.notification_channels.interview_reminders && day.notification_channels.interview_reminders.h24).toBeTruthy();
+    // D1a: practice reminders dedupe independently (practice_h2/practice_h24).
+    expect(soon.notification_channels.interview_reminders.practice_h2).toBeTruthy();
+    expect(day.notification_channels.interview_reminders.practice_h24).toBeTruthy();
     // The cancelled + past rows were never touched.
     expect(db.scheduled_calls.find((c) => c.id === rowCancelled.id).notification_channels).toBeNull();
     expect(db.scheduled_calls.find((c) => c.id === rowPast.id).notification_channels).toBeNull();
@@ -343,10 +379,14 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
   it('is idempotent — a second cron run sends no duplicate reminders', async () => {
     const before2 = remind2h().length;
     const before24 = remind24h().length;
+    const beforeP2 = practiceRemind2h().length;
+    const beforeP24 = practiceRemind24h().length;
     const r = await cronGet('/api/cron/interview-reminders');
     expect(r.status).toBe(200);
     expect(remind2h().length).toBe(before2);
     expect(remind24h().length).toBe(before24);
+    expect(practiceRemind2h().length).toBe(beforeP2);
+    expect(practiceRemind24h().length).toBe(beforeP24);
   });
 
   it('rejects an unauthenticated cron call', async () => {
