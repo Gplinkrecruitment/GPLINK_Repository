@@ -121,6 +121,31 @@ describe('pages/index.html — 7-stage journey surface', () => {
     expect(indexHtml).toMatch(/DOMContentLoaded[\s\S]*?renderJourneyList\(\)/);
   });
 
+  it('stepper navigation is shell-aware (posts gp-shell-route when embedded)', () => {
+    // A raw window.location.href from onStepSelect can't be intercepted by
+    // nav-shell-bridge (it only hooks <a> clicks), which double-nested the
+    // app-shell inside its own iframe. The stepper must route through the
+    // shell-aware helper instead.
+    expect(indexHtml).toContain('onStepSelect(step) { navigateToStagePage(step.page, step.title); }');
+    expect(indexHtml).not.toContain('onStepSelect(step) { window.location.href = step.page; }');
+    // The helper posts the documented gp-shell-route message to the parent…
+    const helper = indexHtml.match(/function navigateToStagePage\([\s\S]*?\n    }\n/);
+    expect(helper).not.toBeNull();
+    expect(helper[0]).toContain('window.self !== window.top');
+    expect(helper[0]).toMatch(/postMessage\(\s*\{ type: "gp-shell-route", intent: "navigate", href: href/);
+    // …and only falls back to a plain navigation when NOT embedded.
+    expect(helper[0]).toContain('window.location.href = href;');
+  });
+
+  it('lock notice is honest when a done stage is not returnable', () => {
+    // ?locked=<stage> bounce for a DONE but non-returnable stage must not
+    // claim the stage "has just unlocked".
+    expect(indexHtml).toMatch(/returnDenied[\s\S]*?isRegistrationReturnAllowed\(stage\.key\)/);
+    expect(indexHtml).toContain("isn't open right now — your Registration Support Officer can help if you need to revisit it.");
+    // The genuinely-open case keeps the unlocked copy.
+    expect(indexHtml).toContain('has just unlocked — you can open it from the journey below.');
+  });
+
   it('counts progress across all 7 stages (visa included, no 6-step remnant)', () => {
     expect(indexHtml).toContain('const TOTAL_STEPS = 7;');
     expect(indexHtml).toMatch(/\[careerSecured, epicDone, amcDone, ahpraDone, visaDone, pbsDone\]/);

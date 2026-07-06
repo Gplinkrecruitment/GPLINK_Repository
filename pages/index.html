@@ -1554,6 +1554,25 @@
       setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 2600);
     }
 
+    // Shell-aware stage navigation. Inside the app-shell iframe a raw
+    // window.location.href can't be intercepted by nav-shell-bridge (it only
+    // hooks <a> clicks), so the embedded page would reload the FULL app-shell
+    // inside itself. Post the documented gp-shell-route message instead —
+    // the same route the journey rows' <a data-route> links resolve to.
+    function navigateToStagePage(page, title) {
+      const href = "/pages/" + String(page || "").replace(/^\/?(pages\/)?/, "");
+      if (window.self !== window.top && window.parent && typeof window.parent.postMessage === "function") {
+        try {
+          window.parent.postMessage(
+            { type: "gp-shell-route", intent: "navigate", href: href, title: title || document.title || "" },
+            window.location.origin
+          );
+          return;
+        } catch (e) { /* fall through to a plain navigation */ }
+      }
+      window.location.href = href;
+    }
+
     // Horizontal 7-stage stepper (js/registration-stepper.js). The stepper
     // script is deferred, so this no-ops on the first parse-time render and
     // is re-invoked on DOMContentLoaded once GPRegistrationStepper exists.
@@ -1575,7 +1594,7 @@
           page: s.page,
           lockReason: s.lockReason
         })),
-        onStepSelect(step) { window.location.href = step.page; },
+        onStepSelect(step) { navigateToStagePage(step.page, step.title); },
         onLockedStep(step) { showJourneyToast(step.lockReason || "Complete the previous step to unlock this."); }
       });
     }
@@ -1987,12 +2006,19 @@
       const noticeEl = document.getElementById("stageLockedNotice");
       const textEl = document.getElementById("stageLockedNoticeText");
       if (!noticeEl || !textEl) return;
-      const states = window.GPJourneyStages.getStageStates(getProgressSnapshot(), !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()]);
+      const bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
+      const states = window.GPJourneyStages.getStageStates(getProgressSnapshot(), bypassLocks);
       const stage = states.find((s) => s.key === lockedKey);
       if (!stage) return;
+      // Three honest cases: still locked ahead of the GP; done but the server
+      // denied returning to it (isRegistrationReturnAllowed false); or genuinely
+      // open now (e.g. a race where progress synced after the bounce).
+      const returnDenied = stage.done && !bypassLocks && !isRegistrationReturnAllowed(stage.key);
       textEl.textContent = stage.locked
         ? stage.title + " is still locked — " + (stage.lockReason || "complete the previous step to unlock it.")
-        : stage.title + " has just unlocked — you can open it from the journey below.";
+        : returnDenied
+          ? stage.title + " isn't open right now — your Registration Support Officer can help if you need to revisit it."
+          : stage.title + " has just unlocked — you can open it from the journey below.";
       noticeEl.hidden = false;
       const closeBtn = document.getElementById("stageLockedNoticeClose");
       if (closeBtn) closeBtn.addEventListener("click", () => { noticeEl.hidden = true; });

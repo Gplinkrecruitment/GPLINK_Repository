@@ -163,6 +163,29 @@ const API_RATE_WINDOW_MS = 60 * 1000; // 1 minute window for general API rate li
 const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
 const _apiRateLimitStore = new Map(); // userId -> [timestamps]
 const VISA_STAGES = ['nomination', 'lodgement', 'processing', 'granted', 'refused'];
+// GP-facing field allowlists for /api/visa/status. visa_applications rows carry
+// internal admin data (the `notes` JSONB includes admin author emails, plus
+// sponsor_contact and other case-management fields) that must never be returned
+// to a GP session — build an allowlisted copy instead of echoing select=* rows.
+const VISA_GP_APPLICATION_FIELDS = [
+  'id', 'stage', 'visa_subclass', 'visa_type', 'status_message', 'reference_number',
+  'sponsor_name', 'sponsor_status', 'responsible_party', 'estimated_timeline',
+  'current_action_title', 'current_action_description', 'current_action_owner',
+  'current_action_due_date', 'nomination_date', 'lodgement_date', 'grant_date',
+  'created_at', 'updated_at'
+];
+const VISA_GP_UPDATE_FIELDS = ['id', 'body', 'created_at'];
+const VISA_GP_TIMELINE_FIELDS = ['id', 'event_title', 'event_description', 'created_at'];
+const VISA_GP_DOCUMENT_FIELDS = ['id', 'document_type', 'status', 'rejection_reason', 'original_file_name', 'verified', 'uploaded_at'];
+const VISA_GP_DEPENDANT_FIELDS = ['id', 'full_name', 'relationship', 'date_of_birth', 'passport_country', 'visa_status', 'created_at'];
+function pickVisaGpFields(row, fields) {
+  if (!row || typeof row !== 'object') return null;
+  const out = {};
+  for (const key of fields) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) out[key] = row[key];
+  }
+  return out;
+}
 const PBS_APPLICATION_TYPES = ['medicare_provider', 'pbs_prescriber'];
 const PBS_STATUSES = ['not_started', 'in_progress', 'submitted', 'approved', 'rejected', 'waiting_on_gp', 'under_review', 'complete', 'blocked'];
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
@@ -43776,7 +43799,16 @@ Return ONLY valid JSON with no markdown formatting:
       if (depsRes.ok && Array.isArray(depsRes.data)) dependants = depsRes.data;
     }
 
-    sendJson(res, 200, { ok: true, application, documents, updates, timelineEvents, dependants });
+    // Strip internal admin data (notes JSONB with author emails, sponsor_contact,
+    // reviewer/author identities, storage paths) — GPs only get allowlisted fields.
+    sendJson(res, 200, {
+      ok: true,
+      application: pickVisaGpFields(application, VISA_GP_APPLICATION_FIELDS),
+      documents: documents.map((d) => pickVisaGpFields(d, VISA_GP_DOCUMENT_FIELDS)),
+      updates: updates.map((u) => pickVisaGpFields(u, VISA_GP_UPDATE_FIELDS)),
+      timelineEvents: timelineEvents.map((t) => pickVisaGpFields(t, VISA_GP_TIMELINE_FIELDS)),
+      dependants: dependants.map((dep) => pickVisaGpFields(dep, VISA_GP_DEPENDANT_FIELDS))
+    });
     return;
   }
 
@@ -50438,6 +50470,12 @@ module.exports.__testUtils = {
   mapPreparedDocumentRow,
   toStatusLabel,
   stageGateDecision,
+  pickVisaGpFields,
+  VISA_GP_APPLICATION_FIELDS,
+  VISA_GP_UPDATE_FIELDS,
+  VISA_GP_TIMELINE_FIELDS,
+  VISA_GP_DOCUMENT_FIELDS,
+  VISA_GP_DEPENDANT_FIELDS,
   applyQualificationNameMatchPolicy,
   canonicalQualKey,
   isQualificationDocKey,
