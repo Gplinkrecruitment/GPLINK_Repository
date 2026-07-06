@@ -7714,6 +7714,9 @@ async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
     to: to,
     subject: copy.subject,
     html: html,
+    // Nudges are marketing-class mail: bounced/complained recipients are
+    // skipped via the email_suppression list (Phase 6 C3).
+    category: 'marketing',
     text: copy.body + '\n\nContinue: ' + ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
     // List-Unsubscribe-Post (RFC 8058) tells Gmail/Yahoo's native "Unsubscribe"
     // affordance to POST to the List-Unsubscribe URL instead of just showing a
@@ -8977,6 +8980,110 @@ async function enforceAuthRateLimit(req, res, scope) {
   if (allowed) return true;
   sendJson(res, 429, { ok: false, message: 'Too many authentication attempts. Please try again later.' });
   return false;
+}
+
+// ── Per-ACCOUNT admin login lockout (Phase 6 C3, audit M5) ──────────────────
+// enforceAuthRateLimit above is per-IP, so admin credentials could be
+// brute-forced across rotating IPs. These helpers add a per-account failure
+// counter (runtime_kv key admin_login_fails_<emailhash>, dbState.rateLimits in
+// local dev): after ADMIN_ACCOUNT_LOCK_MAX_FAILS bad-password attempts within
+// the window, the ACCOUNT is locked for an escalating backoff (15m, 30m, 60m…
+// capped at 4h). LOCKOUT-SAFE: the lock is purely time-based (lockedUntil) —
+// it always auto-expires, no admin can be locked permanently — and a locked
+// account is rejected BEFORE the password check, so the MFA step-up flow is
+// never reached (and never interfered with) while locked. A successful
+// password login clears the counter. Every state read fails OPEN: a KV outage
+// must never lock every admin out.
+const ADMIN_ACCOUNT_LOCK_MAX_FAILS = Math.max(1, parseInt(process.env.ADMIN_ACCOUNT_LOCK_MAX_FAILS || '5', 10) || 5);
+const ADMIN_ACCOUNT_LOCK_WINDOW_MS = Math.max(60 * 1000, parseInt(process.env.ADMIN_ACCOUNT_LOCK_WINDOW_MS || '', 10) || 15 * 60 * 1000);
+const ADMIN_ACCOUNT_LOCK_BASE_MS = Math.max(60 * 1000, parseInt(process.env.ADMIN_ACCOUNT_LOCK_BASE_MS || '', 10) || 15 * 60 * 1000);
+const ADMIN_ACCOUNT_LOCK_MAX_MS = 4 * 60 * 60 * 1000;
+
+function adminLoginFailKey(email) {
+  const hash = crypto.createHash('sha256').update(String(email || '').trim().toLowerCase()).digest('hex').slice(0, 40);
+  return 'admin_login_fails_' + hash;
+}
+
+async function readAdminLoginFailRecord(email) {
+  const key = adminLoginFailKey(email);
+  if (isSupabaseDbConfigured()) {
+    const existing = await getRuntimeKv(key);
+    return existing && existing.value && typeof existing.value === 'object' ? existing.value : null;
+  }
+  const rec = dbState.rateLimits[key];
+  return rec && typeof rec === 'object' ? rec : null;
+}
+
+async function writeAdminLoginFailRecord(email, record) {
+  const key = adminLoginFailKey(email);
+  if (isSupabaseDbConfigured()) {
+    // Keep the row alive past the lock so escalation (locks count) survives,
+    // then let runtime_kv expiry garbage-collect it.
+    const expiresAt = Math.max(Number(record.lockedUntil || 0), now() + ADMIN_ACCOUNT_LOCK_WINDOW_MS) + 24 * 60 * 60 * 1000;
+    await setRuntimeKv(key, record, expiresAt);
+    return;
+  }
+  dbState.rateLimits[key] = record;
+  saveDbState();
+}
+
+async function clearAdminLoginFailures(email) {
+  try {
+    const key = adminLoginFailKey(email);
+    if (isSupabaseDbConfigured()) { await deleteRuntimeKv(key); return; }
+    if (dbState.rateLimits[key]) { delete dbState.rateLimits[key]; saveDbState(); }
+  } catch (err) {
+    console.error('[admin lockout] clear failed (ignored):', err && err.message);
+  }
+}
+
+async function getAdminAccountLockState(email) {
+  try {
+    const rec = await readAdminLoginFailRecord(email);
+    const ts = now();
+    if (rec && Number(rec.lockedUntil || 0) > ts) {
+      return { locked: true, retryAfterMs: Number(rec.lockedUntil) - ts };
+    }
+    return { locked: false, retryAfterMs: 0 };
+  } catch (err) {
+    console.error('[admin lockout] state read failed (failing OPEN):', err && err.message);
+    return { locked: false, retryAfterMs: 0 };
+  }
+}
+
+// Record one bad-password attempt. Returns { justLocked, lockMs } so the
+// caller can audit-log the moment a lock is applied.
+async function registerAdminLoginFailure(email) {
+  try {
+    const ts = now();
+    let rec = await readAdminLoginFailRecord(email);
+    if (!rec || typeof rec !== 'object') rec = { count: 0, firstAt: ts, lockedUntil: 0, locks: 0 };
+    // Expired lock → auto-unlocked: fresh window, keep `locks` for escalation.
+    if (Number(rec.lockedUntil || 0) && Number(rec.lockedUntil) <= ts) {
+      rec.count = 0; rec.firstAt = ts; rec.lockedUntil = 0;
+    }
+    // Stale window → start counting again.
+    if (ts - Number(rec.firstAt || 0) > ADMIN_ACCOUNT_LOCK_WINDOW_MS) {
+      rec.count = 0; rec.firstAt = ts;
+    }
+    rec.count = Number(rec.count || 0) + 1;
+    let justLocked = false;
+    let lockMs = 0;
+    if (rec.count >= ADMIN_ACCOUNT_LOCK_MAX_FAILS) {
+      const priorLocks = Number(rec.locks || 0);
+      lockMs = Math.min(ADMIN_ACCOUNT_LOCK_BASE_MS * Math.pow(2, priorLocks), ADMIN_ACCOUNT_LOCK_MAX_MS);
+      rec.lockedUntil = ts + lockMs;
+      rec.locks = priorLocks + 1;
+      rec.count = 0;
+      rec.firstAt = ts;
+      justLocked = true;
+    }
+    await writeAdminLoginFailRecord(email, rec);
+    return { justLocked, lockMs };
+  } catch (err) {
+    console.error('[admin lockout] failure tracking error (ignored):', err && err.message);
+    return { justLocked: false, lockMs: 0 };
+  }
 }
 
 function setSession(res, userProfile) {
@@ -22000,13 +22107,103 @@ function isEmailConfigured() {
   return !!(process.env.RESEND_API_KEY);
 }
 
+// ── Email suppression (Phase 6 C3, audit M2) ────────────────────────────────
+// Hard bounces + spam complaints (fed by POST /api/webhooks/resend) land in
+// public.email_suppression. ONLY sendEmail calls tagged category:'marketing'
+// consult it — transactional mail (OTP, security, offers, task notices)
+// always sends. Dual-mode: Supabase table in prod, dbState.emailSuppression
+// map in local JSON dev.
+
+function normalizeSuppressionEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+async function isEmailSuppressed(email) {
+  const lower = normalizeSuppressionEmail(email);
+  if (!lower) return false;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('email_suppression', 'select=email&email=eq.' + encodeURIComponent(lower) + '&limit=1');
+      // Missing table / transient errors → NOT suppressed (fail open: a lost
+      // suppression check must never block mail wholesale).
+      return !!(r && r.ok && Array.isArray(r.data) && r.data.length > 0);
+    }
+    return !!(dbState.emailSuppression && Object.prototype.hasOwnProperty.call(dbState.emailSuppression, lower));
+  } catch (err) {
+    console.error('[suppression] lookup failed (treating as not suppressed):', err && err.message);
+    return false;
+  }
+}
+
+async function suppressEmail(email, reason, source) {
+  const lower = normalizeSuppressionEmail(email);
+  if (!lower || !isValidEmail(lower)) return false;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('email_suppression', 'on_conflict=email', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [{ email: lower, reason: String(reason || '').slice(0, 120) || null, source: String(source || '').slice(0, 120) || null }]
+      });
+      if (!r || !r.ok) {
+        console.error('[suppression] insert failed for', lower, '- status', r && r.status);
+        return false;
+      }
+      return true;
+    }
+    if (lower === '__proto__' || lower === 'constructor' || lower === 'prototype') return false;
+    if (!dbState.emailSuppression || typeof dbState.emailSuppression !== 'object') dbState.emailSuppression = {};
+    dbState.emailSuppression[lower] = { reason: String(reason || ''), source: String(source || ''), created_at: new Date().toISOString() };
+    saveDbState();
+    return true;
+  } catch (err) {
+    console.error('[suppression] suppressEmail error:', err && err.message);
+    return false;
+  }
+}
+
+// Send-failure visibility (Phase 6 C3): every REAL Resend failure (API error /
+// network — not "email not configured", not a suppression skip) is recorded in
+// client_errors (source='server', route 'email-send') so the ~6 fire-and-forget
+// sendEmail call sites stop dropping failures invisibly. Surfaces on the admin
+// Technical tab. Never throws.
+async function recordEmailFailure(to, subject, errorText) {
+  try {
+    const toLabel = Array.isArray(to) ? to.join(', ') : String(to || '');
+    const err = new Error('Email send failed: ' + String(errorText || 'unknown error').slice(0, 300));
+    await recordServerError(err, {
+      route: 'email-send',
+      method: 'EMAIL',
+      label: 'to=' + toLabel.slice(0, 200) + ' · subject=' + String(subject || '').slice(0, 200)
+    });
+  } catch (_) { /* visibility must never break the send path */ }
+}
+
 // from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
 // replyTo: optional address (or array) replies should go to. Both default to the GP Link sender.
 // attachments (optional): [{ filename, content (base64 string), contentType? }]
 // — forwarded to Resend's native attachments field (used by the in-app
 // submit-to-practice candidate introduction to carry the GP's CV).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers }) {
+// category (optional): 'transactional' (default) | 'marketing'. Only
+// 'marketing' respects the email_suppression list — bounced/complained
+// recipients are silently skipped (result: { ok:false, suppressed:true }).
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers, category }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
+  let recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (String(category || 'transactional') === 'marketing') {
+    const kept = [];
+    for (const rcpt of recipients) {
+      if (await isEmailSuppressed(rcpt)) {
+        console.log('[sendEmail] skipping suppressed marketing recipient:', normalizeSuppressionEmail(rcpt));
+      } else {
+        kept.push(rcpt);
+      }
+    }
+    if (kept.length === 0) {
+      return { ok: false, suppressed: true, skipped: true, error: 'Recipient is on the suppression list' };
+    }
+    recipients = kept;
+  }
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
   const controller = new AbortController();
@@ -22014,7 +22211,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
   try {
     const emailPayload = {
       from: fromName + ' <' + fromEmail + '>',
-      to: Array.isArray(to) ? to : [to],
+      to: recipients,
       subject: subject,
       html: html || '',
       text: text || ''
@@ -22047,15 +22244,99 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
     const resBody = await res.text().catch(() => '');
     if (!res.ok) {
       console.error('[sendEmail] Resend API error:', res.status, resBody.slice(0, 300));
+      await recordEmailFailure(recipients, subject, 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200));
       return { ok: false, error: 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200) };
     }
     console.log('[sendEmail] Resend accepted:', to, '| response:', resBody.slice(0, 200));
     return { ok: true };
   } catch (err) {
+    await recordEmailFailure(recipients, subject, String(err && err.message || err));
     return { ok: false, error: String(err && err.message || err) };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// ── Resend bounce/complaint webhook (Phase 6 C3, audit M2) ──────────────────
+// Resend signs webhooks with Svix: headers svix-id / svix-timestamp /
+// svix-signature, where svix-signature holds space-separated "v1,<base64sig>"
+// entries and the expected signature is
+//   base64( HMAC-SHA256( base64decode(secret without 'whsec_'),
+//                        `${svix-id}.${svix-timestamp}.${rawBody}` ) )
+// with a 5-minute timestamp tolerance. RESEND_WEBHOOK_SECRET is the signing
+// secret ("whsec_…") from the Resend dashboard's webhook settings.
+let _resendWebhookOpenWarned = false;
+
+function verifyResendWebhookSignature(headersObj, rawBody, secret) {
+  try {
+    const id = String((headersObj && headersObj['svix-id']) || '').trim();
+    const ts = String((headersObj && headersObj['svix-timestamp']) || '').trim();
+    const sigHeader = String((headersObj && headersObj['svix-signature']) || '').trim();
+    if (!id || !ts || !sigHeader) return false;
+    const tsNum = Number(ts);
+    if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > 300) return false;
+    const key = Buffer.from(String(secret).replace(/^whsec_/, ''), 'base64');
+    if (!key.length) return false;
+    const expected = crypto.createHmac('sha256', key).update(id + '.' + ts + '.' + rawBody, 'utf8').digest('base64');
+    return sigHeader.split(/\s+/).some(function (part) {
+      // Each entry looks like "v1,<sig>" — compare only same-version sigs.
+      const commaAt = part.indexOf(',');
+      const candidate = commaAt >= 0 ? part.slice(commaAt + 1) : part;
+      return !!candidate && timingSafeEqualStrings(candidate, expected);
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
+async function handleResendWebhook(req, res) {
+  let raw = '';
+  try {
+    raw = (await readRawBody(req, 1024 * 1024)).toString('utf8');
+  } catch (e) {
+    sendJson(res, 400, { ok: false, message: 'Invalid body.' });
+    return;
+  }
+  const whSecret = String(process.env.RESEND_WEBHOOK_SECRET || '').trim();
+  if (whSecret) {
+    if (!verifyResendWebhookSignature(req.headers, raw, whSecret)) {
+      console.warn('[Resend webhook] Rejected delivery with missing/invalid Svix signature');
+      sendJson(res, 401, { ok: false, error: 'Invalid signature' });
+      return;
+    }
+  } else if (!_resendWebhookOpenWarned) {
+    // Same warn-and-process posture as the Gmail webhook: works before the
+    // owner sets the secret, verifies as soon as it IS set.
+    _resendWebhookOpenWarned = true;
+    console.warn('[Resend webhook] WARNING: RESEND_WEBHOOK_SECRET is not set — accepting UNVERIFIED deliveries. Set it to the Svix signing secret (whsec_…) from the Resend webhook settings to enforce verification.');
+  }
+  let event = null;
+  try { event = JSON.parse(raw || 'null'); } catch (_) { event = null; }
+  const evType = String((event && event.type) || '').toLowerCase();
+  const evData = event && event.data && typeof event.data === 'object' ? event.data : {};
+  const recipients = Array.isArray(evData.to)
+    ? evData.to
+    : (evData.to ? [evData.to] : (evData.email ? [evData.email] : []));
+  let suppressed = 0;
+  if (evType === 'email.bounced' || evType === 'email.complained') {
+    // Only HARD bounces suppress. Resend's bounce object carries the SES-style
+    // type: Permanent (hard) / Transient (soft) / Undetermined — soft and
+    // undetermined bounces are left alone (they may deliver next time).
+    const bounceType = String((evData.bounce && (evData.bounce.type || evData.bounce.bounceType)) || evData.bounce_type || '').toLowerCase();
+    const isSoftBounce = evType === 'email.bounced'
+      && (bounceType === 'transient' || bounceType === 'soft' || bounceType === 'undetermined');
+    if (!isSoftBounce) {
+      const reason = evType === 'email.complained' ? 'complaint' : 'hard_bounce';
+      for (const rcpt of recipients) {
+        const done = await suppressEmail(rcpt, reason, 'resend_webhook');
+        if (done) suppressed++;
+      }
+      if (suppressed > 0) {
+        console.log('[Resend webhook]', evType, '→ suppressed', suppressed, 'recipient(s)');
+      }
+    }
+  }
+  sendJson(res, 200, { ok: true, suppressed });
 }
 
 /* ───────── Admin audit log ─────────
@@ -24094,6 +24375,13 @@ async function handleApi(req, res, pathname) {
   // Zoom scheduling webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoom') {
     return handleZoomSchedulingWebhook(req, res);
+  }
+
+  // Resend bounce/complaint webhook (Phase 6 C3) — external origin, must be
+  // before same-origin enforcement. Svix-signature-verified when
+  // RESEND_WEBHOOK_SECRET is set (warn-and-process while unset, like Gmail).
+  if (req.method === 'POST' && pathname === '/api/webhooks/resend') {
+    return handleResendWebhook(req, res);
   }
 
   // Maintenance: backfill the SPPA-00 conflict scan for cases stuck because the scan never fired
@@ -31875,6 +32163,13 @@ Classify this document.`;
 
     await setAccountStatus(targetEmail, status);
 
+    // C3 audit breadth: WHO changed WHOSE account status. Suspensions use the
+    // dedicated action name already wired into AUDIT_CRITICAL_ACTIONS (owner
+    // email alert); every other status change gets the generic action.
+    await logAdminAction(req, adminCtx,
+      status === 'suspended' ? 'admin_set_account_status_suspended' : 'admin_account_status_changed',
+      { targetType: 'gp', targetId: targetEmail, detail: { status } });
+
     // Send account activated email when status changes to active
     if (status === 'active') {
       const activatedUserId = await getSupabaseUserIdByEmail(targetEmail);
@@ -33061,6 +33356,19 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Please provide a valid email and password.' });
       return;
     }
+    // Phase 6 C3 (M5): per-ACCOUNT lockout, on top of the per-IP rate limit
+    // above (both apply). Checked BEFORE the password so a locked account
+    // never reaches the credential check or the MFA step-up. Time-based
+    // auto-unlock only — no permanent lockout is possible.
+    const acctLock = await getAdminAccountLockState(email);
+    if (acctLock.locked) {
+      const lockMins = Math.max(1, Math.ceil(acctLock.retryAfterMs / 60000));
+      sendJson(res, 429, {
+        ok: false,
+        message: 'Too many failed sign-in attempts for this account. Try again in ' + lockMins + ' minute' + (lockMins === 1 ? '' : 's') + '.'
+      });
+      return;
+    }
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
       const msg = loginResult.data && loginResult.data.msg
@@ -33068,10 +33376,23 @@ Return ONLY valid JSON with no markdown formatting:
         : loginResult.data && loginResult.data.message
           ? loginResult.data.message
           : 'Invalid email or password.';
+      // Count the bad password against the ACCOUNT (per-IP already counted).
+      const acctFail = await registerAdminLoginFailure(email);
+      if (acctFail.justLocked) {
+        await logAdminAction(req, null, 'admin_account_locked', {
+          actorEmail: email,
+          success: false,
+          detail: { reason: 'too_many_failed_logins', lockMinutes: Math.round(acctFail.lockMs / 60000) }
+        });
+      }
       await logAdminAction(req, null, 'admin_login_failure', { actorEmail: email, success: false, detail: { reason: 'bad_credentials', status: loginResult.status } });
       sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
       return;
     }
+    // Correct password ⇒ this is not a brute-force in progress: reset the
+    // per-account failure counter (per brief; happens BEFORE the MFA branch so
+    // the step-up flow is untouched by lockout state).
+    await clearAdminLoginFailures(email);
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
     const adminRole = await resolveAdminRoleForSupabaseUser(loginUser, email);
@@ -38329,6 +38650,9 @@ Return ONLY valid JSON with no markdown formatting:
       const emailResult = await sendEmail({
         to: gpEmail,
         subject: 'GP Link — ' + title,
+        // Nudge = marketing-class mail; suppressed (bounced) recipients are
+        // skipped and the nudge simply records no 'email' channel.
+        category: 'marketing',
         html: buildCareerEmailHtml({
           title: title,
           body: message,
@@ -45542,6 +45866,8 @@ Return ONLY valid JSON with no markdown formatting:
     taEntries.push(taEntry);
     var taSaved = await saveKvConsultantEntries(taEntries);
     if (!taSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+    // C3 audit breadth: WHO granted ATS access to WHOM.
+    await logAdminAction(req, ctxTA, 'ats_consultant_added', { targetType: 'consultant', targetId: taEmail });
     sendJson(res, 200, {
       ok: true,
       consultant: { email: taEntry.email, name: taEntry.name, source: 'kv', created_at: taEntry.added_at },
@@ -45564,6 +45890,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (tdRemoved) {
       var tdSaved = await saveKvConsultantEntries(tdNext);
       if (!tdSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the consultant list.' }); return; }
+      // C3 audit breadth: WHO revoked ATS access from WHOM.
+      await logAdminAction(req, ctxTD, 'ats_consultant_removed', { targetType: 'consultant', targetId: tdEmail });
     }
     // Note: this only revokes ATS access — the Supabase Auth user is kept.
     sendJson(res, 200, { ok: true, removed: tdRemoved });
@@ -45970,6 +46298,14 @@ Return ONLY valid JSON with no markdown formatting:
         console.error('[ats] stage notify failed for app', apId, ':', e && e.message);
       });
     }
+    // C3 audit breadth: lightweight WHO-moved-it trail (ats_stage_events keeps
+    // the full pipeline history; this row records the acting admin/consultant).
+    if (updatedAP && newStage && upAP.prevStage !== newStage) {
+      await logAdminAction(req, ctxAP, 'ats_stage_changed', {
+        targetType: 'application', targetId: apId,
+        detail: { from: upAP.prevStage || '', to: newStage }
+      });
+    }
     sendJson(res, 200, { ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null });
     return;
   }
@@ -46271,6 +46607,11 @@ Return ONLY valid JSON with no markdown formatting:
       await notifyGpOfferSent(ofCtx.userId, ofAppId, ofJobTitle, ofPracticeName)
         .catch(function (e) { console.error('[ats offer] notify failed for app', ofAppId, ':', e && e.message); });
     }
+    // C3 audit breadth: WHO sent an offer on WHICH application (ids/labels only).
+    await logAdminAction(req, ctxOF, 'ats_offer_sent', {
+      targetType: 'application', targetId: ofAppId,
+      detail: { job_title: ofJobTitle.slice(0, 200), practice_name: ofPracticeName.slice(0, 200), contract_attached: ofContractDelivered }
+    });
     sendJson(res, 200, { ok: true, offer: ofSaved, contract_delivered: ofContractDelivered });
     return;
   }
@@ -46304,6 +46645,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (owCtx && (owCtx.app.ats_stage || '') === 'offer') {
       await atsUpdateApplicationStageRow(owAppId, 'reviewing', undefined, 'offer_withdrawn');
     }
+    // C3 audit breadth: WHO withdrew the offer.
+    await logAdminAction(req, ctxOW, 'ats_offer_withdrawn', { targetType: 'application', targetId: owAppId });
     sendJson(res, 200, { ok: true, offer: owUpdated || Object.assign({}, owOffer, { status: 'withdrawn' }) });
     return;
   }
@@ -46336,6 +46679,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (!cvRow || !cvPath) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
     var cvUrl = await supabaseStorageCreateSignedUrl(cvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, cvPath, cvRow.file_name || 'CV.pdf');
     if (!cvUrl) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the CV.' }); return; }
+    // C3 audit breadth: WHO was issued a signed URL to WHOSE CV (ids only —
+    // never the document contents or the signed URL itself).
+    await logAdminAction(req, ctxCV, 'ats_cv_viewed', {
+      targetType: 'gp', targetId: cvResolvedUserId,
+      detail: cvCaseId ? { case_id: String(cvCaseId).slice(0, 120) } : {}
+    });
     sendJson(res, 200, { ok: true, url: cvUrl, file_name: cvRow.file_name || 'CV.pdf' });
     return;
   }
@@ -46365,6 +46714,11 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ocRow || !ocPath) { sendJson(res, 404, { ok: false, message: 'No contract file on file.' }); return; }
     var ocUrl = await supabaseStorageCreateSignedUrl(ocRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, ocPath, ocRow.file_name || 'contract.pdf');
     if (!ocUrl) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the contract.' }); return; }
+    // C3 audit breadth: WHO was issued a signed URL to WHICH offer contract.
+    await logAdminAction(req, ctxOC, 'ats_offer_contract_viewed', {
+      targetType: 'application', targetId: ocAppId,
+      detail: { user_id: ocUserId }
+    });
     sendJson(res, 200, { ok: true, url: ocUrl, file_name: ocRow.file_name || 'contract.pdf' });
     return;
   }
@@ -46408,6 +46762,11 @@ Return ONLY valid JSON with no markdown formatting:
     var plcIsResume = plcOfferStatus === 'accepted';
     var plcResult = await finalizeInAppPlacement(plcApp, plcOffer, plcCtx.userId, plcCtx.gpEmail, {
       isResume: plcIsResume, commencementDate: plcCommence
+    });
+    // C3 audit breadth: WHO manually recorded the placement.
+    await logAdminAction(req, ctxPlc, 'ats_placement_recorded', {
+      targetType: 'application', targetId: plcAppId,
+      detail: { commencement_date: plcCommence || null, resume: plcIsResume }
     });
     sendJson(res, 200, {
       ok: true,
@@ -48208,6 +48567,11 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
   recordServerError,
   recordCronRun,
+  sendEmail,
+  isEmailSuppressed,
+  suppressEmail,
+  recordEmailFailure,
+  verifyResendWebhookSignature,
   respondServerError,
   CRON_SCHEDULES,
   GENERIC_SERVER_ERROR_MESSAGE,
