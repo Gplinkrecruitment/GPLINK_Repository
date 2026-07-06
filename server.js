@@ -24251,6 +24251,112 @@ async function insertScheduledCallRow(row) {
   return local;
 }
 
+// ---- Task 7: practice decision + availability (public token-authed) -------
+
+// Look up a gp_applications row by its practice_action_token (Task 6). Dual-mode.
+// A short/empty token never reaches the DB — mirrors the other public token
+// routes (practice-intake) so a near-miss token can never be distinguished
+// from an unknown one via timing/behaviour.
+async function findApplicationByActionToken(token) {
+  var t = String(token || '').trim();
+  if (!t || t.length < 10) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'select=*&practice_action_token=eq.' + encodeURIComponent(t) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.atsApplications || []).find(function (a) { return a.practice_action_token === t; }) || null;
+}
+
+// Dual-mode PATCH for the practice-decision fields on a gp_applications row.
+async function patchApplicationDecisionFields(id, patch) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+    });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(id); });
+  if (!a) return null;
+  Object.assign(a, patch);
+  saveDbState();
+  return a;
+}
+
+// Dual-mode career_roles.title lookup, reusing getCareerRoleRowById in prod
+// (avoids duplicating the REST call) with a local dbState.atsJobs fallback.
+async function careerRoleTitleForApplication(careerRoleId) {
+  if (!careerRoleId) return '';
+  if (isSupabaseDbConfigured()) {
+    var role = await getCareerRoleRowById(careerRoleId);
+    return (role && role.title) || '';
+  }
+  var localRole = (dbState.atsJobs || []).find(function (j) { return String(j.id) === String(careerRoleId); });
+  return (localRole && localRole.title) || '';
+}
+
+// Find (or create) the interview row for an application — mirrors the
+// self-serve GET /api/career/interview/slots creation code exactly (same
+// buildInterviewRow inputs, same correlation_token requirement) EXCEPT it
+// never overrides practice_availability_status away from buildInterviewRow's
+// default of 'requested': the practice is expected to actually supply times
+// via POST .../availability, so it must not be pre-defaulted the way the
+// GP self-serve path defaults it.
+async function ensureInterviewRowForApplication(appId, ctx, actorLabel) {
+  var existingRef = await findInterviewForApplication(appId);
+  if (existingRef) return existingRef;
+  if (!ctx) return null;
+  var newRow = interviewMeetings.buildInterviewRow({
+    caseId: ctx.caseId,
+    userId: ctx.userId,
+    applicationId: appId,
+    careerRoleId: ctx.careerRoleId,
+    practiceName: ctx.practiceName,
+    createdBy: actorLabel || 'practice_decision',
+    nowIso: new Date().toISOString()
+  });
+  // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default
+  // (see /api/ats/interview/request above) — every insert needs a fresh one.
+  newRow.correlation_token = generateCorrelationToken();
+  return await insertScheduledCallRow(newRow);
+}
+
+// findInterviewForApplication (Supabase branch) only selects id,status for
+// cheap idempotency checks — resolve the FULL row when callers need other
+// columns (practice_availability_status/windows, status='booked', etc).
+async function resolveFullInterviewRow(ref) {
+  if (!ref) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(ref.id) + '&limit=1');
+    return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
+  }
+  return ref; // local-mode rows are never column-filtered — already the full row.
+}
+
+// Validates a practice's proposed interview-availability windows (the shape
+// the scheduler consumes — lib/interview-scheduler.js `overrides`): 1..10
+// entries, real calendar dates from today through +60 days, integer minute
+// bounds with 0 <= fromMin < toMin <= 1560 (26:00 — allows past-midnight).
+// Returns null when valid, else a plain user-facing message.
+function validatePracticeAvailabilityWindows(windows) {
+  if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
+    return 'windows must contain between 1 and 10 entries.';
+  }
+  var todayYmd = new Date().toISOString().slice(0, 10);
+  var maxYmd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  for (var i = 0; i < windows.length; i++) {
+    var w = windows[i];
+    if (!w || typeof w !== 'object') return 'each window must be an object.';
+    var d = String(w.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
+    var parsed = new Date(d + 'T00:00:00Z');
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
+    if (d < todayYmd || d > maxYmd) return 'each window date must be between today and 60 days from now.';
+    if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
+    if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
+  }
+  return null;
+}
+
 // Best-effort practice email send.  A missing transport, empty address, or any
 // thrown error must never block the interview-request endpoint from responding.
 async function sendPracticeAvailabilityEmail(opts) {
@@ -27287,6 +27393,230 @@ async function handleApi(req, res, pathname) {
     }).catch(function (err) { console.error('[practice-intake/sign] team notify email failed:', err && err.message); });
 
     sendJson(res, 200, { ok: true, practice_stage: 'active', job_id: createdJob && createdJob.id });
+    return;
+  }
+
+  // ── Practice decision + availability (Task 7, public token-authed) ───────
+  // Reached from the submit-to-practice introduction email's decision buttons
+  // / pages/practice-decision.html — no session, no account. Token is
+  // gp_applications.practice_action_token (Task 6, stable across resubmits).
+  // Every 404 here is uniform ({ok:false, code:'not_found'}) regardless of
+  // whether the token is missing, malformed, or simply unknown — never
+  // reveal whether it "almost" matched a real application.
+  if (pathname === '/api/practice/application/decision-context' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    const token = String(url.searchParams.get('token') || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    // Read-only: resolve labels + interview state, but never create anything.
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const interviewRow = await resolveFullInterviewRow(await findInterviewForApplication(appRow.id));
+    const decision = appRow.practice_decision === 'approved' ? 'approved'
+      : (appRow.practice_decision === 'turned_down' ? 'turned_down' : null);
+
+    sendJson(res, 200, {
+      ok: true,
+      gpName: (ctx && ctx.gpName) || '',
+      roleTitle: roleTitle || '',
+      practiceName: (ctx && ctx.practiceName) || '',
+      decision: decision,
+      availabilitySubmitted: !!(interviewRow && interviewRow.practice_availability_status === 'received'),
+      interviewBooked: !!(interviewRow && interviewRow.status === 'booked')
+    });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/decision' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    const action = String((body && body.action) || '').trim();
+    if (action !== 'approve' && action !== 'turn_down') {
+      sendJson(res, 400, { ok: false, message: 'action must be "approve" or "turn_down".' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+
+    if (action === 'approve') {
+      // Idempotent: a repeat click on an already-approved link must not
+      // create a second interview row or re-send the notification emails.
+      if (appRow.practice_decision === 'approved') {
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
+      const ctx = await atsGetApplicationContext(appRow.id);
+      const patched = await patchApplicationDecisionFields(appRow.id, {
+        practice_decision: 'approved',
+        practice_decision_at: nowIso,
+        status: 'interview',
+        updated_at: nowIso
+      });
+      if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+      await atsUpdateApplicationStageRow(appRow.id, 'interview', undefined, 'practice_approve');
+      await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+
+      const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+      const practiceName = (ctx && ctx.practiceName) || '';
+      const gpEmail = (ctx && ctx.gpEmail) || '';
+      const gpName = (ctx && ctx.gpName) || 'the candidate';
+
+      // Notifications are best-effort — a Resend outage must never turn an
+      // otherwise-successful approve into a failed request for the practice.
+      if (gpEmail) {
+        sendEmail({
+          to: gpEmail,
+          subject: practiceName + ' would like to interview you!',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: practiceName + ' would like to interview you!',
+            body: 'Great news — ' + practiceName + ' has approved your application for ' + roleTitle + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
+            ctaText: 'View my application',
+            ctaUrl: APP_BASE_URL + '/pages/career.html#applications'
+          })
+        }).catch(function (err) { console.warn('[practice-decision] GP approval email failed:', err && err.message); });
+      }
+
+      sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Practice approved ' + gpName + ' — awaiting their interview times',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Practice approved a candidate',
+          body: practiceName + ' approved ' + gpName + ' for ' + roleTitle + '. Awaiting the practice\'s interview availability.'
+        })
+      }).catch(function (err) { console.warn('[practice-decision] ops notify email failed:', err && err.message); });
+
+      sendJson(res, 200, { ok: true, decision: 'approved' });
+      return;
+    }
+
+    // action === 'turn_down'. No ATS stage exists for a rejection
+    // (ATS_STAGES has no 'rejected'/'not_proceeding' lane reachable from
+    // here) — status/ats_stage are deliberately left untouched, and the team
+    // follows up with the GP personally instead of an automated decline
+    // email (kinder, and avoids a robotic rejection landing unannounced).
+    const reason = String((body && body.reason) || '').trim().slice(0, 500);
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const patched = await patchApplicationDecisionFields(appRow.id, {
+      practice_decision: 'turned_down',
+      practice_decision_at: nowIso,
+      practice_decision_reason: reason || null,
+      updated_at: nowIso
+    });
+    if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const gpName = (ctx && ctx.gpName) || 'the candidate';
+    const practiceName = (ctx && ctx.practiceName) || '';
+
+    sendEmail({
+      to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+      subject: 'Practice turned down ' + gpName + ' for ' + roleTitle,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      html: buildCareerEmailHtml({
+        title: 'Practice turned down a candidate',
+        body: practiceName + ' turned down ' + gpName + ' for ' + roleTitle + (reason ? ('. Reason given: ' + reason) : '.') + ' The team will follow up with the GP personally.'
+      })
+    }).catch(function (err) { console.warn('[practice-decision] turn-down ops email failed:', err && err.message); });
+
+    sendJson(res, 200, { ok: true, decision: 'turned_down' });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/availability' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    if (appRow.practice_decision !== 'approved') {
+      sendJson(res, 409, { ok: false, code: 'not_approved' });
+      return;
+    }
+
+    const windows = body && body.windows;
+    const validationError = validatePracticeAvailabilityWindows(windows);
+    if (validationError) { sendJson(res, 400, { ok: false, message: validationError }); return; }
+
+    const ctx = await atsGetApplicationContext(appRow.id);
+    // Must exist after approve, but re-create defensively (mirrors the
+    // approve handler's own creation code) if a prior insert never landed.
+    const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+    if (!interviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
+
+    const nowIso = new Date().toISOString();
+    const patch = {
+      practice_availability_windows: windows,
+      practice_availability_status: 'received',
+      practice_availability_received_at: nowIso,
+      updated_at: nowIso
+    };
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(interviewRef.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      });
+    } else {
+      Object.assign(interviewRef, patch);
+      saveDbState();
+    }
+
+    // Notify the GP — best-effort, mirrors ingestPracticeAvailabilityReply's
+    // step-4 notify block (WhatsApp + email "your interview times are ready").
+    (async () => {
+      try {
+        const gpUserId = ctx && ctx.userId;
+        if (!gpUserId || !isSupabaseDbConfigured()) return;
+        const pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+        const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+        if (!pRow) return;
+        const firstName = pRow.first_name || 'there';
+        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
+          const dtPhone = normalizePhone(pRow.phone);
+          if (dtPhone) {
+            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
+              signal: AbortSignal.timeout(10000)
+            }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
+          }
+        }
+        if (pRow.email && isEmailConfigured()) {
+          sendEmail({
+            to: pRow.email,
+            subject: 'Your interview slots are ready',
+            text: notifyMsg,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          }).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
+        }
+      } catch (notifyErr) {
+        console.warn('[practice-decision] availability notify error (ignored):', notifyErr && notifyErr.message);
+      }
+    })();
+
+    sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
   }
 
