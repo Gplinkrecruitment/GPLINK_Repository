@@ -47,4 +47,28 @@ describe('buildCandidateIntro', () => {
     expect(typeof out.paragraph).toBe('string');
     expect(Array.isArray(out.facts)).toBe(true);
   });
+  it('uses "This candidate" phrasing when gpName is empty', () => {
+    const out = buildCandidateIntro({ countryCode: 'uk', accountStatus: '', targetDate: '2026-11' });
+    expect(out.paragraph).not.toContain('Dr ');
+    expect(out.paragraph).toContain('This candidate is a');
+    expect(out.paragraph).toContain('This candidate is hoping');
+  });
+  it('locks the second sentence for a two-word name', () => {
+    const out = buildCandidateIntro({ ...base, gpName: 'Smith Miller', targetDate: '2026-11' });
+    expect(out.paragraph).toContain('Dr Miller is hoping to commence work by November 2026, with GP Link managing the registration process end-to-end.');
+  });
+  it('avoids double-Dr when name already has Dr prefix', () => {
+    const out = buildCandidateIntro({ ...base, gpName: 'Dr Jane Doe', targetDate: '2026-11' });
+    expect(out.paragraph).not.toContain('Dr Dr');
+    expect(out.paragraph).toContain('Dr Jane Doe is a');
+  });
+  it('uses single-word name as surname in second sentence', () => {
+    const out = buildCandidateIntro({ ...base, gpName: 'Cher', targetDate: '2026-11' });
+    expect(out.paragraph).toContain('Dr Cher is hoping to commence work');
+  });
+  it('guards against malformed specialty producing broken text', () => {
+    const out = buildCandidateIntro({ ...base, specialty: '— foo' });
+    expect(out.paragraph).not.toContain('holding the ,');
+    expect(out.paragraph).not.toContain('holding the  ');
+  });
 });
