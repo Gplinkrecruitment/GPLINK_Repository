@@ -550,6 +550,45 @@ describe('POST /api/ats/matching/shortlist', () => {
   // Uses role-2 exclusively (never role-1, which the ranking-endpoint tests
   // above already wrote a match_cache row for) so these tests never depend
   // on suite ordering.
+  //
+  // The endpoint now re-checks eligibility server-side before ANY write, so
+  // the shortlisted GPs need REAL pool fixtures (profile + state + CV + case).
+  // Seeded in a describe-scoped beforeAll — i.e. AFTER the ranking endpoint
+  // tests above have already run — so those tests' exact candidate-universe
+  // counts (ranked.length / excluded_count) are not disturbed.
+  beforeAll(() => {
+    db.user_profiles.push(
+      { user_id: 'gp-insert', email: 'gpinsert@test.local', first_name: 'Insert', last_name: 'Able', registration_country: 'uk', qualification_country: 'uk' },
+      { user_id: 'gp-reopen', email: 'gpreopen@test.local', first_name: 'Reopen', last_name: 'Able', registration_country: 'uk', qualification_country: 'uk' },
+      { user_id: 'gp-dpa', email: 'gpdpa@test.local', first_name: 'Overseas', last_name: 'Trained', registration_country: 'uk', qualification_country: 'uk' },
+      { user_id: 'gp-gated', email: 'gpgated@test.local', first_name: 'Under', last_name: 'Review', registration_country: 'uk', qualification_country: 'uk' }
+    );
+    db.user_state.push(
+      { user_id: 'gp-insert', state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: 'gp-reopen', state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: 'gp-dpa', state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: 'gp-gated', state: { gp_onboarding_complete: true, account_status: 'under_review' } }
+    );
+    db.user_documents.push(
+      { id: 'doc-ins', user_id: 'gp-insert', document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'doc-reo', user_id: 'gp-reopen', document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'doc-dpa', user_id: 'gp-dpa', document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'doc-gat', user_id: 'gp-gated', document_key: 'cv_signed_dated', status: 'uploaded' }
+    );
+    db.registration_cases.push(
+      { id: 'case-ins', user_id: 'gp-insert' },
+      { id: 'case-reo', user_id: 'gp-reopen' },
+      { id: 'case-dpa', user_id: 'gp-dpa' },
+      { id: 'case-gat', user_id: 'gp-gated' }
+    );
+    // Non-DPA role for the dpa_ineligible case. is_active:false keeps it out
+    // of the /matching/jobs open-pool query (belt-and-braces — those tests
+    // already ran); the shortlist path looks jobs up directly by id, unaffected.
+    db.career_roles.push(
+      { id: 'role-3', title: 'GP — Sydney (non-DPA)', practice_name: 'Metro Practice', location_city: 'Sydney', location_state: 'NSW', dpa: false, job_status: 'open', is_active: false, provider: 'internal_ats', provider_role_id: 'ats_role3' }
+    );
+  });
+
   it('inserts a fresh shortlisted row, pulling score/reasons from the job-side match_cache', async () => {
     db.match_cache.push({
       id: 'mc-1', subject_type: 'job', subject_id: 'role-2',
@@ -599,6 +638,40 @@ describe('POST /api/ats/matching/shortlist', () => {
     expect(row.match_outcome).toBeNull();
     expect(row.decline_reason).toBeNull();
     expect(row.match_reasons._history).toEqual([{ outcome: 'declined', decline_reason: 'Too far from family', at: expect.any(String) }]);
+  });
+
+  it('re-checks eligibility server-side: DPA-ineligible pairing is blocked and writes nothing', async () => {
+    // gp-dpa is uk-trained (dpaEligible=false); role-3 is dpa:false → hard block.
+    const countBefore = db.gp_applications.length;
+    const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-dpa', career_role_id: 'role-3' }] });
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([
+      { user_id: 'gp-dpa', career_role_id: 'role-3', ok: false, skipped: 'ineligible', blocks: ['dpa_ineligible'] }
+    ]);
+    expect(db.gp_applications.length).toBe(countBefore); // nothing written
+    expect(db.gp_applications.find((a) => a.user_id === 'gp-dpa')).toBeUndefined();
+  });
+
+  it('re-checks eligibility server-side: gated account (under_review) is blocked and writes nothing', async () => {
+    // gp-gated targets role-2 (dpa:true so no DPA block) — only account_gated fires.
+    const countBefore = db.gp_applications.length;
+    const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-gated', career_role_id: 'role-2' }] });
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([
+      { user_id: 'gp-gated', career_role_id: 'role-2', ok: false, skipped: 'ineligible', blocks: ['account_gated'] }
+    ]);
+    expect(db.gp_applications.length).toBe(countBefore); // nothing written
+    expect(db.gp_applications.find((a) => a.user_id === 'gp-gated')).toBeUndefined();
+  });
+
+  it('fails closed for a completely unknown user (no profile, no case)', async () => {
+    const countBefore = db.gp_applications.length;
+    const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-nobody', career_role_id: 'role-2' }] });
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([
+      { user_id: 'gp-nobody', career_role_id: 'role-2', ok: false, error: 'candidate_not_found' }
+    ]);
+    expect(db.gp_applications.length).toBe(countBefore);
   });
 
   it('reports missing_fields / job_not_found without touching the DB', async () => {

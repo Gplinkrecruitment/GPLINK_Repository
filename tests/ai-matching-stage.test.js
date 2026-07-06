@@ -105,6 +105,15 @@ describe('AI Matching Task 1 — shortlisted stage', () => {
       );
     });
 
+    it("re-adds the origin CHECK constraint including 'ai_matched' (Task 2 shortlist inserts), guarded by an existence check", () => {
+      // The live gp_applications_origin_check from migration 20260705100000
+      // only allows gp_applied|admin_applied — without this block every
+      // shortlist insert (origin:'ai_matched') would violate it in prod.
+      expect(sql).toMatch(/SELECT 1 FROM pg_constraint WHERE conname = 'gp_applications_origin_check'/);
+      expect(sql).toMatch(/DROP CONSTRAINT gp_applications_origin_check/);
+      expect(sql).toContain("CHECK (origin IN ('gp_applied','admin_applied','ai_matched'))");
+    });
+
     it('creates match_cache guarded, matching the shared-contract shape', () => {
       expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS match_cache/);
       expect(sql).toMatch(/DEFAULT gen_random_uuid\(\)/);

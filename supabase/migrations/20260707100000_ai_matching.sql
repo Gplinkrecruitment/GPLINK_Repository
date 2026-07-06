@@ -52,6 +52,31 @@ DO $$ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
+-- 2b) origin CHECK constraint: add 'ai_matched' to the allowed set.
+--     The AI Matching shortlist endpoint inserts gp_applications rows with
+--     origin='ai_matched' (a team/AI-initiated match, distinct from
+--     'gp_applied' and 'admin_applied'). The live constraint from migration
+--     20260705100000 only allows the original two values, so every shortlist
+--     insert would violate it without this. Same guarded drop-then-recreate
+--     style as the ats_stage block above.
+--
+--     *** Same constraint-drift warning as the file header: read the LIVE
+--     constraint def in prod BEFORE applying —
+--       SELECT pg_get_constraintdef(oid) FROM pg_constraint
+--       WHERE conname = 'gp_applications_origin_check';
+--     — and confirm the value list below is a superset of what's deployed.
+-- ---------------------------------------------------------------------------
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'gp_applications_origin_check'
+  ) THEN
+    ALTER TABLE gp_applications DROP CONSTRAINT gp_applications_origin_check;
+  END IF;
+  ALTER TABLE gp_applications ADD CONSTRAINT gp_applications_origin_check
+    CHECK (origin IN ('gp_applied','admin_applied','ai_matched'));
+END $$;
+
+-- ---------------------------------------------------------------------------
 -- 3) match_cache: AI ranking results, keyed by subject (a job or a GP), so
 --    repeat lookups within a TTL window reuse the cached ranking instead of
 --    re-calling the model. One row per (subject_type, subject_id).

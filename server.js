@@ -48667,6 +48667,16 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
+    // Server-side eligibility RE-CHECK (fail-closed, like every other gate in
+    // the app): the ranked list the admin clicked can be up to 24h stale, and
+    // a shortlist row reveals the practice + (Task 4) emails the GP and starts
+    // the 5-day clock — so never trust the UI's list alone. One batched
+    // pool-assembly call covering ONLY the user_ids in this request (bounded;
+    // reuses atsBuildGpMatchInputs rather than duplicating the gate logic).
+    var msUserIds = Array.from(new Set(msItems.map(function (it) { return String((it && it.user_id) || '').trim(); }).filter(Boolean)));
+    var msGpMap = await atsBuildGpMatchInputs(msUserIds);
+    var msJobById = {};
+
     var msResults = [];
     for (var mi = 0; mi < msItems.length; mi++) {
       var msItem = msItems[mi] || {};
@@ -48674,21 +48684,44 @@ Return ONLY valid JSON with no markdown formatting:
       var msJobId = String(msItem.career_role_id || '').trim();
       if (!msUserId || !msJobId) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'missing_fields' }); continue; }
 
+      // Job row is needed by every branch now (eligibility reads job.dpa) —
+      // fetched once per distinct job across the whole request.
+      var msJob = Object.prototype.hasOwnProperty.call(msJobById, msJobId)
+        ? msJobById[msJobId]
+        : (msJobById[msJobId] = await atsGetJobRow(msJobId));
+      if (!msJob) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'job_not_found' }); continue; }
+
       var msExistingRes = await supabaseDbRequest('gp_applications',
         'select=*&user_id=eq.' + encodeURIComponent(msUserId) + '&career_role_id=eq.' + encodeURIComponent(msJobId) + '&limit=1');
       var msExisting = (msExistingRes.ok && Array.isArray(msExistingRes.data) && msExistingRes.data[0]) ? msExistingRes.data[0] : null;
+
+      // Live-row check FIRST — its skip reason is more specific than the
+      // eligibility gate's generic 'existing_application' block.
+      var msStage = '';
+      if (msExisting) {
+        msStage = msExisting.ats_stage || atsPracticeUtil.deriveAtsStage(msExisting, false);
+        if (atsPracticeUtil.ATS_STAGES.indexOf(msStage) !== -1) {
+          msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, skipped: 'live_application' });
+          continue;
+        }
+      }
+
+      // Fresh eligibility verdict before ANY write or email (covers both the
+      // reopen and the insert branch). An unknown user (no profile AND no
+      // registration case) fails closed too.
+      var msGp = msGpMap[msUserId];
+      if (!msGp) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'candidate_not_found' }); continue; }
+      var msVerdict = aiCandidateJobMatch.checkMatchEligibility(msGp, { id: msJob.id, dpa: msJob.dpa === true });
+      if (!msVerdict.eligible) {
+        msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, skipped: 'ineligible', blocks: msVerdict.blocks });
+        continue;
+      }
 
       var msCacheEntry = null; // resolved per-branch below (reopen vs insert), once we know which cache map key applies
       var msNowIso = atsNowIso();
       var msExpiresAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
 
       if (msExisting) {
-        var msStage = msExisting.ats_stage || atsPracticeUtil.deriveAtsStage(msExisting, false);
-        if (atsPracticeUtil.ATS_STAGES.indexOf(msStage) !== -1) {
-          msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, skipped: 'live_application' });
-          continue;
-        }
-
         // Terminal row (not_proceeding / declined / expired / position_filled) — reopen SAME row.
         msCacheEntry = (msCacheByJob[msJobId] || {})[msUserId] || null;
         var msReopenReasons = msCacheEntry ? (msCacheEntry.reasons || []) : [];
@@ -48714,9 +48747,7 @@ Return ONLY valid JSON with no markdown formatting:
         continue;
       }
 
-      // No prior row at all — fresh insert.
-      var msJob = await atsGetJobRow(msJobId);
-      if (!msJob) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'job_not_found' }); continue; }
+      // No prior row at all — fresh insert (msJob already loaded above).
       msCacheEntry = (msCacheByJob[msJobId] || {})[msUserId] || null;
 
       var msInsertRow = {
