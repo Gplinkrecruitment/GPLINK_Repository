@@ -154,4 +154,16 @@ describe('Team Alerts redesign (Task 9) — cache buster bumped everywhere', () 
     expect(nativeBridge).not.toContain('/js/updates-sync.js?v=20260516a');
     expect(perfCache).not.toContain('/js/updates-sync.js?v=20260516a');
   });
+
+  it("sw.js CORE_URLS precache manifest matches the pages' current updates-sync buster", () => {
+    const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    const appShell = fs.readFileSync(path.join(ROOT, 'pages/app-shell.html'), 'utf8');
+    // Pin the exact value...
+    expect(sw).toContain('/js/updates-sync.js?v=20260707b');
+    // ...and structurally tie sw.js to whatever buster the pages ship with,
+    // so a future page-side bump that forgets sw.js fails here.
+    const pageBuster = appShell.match(/updates-sync\.js\?v=(\w+)/)[1];
+    const swBuster = sw.match(/updates-sync\.js\?v=(\w+)/)[1];
+    expect(swBuster).toBe(pageBuster);
+  });
 });
