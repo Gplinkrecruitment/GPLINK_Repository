@@ -89,7 +89,10 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
 
   it('keeps the CV upload modal machinery', () => {
     expect(html).toContain('cvModal');
-    expect(html).toContain('/api/career/upload-cv');
+    // The modal uploads through the AI-scanned careers CV endpoint (stores
+    // document_key career_cv) — the legacy /api/career/upload-cv is gone.
+    expect(html).toContain('fetch("/api/career/profile/cv"');
+    expect(html).not.toContain('/api/career/upload-cv');
     expect(html).toContain('readAsDataURL');
     // The CV retry goes through the same guard-aware outcome handler.
     expect(html).toContain('handleApplyOutcome');
