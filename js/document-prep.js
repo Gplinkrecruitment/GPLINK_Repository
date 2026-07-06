@@ -12,8 +12,11 @@
  * serialized state). We also reset the page's batch-meta key so a later
  * flushBatchedSave there can't clobber our write with a stale value.
  *
- * ⚠ PREPARED_DOCS below MUST stay in sync with COUNTRY_DOCS[*].prepared in
- *   pages/my-documents.html. tests/document-prep.test.js guards against drift.
+ * ⚠ PREPARED_DOCS below MUST stay in sync with the per-country prepared lists
+ *   in lib/document-requirements.js (the server-side source of truth served by
+ *   GET /api/gp/document-requirements; pages/my-documents.html renders it and
+ *   keeps a matching FALLBACK_COUNTRY_DOCS). tests/document-prep.test.js and
+ *   tests/doc-requirements.test.js guard against drift.
  */
 (function () {
   "use strict";

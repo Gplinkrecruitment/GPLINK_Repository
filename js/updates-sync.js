@@ -5,6 +5,10 @@
   const NUDGES_SEEN_KEY = "gp_link_nudges_seen";
   const PANEL_ID = "gp-alert-center";
   const PANEL_STYLE_ID = "gp-alert-center-style";
+  // Server merge layer for cross-device read-state (see /api/gp/alerts/read-state).
+  const READ_SYNC_URL = "/api/gp/alerts/read-state";
+  // How many alerts the bell panel shows; the rest are behind the "See all" link.
+  const MAX_BELL_ITEMS = 12;
 
   const DEFAULT_UPDATES = [];
   const DEFAULT_READ_STATE = {};
@@ -94,9 +98,68 @@
 
   function markRead(alertId) {
     if (!alertId) return;
+    // LOCAL-FIRST: the read flag is written to localStorage immediately so the
+    // UI (and offline use) never waits on the network; the server push below is
+    // best-effort and only exists so other devices see the alert as read too.
     const readState = parseReadState();
     readState[alertId] = true;
     saveReadState(readState);
+    pushReadIdsToServer([alertId]);
+  }
+
+  // ── Cross-device alert read-state sync ──
+  // The server keeps a union of read alert ids per GP (own data only). We pull
+  // it and merge into the local read-state (read anywhere = read everywhere),
+  // then push any locally-read ids the server doesn't know about yet. All
+  // failures are swallowed — local behaviour is unchanged when offline.
+  let readSyncInFlight = false;
+  async function syncReadStateWithServer() {
+    if (readSyncInFlight) return false;
+    readSyncInFlight = true;
+    try {
+      const res = await fetch(READ_SYNC_URL, { credentials: "same-origin" });
+      if (!res || !res.ok) return false;
+      const data = await res.json().catch(() => null);
+      if (!data || !data.ok || !data.read || typeof data.read !== "object") return false;
+      const local = parseReadState();
+      let changed = false;
+      Object.keys(data.read).forEach((id) => {
+        if (local[id] !== true) {
+          local[id] = true;
+          changed = true;
+        }
+      });
+      if (changed) {
+        saveReadState(local);
+        refreshInboxBadges();
+        const root = document.getElementById(PANEL_ID);
+        if (root && root.classList.contains("show")) renderPanel();
+      }
+      const missing = Object.keys(local).filter((id) => local[id] === true && !Object.prototype.hasOwnProperty.call(data.read, id));
+      if (missing.length) pushReadIdsToServer(missing);
+      return true;
+    } catch (err) {
+      return false;
+    } finally {
+      readSyncInFlight = false;
+    }
+  }
+
+  function pushReadIdsToServer(ids) {
+    const clean = (Array.isArray(ids) ? ids : [])
+      .filter((id) => typeof id === "string" && id)
+      .slice(0, 200);
+    if (!clean.length) return;
+    try {
+      fetch(READ_SYNC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ ids: clean })
+      }).catch(() => {});
+    } catch (err) {
+      /* fire-and-forget */
+    }
   }
 
   function parseSupportCases() {
@@ -188,7 +251,7 @@
       return bTs - aTs;
     });
 
-    return out.slice(0, 3);
+    return out.slice(0, MAX_BELL_ITEMS);
   }
 
   function saveGpLinkUpdates(updates) {
@@ -478,8 +541,10 @@
   function openPanel(triggerEl) {
     const root = ensurePanelRoot();
     renderPanel();
-    // Fire nudge pull when the user opens the bell — non-blocking, re-renders on new data
+    // Fire nudge pull + read-state reconcile when the user opens the bell —
+    // non-blocking, re-renders on new data
     pullServerNudges();
+    syncReadStateWithServer();
     // Clear any stale inline styles so CSS classes control positioning
     root.style.transform = "";
     root.style.left = "";
@@ -582,13 +647,16 @@
 
   function bootstrapNudgePolling() {
     // Initial pull shortly after load, then every 3 minutes while the tab is visible
-    setTimeout(() => { pullServerNudges(); }, 1500);
+    setTimeout(() => { pullServerNudges(); syncReadStateWithServer(); }, 1500);
     setInterval(() => {
-      if (document.visibilityState === "visible") pullServerNudges();
+      if (document.visibilityState === "visible") { pullServerNudges(); syncReadStateWithServer(); }
     }, 180000);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") pullServerNudges();
+      if (document.visibilityState === "visible") { pullServerNudges(); syncReadStateWithServer(); }
     });
+    // Re-reconcile once state-sync hydration lands — it can replace the local
+    // read-state key with the server's copy of another device's snapshot.
+    window.addEventListener("gp-state-hydrated", () => { syncReadStateWithServer(); }, { once: true });
   }
 
   if (document.readyState === "loading") {

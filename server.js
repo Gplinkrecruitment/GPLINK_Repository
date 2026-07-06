@@ -95,6 +95,7 @@ const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, 
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
+const documentRequirements = require('./lib/document-requirements.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -39034,6 +39035,173 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Per-country document requirements (single source of truth) ──
+  // Serves the ordered institution-sent + GP-prepared document lists that
+  // pages/my-documents.html renders. Country is validated to uk/ie/nz — an
+  // unknown country gets an explicit "unsupported" response, never a silent
+  // UK default. When ?country= is omitted the GP's own country is resolved
+  // through the same chain the rest of the server uses
+  // (user_profiles.registration_country || user_state.gp_selected_country).
+  if (pathname === '/api/gp/document-requirements' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    const supported = documentRequirements.SUPPORTED_DOCUMENT_REQUIREMENT_COUNTRIES;
+    const rawParam = String(url.searchParams.get('country') || '').trim();
+    let rawCountry = rawParam;
+    if (!rawCountry) {
+      // Resolve from the GP's own record (own-data only — no user param accepted).
+      try {
+        if (isSupabaseDbConfigured()) {
+          const drUserId = await getSupabaseUserIdByEmail(email);
+          if (drUserId) {
+            const profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(drUserId) + '&limit=1');
+            rawCountry = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0] && profRes.data[0].registration_country) || '';
+            if (!rawCountry) {
+              const stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(drUserId) + '&limit=1');
+              const st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) || {};
+              let sel = st.gp_selected_country;
+              if (typeof sel === 'string') { try { const p = JSON.parse(sel); if (typeof p === 'string') sel = p; } catch (e) {} }
+              rawCountry = sel || '';
+            }
+          }
+        } else {
+          const localState = dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : {};
+          let sel = localState.gp_selected_country;
+          if (typeof sel === 'string') { try { const p = JSON.parse(sel); if (typeof p === 'string') sel = p; } catch (e) {} }
+          rawCountry = sel || '';
+        }
+      } catch (e) {
+        rawCountry = '';
+      }
+    }
+
+    const resolved = documentRequirements.getDocumentRequirements(rawCountry);
+    if (!resolved) {
+      sendJson(res, 400, {
+        ok: false,
+        unsupported: true,
+        country: String(rawCountry || ''),
+        supported,
+        message: 'Unsupported country for document requirements. Supported: ' + supported.join(', ') + '.'
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      country: resolved.country,
+      supported,
+      requirements: resolved.requirements
+    });
+    return;
+  }
+
+  // ── Cross-device alert read-state sync ──
+  // The bell panel (js/updates-sync.js) is local-first: read/unread state lives
+  // in localStorage so it keeps working offline. This endpoint is the merge
+  // layer that makes a read on one device show as read on the GP's other
+  // devices. The set of read alert ids is stored server-side in the GP's OWN
+  // user_state row under 'gp_alerts_read_sync' — a server-managed key that the
+  // client /api/state sync can neither read nor overwrite (it is not in
+  // USER_STATE_KEYS), so full-state pushes from a stale device can't un-read
+  // alerts. POST is union-only (ids are added, never removed).
+  if (pathname === '/api/gp/alerts/read-state' && (req.method === 'GET' || req.method === 'POST')) {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    // Load the GP's own user_state row (Supabase in production, local JSON in dev).
+    let arsCurrent = {};
+    let arsUserId = null;
+    if (isSupabaseDbConfigured()) {
+      const arsRemote = await getSupabaseUserStateByEmail(email);
+      if (arsRemote) {
+        arsCurrent = arsRemote.state && typeof arsRemote.state === 'object' ? arsRemote.state : {};
+        arsUserId = arsRemote.userId || null;
+      }
+      if (!arsUserId) arsUserId = getSessionSupabaseUserId(session);
+    } else {
+      arsCurrent = dbState.userState[email] && typeof dbState.userState[email] === 'object'
+        ? dbState.userState[email]
+        : {};
+    }
+
+    let readMap = arsCurrent.gp_alerts_read_sync;
+    if (typeof readMap === 'string') { try { readMap = JSON.parse(readMap); } catch (e) { readMap = null; } }
+    if (!readMap || typeof readMap !== 'object' || Array.isArray(readMap)) readMap = {};
+
+    if (req.method === 'GET') {
+      sendJson(res, 200, { ok: true, read: readMap });
+      return;
+    }
+
+    // POST — union-merge the submitted alert ids into the stored map.
+    let arsBody;
+    try {
+      arsBody = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const arsIds = arsBody && Array.isArray(arsBody.ids) ? arsBody.ids : null;
+    if (!arsIds) {
+      sendJson(res, 400, { ok: false, message: 'ids must be an array of alert ids.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    let arsChanged = false;
+    arsIds.slice(0, 200).forEach((id) => {
+      if (typeof id !== 'string') return;
+      const clean = id.trim().slice(0, 300);
+      if (!clean) return;
+      if (!Object.prototype.hasOwnProperty.call(readMap, clean)) {
+        readMap[clean] = nowIso;
+        arsChanged = true;
+      }
+    });
+
+    // Prune to the newest 500 entries so the map can't grow unbounded.
+    const arsKeys = Object.keys(readMap);
+    if (arsKeys.length > 500) {
+      arsKeys
+        .sort((a, b) => (Date.parse(readMap[a]) || 0) - (Date.parse(readMap[b]) || 0))
+        .slice(0, arsKeys.length - 500)
+        .forEach((k) => { delete readMap[k]; arsChanged = true; });
+    }
+
+    if (arsChanged) {
+      const arsNext = { ...arsCurrent, gp_alerts_read_sync: readMap };
+      if (isSupabaseDbConfigured()) {
+        if (!arsUserId) {
+          sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for alert read-state.' });
+          return;
+        }
+        const arsSaved = await upsertSupabaseUserState(arsUserId, arsNext, nowIso);
+        if (!arsSaved) {
+          sendJson(res, 502, { ok: false, message: 'Failed to persist alert read-state.' });
+          return;
+        }
+      } else {
+        dbState.userState[email] = arsNext;
+        saveDbState();
+      }
+    }
+
+    sendJson(res, 200, { ok: true, read: readMap });
     return;
   }
 
