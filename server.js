@@ -217,6 +217,13 @@ const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+// Anthropic Messages endpoint — env-overridable so tests can point new AI
+// call sites at a local emulator. Existing call sites keep their inline URL.
+const ANTHROPIC_MESSAGES_URL = process.env.ANTHROPIC_MESSAGES_URL || 'https://api.anthropic.com/v1/messages';
+// Careers CV genuine-document scans allowed per GP per rolling 24h.
+const CAREER_CV_SCAN_MAX_PER_DAY = Number(process.env.CAREER_CV_SCAN_MAX_PER_DAY || 5);
+// Resend endpoint — env-overridable so tests can capture outbound email.
+const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
 // and COUNTRY_DOCS in js/onboarding.js.
@@ -22279,7 +22286,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
     if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
     // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
     if (headers && typeof headers === 'object') emailPayload.headers = headers;
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetch(RESEND_API_URL, {
       method: 'POST',
       signal: controller.signal,
       headers: {
