@@ -1689,6 +1689,8 @@
       // Populate the Waitlist tabs asynchronously (separate endpoints).
       loadPepWaitlist();
       loadOnbWaitlist();
+      // A8b: populate the per-placement list under Placements & Career.
+      loadPlacementsList();
 
       // Update header escalation badge
       var badge = document.getElementById('headerEscBadge');
@@ -2047,6 +2049,12 @@
       html += placementCell(fmtNum(pl.secured), 'Secured', 'var(--green)', 'secured');
       html += placementCell(fmtNum(pl.active_roles), 'Active Roles', 'var(--text-muted)', '');
       html += '</div>';
+      // A8b: an actual per-placement list (populated asynchronously from
+      // /api/ats/placements after the dashboard renders).
+      html += '<div class="placements-list" id="placementsListMount" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--panel-border)">' +
+        '<div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Recent placements</div>' +
+        '<div id="placementsListBody"><div style="font-size:12px;color:var(--text-dim)">Loading…</div></div>' +
+        '</div>';
       return sectionCard('placements', '&#x1F3E5;', 'Placements & Career', html);
     }
 
@@ -2056,6 +2064,78 @@
         '<div class="placement-cell-value" style="color:' + color + '">' + esc(val) + '</div>' +
         '<div class="placement-cell-label">' + esc(label) + '</div></div>';
     }
+
+    /* A8b: load + render the per-placement list (GP · practice · role · secured
+       · commencement). Commencement is editable inline via a small PATCH-style
+       POST to /api/ats/placement (mode:'update'). */
+    function fmtPlacementDate(iso) {
+      if (!iso) return '—';
+      try {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso).slice(0, 10) || '—';
+        return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      } catch (e) { return String(iso).slice(0, 10) || '—'; }
+    }
+
+    function loadPlacementsList() {
+      var body = document.getElementById('placementsListBody');
+      if (!body) return;
+      apiFetch('/api/ats/placements?limit=50').then(function (d) {
+        var b = document.getElementById('placementsListBody');
+        if (!b) return;
+        var list = (d && d.ok && Array.isArray(d.placements)) ? d.placements : [];
+        if (!list.length) { b.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No placements recorded yet.</div>'; return; }
+        var rows = list.map(function (p) {
+          var dateIso = p.commencement_date ? String(p.commencement_date).slice(0, 10) : '';
+          var canEdit = !!p.application_id;
+          var commenceCell = '<span class="pl-commence-view" style="font-size:12px">' + esc(fmtPlacementDate(p.commencement_date)) + '</span>' +
+            (canEdit ? ' <button type="button" class="pl-commence-edit" data-app-id="' + esc(p.application_id) + '" data-date="' + esc(dateIso) + '" style="background:none;border:none;color:var(--blue);font-size:11px;text-decoration:underline;cursor:pointer;padding:0">edit</button>' : '');
+          return '<tr style="border-top:1px solid var(--panel-border)">' +
+            '<td style="padding:6px 8px;font-size:12px">' + esc(p.gp_name || '—') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px">' + esc(p.practice_name || '—') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted)">' + esc(p.job_title || '—') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted)">' + esc(fmtPlacementDate(p.secured_at)) + '</td>' +
+            '<td style="padding:6px 8px" data-app-id="' + esc(p.application_id || '') + '">' + commenceCell + '</td>' +
+          '</tr>';
+        }).join('');
+        b.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:520px">' +
+          '<thead><tr>' +
+            '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">GP</th>' +
+            '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Practice</th>' +
+            '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Role</th>' +
+            '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Secured</th>' +
+            '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Commencement</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+      }).catch(function () {
+        var b = document.getElementById('placementsListBody');
+        if (b) b.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Could not load placements.</div>';
+      });
+    }
+
+    // Delegated: inline commencement-date edit for a placement row.
+    document.addEventListener('click', function (e) {
+      var editBtn = e.target && e.target.closest ? e.target.closest('.pl-commence-edit') : null;
+      if (!editBtn) return;
+      var appId = editBtn.getAttribute('data-app-id');
+      var cell = editBtn.closest('td');
+      if (!appId || !cell) return;
+      var current = editBtn.getAttribute('data-date') || '';
+      cell.innerHTML = '<input type="date" class="pl-commence-input" value="' + esc(current) + '" style="font-size:12px">' +
+        ' <button type="button" class="pl-commence-save" data-app-id="' + esc(appId) + '" style="background:none;border:none;color:var(--green);font-size:11px;text-decoration:underline;cursor:pointer;padding:0">save</button>';
+    });
+    document.addEventListener('click', function (e) {
+      var saveBtn = e.target && e.target.closest ? e.target.closest('.pl-commence-save') : null;
+      if (!saveBtn) return;
+      var appId = saveBtn.getAttribute('data-app-id');
+      var cell = saveBtn.closest('td');
+      var input = cell ? cell.querySelector('.pl-commence-input') : null;
+      if (!appId || !input) return;
+      saveBtn.disabled = true; saveBtn.textContent = 'saving…';
+      apiFetch('/api/ats/placement', { method: 'POST', body: { applicationId: appId, mode: 'update', commencementDate: input.value || '' } }).then(function (d) {
+        if (d && d.ok) { loadPlacementsList(); }
+        else { saveBtn.disabled = false; saveBtn.textContent = 'save'; alert((d && d.message) || 'Could not update the commencement date.'); }
+      }).catch(function () { saveBtn.disabled = false; saveBtn.textContent = 'save'; });
+    });
 
     /* ── GP Activity ── */
     function renderActivitySection(act) {
@@ -6691,7 +6771,7 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
   <script src="/js/ceo-ats-shared.js?v=20260703c"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260707b"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260707c"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260707b"></script>
   <script src="/js/ceo-ats-practices.js?v=20260706a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260707a"></script>

@@ -22771,6 +22771,249 @@ async function notifyGpOfSelfAcceptedPlacement(userId, applicationId, practiceNa
   ]);
 }
 
+// Shared placement finalization (steps 1-8) used by BOTH the GP self-accept
+// (/api/career/offer/accept) and the admin manual "Mark placement secured"
+// (/api/ats/placement) paths. Given an application with an acceptable in-app
+// offer (status 'sent' → fresh acceptance, or 'accepted' with unfinished
+// downstream writes → resume), it: flips the offer to accepted, advances the
+// kanban to hired, sets gp_applications.status = placement_secured, writes the
+// Zoho-shaped gp_career_state, runs the placement task automation, records the
+// placement-of-record row, fills an internal job, and (only on the FIRST
+// sent→accepted transition — never on a resume) notifies the offer sender + the
+// GP and audits the case timeline. Notifications fire exactly once because the
+// sole trigger is that transition, shared by both callers.
+//   opts.isResume          — true when the offer is already 'accepted'
+//   opts.commencementDate   — optional YYYY-MM-DD start/commencement override
+// Returns { acceptedOffer, storedStage, nextStage, caseId } for the caller's
+// response. Never throws for best-effort steps (each is individually guarded).
+async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
+  var options = opts && typeof opts === 'object' ? opts : {};
+  var isResume = !!options.isResume;
+  var commencementDate = /^\d{4}-\d{2}-\d{2}$/.test(String(options.commencementDate || '').trim())
+    ? String(options.commencementDate).trim() : null;
+  var storedStage = targetApp.ats_stage || '';
+  var nextStage = atsPracticeUtil.planAtsStageReconciliation(storedStage, 'hired');
+  var nowIso = new Date().toISOString();
+
+  // (1) Offer record → accepted (skipped on resume — it already is).
+  var acceptedOffer = isResume
+    ? offer
+    : ((await atsOffersStore.updateAtsOfferStatus(String(targetApp.id), 'accepted', { responded_at: nowIso }))
+      || Object.assign({}, offer, { status: 'accepted', responded_at: nowIso }));
+
+  // (2) Kanban → hired (forward-only; quiet no-op when already there).
+  if (nextStage) {
+    var updatedRow = await atsUpdateApplicationStageRow(targetApp.id, 'hired', undefined, 'gp_accept_offer');
+    if (!updatedRow || !updatedRow.row) { console.error('[placement] stage update failed for app', targetApp.id); }
+  }
+  // gp_applications.status → placement_secured.
+  if (isSupabaseDbConfigured()) {
+    await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(targetApp.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'placement_secured', updated_at: nowIso }
+    });
+  } else {
+    targetApp.status = 'placement_secured';
+    targetApp.updated_at = nowIso;
+    saveDbState();
+  }
+
+  // Context for the payload, the case event and the sender email.
+  var ctx = null;
+  try { ctx = await atsGetApplicationContext(String(targetApp.id)); } catch (e) { ctx = null; }
+  var roleRow = null;
+  if (targetApp.career_role_id) {
+    try {
+      roleRow = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(targetApp.career_role_id)
+        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(targetApp.career_role_id); }) || null);
+    } catch (e) { roleRow = null; }
+  }
+
+  // (3) Local placement payload — the offer terms are the source of truth. A
+  // manual commencement override rides on a shallow-cloned offer so the shape
+  // (start date) matches what the GP self-accept would have produced.
+  var offerForPlacement = commencementDate
+    ? Object.assign({}, acceptedOffer, { start_date: commencementDate })
+    : acceptedOffer;
+  var placement = null;
+  try {
+    placement = await resolveInAppPlacementForApplication(
+      targetApp,
+      offerForPlacement,
+      { registration_country: ctx && ctx.gpCountry },
+      { roleRow: roleRow, gpCountry: ctx && ctx.gpCountry }
+    );
+  } catch (e) {
+    console.error('[placement] placement payload failed for app', targetApp.id, ':', e && e.message);
+  }
+
+  // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape.
+  if (isSupabaseDbConfigured()) {
+    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var currentState = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && typeof stateRes.data[0].state === 'object'
+      ? stateRes.data[0].state : {};
+    var prevState = JSON.parse(JSON.stringify(currentState));
+    var careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
+    var stateApps = Array.isArray(careerState.applications) ? careerState.applications : [];
+    var appIdx = stateApps.findIndex(function (a) { return a && String(a.id) === String(targetApp.id); });
+    var entry = {
+      id: String(targetApp.id),
+      status: 'placement_secured',
+      isPlacementSecured: true,
+      placement: placement,
+      provider_role_id: targetApp.provider_role_id || ''
+    };
+    if (appIdx >= 0) Object.assign(stateApps[appIdx], entry);
+    else stateApps.push(entry);
+    careerState.applications = stateApps;
+    careerState.career_secured = true;
+    currentState.gp_career_state = careerState;
+    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', body: { state: currentState }
+    });
+
+    // (5) Task automation (practice pack, AHPRA unlock, WhatsApp/email journey).
+    try {
+      await processRegistrationTaskAutomation(userId, email, prevState, currentState);
+    } catch (autoErr) {
+      console.error('[placement] task automation failed for user', userId, ':', autoErr && autoErr.message);
+    }
+  }
+
+  // (6) Placement-of-record row (tolerantly skipped until the migration lands).
+  try {
+    await atsOffersStore.insertAtsPlacement({
+      user_id: targetApp.user_id || userId,
+      application_id: String(targetApp.id),
+      career_role_id: targetApp.career_role_id || null,
+      practice_id: acceptedOffer.practice_id || null,
+      practice_name: (placement && placement.practiceName) || acceptedOffer.practice_name || '',
+      job_title: (placement && placement.roleTitle) || acceptedOffer.job_title || '',
+      location: (placement && placement.location) || '',
+      billing_split: acceptedOffer.billing_split || '',
+      sessions_per_week: acceptedOffer.sessions_per_week || '',
+      compensation_range: acceptedOffer.compensation_range || '',
+      start_date: commencementDate || acceptedOffer.start_date || null,
+      contract_document_key: acceptedOffer.contract_document_key || null,
+      offer_id: acceptedOffer.id || null,
+      placed_by: acceptedOffer.sent_by || '',
+      placed_at: nowIso,
+      status: 'active'
+    });
+  } catch (plErr) {
+    console.error('[placement] placements insert failed for app', targetApp.id, ':', plErr && plErr.message);
+  }
+
+  // (7) Internal (in-app) jobs are filled by this acceptance.
+  try {
+    if (roleRow && roleRow.provider === 'internal_ats' && roleRow.job_status !== 'filled') {
+      await atsUpdateJobRow(roleRow.id, { job_status: 'filled' });
+    }
+  } catch (jobErr) {
+    console.error('[placement] job fill update failed for role', targetApp.career_role_id, ':', jobErr && jobErr.message);
+  }
+
+  // (8) Notify the offer sender + the GP + audit the timeline — ONLY on the
+  // sent→accepted transition (never on a resume), so they fire exactly once.
+  if (!isResume) {
+    try {
+      await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: ctx && ctx.gpName });
+    } catch (senderErr) {
+      console.error('[placement] sender notify failed for app', targetApp.id, ':', senderErr && senderErr.message);
+    }
+    try {
+      var hasInterview = false;
+      if (isSupabaseDbConfigured()) {
+        var ivRes = await supabaseDbRequest('scheduled_calls',
+          'select=id&meeting_kind=eq.interview&status=eq.booked&application_id=eq.' + encodeURIComponent(String(targetApp.id)) + '&limit=1');
+        hasInterview = !!(ivRes.ok && Array.isArray(ivRes.data) && ivRes.data.length);
+      }
+      var practiceName = (placement && placement.practiceName)
+        || (acceptedOffer && acceptedOffer.practice_name)
+        || (ctx && ctx.practiceName)
+        || '';
+      await notifyGpOfSelfAcceptedPlacement(userId, targetApp.id, practiceName, hasInterview);
+    } catch (gpNotifyErr) {
+      console.error('[placement] GP congrats notify failed for app', targetApp.id, ':', gpNotifyErr && gpNotifyErr.message);
+    }
+    if (ctx && ctx.caseId) {
+      try {
+        await _logCaseEvent(ctx.caseId, null, 'system',
+          'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
+          null, 'system');
+      } catch (evErr) { /* timeline is best-effort */ }
+    }
+  }
+
+  return { acceptedOffer: acceptedOffer, storedStage: storedStage, nextStage: nextStage, caseId: ctx && ctx.caseId };
+}
+
+// A8b: shape placement rows for the CEO list, resolving the GP display name
+// (which isn't stored on the placement row). Batched name lookup, dual-mode.
+async function atsEnrichPlacements(placements) {
+  var list = Array.isArray(placements) ? placements : [];
+  var nameByUser = {};
+  var userIds = list.map(function (p) { return p && p.user_id; }).filter(Boolean).map(String);
+  if (userIds.length) {
+    var uniq = Array.from(new Set(userIds));
+    if (isSupabaseDbConfigured()) {
+      var upr = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name&user_id=in.(' + encodeURIComponent(uniq.join(',')) + ')&limit=500');
+      ((upr.ok && upr.data) || []).forEach(function (u) {
+        nameByUser[String(u.user_id)] = [String(u.first_name || '').trim(), String(u.last_name || '').trim()].filter(Boolean).join(' ');
+      });
+    } else {
+      (dbState.atsCandidates || []).forEach(function (c) { if (c && c.user_id) nameByUser[String(c.user_id)] = c.name || ''; });
+    }
+  }
+  return list.map(function (p) {
+    return {
+      id: p.id || '',
+      application_id: p.application_id || '',
+      gp_name: nameByUser[String(p.user_id)] || p.gp_name || '—',
+      practice_name: p.practice_name || '',
+      job_title: p.job_title || '',
+      location: p.location || '',
+      secured_at: p.placed_at || p.created_at || '',
+      commencement_date: p.start_date || ''
+    };
+  });
+}
+
+// A8b fallback: when the placements table is empty/un-applied, derive the list
+// from gp_applications rows at status 'placement_secured', enriching the role
+// title/practice from career_roles (prod-only; gp_career_state is the durable
+// record the accept path always writes).
+async function atsDerivePlacementsFromCareerState(limit) {
+  if (!isSupabaseDbConfigured()) return [];
+  var lim = Math.max(1, Math.min(Number(limit) || 50, 200));
+  var appRes = await supabaseDbRequest('gp_applications',
+    'select=id,user_id,career_role_id,updated_at,applied_at&status=eq.placement_secured&order=updated_at.desc&limit=' + lim);
+  var apps = (appRes.ok && Array.isArray(appRes.data)) ? appRes.data : [];
+  if (!apps.length) return [];
+  var roleIds = Array.from(new Set(apps.map(function (a) { return a.career_role_id; }).filter(Boolean).map(String)));
+  var roleMap = {};
+  if (roleIds.length) {
+    var rr = await supabaseDbRequest('career_roles',
+      'select=id,title,practice_name,location_city,location_state&id=in.(' + encodeURIComponent(roleIds.join(',')) + ')&limit=500');
+    ((rr.ok && rr.data) || []).forEach(function (r) { roleMap[String(r.id)] = r; });
+  }
+  return apps.map(function (a) {
+    var role = roleMap[String(a.career_role_id)] || {};
+    var loc = [role.location_city, role.location_state].filter(Boolean).join(', ');
+    return {
+      id: '',
+      application_id: a.id,
+      user_id: a.user_id,
+      practice_name: role.practice_name || '',
+      job_title: role.title || '',
+      location: loc,
+      placed_at: a.updated_at || a.applied_at || '',
+      start_date: ''
+    };
+  });
+}
+
 // Tell the consultant/CEO who SENT the offer what the doctor decided
 // (standalone-ATS Task C). Plain professional copy, addressed to
 // offer.sent_by. Best-effort: never throws; failures are logged by callers.
@@ -23031,7 +23274,10 @@ function atsOfferCardState(offerRow) {
   return {
     status: status,
     label: labels[status] || status,
-    sent_at: offerRow.sent_at || null
+    sent_at: offerRow.sent_at || null,
+    // A7b: drives the drawer's "View contract" link — only when a contract was
+    // actually stored against the offer (contract_document_key set on send).
+    has_contract: !!(offerRow && offerRow.contract_document_key)
   };
 }
 
@@ -26342,163 +26588,11 @@ async function handleApi(req, res, pathname) {
     }
 
     // ── In-app offer: accepting completes the placement ──
-    // ('sent' → fresh acceptance; 'accepted' with an unfinished placement → resume)
-    const acceptNowIso = new Date().toISOString();
-
-    // (1) Offer record → accepted (skipped on resume — it already is).
-    const acceptedOffer = acceptIsResume
-      ? acceptOffer
-      : ((await atsOffersStore.updateAtsOfferStatus(String(acceptTargetApp.id), 'accepted', { responded_at: acceptNowIso }))
-        || Object.assign({}, acceptOffer, { status: 'accepted', responded_at: acceptNowIso }));
-
-    // (2) Kanban → hired (forward-only; quiet no-op when already there).
-    if (acceptNextStage) {
-      const acceptUpdatedRow = await atsUpdateApplicationStageRow(acceptTargetApp.id, 'hired', undefined, 'gp_accept_offer');
-      if (!acceptUpdatedRow || !acceptUpdatedRow.row) { console.error('[offer-accept] stage update failed for app', acceptTargetApp.id); }
-    }
-    // gp_applications.status → placement_secured — the value the apply-guard,
-    // withdraw-block and /api/career/applications key off.
-    if (isSupabaseDbConfigured()) {
-      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acceptTargetApp.id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'placement_secured', updated_at: acceptNowIso }
-      });
-    } else {
-      acceptTargetApp.status = 'placement_secured';
-      acceptTargetApp.updated_at = acceptNowIso;
-      saveDbState();
-    }
-
-    // Context for the payload, the case event and the sender email.
-    let acceptCtx = null;
-    try { acceptCtx = await atsGetApplicationContext(String(acceptTargetApp.id)); } catch (e) { acceptCtx = null; }
-    let acceptRoleRow = null;
-    if (acceptTargetApp.career_role_id) {
-      try {
-        acceptRoleRow = isSupabaseDbConfigured()
-          ? await getCareerRoleRowById(acceptTargetApp.career_role_id)
-          : ((dbState.atsJobs || []).find((j) => String(j.id) === String(acceptTargetApp.career_role_id)) || null);
-      } catch (e) { acceptRoleRow = null; }
-    }
-
-    // (3) Local placement payload — the offer terms are the source of truth.
-    let acceptPlacement = null;
-    try {
-      acceptPlacement = await resolveInAppPlacementForApplication(
-        acceptTargetApp,
-        acceptedOffer,
-        { registration_country: acceptCtx && acceptCtx.gpCountry },
-        { roleRow: acceptRoleRow, gpCountry: acceptCtx && acceptCtx.gpCountry }
-      );
-    } catch (e) {
-      console.error('[offer-accept] placement payload failed for app', acceptTargetApp.id, ':', e && e.message);
-    }
-
-    // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape, so career.html,
-    // the AHPRA prerequisites and the dashboards all read it unchanged.
-    if (isSupabaseDbConfigured()) {
-      const acceptStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(acceptUserId) + '&limit=1');
-      const acceptCurrentState = acceptStateRes.ok && Array.isArray(acceptStateRes.data) && acceptStateRes.data[0] && typeof acceptStateRes.data[0].state === 'object'
-        ? acceptStateRes.data[0].state : {};
-      // Snapshot prev state before mutation so task automation can diff.
-      const acceptPrevState = JSON.parse(JSON.stringify(acceptCurrentState));
-      const acceptCareerState = acceptCurrentState.gp_career_state && typeof acceptCurrentState.gp_career_state === 'object' ? acceptCurrentState.gp_career_state : {};
-      const acceptStateApps = Array.isArray(acceptCareerState.applications) ? acceptCareerState.applications : [];
-      const acceptAppIdx = acceptStateApps.findIndex((a) => a && String(a.id) === String(acceptTargetApp.id));
-      const acceptEntry = {
-        id: String(acceptTargetApp.id),
-        status: 'placement_secured',
-        isPlacementSecured: true,
-        placement: acceptPlacement,
-        provider_role_id: acceptTargetApp.provider_role_id || ''
-      };
-      if (acceptAppIdx >= 0) Object.assign(acceptStateApps[acceptAppIdx], acceptEntry);
-      else acceptStateApps.push(acceptEntry);
-      acceptCareerState.applications = acceptStateApps;
-      acceptCareerState.career_secured = true;
-      acceptCurrentState.gp_career_state = acceptCareerState;
-      await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(acceptUserId), {
-        method: 'PATCH', body: { state: acceptCurrentState }
-      });
-
-      // (5) Task automation (practice pack, AHPRA unlock, WhatsApp/email
-      // journey) — awaited so a serverless freeze after res.end can't drop it;
-      // failures never block the acceptance itself.
-      try {
-        await processRegistrationTaskAutomation(acceptUserId, acceptEmail, acceptPrevState, acceptCurrentState);
-      } catch (autoErr) {
-        console.error('[offer-accept] task automation failed for user', acceptUserId, ':', autoErr && autoErr.message);
-      }
-    }
-
-    // (6) Placement-of-record row (tolerantly skipped until the placements
-    // migration is applied — gp_career_state above stays the durable record).
-    try {
-      await atsOffersStore.insertAtsPlacement({
-        user_id: acceptTargetApp.user_id || acceptUserId,
-        application_id: String(acceptTargetApp.id),
-        career_role_id: acceptTargetApp.career_role_id || null,
-        practice_id: acceptedOffer.practice_id || null,
-        practice_name: (acceptPlacement && acceptPlacement.practiceName) || acceptedOffer.practice_name || '',
-        job_title: (acceptPlacement && acceptPlacement.roleTitle) || acceptedOffer.job_title || '',
-        location: (acceptPlacement && acceptPlacement.location) || '',
-        billing_split: acceptedOffer.billing_split || '',
-        sessions_per_week: acceptedOffer.sessions_per_week || '',
-        compensation_range: acceptedOffer.compensation_range || '',
-        start_date: acceptedOffer.start_date || null,
-        contract_document_key: acceptedOffer.contract_document_key || null,
-        offer_id: acceptedOffer.id || null,
-        placed_by: acceptedOffer.sent_by || '',
-        placed_at: acceptNowIso,
-        status: 'active'
-      });
-    } catch (plErr) {
-      console.error('[offer-accept] placements insert failed for app', acceptTargetApp.id, ':', plErr && plErr.message);
-    }
-
-    // (7) Internal (in-app) jobs are filled by this acceptance.
-    try {
-      if (acceptRoleRow && acceptRoleRow.provider === 'internal_ats' && acceptRoleRow.job_status !== 'filled') {
-        await atsUpdateJobRow(acceptRoleRow.id, { job_status: 'filled' });
-      }
-    } catch (jobErr) {
-      console.error('[offer-accept] job fill update failed for role', acceptTargetApp.career_role_id, ':', jobErr && jobErr.message);
-    }
-
-    // (8) Tell the consultant who sent the offer + audit the case timeline —
-    // ONLY on the sent→accepted transition. A resume re-runs the placement
-    // writes above but must never re-email or double-log.
-    if (!acceptIsResume) {
-      try {
-        await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: acceptCtx && acceptCtx.gpName });
-      } catch (senderErr) {
-        console.error('[offer-accept] sender notify failed for app', acceptTargetApp.id, ':', senderErr && senderErr.message);
-      }
-      // G6: congratulate the GP on their own acceptance — the practice-accept
-      // congrats email never fires for in-app self-accept (no liveRecord). Only
-      // on this first sent→accepted transition, so it is sent exactly once.
-      try {
-        var acceptHasInterview = false;
-        if (isSupabaseDbConfigured()) {
-          var acceptIvRes = await supabaseDbRequest('scheduled_calls',
-            'select=id&meeting_kind=eq.interview&status=eq.booked&application_id=eq.' + encodeURIComponent(String(acceptTargetApp.id)) + '&limit=1');
-          acceptHasInterview = !!(acceptIvRes.ok && Array.isArray(acceptIvRes.data) && acceptIvRes.data.length);
-        }
-        var acceptPracticeName = (acceptPlacement && acceptPlacement.practiceName)
-          || (acceptedOffer && acceptedOffer.practice_name)
-          || (acceptCtx && acceptCtx.practiceName)
-          || '';
-        await notifyGpOfSelfAcceptedPlacement(acceptUserId, acceptTargetApp.id, acceptPracticeName, acceptHasInterview);
-      } catch (gpNotifyErr) {
-        console.error('[offer-accept] GP congrats notify failed for app', acceptTargetApp.id, ':', gpNotifyErr && gpNotifyErr.message);
-      }
-      if (acceptCtx && acceptCtx.caseId) {
-        try {
-          await _logCaseEvent(acceptCtx.caseId, null, 'system',
-            'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
-            null, 'system');
-        } catch (evErr) { /* timeline is best-effort */ }
-      }
-    }
+    // ('sent' → fresh acceptance; 'accepted' with an unfinished placement →
+    // resume). The full 8-step finalization is shared with the admin manual
+    // "Mark placement secured" path (/api/ats/placement) via this helper so the
+    // two can never drift; notifications fire exactly once (sent→accepted only).
+    await finalizeInAppPlacement(acceptTargetApp, acceptOffer, acceptUserId, acceptEmail, { isResume: acceptIsResume });
 
     sendJson(res, 200, {
       ok: true,
@@ -45462,6 +45556,132 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- A6: consultant CV access --------------------------------------------
+  // Returns a short-lived signed URL for the candidate's CV document ONLY.
+  // Consultants are explicitly allowed (that's the point — they can't open the
+  // RSO file). NEVER exposes ID/passport or any other document type: it looks
+  // up exactly one document_key (cv_signed_dated) and nothing else.
+  if (pathname === '/api/ats/candidate-cv' && req.method === 'GET') {
+    var ctxCV = requireAtsSession(req, res); if (!ctxCV) return;
+    var cvCaseId = url.searchParams.get('case_id') || url.searchParams.get('caseId') || '';
+    var cvUserId = url.searchParams.get('user_id') || url.searchParams.get('userId') || '';
+    var cvResolvedUserId = String(cvUserId || '').trim();
+    if (!cvResolvedUserId && cvCaseId) {
+      if (isSupabaseDbConfigured()) {
+        var cvCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(cvCaseId) + '&limit=1');
+        cvResolvedUserId = (cvCaseRes.ok && Array.isArray(cvCaseRes.data) && cvCaseRes.data[0] && cvCaseRes.data[0].user_id) || '';
+      } else {
+        var cvLocal = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(cvCaseId) || String(r.user_id) === String(cvCaseId); });
+        cvResolvedUserId = cvLocal ? (cvLocal.user_id || '') : '';
+      }
+    }
+    if (!cvResolvedUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
+    var cvRes = await supabaseDbRequest('user_documents',
+      'select=file_name,file_url,storage_path,storage_bucket&user_id=eq.' + encodeURIComponent(cvResolvedUserId) + '&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1');
+    var cvRow = (cvRes.ok && Array.isArray(cvRes.data) && cvRes.data[0]) ? cvRes.data[0] : null;
+    var cvPath = cvRow ? String(cvRow.storage_path || cvRow.file_url || '').trim() : '';
+    if (!cvRow || !cvPath) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
+    var cvUrl = await supabaseStorageCreateSignedUrl(cvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, cvPath, cvRow.file_name || 'CV.pdf');
+    if (!cvUrl) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the CV.' }); return; }
+    sendJson(res, 200, { ok: true, url: cvUrl, file_name: cvRow.file_name || 'CV.pdf' });
+    return;
+  }
+
+  // ---- A7b: consultant offer-contract access -------------------------------
+  // Signed URL for the contract stored against an application's in-app offer
+  // (the offer_contract document delivered to the GP at send time). Keyed by
+  // the offer's contract_document_key so it only ever resolves that document.
+  if (pathname === '/api/ats/offer-contract' && req.method === 'GET') {
+    var ctxOC = requireAtsSession(req, res); if (!ctxOC) return;
+    var ocAppId = url.searchParams.get('application_id') || url.searchParams.get('applicationId') || '';
+    if (!ocAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ocOffer = await atsOffersStore.getAtsOfferByApplication(ocAppId);
+    var ocKey = ocOffer && ocOffer.contract_document_key ? String(ocOffer.contract_document_key) : '';
+    if (!ocKey) { sendJson(res, 404, { ok: false, message: 'No contract stored for this offer.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'No contract file on file.' }); return; }
+    var ocUserId = String((ocOffer && ocOffer.user_id) || '').trim();
+    if (!ocUserId) {
+      var ocCtx = await atsGetApplicationContext(ocAppId);
+      ocUserId = String((ocCtx && ocCtx.userId) || '').trim();
+    }
+    if (!ocUserId) { sendJson(res, 404, { ok: false, message: 'No contract file on file.' }); return; }
+    var ocRes = await supabaseDbRequest('user_documents',
+      'select=file_name,file_url,storage_path,storage_bucket&user_id=eq.' + encodeURIComponent(ocUserId) + '&document_key=eq.' + encodeURIComponent(ocKey) + '&order=updated_at.desc&limit=1');
+    var ocRow = (ocRes.ok && Array.isArray(ocRes.data) && ocRes.data[0]) ? ocRes.data[0] : null;
+    var ocPath = ocRow ? String(ocRow.storage_path || ocRow.file_url || '').trim() : '';
+    if (!ocRow || !ocPath) { sendJson(res, 404, { ok: false, message: 'No contract file on file.' }); return; }
+    var ocUrl = await supabaseStorageCreateSignedUrl(ocRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, ocPath, ocRow.file_name || 'contract.pdf');
+    if (!ocUrl) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the contract.' }); return; }
+    sendJson(res, 200, { ok: true, url: ocUrl, file_name: ocRow.file_name || 'contract.pdf' });
+    return;
+  }
+
+  // ---- A8a: manual "Mark placement secured" + commencement edit ------------
+  // A consultant/CEO records a placement the SAME way the GP self-accept does
+  // (verbal acceptances can't be self-clicked by the doctor). mode:'update'
+  // just edits the commencement date on an existing placement of record.
+  if (pathname === '/api/ats/placement' && req.method === 'POST') {
+    var ctxPlc = requireAtsSession(req, res); if (!ctxPlc) return;
+    var bodyPlc; try { bodyPlc = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var plcMode = String((bodyPlc && bodyPlc.mode) || '').trim();
+    var plcAppId = (bodyPlc && bodyPlc.applicationId != null) ? String(bodyPlc.applicationId) : '';
+    if (!plcAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    var plcCommence = /^\d{4}-\d{2}-\d{2}$/.test(String((bodyPlc && bodyPlc.commencementDate) || '').trim())
+      ? String(bodyPlc.commencementDate).trim() : null;
+
+    // Update mode — only touch the commencement date on the placement row.
+    if (plcMode === 'update') {
+      var plcUpdated = await atsOffersStore.updateAtsPlacementCommencement(plcAppId, plcCommence);
+      if (!plcUpdated) { sendJson(res, 404, { ok: false, message: 'No placement found to update.' }); return; }
+      sendJson(res, 200, { ok: true, placement: plcUpdated });
+      return;
+    }
+
+    // Create mode — finalize the placement.
+    var plcCtx = await atsGetApplicationContext(plcAppId);
+    if (!plcCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    var plcApp = plcCtx.app;
+    var plcOffer = await atsOffersStore.getAtsOfferByApplication(plcAppId);
+    var plcOfferStatus = plcOffer ? String(plcOffer.status || '').trim().toLowerCase() : '';
+    if (!plcOffer || (plcOfferStatus !== 'sent' && plcOfferStatus !== 'accepted')) {
+      sendJson(res, 409, { ok: false, message: 'Send an offer first — a placement is recorded once an offer is on the table.' });
+      return;
+    }
+    var plcAppStatus = String(plcApp.status || '').trim().toLowerCase();
+    if (plcOfferStatus === 'accepted' && plcAppStatus === 'placement_secured') {
+      sendJson(res, 409, { ok: false, code: 'already_secured', message: 'This placement is already secured.' });
+      return;
+    }
+    var plcIsResume = plcOfferStatus === 'accepted';
+    var plcResult = await finalizeInAppPlacement(plcApp, plcOffer, plcCtx.userId, plcCtx.gpEmail, {
+      isResume: plcIsResume, commencementDate: plcCommence
+    });
+    sendJson(res, 200, {
+      ok: true,
+      applicationId: plcAppId,
+      ats_stage: plcResult.nextStage ? 'hired' : (plcResult.storedStage || 'hired'),
+      placement_secured: true
+    });
+    return;
+  }
+
+  // ---- A8b: placements list ------------------------------------------------
+  // Read-only list for the CEO "Placements & Career" block. Primary source is
+  // the placements table; when it is empty/un-applied we fall back to deriving
+  // secured placements from gp_applications + gp_career_state.
+  if (pathname === '/api/ats/placements' && req.method === 'GET') {
+    var ctxPls = requireAtsSession(req, res); if (!ctxPls) return;
+    var plsLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 200));
+    var plsRows = await atsOffersStore.listAtsPlacements({ limit: plsLimit });
+    if ((!plsRows || !plsRows.length) && isSupabaseDbConfigured()) {
+      plsRows = await atsDerivePlacementsFromCareerState(plsLimit);
+    }
+    var plsList = await atsEnrichPlacements(plsRows || []);
+    sendJson(res, 200, { ok: true, placements: plsList });
+    return;
+  }
+
   // ---- Interview request ---------------------------------------------------
   if (pathname === '/api/ats/interview/request' && req.method === 'POST') {
     var ctxIR = requireAtsSession(req, res); if (!ctxIR) return;
@@ -46975,12 +47195,21 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
   }
 
   // 3. Store on the row (dual-mode).
+  //    Folded T3 fix: when the parser finds ZERO windows we must NOT flip the
+  //    status to 'received' — that would strand the card in a "waiting for the
+  //    doctor to pick a slot" state with no slots to pick and hide the operator's
+  //    "Paste reply" / "Use standard times" escape hatches. Instead we keep the
+  //    status at 'requested' so those actions stay on the card, and skip the GP
+  //    "slots are ready" nudge (there's nothing to choose yet).
+  var hasWindows = Array.isArray(windows) && windows.length > 0;
   var patch = {
     practice_availability_windows: windows,
-    practice_availability_status: interviewMeetings.PRACTICE_AVAIL.RECEIVED,
-    practice_availability_received_at: now,
+    practice_availability_status: hasWindows
+      ? interviewMeetings.PRACTICE_AVAIL.RECEIVED
+      : interviewMeetings.PRACTICE_AVAIL.REQUESTED,
     updated_at: now
   };
+  if (hasWindows) patch.practice_availability_received_at = now;
   if (isSupabaseDbConfigured()) {
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(interviewId)), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
@@ -46991,11 +47220,12 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
   }
 
   // 4. Notify the GP — best-effort; any thrown error is swallowed so it
-  //    can never block callers or break tests that have no transport.
+  //    can never block callers or break tests that have no transport. Skipped
+  //    entirely when no windows were parsed (nothing for the GP to pick).
   try {
     var gpUserId = row.user_id;
     var gpCaseId = row.case_id;
-    if ((gpUserId || gpCaseId) && isSupabaseDbConfigured()) {
+    if (hasWindows && (gpUserId || gpCaseId) && isSupabaseDbConfigured()) {
       var pFilter = gpCaseId
         ? 'case_id=eq.' + encodeURIComponent(gpCaseId)
         : 'user_id=eq.' + encodeURIComponent(gpUserId);

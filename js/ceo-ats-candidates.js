@@ -405,7 +405,8 @@
       field('Registration no.', ATS.esc(c.reg || '—')) +
       field('Account status', statusPill(c.account_status)) +
       field('Assigned RSO', ATS.esc(c.rso || '—')) +
-      field('Zoho candidate ID', ATS.esc(c.zoho || '—'));
+      // Legacy imported-candidate id — only shown when one actually exists.
+      (c.zoho ? field('Legacy candidate ID', ATS.esc(c.zoho)) : '');
   }
 
   function intentCardInner(c) {
@@ -476,8 +477,8 @@
         interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
       }
 
-      // Source chip: Zoho-managed application vs in-app (standalone ATS).
-      var sourceChip = '<span class="ats-pill muted" style="font-size:10.5px">' + (a.source === 'zoho' ? 'Zoho' : 'In-app') + '</span>';
+      // Source chip: legacy imported application vs in-app (standalone ATS).
+      var sourceChip = '<span class="ats-pill muted" style="font-size:10.5px">' + (a.source === 'zoho' ? 'Imported' : 'In-app') + '</span>';
 
       return '<div class="ats-app-card">' +
         '<div class="ats-app-card-top">' +
@@ -496,6 +497,7 @@
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
+        markPlacementLineHtml(a) +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
@@ -540,6 +542,65 @@
   // GP, records an in-app offer and congratulates them by email. Hidden once
   // the practice has already approved/reached interview-ready, or the offer
   // itself is already accepted — nothing left for this button to do.
+  // A8a: record a placement the GP accepted verbally (they can't self-click the
+  // in-app accept). Shown at offer/hired stage while an offer is still on the
+  // table (status 'sent') — an already-accepted offer is secured via the GP
+  // path, so nothing is left to do here. Confirms, with an optional start date.
+  var PLACEMENT_ELIGIBLE_STAGES = ['offer', 'hired'];
+  function markPlacementLineHtml(a) {
+    var offerStatus = (a.offer && a.offer.status) || 'not_started';
+    if (offerStatus !== 'sent') return '';
+    if (PLACEMENT_ELIGIBLE_STAGES.indexOf(a.ats_stage) === -1) return '';
+    return '<div class="ats-app-interview"><span class="ats-app-lbl">Placement</span>' +
+      '<div class="ats-placement-box" data-placement-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-mark-placement" data-app-id="' + ATS.escAttr(String(a.id)) + '">✅ Mark placement secured</button>' +
+      '</div></div>';
+  }
+
+  function placementBoxFor(appId) {
+    var host = panel();
+    return host ? host.querySelector('.ats-placement-box[data-placement-app-id="' + String(appId).replace(/"/g, '') + '"]') : null;
+  }
+
+  // Inline confirm: swap the button for a small "commencement date + confirm" form.
+  function openPlacementForm(appId) {
+    var box = placementBoxFor(appId);
+    if (!box) return;
+    box.innerHTML =
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px">Commencement date (optional)' +
+          '<input type="date" class="ats-placement-date" style="font-size:12px"></label>' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-placement-confirm" data-app-id="' + ATS.escAttr(String(appId)) + '">Confirm placement</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-placement-cancel" data-app-id="' + ATS.escAttr(String(appId)) + '">Cancel</button>' +
+      '</div>';
+  }
+
+  function closePlacementForm(appId, c) {
+    var box = placementBoxFor(appId);
+    var app = appFromCurrent(appId);
+    if (box) box.innerHTML = app ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-mark-placement" data-app-id="' + ATS.escAttr(String(appId)) + '">✅ Mark placement secured</button>' : '';
+  }
+
+  function confirmPlacement(appId, c) {
+    var box = placementBoxFor(appId);
+    if (!box) return;
+    var dateEl = box.querySelector('.ats-placement-date');
+    var commencementDate = dateEl && dateEl.value ? dateEl.value : '';
+    if (!window.confirm('Record this placement as secured? This finalises the doctor\'s placement (the same as them accepting in-app) and notifies them. Continue?')) return;
+    var confirmBtn = box.querySelector('.ats-placement-confirm');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Recording…'; }
+    ATS.api('/api/ats/placement', { method: 'POST', body: { applicationId: String(appId), commencementDate: commencementDate } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Placement secured — the doctor has been notified.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
+        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
+      }
+    });
+  }
+
   function acceptApplicationLineHtml(a) {
     var st = a.practice_submission_status || '';
     var offerStatus = (a.offer && a.offer.status) || 'not_started';
@@ -589,14 +650,22 @@
 
   // The offer line for one application: none → Send offer (eligible stages),
   // sent → "Offer sent <date>" + subtle Withdraw, accepted → celebration.
+  // A7b: a "View contract" link whenever a contract was stored against the offer.
+  function offerContractLinkHtml(a) {
+    if (!a.offer || !a.offer.has_contract) return '';
+    return '<button type="button" class="ats-offer-contract" data-app-id="' + ATS.escAttr(String(a.id)) + '"' +
+      ' style="background:none;border:none;padding:0;margin-left:10px;color:var(--ats-blue);font-size:11.5px;text-decoration:underline;cursor:pointer">View contract</button>';
+  }
+
   function offerLineHtml(a) {
     var offer = a.offer || {};
     var status = offer.status || 'not_started';
     if (status === 'accepted') {
-      return '<span style="color:var(--ats-green);font-weight:600">Offer accepted 🎉</span>';
+      return '<span style="color:var(--ats-green);font-weight:600">Offer accepted 🎉</span>' + offerContractLinkHtml(a);
     }
     if (status === 'sent') {
       return '<span>Offer sent' + (offer.sent_at ? ' ' + ATS.esc(fmtOfferDate(offer.sent_at)) : '') + '</span>' +
+        offerContractLinkHtml(a) +
         '<button type="button" class="ats-offer-withdraw" data-app-id="' + ATS.escAttr(String(a.id)) + '"' +
           ' style="background:none;border:none;padding:0;margin-left:10px;color:var(--ats-dim);font-size:11.5px;text-decoration:underline;cursor:pointer">Withdraw</button>';
     }
@@ -757,7 +826,27 @@
       }
       var slots = res.slots || [];
       if (!slots.length) {
-        containerEl.innerHTML = '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks — we\'ll widen the search.</span>';
+        // Belt-and-braces escape hatch (folded T3): even when the practice's
+        // windows produced no overlap, the operator can force GP Link's standard
+        // evening/weekend times so a slot can still be booked.
+        containerEl.innerHTML =
+          '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks — we\'ll widen the search.</span>' +
+          '<div class="ats-slot-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-use-default" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Use standard times</button>' +
+          '</div>';
+        var emptyDefBtn = containerEl.querySelector('.ats-int-use-default');
+        if (emptyDefBtn) emptyDefBtn.addEventListener('click', function () {
+          emptyDefBtn.disabled = true; emptyDefBtn.textContent = 'Applying…';
+          ATS.api('/api/ats/interview/use-default-times', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (r) {
+            if (r && r.ok) {
+              ATS.toast('Standard times applied — pick a slot below.');
+              window.atsRenderSlotPicker(applicationId, containerEl, caseId);
+            } else {
+              ATS.toast((r && (r.error || r.message)) || 'Could not apply standard times.');
+              emptyDefBtn.disabled = false; emptyDefBtn.textContent = 'Use standard times';
+            }
+          });
+        });
         return;
       }
       var html = '<div class="ats-slot-grid">' + slots.map(function (slot) {
@@ -825,10 +914,13 @@
       ATS.api('/api/ats/interview/ingest-reply', { method: 'POST', body: { application_id: String(applicationId), reply_text: text } }).then(function (r) {
         if (r && r.ok) {
           close();
-          if (r.status === 'received') {
-            ATS.toast('Availability read' + (r.windows_count ? (' — ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.') : '.'));
+          if (r.status === 'received' && r.windows_count) {
+            ATS.toast('Availability read — ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.');
           } else {
-            ATS.toast('Reply saved (status: ' + (r.status || 'unknown') + ').');
+            // Folded T3: the parser found no usable times — the card stays on
+            // 'requested' so its actions remain. Point the operator at the
+            // standard-times escape hatch.
+            ATS.toast('We couldn\'t read any interview times from that reply — try "Use standard times" instead.');
           }
           if (containerEl) window.atsRenderSlotPicker(applicationId, containerEl, caseId);
           else if (caseId) window.atsOpenCandidate(caseId);
@@ -883,12 +975,49 @@
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Documents on file</div>' +
       docDef.map(function (d) {
         var has = !!docs[d.k];
+        // A6: the CV is the one document consultants can actually open (the RSO
+        // file is hidden from them). When present it becomes a "View CV" link;
+        // ID/passport stays a plain uploaded/not-uploaded pill (never exposed).
+        var right;
+        if (d.k === 'cv' && has) {
+          right = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-view" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '">View CV</button>';
+        } else {
+          right = has ? '<span class="ats-pill green">Uploaded</span>' : '<span class="ats-pill muted">Not uploaded</span>';
+        }
         return '<div class="ats-doc-line">' +
           '<div class="ats-doc-ico ' + (has ? 'yes' : 'no') + '">' + (has ? '✓' : '○') + '</div>' +
           '<div style="flex:1"><div class="dl-name">' + d.name + '</div><div class="dl-sub">' + d.sub + '</div></div>' +
-          (has ? '<span class="ats-pill green">Uploaded</span>' : '<span class="ats-pill muted">Not uploaded</span>') +
+          right +
         '</div>';
       }).join('');
+  }
+
+  // A6/A7b: fetch a short-lived signed URL then open it in a new tab. A popup
+  // opened synchronously before the fetch keeps the browser from blocking it.
+  function openSignedDoc(apiPath, btn, failMsg) {
+    var win = window.open('', '_blank');
+    if (btn) { btn.disabled = true; }
+    var restore = function () { if (btn) btn.disabled = false; };
+    ATS.api(apiPath).then(function (res) {
+      if (res && res.ok && res.url) {
+        if (win) { win.location = res.url; } else { window.open(res.url, '_blank'); }
+      } else {
+        if (win) win.close();
+        ATS.toast((res && (res.error || res.message)) || failMsg);
+      }
+      restore();
+    }).catch(function () { if (win) win.close(); ATS.toast(failMsg); restore(); });
+  }
+
+  function viewCandidateCv(btn) {
+    var caseId = btn.getAttribute('data-case-id') || '';
+    var userId = btn.getAttribute('data-user-id') || '';
+    var q = caseId ? ('case_id=' + encodeURIComponent(caseId)) : ('user_id=' + encodeURIComponent(userId));
+    openSignedDoc('/api/ats/candidate-cv?' + q, btn, 'Could not open the CV.');
+  }
+
+  function viewOfferContract(appId, btn) {
+    openSignedDoc('/api/ats/offer-contract?application_id=' + encodeURIComponent(appId), btn, 'Could not open the contract.');
   }
 
   function commsCardInner(c) {
@@ -998,6 +1127,19 @@
       if (acceptBtn) { acceptApplication(acceptBtn.getAttribute('data-app-id'), c); return; }
       var intCancelBtn = e.target.closest('.ats-int-cancel');
       if (intCancelBtn) { cancelInterview(intCancelBtn.getAttribute('data-app-id'), c); return; }
+      // A6: open the candidate's CV (consultant-accessible).
+      var cvBtn = e.target.closest('.ats-cv-view');
+      if (cvBtn) { viewCandidateCv(cvBtn); return; }
+      // A7b: open the offer's stored contract.
+      var ocBtn = e.target.closest('.ats-offer-contract');
+      if (ocBtn) { viewOfferContract(ocBtn.getAttribute('data-app-id'), ocBtn); return; }
+      // A8a: mark placement secured (verbal acceptance) — inline confirm.
+      var markPlBtn = e.target.closest('.ats-mark-placement');
+      if (markPlBtn) { openPlacementForm(markPlBtn.getAttribute('data-app-id')); return; }
+      var plConfirmBtn = e.target.closest('.ats-placement-confirm');
+      if (plConfirmBtn) { confirmPlacement(plConfirmBtn.getAttribute('data-app-id'), c); return; }
+      var plCancelBtn = e.target.closest('.ats-placement-cancel');
+      if (plCancelBtn) { closePlacementForm(plCancelBtn.getAttribute('data-app-id'), c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
