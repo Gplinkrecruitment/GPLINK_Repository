@@ -443,3 +443,132 @@ describe('enrolment endpoints are session-guarded', () => {
     for (const r of [status, setup, enable, disable]) expect(r.status).toBe(401);
   });
 });
+
+// ── Security-review hardening (post-approval items 1–3) ────────────────────
+// 1. /enable must not silently REPLACE an active enrolment (2FA hijack).
+// 2. A backup code can be spent exactly once, even concurrently (CAS write).
+// 3. An accepted TOTP token is burned: same/older timestep never re-accepted.
+describe('hardening: re-enrolment guard, single-spend backup codes, TOTP replay', () => {
+  let activeSecret = '';
+  let activeBackupCodes = [];
+
+  async function doSetup() {
+    return httpReq('POST', '/api/admin/mfa/setup', { host: SUPER_HOST, cookie: ownerCookie, body: {} });
+  }
+  async function mfaComplete(challenge, token) {
+    return httpReq('POST', '/api/admin/auth/login/mfa', { host: SUPER_HOST, body: { challenge, token } });
+  }
+
+  it('re-enrolment after a full disable behaves like first-time enrolment', async () => {
+    const setup = await doSetup();
+    activeSecret = setup.body.secret;
+    const r = await httpReq('POST', '/api/admin/mfa/enable', {
+      host: SUPER_HOST, cookie: ownerCookie,
+      body: { setupToken: setup.body.setupToken, token: totp.generateTotp(activeSecret) }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    activeBackupCodes = r.body.backupCodes;
+    expect(activeBackupCodes.length).toBe(8);
+  });
+
+  it('(1) enable is REFUSED with 409 while an active enrolment exists and no current code is given', async () => {
+    const setup = await doSetup();
+    const r = await httpReq('POST', '/api/admin/mfa/enable', {
+      host: SUPER_HOST, cookie: ownerCookie,
+      // A perfectly valid confirmation of the NEW secret — still refused,
+      // because possession of the session alone must not rotate 2FA.
+      body: { setupToken: setup.body.setupToken, token: totp.generateTotp(setup.body.secret) }
+    });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.alreadyEnrolled).toBe(true);
+    // The active enrolment is untouched (secret NOT replaced, not disabled).
+    const row = db.admin_mfa.find((x) => x.admin_email === SUPER_EMAIL);
+    expect(row.totp_secret).toBe(activeSecret);
+    expect(row.disabled).toBe(false);
+  });
+
+  it('(1) enable with a WRONG current code is refused the same way', async () => {
+    const setup = await doSetup();
+    const good = totp.generateTotp(activeSecret);
+    const wrong = String((Number(good) + 1) % 1000000).padStart(6, '0');
+    const r = await httpReq('POST', '/api/admin/mfa/enable', {
+      host: SUPER_HOST, cookie: ownerCookie,
+      body: { setupToken: setup.body.setupToken, token: totp.generateTotp(setup.body.secret), currentToken: wrong }
+    });
+    expect(r.status).toBe(409);
+    const row = db.admin_mfa.find((x) => x.admin_email === SUPER_EMAIL);
+    expect(row.totp_secret).toBe(activeSecret);
+  });
+
+  it('(1) enable WITH a valid current code rotates the enrolment (and resets replay tracking)', async () => {
+    const setup = await doSetup();
+    const r = await httpReq('POST', '/api/admin/mfa/enable', {
+      host: SUPER_HOST, cookie: ownerCookie,
+      body: {
+        setupToken: setup.body.setupToken,
+        token: totp.generateTotp(setup.body.secret),
+        currentToken: totp.generateTotp(activeSecret)
+      }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    activeSecret = setup.body.secret;
+    activeBackupCodes = r.body.backupCodes;
+    const row = db.admin_mfa.find((x) => x.admin_email === SUPER_EMAIL);
+    expect(row.totp_secret).toBe(activeSecret);
+    expect(row.disabled).toBe(false);
+    expect(row.last_totp_step).toBe(null); // new secret starts with a clean replay marker
+  });
+
+  it('(3) a TOTP token accepted at login is REJECTED on immediate reuse', async () => {
+    const token = totp.generateTotp(activeSecret);
+    const login1 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
+    const r1 = await mfaComplete(login1.body.challenge, token);
+    expect(r1.status).toBe(200);
+    expect(extractAdminCookie(r1.headers['set-cookie'])).toBeTruthy();
+
+    // Same still-in-window 6-digit code again → burned.
+    const login2 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
+    const r2 = await mfaComplete(login2.body.challenge, token);
+    expect(r2.status).toBe(401);
+    expect(extractAdminCookie(r2.headers['set-cookie'])).toBe('');
+    // The accepted step was persisted.
+    const row = db.admin_mfa.find((x) => x.admin_email === SUPER_EMAIL);
+    expect(Number.isFinite(Number(row.last_totp_step))).toBe(true);
+  });
+
+  it('(2) a backup code spent at login cannot be spent again (sequential)', async () => {
+    const code = activeBackupCodes[0];
+    const login1 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
+    const r1 = await mfaComplete(login1.body.challenge, code);
+    expect(r1.status).toBe(200);
+    expect(r1.body.usedBackupCode).toBe(true);
+
+    const login2 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
+    const r2 = await mfaComplete(login2.body.challenge, code);
+    expect(r2.status).toBe(401);
+    expect(extractAdminCookie(r2.headers['set-cookie'])).toBe('');
+  });
+
+  it('(2) two near-simultaneous logins with the SAME backup code yield exactly one session', async () => {
+    const code = activeBackupCodes[1];
+    const [loginA, loginB] = await Promise.all([
+      loginPassword(SUPER_EMAIL, SUPER_HOST),
+      loginPassword(SUPER_EMAIL, SUPER_HOST)
+    ]);
+    const [rA, rB] = await Promise.all([
+      mfaComplete(loginA.body.challenge, code),
+      mfaComplete(loginB.body.challenge, code)
+    ]);
+    const successes = [rA, rB].filter((r) => r.status === 200);
+    const failures = [rA, rB].filter((r) => r.status === 401);
+    expect(successes.length).toBe(1); // CAS: only one request may consume it
+    expect(failures.length).toBe(1);
+    // And it is fully gone afterwards.
+    const login3 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
+    const r3 = await mfaComplete(login3.body.challenge, code);
+    expect(r3.status).toBe(401);
+  });
+});

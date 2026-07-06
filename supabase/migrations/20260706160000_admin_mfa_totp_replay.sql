@@ -1,0 +1,11 @@
+-- Phase 6 C1 hardening (security review item #3): reject TOTP replay.
+--
+-- Remembers the HOTP counter (30-second timestep) of the last ACCEPTED TOTP
+-- token per admin. verifyAdminMfaCode refuses any token whose matched step is
+-- <= this value, so the same 6-digit code can never be accepted twice — while
+-- the ±1-step verification window still tolerates clock skew for fresh codes.
+--
+-- Nullable, no backfill: NULL means "no step recorded yet" and every step is
+-- accepted (exactly the pre-hardening behavior). server.js also fails open if
+-- this column does not exist yet, so deploy order does not matter.
+alter table public.admin_mfa add column if not exists last_totp_step bigint;

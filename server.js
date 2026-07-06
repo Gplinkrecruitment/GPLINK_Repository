@@ -8955,13 +8955,102 @@ async function saveAdminMfaRecord(email, fields) {
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: [row]
     });
-    if (!res.ok) console.error('[MFA] admin_mfa upsert failed', res.status);
-    return !!res.ok;
+    if (res.ok) return true;
+    // Fail-open for pre-migration databases: last_totp_step (TOTP replay
+    // tracking, migration 20260706160000) may not exist yet. Retry without it
+    // so enrolment/login keep working exactly as before the hardening.
+    if (Object.prototype.hasOwnProperty.call(row, 'last_totp_step')) {
+      const { last_totp_step, ...withoutStep } = row;
+      const retry = await supabaseDbRequest('admin_mfa', 'on_conflict=admin_email', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [withoutStep]
+      });
+      if (retry.ok) return true;
+      console.error('[MFA] admin_mfa upsert failed', retry.status);
+      return false;
+    }
+    console.error('[MFA] admin_mfa upsert failed', res.status);
+    return false;
   }
   dbState.adminMfa = dbState.adminMfa && typeof dbState.adminMfa === 'object' ? dbState.adminMfa : {};
   dbState.adminMfa[key] = { ...(dbState.adminMfa[key] || {}), ...row };
   saveDbState();
   return true;
+}
+
+// Compare-and-set update on the admin_mfa row, versioned on updated_at.
+// Returns true only when the row was still at expectedUpdatedAt when the write
+// landed — the guard that makes backup-code consumption and TOTP replay
+// tracking safe against two near-simultaneous logins. The new updated_at is
+// forced strictly greater than the old one so two writes in the same
+// millisecond can never look like the same version.
+//
+// Residual window (documented per review): PostgREST offers no true
+// transactional primitive through this REST path, so the check is a filtered
+// PATCH — if a writer changes the row and restores the identical updated_at
+// (never happens with the +1ms bump), the guard could be fooled. In local JSON
+// mode the check-and-write below is fully synchronous on the single-threaded
+// event loop, so it IS atomic.
+async function updateAdminMfaIfUnchanged(email, expectedUpdatedAt, fields) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return false;
+  const prevMs = Date.parse(String(expectedUpdatedAt || '')) || 0;
+  const newUpdatedAt = new Date(Math.max(Date.now(), prevMs + 1)).toISOString();
+  if (isSupabaseDbConfigured()) {
+    const versionFilter = expectedUpdatedAt
+      ? `updated_at=eq.${encodeURIComponent(String(expectedUpdatedAt))}`
+      : 'updated_at=is.null';
+    const query = `admin_email=eq.${encodeURIComponent(key)}&${versionFilter}`;
+    const doPatch = (body) => supabaseDbRequest('admin_mfa', query, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body
+    });
+    let res = await doPatch({ ...fields, updated_at: newUpdatedAt });
+    if (!res.ok && Object.prototype.hasOwnProperty.call(fields, 'last_totp_step')) {
+      // Pre-migration fail-open: retry without the replay-tracking column.
+      const { last_totp_step, ...withoutStep } = fields;
+      res = await doPatch({ ...withoutStep, updated_at: newUpdatedAt });
+    }
+    // ok + at least one returned row = our precondition held and we won.
+    return !!(res.ok && Array.isArray(res.data) && res.data.length > 0);
+  }
+  // Local JSON mode: no await between check and write → atomic per event loop.
+  const rec = dbState.adminMfa && typeof dbState.adminMfa === 'object' ? dbState.adminMfa[key] : null;
+  if (!rec) return false;
+  if (String(rec.updated_at || '') !== String(expectedUpdatedAt || '')) return false;
+  Object.assign(rec, fields, { updated_at: newUpdatedAt });
+  saveDbState();
+  return true;
+}
+
+// Atomically spend ONE backup code (audit hardening #2). Re-fetches the row,
+// verifies the hash is still present, and writes back guarded by the
+// updated_at version; loses of the race retry once against fresh state — the
+// loser then sees the code already gone and is refused. A given code can
+// therefore be spent only once even under two near-simultaneous requests.
+async function consumeAdminBackupCode(email, code) {
+  const candidateHash = hashAdminBackupCode(code);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const fresh = await getAdminMfaRecord(email);
+    if (!fresh || !fresh.totp_secret || fresh.disabled) return false;
+    const storedHashes = Array.isArray(fresh.backup_codes) ? fresh.backup_codes.map(String) : [];
+    let matched = false;
+    const remaining = [];
+    for (const hash of storedHashes) {
+      if (!matched && timingSafeEqualStrings(hash, candidateHash)) { matched = true; continue; }
+      remaining.push(hash);
+    }
+    if (!matched) return false;
+    const won = await updateAdminMfaIfUnchanged(email, fresh.updated_at || null, {
+      backup_codes: remaining,
+      last_used_at: new Date().toISOString()
+    });
+    if (won) return true;
+    // Lost a concurrent write — loop re-reads and re-checks the code.
+  }
+  return false;
 }
 
 // Short-lived signed tokens for the two half-open states. Payload shapes are
@@ -8996,32 +9085,41 @@ function parseSignedPurposeToken(token, purpose) {
 }
 
 // TOTP first, then single-use backup code (consumed on success). Returns
-// { ok, method } and persists backup-code consumption + last_used_at.
+// { ok, method } and persists consumption + last_used_at.
+//
+// TOTP replay rejection (audit hardening #3): the HOTP counter (timestep) of
+// every ACCEPTED token is persisted in last_totp_step, and a token whose step
+// is <= the last accepted one is refused — so the same 6-digit code can never
+// be accepted twice, while the ±1-step window still tolerates clock skew for
+// FRESH codes. Pre-migration rows have no last_totp_step column/value → the
+// check fails open to the previous behavior until the migration lands.
+// The write is CAS-guarded so two simultaneous logins with the same token
+// cannot both record the same step and both win.
 async function verifyAdminMfaCode(record, code) {
   const secret = record && record.totp_secret ? String(record.totp_secret) : '';
   if (!secret) return { ok: false, method: null };
   const input = String(code || '').trim();
-  if (adminTotp.verifyTotp(secret, input, { window: 1 })) {
-    await saveAdminMfaRecord(record.admin_email, { last_used_at: new Date().toISOString() });
-    return { ok: true, method: 'totp' };
-  }
-  const storedHashes = Array.isArray(record.backup_codes) ? record.backup_codes.map(String) : [];
-  if (storedHashes.length) {
-    const candidateHash = hashAdminBackupCode(input);
-    let matched = false;
-    const remaining = [];
-    for (const hash of storedHashes) {
-      if (!matched && timingSafeEqualStrings(hash, candidateHash)) { matched = true; continue; }
-      remaining.push(hash);
-    }
-    if (matched) {
-      await saveAdminMfaRecord(record.admin_email, {
-        backup_codes: remaining,
-        last_used_at: new Date().toISOString()
+  const matchedStep = adminTotp.matchTotpStep(secret, input, { window: 1 });
+  if (matchedStep !== null) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // Fresh read: the caller's record may predate a concurrent acceptance.
+      const fresh = await getAdminMfaRecord(record.admin_email);
+      if (!fresh || !fresh.totp_secret || fresh.disabled) return { ok: false, method: null };
+      const lastStep = Number(fresh.last_totp_step);
+      if (Number.isFinite(lastStep) && matchedStep <= lastStep) {
+        return { ok: false, method: null }; // replayed / older token
+      }
+      const won = await updateAdminMfaIfUnchanged(record.admin_email, fresh.updated_at || null, {
+        last_used_at: new Date().toISOString(),
+        last_totp_step: matchedStep
       });
-      return { ok: true, method: 'backup_code' };
+      if (won) return { ok: true, method: 'totp' };
+      // Lost a concurrent write — re-read and re-check the step once.
     }
+    return { ok: false, method: null };
   }
+  const consumed = await consumeAdminBackupCode(record.admin_email, input);
+  if (consumed) return { ok: true, method: 'backup_code' };
   return { ok: false, method: null };
 }
 
@@ -33015,12 +33113,39 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'That code did not match. Check your authenticator app and try again.' });
       return;
     }
+    // Audit hardening #1: a stolen admin session must not be able to silently
+    // REPLACE an existing active enrolment (new secret + new backup codes =
+    // 2FA hijack + real-admin lockout). Re-enrolment requires proof of the
+    // CURRENT factor: a valid current TOTP code or backup code in
+    // currentToken/currentCode — otherwise 409 (disable first, which itself
+    // demands a code). First-time enrolment (no active row) is unchanged.
+    const existingRecord = await getAdminMfaRecord(adminCtx.email);
+    const existingActive = !!(existingRecord && existingRecord.totp_secret && !existingRecord.disabled);
+    if (existingActive) {
+      const currentCode = body.currentToken != null ? body.currentToken : body.currentCode;
+      const currentOk = currentCode != null && String(currentCode).trim() !== ''
+        ? (await verifyAdminMfaCode(existingRecord, currentCode)).ok
+        : false;
+      if (!currentOk) {
+        await logAdminAction(req, adminCtx, 'admin_mfa_reenrol_blocked', {
+          success: false, detail: { reason: currentCode ? 'invalid_current_code' : 'missing_current_code' }
+        });
+        sendJson(res, 409, {
+          ok: false,
+          alreadyEnrolled: true,
+          message: 'Two-factor is already enabled; disable it first with your current code (or include your current code to replace it).'
+        });
+        return;
+      }
+    }
     const backupCodes = generateAdminBackupCodes();
     const saved = await saveAdminMfaRecord(adminCtx.email, {
       totp_secret: setupData.secret,
       enrolled_at: new Date().toISOString(),
       backup_codes: backupCodes.map(hashAdminBackupCode),
       last_used_at: null,
+      // New secret → old replay marker is meaningless; start fresh.
+      last_totp_step: null,
       disabled: false
     });
     if (!saved) {
