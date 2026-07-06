@@ -21,6 +21,7 @@
   var searchTimer = null;
   var currentCandidate = null;
   var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
+  var attentionSummary = null; // last fetched /api/ats/attention payload
 
   // Registration-stage filter options (rail stages).
   var STAGE_OPTS = [
@@ -102,6 +103,7 @@
     wireListEvents(el);
     fetchAndRenderRows();
     fetchPipelineSummary();
+    fetchAttention();
   };
 
   function listScaffold() {
@@ -115,6 +117,7 @@
         '<h2>Candidates</h2>' +
         '<p>Every GP on file — profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>' +
       '</div></div>' +
+      '<div class="ats-attention-strip" id="ats-attention-strip">' + attentionStripInner() + '</div>' +
       '<div class="ats-pipeline-widget" id="ats-pipeline-widget">' + pipelineWidgetInner() + '</div>' +
       '<div class="ats-toolbar">' +
         '<div class="ats-search">' + SVG_SEARCH +
@@ -172,6 +175,20 @@
       renderPipelineWidget();
       fetchAndRenderRows();
     });
+    // delegated: an attention-strip count jumps the list to that ats bucket,
+    // reusing the same ats_bucket filter the pipeline funnel drives.
+    var strip = el.querySelector('#ats-attention-strip');
+    if (strip) strip.addEventListener('click', function (e) {
+      var cell = e.target.closest ? e.target.closest('.ats-attn-cell') : null;
+      if (!cell || cell.disabled) return;
+      var bucket = cell.getAttribute('data-attention') || '';
+      if (!bucket) return;
+      state.ats_bucket = bucket;
+      renderPipelineWidget();
+      fetchAndRenderRows();
+      var pw = el.querySelector('#ats-pipeline-widget');
+      if (pw && pw.scrollIntoView) pw.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
     var table = el.querySelector('#ats-cand-table');
     if (table) table.addEventListener('click', function (e) {
       var row = e.target.closest ? e.target.closest('.ats-cand-row') : null;
@@ -200,6 +217,47 @@
       if (cc) cc.textContent = total;
       if (!list.length) { t.innerHTML = ATS.emptyHtml('No candidates match your filters.'); return; }
       t.innerHTML = list.map(rowHtml).join('');
+    });
+  }
+
+  /* ---- "Needs attention" strip (above the pipeline funnel) ---- */
+  function attentionStripInner() {
+    if (!attentionSummary) return '<span class="ats-attn-loading" style="color:var(--ats-dim);font-size:12px">Checking what needs attention…</span>';
+    var items = [
+      { key: 'applied', label: 'New applications', hint: 'last 7 days', count: attentionSummary.new_applications || 0 },
+      { key: 'offer', label: 'Declined offers', hint: 'awaiting action', count: attentionSummary.declined_offers || 0 },
+      { key: 'interview', label: 'Interviews awaiting availability', hint: 'practice not replied', count: attentionSummary.interviews_awaiting || 0 }
+    ];
+    var total = items.reduce(function (s, it) { return s + it.count; }, 0);
+    var title = total > 0
+      ? '<span class="ats-attn-title" style="font-weight:700;color:var(--ats-amber)">⚠ Needs attention</span>'
+      : '<span class="ats-attn-title" style="font-weight:700;color:var(--ats-green)">✓ Nothing needs attention</span>';
+    var cells = items.map(function (it) {
+      var live = it.count > 0;
+      var accent = live ? 'var(--ats-amber)' : 'var(--ats-dim)';
+      return '<button type="button" class="ats-attn-cell' + (live ? ' live' : '') + '" data-attention="' + ATS.escAttr(it.key) + '"' +
+          (live ? '' : ' disabled') +
+          ' style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 12px;border:1px solid rgba(255,255,255,0.09);border-radius:9px;background:' + (live ? 'rgba(245,158,11,0.10)' : 'transparent') + ';cursor:' + (live ? 'pointer' : 'default') + '">' +
+        '<span class="ats-attn-count" style="font-size:18px;font-weight:700;color:' + accent + '">' + it.count + '</span>' +
+        '<span class="ats-attn-label" style="font-size:11.5px;color:var(--ats-text)">' + ATS.esc(it.label) + '</span>' +
+        '<span class="ats-attn-hint" style="font-size:10px;color:var(--ats-dim)">' + ATS.esc(it.hint) + '</span>' +
+      '</button>';
+    }).join('');
+    return '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' + title +
+      '<div class="ats-attn-cells" style="display:flex;gap:10px;flex-wrap:wrap">' + cells + '</div></div>';
+  }
+
+  function renderAttentionStrip() {
+    var s = document.getElementById('ats-attention-strip');
+    if (s) s.innerHTML = attentionStripInner();
+  }
+
+  function fetchAttention() {
+    ATS.api('/api/ats/attention').then(function (d) {
+      attentionSummary = (d && d.ok)
+        ? d
+        : { new_applications: 0, declined_offers: 0, interviews_awaiting: 0 };
+      renderAttentionStrip();
     });
   }
 
@@ -250,6 +308,7 @@
   // Re-pull the funnel counts after a pipeline move, but only when the list view is mounted.
   window.refreshPipelineWidget = function () {
     if (document.getElementById('ats-pipeline-widget')) fetchPipelineSummary();
+    if (document.getElementById('ats-attention-strip')) fetchAttention();
   };
 
   function rowHtml(c) {
@@ -542,9 +601,14 @@
           ' style="background:none;border:none;padding:0;margin-left:10px;color:var(--ats-dim);font-size:11.5px;text-decoration:underline;cursor:pointer">Withdraw</button>';
     }
     var canSend = OFFER_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
-    var priorNote = (status === 'withdrawn' || status === 'declined')
-      ? '<span style="color:var(--ats-dim);margin-right:10px">' + ATS.esc(offer.label || '') + '</span>'
-      : '';
+    // A declined offer needs a clear "action needed" cue right next to the
+    // re-send affordance (GAP A5); a withdrawn offer is a quiet dim note.
+    var priorNote = '';
+    if (status === 'declined') {
+      priorNote = '<span class="ats-pill amber" data-offer-declined="1" style="margin-right:10px">Declined — action needed</span>';
+    } else if (status === 'withdrawn') {
+      priorNote = '<span style="color:var(--ats-dim);margin-right:10px">' + ATS.esc(offer.label || '') + '</span>';
+    }
     if (!canSend) return priorNote || '<span>' + ATS.esc(offer.label || '—') + '</span>';
     return priorNote +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-send" data-app-id="' + ATS.escAttr(String(a.id)) + '">Send offer</button>';

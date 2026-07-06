@@ -386,12 +386,17 @@
   function cardHtml(c) {
     var notes = c.ats_notes || '';
     var snippet = notes ? '📝 ' + (notes.length > 22 ? notes.slice(0, 22) + '…' : notes) : 'No notes yet';
+    // A5: a declined offer keeps its card in the Offer lane — flag it so the
+    // board shows the card still needs attention (re-send or move on).
+    var declinedMark = (c.offer_status === 'declined')
+      ? '<span class="ats-card-declined" data-offer-declined="1" style="display:inline-block;margin-top:6px;font-size:10.5px;font-weight:600;color:var(--ats-amber);background:rgba(245,158,11,0.12);border-radius:6px;padding:2px 7px">⚠ Offer declined</span>'
+      : '';
     return '<div class="ats-cand-card" draggable="true" data-id="' + A.escAttr(c.id) + '">' +
       '<div class="cc-top">' +
         '<div class="ats-avatar" style="background:' + A.avatarColor(c.name) + '">' + A.esc(A.initials(c.name)) + '</div>' +
         '<div><div class="cc-name">' + A.esc(c.name || '—') + '</div><div class="cc-sub">' + A.countryLabel(c.country) + '</div></div>' +
       '</div>' +
-      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' +
+      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark +
     '</div>';
   }
 

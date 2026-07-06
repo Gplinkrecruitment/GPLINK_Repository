@@ -27052,10 +27052,16 @@ async function handleApi(req, res, pathname) {
 
     const savedApplication = insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow;
 
+    // Captured inside the follow-up-task try so the A3 ops email below can
+    // deep-link straight to this doctor's ATS card (?case=<registration case id>).
+    let applyOpsCaseId = null;
+    const applyGpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
+
     try {
       const regCase = await _ensureRegCase(userId);
       if (regCase) {
-        const gpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
+        applyOpsCaseId = regCase.id;
+        const gpDisplayName = applyGpDisplayName;
         const practiceLabel = String(roleRow.practice_name || 'practice').trim();
         const roleLabel = String(roleRow.title || 'role').trim();
         const task = await _createRegTask(regCase.id, {
@@ -27120,6 +27126,27 @@ async function handleApi(req, res, pathname) {
           footer: 'You\'re receiving this because you applied for a role on GP Link.'
         })
       }).catch(() => {});
+    }
+
+    // GAP A3: signal the ops inbox the moment a GP applies, so the team sees
+    // new applications without polling the dashboard. Own try/catch — a mail
+    // failure here must NEVER affect the apply (which already responded above).
+    try {
+      if (isEmailConfigured()) {
+        const opsJobTitle = String(roleRow.title || 'a role').trim();
+        const opsPracticeName = String(roleRow.practice_name || 'a practice').trim();
+        const opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(applyOpsCaseId || ''));
+        sendEmail({
+          to: 'hello@mygplink.com.au',
+          subject: applyGpDisplayName + ' applied to ' + opsJobTitle + ' — ' + opsPracticeName,
+          text: applyGpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.'
+            + '\n\nHas CV: yes'
+            + '\nOpen the candidate: ' + opsDeepLink,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        }).catch(() => {});
+      }
+    } catch (opsApplyErr) {
+      console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
     }
 
     return;
@@ -45023,7 +45050,17 @@ Return ONLY valid JSON with no markdown formatting:
     var ppApps = await atsListApplicationRows({ jobId: ppId });
     var labels = {};
     if (isSupabaseDbConfigured()) labels = await atsResolveCandidateLabels(ppApps.map(function (a) { return a.user_id; }));
-    var ppCards = ppApps.map(function (a) { return atsApplicationToCard(a, labels[a.user_id]); });
+    // Offer status per application → lets a kanban card flag a declined offer
+    // (GAP A5) so a card parked in the Offer lane after a decline is visible.
+    var ppOffers = await atsOffersStore.listAtsOffers(ppApps.map(function (a) { return String(a.id); }));
+    var ppOfferByApp = {};
+    (ppOffers || []).forEach(function (o) { ppOfferByApp[String(o.application_id)] = o; });
+    var ppCards = ppApps.map(function (a) {
+      var ppCard = atsApplicationToCard(a, labels[a.user_id]);
+      var ppOff = ppOfferByApp[String(a.id)];
+      ppCard.offer_status = ppOff ? String(ppOff.status || '') : '';
+      return ppCard;
+    });
     var columns = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]).map(function (st) {
       return { key: st, label: atsPracticeUtil.ATS_STAGE_LABELS[st], cards: ppCards.filter(function (c) { return c.ats_stage === st; }) };
     });
@@ -46075,6 +46112,57 @@ Return ONLY valid JSON with no markdown formatting:
       buckets: atsPracticeUtil.PIPELINE_BUCKETS.map(function (k) { return { key: k, label: atsPracticeUtil.PIPELINE_BUCKET_LABELS[k], count: psCounts[k] || 0 }; }),
       waitlist_onboarding: psWaitlistOnboarding,
       ats: psAts
+    });
+    return;
+  }
+
+  // GAP A3/A5: the "Needs attention" strip above the candidates board. Three
+  // cheap, bounded counts the ATS team should action first:
+  //   • new_applications  — cards freshly in 'applied' within the last 7 days
+  //   • declined_offers   — an offer was declined but the card is still parked
+  //                         in the Offer lane (nobody has re-sent or moved it)
+  //   • interviews_awaiting — interview requested, practice hasn't sent times yet
+  // requireAtsSession so consultants (not just the CEO) can read it. Dual-mode.
+  if (pathname === '/api/ats/attention' && req.method === 'GET') {
+    var ctxAT = requireAtsSession(req, res); if (!ctxAT) return;
+    var atSevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    var atNewApps = 0, atDeclined = 0, atAwaiting = 0;
+    try {
+      // One bounded application pull (dual-mode, limit 2000) gives us both the
+      // fresh-applied count AND the stage lookup the declined-offer check needs.
+      var atApps = await atsListApplicationRows({});
+      var atStageById = {};
+      atApps.forEach(function (a) {
+        var atStage = a.ats_stage || 'applied';
+        atStageById[String(a.id)] = atStage;
+        if (atStage === 'applied') {
+          var atWhen = a.applied_at || a.created_at || '';
+          if (atWhen && String(atWhen) >= atSevenDaysAgoIso) atNewApps++;
+        }
+      });
+      // Declined offers whose application is still sitting in the Offer lane.
+      var atOffers = await atsOffersStore.listAtsOffers();
+      (atOffers || []).forEach(function (o) {
+        if (String(o.status || '') !== 'declined') return;
+        if (atStageById[String(o.application_id)] === 'offer') atDeclined++;
+      });
+      // Interviews still waiting on the practice to send availability.
+      if (isSupabaseDbConfigured()) {
+        var atIvRes = await supabaseDbRequest('scheduled_calls', 'select=id&meeting_kind=eq.interview&practice_availability_status=eq.requested&limit=1000');
+        atAwaiting = (atIvRes.ok && Array.isArray(atIvRes.data)) ? atIvRes.data.length : 0;
+      } else {
+        atAwaiting = (dbState.scheduledCalls || []).filter(function (r) {
+          return r && r.meeting_kind === 'interview' && r.practice_availability_status === 'requested';
+        }).length;
+      }
+    } catch (atErr) {
+      console.error('[ats attention] count failed:', atErr && atErr.message);
+    }
+    sendJson(res, 200, {
+      ok: true,
+      new_applications: atNewApps,
+      declined_offers: atDeclined,
+      interviews_awaiting: atAwaiting
     });
     return;
   }
