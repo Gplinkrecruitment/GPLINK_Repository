@@ -125,6 +125,7 @@ var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
+const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
@@ -239,6 +240,9 @@ const AHPRA_S80_EXTRACT_MODEL = String(process.env.AHPRA_S80_EXTRACT_MODEL || 'c
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
+// AI Matching (candidate <-> job ranking, lib/ai-candidate-job-match.js) — env-pinned,
+// defaults to the shared model so it can be tuned independently later.
+const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || ANTHROPIC_MODEL).trim() || ANTHROPIC_MODEL;
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
@@ -24154,6 +24158,210 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
     dbState.atsStageAudit.push(Object.assign({ id: atsLocalId('aud_') }, ev));
     saveDbState();
   }
+}
+
+// ---- AI Matching (Task 2 of the 2026-07-06 implementation plan) -----------
+// Helpers for the three /api/ats/matching/* endpoints. The AI ranking + the
+// pure eligibility gate itself live in lib/ai-candidate-job-match.js — these
+// functions only assemble/cache the plain-object inputs that lib expects,
+// mirroring the SAME server-side gates already used by /api/career/apply and
+// /api/career/roles (onboarding, CV, DPA) rather than re-deriving them.
+
+var MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function atsGetMatchCache(subjectType, subjectId) {
+  if (!isSupabaseDbConfigured()) return null;
+  try {
+    var r = await supabaseDbRequest('match_cache',
+      'select=payload,generated_at&subject_type=eq.' + encodeURIComponent(subjectType) + '&subject_id=eq.' + encodeURIComponent(String(subjectId)) + '&limit=1');
+    if (!r.ok || !Array.isArray(r.data) || !r.data[0]) return null;
+    return r.data[0];
+  } catch (e) { return null; }
+}
+
+async function atsSetMatchCache(subjectType, subjectId, payload) {
+  if (!isSupabaseDbConfigured()) return false;
+  try {
+    var r = await supabaseDbRequest('match_cache', 'on_conflict=subject_type,subject_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [{ subject_type: subjectType, subject_id: String(subjectId), payload: payload, generated_at: atsNowIso() }]
+    });
+    if (!r.ok) console.error('[ai-matching] match_cache upsert failed (' + subjectType + '/' + subjectId + '):', r.status);
+    return r.ok;
+  } catch (e) {
+    console.error('[ai-matching] match_cache upsert threw:', e && e.message);
+    return false;
+  }
+}
+
+function atsMatchCacheFresh(entry) {
+  if (!entry || !entry.generated_at) return false;
+  var age = Date.now() - new Date(entry.generated_at).getTime();
+  return Number.isFinite(age) && age >= 0 && age < MATCH_CACHE_TTL_MS;
+}
+
+// Candidate universe = every GP with a registration_cases row (same universe
+// /api/ceo/candidates lists from), bounded like every other ATS list query.
+async function atsListCandidateUserIds() {
+  if (!isSupabaseDbConfigured()) return [];
+  var r = await supabaseDbRequest('registration_cases', 'select=user_id&limit=1000');
+  var rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+  var seen = {}; var out = [];
+  rows.forEach(function (row) {
+    var uid = row && row.user_id;
+    if (uid && !seen[uid]) { seen[uid] = true; out.push(String(uid)); }
+  });
+  return out;
+}
+
+function _atsInList(ids) {
+  return ids.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+}
+
+// Batch-build { userId -> gp match-input object } for checkMatchEligibility +
+// the AI ranking prompt. Every gate mirrors an EXISTING server-side check
+// rather than re-deriving new logic:
+//   - onboardingComplete / hasCv: same fields/conditions as POST /api/career/apply.
+//   - dpaEligible: same australiaTrained fallback chain as _resolveGpJobsProfile
+//     (registration_country -> user_state.gp_selected_country -> onboarding blob).
+//   - placed: same career_secured/secured + isCareerPlacementSecuredStatus checks
+//     used by the career-apply "already placed" guard and the CEO candidates view.
+//   - atInterviewStage: ats_stage==='interview' OR isCareerInterviewStatus(status)
+//     OR a linked career_interviews row with status scheduled/confirmed.
+async function atsBuildGpMatchInputs(userIds) {
+  var ids = Array.from(new Set((userIds || []).filter(Boolean).map(String)));
+  var out = {};
+  if (!ids.length || !isSupabaseDbConfigured()) return out;
+
+  var profileMap = {};
+  for (var pi = 0; pi < ids.length; pi += 200) {
+    var pChunk = ids.slice(pi, pi + 200);
+    var pRes = await supabaseDbRequest('user_profiles',
+      'select=user_id,first_name,last_name,email,registration_country,preferred_city,target_arrival_date,who_moving,children_count,qualification_country&user_id=in.(' + encodeURIComponent(_atsInList(pChunk)) + ')&limit=500');
+    ((pRes.ok && pRes.data) || []).forEach(function (p) { profileMap[p.user_id] = p; });
+  }
+
+  var stateMap = {};
+  for (var si = 0; si < ids.length; si += 200) {
+    var sChunk = ids.slice(si, si + 200);
+    var sRes = await supabaseDbRequest('user_state',
+      'select=user_id,state&user_id=in.(' + encodeURIComponent(_atsInList(sChunk)) + ')&limit=500');
+    ((sRes.ok && sRes.data) || []).forEach(function (s) { stateMap[s.user_id] = _parseStateVal(s.state); });
+  }
+
+  var cvSet = {};
+  for (var di = 0; di < ids.length; di += 200) {
+    var dChunk = ids.slice(di, di + 200);
+    var dRes = await supabaseDbRequest('user_documents',
+      'select=user_id&user_id=in.(' + encodeURIComponent(_atsInList(dChunk)) + ')&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=500');
+    ((dRes.ok && dRes.data) || []).forEach(function (d) { cvSet[d.user_id] = true; });
+  }
+
+  var caseMap = {};
+  for (var ci = 0; ci < ids.length; ci += 200) {
+    var cChunk = ids.slice(ci, ci + 200);
+    var cRes = await supabaseDbRequest('registration_cases',
+      'select=user_id,ai_handover_summary,intent_score,intent_band&user_id=in.(' + encodeURIComponent(_atsInList(cChunk)) + ')&limit=500');
+    ((cRes.ok && cRes.data) || []).forEach(function (c) { caseMap[c.user_id] = c; });
+  }
+
+  var appsByUser = {};
+  var allAppIds = [];
+  for (var ai = 0; ai < ids.length; ai += 200) {
+    var aChunk = ids.slice(ai, ai + 200);
+    var aRes = await supabaseDbRequest('gp_applications',
+      'select=id,user_id,career_role_id,ats_stage,status&user_id=in.(' + encodeURIComponent(_atsInList(aChunk)) + ')&limit=2000');
+    ((aRes.ok && aRes.data) || []).forEach(function (a) {
+      (appsByUser[a.user_id] = appsByUser[a.user_id] || []).push(a);
+      allAppIds.push(String(a.id));
+    });
+  }
+
+  var interviewAppIds = {};
+  for (var ii = 0; ii < allAppIds.length; ii += 200) {
+    var iChunk = allAppIds.slice(ii, ii + 200);
+    var iRes = await supabaseDbRequest('career_interviews',
+      'select=application_id&application_id=in.(' + encodeURIComponent(_atsInList(iChunk)) + ')&status=in.(scheduled,confirmed)&limit=2000');
+    ((iRes.ok && iRes.data) || []).forEach(function (r) { interviewAppIds[String(r.application_id)] = true; });
+  }
+
+  ids.forEach(function (uid) {
+    // No user_profiles row AND no registration_cases row at all — this id
+    // isn't a real candidate (e.g. a stale/typo'd user_id). Skip it rather
+    // than emitting an all-defaults object, so callers can tell "unknown
+    // candidate" (a 404) apart from "known candidate with sparse data".
+    if (!profileMap[uid] && !caseMap[uid]) return;
+    var prof = profileMap[uid] || {};
+    var state = stateMap[uid] || {};
+    var apps = appsByUser[uid] || [];
+    var career = _parseStateVal(state.gp_career_state);
+    var placedByState = career.career_secured === true || career.secured === true;
+    var placedByApp = apps.some(function (a) { return isCareerPlacementSecuredStatus(a.status) || a.ats_stage === 'hired'; });
+    var liveJobIds = apps.filter(function (a) {
+      var stage = a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false);
+      return atsPracticeUtil.ATS_STAGES.indexOf(stage) !== -1;
+    }).map(function (a) { return String(a.career_role_id); });
+    var atInterview = apps.some(function (a) {
+      return a.ats_stage === 'interview' || isCareerInterviewStatus(a.status) || interviewAppIds[String(a.id)];
+    });
+    var careerLock = state.career_lock || {};
+    var careerLocked = !!careerLock.locked_at
+      && !(careerLock.released_at && new Date(careerLock.released_at) > new Date(careerLock.locked_at));
+    var onboardingBlob = _parseStateVal(state.gp_onboarding);
+    var rawCountry = prof.registration_country || state.gp_selected_country || onboardingBlob.country || '';
+    var reg = caseMap[uid] || {};
+    var handover = reg.ai_handover_summary;
+    var handoverText = '';
+    if (handover && typeof handover === 'object') handoverText = handover.overview || handover.key_history || '';
+    else if (typeof handover === 'string') handoverText = handover;
+
+    out[uid] = {
+      userId: uid,
+      name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate',
+      email: prof.email || '',
+      onboardingComplete: state.gp_onboarding_complete === true,
+      hasCv: cvSet[uid] === true,
+      placed: !!(placedByState || placedByApp),
+      liveApplicationRoleIds: liveJobIds,
+      atInterviewStage: atInterview,
+      careerLocked: careerLocked,
+      accountStatus: state.account_status || 'active',
+      dpaEligible: _isAustraliaTrainedCountry(rawCountry),
+      qualificationCountry: prof.qualification_country || rawCountry || '',
+      preferredCity: prof.preferred_city || '',
+      targetArrivalDate: prof.target_arrival_date || '',
+      whoMoving: prof.who_moving || '',
+      childrenCount: prof.children_count || '',
+      handoverSummary: handoverText,
+      intentScore: reg.intent_score != null ? reg.intent_score : null
+    };
+  });
+
+  return out;
+}
+
+// Compact job summary fed to the AI prompt + returned in ranked responses.
+// Earnings/billing fields are deliberately excluded (spec §3 hard rule — the
+// model is never even given money-shaped data to reference).
+function atsJobMatchSummary(jobRow) {
+  var j = jobRow || {};
+  return {
+    id: String(j.id),
+    title: j.title || '',
+    practice_name: j.practice_name || '',
+    practice_type: j.practice_type || '',
+    location_city: j.location_city || '',
+    location_state: j.location_state || '',
+    employment_type: j.employment_type || '',
+    dpa: j.dpa === true,
+    visa_pathway_aligned: j.visa_pathway_aligned === true,
+    regional: j.regional === true,
+    metro: j.metro === true,
+    family_friendly: j.family_friendly === true,
+    tags: Array.isArray(j.tags) ? j.tags : [],
+    summary: j.summary || ''
+  };
 }
 
 // ---- GP-facing stage notifications (Task 5) --------------------------------
@@ -48297,6 +48505,237 @@ Return ONLY valid JSON with no markdown formatting:
       columns: columns,
       active_count: ppCards.filter(function (c) { return c.ats_stage !== atsPracticeUtil.ATS_REJECT_STAGE; }).length
     });
+    return;
+  }
+
+  // ---- AI Matching (Task 2) ------------------------------------------------
+  // GET /api/ats/matching/candidates?job_id=&force= — rank the eligible GP
+  // pool against ONE job. 24h match_cache (subject_type='job') unless force=1.
+  if (pathname === '/api/ats/matching/candidates' && req.method === 'GET') {
+    var ctxMC = requireAtsSession(req, res); if (!ctxMC) return;
+    var mcJobId = String(url.searchParams.get('job_id') || '').trim();
+    if (!mcJobId) { sendJson(res, 400, { ok: false, message: 'Missing job_id.' }); return; }
+    var mcJob = await atsGetJobRow(mcJobId);
+    if (!mcJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var mcForce = url.searchParams.get('force') === '1';
+    var mcPractice = mcJob.practice_id ? await atsGetPracticeRow(mcJob.practice_id) : null;
+    var mcJobOut = {
+      id: String(mcJob.id), title: mcJob.title || '',
+      practice_name: mcJob.practice_name || (mcPractice ? mcPractice.name : ''),
+      location_city: mcJob.location_city || '', location_state: mcJob.location_state || '',
+      dpa: mcJob.dpa === true
+    };
+
+    if (!mcForce) {
+      var mcCached = await atsGetMatchCache('job', mcJob.id);
+      if (atsMatchCacheFresh(mcCached)) {
+        sendJson(res, 200, Object.assign({ ok: true, job: mcJobOut, cached: true, generated_at: mcCached.generated_at }, mcCached.payload));
+        return;
+      }
+    }
+
+    var mcCandidateIds = await atsListCandidateUserIds();
+    var mcGpMap = await atsBuildGpMatchInputs(mcCandidateIds);
+    var mcJobForCheck = { id: mcJob.id, dpa: mcJob.dpa === true };
+    var mcEligible = [];
+    var mcExcluded = 0;
+    mcCandidateIds.forEach(function (uid) {
+      var gp = mcGpMap[uid];
+      if (!gp) { mcExcluded++; return; }
+      var verdict = aiCandidateJobMatch.checkMatchEligibility(gp, mcJobForCheck);
+      if (verdict.eligible) mcEligible.push(gp); else mcExcluded++;
+    });
+
+    if (!mcEligible.length) {
+      var mcEmptyPayload = { ranked: [], excluded_count: mcExcluded };
+      await atsSetMatchCache('job', mcJob.id, mcEmptyPayload);
+      sendJson(res, 200, Object.assign({ ok: true, job: mcJobOut, generated_at: atsNowIso() }, mcEmptyPayload));
+      return;
+    }
+
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'AI matching service not configured.' }); return; }
+    if (!(await checkAnthropicBudget())) {
+      sendJson(res, 200, { ok: true, job: mcJobOut, ranked: [], excluded_count: mcExcluded, degraded: true, message: 'Daily AI matching budget reached — please try again later.' });
+      return;
+    }
+
+    var mcResult = await aiCandidateJobMatch.aiRankCandidatesForJob(atsJobMatchSummary(mcJob), mcEligible.map(function (gp) {
+      return { id: gp.userId, name: gp.name, qualificationCountry: gp.qualificationCountry, preferredCity: gp.preferredCity, targetArrivalDate: gp.targetArrivalDate, whoMoving: gp.whoMoving, childrenCount: gp.childrenCount, handoverSummary: gp.handoverSummary };
+    }), { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+    var mcByGp = {}; mcEligible.forEach(function (gp) { mcByGp[gp.userId] = gp; });
+    var mcRanked = (mcResult.ranked || []).map(function (r) {
+      var gp = mcByGp[r.id] || {};
+      return {
+        user_id: r.id, name: gp.name || '', email: gp.email || '', country: gp.qualificationCountry || '',
+        score: r.score, reasons: r.reasons || [],
+        chips: [gp.dpaEligible ? 'Australia-trained' : '', mcJob.dpa === true ? 'DPA eligible role' : ''].filter(Boolean)
+      };
+    });
+    var mcPayload = { ranked: mcRanked, excluded_count: mcExcluded };
+    if (mcResult.error) mcPayload.degraded = true;
+    await atsSetMatchCache('job', mcJob.id, mcPayload);
+    sendJson(res, 200, Object.assign({ ok: true, job: mcJobOut, generated_at: atsNowIso() }, mcPayload));
+    return;
+  }
+
+  // GET /api/ats/matching/jobs?user_id=&force= — mirror: rank open+active jobs
+  // against ONE GP. 24h match_cache (subject_type='gp') unless force=1.
+  if (pathname === '/api/ats/matching/jobs' && req.method === 'GET') {
+    var ctxMJ = requireAtsSession(req, res); if (!ctxMJ) return;
+    var mjUserId = String(url.searchParams.get('user_id') || '').trim();
+    if (!mjUserId) { sendJson(res, 400, { ok: false, message: 'Missing user_id.' }); return; }
+    var mjForce = url.searchParams.get('force') === '1';
+
+    var mjGpMap = await atsBuildGpMatchInputs([mjUserId]);
+    var mjGp = mjGpMap[mjUserId];
+    if (!mjGp) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
+    var mjGpOut = { user_id: mjUserId, name: mjGp.name, email: mjGp.email };
+
+    if (!mjForce) {
+      var mjCached = await atsGetMatchCache('gp', mjUserId);
+      if (atsMatchCacheFresh(mjCached)) {
+        sendJson(res, 200, Object.assign({ ok: true, gp: mjGpOut, cached: true, generated_at: mjCached.generated_at }, mjCached.payload));
+        return;
+      }
+    }
+
+    var mjJobsRes = await supabaseDbRequest('career_roles',
+      'select=id,title,practice_name,practice_type,location_city,location_state,employment_type,dpa,visa_pathway_aligned,regional,metro,family_friendly,tags,summary&job_status=eq.open&is_active=eq.true&limit=500');
+    var mjJobs = (mjJobsRes.ok && Array.isArray(mjJobsRes.data)) ? mjJobsRes.data : [];
+
+    var mjEligible = [];
+    var mjExcluded = 0;
+    mjJobs.forEach(function (j) {
+      var verdict = aiCandidateJobMatch.checkMatchEligibility(mjGp, { id: j.id, dpa: j.dpa === true });
+      if (verdict.eligible) mjEligible.push(j); else mjExcluded++;
+    });
+
+    if (!mjEligible.length) {
+      var mjEmptyPayload = { ranked: [], excluded_count: mjExcluded };
+      await atsSetMatchCache('gp', mjUserId, mjEmptyPayload);
+      sendJson(res, 200, Object.assign({ ok: true, gp: mjGpOut, generated_at: atsNowIso() }, mjEmptyPayload));
+      return;
+    }
+
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'AI matching service not configured.' }); return; }
+    if (!(await checkAnthropicBudget())) {
+      sendJson(res, 200, { ok: true, gp: mjGpOut, ranked: [], excluded_count: mjExcluded, degraded: true, message: 'Daily AI matching budget reached — please try again later.' });
+      return;
+    }
+
+    var mjByJob = {}; mjEligible.forEach(function (j) { mjByJob[String(j.id)] = j; });
+    var mjResult = await aiCandidateJobMatch.aiRankJobsForGp({
+      id: mjUserId, name: mjGp.name, qualificationCountry: mjGp.qualificationCountry, preferredCity: mjGp.preferredCity,
+      targetArrivalDate: mjGp.targetArrivalDate, whoMoving: mjGp.whoMoving, childrenCount: mjGp.childrenCount, handoverSummary: mjGp.handoverSummary
+    }, mjEligible.map(atsJobMatchSummary), { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+    var mjRanked = (mjResult.ranked || []).map(function (r) {
+      var j = mjByJob[r.id] || {};
+      return {
+        career_role_id: r.id, title: j.title || '', practice_name: j.practice_name || '',
+        location_city: j.location_city || '', location_state: j.location_state || '',
+        score: r.score, reasons: r.reasons || [],
+        chips: [j.dpa === true ? 'DPA eligible role' : '', mjGp.dpaEligible ? 'Australia-trained' : ''].filter(Boolean)
+      };
+    });
+    var mjPayload = { ranked: mjRanked, excluded_count: mjExcluded };
+    if (mjResult.error) mjPayload.degraded = true;
+    await atsSetMatchCache('gp', mjUserId, mjPayload);
+    sendJson(res, 200, Object.assign({ ok: true, gp: mjGpOut, generated_at: atsNowIso() }, mjPayload));
+    return;
+  }
+
+  // POST /api/ats/matching/shortlist {items:[{user_id, career_role_id}]} — per
+  // item: skip a LIVE existing row, REOPEN a terminal one (not_proceeding /
+  // declined / expired / position_filled), else INSERT a fresh 'shortlisted'
+  // row. Reasons/score come from the job-side match_cache entry for that pair
+  // if present — this endpoint never calls the AI itself.
+  if (pathname === '/api/ats/matching/shortlist' && req.method === 'POST') {
+    var ctxMS = requireAtsSession(req, res); if (!ctxMS) return;
+    var bodyMS; try { bodyMS = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var msItems = Array.isArray(bodyMS && bodyMS.items) ? bodyMS.items : [];
+    if (!msItems.length) { sendJson(res, 400, { ok: false, message: 'items is required.' }); return; }
+
+    // Batch the job-side match_cache lookups — one row per distinct job, not per item.
+    var msJobIds = Array.from(new Set(msItems.map(function (it) { return String((it && it.career_role_id) || ''); }).filter(Boolean)));
+    var msCacheByJob = {};
+    for (var mci = 0; mci < msJobIds.length; mci++) {
+      var msCacheRow = await atsGetMatchCache('job', msJobIds[mci]);
+      if (msCacheRow && msCacheRow.payload && Array.isArray(msCacheRow.payload.ranked)) {
+        var msMap = {};
+        msCacheRow.payload.ranked.forEach(function (r) { msMap[String(r.user_id || r.id)] = r; });
+        msCacheByJob[msJobIds[mci]] = msMap;
+      }
+    }
+
+    var msResults = [];
+    for (var mi = 0; mi < msItems.length; mi++) {
+      var msItem = msItems[mi] || {};
+      var msUserId = String(msItem.user_id || '').trim();
+      var msJobId = String(msItem.career_role_id || '').trim();
+      if (!msUserId || !msJobId) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'missing_fields' }); continue; }
+
+      var msExistingRes = await supabaseDbRequest('gp_applications',
+        'select=*&user_id=eq.' + encodeURIComponent(msUserId) + '&career_role_id=eq.' + encodeURIComponent(msJobId) + '&limit=1');
+      var msExisting = (msExistingRes.ok && Array.isArray(msExistingRes.data) && msExistingRes.data[0]) ? msExistingRes.data[0] : null;
+
+      var msCacheEntry = null; // resolved per-branch below (reopen vs insert), once we know which cache map key applies
+      var msNowIso = atsNowIso();
+      var msExpiresAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+
+      if (msExisting) {
+        var msStage = msExisting.ats_stage || atsPracticeUtil.deriveAtsStage(msExisting, false);
+        if (atsPracticeUtil.ATS_STAGES.indexOf(msStage) !== -1) {
+          msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, skipped: 'live_application' });
+          continue;
+        }
+
+        // Terminal row (not_proceeding / declined / expired / position_filled) — reopen SAME row.
+        msCacheEntry = (msCacheByJob[msJobId] || {})[msUserId] || null;
+        var msReopenReasons = msCacheEntry ? (msCacheEntry.reasons || []) : [];
+        var msReopenScore = msCacheEntry ? msCacheEntry.score : null;
+        var msPriorReasons = msExisting.match_reasons;
+        var msHistory = (msPriorReasons && typeof msPriorReasons === 'object' && !Array.isArray(msPriorReasons) && Array.isArray(msPriorReasons._history))
+          ? msPriorReasons._history.slice() : [];
+        msHistory.push({ outcome: msExisting.match_outcome || 'not_proceeding', decline_reason: msExisting.decline_reason || null, at: msNowIso });
+
+        var msPatch = {
+          ats_stage: 'shortlisted', ats_stage_updated_at: msNowIso,
+          match_outcome: null, decline_reason: null,
+          match_score: msReopenScore, match_reasons: { reasons: msReopenReasons, _history: msHistory },
+          matched_by: ctxMS.email || '', matched_at: msNowIso, match_expires_at: msExpiresAt,
+          match_seen_at: null, match_reminder_sent_at: null, updated_at: msNowIso
+        };
+        var msUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(msExisting.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: msPatch });
+        var msReopenedRow = (msUpd.ok && Array.isArray(msUpd.data) && msUpd.data[0]) ? msUpd.data[0] : null;
+        if (!msReopenedRow) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'reopen_failed' }); continue; }
+        await atsRecordStageEvent(msReopenedRow.id, msStage, 'shortlisted', ctxMS.email || '');
+        if (typeof sendMatchEmail === 'function') { await sendMatchEmail(msReopenedRow); }
+        msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true, reopened: true });
+        continue;
+      }
+
+      // No prior row at all — fresh insert.
+      var msJob = await atsGetJobRow(msJobId);
+      if (!msJob) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'job_not_found' }); continue; }
+      msCacheEntry = (msCacheByJob[msJobId] || {})[msUserId] || null;
+
+      var msInsertRow = {
+        user_id: msUserId, career_role_id: msJob.id,
+        provider_role_id: msJob.provider_role_id || ('ats_' + atsLocalId('')),
+        ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true,
+        job_title: msJob.title, practice_name: msJob.practice_name || '',
+        match_score: msCacheEntry ? msCacheEntry.score : null,
+        match_reasons: { reasons: msCacheEntry ? (msCacheEntry.reasons || []) : [], _history: [] },
+        matched_by: ctxMS.email || '', matched_at: msNowIso, match_expires_at: msExpiresAt
+      };
+      var msCreated = await atsInsertApplicationRow(msInsertRow);
+      if (!msCreated) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'insert_failed' }); continue; }
+      await atsRecordStageEvent(msCreated.id, '', 'shortlisted', ctxMS.email || '');
+      if (typeof sendMatchEmail === 'function') { await sendMatchEmail(msCreated); }
+      msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true });
+    }
+
+    sendJson(res, 200, { ok: true, results: msResults });
     return;
   }
 
