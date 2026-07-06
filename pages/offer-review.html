@@ -847,16 +847,29 @@
   <div class="post-accept">
     <div class="celebration-card">
       <div class="celebration-icon">🎉</div>
-      <div class="celebration-title">Placement Secured</div>
+      <div class="celebration-title">Offer Accepted</div>
       <div class="celebration-sub" id="celebrationSub">You've accepted your offer. Here's what happens next.</div>
+
+      <!-- POST-ACCEPT INTERVIEW (G1): after accepting, give the GP one clear way
+           to book the interview — or, once booked, the confirmed time + Zoom. -->
+      <div id="postAcceptInterview" style="margin-top: 20px;" hidden>
+        <a class="secure-interview-btn" id="postAcceptInterviewBtn" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Schedule your interview
+        </a>
+      </div>
+      <div class="booked-interview-note" id="postAcceptBookedNote" style="margin-top: 20px; text-align: left;" hidden>
+        <span>🎥 Interview booked for <strong id="postAcceptBookedTime"></strong></span>
+        <a id="postAcceptBookedZoom" href="#" target="_blank" rel="noopener">Join on Zoom</a>
+      </div>
 
       <div class="next-steps-item">
         <div class="step-num">1</div>
-        <div class="step-text"><strong>Contract signing</strong> — your GP Link officer will send the formal contract within 48 hours</div>
+        <div class="step-text"><strong>Schedule your interview</strong> — pick a time that suits you and meet the practice</div>
       </div>
       <div class="next-steps-item">
         <div class="step-num">2</div>
-        <div class="step-text"><strong>Registration &amp; paperwork</strong> — we keep your registration steps moving right away</div>
+        <div class="step-text"><strong>Contract &amp; registration</strong> — your GP Link officer sends the formal contract and keeps your registration steps moving</div>
       </div>
       <div class="next-steps-item">
         <div class="step-num">3</div>
@@ -1035,6 +1048,51 @@
   }
 
   // ── Populate the page from the real offer ──
+  // Post-accept interview state (G1): once the offer is accepted the .pre-accept
+  // block (and its Secure My Interview CTA) is hidden, so mirror that CTA inside
+  // the celebration panel. interviewBookable + no booking → prominent "Schedule
+  // your interview" deep link; a real booking → confirmed time + https-guarded Zoom.
+  function renderPostAcceptInterview(data) {
+    data = data || {};
+    var wrap = document.getElementById('postAcceptInterview');
+    var btn = document.getElementById('postAcceptInterviewBtn');
+    var bookedNote = document.getElementById('postAcceptBookedNote');
+    var appId = String((data.applicationId != null ? data.applicationId : '') || resolvedApplicationId || applicationId || '');
+    if (data.bookedInterview && data.bookedInterview.scheduled_at) {
+      if (wrap) wrap.hidden = true;
+      if (bookedNote) {
+        var bTime = '';
+        try { bTime = new Date(data.bookedInterview.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
+        catch (err) { bTime = data.bookedInterview.scheduled_at; }
+        setText('postAcceptBookedTime', bTime);
+        var zoom = document.getElementById('postAcceptBookedZoom');
+        if (zoom) {
+          var zoomUrl = String(data.bookedInterview.zoom_join_url || '');
+          if (zoomUrl.indexOf('https://') === 0) { zoom.href = zoomUrl; zoom.hidden = false; }
+          else { zoom.hidden = true; }
+        }
+        bookedNote.hidden = false;
+      }
+    } else if (data.interviewBookable && wrap && btn) {
+      if (bookedNote) bookedNote.hidden = true;
+      btn.href = '/pages/secure-interview?applicationId=' + encodeURIComponent(appId);
+      wrap.hidden = false;
+    } else {
+      if (wrap) wrap.hidden = true;
+      if (bookedNote) bookedNote.hidden = true;
+    }
+  }
+
+  // Re-fetch the live offer after a successful accept so the celebration panel
+  // shows the freshest interview state (interviewBookable / bookedInterview).
+  function refreshPostAcceptInterview() {
+    var appId = resolvedApplicationId || applicationId || '';
+    fetch('/api/career/my-offer' + (appId ? '?applicationId=' + encodeURIComponent(appId) : ''), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (data && data.ok) renderPostAcceptInterview(data); })
+      .catch(function () { /* non-blocking */ });
+  }
+
   function renderOffer(data) {
     var offer = data.offer || {};
     if (data.applicationId) resolvedApplicationId = String(data.applicationId);
@@ -1142,6 +1200,9 @@
     // Server knows best: an accepted offer shows the celebration state even on a new device.
     if (offer.status === 'accepted') {
       document.getElementById('pageRoot').classList.add('accepted');
+      // Arrive-already-accepted (G1): the pre-accept interview CTA is hidden, so
+      // populate the celebration-panel interview state from this same payload.
+      renderPostAcceptInterview(data);
       try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
     } else {
       // Self-heal: the server says this offer is NOT accepted (e.g. a past
@@ -1209,6 +1270,9 @@
             try { localStorage.setItem(acceptKey, '1'); } catch (err) { /* non-blocking */ }
             restoreAcceptBtn(); // hidden by the accepted state, but left sane
             document.getElementById('pageRoot').classList.add('accepted');
+            // G1: re-fetch the live offer so the celebration panel can reveal the
+            // "Schedule your interview" CTA (or the booked time) right after accept.
+            refreshPostAcceptInterview();
             window.scrollTo({ top: 0, behavior: 'smooth' });
           } else {
             showAcceptError(result.data && result.data.message);

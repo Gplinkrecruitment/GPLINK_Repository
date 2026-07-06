@@ -6958,6 +6958,8 @@
     }
     .at-rstatus--applied { background: var(--gp-ink, #0f172a); color: #fff; }
     .at-rstatus--offer { background: var(--gp-green, #16a34a); color: #fff; }
+    /* Terminal outcomes (G4): calm, muted neutral — never a red alarm. */
+    .at-rstatus--muted { background: var(--gp-muted, #64748b); color: #fff; }
     .at-cta-link {
       flex: none;
       font-size: 12px;
@@ -7918,6 +7920,22 @@
       }
       if (["offer", "offer_pending", "offered"].includes(key)) {
         return { label: "Offer Pending", tone: "offer", isPlacementSecured: false };
+      }
+      // G5: offer accepted but the secured placement payload hasn't landed yet.
+      // Positive tone, consistent with the server statusLabel — never "Under Review".
+      if (key === "finalising_placement") {
+        return { label: "Offer accepted — finalising your placement", tone: "offer", isPlacementSecured: false };
+      }
+      // G4: terminal outcomes get honest, calm labels rather than a startCase
+      // fallback or a stale "Under Review".
+      if (key === "not_proceeding") {
+        return { label: "Not proceeding this time", tone: "review", isPlacementSecured: false };
+      }
+      if (key === "withdrawn") {
+        return { label: "Application withdrawn", tone: "review", isPlacementSecured: false };
+      }
+      if (key === "offer_declined") {
+        return { label: "You declined this offer", tone: "review", isPlacementSecured: false };
       }
       if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) {
         return { label: "Practice Secured", tone: "secured", isPlacementSecured: true };
@@ -10760,14 +10778,34 @@
       const isInterview = actionStatusKey === "interview" || actionStatusKey === "interview_scheduled";
       const tone = isOffer ? "offer" : (application.tone || "review");
 
+      // Terminal outcomes (G4) + the offer-accepted interim (G5) each carry
+      // their own honest ribbon + copy, so a closed or accepted application is
+      // never mislabelled "UNDER REVIEW". Muted neutral styling, never red.
+      const isNotProceeding = actionStatusKey === "not_proceeding";
+      const isWithdrawn = actionStatusKey === "withdrawn";
+      const isOfferDeclined = actionStatusKey === "offer_declined";
+      const isFinalising = actionStatusKey === "finalising_placement";
+
       let ribbon = "";
       if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
+      else if (isFinalising) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER ACCEPTED</span>';
+      else if (isNotProceeding) ribbon = '<span class="at-rstatus at-rstatus--muted">NOT PROCEEDING</span>';
+      else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
+      else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
       let metaLine = "";
       if (application.isPlacementSecured) {
         metaLine = "Placement secured \u2014 open your placement for the full details.";
+      } else if (isFinalising) {
+        metaLine = "We're finalising the paperwork \u2014 your placement page unlocks shortly.";
+      } else if (isNotProceeding) {
+        metaLine = "This one didn't work out \u2014 your Registration Support Officer can help you find the next fit.";
+      } else if (isWithdrawn) {
+        metaLine = "You withdrew this application.";
+      } else if (isOfferDeclined) {
+        metaLine = "You declined this offer.";
       } else if (isOffer) {
         metaLine = "The practice would like to move forward \u2014 review your offer and schedule the interview.";
       } else if (isInterview) {
