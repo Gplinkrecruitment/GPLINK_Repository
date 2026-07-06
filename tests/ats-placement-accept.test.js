@@ -502,18 +502,20 @@ describe('POST /api/career/offer/accept — offer record exists', () => {
     // Internal job flipped to filled.
     expect(db.career_roles.find((j) => j.id === 'role-1').job_status).toBe('filled');
 
-    // Exactly ONE email to the offer sender, none congratulating the GP
-    // (the page shows its own celebration; journey emails are separate).
+    // Exactly ONE email to the offer sender.
     const senders = senderEmails().slice(sendersBefore);
     expect(senders.length).toBe(1);
     expect(String(senders[0].body.subject)).toContain('accepted the offer');
     expect(String(senders[0].body.subject)).toContain('Test Doctor');
+    // G6: the GP is now congratulated on their own in-app acceptance — exactly
+    // one "placement is secured" email to the GP (previously this was missing;
+    // the practice-accept congrats never fired for in-app self-accept).
     const gpCongrats = resendCalls.filter((c) => {
       const to = c.body && c.body.to;
       const toGp = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes(GP.email));
-      return toGp && /hired|congratulations/i.test(String(c.body && c.body.subject || ''));
+      return toGp && /placement is secured/i.test(String(c.body && c.body.subject || ''));
     });
-    expect(gpCongrats.length).toBe(0);
+    expect(gpCongrats.length).toBe(1);
 
     // Case timeline audit entry.
     const tl = db.task_timeline.find((t) => t.case_id === 'case-1' && /Offer accepted in-app/.test(String(t.title || '')));

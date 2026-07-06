@@ -1976,6 +1976,88 @@
       box-shadow: none;
     }
 
+    /* ===== G2: Upcoming interview card (secured view) — fenced addition ===== */
+    .placement-interview-card {
+      background: #fff;
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: 18px;
+      padding: 18px 20px;
+      box-shadow: 0 4px 16px rgba(2, 6, 23, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .placement-interview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .placement-interview-kicker {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--brand, #2563eb);
+    }
+    .placement-interview-when {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .placement-interview-practice {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .placement-interview-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .placement-interview-join,
+    .placement-interview-prep-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .placement-interview-join {
+      background: #2563eb;
+      color: #fff;
+    }
+    .placement-interview-join svg {
+      width: 18px;
+      height: 18px;
+    }
+    .placement-interview-prep-link {
+      background: #fff;
+      color: #2563eb;
+      border-color: #2563eb;
+    }
+    html.dark-mode .placement-interview-card {
+      background: #111827;
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    html.dark-mode .placement-interview-when,
+    html.dark-mode .placement-interview-practice {
+      color: #f8fafc;
+    }
+    html.dark-mode .placement-interview-prep-link {
+      background: transparent;
+      color: #93c5fd;
+      border-color: #93c5fd;
+    }
+    /* ===== end G2 addition ===== */
+
     .placement-quick-stats {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7182,6 +7264,24 @@
             </div>
           </article>
 
+          <!-- G2: Upcoming interview card (secured view). Hidden until an
+               upcoming booked interview is fetched from /api/career/my-interviews.
+               All ids prefixed securedInterview*. -->
+          <article class="placement-interview-card" id="securedInterviewCard" hidden>
+            <div class="placement-interview-head">
+              <span class="placement-interview-kicker">Upcoming interview</span>
+              <span class="placement-interview-when" id="securedInterviewWhen"></span>
+            </div>
+            <p class="placement-interview-practice" id="securedInterviewPractice"></p>
+            <div class="placement-interview-actions">
+              <a class="placement-interview-join" id="securedInterviewJoinLink" href="#" target="_blank" rel="noopener" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <span>Join on Zoom</span>
+              </a>
+              <button class="placement-interview-prep-link" id="securedInterviewPrepLink" type="button">Interview prep &amp; details</button>
+            </div>
+          </article>
+
           <div class="placement-quick-stats" id="securedQuickStats"></div>
 
           <div class="placement-income-float">
@@ -8209,6 +8309,11 @@
     const securedCountdownValueEl = document.getElementById("securedCountdownValue");
     const securedCountdownCopyEl = document.getElementById("securedCountdownCopy");
     const securedQuickStatsEl = document.getElementById("securedQuickStats");
+    const securedInterviewCardEl = document.getElementById("securedInterviewCard");
+    const securedInterviewWhenEl = document.getElementById("securedInterviewWhen");
+    const securedInterviewPracticeEl = document.getElementById("securedInterviewPractice");
+    const securedInterviewJoinLinkEl = document.getElementById("securedInterviewJoinLink");
+    const securedInterviewPrepLinkEl = document.getElementById("securedInterviewPrepLink");
     const securedExpectedIncomeEl = document.getElementById("securedExpectedIncome");
     const securedExpectedIncomeUnitEl = document.getElementById("securedExpectedIncomeUnit");
     const securedPracticeContactInitialsEl = document.getElementById("securedPracticeContactInitials");
@@ -10874,9 +10979,72 @@
       applicationsGridEl.innerHTML = html;
     }
 
+    // G2: only ever surface an https Zoom link.
+    function securedSafeZoomUrl(raw) {
+      const value = String(raw || "").trim();
+      if (!value) return "";
+      try {
+        return new URL(value).protocol === "https:" ? value : "";
+      } catch (e) { return ""; }
+    }
+
+    // G2: format the interview time in the GP's local label, honouring the
+    // interview's own timezone when supplied (falls back to the viewer's tz).
+    function securedInterviewWhenLabel(iso, tz) {
+      const opts = { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" };
+      try {
+        return new Intl.DateTimeFormat("en-AU", tz ? Object.assign({ timeZone: tz }, opts) : opts).format(new Date(iso));
+      } catch (e) {
+        return new Intl.DateTimeFormat("en-AU", opts).format(new Date(iso));
+      }
+    }
+
+    function renderSecuredInterviewCard(iv) {
+      if (!securedInterviewCardEl) return;
+      if (securedInterviewWhenEl) securedInterviewWhenEl.textContent = securedInterviewWhenLabel(iv.scheduled_at, iv.timezone);
+      // Respect whatever masking the payload applied — never unmask client-side.
+      if (securedInterviewPracticeEl) securedInterviewPracticeEl.textContent = iv.practice_name || "Your interview";
+      const zoom = securedSafeZoomUrl(iv.zoom_join_url);
+      if (securedInterviewJoinLinkEl) {
+        if (zoom) {
+          securedInterviewJoinLinkEl.href = zoom;
+          securedInterviewJoinLinkEl.hidden = false;
+        } else {
+          securedInterviewJoinLinkEl.hidden = true;
+          securedInterviewJoinLinkEl.removeAttribute("href");
+        }
+      }
+      securedInterviewCardEl.hidden = false;
+    }
+
+    // G2: fetch the GP's interviews once on entering secured mode and, when an
+    // upcoming booked interview exists, reveal the card. When none, render
+    // nothing (the card stays hidden — no empty state).
+    let securedInterviewLoaded = false;
+    function loadSecuredInterview() {
+      if (securedInterviewLoaded || !securedInterviewCardEl) return;
+      securedInterviewLoaded = true;
+      fetch("/api/career/my-interviews", { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((data) => {
+          const list = (data && data.ok && Array.isArray(data.interviews)) ? data.interviews : [];
+          const now = Date.now();
+          const upcoming = list.filter((iv) => {
+            if (!iv || !iv.scheduled_at) return false;
+            const t = Date.parse(iv.scheduled_at);
+            if (!isFinite(t) || t < now) return false;
+            const st = String(iv.status || "").toLowerCase();
+            return st !== "cancelled" && st !== "completed" && st !== "no_show";
+          });
+          if (upcoming.length) renderSecuredInterviewCard(upcoming[0]);
+        })
+        .catch(() => { /* leave the card hidden */ });
+    }
+
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
+      loadSecuredInterview();
       const placement = resolveSecuredPlacement();
       const startDateLabel = formatMonthYearLabel(placement.startDateIso);
       const daysUntilStart = getDaysUntil(placement.startDateIso);
@@ -11093,6 +11261,18 @@
       const href = securedContinueBtnEl.dataset.href || "myinthealth";
       window.location.href = href;
     });
+
+    // G2: shell-aware navigation to the interview prep page.
+    if (securedInterviewPrepLinkEl) {
+      securedInterviewPrepLinkEl.addEventListener("click", () => {
+        const route = "/pages/interview-prep";
+        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+          window.parent.gpShellNavigate(route, "Interview prep");
+        } else {
+          window.location.href = "interview-prep";
+        }
+      });
+    }
 
     document.addEventListener("click", (event) => {
       if (

@@ -21957,24 +21957,41 @@ async function sendAhpraUnlockedEmail(userId) {
 }
 
 // 10. Interview Reminder — 24h before scheduled interview
-async function sendInterviewReminderEmail(userId, { practiceName, scheduledAt, format, zoomJoinUrl }) {
+async function sendInterviewReminderEmail(userId, opts) {
+  opts = opts || {};
+  const practiceName = opts.practiceName;
+  const scheduledAt = opts.scheduledAt;
+  const format = opts.format;
+  // Only ever surface an https Zoom link (never a tel:/javascript:/http: value).
+  const zoomJoinUrl = /^https:\/\//i.test(String(opts.zoomJoinUrl || '')) ? String(opts.zoomJoinUrl) : '';
+  // Lead-time phrasing: 'tomorrow' (24h, the default for the older
+  // career_interviews cron) or 'in about 2 hours' (the 2h scheduled_calls run).
+  const whenPhrase = opts.whenPhrase || 'tomorrow';
+  const timezone = opts.timezone || '';
+  const interviewPrepUrl = opts.interviewPrepUrl || (APP_BASE_URL + '/pages/interview-prep');
   const dateObj = new Date(scheduledAt);
-  const dateStr = dateObj.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const timeStr = dateObj.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+  // Time in the GP's local label when a timezone is known; otherwise fall back
+  // to the server locale (preserves the original career_interviews behaviour).
+  let whenLabel;
+  const whenOpts = { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
+  try {
+    whenLabel = new Intl.DateTimeFormat('en-AU', timezone ? Object.assign({ timeZone: timezone }, whenOpts) : whenOpts).format(dateObj);
+  } catch (e) {
+    whenLabel = new Intl.DateTimeFormat('en-AU', whenOpts).format(dateObj);
+  }
   const formatLabels = { video: 'Video Call (Zoom)', phone: 'Phone Call', in_person: 'In Person' };
   let detail = '<br><br><strong>Interview Details:</strong><br>';
   detail += 'Practice: ' + (practiceName || 'Your matched practice') + '<br>';
-  detail += 'Date: ' + dateStr + '<br>';
-  detail += 'Time: ' + timeStr + '<br>';
+  detail += 'When: ' + whenLabel + '<br>';
   detail += 'Format: ' + (formatLabels[format] || format || 'TBC') + '<br>';
   if (zoomJoinUrl) detail += '<br>Your Zoom meeting link is included in the button below.';
   await sendGpNotificationEmail(userId,
-    'Interview Tomorrow — GP Link',
+    'Interview ' + (whenPhrase === 'tomorrow' ? 'Tomorrow' : 'Reminder') + ' — GP Link',
     'Interview reminder, {{name}}',
-    'Just a friendly reminder — you have an interview scheduled for tomorrow.' + detail,
-    zoomJoinUrl ? 'Join Video Interview' : 'View Application',
-    zoomJoinUrl || APP_BASE_URL + '/pages/career.html#applications',
-    'Make sure you\'re in a quiet place with stable internet. Good luck!'
+    'Just a friendly reminder — you have an interview ' + whenPhrase + '.' + detail,
+    zoomJoinUrl ? 'Join Video Interview' : 'View Interview Prep',
+    zoomJoinUrl || interviewPrepUrl,
+    'See your full prep checklist and details: <a href="' + interviewPrepUrl + '">Interview prep &amp; details</a>. Make sure you\'re in a quiet place with stable internet. Good luck!'
   );
 }
 
@@ -22710,6 +22727,47 @@ async function sendGpCongratsEmail(userId, applicationId, practiceName) {
     }).catch(function (e) { console.error('[ats accept] push failed for', userId, ':', e && e.message); }),
     sendGpNotificationEmail(userId, copy.subject, copy.title, copy.body, copy.ctaText, copy.ctaUrl, copy.footer)
       .catch(function (e) { console.error('[ats accept] email failed for', userId, ':', e && e.message); })
+  ]);
+}
+
+// G6: congratulate the GP on their OWN in-app acceptance (self-accept via
+// POST /api/career/offer/accept). Identity is already revealed once the offer
+// is accepted, so the real practice name is fine here. Mirrors the
+// Promise.all/.catch shape of notifyGpOfferSent + sendGpCongratsEmail. The
+// CALLER awaits this, and only on the FIRST sent→accepted transition (never on
+// a resume), so the GP is congratulated exactly once.
+async function notifyGpOfSelfAcceptedPlacement(userId, applicationId, practiceName, hasBookedInterview) {
+  if (!userId) return;
+  var appIdEnc = encodeURIComponent(String(applicationId || ''));
+  // Not yet booked → send them to secure an interview; already booked → the
+  // next thing is the contract/registration steps, so open their placement.
+  var nextPath = hasBookedInterview
+    ? '/pages/offer-review?applicationId=' + appIdEnc
+    : '/pages/secure-interview?applicationId=' + appIdEnc;
+  var practiceLabel = String(practiceName || '').trim() || 'your new practice';
+  var title = 'Your placement is secured 🎉';
+  var body = 'Congratulations — you\'ve accepted the offer from ' + practiceLabel
+    + ' and your placement is now secured. '
+    + (hasBookedInterview
+        ? 'Next, we\'ll get your contract and registration steps moving — we\'ll guide you through each one from here.'
+        : 'Next, book your interview so the practice can meet you, then we\'ll move on to your contract and registration steps.');
+  var ctaText = hasBookedInterview ? 'View your placement' : 'Schedule your interview';
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: 'success', title: title, body: body })
+      .catch(function (e) { console.error('[offer-accept] in-app update failed for', userId, ':', e && e.message); }),
+    sendPushNotification(userId, {
+      title: title,
+      body: body,
+      data: { type: 'career', action: 'placement_secured', url: nextPath }
+    }).catch(function (e) { console.error('[offer-accept] push failed for', userId, ':', e && e.message); }),
+    sendGpNotificationEmail(userId,
+      'Your placement is secured 🎉 — GP Link',
+      title,
+      body,
+      ctaText,
+      APP_BASE_URL + nextPath,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    ).catch(function (e) { console.error('[offer-accept] email failed for', userId, ':', e && e.message); })
   ]);
 }
 
@@ -23994,7 +24052,77 @@ async function handleApi(req, res, pathname) {
           console.error('[InterviewReminder] Error for interview', irInterview.id, ':', irErr.message);
         }
       }
-      sendJson(res, 200, { ok: true, checked: irInterviews.length, sent: irSent });
+
+      // G8: scheduled_calls interviews (the modern GP self-serve booking flow —
+      // _bookInterviewSlot writes here, never to career_interviews, so this store
+      // had NO reminders before). Fire two reminders per interview: ~24h and ~2h
+      // before the slot. This cron runs hourly, so each window is caught within
+      // the hour. Cancellation-aware for free: the query filters status=booked,
+      // so an interview cancelled by the ATS (status flipped off 'booked') is
+      // never selected. Dedupe per window via notification_channels.interview_
+      // reminders (interview rows never otherwise touch that JSONB column, so no
+      // migration is needed and there is no clobber risk).
+      var irScNow = Date.now();
+      var irScRes = await supabaseDbRequest('scheduled_calls',
+        'select=id,application_id,user_id,practice_name,scheduled_at,format,timezone,zoom_join_url,notification_channels' +
+        '&meeting_kind=eq.interview&status=eq.booked&limit=200');
+      var irScRows = irScRes.ok && Array.isArray(irScRes.data) ? irScRes.data : [];
+      var irScSent = 0;
+      for (var irSc of irScRows) {
+        try {
+          var irScStart = Date.parse(irSc.scheduled_at || '');
+          if (!Number.isFinite(irScStart)) continue;
+          var irScUntil = irScStart - irScNow;
+          if (irScUntil <= 0) continue; // already started / in the past
+          var irScNc = (irSc.notification_channels && typeof irSc.notification_channels === 'object') ? irSc.notification_channels : {};
+          var irScRem = (irScNc.interview_reminders && typeof irScNc.interview_reminders === 'object') ? irScNc.interview_reminders : {};
+          // Within 2h → the imminent nudge; between 2h and 24h → the day-before
+          // heads-up. The >2h guard means an interview booked <2h out gets ONLY
+          // the 2h reminder (never also a nonsensical "tomorrow" one), while an
+          // interview booked further out gets the 24h reminder now and the 2h
+          // reminder once it crosses into the final two hours.
+          var irScDue = null;
+          if (irScUntil <= 2 * 60 * 60 * 1000 && !irScRem.h2) irScDue = 'h2';
+          else if (irScUntil > 2 * 60 * 60 * 1000 && irScUntil <= 24 * 60 * 60 * 1000 && !irScRem.h24) irScDue = 'h24';
+          if (!irScDue) continue;
+
+          // Resolve the GP userId (interview rows may carry it, else via the app).
+          var irScUserId = irSc.user_id || '';
+          var irScPractice = irSc.practice_name || '';
+          if (!irScUserId || !irScPractice) {
+            var irScAppRes = await supabaseDbRequest('gp_applications',
+              'select=user_id,practice_name,location_label&id=eq.' + encodeURIComponent(String(irSc.application_id || '')) + '&limit=1');
+            var irScApp = irScAppRes.ok && Array.isArray(irScAppRes.data) && irScAppRes.data[0] ? irScAppRes.data[0] : null;
+            if (irScApp) {
+              irScUserId = irScUserId || irScApp.user_id || '';
+              irScPractice = irScPractice || irScApp.practice_name || irScApp.location_label || '';
+            }
+          }
+          if (!irScUserId) continue;
+          // Booking an interview requires a revealed offer, so the real practice
+          // name is already known to this GP — safe to name it in the reminder.
+          await sendInterviewReminderEmail(irScUserId, {
+            practiceName: irScPractice,
+            scheduledAt: irSc.scheduled_at,
+            format: irSc.format || 'video',
+            zoomJoinUrl: irSc.zoom_join_url || '',
+            timezone: irSc.timezone || '',
+            whenPhrase: irScDue === 'h2' ? 'in about 2 hours' : 'tomorrow'
+          });
+
+          // Persist the dedupe flag on the row (merge, never drop existing keys).
+          irScRem[irScDue] = new Date().toISOString();
+          irScNc.interview_reminders = irScRem;
+          await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(irSc.id)), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { notification_channels: irScNc }
+          });
+          irScSent++;
+        } catch (irScErr) {
+          console.error('[InterviewReminder] scheduled_calls error for interview', irSc && irSc.id, ':', irScErr && irScErr.message);
+        }
+      }
+
+      sendJson(res, 200, { ok: true, checked: irInterviews.length + irScRows.length, sent: irSent + irScSent });
     } catch (err) {
       console.error('[Cron] Interview reminders failed:', err);
       sendJson(res, 500, { ok: false, error: err.message });
@@ -26344,6 +26472,24 @@ async function handleApi(req, res, pathname) {
         await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: acceptCtx && acceptCtx.gpName });
       } catch (senderErr) {
         console.error('[offer-accept] sender notify failed for app', acceptTargetApp.id, ':', senderErr && senderErr.message);
+      }
+      // G6: congratulate the GP on their own acceptance — the practice-accept
+      // congrats email never fires for in-app self-accept (no liveRecord). Only
+      // on this first sent→accepted transition, so it is sent exactly once.
+      try {
+        var acceptHasInterview = false;
+        if (isSupabaseDbConfigured()) {
+          var acceptIvRes = await supabaseDbRequest('scheduled_calls',
+            'select=id&meeting_kind=eq.interview&status=eq.booked&application_id=eq.' + encodeURIComponent(String(acceptTargetApp.id)) + '&limit=1');
+          acceptHasInterview = !!(acceptIvRes.ok && Array.isArray(acceptIvRes.data) && acceptIvRes.data.length);
+        }
+        var acceptPracticeName = (acceptPlacement && acceptPlacement.practiceName)
+          || (acceptedOffer && acceptedOffer.practice_name)
+          || (acceptCtx && acceptCtx.practiceName)
+          || '';
+        await notifyGpOfSelfAcceptedPlacement(acceptUserId, acceptTargetApp.id, acceptPracticeName, acceptHasInterview);
+      } catch (gpNotifyErr) {
+        console.error('[offer-accept] GP congrats notify failed for app', acceptTargetApp.id, ':', gpNotifyErr && gpNotifyErr.message);
       }
       if (acceptCtx && acceptCtx.caseId) {
         try {
