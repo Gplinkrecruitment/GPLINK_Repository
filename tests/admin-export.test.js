@@ -66,7 +66,11 @@ beforeAll(async () => {
       { id: 'pl1', application_id: 'app1', user_id: 'gp2', gp_name: 'Isla Fraser', practice_name: 'Riverside Family Practice', job_title: 'GP — DPA role', location: 'Dubbo, NSW', placed_at: now, start_date: '2026-09-01' }
     ],
     siteEnquiries: [
-      { id: 'enq1', kind: 'practice', status: 'new', name: 'Dr Smith', email: 'smith@clinic.local', phone: '0400 000 000', practice_name: 'Clinic "A", Dubbo', state: 'NSW', message: TRICKY_MESSAGE, created_at: now }
+      { id: 'enq1', kind: 'practice', status: 'new', name: 'Dr Smith', email: 'smith@clinic.local', phone: '0400 000 000', practice_name: 'Clinic "A", Dubbo', state: 'NSW', message: TRICKY_MESSAGE, created_at: now },
+      // Formula-injection payloads: leading = + - must be defused with an apostrophe.
+      { id: 'enq2', kind: 'gp', status: 'new', name: '=HYPERLINK("http://evil","x")', email: 'evil@test.local', phone: '+1234', practice_name: '-5', state: 'NSW', message: 'hello', created_at: now },
+      // Interior comma + apostrophe, NOT a leading formula char: quoted but not defused.
+      { id: 'enq3', kind: 'gp', status: 'new', name: "O'Brien, John", email: 'obrien@test.local', phone: '0400 222 222', practice_name: '', state: 'NSW', message: 'hi', created_at: now }
     ],
     candidateLeads: [
       { id: 'l1', name: 'Lead One', email: 'one@leads.local', phone: '+61 400 111 111', source: 'zoho_recruit', unsubscribed: false, created_at: '2026-07-01T00:00:00Z' },
@@ -146,13 +150,38 @@ describe('CSV per entity', () => {
     expect(r.raw).toContain('"Clinic ""A"", Dubbo"');
   });
 
+  it('enquiries: formula-injection payloads are apostrophe-defused (and still ONE field)', async () => {
+    const r = await req('GET', '/api/admin/export?entity=enquiries&format=csv', { cookie: superCookie() });
+    expect(r.status).toBe(200);
+    // =HYPERLINK(...) → leading apostrophe, then RFC4180-quoted (contains , and ")
+    // so it still parses as a single field with doubled interior quotes.
+    expect(r.raw).toContain('"\'=HYPERLINK(""http://evil"",""x"")"');
+    // The raw formula must NEVER appear as an unquoted/undefused cell start.
+    expect(r.raw).not.toMatch(/(^|,|\r\n)=HYPERLINK/);
+    // Leading + and leading - are defused too; neither needs quoting.
+    expect(r.raw).toContain(",'+1234,");
+    expect(r.raw).toContain(",'-5,");
+    expect(r.raw).not.toMatch(/(^|,|\r\n)\+1234(,|\r\n)/);
+    expect(r.raw).not.toMatch(/(^|,|\r\n)-5(,|\r\n)/);
+  });
+
+  it("enquiries: O'Brien, John (interior comma/apostrophe) is quoted but NOT defused", async () => {
+    const r = await req('GET', '/api/admin/export?entity=enquiries&format=csv', { cookie: superCookie() });
+    expect(r.status).toBe(200);
+    // Comma forces RFC4180 quoting; no leading apostrophe is injected because
+    // the first character is not a formula trigger.
+    expect(r.raw).toContain('"O\'Brien, John",obrien@test.local');
+    expect(r.raw).not.toContain("'O'Brien");
+  });
+
   it('leads: includes the unsubscribed flag', async () => {
     const r = await req('GET', '/api/admin/export?entity=leads&format=csv', { cookie: superCookie() });
     expect(r.status).toBe(200);
     const lines = r.raw.split('\r\n');
     expect(lines[0]).toBe('Name,Email,Phone,Source,Unsubscribed,Created');
     expect(r.raw).toContain('Lead Two,two@leads.local,,zoho_recruit,yes');
-    expect(r.raw).toContain('Lead One,one@leads.local,+61 400 111 111,zoho_recruit,no');
+    // Phone starts with '+' → defused with a leading apostrophe (formula-injection guard).
+    expect(r.raw).toContain("Lead One,one@leads.local,'+61 400 111 111,zoho_recruit,no");
     // Newest-first: no truncation header when everything fits.
     expect(r.headers['x-export-truncated']).toBeUndefined();
   });

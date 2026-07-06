@@ -17569,7 +17569,15 @@ async function updateSiteEnquiryStatus(id, status) {
 const EXPORT_MAX_ROWS = 50000;
 
 function csvEscapeField(value) {
-  const s = String(value === null || value === undefined ? '' : value);
+  let s = String(value === null || value === undefined ? '' : value);
+  // Defuse spreadsheet formula injection (CWE-1236): attacker-controlled
+  // strings starting with = + - @ TAB or CR execute as formulas when the
+  // exported CSV is opened in Excel/Sheets (e.g. =HYPERLINK, =cmd|...). A
+  // leading apostrophe forces Excel to treat the cell as literal text.
+  // Only applied to actual strings — real numbers (e.g. -5) pass through.
+  if (typeof value === 'string' && s && /^[=+\-@\t\r]/.test(s)) {
+    s = "'" + s;
+  }
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
