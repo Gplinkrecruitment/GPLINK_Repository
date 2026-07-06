@@ -759,15 +759,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .doc-task-badge.waiting{background:#fdcb6e;color:#2d3436}
     .doc-task-badge.pending-setup{background:#b2bec3}
 
-    /* ══ Zoho Sign integration card + SPPA chips ══ */
-    .integration-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
-    .integration-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-    .integration-header h3{font-size:15px;font-weight:800;margin:0}
-    .integration-body{font-size:13px;line-height:1.6}
-    .integration-body div{margin-bottom:2px}
-    .status-chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700}
-    .status-chip.connected{background:#dcfce7;color:#166534}
-    .status-chip.disconnected{background:#fee2e2;color:#991b1b}
+    /* ══ SPPA chips ══ */
     .sppa-chip{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
     .sppa-chip.sent{background:#fff7ed;color:#c2410c}
     .sppa-chip.partially-signed{background:#eff6ff;color:#1d4ed8}
@@ -1437,8 +1429,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <button class="sa-tools-item" data-sa-tool="gmail-watch">Setup Gmail Watch</button>
           <button class="sa-tools-item" data-sa-tool="process-gmail">Process Gmail Now</button>
           <button class="sa-tools-item" data-sa-tool="cleanup-tasks">Cleanup Duplicate Tasks</button>
-          <button class="sa-tools-item" data-sa-tool="zoho-recruit-sync">Sync Zoho Recruit</button>
-          <button class="sa-tools-item" data-sa-tool="zoho-sign">Zoho Sign Status</button>
           <button class="sa-tools-item" data-sa-tool="ops-queue">Ops Queue</button>
           <button class="sa-tools-item" data-sa-tool="weekly-sweep">Weekly Sweep</button>
           <button class="sa-tools-item" data-sa-tool="reset-gp">Reset GP</button>
@@ -1487,60 +1477,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="tools-sub-pane" id="toolsSweep" style="display:none"></div>
     <div class="tools-sub-pane" id="toolsAgent" style="display:none"></div>
-    <div class="tools-sub-pane" id="toolsIntegrations" style="display:none">
-      <h2 style="margin:0 0 6px">Integrations</h2>
-      <p style="color:var(--muted);margin:0 0 16px;font-size:13px">Manage third-party service connections.</p>
-      <div class="integration-card" id="zoho-sign-card">
-        <div class="integration-header">
-          <h3>Zoho Sign</h3>
-          <span id="zs-status-chip" class="status-chip disconnected">Disconnected</span>
-        </div>
-        <div class="integration-body">
-          <div id="zs-connected-info" style="display:none;">
-            <div><b>Organization:</b> <span id="zs-org-name">&mdash;</span></div>
-            <div><b>Connected email:</b> <span id="zs-connected-email">&mdash;</span></div>
-            <div><b>Token expires:</b> <span id="zs-token-exp">&mdash;</span></div>
-            <div><b>Webhook:</b> <span id="zs-webhook-status">&mdash;</span></div>
-            <div style="display:none;font-size:12px;color:var(--muted,#666);margin:4px 0 4px 16px;"><b>Callback URL:</b> <code id="zs-webhook-url" style="user-select:all;cursor:pointer;"></code></div>
-            <div><b>SPPA-00 template:</b> <span id="zs-template-id">&mdash;</span></div>
-          </div>
-          <div id="zs-disconnected-info" style="display:none;">
-            <p>SPPA-00 sends are paused until Zoho Sign is connected.</p>
-          </div>
-          <div style="margin-top:12px;">
-            <button id="zs-connect-btn" class="btn primary" onclick="zohoSignConnect()">Connect Zoho Sign</button>
-            <button id="zs-sync-btn" class="btn" style="display:none;" onclick="zohoSignSync()">Sync / Repair</button>
-            <span id="zs-sync-status" style="margin-left:8px;font-size:12px;color:var(--muted,#888);"></span>
-            <button id="zs-disconnect-btn" class="btn" style="display:none;" onclick="zohoSignDisconnect()">Disconnect</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="integration-card" id="zoho-recruit-card" style="margin-top:16px;">
-        <div class="integration-header">
-          <h3>Zoho Recruit</h3>
-          <span id="zr-status-chip" class="status-chip disconnected">Checking...</span>
-        </div>
-        <div class="integration-body">
-          <div id="zr-connected-info" style="display:none;">
-            <div><b>Connected email:</b> <span id="zr-connected-email">&mdash;</span></div>
-            <div><b>Last sync:</b> <span id="zr-last-sync">&mdash;</span></div>
-            <div><b>Roles synced:</b> <span id="zr-role-count">&mdash;</span></div>
-            <div><b>Scopes:</b> <span id="zr-scopes">&mdash;</span></div>
-            <div id="zr-scope-warning" style="display:none;color:#e53e3e;font-size:13px;margin:6px 0;"><b>Missing scopes:</b> <span id="zr-missing-scopes"></span> — Disconnect and Reconnect to fix.</div>
-          </div>
-          <div id="zr-disconnected-info" style="display:none;">
-            <p>Job sync and placement discovery require Zoho Recruit connection.</p>
-          </div>
-          <div style="margin-top:12px;">
-            <button id="zr-connect-btn" class="btn primary" style="display:none;" onclick="window.location.href='/api/admin/integrations/zoho-recruit/connect'">Connect Zoho Recruit</button>
-            <button id="zr-sync-btn" class="btn" style="display:none;" onclick="zohoRecruitSync()">Sync Now</button>
-            <span id="zr-sync-status" style="margin-left:8px;font-size:12px;color:var(--muted,#888);"></span>
-            <button id="zr-disconnect-btn" class="btn" style="display:none;" onclick="zohoRecruitDisconnect()">Disconnect</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- SPPA Review Panel -->
@@ -2924,7 +2860,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
-        if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
         var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
         var _sppaSt=(_sppaMeta&&_sppaMeta.sppa_state)||'';
         if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate — awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
@@ -7019,9 +6954,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         else if(action==="sendSppa"){
           if(typeof sppaSendToCandidate==="function")sppaSendToCandidate(taskId);
         }
-        else if(action==="checkSppaStatus"){
-          if(typeof checkSppaStatus==="function")checkSppaStatus(taskId);
-        }
         return;
       }
       if(e.target.closest("[data-escalate-ceo]")){
@@ -7862,8 +7794,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(tool==="gmail-watch"&&typeof setupGmailWatch==="function")setupGmailWatch();
       else if(tool==="process-gmail"){btn.textContent="Processing\u2026";btn.disabled=true;try{var r=await fetch("/api/admin/process-gmail",{method:"POST",credentials:"same-origin"});var d=await r.json().catch(function(){return{};});alert(d.ok?"Gmail processed: "+(d.results||[]).map(function(x){return x.email+" "+(x.ok?"OK":"FAIL: "+x.error);}).join(", "):"Failed: "+(d.message||"unknown error"));}catch(e){alert("Failed: "+e.message);}btn.textContent="Process Gmail Now";btn.disabled=false;}
       else if(tool==="cleanup-tasks"){btn.textContent="Cleaning\u2026";btn.disabled=true;try{var r3=await fetch("/api/admin/cleanup-tasks",{method:"POST",credentials:"same-origin"});var d3=await r3.json().catch(function(){return{};});alert(d3.ok?"Cancelled "+d3.cancelled+" duplicate/hollow tasks":"Failed: "+(d3.message||"unknown"));}catch(e3){alert("Failed: "+e3.message);}btn.textContent="Cleanup Duplicate Tasks";btn.disabled=false;if(typeof loadOpsQueue==="function")loadOpsQueue();}
-      else if(tool==="zoho-recruit-sync"){try{var zr=await fetch("/api/admin/integrations/zoho-recruit/sync",{method:"POST",credentials:"same-origin"});var zrd=await zr.json().catch(function(){return{};});alert(zr.ok&&zrd.ok!==false?"Zoho Recruit sync started.":"Failed: "+(zrd.message||("HTTP "+zr.status)));}catch{alert("Sync failed.");}}
-      else if(tool==="zoho-sign"){S.view="tools";S.toolsSubView="integrations";if(typeof setActiveViewTab==="function")setActiveViewTab("tools");vaShowPanel("tools");renderToolsPanel();}
       else if(tool==="ops-queue"){S.view="tools";S.toolsSubView="ops";if(typeof setActiveViewTab==="function")setActiveViewTab("tools");vaShowPanel("tools");renderToolsPanel();}
       else if(tool==="weekly-sweep"){try{var sr=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});var sd=await sr.json().catch(function(){return{};});alert(sr.ok&&sd.ok!==false?("Sweep done: "+(sd.created||0)+" tasks created, "+(sd.escalated||0)+" escalated (scanned "+(sd.scanned||0)+")"):"Failed: "+(sd.message||("HTTP "+sr.status)));}catch{alert("Sweep failed.");}}
       else if(tool==="reset-gp"){var resetGpEmail=prompt("Enter GP email to reset to AHPRA stage:");if(!resetGpEmail)return;if(!confirm("This will cancel all tasks, delete messages/documents, and reset "+resetGpEmail+" to AHPRA stage. Continue?"))return;btn.textContent="Resetting\u2026";btn.disabled=true;try{var rg=await fetch("/api/admin/reset-gp",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:resetGpEmail})});var rgd=await rg.json().catch(function(){return{};});alert(rgd.ok?"Reset complete. Cancelled "+rgd.cancelled+" tasks, created "+rgd.created+" new tasks.":"Failed: "+(rgd.message||"unknown"));}catch(rge){alert("Failed: "+rge.message);}btn.textContent="Reset GP";btn.disabled=false;if(typeof loadOpsQueue==="function")loadOpsQueue();}
@@ -7997,7 +7927,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   async function submitApplicationToPractice(appId){
     if(!appId)return;
-    if(!confirm("Submit this candidate's profile to the practice? The practice will receive an introduction email (or a Zoho submission when Zoho is connected)."))return;
+    if(!confirm("Submit this candidate's profile to the practice? The practice will receive an introduction email."))return;
     try{
       const r=await fetch("/api/admin/career/application/submit-to-practice",{
         method:"POST",
@@ -8867,17 +8797,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const subnav=document.getElementById("toolsSubnav");if(!subnav)return;
     const saOnly=typeof isSA==="function"&&isSA();
     const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"}];
-    if(saOnly)items.push({key:"integrations",label:"Integrations"},{key:"agent",label:"Agent"});
-    if((S.toolsSubView==="agent"||S.toolsSubView==="integrations")&&!saOnly)S.toolsSubView="ops";
+    if(saOnly)items.push({key:"agent",label:"Agent"});
+    if(S.toolsSubView==="agent"&&!saOnly)S.toolsSubView="ops";
     subnav.innerHTML=items.map(i=>`<button class="tools-subnav-btn ${S.toolsSubView===i.key?"active":""}" data-tools-sub="${esc(i.key)}">${esc(i.label)}</button>`).join("");
     document.getElementById("toolsOps").style.display=(S.toolsSubView==="ops"?"block":"none");
     document.getElementById("toolsSweep").style.display=(S.toolsSubView==="sweep"?"block":"none");
     document.getElementById("toolsAgent").style.display=(S.toolsSubView==="agent"?"block":"none");
-    document.getElementById("toolsIntegrations").style.display=(S.toolsSubView==="integrations"?"block":"none");
     if(S.toolsSubView==="ops"&&typeof loadOpsQueue==="function")loadOpsQueue();
     else if(S.toolsSubView==="sweep")renderToolsSweepPane();
     else if(S.toolsSubView==="agent")renderToolsAgentPane();
-    else if(S.toolsSubView==="integrations"){loadZohoSignStatus();loadZohoRecruitStatus();}
   }
   function renderToolsSweepPane(){
     const el=document.getElementById("toolsSweep");if(!el)return;
@@ -8898,106 +8826,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(typeof refreshAgentStatus==="function")refreshAgentStatus(true);
     if(typeof renderAgentRunList==="function")renderAgentRunList();
     if(typeof renderAgentDetail==="function")renderAgentDetail();
-  }
-
-  /* ══ Task 11: Zoho Sign integration card ══ */
-  async function loadZohoSignStatus() {
-    try {
-      var r = await fetch('/api/admin/integrations/zoho-sign/status?_t=' + Date.now(), { credentials: 'include' });
-      var data = await r.json();
-      var chip = document.getElementById('zs-status-chip');
-      var connectedBox = document.getElementById('zs-connected-info');
-      var disconnectedBox = document.getElementById('zs-disconnected-info');
-      var connectBtn = document.getElementById('zs-connect-btn');
-      var disconnectBtn = document.getElementById('zs-disconnect-btn');
-      if (!chip) return;
-      if (data && (data.connected || data.tokenExpired)) {
-        chip.textContent = data.connected ? 'Connected' : 'Token Expired';
-        chip.className = data.connected ? 'status-chip connected' : 'status-chip disconnected';
-        connectedBox.style.display = '';
-        disconnectedBox.style.display = 'none';
-        connectBtn.style.display = data.connected ? 'none' : '';
-        disconnectBtn.style.display = '';
-        var syncBtn = document.getElementById('zs-sync-btn');
-        if (syncBtn) syncBtn.style.display = data.connected ? '' : 'none';
-        document.getElementById('zs-org-name').textContent = data.orgName || '\u2014';
-        document.getElementById('zs-connected-email').textContent = data.connectedEmail || '\u2014';
-        document.getElementById('zs-token-exp').textContent = data.tokenExpiresAt ? new Date(data.tokenExpiresAt).toLocaleString() : '\u2014';
-        document.getElementById('zs-webhook-status').textContent = data.webhookRegistered ? 'Ready' : 'Not configured';
-        var whUrlEl = document.getElementById('zs-webhook-url');
-        if (whUrlEl && data.webhookCallbackUrl) {
-          whUrlEl.textContent = data.webhookCallbackUrl;
-          whUrlEl.parentElement.style.display = '';
-        }
-        document.getElementById('zs-template-id').textContent = data.templateId || '\u2014 (set ZOHO_SIGN_SPPA_TEMPLATE_ID)';
-      } else {
-        chip.textContent = 'Disconnected';
-        chip.className = 'status-chip disconnected';
-        connectedBox.style.display = 'none';
-        disconnectedBox.style.display = '';
-        connectBtn.style.display = '';
-        disconnectBtn.style.display = 'none';
-        var syncBtn2 = document.getElementById('zs-sync-btn');
-        if (syncBtn2) syncBtn2.style.display = 'none';
-      }
-    } catch (err) {
-      console.error('loadZohoSignStatus error:', err);
-    }
-  }
-
-  async function zohoSignConnect() {
-    try {
-      var r = await fetch('/api/admin/integrations/zoho-sign/auth-url?_t=' + Date.now(), { credentials: 'include' });
-      var data = await r.json();
-      if (data && data.authUrl) window.location.href = data.authUrl;
-      else alert('Could not start Zoho Sign OAuth (HTTP ' + r.status + '): ' + JSON.stringify(data));
-    } catch (err) {
-      alert('Network error connecting to Zoho Sign: ' + err.message);
-    }
-  }
-
-  function zohoSignSync() {
-    var btn = document.getElementById('zs-sync-btn');
-    var st = document.getElementById('zs-sync-status');
-    if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
-    if (st) st.textContent = 'Sending request...';
-    var timer = setTimeout(function() { if (st) st.textContent = 'Still waiting (server may be slow)...'; }, 5000);
-    fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' })
-      .then(function(r) {
-        clearTimeout(timer);
-        if (st) st.textContent = 'Got response: HTTP ' + r.status + ', parsing...';
-        return r.text();
-      })
-      .then(function(text) {
-        if (st) st.textContent = 'Response: ' + text.substring(0, 200);
-        try { var data = JSON.parse(text); } catch(e) { alert('Non-JSON response:\n' + text.substring(0, 500)); return; }
-        var summary = 'Token: ' + (data.tokenRefreshed ? 'OK' : 'FAIL') +
-          '\nOrg: ' + (data.orgInfoFetched ? 'OK' : 'FAIL') +
-          '\nEmail: ' + (data.emailFetched ? 'OK' : 'FAIL') +
-          '\nWebhook: ' + (data.webhookRegistered ? 'OK' : 'FAIL');
-        if (data.errors && data.errors.length > 0) {
-          summary += '\n\n--- Errors ---\n' + data.errors.join('\n\n');
-        }
-        if (data.diagnostics && data.diagnostics.length > 0) {
-          summary += '\n\n--- Diagnostics ---\n' + JSON.stringify(data.diagnostics, null, 2);
-        }
-        alert(data.ok ? 'Sync OK!\n' + summary : 'Sync issues:\n' + summary);
-        loadZohoSignStatus();
-      })
-      .catch(function(err) {
-        clearTimeout(timer);
-        if (st) st.textContent = 'Error: ' + err.message;
-        alert('Sync network error: ' + err.message);
-      })
-      .finally(function() {
-        if (btn) { btn.disabled = false; btn.textContent = 'Sync / Repair'; }
-      });
-  }
-
-  async function zohoSignDisconnect() {
-    if (!confirm('Disconnect Zoho Sign? SPPA-00 sends will be paused.')) return;
-    await fetch('/api/admin/integrations/zoho-sign/disconnect', { method: 'POST', credentials: 'include' });
-    await loadZohoSignStatus();
   }
 
   /* ══ Task 12: SPPA-00 task card rendering ══ */
@@ -9930,20 +9758,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
       return;
     }
-    // Sync button
-    var syncBtn=e.target.closest("[data-sync]");
-    if(syncBtn){
-      var syncKey=syncBtn.getAttribute("data-sync");
-      syncBtn.textContent="Syncing...";syncBtn.disabled=true;
-      var syncUrl=syncKey==='zoho_recruit'?'/api/admin/integrations/zoho-recruit/sync':'/api/admin/integrations/zoho-sign/sync';
-      fetch(syncUrl,{method:"POST",credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){
-        if(d.ok){toast("Sync complete: "+(d.syncedRoleCount||0)+" roles, "+(d.applicationsDiscovered||d.applicationsSynced||0)+" apps","green");}
-        else{toast(d.message||"Sync failed","red");}
-        syncBtn.textContent="Sync Now";syncBtn.disabled=false;
-        setTimeout(loadIntegrations,1500);
-      }).catch(function(){toast("Network error","red");syncBtn.textContent="Sync Now";syncBtn.disabled=false;});
-      return;
-    }
     // Filter buttons
     var filterBtn=e.target.closest(".tech-filter-btn");
     if(filterBtn){
@@ -10099,9 +9913,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(int.can_reconnect){
           html+='<button class="tech-reconnect" data-reconnect="'+esc(int.key)+'">Reconnect</button>';
         }
-        if(int.key==='zoho_recruit'||int.key==='zoho_sign'){
-          html+=' <button class="tech-reconnect" data-sync="'+esc(int.key)+'">Sync Now</button>';
-        }
         html+='</div>';
       }
       html+='</div>';
@@ -10211,77 +10022,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   if (typeof approvePositionDescription === 'function') window.approvePositionDescription = approvePositionDescription;
   if (typeof generatePositionDescription === 'function') window.generatePositionDescription = generatePositionDescription;
   if (typeof closeModal === 'function') window.closeModal = closeModal;
-  // Phase 2 — Zoho Sign + SPPA
-  window.loadZohoSignStatus = loadZohoSignStatus;
-  window.zohoSignConnect = zohoSignConnect;
-  window.zohoSignSync = zohoSignSync;
-  window.zohoSignDisconnect = zohoSignDisconnect;
 
-  /* ══ Zoho Recruit integration card ══ */
-  async function loadZohoRecruitStatus() {
-    try {
-      var r = await fetch("/api/admin/integrations/zoho-recruit/status", { credentials: "same-origin" });
-      var d = await r.json();
-      var chip = document.getElementById("zr-status-chip");
-      var connInfo = document.getElementById("zr-connected-info");
-      var discInfo = document.getElementById("zr-disconnected-info");
-      var connectBtn = document.getElementById("zr-connect-btn");
-      var syncBtn = document.getElementById("zr-sync-btn");
-      var disconnectBtn = document.getElementById("zr-disconnect-btn");
-      if (d.connected) {
-        chip.textContent = "Connected";
-        chip.className = "status-chip connected";
-        connInfo.style.display = "";
-        discInfo.style.display = "none";
-        connectBtn.style.display = "none";
-        syncBtn.style.display = "";
-        disconnectBtn.style.display = "";
-        var conn = d.connection || {};
-        document.getElementById("zr-connected-email").textContent = conn.connectedEmail || conn.connected_email || "-";
-        document.getElementById("zr-last-sync").textContent = conn.lastSyncAt ? new Date(conn.lastSyncAt).toLocaleString() : "-";
-        document.getElementById("zr-role-count").textContent = d.roleCount || 0;
-        document.getElementById("zr-scopes").textContent = (d.grantedScopes || []).join(", ") || "-";
-        var scopeWarn = document.getElementById("zr-scope-warning");
-        if (d.missingScopes && d.missingScopes.length > 0) {
-          scopeWarn.style.display = "";
-          document.getElementById("zr-missing-scopes").textContent = d.missingScopes.join(", ");
-        } else {
-          scopeWarn.style.display = "none";
-        }
-      } else {
-        chip.textContent = d.configured ? "Disconnected" : "Not Configured";
-        chip.className = "status-chip disconnected";
-        connInfo.style.display = "none";
-        discInfo.style.display = "";
-        connectBtn.style.display = d.configured ? "" : "none";
-        syncBtn.style.display = "none";
-        disconnectBtn.style.display = "none";
-      }
-    } catch (e) {
-      var chip2 = document.getElementById("zr-status-chip");
-      if (chip2) { chip2.textContent = "Error"; chip2.className = "status-chip disconnected"; }
-    }
-  }
-  async function zohoRecruitSync() {
-    var el = document.getElementById("zr-sync-status");
-    if (el) el.textContent = "Syncing...";
-    try {
-      var r = await fetch("/api/admin/integrations/zoho-recruit/sync", { method: "POST", credentials: "same-origin" });
-      var d = await r.json();
-      if (el) el.textContent = d.ok ? ("Synced " + (d.syncedRoleCount || 0) + " roles, discovered " + (d.applicationsDiscovered || 0) + " apps") : (d.message || "Sync failed");
-      loadZohoRecruitStatus();
-    } catch (e) { if (el) el.textContent = "Sync failed"; }
-  }
-  async function zohoRecruitDisconnect() {
-    if (!confirm("Disconnect Zoho Recruit? You will need to reconnect to resume job syncing.")) return;
-    try {
-      await fetch("/api/admin/integrations/zoho-recruit/disconnect", { method: "POST", credentials: "same-origin" });
-      loadZohoRecruitStatus();
-    } catch (e) { alert("Disconnect failed"); }
-  }
-  window.loadZohoRecruitStatus = loadZohoRecruitStatus;
-  window.zohoRecruitSync = zohoRecruitSync;
-  window.zohoRecruitDisconnect = zohoRecruitDisconnect;
   window.openSppaReview = openSppaReview;
   window.closeSppaReview = closeSppaReview;
   window.sppaSendToCandidate = sppaSendToCandidate;

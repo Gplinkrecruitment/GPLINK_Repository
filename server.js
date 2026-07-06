@@ -86,18 +86,6 @@ function isValidCronSecret(token) {
   if (_CRON_SECRET_PRIMARY && t === _CRON_SECRET_PRIMARY) return true;
   return false;
 }
-// ── Zoho Sign ─────────────────────────────────────────────
-const {
-  ZOHO_SIGN_SCOPES,
-  getZohoSignAccountsServer,
-  getZohoSignApiBase,
-  getZohoSignOauthRedirectUri,
-  mapZohoSignConnectionRow,
-  buildCorrectionFieldData,
-  mapZohoSignEventToStatus,
-  validateZohoSignSignature,
-  pickCorrectionRecipient
-} = require('./lib/zoho-sign.js');
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
@@ -155,9 +143,6 @@ let _lifecycleFolderCache = null;
 // read once per process — see POST /api/practice-intake/sign.
 let _agreementPdfBytes = null;
 
-const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
-const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
-const ZOHO_SIGN_SPPA_TEMPLATE_ID = String(process.env.ZOHO_SIGN_SPPA_TEMPLATE_ID || '').trim();
 const _authBootstrapWarmCache = new Map(); // email -> { expiresAt, value }
 const _authBootstrapInFlight = new Map(); // email -> Promise
 const _careerHeroLookupCache = new Map(); // normalized location key -> { ts, value }
@@ -15256,505 +15241,6 @@ function buildAbsoluteReturnUrl(req, returnPath = '/') {
   return new URL(value.startsWith('/') ? value : `/${value}`, `${getRequestOrigin(req)}/`).toString();
 }
 
-function getZohoSignOauthStateKey(state) {
-  return `zoho_sign_oauth:${String(state || '').trim()}`;
-}
-
-async function createZohoSignOauthState(adminUserId, adminEmail, returnOrigin) {
-  const state = crypto.randomBytes(24).toString('hex');
-  const expiresAt = Date.now() + (10 * 60 * 1000);
-  await setRuntimeKv(getZohoSignOauthStateKey(state), {
-    adminUserId: String(adminUserId || ''),
-    email: String(adminEmail || '').trim().toLowerCase(),
-    returnOrigin: String(returnOrigin || ''),
-    createdAt: new Date().toISOString()
-  }, expiresAt);
-  return state;
-}
-
-async function consumeZohoSignOauthState(state) {
-  const key = getZohoSignOauthStateKey(state);
-  const existing = await getRuntimeKv(key);
-  if (!existing || !existing.value || typeof existing.value !== 'object') return null;
-  await deleteRuntimeKv(key);
-  return existing.value;
-}
-
-// Shared Zoho OAuth token exchange (used by the remaining Zoho Sign flow).
-async function zohoFormRequest(accountsServer, params) {
-  // Resolve to a hardcoded Zoho origin — breaks the taint chain for SSRF protection.
-  var host = '';
-  try { host = new URL(accountsServer).hostname.toLowerCase(); } catch (_) { host = ''; }
-  var base;
-  switch (host) {
-    case 'accounts.zoho.eu':     base = 'https://accounts.zoho.eu'; break;
-    case 'accounts.zoho.in':     base = 'https://accounts.zoho.in'; break;
-    case 'accounts.zoho.com.au': base = 'https://accounts.zoho.com.au'; break;
-    case 'accounts.zoho.jp':     base = 'https://accounts.zoho.jp'; break;
-    case 'accounts.zoho.com.cn': base = 'https://accounts.zoho.com.cn'; break;
-    default:                     base = 'https://accounts.zoho.com'; break;
-  }
-  const body = new URLSearchParams();
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
-    body.set(key, String(value));
-  });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const response = await fetch(`${base}/oauth/v2/token`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
-    });
-    const text = await response.text();
-    let data = {};
-    if (text) {
-      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
-    }
-    return { ok: response.ok, status: response.status, data };
-  } catch (err) {
-    return { ok: false, status: 502, data: { error: 'network_error', message: 'Failed to reach Zoho OAuth service.' } };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ── Zoho Sign connection helpers ──────────────────────────
-async function getZohoSignConnection() {
-  const result = await supabaseDbRequest(
-    'integration_connections',
-    'select=*&provider=eq.zoho_sign&limit=1'
-  );
-  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
-  return mapZohoSignConnectionRow(result.data[0]);
-}
-
-async function upsertZohoSignConnection(patch = {}) {
-  const existing = await getZohoSignConnection();
-  const existingMeta = (existing && existing.metadata) || {};
-  const nextMeta = Object.assign({}, existingMeta);
-  if (patch.accessToken !== undefined) nextMeta.access_token = String(patch.accessToken || '');
-  if (patch.tokenExpiresAt !== undefined) nextMeta.token_expires_at = patch.tokenExpiresAt || null;
-  if (patch.webhookSecret !== undefined) nextMeta.webhook_secret = String(patch.webhookSecret || '');
-  if (patch.webhookRegisteredAt !== undefined) nextMeta.webhook_registered_at = patch.webhookRegisteredAt || null;
-  if (patch.orgName !== undefined) nextMeta.org_name = String(patch.orgName || '');
-  if (patch.orgId !== undefined) nextMeta.org_id = String(patch.orgId || '');
-  if (patch.templateId !== undefined) nextMeta.template_id = String(patch.templateId || '');
-  if (patch.lastRefreshError !== undefined) nextMeta.last_refresh_error = patch.lastRefreshError || null;
-
-  const payload = {
-    provider: 'zoho_sign',
-    status: patch.status !== undefined ? String(patch.status) : ((existing && existing.status) || 'connected'),
-    accounts_server: patch.accountsServer !== undefined ? String(patch.accountsServer || '') : ((existing && existing.accountsServer) || getZohoSignAccountsServer()),
-    api_domain: patch.apiDomain !== undefined ? String(patch.apiDomain || '') : ((existing && existing.apiDomain) || getZohoSignApiBase()),
-    refresh_token: patch.refreshToken !== undefined ? String(patch.refreshToken || '') : ((existing && existing.refreshToken) || ''),
-    scopes: Array.isArray(patch.scopes) ? patch.scopes : ((existing && existing.scopes) || ZOHO_SIGN_SCOPES),
-    connected_by_user_id: patch.connectedByUserId !== undefined ? String(patch.connectedByUserId || '') : ((existing && existing.connectedByUserId) || ''),
-    connected_email: patch.connectedEmail !== undefined ? String(patch.connectedEmail || '').toLowerCase() : ((existing && existing.connectedEmail) || ''),
-    token_last_refreshed_at: patch.tokenLastRefreshedAt !== undefined ? patch.tokenLastRefreshedAt : ((existing && existing.tokenLastRefreshedAt) || null),
-    connected_at: patch.connectedAt !== undefined ? patch.connectedAt : (existing ? undefined : new Date().toISOString()),
-    metadata: nextMeta,
-    updated_at: new Date().toISOString()
-  };
-
-  const result = await supabaseDbRequest(
-    'integration_connections',
-    'on_conflict=provider',
-    {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: [payload]
-    }
-  );
-  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
-  return mapZohoSignConnectionRow(result.data[0]);
-}
-
-async function refreshZohoSignAccessToken(connection) {
-  const c = connection || await getZohoSignConnection();
-  if (!c || !c.refreshToken) {
-    return { ok: false, status: 400, data: { message: 'Zoho Sign not connected.' } };
-  }
-  const accountsServer = c.accountsServer || getZohoSignAccountsServer();
-  const refreshed = await zohoFormRequest(accountsServer, {
-    grant_type: 'refresh_token',
-    client_id: ZOHO_SIGN_CLIENT_ID,
-    client_secret: ZOHO_SIGN_CLIENT_SECRET,
-    refresh_token: c.refreshToken
-  });
-  if (!refreshed.ok || !refreshed.data || !refreshed.data.access_token) {
-    const errMsg = (refreshed.data && (refreshed.data.error || refreshed.data.message)) || ('HTTP ' + (refreshed.status || 'unknown'));
-    await upsertZohoSignConnection({ status: 'error', lastRefreshError: String(errMsg).slice(0, 500) });
-    return refreshed;
-  }
-  const expiresInSec = Number(refreshed.data.expires_in || 3600);
-  const expiresAt = new Date(Date.now() + (expiresInSec - 300) * 1000).toISOString();
-  await upsertZohoSignConnection({
-    accessToken: refreshed.data.access_token,
-    tokenExpiresAt: expiresAt,
-    apiDomain: String(refreshed.data.api_domain || c.apiDomain || getZohoSignApiBase()),
-    tokenLastRefreshedAt: new Date().toISOString(),
-    status: 'connected',
-    lastRefreshError: null
-  });
-  return refreshed;
-}
-
-async function getValidZohoSignAccessToken() {
-  const c = await getZohoSignConnection();
-  if (!c || !c.refreshToken) return { ok: false, connection: null, accessToken: '' };
-  const now = Date.now();
-  const expMs = c.tokenExpiresAt ? Date.parse(c.tokenExpiresAt) : 0;
-  if (c.accessToken && expMs && expMs > now) {
-    return { ok: true, connection: c, accessToken: c.accessToken };
-  }
-  const refreshed = await refreshZohoSignAccessToken(c);
-  if (!refreshed.ok) return { ok: false, connection: c, accessToken: '' };
-  // Concurrent-refresh race: two callers with an expired token will both refresh.
-  // Task 4's API client retries once on 401, which makes this self-healing.
-  const updated = await getZohoSignConnection();
-  if (!updated || !updated.accessToken) {
-    return { ok: false, connection: updated || c, accessToken: '' };
-  }
-  return { ok: true, connection: updated, accessToken: updated.accessToken };
-}
-
-async function zohoSignApiRequest(method, resourcePath, options = {}) {
-  const { queryParams = {}, body = null, headers: extraHeaders = {}, retryOn401 = true } = options;
-  const tokenRes = await getValidZohoSignAccessToken();
-  if (!tokenRes.ok || !tokenRes.accessToken) {
-    return { ok: false, status: 401, data: { message: 'Zoho Sign not connected or token refresh failed.' } };
-  }
-  // Always use the Zoho Sign-specific API base (sign.zoho.com.au/api/v1).
-  // The OAuth api_domain field returns the generic zohoapis domain which doesn't work for Sign endpoints.
-  const base = getZohoSignApiBase();
-  const url = new URL(`${base}/${String(resourcePath || '').replace(/^\/+/, '')}`);
-  Object.entries(queryParams).forEach(([k, v]) => {
-    if (v === undefined || v === null || v === '') return;
-    url.searchParams.set(k, String(v));
-  });
-  const hdrs = Object.assign({
-    Authorization: `Zoho-oauthtoken ${tokenRes.accessToken}`,
-    Accept: 'application/json'
-  }, extraHeaders);
-  if (body && !hdrs['Content-Type'] && typeof body === 'string') hdrs['Content-Type'] = 'application/json';
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  try {
-    const resp = await fetch(url.toString(), {
-      method,
-      signal: controller.signal,
-      headers: hdrs,
-      body: body || undefined
-    });
-    if (resp.status === 401 && retryOn401) {
-      clearTimeout(timeout);
-      await refreshZohoSignAccessToken(tokenRes.connection);
-      return zohoSignApiRequest(method, resourcePath, Object.assign({}, options, { retryOn401: false }));
-    }
-    const contentType = resp.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) {
-      const buf = Buffer.from(await resp.arrayBuffer());
-      return { ok: resp.ok, status: resp.status, data: buf, contentType };
-    }
-    const text = await resp.text();
-    let data = {};
-    if (text) { try { data = JSON.parse(text); } catch (e) { data = { raw: text }; } }
-    return { ok: resp.ok, status: resp.status, data };
-  } catch (err) {
-    return { ok: false, status: 502, data: { message: 'Zoho Sign request failed: ' + err.message } };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function zohoSignApiGet(path, queryParams) { return zohoSignApiRequest('GET', path, { queryParams }); }
-function zohoSignApiPostJson(path, body) { return zohoSignApiRequest('POST', path, { body: JSON.stringify(body || {}), headers: { 'Content-Type': 'application/json' } }); }
-function zohoSignApiPostForm(path, formMap) {
-  const form = new URLSearchParams();
-  Object.entries(formMap || {}).forEach(([k, v]) => form.set(k, typeof v === 'string' ? v : JSON.stringify(v)));
-  return zohoSignApiRequest('POST', path, { body: form.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-}
-function zohoSignApiDelete(path) { return zohoSignApiRequest('DELETE', path); }
-
-async function fetchAndStoreZohoSignOrgInfo() {
-  let orgName = '', orgId = '', ownerEmail = '';
-  const tried = [];
-
-  // Strategy 1: GET /organizations (standard Zoho endpoint)
-  const res1 = await zohoSignApiGet('organizations');
-  tried.push({ endpoint: 'organizations', status: res1.status, ok: res1.ok, data: JSON.stringify(res1.data || {}).slice(0, 200) });
-  if (res1.ok && res1.data) {
-    const orgs = Array.isArray(res1.data.organizations) ? res1.data.organizations : [];
-    const org = orgs[0] || res1.data.organization || {};
-    orgName = String(org.org_name || org.organization_name || orgName);
-    orgId = String(org.org_id || org.organization_id || orgId);
-    ownerEmail = String(org.owner_email || ownerEmail);
-  }
-
-  // Strategy 2: GET /account (Zoho Sign-specific)
-  if (!orgName && !ownerEmail) {
-    const res2 = await zohoSignApiGet('account');
-    tried.push({ endpoint: 'account', status: res2.status, ok: res2.ok, data: JSON.stringify(res2.data || {}).slice(0, 200) });
-    if (res2.ok && res2.data) {
-      const acct = res2.data.account || res2.data.organization || res2.data;
-      orgName = String(acct.org_name || acct.organization_name || acct.company_name || orgName);
-      orgId = String(acct.org_id || acct.organization_id || orgId);
-      ownerEmail = String(acct.owner_email || acct.email || ownerEmail);
-    }
-  }
-
-  // Strategy 3: Zoho accounts user info (works with any Zoho OAuth token)
-  if (!ownerEmail) {
-    try {
-      const c = await getZohoSignConnection();
-      const token = c && c.accessToken;
-      const accountsBase = (c && c.accountsServer) || getZohoSignAccountsServer();
-      if (token) {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 10000);
-        const resp = await fetch(`${accountsBase}/oauth/user/info`, {
-          headers: { Authorization: `Zoho-oauthtoken ${token}` },
-          signal: ctrl.signal
-        });
-        clearTimeout(timer);
-        if (resp.ok) {
-          const info = await resp.json();
-          tried.push({ endpoint: 'accounts/user/info', status: resp.status, ok: true, data: JSON.stringify(info).slice(0, 200) });
-          ownerEmail = String(info.Email || info.email || ownerEmail);
-          if (!orgName) orgName = String(info.Display_Name || info.display_name || info.First_Name || orgName);
-        } else {
-          tried.push({ endpoint: 'accounts/user/info', status: resp.status, ok: false });
-        }
-      }
-    } catch (e) {
-      tried.push({ endpoint: 'accounts/user/info', error: e.message });
-    }
-  }
-
-  console.log('[ZohoSign] org info fetch attempts:', JSON.stringify(tried));
-
-  if (!orgName && !orgId && !ownerEmail) {
-    throw new Error('Could not fetch org info from any endpoint. Tried: ' + JSON.stringify(tried));
-  }
-  await upsertZohoSignConnection({ orgName, orgId, connectedEmail: ownerEmail });
-}
-
-// ── Zoho Sign envelope operations ─────────────────────────
-
-/**
- * Create an envelope from a template and send to recipients.
- * @param {object} opts
- * @param {string} opts.templateId
- * @param {Array<{email: string, name: string, role: string, signing_order: number}>} opts.recipients
- * @param {Array<{field_label: string, field_value: string}>} [opts.prefillFields]
- * @param {string} [opts.note]
- * @returns {Promise<{ok: boolean, envelopeId?: string, data?: object, error?: string}>}
- */
-async function createEnvelopeFromTemplate(opts) {
-  const tid = String(opts.templateId || '').trim();
-  if (!tid) return { ok: false, error: 'templateId required' };
-  const actions = (opts.recipients || []).map((r) => ({
-    action_type: 'SIGN',
-    recipient_email: String(r.email || ''),
-    recipient_name: String(r.name || ''),
-    role: String(r.role || ''),
-    signing_order: Number(r.signing_order || 1),
-    verify_recipient: false
-  }));
-  const payload = {
-    templates: {
-      field_data: {
-        field_text_data: {},
-        field_boolean_data: {},
-        field_date_data: {},
-        field_radio_data: {}
-      },
-      actions,
-      notes: String(opts.note || ''),
-      // Per-document callback URL so Zoho Sign sends events for this envelope
-      callback_url: getZohoSignWebhookCallbackUrl()
-    }
-  };
-  (opts.prefillFields || []).forEach((f) => {
-    if (!f || !f.field_label) return;
-    payload.templates.field_data.field_text_data[f.field_label] = String(f.field_value || '');
-  });
-
-  const res = await zohoSignApiPostForm(`templates/${encodeURIComponent(tid)}/createdocument`, { data: payload });
-  if (!res.ok) return { ok: false, error: 'zoho_sign_create_failed', data: res.data };
-  const envelopeId = String(
-    (res.data && res.data.requests && res.data.requests.request_id) ||
-    (res.data && res.data.request_id) || ''
-  );
-  if (!envelopeId) return { ok: false, error: 'no_envelope_id_returned', data: res.data };
-  return { ok: true, envelopeId, data: res.data };
-}
-
-async function getEnvelope(envelopeId) {
-  return zohoSignApiGet(`requests/${encodeURIComponent(envelopeId)}`);
-}
-
-async function getEnvelopeFieldValues(envelopeId) {
-  const res = await zohoSignApiGet(`requests/${encodeURIComponent(envelopeId)}/fieldvalues`);
-  if (!res.ok) return { ok: false, fields: [] };
-  const fields = [];
-  const fd = (res.data && res.data.field_data) || {};
-  (fd.field_text_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
-  (fd.field_boolean_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: String(!!f.field_value), section: f.section || '' }));
-  (fd.field_date_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
-  (fd.field_radio_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
-  return { ok: true, fields };
-}
-
-async function voidEnvelope(envelopeId, reason) {
-  const params = new URLSearchParams();
-  params.set('data', JSON.stringify({ reason: String(reason || 'Voided by GP Link') }));
-  return zohoSignApiRequest('POST', `requests/${encodeURIComponent(envelopeId)}/cancel`, {
-    body: params.toString(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  });
-}
-
-async function downloadSignedPdf(envelopeId) {
-  const res = await zohoSignApiRequest('GET', `requests/${encodeURIComponent(envelopeId)}/pdf`);
-  if (!res.ok) return { ok: false, data: null };
-  if (Buffer.isBuffer(res.data)) return { ok: true, buffer: res.data };
-  return { ok: false, data: res.data };
-}
-
-async function updateEnvelopeRecipient(envelopeId, actionId, newEmail, newName) {
-  return zohoSignApiPostForm(`requests/${encodeURIComponent(envelopeId)}/actions/${encodeURIComponent(actionId)}/update`, {
-    data: { actions: [{ action_id: actionId, recipient_email: newEmail, recipient_name: newName || undefined }] }
-  });
-}
-
-function getZohoSignWebhookCallbackUrl() {
-  const publicBase = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
-  return `${publicBase}/api/webhooks/zoho-sign`;
-}
-
-async function ensureZohoSignWebhookSecret() {
-  // Zoho Sign does not support API-based webhook registration.
-  // Webhooks must be configured manually in Zoho Sign Settings → Developer Space.
-  // We generate and store a secret so the admin can copy it to the Zoho Sign config.
-  const c = await getZohoSignConnection();
-  if (c && c.webhookSecret) return { ok: true, secret: c.webhookSecret, alreadyStored: true };
-  const secret = crypto.randomBytes(32).toString('hex');
-  await upsertZohoSignConnection({
-    webhookSecret: secret,
-    webhookRegisteredAt: new Date().toISOString()
-  });
-  return { ok: true, secret, alreadyStored: false };
-}
-
-// ── Zoho Sign webhook endpoint ────────────────────────────
-async function handleZohoSignWebhook(req, res) {
-  let rawBody;
-  try { rawBody = (await readRawBody(req, 2 * 1024 * 1024)).toString('utf-8'); }
-  catch (e) { sendJson(res, 413, { ok: false, error: 'body too large' }); return; }
-
-  const connection = await getZohoSignConnection();
-  const secret = connection && connection.webhookSecret;
-  const sigHeader = String(req.headers['x-zs-webhook-signature'] || req.headers['x-zoho-sign-signature'] || '').trim();
-  if (!validateZohoSignSignature(rawBody, sigHeader, secret)) {
-    console.error('[ZohoSign webhook] signature validation failed');
-    sendJson(res, 401, { ok: false, error: 'invalid signature' });
-    return;
-  }
-
-  let payload = {};
-  try { payload = JSON.parse(rawBody); } catch (e) { sendJson(res, 400, { ok: false, error: 'invalid json' }); return; }
-
-  // Always 200 within 3 seconds. Process async.
-  sendJson(res, 200, { ok: true });
-  setImmediate(() => { processZohoSignWebhookEvent(payload).catch((e) => console.error('[ZohoSign webhook] processing error:', e.message)); });
-}
-
-async function processZohoSignWebhookEvent(payload) {
-  const notificationId = String(payload.notification_id || payload.request_id || '');
-  const eventType = String(payload.event_type || payload.operation_type || '');
-  const envelopeId = String(payload.request_id || (payload.requests && payload.requests.request_id) || '');
-  if (!notificationId || !envelopeId) {
-    console.error('[ZohoSign webhook] missing notification_id or envelope_id');
-    return;
-  }
-  // Idempotency
-  const existing = await supabaseDbRequest('processed_zoho_sign_events',
-    'select=notification_id&notification_id=eq.' + encodeURIComponent(notificationId) + '&limit=1');
-  if (existing.ok && existing.data && existing.data[0]) return; // already processed
-
-  // Determine recipient index
-  let recipientIndex = 0;
-  if (payload.actions && Array.isArray(payload.actions)) {
-    const signedIdx = payload.actions.findIndex((a) => a && (a.action_status === 'SIGNED' || a.action_status === 'IN_PROGRESS'));
-    recipientIndex = signedIdx >= 0 ? signedIdx + 1 : 0;
-  }
-  if (typeof payload.recipient_index === 'number') recipientIndex = payload.recipient_index;
-
-  const newStatus = mapZohoSignEventToStatus({ event_type: eventType, recipient_index: recipientIndex });
-
-  // Fetch existing envelope row (to detect voided_for_correction and retrieve case_id/task_id)
-  const envRes = await supabaseDbRequest('zoho_sign_envelopes',
-    'select=*&envelope_id=eq.' + encodeURIComponent(envelopeId) + '&limit=1');
-  const envRow = (envRes.ok && envRes.data && envRes.data[0]) ? envRes.data[0] : null;
-
-  const updates = { updated_at: new Date().toISOString() };
-  if (newStatus) {
-    // Don't overwrite voided_for_correction with plain voided
-    if (newStatus === 'voided' && envRow && envRow.status === 'voided_for_correction') {
-      // skip; correction flow already handled it
-    } else {
-      updates.status = newStatus;
-    }
-  }
-  if (eventType === 'RequestCompleted') updates.completed_at = new Date().toISOString();
-  if (eventType === 'RequestDeclined') updates.decline_reason = String(payload.action_comment || payload.reason || '');
-
-  if (envRow) {
-    await supabaseDbRequest('zoho_sign_envelopes',
-      'envelope_id=eq.' + encodeURIComponent(envelopeId),
-      { method: 'PATCH', body: updates });
-  } else {
-    console.error('[ZohoSign webhook] envelope not found in DB:', envelopeId, '— status update skipped for event:', eventType);
-  }
-
-  // On completion, record a timeline entry so the VA review panel can pick it up via task listing.
-  // Uses task_timeline (from 20260403 migration), not case_events which does not exist.
-  if (eventType === 'RequestCompleted' && envRow && envRow.case_id) {
-    try {
-      await supabaseDbRequest('task_timeline', '', {
-        method: 'POST',
-        body: [{
-          task_id: envRow.task_id || null,
-          case_id: envRow.case_id,
-          event_type: 'system',
-          title: 'sppa_ready_for_review',
-          detail: 'SPPA-00 signed by both parties — ready for VA review',
-          actor: 'zoho_sign_webhook',
-          metadata: { envelope_id: envelopeId, source: 'zoho_sign' }
-        }]
-      });
-    } catch (tlErr) {
-      console.error('[ZohoSign webhook] task_timeline insert error:', tlErr.message);
-    }
-  }
-
-  // Record processing
-  await supabaseDbRequest('processed_zoho_sign_events', '', {
-    method: 'POST',
-    body: [{
-      notification_id: notificationId,
-      envelope_id: envelopeId,
-      event_type: eventType,
-      received_at: new Date().toISOString()
-    }]
-  });
-}
-
 function buildPostgrestTextList(values) {
   return `(${values.map((value) => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`;
 }
@@ -22531,26 +22017,6 @@ async function sendPracticePackEmail(userId, practiceName) {
 
 // 14. Candidate Hired Email — sent to Zoho Recruit candidates when status changes to "Hired"
 // This goes to candidates who may NOT have a GP Link account yet, so it uses sendEmail() directly.
-async function sendCandidateHiredEmail(candidateEmail, candidateFirstName, practiceName, jobTitle, location) {
-  if (!isEmailConfigured() || !candidateEmail) return { ok: false, error: 'Email not configured or no recipient' };
-  const name = candidateFirstName || 'Doctor';
-  const practiceNote = practiceName ? ' at ' + practiceName : '';
-  const locationNote = location ? ' in ' + location : '';
-  const roleNote = jobTitle || 'General Practitioner';
-  return sendEmail({
-    to: candidateEmail,
-    subject: 'Congratulations on Your Placement! — GP Link',
-    html: buildCareerEmailHtml({
-      title: 'Congratulations, Dr ' + name + '!',
-      body: 'We\'re thrilled to let you know that your placement' + practiceNote + locationNote + ' has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\n'
-        + 'To get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.',
-      ctaText: 'Sign Up to GP Link',
-      ctaUrl: APP_BASE_URL + '/pages/signin.html',
-      footer: 'Questions about getting started? Reply to this email or reach out to us via WhatsApp at +61 494 391 968.'
-    })
-  });
-}
-
 /* ───────── Push notifications via FCM ───────── */
 
 async function sendPushNotification(userId, { title, body, data }) {
@@ -23295,12 +22761,12 @@ async function reconcileAtsStageAfterStatusSync(app, liveStatus, actor) {
   var derived = atsPracticeUtil.deriveAtsStage({ status: liveStatus, practice_submission_status: row.practice_submission_status }, hasInterview);
   var target = atsPracticeUtil.planAtsStageReconciliation(storedStage, derived);
   if (!target) return null;
-  var updated = await atsUpdateApplicationStageRow(row.id, target, undefined, actor || 'zoho_sync');
+  var updated = await atsUpdateApplicationStageRow(row.id, target, undefined, actor || 'status_sync');
   if (!updated || !updated.row) return null;
   // storedStage !== target is guaranteed by planAtsStageReconciliation, so this
   // fires exactly once per real transition (see the notifier's dedupe note).
   notifyGpOfAtsStageChange(updated.row, storedStage, target).catch(function (e) {
-    console.error('[ZohoRecruit sync] ATS stage notify failed for app', row.id, ':', e && e.message);
+    console.error('[status reconcile] ATS stage notify failed for app', row.id, ':', e && e.message);
   });
   return target;
 }
@@ -23845,12 +23311,6 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // Zoho Sign webhook — external origin, must be before same-origin enforcement
-  if (req.method === 'POST' && pathname === '/api/webhooks/zoho-sign') {
-    await handleZohoSignWebhook(req, res);
-    return;
-  }
-
   // Calendly webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/calendly') {
     return handleCalendlyWebhook(req, res);
@@ -24334,21 +23794,6 @@ async function handleApi(req, res, pathname) {
       console.error('[Cron] check-model-updates failed:', cmErr && cmErr.message);
       sendJson(res, 200, { ok: false, error: cmErr && cmErr.message });
     }
-    return;
-  }
-
-  // Cron: refresh Zoho Sign token (before same-origin — called by Vercel cron every 30 min)
-  if (req.method === 'GET' && pathname === '/api/cron/refresh-zoho-sign-token') {
-    var zseCronSecret = String(process.env.CRON_SECRET || '').trim();
-    var zseCronAuth = req.headers['authorization'] || '';
-    if (!zseCronSecret || zseCronAuth !== 'Bearer ' + zseCronSecret) {
-      sendJson(res, 401, { error: 'Unauthorized' });
-      return;
-    }
-    var c = await getZohoSignConnection();
-    if (!c || !c.refreshToken) { sendJson(res, 200, { ok: true, skipped: 'not_connected' }); return; }
-    var refreshed = await refreshZohoSignAccessToken(c);
-    sendJson(res, 200, { ok: refreshed.ok, status: refreshed.status });
     return;
   }
 
@@ -25186,81 +24631,6 @@ async function handleApi(req, res, pathname) {
   }
 
   if (!enforceMutationOrigin(req, res)) return;
-
-  // Zoho Sign OAuth callback — redirect from Zoho lands on app domain, must be before admin host guard
-  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/callback') {
-    const qs = url.searchParams;
-    const state = qs.get('state') || '';
-    const code = qs.get('code') || '';
-    const errParam = qs.get('error') || '';
-    if (errParam) {
-      res.writeHead(302, { Location: '/pages/admin?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
-      res.end();
-      return;
-    }
-    const statePayload = await consumeZohoSignOauthState(state);
-    if (!statePayload) {
-      res.writeHead(302, { Location: '/pages/admin?zoho-sign=error&reason=invalid_state' });
-      res.end();
-      return;
-    }
-    const adminUserId = String(statePayload.adminUserId || '');
-    const adminReturnBase = String(statePayload.returnOrigin || 'https://admin.mygplink.com.au').replace(/\/$/, '');
-    const tokenRes = await zohoFormRequest(getZohoSignAccountsServer(), {
-      grant_type: 'authorization_code',
-      client_id: ZOHO_SIGN_CLIENT_ID,
-      client_secret: ZOHO_SIGN_CLIENT_SECRET,
-      redirect_uri: getZohoSignOauthRedirectUri(),
-      code
-    });
-    if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
-      res.writeHead(302, { Location: adminReturnBase + '/pages/admin?zoho-sign=error&reason=token_exchange_failed' });
-      res.end();
-      return;
-    }
-    const apiDomain = String(tokenRes.data.api_domain || getZohoSignApiBase()).replace(/\/$/, '');
-    const expiresAt = new Date(Date.now() + ((Number(tokenRes.data.expires_in) || 3600) - 300) * 1000).toISOString();
-
-    // Fetch connected user's email from Zoho accounts server (most reliable source)
-    let connectedEmail = '';
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 10000);
-      const uiResp = await fetch(`${getZohoSignAccountsServer()}/oauth/user/info`, {
-        headers: { Authorization: `Zoho-oauthtoken ${tokenRes.data.access_token}` },
-        signal: ctrl.signal
-      });
-      clearTimeout(t);
-      if (uiResp.ok) {
-        const ui = await uiResp.json();
-        console.log('[ZohoSign] accounts user info:', JSON.stringify(ui).slice(0, 300));
-        connectedEmail = String(ui.Email || ui.email || '').trim().toLowerCase();
-      } else {
-        console.error('[ZohoSign] accounts user info failed:', uiResp.status);
-      }
-    } catch (e) { console.error('[ZohoSign] accounts user info error:', e.message); }
-
-    await upsertZohoSignConnection({
-      status: 'connected',
-      refreshToken: String(tokenRes.data.refresh_token || ''),
-      accessToken: String(tokenRes.data.access_token || ''),
-      tokenExpiresAt: expiresAt,
-      accountsServer: getZohoSignAccountsServer(),
-      apiDomain,
-      scopes: ZOHO_SIGN_SCOPES,
-      connectedByUserId: adminUserId,
-      connectedEmail,
-      tokenLastRefreshedAt: new Date().toISOString(),
-      templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
-    });
-
-    try { await ensureZohoSignWebhookSecret(); } catch (e) { console.error('[ZohoSign] webhook secret generation failed:', e.message); }
-    try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
-
-    res.writeHead(302, { Location: adminReturnBase + '/pages/admin?zoho-sign=connected' });
-    res.end();
-    return;
-  }
 
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
@@ -29456,179 +28826,6 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 500, { ok: false, message: 'WhatsApp send failed: ' + (err.message || 'Unknown error') });
       return;
     }
-  }
-
-  // Temporary diagnostic endpoint — test reverse sync for a specific email
-  // Debug: manually trigger practice linkage for a specific GP email
-  // GET version for CLI/cron triggering with secret auth
-  // ── Zoho Sign OAuth endpoints ──────────────────────────────
-  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/auth-url') {
-    console.log('[ZohoSign auth-url] host:', req.headers.host, 'hostScope:', getAdminHostScope(req), 'hasAdminCookie:', !!(getCookies(req)[ADMIN_COOKIE_NAME]));
-    const admin = requireAdminSession(req, res);
-    if (!admin) { console.log('[ZohoSign auth-url] requireAdminSession returned null'); return; }
-    if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
-      sendJson(res, 503, { ok: false, message: 'ZOHO_SIGN_CLIENT_ID/SECRET not configured' });
-      return;
-    }
-    const adminUserId = getSessionSupabaseUserId(admin.session) || '';
-    const adminOrigin = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host || 'admin.mygplink.com.au'}`;
-    const state = await createZohoSignOauthState(adminUserId, admin.email || '', adminOrigin);
-    const authUrl = new URL(`${getZohoSignAccountsServer()}/oauth/v2/auth`);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('client_id', ZOHO_SIGN_CLIENT_ID);
-    authUrl.searchParams.set('scope', ZOHO_SIGN_SCOPES.join(','));
-    authUrl.searchParams.set('redirect_uri', getZohoSignOauthRedirectUri());
-    authUrl.searchParams.set('access_type', 'offline');
-    authUrl.searchParams.set('prompt', 'consent');
-    authUrl.searchParams.set('state', state);
-    sendJson(res, 200, { ok: true, authUrl: authUrl.toString(), state });
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/templates') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    const tokenRes = await getValidZohoSignAccessToken();
-    if (!tokenRes.ok) { sendJson(res, 502, { ok: false, message: 'No valid token' }); return; }
-    const result = await zohoSignApiGet('templates');
-    sendJson(res, result.ok ? 200 : 502, result);
-    return;
-  }
-
-  // ── Zoho Sign sync/repair — refresh token, org info, webhook ──
-  if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/sync') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    const c = await getZohoSignConnection();
-    if (!c || c.status !== 'connected') {
-      sendJson(res, 400, { ok: false, message: 'Zoho Sign is not connected' });
-      return;
-    }
-    const results = { tokenRefreshed: false, orgInfoFetched: false, webhookRegistered: false, emailFetched: false, errors: [], diagnostics: [] };
-
-    // 1. Refresh token
-    try {
-      const r = await refreshZohoSignAccessToken(c);
-      results.tokenRefreshed = !!r.ok;
-      if (!r.ok) results.errors.push('Token refresh failed: ' + (r.error || 'unknown'));
-    } catch (e) { results.errors.push('Token refresh error: ' + e.message); }
-
-    // 2. Fetch org info
-    try {
-      await fetchAndStoreZohoSignOrgInfo();
-      const afterOrg = await getZohoSignConnection();
-      results.orgInfoFetched = !!(afterOrg && afterOrg.orgName);
-      if (!results.orgInfoFetched) results.errors.push('Org info returned but no organization name found');
-    } catch (e) {
-      results.orgInfoFetched = false;
-      results.errors.push('Org info error: ' + e.message);
-    }
-
-    // 2b. Fetch connected email if still missing
-    try {
-      const afterOrg = await getZohoSignConnection();
-      if (!afterOrg || !afterOrg.connectedEmail) {
-        const token = afterOrg && afterOrg.accessToken;
-        const acctBase = (afterOrg && afterOrg.accountsServer) || getZohoSignAccountsServer();
-        if (token) {
-          // Try Zoho accounts user info
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 10000);
-          const uiResp = await fetch(`${acctBase}/oauth/user/info`, {
-            headers: { Authorization: `Zoho-oauthtoken ${token}` },
-            signal: ctrl.signal
-          });
-          clearTimeout(t);
-          const uiText = await uiResp.text();
-          results.diagnostics.push({ endpoint: 'accounts/oauth/user/info', status: uiResp.status, body: uiText.slice(0, 300) });
-          if (uiResp.ok) {
-            try {
-              const ui = JSON.parse(uiText);
-              const email = String(ui.Email || ui.email || ui.LOGIN_ID || ui.login_id || '').trim().toLowerCase();
-              if (email) {
-                await upsertZohoSignConnection({ connectedEmail: email });
-                results.emailFetched = true;
-              } else {
-                results.errors.push('User info returned but no email field found. Keys: ' + Object.keys(ui).join(', '));
-              }
-            } catch (e) { results.errors.push('User info parse error: ' + e.message); }
-          } else {
-            results.errors.push('User info HTTP ' + uiResp.status + ': ' + uiText.slice(0, 200));
-          }
-        }
-      } else {
-        results.emailFetched = true;
-      }
-    } catch (e) { results.errors.push('Email fetch error: ' + e.message); }
-
-    // 3. Ensure webhook secret exists (webhook must be configured manually in Zoho Sign)
-    try {
-      const wr = await ensureZohoSignWebhookSecret();
-      results.webhookRegistered = !!wr.ok;
-    } catch (e) { results.errors.push('Webhook secret error: ' + e.message); }
-
-    // 4. Update template ID from env var if available and not already stored
-    if (ZOHO_SIGN_SPPA_TEMPLATE_ID) {
-      try {
-        const current = await getZohoSignConnection();
-        if (!current || current.templateId !== ZOHO_SIGN_SPPA_TEMPLATE_ID) {
-          await upsertZohoSignConnection({ templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID });
-        }
-      } catch (e) { results.errors.push('Template ID update error: ' + e.message); }
-    }
-
-    // Return updated status
-    const final = await getZohoSignConnection();
-    sendJson(res, 200, {
-      ok: results.errors.length === 0,
-      ...results,
-      status: final ? {
-        connected: final.status === 'connected',
-        orgName: final.orgName,
-        connectedEmail: final.connectedEmail,
-        tokenExpiresAt: final.tokenExpiresAt,
-        webhookRegistered: !!final.webhookSecret,
-        templateId: final.templateId
-      } : null
-    });
-    return;
-  }
-
-  if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/disconnect') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    await upsertZohoSignConnection({
-      status: 'disconnected',
-      refreshToken: '',
-      accessToken: '',
-      tokenExpiresAt: null,
-      webhookSecret: '',
-      webhookRegisteredAt: null
-    });
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/status') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    const c = await getZohoSignConnection();
-    if (!c) { sendJson(res, 200, { ok: true, connected: false }); return; }
-    var zsTokenExp = c.tokenExpiresAt ? Date.parse(c.tokenExpiresAt) : 0;
-    var zsIsConnected = !!(c.refreshToken && c.status !== 'error' && zsTokenExp && zsTokenExp > Date.now());
-    sendJson(res, 200, {
-      ok: true,
-      connected: zsIsConnected,
-      status: c.status,
-      tokenExpired: !!(zsTokenExp && zsTokenExp <= Date.now()),
-      connectedEmail: c.connectedEmail,
-      orgName: c.orgName,
-      tokenExpiresAt: c.tokenExpiresAt,
-      webhookRegistered: !!c.webhookSecret,
-      webhookCallbackUrl: getZohoSignWebhookCallbackUrl(),
-      templateId: c.templateId || ZOHO_SIGN_SPPA_TEMPLATE_ID || ''
-    });
-    return;
   }
 
   // ── Admin: allow user to re-access completed registration steps ──
@@ -37794,33 +36991,6 @@ Return ONLY valid JSON with no markdown formatting:
       }, ahpraExtra);
     });
 
-    // Augment SPPA-00 tasks with Zoho Sign envelope data
-    const sppaEnvelopeIds = enrichedTasks.filter(function (t) { return t.related_document_key === 'sppa_00' && t.zoho_sign_envelope_id; }).map(function (t) { return t.zoho_sign_envelope_id; });
-    if (sppaEnvelopeIds.length > 0) {
-      const envsRes = await supabaseDbRequest('zoho_sign_envelopes',
-        'select=envelope_id,status,sent_at,completed_at,decline_reason,recipient_contact,recipient_candidate&envelope_id=in.(' + sppaEnvelopeIds.map(function (id) { return '"' + id + '"'; }).join(',') + ')');
-      var envMap = {};
-      if (envsRes.ok && Array.isArray(envsRes.data)) {
-        envsRes.data.forEach(function (e) { envMap[e.envelope_id] = e; });
-      }
-      enrichedTasks.forEach(function (t) {
-        if (t.related_document_key === 'sppa_00' && t.zoho_sign_envelope_id) {
-          var e = envMap[t.zoho_sign_envelope_id];
-          if (e) {
-            t.zoho_sign = {
-              envelope_id: e.envelope_id,
-              status: e.status,
-              sent_at: e.sent_at,
-              completed_at: e.completed_at,
-              decline_reason: e.decline_reason,
-              recipient_contact: e.recipient_contact,
-              recipient_candidate: e.recipient_candidate,
-              days_since_sent: e.sent_at ? Math.floor((Date.now() - Date.parse(e.sent_at)) / 86400000) : null
-            };
-          }
-        }
-      });
-    }
 
     // Enriched open tickets
     const enrichedTickets = openTickets.map(function (tk) {
@@ -44946,9 +44116,8 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Parallel fetches
     var gmailMonitored = (Array.isArray(MONITORED_VA_EMAILS) && MONITORED_VA_EMAILS.length) ? MONITORED_VA_EMAILS : ['hazel@mygplink.com.au'];
-    var [gmailWatchRes, zsConn, processedCountRes] = await Promise.all([
+    var [gmailWatchRes, processedCountRes] = await Promise.all([
       supabaseDbRequest('gmail_watch_state', 'select=*&email_address=in.(' + gmailMonitored.map(function (em) { return encodeURIComponent(em); }).join(',') + ')'),
-      getZohoSignConnection(),
       // True 24h count via Content-Range total, not a capped row fetch (#17).
       supabaseCountRequest('processed_gmail_messages', 'select=gmail_message_id&processed_at=gte.' + new Date(Date.now() - 86400000).toISOString())
     ]);
@@ -45024,15 +44193,8 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: true, reconnect_action: 'setup_watch'
     });
 
-    var [roleCountRes, zsPing, aiPing, dtPing, gdPing] = await Promise.all([
+    var [roleCountRes, aiPing, dtPing, gdPing] = await Promise.all([
       supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500'),
-
-      // Zoho Sign: try token refresh + live API call
-      zsConn && zsConn.refreshToken ? pingWithTimeout(async function () {
-        var zsValid = await getValidZohoSignAccessToken();
-        if (!zsValid.ok) throw new Error('Token refresh failed');
-        return { token_expires_at: zsValid.connection ? zsValid.connection.tokenExpiresAt : null };
-      }) : Promise.resolve({ ok: false, ms: 0, error: 'No refresh token', extra: {} }),
 
       // Anthropic AI: verify API key with models endpoint
       ANTHROPIC_API_KEY ? pingWithTimeout(async function (signal) {
@@ -45064,25 +44226,6 @@ Return ONLY valid JSON with no markdown formatting:
     ]);
 
     // Zoho Recruit decommissioned — no integration card is surfaced.
-
-    // Zoho Sign — live-verified
-    var zsStatus = 'disconnected';
-    if (zsConn && zsPing.ok) zsStatus = 'connected';
-    else if (zsConn) zsStatus = 'degraded';
-    // Re-read connection after potential token refresh
-    if (zsPing.ok && zsConn) { var zsRefreshed = await getZohoSignConnection(); if (zsRefreshed) zsConn = zsRefreshed; }
-    integrations.push({
-      key: 'zoho_sign', name: 'Zoho Sign', status: zsStatus,
-      details: {
-        connected_email: zsConn ? zsConn.connectedEmail : null,
-        org_name: zsConn ? zsConn.orgName : null,
-        token_expires_at: zsConn ? zsConn.tokenExpiresAt : null,
-        webhook_registered: zsConn ? !!zsConn.webhookSecret : false,
-        template_configured: zsConn ? !!zsConn.templateId : false,
-        ping_ok: zsPing.ok, ping_ms: zsPing.ms, ping_error: zsPing.error
-      },
-      can_reconnect: true, reconnect_action: 'oauth_redirect'
-    });
 
     // Supabase — already live-verified
     var sbPingOk = false;
@@ -45160,38 +44303,6 @@ Return ONLY valid JSON with no markdown formatting:
       }
       var gmailReconnectOk = results.length > 0 && results.every(function (r) { return r.success; });
       sendJson(res, gmailReconnectOk ? 200 : 502, { ok: gmailReconnectOk, action: 'watch_renewed', results: results, message: gmailReconnectOk ? null : 'One or more mailboxes failed to renew.' });
-      return;
-    }
-
-    if (intKey === 'zoho_sign') {
-      var zsConn2 = await getZohoSignConnection();
-      if (zsConn2 && zsConn2.refreshToken) {
-        var zsRefreshed = await refreshZohoSignAccessToken(zsConn2);
-        // Verify the token was actually obtained — don't trust HTTP status alone
-        var zsAfter = await getZohoSignConnection();
-        var zsNewExpiry = zsAfter && zsAfter.tokenExpiresAt ? Date.parse(zsAfter.tokenExpiresAt) : 0;
-        if (zsRefreshed.ok && zsRefreshed.data && zsRefreshed.data.access_token && zsNewExpiry > Date.now()) {
-          sendJson(res, 200, { ok: true, action: 'token_refreshed', token_expires_at: zsAfter.tokenExpiresAt });
-          return;
-        }
-      }
-      // Refresh failed (or no refresh token) — offer full OAuth re-auth like Zoho Recruit
-      if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
-        sendJson(res, 200, { ok: false, message: 'Zoho Sign is not configured (missing client credentials).' });
-        return;
-      }
-      var zsAdminUserId = getSessionSupabaseUserId(ceoCtx.session) || '';
-      var zsReturnOrigin = (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers.host || 'admin.mygplink.com.au');
-      var zsOauthState = await createZohoSignOauthState(zsAdminUserId, ceoCtx.email || '', zsReturnOrigin);
-      var zsAuthUrl = new URL(getZohoSignAccountsServer() + '/oauth/v2/auth');
-      zsAuthUrl.searchParams.set('response_type', 'code');
-      zsAuthUrl.searchParams.set('client_id', ZOHO_SIGN_CLIENT_ID);
-      zsAuthUrl.searchParams.set('scope', ZOHO_SIGN_SCOPES.join(','));
-      zsAuthUrl.searchParams.set('redirect_uri', getZohoSignOauthRedirectUri());
-      zsAuthUrl.searchParams.set('access_type', 'offline');
-      zsAuthUrl.searchParams.set('prompt', 'consent');
-      zsAuthUrl.searchParams.set('state', zsOauthState);
-      sendJson(res, 200, { ok: false, action: 'oauth_required', oauthUrl: zsAuthUrl.toString(), message: 'Zoho Sign token expired. Redirecting to re-authorize...' });
       return;
     }
 

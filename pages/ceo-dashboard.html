@@ -3634,7 +3634,6 @@
       }
       if (t.task_type === 'practice_pack_child' || dk) {
         if (dk === 'sppa_00') {
-          if (t.zoho_sign_envelope_id) return { prompt: 'Check Zoho Sign status for signatures', label: 'Check Status', action: 'checkSppaStatus', taskId: t.id };
           return { prompt: 'Send SPPA-00 to candidate via email', label: 'Send SPPA', action: 'sendSppa', taskId: t.id };
         }
         if (dk === 'section_g') {
@@ -6200,11 +6199,6 @@
         if (gAction === 'sendSppa') {
           if (typeof ceoSendSppa === 'function') ceoSendSppa(gTaskId);
           else showToast('Open the Documents tab to send the SPPA-00', 'info');
-          return;
-        }
-        if (gAction === 'checkSppaStatus') {
-          if (typeof ceoCheckSppaStatus === 'function') ceoCheckSppaStatus(gTaskId);
-          else showToast('Open the Documents tab to check Zoho Sign status', 'info');
           return;
         }
         if (gAction === 'emailPractice') {
