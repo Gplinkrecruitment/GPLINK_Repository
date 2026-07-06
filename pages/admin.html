@@ -1539,11 +1539,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
     <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
     <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="background-jobs">Background Jobs</button>
     <button class="tech-subnav-btn" data-tech-view="archived-accounts">Archived Accounts</button>
   </div>
   <div id="techIntegrationsPanel"></div>
   <div id="techSystemBugsPanel" style="display:none"></div>
   <div id="techUserBugsPanel" style="display:none"></div>
+  <div id="techCronPanel" style="display:none"></div>
   <div id="techArchivedAccountsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
@@ -9811,7 +9813,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll(false,true);});
 
   // ── Technical Hub ──
-  var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null};
+  var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null,ubStatus:'open',ubSource:'all'};
 
   document.getElementById("technicalPanel").addEventListener("click",function(e){
     var subBtn=e.target.closest("[data-tech-view]");
@@ -9822,10 +9824,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
       document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
       document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
+      document.getElementById("techCronPanel").style.display=(tv==="background-jobs"?"block":"none");
       document.getElementById("techArchivedAccountsPanel").style.display=(tv==="archived-accounts"?"block":"none");
       if(tv==="integrations")loadIntegrations();
       else if(tv==="system-bugs")loadSystemBugs();
       else if(tv==="user-bugs")loadUserBugs();
+      else if(tv==="background-jobs")loadCronHealth();
       else if(tv==="archived-accounts")archivedAccountsLoad();
       return;
     }
@@ -9875,11 +9879,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Filter buttons
     var filterBtn=e.target.closest(".tech-filter-btn");
     if(filterBtn){
+      // Toggle 'active' within the button's own filter bar only, so the status
+      // row and the source row (User Bugs) keep independent selections.
+      var bar=filterBtn.closest(".tech-filter-bar");
       var panel=filterBtn.closest("#techSystemBugsPanel,#techUserBugsPanel");
-      if(panel)panel.querySelectorAll(".tech-filter-btn").forEach(function(b){b.classList.toggle("active",b===filterBtn);});
-      var filterVal=filterBtn.getAttribute("data-filter");
-      if(filterBtn.closest("#techSystemBugsPanel"))loadSystemBugs(filterVal);
-      else loadUserBugs(filterVal);
+      (bar||panel||document).querySelectorAll(".tech-filter-btn").forEach(function(b){b.classList.toggle("active",b===filterBtn);});
+      if(filterBtn.closest("#techSystemBugsPanel")){loadSystemBugs(filterBtn.getAttribute("data-filter"));return;}
+      if(filterBtn.hasAttribute("data-filter-source"))techState.ubSource=filterBtn.getAttribute("data-filter-source");
+      else techState.ubStatus=filterBtn.getAttribute("data-filter");
+      loadUserBugs(techState.ubStatus,techState.ubSource);
       return;
     }
   });
@@ -9887,8 +9895,43 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function loadTechnicalPanel(){
     if(techState.view==="integrations")loadIntegrations();
     else if(techState.view==="system-bugs")loadSystemBugs();
+    else if(techState.view==="background-jobs")loadCronHealth();
     else if(techState.view==="archived-accounts")archivedAccountsLoad();
     else loadUserBugs();
+  }
+
+  // ── Background jobs (cron heartbeat health — audit S4) ──────────────
+  async function loadCronHealth(){
+    var el=document.getElementById("techCronPanel");
+    if(!el)return;
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading background jobs...</div>';
+    try{
+      var r=await fetch("/api/admin/cron-health",{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      var d=await r.json();
+      if(!d.ok||!Array.isArray(d.crons)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load background jobs: '+esc(d.message||'Unknown error')+'</div>';return;}
+      var overdueCount=0,errorCount=0;
+      d.crons.forEach(function(c){if(c.overdue)overdueCount++;else if(c.last_status==='error')errorCount++;});
+      var html='<div class="tech-summary-strip"><b>'+d.crons.length+'</b> scheduled jobs &nbsp; <b>'+overdueCount+'</b> overdue &nbsp; <b>'+errorCount+'</b> failing</div>';
+      html+='<div class="tech-card" style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">';
+      html+='<thead><tr style="text-align:left;color:#6b7280;"><th style="padding:6px 10px;">Job</th><th style="padding:6px 10px;">Schedule</th><th style="padding:6px 10px;">Last run</th><th style="padding:6px 10px;">Took</th><th style="padding:6px 10px;">Status</th><th style="padding:6px 10px;">Detail</th></tr></thead><tbody>';
+      for(var i=0;i<d.crons.length;i++){
+        var c=d.crons[i];
+        var chipClass='connected',chipLabel='OK';
+        if(c.overdue){chipClass='disconnected';chipLabel=c.last_run_at?'OVERDUE':'NEVER RUN';}
+        else if(c.last_status==='error'){chipClass='disconnected';chipLabel='ERROR';}
+        html+='<tr style="border-top:1px solid #f3f4f6;">';
+        html+='<td style="padding:6px 10px;font-weight:600;white-space:nowrap;">'+esc(c.name)+'</td>';
+        html+='<td style="padding:6px 10px;color:#6b7280;font-family:monospace;white-space:nowrap;">'+esc(c.schedule)+'</td>';
+        html+='<td style="padding:6px 10px;white-space:nowrap;">'+(c.last_run_at?esc(fmtD(c.last_run_at)):'&mdash;')+'</td>';
+        html+='<td style="padding:6px 10px;color:#6b7280;white-space:nowrap;">'+(c.last_ms!=null?esc(String(c.last_ms))+' ms':'&mdash;')+'</td>';
+        html+='<td style="padding:6px 10px;"><span class="tech-status '+chipClass+'">'+chipLabel+'</span></td>';
+        html+='<td style="padding:6px 10px;color:#6b7280;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.last_detail||'')+'</td>';
+        html+='</tr>';
+      }
+      html+='</tbody></table></div>';
+      el.innerHTML=html;
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
   }
 
   // ── Archived Accounts (soft-deleted) ──────────────────────
@@ -10074,30 +10117,39 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
   }
 
-  async function loadUserBugs(status){
-    status=status||'open';
+  async function loadUserBugs(status,source){
+    status=status||techState.ubStatus||'open';
+    source=source||techState.ubSource||'all';
+    techState.ubStatus=status;techState.ubSource=source;
     var el=document.getElementById("techUserBugsPanel");
     el.innerHTML='<div style="padding:24px;color:#999;">Loading user bugs...</div>';
     try{
-      var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status),{credentials:"same-origin"});
+      var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status)+"&source="+encodeURIComponent(source),{credentials:"same-origin"});
       if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
       if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
       var s=d.summary||{};
-      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.investigating+'</b> investigating &nbsp; <b>'+(s.total_occurrences_24h||0)+'</b> occurrences (24h)</div>';
+      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open ('+(s.open_client||0)+' client / '+(s.open_server||0)+' server) &nbsp; <b>'+s.investigating+'</b> investigating &nbsp; <b>'+(s.total_occurrences_24h||0)+'</b> occurrences (24h)</div>';
       html+='<div class="tech-filter-bar">';
       var filters=['open','investigating','resolved','ignored','all'];
       for(var fi=0;fi<filters.length;fi++){
         html+='<button class="tech-filter-btn'+(filters[fi]===status?' active':'')+'" data-filter="'+filters[fi]+'">'+filters[fi].charAt(0).toUpperCase()+filters[fi].slice(1)+'</button>';
       }
       html+='</div>';
+      html+='<div class="tech-filter-bar">';
+      var sources=[['all','All sources'],['client','Client'],['server','Server']];
+      for(var si=0;si<sources.length;si++){
+        html+='<button class="tech-filter-btn'+(sources[si][0]===source?' active':'')+'" data-filter-source="'+sources[si][0]+'">'+sources[si][1]+'</button>';
+      }
+      html+='</div>';
       html+='<div class="tech-bug-list">';
       var errors=d.errors||[];
-      if(errors.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No user errors captured yet. Errors are reported automatically from all pages.</div>';}
+      if(errors.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No errors captured for this filter. Client errors report automatically from all pages; server errors are captured by the API itself.</div>';}
       for(var ei=0;ei<errors.length;ei++){
         var e=errors[ei];
+        var srcChip=e.source==='server'?'<span class="tech-status configured" style="margin-right:6px;">server</span>':'';
         html+='<div class="tech-bug-row">';
-        html+='<div class="tech-bug-header"><span class="tech-bug-title">'+esc(e.error_message||'Unknown error')+'</span><span style="font-size:0.7rem;color:#999;">'+esc(e.occurrence_count||1)+'x</span></div>';
+        html+='<div class="tech-bug-header"><span class="tech-bug-title">'+srcChip+esc(e.error_message||'Unknown error')+'</span><span style="font-size:0.7rem;color:#999;">'+esc(e.occurrence_count||1)+'x</span></div>';
         html+='<div class="tech-bug-meta">'+esc(e.page_url||'unknown page')+' · first: '+fmtD(e.first_seen_at)+' · last: '+fmtD(e.last_seen_at)+(e.user_email?' · '+esc(e.user_email):'')+'</div>';
         html+='<div class="tech-bug-desc">';
         if(e.error_stack)html+='<pre style="font-size:0.7rem;overflow-x:auto;background:#f9fafb;padding:8px;border-radius:6px;max-height:120px;">'+esc(e.error_stack)+'</pre>';

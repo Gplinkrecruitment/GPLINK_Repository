@@ -1,0 +1,28 @@
+# Phase 6 C2 (audit S3): CI test gate.
+# Runs the full vitest suite on every push and pull request; any test failure
+# fails the workflow. Deliberately lean — no deploy steps (Vercel deploys are
+# handled separately by vercel-deploy.yml).
+name: CI Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # package.json "test" is "vitest run" — exits non-zero on any failure.
+      - name: Run tests
+        run: npm test

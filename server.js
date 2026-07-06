@@ -6561,6 +6561,157 @@ function _persistAiSpend() {
   }).catch(err => console.error('[AI Spend] Failed to persist:', err.message));
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// OBSERVABILITY (Phase 6 C2 — audit S2/S4)
+// ═════════════════════════════════════════════════════════════════════════════
+// Server-side error capture: unhandled request errors (and the explicit 500
+// paths swept in this batch) are recorded into the existing client_errors
+// table with source='server', deduped by signature exactly like the
+// client-reported errors from /api/errors/report. The HTTP client only ever
+// sees a GENERIC 500 body — the real message/stack lives in the table and
+// surfaces in the admin Technical tab.
+
+const GENERIC_SERVER_ERROR_MESSAGE = 'Something went wrong. Our team has been notified.';
+
+async function recordServerError(err, context) {
+  try {
+    const ctx = context || {};
+    const message = String((err && err.message) || err || 'Unknown server error').slice(0, 500);
+    const stack = String((err && err.stack) || '').slice(0, 4000);
+    const route = String(ctx.route || '').slice(0, 500);
+    const ctxParts = [];
+    if (ctx.method) ctxParts.push(String(ctx.method));
+    if (ctx.label) ctxParts.push(String(ctx.label));
+    const contextText = ctxParts.length ? ctxParts.join(' · ').slice(0, 1000) : null;
+    // Signature = message + route (mirrors /api/errors/report's message+url hash),
+    // prefixed 'server|' so a same-message client error never collides.
+    const errHash = crypto.createHash('sha256').update('server|' + message + '|' + route).digest('hex');
+    const nowIso = new Date().toISOString();
+
+    if (isSupabaseDbConfigured()) {
+      const existingRes = await supabaseDbRequest('client_errors', 'select=id,occurrence_count&error_hash=eq.' + encodeURIComponent(errHash) + '&limit=1');
+      if (existingRes.ok && Array.isArray(existingRes.data) && existingRes.data.length > 0) {
+        const existingRow = existingRes.data[0];
+        await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(existingRow.id), {
+          method: 'PATCH',
+          body: { occurrence_count: (existingRow.occurrence_count || 1) + 1, last_seen_at: nowIso }
+        });
+        return;
+      }
+      const insertRow = {
+        error_message: message,
+        error_stack: stack || null,
+        page_url: route || null,
+        user_context: contextText,
+        error_hash: errHash,
+        occurrence_count: 1,
+        status: 'open',
+        first_seen_at: nowIso,
+        last_seen_at: nowIso,
+        source: 'server'
+      };
+      const insRes = await supabaseDbRequest('client_errors', '', { method: 'POST', body: [insertRow] });
+      if (!insRes.ok) {
+        // Migration 20260706093000 (source column) not applied yet — degrade
+        // gracefully rather than losing the error entirely.
+        delete insertRow.source;
+        await supabaseDbRequest('client_errors', '', { method: 'POST', body: [insertRow] });
+      }
+      return;
+    }
+
+    // Local JSON fallback (dev, no Supabase).
+    if (!Array.isArray(dbState.clientErrors)) dbState.clientErrors = [];
+    const existingLocal = dbState.clientErrors.find((r) => r && r.error_hash === errHash);
+    if (existingLocal) {
+      existingLocal.occurrence_count = (existingLocal.occurrence_count || 1) + 1;
+      existingLocal.last_seen_at = nowIso;
+    } else {
+      dbState.clientErrors.push({
+        id: crypto.randomUUID(),
+        error_message: message,
+        error_stack: stack || null,
+        page_url: route || null,
+        user_context: contextText,
+        error_hash: errHash,
+        occurrence_count: 1,
+        status: 'open',
+        source: 'server',
+        first_seen_at: nowIso,
+        last_seen_at: nowIso
+      });
+    }
+    saveDbState();
+  } catch (recErr) {
+    // Error capture must NEVER take a request down with it.
+    console.error('[recordServerError] capture failed (ignored):', recErr && recErr.message);
+  }
+}
+
+// Standardized 500: record the real error server-side, answer with a generic
+// body. Pass context.safeMessage (e.g. 'Upload failed.') to keep a short,
+// safe, human action label in front of the generic sentence — never raw
+// err.message. Also stashes the real message on the response so the cron
+// heartbeat dispatcher can record it as the run's failure detail.
+async function respondServerError(res, err, context) {
+  const ctx = context || {};
+  await recordServerError(err, ctx);
+  try { res.gpCronDetail = String((err && err.message) || err || '').slice(0, 300); } catch {}
+  if (!res.headersSent) {
+    const safePrefix = ctx.safeMessage ? String(ctx.safeMessage).trim() : '';
+    sendJson(res, 500, {
+      ok: false,
+      error: 'server_error',
+      message: safePrefix ? safePrefix + ' ' + GENERIC_SERVER_ERROR_MESSAGE : GENERIC_SERVER_ERROR_MESSAGE
+    });
+  }
+}
+
+// ── Cron heartbeat (S4) ──────────────────────────────────────────────────────
+// Every tracked cron invocation writes runtime_kv 'cron_last_run_<name>' =
+// {at, status, detail, ms} (recorded by the /api dispatcher in handleRequest,
+// success AND error paths, including uncaught throws). The static map mirrors
+// vercel.json's crons so GET /api/admin/cron-health can flag silently-dead
+// (overdue / never-run) jobs. Keep in sync with vercel.json.
+const CRON_SCHEDULES = {
+  'process-gmail': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
+  'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
+  'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'weekly-sweep': { schedule: '0 22 * * *', cadenceMinutes: 1440 },
+  'weekly-backup': { schedule: '0 3 * * 0', cadenceMinutes: 10080 },
+  'call-summary-retry': { schedule: '0 0 * * *', cadenceMinutes: 1440 },
+  'call-reminders': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
+  'detect-no-shows': { schedule: '*/10 * * * *', cadenceMinutes: 10 },
+  'purge-accounts': { schedule: '0 4 * * *', cadenceMinutes: 1440 },
+  'check-model-updates': { schedule: '0 5 * * 1', cadenceMinutes: 10080 },
+  'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
+  'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
+  'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 }
+};
+const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
+
+async function recordCronRun(name, status, detail, ms) {
+  try {
+    const entry = {
+      at: new Date().toISOString(),
+      status: status === 'ok' ? 'ok' : 'error',
+      detail: String(detail || '').slice(0, 500),
+      ms: Math.max(0, Number(ms) || 0)
+    };
+    _localCronRuns[name] = entry;
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [{ key: 'cron_last_run_' + name, value: entry }]
+      });
+    }
+  } catch (cronErr) {
+    console.error('[recordCronRun] heartbeat write failed (ignored):', cronErr && cronErr.message);
+  }
+}
+
 async function checkAnthropicBudget() {
   await _hydrateAiSpend();
   const today = new Date().toISOString().slice(0, 10);
@@ -24562,7 +24713,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, processed: rfResults.length, results: rfResults });
     } catch (err) {
       console.error('[Cron] Reconcile follow-ups failed:', err);
-      sendJson(res, 500, { ok: false, error: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -24691,7 +24842,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, checked: irInterviews.length + irScRows.length, sent: irSent + irScSent });
     } catch (err) {
       console.error('[Cron] Interview reminders failed:', err);
-      sendJson(res, 500, { ok: false, error: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -24847,7 +24998,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
-      sendJson(res, 500, { ok: false, error: onbErr.message });
+      await respondServerError(res, onbErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -24927,7 +25078,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated });
     } catch (wsErr) {
       console.error('[Cron] Weekly sweep failed:', wsErr);
-      sendJson(res, 500, { ok: false, error: wsErr.message });
+      await respondServerError(res, wsErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -25156,7 +25307,7 @@ async function handleApi(req, res, pathname) {
       return;
     } catch (bkFatalErr) {
       console.error('[Backup] Fatal error:', bkFatalErr.message, bkFatalErr.stack);
-      sendJson(res, 500, { ok: false, error: bkFatalErr.message });
+      await respondServerError(res, bkFatalErr, { route: pathname, method: req.method });
       return;
     }
   }
@@ -25227,7 +25378,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, skipped: skipped });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
-      sendJson(res, 500, { ok: false, message: 'Error: ' + (e && e.message || e) });
+      await respondServerError(res, e, { route: pathname, method: req.method });
     }
     return;
   }
@@ -25311,7 +25462,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, reminded });
     } catch (err) {
       console.error('[call-reminders] Error:', err.message);
-      sendJson(res, 500, { ok: false, message: 'Reminder cron failed: ' + err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'Reminder cron failed.' });
     }
     return;
   }
@@ -28964,7 +29115,7 @@ async function handleApi(req, res, pathname) {
       });
       sendJson(res, 200, { ok: true, folders: topLevel });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -28985,7 +29136,7 @@ async function handleApi(req, res, pathname) {
       if (!insertRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to create folder.' }); return; }
       sendJson(res, 200, { ok: true, folder: Array.isArray(insertRes.data) ? insertRes.data[0] : insertRes.data });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29005,7 +29156,7 @@ async function handleApi(req, res, pathname) {
       }
       sendJson(res, 200, { ok: true });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29028,7 +29179,7 @@ async function handleApi(req, res, pathname) {
       if (!updateRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update folder.' }); return; }
       sendJson(res, 200, { ok: true });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29045,7 +29196,7 @@ async function handleApi(req, res, pathname) {
       if (!delRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to delete folder.' }); return; }
       sendJson(res, 200, { ok: true });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29068,7 +29219,7 @@ async function handleApi(req, res, pathname) {
       if (!insertRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to create guide.' }); return; }
       sendJson(res, 200, { ok: true, item: Array.isArray(insertRes.data) ? insertRes.data[0] : insertRes.data });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29090,7 +29241,7 @@ async function handleApi(req, res, pathname) {
       if (!updateRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update guide.' }); return; }
       sendJson(res, 200, { ok: true });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29107,7 +29258,7 @@ async function handleApi(req, res, pathname) {
       if (!delRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to delete guide.' }); return; }
       sendJson(res, 200, { ok: true });
     } catch (err) {
-      sendJson(res, 500, { ok: false, message: err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29159,7 +29310,7 @@ async function handleApi(req, res, pathname) {
         }
       }
     } catch (cleanErr) {
-      sendJson(res, 500, { ok: false, message: cleanErr.message });
+      await respondServerError(res, cleanErr, { route: pathname, method: req.method });
       return;
     }
     sendJson(res, 200, { ok: true, cancelled: cancelled });
@@ -29311,7 +29462,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, cancelled: resetCancelled, created: resetCreated });
     } catch (resetErr) {
       console.error('[ResetGP] Error:', resetErr.message);
-      sendJson(res, 500, { ok: false, message: resetErr.message });
+      await respondServerError(res, resetErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -29402,7 +29553,7 @@ async function handleApi(req, res, pathname) {
       return;
     } catch (err) {
       console.error('[AdminWhatsAppSend] Error:', err.message);
-      sendJson(res, 500, { ok: false, message: 'WhatsApp send failed: ' + (err.message || 'Unknown error') });
+      await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'WhatsApp send failed.' });
       return;
     }
   }
@@ -30026,7 +30177,7 @@ async function handleApi(req, res, pathname) {
         existing_org_webhooks: existing.map(summarize)
       });
     } catch (e) {
-      sendJson(res, 500, { ok: false, message: 'Error contacting Calendly: ' + (e && e.message || e) });
+      await respondServerError(res, e, { route: pathname, method: req.method, safeMessage: 'Error contacting Calendly.' });
     }
     return;
   }
@@ -36242,7 +36393,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, driveFileId: sgDriveId, userDocId: sgResult ? sgResult.userDoc : null });
     } catch (sgErr) {
       console.error('[RedeliverSectionG] Error:', sgErr.message);
-      sendJson(res, 500, { ok: false, message: 'Re-delivery failed: ' + sgErr.message });
+      await respondServerError(res, sgErr, { route: pathname, method: req.method, safeMessage: 'Re-delivery failed.' });
     }
     return;
   }
@@ -36309,7 +36460,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, file: result });
     } catch (err) {
       console.error('[Drive] upload error:', err.message, err.code, err.status);
-      sendJson(res, 500, { ok: false, message: 'Upload failed: ' + (err.message || 'unknown error') });
+      await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'Upload failed.' });
     }
     return;
   }
@@ -37273,7 +37424,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, driveFileId: driveFile ? driveFile.id : null });
     } catch (err) {
       console.error('[AdminSubmitDrive] Error:', err.message);
-      sendJson(res, 500, { ok: false, message: 'Drive upload failed: ' + err.message });
+      await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'Drive upload failed.' });
     }
     return;
   }
@@ -44175,7 +44326,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, count: onbiItems.length, items: onbiItems });
     } catch (onbiErr) {
       console.error('[CEO] onboarding-incomplete failed:', onbiErr.message);
-      sendJson(res, 500, { ok: false, message: onbiErr.message });
+      await respondServerError(res, onbiErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -45197,22 +45348,80 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
     var ceStatus = url.searchParams.get('status') || 'open';
+    var ceSource = url.searchParams.get('source') || 'all'; // all | client | server
     var ceSafeSelect = 'id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at';
-    var ceQuery = ceStatus === 'all'
-      ? 'select=' + ceSafeSelect + '&order=last_seen_at.desc&limit=200'
-      : 'select=' + ceSafeSelect + '&status=eq.' + encodeURIComponent(ceStatus) + '&order=last_seen_at.desc&limit=200';
+    var ceFilters = (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus));
+    // source='client' also matches pre-migration NULL rows (default 'client').
+    if (ceSource === 'server') ceFilters += '&source=eq.server';
+    else if (ceSource === 'client') ceFilters += '&or=(source.eq.client,source.is.null)';
+    var ceQuery = 'select=' + ceSafeSelect + ',source' + ceFilters + '&order=last_seen_at.desc&limit=200';
     var ceRes = await supabaseDbRequest('client_errors', ceQuery);
+    if (!ceRes.ok) {
+      // source column migration (20260706093000) not applied yet — fall back
+      // to the legacy shape so the tab keeps working.
+      ceRes = await supabaseDbRequest('client_errors',
+        'select=' + ceSafeSelect + (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus)) + '&order=last_seen_at.desc&limit=200');
+    }
     var errors = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
-    var ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at&limit=500');
+    var ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at,source&limit=500');
+    if (!ceSummaryRes.ok) ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at&limit=500');
     var ceAll = (ceSummaryRes.ok && Array.isArray(ceSummaryRes.data)) ? ceSummaryRes.data : [];
-    var ceSummary = { open: 0, investigating: 0, total_occurrences_24h: 0 };
+    var ceSummary = { open: 0, investigating: 0, total_occurrences_24h: 0, open_client: 0, open_server: 0 };
     var dayAgo = new Date(Date.now() - 86400000).toISOString();
     for (var cei = 0; cei < ceAll.length; cei++) {
-      if (ceAll[cei].status === 'open') ceSummary.open++;
+      if (ceAll[cei].status === 'open') {
+        ceSummary.open++;
+        if (ceAll[cei].source === 'server') ceSummary.open_server++;
+        else ceSummary.open_client++;
+      }
       if (ceAll[cei].status === 'investigating') ceSummary.investigating++;
       if (ceAll[cei].last_seen_at && ceAll[cei].last_seen_at >= dayAgo) ceSummary.total_occurrences_24h += (ceAll[cei].occurrence_count || 1);
     }
     sendJson(res, 200, { ok: true, errors: errors, summary: ceSummary });
+    return;
+  }
+
+  // ── Cron health (S4): heartbeat per vercel.json cron, admin Technical tab ──
+  // Same guard as the rest of the Technical tab endpoints (requireCeoSession).
+  if (pathname === '/api/admin/cron-health' && req.method === 'GET') {
+    var chCtx = requireCeoSession(req, res);
+    if (!chCtx) return;
+    var chNames = Object.keys(CRON_SCHEDULES);
+    var chRuns = {};
+    chNames.forEach(function (n) { if (_localCronRuns[n]) chRuns[n] = _localCronRuns[n]; });
+    if (isSupabaseDbConfigured()) {
+      var chKeys = chNames.map(function (n) { return '"cron_last_run_' + n + '"'; }).join(',');
+      var chKvRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + chKeys + ')');
+      if (chKvRes.ok && Array.isArray(chKvRes.data)) {
+        chKvRes.data.forEach(function (row) {
+          var chName = String(row.key || '').replace(/^cron_last_run_/, '');
+          try {
+            var chVal = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+            if (chVal && chVal.at) chRuns[chName] = chVal;
+          } catch (chParseErr) { /* malformed heartbeat — treat as never run */ }
+        });
+      }
+    }
+    var chNowMs = Date.now();
+    var chCrons = chNames.map(function (n) {
+      var chSpec = CRON_SCHEDULES[n];
+      var chLast = chRuns[n] || null;
+      var chLastAtMs = chLast && chLast.at ? Date.parse(chLast.at) : NaN;
+      // Overdue = never ran, or last run older than ~2× its cadence (+5 min grace).
+      var chOverdue = !Number.isFinite(chLastAtMs) ||
+        (chNowMs - chLastAtMs) > (chSpec.cadenceMinutes * 2 * 60000 + 5 * 60000);
+      return {
+        name: n,
+        schedule: chSpec.schedule,
+        cadence_minutes: chSpec.cadenceMinutes,
+        last_run_at: chLast && chLast.at ? chLast.at : null,
+        last_status: chLast && chLast.status ? chLast.status : null,
+        last_detail: chLast && chLast.detail ? chLast.detail : null,
+        last_ms: chLast && Number.isFinite(chLast.ms) ? chLast.ms : null,
+        overdue: chOverdue
+      };
+    });
+    sendJson(res, 200, { ok: true, generated_at: new Date().toISOString(), crons: chCrons });
     return;
   }
 
@@ -47273,11 +47482,37 @@ async function handleRequest(req, res) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // ── Cron heartbeat (S4): record the outcome of every tracked cron run ──
+    const cronHeartbeatName = pathname.startsWith('/api/cron/')
+      ? pathname.slice('/api/cron/'.length).replace(/\/+$/, '')
+      : '';
+    const cronTracked = cronHeartbeatName !== '' &&
+      Object.prototype.hasOwnProperty.call(CRON_SCHEDULES, cronHeartbeatName);
+    const cronStartedMs = cronTracked ? Date.now() : 0;
     try {
       await handleApi(req, res, pathname);
+      // 401/403/404 = unauthorized probes / missing routes, not real runs —
+      // don't let them pollute (or falsely refresh) the heartbeat.
+      if (cronTracked && res.statusCode !== 401 && res.statusCode !== 403 && res.statusCode !== 404) {
+        const cronOk = res.statusCode >= 200 && res.statusCode < 400;
+        await recordCronRun(
+          cronHeartbeatName,
+          cronOk ? 'ok' : 'error',
+          res.gpCronDetail || ('http ' + res.statusCode),
+          Date.now() - cronStartedMs
+        );
+      }
     } catch (err) {
       console.error('[API ERROR]', err);
-      sendJson(res, 500, { ok: false, message: 'Internal server error.' });
+      // S2: capture the real error server-side; the client gets a generic 500.
+      await recordServerError(err, { route: pathname, method: req.method });
+      if (cronTracked) {
+        await recordCronRun(cronHeartbeatName, 'error',
+          String((err && err.message) || err).slice(0, 300), Date.now() - cronStartedMs);
+      }
+      if (!res.headersSent) {
+        sendJson(res, 500, { ok: false, error: 'server_error', message: GENERIC_SERVER_ERROR_MESSAGE });
+      }
     }
     return;
   }
@@ -47431,11 +47666,36 @@ function createServer() {
       await handleRequest(req, res);
     } catch (err) {
       console.error('[SERVER ERROR]', err);
+      // S2: record the unhandled request error (route + method + message +
+      // stack) into client_errors with source='server' — never in the body.
+      try { await recordServerError(err, { route: req.url, method: req.method }); } catch {}
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Internal Server Error');
+        sendJson(res, 500, { ok: false, error: 'server_error', message: GENERIC_SERVER_ERROR_MESSAGE });
       }
     }
+  });
+}
+
+// ── Process-level error capture (S2) ─────────────────────────────────────────
+// Last-resort recording of async errors that never touched a request handler.
+// Guarded once per process, and NOT registered under test so vitest's own
+// error handling stays in charge. On uncaughtException we deliberately do NOT
+// hard-exit: in serverless the platform recycles instances per invocation, so
+// we record + log and let the invocation end naturally.
+if (!global.__gpProcessErrorHooksInstalled && NODE_ENV !== 'test') {
+  global.__gpProcessErrorHooksInstalled = true;
+  process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', reason);
+    try {
+      const rejErr = reason instanceof Error ? reason : new Error(String(reason));
+      recordServerError(rejErr, { route: 'process:unhandledRejection' }).catch(() => {});
+    } catch { /* never throw from the hook */ }
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err);
+    try {
+      recordServerError(err, { route: 'process:uncaughtException' }).catch(() => {});
+    } catch { /* never throw from the hook */ }
   });
 }
 
@@ -47445,9 +47705,11 @@ if (process.env.VERCEL) {
       await handleRequest(req, res);
     } catch (err) {
       console.error('[SERVER ERROR]', err);
+      // S2: record the unhandled request error (route + method + message +
+      // stack) into client_errors with source='server' — never in the body.
+      try { await recordServerError(err, { route: req.url, method: req.method }); } catch {}
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Internal Server Error');
+        sendJson(res, 500, { ok: false, error: 'server_error', message: GENERIC_SERVER_ERROR_MESSAGE });
       }
     }
   };
@@ -47944,6 +48206,11 @@ module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  recordServerError,
+  recordCronRun,
+  respondServerError,
+  CRON_SCHEDULES,
+  GENERIC_SERVER_ERROR_MESSAGE,
   isBackupSafeEnvKey,
   BACKUP_TABLES,
   ingestPracticeAvailabilityReply,
