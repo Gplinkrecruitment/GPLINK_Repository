@@ -23086,8 +23086,11 @@ function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, in
   var attachLine = hasCv
     ? (hasCoverLetter ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
     : (hasCoverLetter ? 'Their cover letter is attached — we’ll follow up with their CV shortly.' : 'We’ll follow up with their CV shortly.');
+  // "Dear <practice> team," per the approved mockup; when we have no practice
+  // name, fall back to a plain "Dear team," (never "Dear team team,").
+  var greeting = practiceName ? ('Dear ' + esc(practiceName) + ' team,') : 'Dear team,';
   return (
-    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Dear ' + esc(practiceName || 'team') + ',</p>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + greeting + '</p>' +
     '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">We&rsquo;re delighted to introduce <b>' + esc(displayName) + '</b> for your <b>' + esc(roleTitle || 'GP') + '</b> position.</p>' +
     '<div style="border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd">' +
     '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">About ' + esc(displayName) + '</div>' +
@@ -24453,6 +24456,10 @@ function validatePracticeAvailabilityWindows(windows) {
   if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
     return 'windows must contain between 1 and 10 entries.';
   }
+  // Bounds are UTC-based (toISOString() is always UTC), so around midnight a
+  // practice's local "today" can differ from this UTC day by one — acceptable
+  // for a 0..60-day availability horizon, called out here so it isn't mistaken
+  // for a bug later.
   var todayYmd = new Date().toISOString().slice(0, 10);
   var maxYmd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   for (var i = 0; i < windows.length; i++) {

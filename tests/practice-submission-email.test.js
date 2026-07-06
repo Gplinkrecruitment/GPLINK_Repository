@@ -320,6 +320,8 @@ describe('POST submit-to-practice — verified-CV email rebuild', () => {
 
   it('includes intro sentences, AI recommendation, and decision buttons', async () => {
     const sent = resendCaptured[0];
+    // Greeting per the approved mockup: "Dear <practice> team,".
+    expect(sent.html).toContain('Dear SOP Medical Centre team,');
     expect(sent.html).toContain('Expedited Specialist Pathway');
     expect(sent.html).toContain('November 2026');
     expect(sent.html).toContain('Why we recommend');
