@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const hybridAgents = require('./scripts/agents.js');
 const adminTotp = require('./lib/totp.js');
+const webPush = require('web-push');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
@@ -24876,35 +24877,88 @@ async function sendPracticePackEmail(userId, practiceName) {
 
 // 14. Candidate Hired Email — sent to Zoho Recruit candidates when status changes to "Hired"
 // This goes to candidates who may NOT have a GP Link account yet, so it uses sendEmail() directly.
-/* ───────── Push notifications via FCM ───────── */
+/* ───────── Push notifications — standards-based Web Push (RFC 8291/8292, VAPID) ─────────
+   Phase 6 J1. Replaces the legacy FCM path (fcm.googleapis.com/fcm/send was shut
+   down by Google in 2024). Subscriptions live in public.push_subscriptions —
+   one row per browser PushSubscription (endpoint + p256dh + auth), created by
+   POST /api/push/subscribe. Push is a NON-CRITICAL channel: sends respect the
+   per-GP `push` notification preference (F4), and a push failure must never
+   fail the action that triggered it. If VAPID keys are unset, sending is a
+   logged no-op (generate keys with `npx web-push generate-vapid-keys`). */
 
-async function sendPushNotification(userId, { title, body, data }) {
-  if (!process.env.FCM_SERVER_KEY) return;
+let vapidMissingWarned = false;
+let webPushSendImpl = null; // test hook — overrides webPush.sendNotification
+
+function getVapidConfig() {
+  const publicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+  const privateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+  if (!publicKey || !privateKey) return null;
+  const subject = String(process.env.VAPID_SUBJECT || '').trim() || 'mailto:hello@mygplink.com.au';
+  return { subject, publicKey, privateKey };
+}
+
+async function getPushSubscriptionsForUser(userId) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('push_subscriptions',
+      `select=endpoint,p256dh,auth,email&user_id=eq.${encodeURIComponent(userId)}&limit=10`);
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  const list = Array.isArray(dbState.pushSubscriptions) ? dbState.pushSubscriptions : [];
+  return list.filter((s) => s && s.user_id === userId);
+}
+
+async function deletePushSubscriptionByEndpoint(endpoint, userId) {
+  if (!endpoint) return;
+  if (isSupabaseDbConfigured()) {
+    let query = 'endpoint=eq.' + encodeURIComponent(endpoint);
+    if (userId) query += '&user_id=eq.' + encodeURIComponent(userId);
+    await supabaseDbRequest('push_subscriptions', query, { method: 'DELETE' });
+    return;
+  }
+  const list = Array.isArray(dbState.pushSubscriptions) ? dbState.pushSubscriptions : [];
+  dbState.pushSubscriptions = list.filter((s) => !(s && s.endpoint === endpoint && (!userId || s.user_id === userId)));
+  saveDbState();
+}
+
+async function sendPushNotification(userId, { title, body, data, url } = {}) {
   try {
-    const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-      ? stateResult.data[0].state
-      : {};
-    const pushTokens = Array.isArray(currentState.gp_push_tokens) ? currentState.gp_push_tokens : [];
-    if (pushTokens.length === 0) return;
+    if (!userId) return;
+    const vapid = getVapidConfig();
+    if (!vapid) {
+      if (!vapidMissingWarned) {
+        console.log('[web-push] VAPID keys not set (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY) — push notifications are disabled.');
+        vapidMissingWarned = true;
+      }
+      return;
+    }
 
-    for (const entry of pushTokens) {
-      if (!entry || !entry.token) continue;
-      const fcmController = new AbortController();
-      const fcmTimeout = setTimeout(() => fcmController.abort(), 10000);
-      fetch('https://fcm.googleapis.com/fcm/send', {
-        method: 'POST',
-        signal: fcmController.signal,
-        headers: {
-          'Authorization': 'key=' + process.env.FCM_SERVER_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          to: entry.token,
-          notification: { title: title || 'GP Link', body: body || '' },
-          data: data || {}
-        })
-      }).catch(() => {}).finally(() => clearTimeout(fcmTimeout));
+    const subscriptions = await getPushSubscriptionsForUser(userId);
+    if (!subscriptions.length) return;
+
+    // Non-critical channel: skip entirely when the GP has opted out of push.
+    const prefEmail = (subscriptions.find((s) => s && s.email) || {}).email || '';
+    if (prefEmail && !(await allowsNonCriticalNotification(prefEmail, 'push'))) return;
+
+    const payload = JSON.stringify({
+      title: title || 'GP Link',
+      body: body || '',
+      url: url || (data && data.url) || '/pages/index.html',
+      data: data || {}
+    });
+
+    for (const sub of subscriptions) {
+      if (!sub || !sub.endpoint || !sub.p256dh || !sub.auth) continue;
+      try {
+        const subscription = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+        const sendFn = webPushSendImpl || webPush.sendNotification.bind(webPush);
+        await sendFn(subscription, payload, { vapidDetails: vapid, TTL: 24 * 60 * 60 });
+      } catch (err) {
+        const status = err && (err.statusCode || err.status);
+        if (status === 404 || status === 410) {
+          // The push service says this subscription is gone — clean it up.
+          await deletePushSubscriptionByEndpoint(sub.endpoint).catch(() => {});
+        }
+      }
     }
   } catch {}
 }
@@ -32483,6 +32537,115 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, alerts: currentState.gp_career_alerts || { enabled: false, filters: {} } });
     } catch {
       sendJson(res, 200, { ok: true, alerts: { enabled: false, filters: {} } });
+    }
+    return;
+  }
+
+  // ── Phase 6 J1: standards-based Web Push (VAPID) ──────────────────────────
+  // Public: the VAPID public key the browser needs to create a subscription.
+  if (pathname === '/api/push/vapid-public-key' && req.method === 'GET') {
+    const vapid = getVapidConfig();
+    if (!vapid) {
+      sendJson(res, 200, { ok: false, configured: false, message: 'Push notifications are not configured on this server.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, configured: true, publicKey: vapid.publicKey });
+    return;
+  }
+
+  // GP session: store this browser's PushSubscription (dedup by endpoint).
+  if (pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let subBody;
+    try { subBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    if (!subBody || typeof subBody !== 'object') {
+      sendJson(res, 400, { ok: false, message: 'Provide a push subscription.' });
+      return;
+    }
+    const subKeys = subBody.keys && typeof subBody.keys === 'object' ? subBody.keys : {};
+    const endpoint = String(subBody.endpoint || '').trim().slice(0, 1000);
+    const p256dh = String(subKeys.p256dh || subBody.p256dh || '').trim().slice(0, 300);
+    const authKey = String(subKeys.auth || subBody.auth || '').trim().slice(0, 100);
+    if (!/^https:\/\//i.test(endpoint) || !p256dh || !authKey) {
+      sendJson(res, 400, { ok: false, message: 'Provide a push subscription (endpoint + keys.p256dh + keys.auth).' });
+      return;
+    }
+
+    try {
+      const nowIso = new Date().toISOString();
+      const emailLower = String(email).trim().toLowerCase();
+      if (isSupabaseDbConfigured()) {
+        // Upsert by endpoint: a browser endpoint belongs to whoever is
+        // currently signed in on that device.
+        const w = await supabaseDbRequest('push_subscriptions', 'on_conflict=endpoint', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [{ user_id: userId, email: emailLower, endpoint, p256dh, auth: authKey, updated_at: nowIso }]
+        });
+        if (!w.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the push subscription.' }); return; }
+        // Keep at most 5 devices per user.
+        const all = await supabaseDbRequest('push_subscriptions',
+          `select=endpoint,created_at&user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
+        if (all.ok && Array.isArray(all.data) && all.data.length > 5) {
+          for (const stale of all.data.slice(5)) {
+            await deletePushSubscriptionByEndpoint(stale && stale.endpoint, userId).catch(() => {});
+          }
+        }
+      } else {
+        if (!Array.isArray(dbState.pushSubscriptions)) dbState.pushSubscriptions = [];
+        const list = dbState.pushSubscriptions;
+        const row = { user_id: userId, email: emailLower, endpoint, p256dh, auth: authKey, created_at: nowIso, updated_at: nowIso };
+        const existing = list.findIndex((s) => s && s.endpoint === endpoint);
+        if (existing >= 0) {
+          row.created_at = list[existing].created_at || nowIso;
+          list[existing] = row;
+        } else {
+          list.push(row);
+        }
+        const mine = list.filter((s) => s && s.user_id === userId);
+        if (mine.length > 5) {
+          const drop = new Set(mine.slice(0, mine.length - 5).map((s) => s.endpoint));
+          dbState.pushSubscriptions = list.filter((s) => !(s && s.user_id === userId && drop.has(s.endpoint)));
+        }
+        saveDbState();
+      }
+      sendJson(res, 200, { ok: true });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to save the push subscription.' });
+    }
+    return;
+  }
+
+  // GP session: remove this browser's PushSubscription (own rows only).
+  if (pathname === '/api/push/unsubscribe' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let unsubBody;
+    try { unsubBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const endpoint = String(unsubBody && unsubBody.endpoint || '').trim().slice(0, 1000);
+    if (!endpoint) { sendJson(res, 400, { ok: false, message: 'Missing subscription endpoint.' }); return; }
+    try {
+      await deletePushSubscriptionByEndpoint(endpoint, userId);
+      sendJson(res, 200, { ok: true });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to remove the push subscription.' });
     }
     return;
   }
@@ -53314,6 +53477,10 @@ module.exports.__testUtils = {
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
-  enumerateIncompleteOnboardingGps
+  enumerateIncompleteOnboardingGps,
+  sendPushNotification,
+  getVapidConfig,
+  __setWebPushSendForTests: function (fn) { webPushSendImpl = typeof fn === 'function' ? fn : null; },
+  __resetVapidWarningForTests: function () { vapidMissingWarned = false; }
 };
 // cache-bust 1778597236

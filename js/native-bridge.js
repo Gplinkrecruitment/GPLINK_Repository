@@ -136,7 +136,7 @@
             type: "GP_CACHE_URLS",
             urls: [
               "/pages/index?gp_shell=embedded&gp_shell_static=1",
-              "/js/native-bridge.js?v=20260608a",
+              "/js/native-bridge.js?v=20260707a",
               "/js/nav-shell-bridge.js?v=20260608a",
               "/js/auth-guard.js?v=20260607a",
               "/js/state-sync.js?v=20260607a",
@@ -159,7 +159,15 @@
 
   /* ── Push notifications ── */
   window.gpRegisterPush = function () {
-    if (!isNative) return;
+    if (!isNative) {
+      // Browser / installed PWA: delegate to the standards-based Web Push
+      // helper (js/web-push.js) when the page has loaded it. Must be called
+      // from a user gesture so the permission prompt isn't blocked.
+      if (window.gpWebPush && window.gpWebPush.isSupported()) {
+        window.gpWebPush.enable();
+      }
+      return;
+    }
     if (!window.Capacitor || !window.Capacitor.Plugins || !window.Capacitor.Plugins.PushNotifications) return;
 
     var PushNotifications = window.Capacitor.Plugins.PushNotifications;

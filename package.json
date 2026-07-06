@@ -21,7 +21,8 @@
     "googleapis": "^171.4.0",
     "mammoth": "^1.12.0",
     "pdf-lib": "^1.17.1",
-    "pdfkit": "^0.16.0"
+    "pdfkit": "^0.16.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

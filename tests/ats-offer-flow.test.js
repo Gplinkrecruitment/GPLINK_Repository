@@ -2,8 +2,9 @@
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-consultant-access.test.js / tests/career-internal-apply.test.js.
-// Outbound email (Resend) and push (FCM) are captured by wrapping global fetch,
-// so the "exactly ONE GP email per send" invariant is asserted for real.
+// Outbound email (Resend) is captured by wrapping global fetch; Web Push (J1)
+// sends are captured via the __setWebPushSendForTests hook, so the "exactly
+// ONE GP email per send" invariant is asserted for real.
 //
 // Covers:
 //  1. POST /api/ats/offer → offer persisted (ats_offers table), stage → 'offer'
@@ -42,7 +43,8 @@ const NOW = new Date().toISOString();
 // PostgREST "table not in schema cache" error — the un-applied-migration case.
 let simulateMissingAtsOffers = false;
 
-// Captured outbound calls.
+// Captured outbound calls. Push sends land in fcmCalls via the web-push test
+// hook (J1 replaced the legacy FCM fetch path with VAPID Web Push).
 const resendCalls = [];
 const fcmCalls = [];
 
@@ -53,9 +55,13 @@ const db = {
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' }
   ],
   user_state: [
-    { user_id: GP.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-1' }] }, updated_at: NOW },
+    { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
+  push_subscriptions: [
+    { id: 'ps-1', user_id: GP.userId, email: GP.email, endpoint: 'https://push.example.test/gp-1', p256dh: 'p256dh-gp-1', auth: 'auth-gp-1', created_at: NOW }
+  ],
+  notification_preferences: [],
   registration_cases: [
     { id: 'case-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
     { id: 'case-2', user_id: GP2.userId, status: 'active', assigned_rso: null, assigned_va: null }
@@ -247,9 +253,12 @@ beforeAll(async () => {
   process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
   process.env.ADMIN_EMAILS = '';
   // Real email + push config so the notification legs actually run — the
-  // wrapped fetch below captures them instead of hitting the network.
+  // wrapped fetch + web-push test hook below capture them instead of
+  // hitting the network.
   process.env.RESEND_API_KEY = 'test-resend-key';
-  process.env.FCM_SERVER_KEY = 'test-fcm-key';
+  process.env.VAPID_PUBLIC_KEY = 'test-vapid-public-key';
+  process.env.VAPID_PRIVATE_KEY = 'test-vapid-private-key';
+  process.env.VAPID_SUBJECT = 'mailto:hello@mygplink.com.au';
 
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
@@ -259,15 +268,16 @@ beforeAll(async () => {
       resendCalls.push({ url: u, body: parsed });
       return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
     }
-    if (u.startsWith('https://fcm.googleapis.com/')) {
-      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
-      fcmCalls.push({ url: u, body: parsed });
-      return Promise.resolve(new Response('{}', { status: 200 }));
-    }
     return realFetch(url, opts);
   };
 
-  const { createServer } = await import('../server.js');
+  const serverModule = await import('../server.js');
+  serverModule.__testUtils.__setWebPushSendForTests(async (subscription, payload) => {
+    let parsed = null; try { parsed = JSON.parse(payload); } catch {}
+    fcmCalls.push({ endpoint: subscription.endpoint, body: parsed });
+    return { statusCode: 201 };
+  });
+  const { createServer } = serverModule;
   server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
 });
@@ -318,9 +328,9 @@ describe('POST /api/ats/offer — send (table mode)', () => {
     expect(String(sends[0].body.subject)).toMatch(/offer/i);
     expect(String(sends[0].body.html)).toContain('/pages/offer-review?applicationId=app-1');
 
-    // Push notification attempted for the GP's token.
+    // Push notification attempted for the GP's Web Push subscription.
     expect(fcmCalls.length).toBeGreaterThan(0);
-    expect(fcmCalls[fcmCalls.length - 1].body.to).toBe('push-tok-1');
+    expect(fcmCalls[fcmCalls.length - 1].endpoint).toBe('https://push.example.test/gp-1');
   });
 
   it('GET /api/ats/offer returns the offer for the ATS UI', async () => {
