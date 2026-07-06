@@ -1889,7 +1889,74 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
 
 // ── Gmail integration (Phase 1b) ──
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
-const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
+// C2 (audit 2026-07-07): shared secret for the Gmail Pub/Sub push webhook.
+// Read live (not cached at boot) so enforcement follows the env var and tests
+// can toggle it. When set, POST /api/webhooks/gmail only processes requests
+// that present the secret via ?token=<secret> (Pub/Sub push endpoint URL) or
+// an Authorization: Bearer <secret> header. When unset, behavior is unchanged
+// (open) but a loud warning is logged once.
+function getGmailWebhookSecret() {
+  return String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
+}
+let _gmailWebhookOpenWarned = false;
+
+// C1 (audit 2026-07-07): the weekly backup used to copy the ENTIRE process.env
+// (Supabase service-role key, Anthropic/OpenAI keys, webhook secrets, AUTH_SECRET,
+// Google private key, ...) into the archive uploaded to Google Drive — anyone with
+// access to the backup folder could read every production secret. The env snapshot
+// is now DEFAULT-DENY: a key is included only if it is on the explicit safe list
+// below, OR it both looks like public/non-secret config (public-prefix test) AND
+// does not match any secret-looking pattern. Secrets must be restored from the
+// Vercel dashboard / password manager, never from a backup archive.
+const BACKUP_SAFE_ENV_KEYS = new Set([
+  'NODE_ENV', 'TZ',
+  'VERCEL', 'VERCEL_ENV', 'VERCEL_REGION', 'VERCEL_URL',
+  'VERCEL_GIT_COMMIT_SHA', 'VERCEL_GIT_COMMIT_REF', 'VERCEL_GIT_REPO_SLUG',
+  'PUBLIC_BASE_URL',
+  'ENFORCE_SAME_ORIGIN', 'REQUIRE_SUPABASE_DB', 'AUTH_DISABLED'
+]);
+// Any key matching this is NEVER backed up, even with a public-looking prefix.
+const BACKUP_SECRET_ENV_PATTERN = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|SERVICE_ROLE|REFRESH|CLIENT_SECRET|WEBHOOK_SECRET|PRIVATE|CRED|SALT|AUTH_SECRET|DSN|CONNECTION|COOKIE|SESSION|SIGNATURE|BEARER/i;
+// Non-secret operational/config prefixes eligible for backup (still subject to
+// the secret-pattern veto above).
+const BACKUP_PUBLIC_ENV_PREFIX = /^(PUBLIC_|SITE_|NEXT_PUBLIC_|FEATURE_|ENABLE_|DISABLE_|VERCEL_GIT_)/;
+function isBackupSafeEnvKey(key) {
+  const k = String(key || '').toUpperCase();
+  if (BACKUP_SAFE_ENV_KEYS.has(k)) return true;
+  if (BACKUP_SECRET_ENV_PATTERN.test(k)) return false;
+  return BACKUP_PUBLIC_ENV_PREFIX.test(k);
+}
+
+// C3 (audit 2026-07-07): tables included in the weekly Google Drive backup.
+// Keep in sync with supabase/migrations/ — see audit 2026-07-07. The backup
+// loop 404-skips tables whose migration hasn't been applied yet, so listing a
+// table here is safe as soon as its CREATE TABLE migration exists.
+const BACKUP_TABLES = [
+  'user_profiles', 'user_state', 'user_roles',
+  'ahpra_cases', 'ahpra_required_documents', 'ahpra_case_documents',
+  'ahpra_events', 'ahpra_notifications',
+  'runtime_kv', 'document_templates', 'user_documents',
+  'integration_connections', 'career_roles', 'gp_applications',
+  'registration_cases', 'registration_tasks', 'task_timeline',
+  'task_messages', 'task_documents',
+  'visa_applications', 'visa_documents', 'visa_questionnaires',
+  'visa_updates', 'visa_timeline_events', 'visa_dependants',
+  'support_tickets', 'user_nudges', 'nudge_chat_messages',
+  'pbs_applications', 'pbs_documents', 'pbs_updates', 'pbs_timeline_events',
+  'commencement_items', 'practice_doc_ops',
+  'gmail_watch_state', 'processed_gmail_messages',
+  'zoho_sign_envelopes', 'processed_zoho_sign_events',
+  'incoming_email_todos', 'career_interviews',
+  'career_hero_cities', 'career_hero_city_images', 'career_suburb_geo_cache',
+  'doubletick_messages', 'pending_hires',
+  'system_bugs', 'client_errors',
+  'guide_folders', 'guide_items',
+  // Added 2026-07-07 (audit C3) — newer tables that were missing from the backup:
+  'placements', 'practices', 'ats_offers', 'ats_stage_events',
+  'scheduled_calls', 'rso_team', 'va_gmail_accounts',
+  'site_enquiries', 'pep_waitlist', 'onboarding_reminders',
+  'candidate_leads', 'zoho_archive', 'admin_audit_log'
+];
 const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim().toLowerCase();
 // Admin/archive inboxes that must NEVER be watched or turned into Ops Queue tasks.
 // hello@ receives vendor + admin mail (Vercel, Anthropic, Zapier, Zoom…) and silent case-copies;
@@ -23598,6 +23665,28 @@ async function handleApi(req, res, pathname) {
     return;
   }
   if (req.method === 'POST' && pathname === '/api/webhooks/gmail') {
+    // C2 (audit 2026-07-07): verify the Pub/Sub push shared secret BEFORE processing.
+    // Accept either ?token=<secret> in the push endpoint URL or an
+    // Authorization: Bearer <secret> header (timing-safe compare). If the env var
+    // is unset, preserve the historical open behavior but warn loudly once —
+    // setting GMAIL_WEBHOOK_SECRET turns enforcement on.
+    var gmailWhSecret = getGmailWebhookSecret();
+    if (gmailWhSecret) {
+      var gmailWhQueryTok = String(url.searchParams.get('token') || '').trim();
+      var gmailWhAuthHdr = String(req.headers['authorization'] || '');
+      var gmailWhBearerTok = gmailWhAuthHdr.startsWith('Bearer ') ? gmailWhAuthHdr.slice(7).trim() : '';
+      var gmailWhOk =
+        (gmailWhQueryTok && timingSafeEqualStrings(gmailWhQueryTok, gmailWhSecret)) ||
+        (gmailWhBearerTok && timingSafeEqualStrings(gmailWhBearerTok, gmailWhSecret));
+      if (!gmailWhOk) {
+        console.warn('[Gmail webhook] Rejected request with missing/invalid token');
+        sendJson(res, 403, { ok: false, error: 'Forbidden' });
+        return;
+      }
+    } else if (!_gmailWebhookOpenWarned) {
+      _gmailWebhookOpenWarned = true;
+      console.warn('[Gmail webhook] WARNING: GMAIL_WEBHOOK_SECRET is not set — accepting UNAUTHENTICATED Pub/Sub pushes. Set GMAIL_WEBHOOK_SECRET and append ?token=<secret> to the push endpoint URL to enforce verification.');
+    }
     // Process synchronously before responding — Vercel kills the function after res.end()
     try {
       var gmailBody = await readJsonBody(req);
@@ -24640,27 +24729,9 @@ async function handleApi(req, res, pathname) {
     var bkTimestamp = new Date().toISOString();
     var bkDateSlug = bkTimestamp.slice(0, 10);
 
-    var BK_TABLES = [
-      'user_profiles', 'user_state', 'user_roles',
-      'ahpra_cases', 'ahpra_required_documents', 'ahpra_case_documents',
-      'ahpra_events', 'ahpra_notifications',
-      'runtime_kv', 'document_templates', 'user_documents',
-      'integration_connections', 'career_roles', 'gp_applications',
-      'registration_cases', 'registration_tasks', 'task_timeline',
-      'task_messages', 'task_documents',
-      'visa_applications', 'visa_documents', 'visa_questionnaires',
-      'visa_updates', 'visa_timeline_events', 'visa_dependants',
-      'support_tickets', 'user_nudges', 'nudge_chat_messages',
-      'pbs_applications', 'pbs_documents', 'pbs_updates', 'pbs_timeline_events',
-      'commencement_items', 'practice_doc_ops',
-      'gmail_watch_state', 'processed_gmail_messages',
-      'zoho_sign_envelopes', 'processed_zoho_sign_events',
-      'incoming_email_todos', 'career_interviews',
-      'career_hero_cities', 'career_hero_city_images', 'career_suburb_geo_cache',
-      'doubletick_messages', 'pending_hires',
-      'system_bugs', 'client_errors',
-      'guide_folders', 'guide_items'
-    ];
+    // Table list lives at module scope (BACKUP_TABLES) so tests can assert
+    // coverage. Keep in sync with supabase/migrations/ — see audit 2026-07-07.
+    var BK_TABLES = BACKUP_TABLES;
 
     try {
       var bkTableData = {};
@@ -24700,8 +24771,14 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // C1 (audit 2026-07-07): NEVER dump the full process.env into the backup —
+      // it lands in a Google Drive folder and would hand every production secret
+      // (service-role key, API keys, webhook secrets) to anyone with folder access.
+      // Only non-secret operational keys pass isBackupSafeEnvKey (default deny);
+      // secrets must be re-entered from the Vercel dashboard on restore.
       var bkEnvVars = {};
       for (var bkEnvKey of Object.keys(process.env).sort()) {
+        if (!isBackupSafeEnvKey(bkEnvKey)) continue;
         bkEnvVars[bkEnvKey] = process.env[bkEnvKey];
       }
 
@@ -24733,7 +24810,9 @@ async function handleApi(req, res, pathname) {
         '2. Unzip it locally',
         '3. Run: node scripts/restore-backup.js ./path-to-backup.json.gz',
         '4. The script will connect to Supabase and restore all tables',
-        '5. Review env-vars.json to restore any missing Vercel env vars',
+        '5. env_vars in the backup holds NON-SECRET operational config only.',
+        '   Secrets (API keys, service-role key, webhook secrets) are deliberately',
+        '   excluded — restore those from the Vercel dashboard / password manager.',
         '',
         'IMPORTANT: The restore script will TRUNCATE each table before inserting.',
         'Make sure you are restoring to the correct Supabase project.',
@@ -24852,7 +24931,8 @@ async function handleApi(req, res, pathname) {
   }
 
   // Cron: retry fetching Zoom AI Companion summaries (before same-origin — called by Vercel cron)
-  if (req.method === 'POST' && pathname === '/api/cron/call-summary-retry') {
+  // C5 (audit 2026-07-07): Vercel invokes crons with GET — accept GET or POST like detect-no-shows.
+  if ((req.method === 'POST' || req.method === 'GET') && pathname === '/api/cron/call-summary-retry') {
     const csrAuthHeader = req.headers['authorization'] || '';
     const csrToken = csrAuthHeader.replace('Bearer ', '').trim();
     if (!isValidCronSecret(csrToken)) {
@@ -24922,7 +25002,8 @@ async function handleApi(req, res, pathname) {
   }
 
   // Cron: send RSO call reminders 10 min before booked calls (before same-origin — external cron or Vercel)
-  if (req.method === 'POST' && pathname === '/api/cron/call-reminders') {
+  // C5 (audit 2026-07-07): Vercel invokes crons with GET — accept GET or POST like detect-no-shows.
+  if ((req.method === 'POST' || req.method === 'GET') && pathname === '/api/cron/call-reminders') {
     const crAuthHeader = req.headers['authorization'] || '';
     const crToken = crAuthHeader.replace('Bearer ', '').trim();
     if (!isValidCronSecret(crToken)) {
@@ -46765,6 +46846,13 @@ async function handleRequest(req, res) {
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
+    // C7 (audit 2026-07-07): legal/blog pages are linked from the public
+    // marketing footers (/pages/privacy, /pages/terms, /pages/blog) and must
+    // load for anonymous visitors. Extensionless forms are normalized to
+    // .html above, so these three entries cover both URL forms.
+    pathname === '/pages/privacy.html' ||
+    pathname === '/pages/terms.html' ||
+    pathname === '/pages/blog.html' ||
     pathname.startsWith('/media/images/') ||
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
@@ -47386,6 +47474,8 @@ module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.__testUtils = {
+  isBackupSafeEnvKey,
+  BACKUP_TABLES,
   ingestPracticeAvailabilityReply,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,

@@ -375,19 +375,24 @@ async function main() {
 
   if (args.showEnv) {
     console.log('=== Backed-up Environment Variables ===');
+    // Since 2026-07 backups only contain NON-SECRET operational keys (audit C1) —
+    // secrets are deliberately excluded and must be restored from the Vercel
+    // dashboard / password manager. Older backups may still contain secrets, so
+    // values stay masked either way.
     const envKeys = Object.keys(envVars).sort();
     if (envKeys.length === 0) {
-      console.log('  (none)');
+      console.log('  (none — this backup contains no env vars)');
     } else {
       for (const k of envKeys) {
         // Mask sensitive values
-        const val = envVars[k];
-        const masked = val && val.length > 8 ? val.slice(0, 4) + '...' + val.slice(-4) : '****';
+        const val = String(envVars[k] == null ? '' : envVars[k]);
+        const masked = val.length > 8 ? val.slice(0, 4) + '...' + val.slice(-4) : '****';
         console.log('  ' + k + '=' + masked);
       }
     }
     console.log('');
     console.log('Total: ' + envKeys.length + ' env vars');
+    console.log('Note: secrets are not stored in backups; restore them from the Vercel dashboard.');
     process.exit(0);
   }
 
