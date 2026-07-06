@@ -28126,6 +28126,54 @@ async function atsStoreIntentForCase(caseId, intent, facts) {
   }).catch(function () {});
 }
 
+// AI Matching (Task 8 review fix): the GENERIC recompute paths — the nightly
+// /api/cron/recompute-intent sweep and the CEO's manual "Recompute intent"
+// button — must not silently undo the career-lock halving (the on-view guard
+// in /api/ceo/candidate alone wasn't enough: the nightly cron restored a
+// locked GP's halved score to full within ~24h). While a GP is career-locked
+// with the halving in effect (intent_halved_at set, lock not released), a
+// fresh recompute is RE-HALVED before storing — same math as the original
+// halving at lock time (round(score*0.5) + the career_lock:true signal fact)
+// — so the stored score stays current AND penalized. pre_lock_intent_score
+// is refreshed to the new un-halved baseline so the admin "X → Y (−50% on
+// lock)" line keeps X = the honest un-halved counterpart of the Y actually
+// shown. The deliberate un-halving door is /api/ats/career-lock/restore-
+// intent, which clears intent_halved_at so this guard stands down.
+// Returns { halved, intent } — `intent` is what was actually stored.
+async function atsStoreIntentPreservingCareerLock(facts, intent) {
+  var lock = facts.careerLock;
+  var halvingInEffect = !!(lock && isCareerLocked(lock) && lock.intent_halved_at);
+  if (!halvingInEffect) {
+    await atsStoreIntentForCase(facts.case_id, intent, facts);
+    return { halved: false, intent: intent };
+  }
+  var halvedScore = Math.round(intent.score * 0.5);
+  var halvedBand = String(atsIntent.bandFor(halvedScore) || 'Cold').toLowerCase();
+  facts.career_lock = true;
+  var halvedIntent = { score: halvedScore, band: halvedBand, signals: intent.signals };
+  await atsStoreIntentForCase(facts.case_id, halvedIntent, facts);
+  // Keep pre_lock_intent_score = the un-halved baseline of the score now
+  // stored (best-effort; skipped when unchanged so the nightly sweep isn't
+  // writing user_state for every locked GP every night).
+  try {
+    if (facts.user_id && lock.pre_lock_intent_score !== intent.score) {
+      var plsRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(facts.user_id) + '&limit=1');
+      var plsRow = (plsRes.ok && Array.isArray(plsRes.data) && plsRes.data[0]) ? plsRes.data[0] : null;
+      var plsState = (plsRow && plsRow.state && typeof plsRow.state === 'object') ? plsRow.state : {};
+      var plsLock = (plsState.career_lock && typeof plsState.career_lock === 'object') ? plsState.career_lock : null;
+      // Re-check against the LIVE state (not the facts snapshot) so a
+      // release/restore that landed between the facts read and here never
+      // gets its fields resurrected.
+      if (plsLock && isCareerLocked(plsLock) && plsLock.intent_halved_at) {
+        plsLock.pre_lock_intent_score = intent.score;
+        plsState.career_lock = plsLock;
+        await upsertSupabaseUserState(facts.user_id, plsState, new Date().toISOString());
+      }
+    }
+  } catch (e) { /* pre_lock refresh is best-effort decoration */ }
+  return { halved: true, intent: halvedIntent };
+}
+
 // Candidate LIST row (compact) for the table.
 function atsCandidateListRow(facts, intent) {
   return {
@@ -55251,8 +55299,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (!riRes.ok || !riRes.data || !riRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Candidate not found.' }); return; }
     var riFacts = await atsProdCandidateFacts(riRes.data[0]);
     var riIntent = atsComputeIntent(riFacts);
-    await atsStoreIntentForCase(riCaseId, riIntent, riFacts);
-    sendJson(res, 200, { ok: true, intent_score: riIntent.score, intent_band: riIntent.band, signals: riIntent.signals });
+    // AI Matching (Task 8 review fix): the generic Recompute button must not
+    // silently undo the career-lock halving — while the lock's halving is in
+    // effect, the fresh recompute is re-halved before storing (the deliberate
+    // un-halving action is POST /api/ats/career-lock/restore-intent).
+    // career_lock_halved:true tells the caller the halving was preserved.
+    var riStored = await atsStoreIntentPreservingCareerLock(riFacts, riIntent);
+    sendJson(res, 200, {
+      ok: true,
+      intent_score: riStored.intent.score, intent_band: riStored.intent.band,
+      signals: riIntent.signals, career_lock_halved: riStored.halved
+    });
     return;
   }
 
@@ -55310,6 +55367,23 @@ Return ONLY valid JSON with no markdown formatting:
     var restoreFacts = await atsProdCandidateFacts(restoreCase);
     var restoreIntent = atsComputeIntent(restoreFacts);
     await atsStoreIntentForCase(restoreCase.id, restoreIntent, restoreFacts);
+    // Review fix: make the restore DURABLE — clear intent_halved_at (and the
+    // now-meaningless pre_lock_intent_score) so the lock-aware recompute
+    // guard (atsStoreIntentPreservingCareerLock, used by the nightly cron +
+    // the generic Recompute button) stands down. Without this, the very next
+    // nightly run would re-halve and silently undo this explicit restore.
+    try {
+      var restoreStRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(restoreUserId) + '&limit=1');
+      var restoreStRow = (restoreStRes.ok && Array.isArray(restoreStRes.data) && restoreStRes.data[0]) ? restoreStRes.data[0] : null;
+      var restoreState = (restoreStRow && restoreStRow.state && typeof restoreStRow.state === 'object') ? restoreStRow.state : {};
+      var restoreLock = (restoreState.career_lock && typeof restoreState.career_lock === 'object') ? restoreState.career_lock : null;
+      if (restoreLock && restoreLock.intent_halved_at) {
+        restoreLock.intent_halved_at = null;
+        restoreLock.pre_lock_intent_score = null;
+        restoreState.career_lock = restoreLock;
+        await upsertSupabaseUserState(restoreUserId, restoreState, new Date().toISOString());
+      }
+    } catch (restoreClearErr) { /* best-effort; the score itself is already stored */ }
     sendJson(res, 200, { ok: true, intent_score: restoreIntent.score, intent_band: restoreIntent.band, signals: restoreIntent.signals });
     return;
   }
@@ -55460,7 +55534,12 @@ Return ONLY valid JSON with no markdown formatting:
     for (var cii = 0; cii < ciCases.length; cii++) {
       try {
         var cf = await atsProdCandidateFacts(ciCases[cii]);
-        await atsStoreIntentForCase(cf.case_id, atsComputeIntent(cf), cf);
+        // AI Matching (Task 8 review fix): career-locked GPs keep their
+        // halved score — the lock-aware store re-halves the fresh recompute
+        // instead of silently restoring it to full overnight. cf already
+        // carries careerLock (atsProdCandidateFacts reads user_state), so
+        // this costs no extra read for unlocked GPs.
+        await atsStoreIntentPreservingCareerLock(cf, atsComputeIntent(cf));
         ciDone++;
       } catch (e) { /* skip individual failures */ }
     }

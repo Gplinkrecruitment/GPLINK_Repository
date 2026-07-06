@@ -64,6 +64,25 @@ describe('AI Matching Task 8 — source wiring', () => {
     expect(serverSrc).toMatch(/var careerLocked = isCareerLocked\(careerLock\);/);
   });
 
+  it('review fix: BOTH generic recompute paths store via the lock-preserving helper, and restore-intent clears intent_halved_at', () => {
+    expect(serverSrc).toMatch(/async function atsStoreIntentPreservingCareerLock\(facts, intent\)/);
+    // Nightly cron loop no longer calls atsStoreIntentForCase directly.
+    const cronIdx = serverSrc.indexOf("pathname === '/api/cron/recompute-intent'");
+    const cronSrc = serverSrc.slice(cronIdx, cronIdx + 2200);
+    expect(cronSrc).toContain('atsStoreIntentPreservingCareerLock(cf, atsComputeIntent(cf))');
+    expect(cronSrc).not.toContain('await atsStoreIntentForCase(cf.case_id');
+    // Manual Recompute button path likewise, and it surfaces career_lock_halved.
+    const riIdx = serverSrc.indexOf("pathname === '/api/ceo/candidate/recompute-intent'");
+    const riSrc = serverSrc.slice(riIdx, riIdx + 2500);
+    expect(riSrc).toContain('atsStoreIntentPreservingCareerLock(riFacts, riIntent)');
+    expect(riSrc).toContain('career_lock_halved');
+    // restore-intent stands the guard down (durable restore).
+    const restoreIdx = serverSrc.indexOf("pathname === '/api/ats/career-lock/restore-intent'");
+    const restoreSrc = serverSrc.slice(restoreIdx, restoreIdx + 3200);
+    expect(restoreSrc).toContain('restoreLock.intent_halved_at = null');
+    expect(restoreSrc).toContain('restoreLock.pre_lock_intent_score = null');
+  });
+
   it('career-paused.html has the exact spec copy and no forbidden words', () => {
     expect(lockPageHtml).toContain("Let's talk before your next interview");
     expect(lockPageHtml).toContain('Book a call');
@@ -306,6 +325,7 @@ beforeAll(async () => {
   process.env.OPENAI_API_KEY = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.CALENDLY_EVENT_URL = 'https://calendly.com/gplink-team/career-call';
+  process.env.CRON_SECRET = 'lock-cron-secret-' + RUN_ID;
 
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
@@ -747,5 +767,129 @@ describe('Interview-completion PATCH hook', () => {
     const stateRow = db.user_state.find((s) => s.user_id === GP);
     expect(stateRow.state.career_lock.locked_at).toBeTruthy();
     expect(stateRow.state.career_lock.strikes.length).toBe(3);
+  });
+});
+
+// ── Review fix: the generic recompute paths must not undo the halving ──────
+describe('Recompute paths preserve the career-lock halving (review fix)', () => {
+  // Bearer-auth cron request (same CRON_SECRET set in beforeAll before the
+  // server import — httpReq has no headers slot, so this builds its own).
+  function cronReq() {
+    return new Promise((resolve, reject) => {
+      const r = http.request(
+        { host: '127.0.0.1', port, path: '/api/cron/recompute-intent', method: 'POST', headers: { Authorization: 'Bearer ' + process.env.CRON_SECRET } },
+        (res) => {
+          const c = []; res.on('data', (x) => c.push(x));
+          res.on('end', () => {
+            let parsed = null; try { parsed = JSON.parse(Buffer.concat(c).toString('utf8')); } catch {}
+            resolve({ status: res.statusCode, body: parsed });
+          });
+        }
+      );
+      r.on('error', reject); r.end();
+    });
+  }
+
+  // Lock a GP via the real evaluate path and return their ids + lock blob.
+  async function lockGp() {
+    const GP = uid();
+    const EMAIL = GP + '@gplink-test.local';
+    seedGp(GP, EMAIL);
+    seedInterviewStrike(GP, 'role-rc-' + GP + '-a', new Date(Date.now() - 9 * 86400000).toISOString());
+    seedInterviewStrike(GP, 'role-rc-' + GP + '-b', new Date(Date.now() - 6 * 86400000).toISOString());
+    seedInterviewStrike(GP, 'role-rc-' + GP + '-c', new Date(Date.now() - 3 * 86400000).toISOString());
+    await testUtils.evaluateCareerLocks(Date.now() + 20000, GP);
+    const lock = db.user_state.find((s) => s.user_id === GP).state.career_lock;
+    expect(lock.locked_at).toBeTruthy();
+    expect(lock.intent_halved_at).toBeTruthy();
+    return { GP, EMAIL, lock };
+  }
+
+  it('nightly recompute cron keeps a locked GP halved (pre_lock stays the un-halved baseline) while an unlocked GP recomputes normally in the SAME run', async () => {
+    const locked = await lockGp();
+    const lockedCase = db.registration_cases.find((c) => c.user_id === locked.GP);
+    const halvedBefore = lockedCase.intent_score;
+    const preBaseline = locked.lock.pre_lock_intent_score;
+    expect(halvedBefore).toBe(Math.round(preBaseline * 0.5));
+
+    // Unlocked control GP with an identical facts profile: after the cron,
+    // their stored score IS the un-halved recompute — which, with identical
+    // facts, must equal the locked GP's pre_lock baseline exactly.
+    const CONTROL = uid();
+    seedGp(CONTROL, CONTROL + '@gplink-test.local');
+    const controlCase = db.registration_cases.find((c) => c.user_id === CONTROL);
+    controlCase.intent_score = 1; // stale figure the cron must overwrite
+    controlCase.intent_band = 'cold';
+
+    const r = await cronReq();
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.processed).toBeGreaterThan(0);
+
+    // Locked GP: STILL halved (the Critical bug was this restoring to full).
+    const lockedAfter = db.registration_cases.find((c) => c.user_id === locked.GP);
+    const controlAfter = db.registration_cases.find((c) => c.user_id === CONTROL);
+    expect(controlAfter.intent_score).not.toBe(1); // control genuinely recomputed
+    expect(controlAfter.intent_score).toBe(preBaseline); // identical facts -> the un-halved baseline
+    expect(lockedAfter.intent_score).toBe(Math.round(controlAfter.intent_score * 0.5));
+
+    // pre_lock_intent_score still represents the un-halved baseline.
+    const lockAfter = db.user_state.find((s) => s.user_id === locked.GP).state.career_lock;
+    expect(lockAfter.pre_lock_intent_score).toBe(controlAfter.intent_score);
+    expect(lockAfter.intent_halved_at).toBeTruthy();
+  });
+
+  it('the manual Recompute endpoint preserves the halving on a locked GP and says so (career_lock_halved:true)', async () => {
+    const locked = await lockGp();
+    const preBaseline = locked.lock.pre_lock_intent_score;
+
+    const r = await httpReq('POST', '/api/ceo/candidate/recompute-intent?case_id=' + encodeURIComponent('case-' + locked.GP), {
+      host: SUPER_HOST, cookie: superCookie()
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.career_lock_halved).toBe(true);
+    expect(r.body.intent_score).toBe(Math.round(preBaseline * 0.5));
+
+    const caseAfter = db.registration_cases.find((c) => c.user_id === locked.GP);
+    expect(caseAfter.intent_score).toBe(Math.round(preBaseline * 0.5));
+  });
+
+  it('the manual Recompute endpoint on an UNLOCKED GP reports career_lock_halved:false and stores the full score', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    const r = await httpReq('POST', '/api/ceo/candidate/recompute-intent?case_id=' + encodeURIComponent('case-' + GP), {
+      host: SUPER_HOST, cookie: superCookie()
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.career_lock_halved).toBe(false);
+    const caseAfter = db.registration_cases.find((c) => c.user_id === GP);
+    expect(caseAfter.intent_score).toBe(r.body.intent_score);
+  });
+
+  it('after release + restore-intent, a subsequent nightly recompute behaves normally (no re-halving, no double effects)', async () => {
+    const locked = await lockGp();
+
+    const releaseRes = await httpReq('POST', '/api/ats/career-lock/release', { host: SUPER_HOST, cookie: superCookie(), body: { user_id: locked.GP } });
+    expect(releaseRes.status).toBe(200);
+
+    const restoreRes = await httpReq('POST', '/api/ats/career-lock/restore-intent', { host: SUPER_HOST, cookie: superCookie(), body: { user_id: locked.GP } });
+    expect(restoreRes.status).toBe(200);
+    const restoredScore = restoreRes.body.intent_score;
+
+    // restore-intent stood the guard down: halving markers cleared.
+    const lockAfterRestore = db.user_state.find((s) => s.user_id === locked.GP).state.career_lock;
+    expect(lockAfterRestore.intent_halved_at).toBeFalsy();
+    expect(lockAfterRestore.pre_lock_intent_score).toBeFalsy();
+
+    const r = await cronReq();
+    expect(r.status).toBe(200);
+
+    // Nightly run left the restored (full) score intact — no re-halving.
+    const caseAfter = db.registration_cases.find((c) => c.user_id === locked.GP);
+    expect(caseAfter.intent_score).toBe(restoredScore);
+    const lockAfterCron = db.user_state.find((s) => s.user_id === locked.GP).state.career_lock;
+    expect(lockAfterCron.intent_halved_at).toBeFalsy();
+    expect(lockAfterCron.pre_lock_intent_score).toBeFalsy();
   });
 });
