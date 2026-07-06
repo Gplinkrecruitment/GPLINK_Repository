@@ -1295,7 +1295,7 @@
           const last = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
           const detail = last && typeof last.text === "string" ? last.text : "";
           const tsText = formatUpdateTimestamp(c.updatedAt || c.createdAt || "");
-          const href = `messages#case-${encodeURIComponent(c.id || "")}`;
+          const href = `messages#ticket-${encodeURIComponent(c.id || "")}`;
 
           const row = document.createElement("a");
           row.href = href;
