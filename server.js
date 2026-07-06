@@ -6090,6 +6090,9 @@ function mapPreparedDocumentRow(row, signedUrl = '') {
     // approval/rejection instead of staying on the locally-cached "under review").
     status: toStatusLabel(row.status, !!(row.storage_path || row.file_url)),
     rejection_reason: row.rejection_reason || '',
+    // Validity window (F3): null for docs without one. The GP card renders
+    // "Valid until / Expires in N days / Expired" from this.
+    expires_at: typeof row.expires_at === 'string' ? row.expires_at : null,
     ai_classification_confidence: row.ai_classification_confidence != null ? row.ai_classification_confidence : null,
     ai_classification_result: row.ai_classification_result || '',
     google_drive_file_id: row.google_drive_file_id || ''
@@ -6154,23 +6157,49 @@ async function savePreparedDocumentForUser(userId, _email, payload) {
   const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
   if (!uploaded) return null;
 
-  const result = await supabaseDbRequest(
+  // F3 expiry capture: an explicit expiry (GP-entered or AI-extracted) wins;
+  // otherwise renewal-sensitive doc types get the default validity window.
+  // A fresh upload always restarts the nudge window (expiry_nudged_at reset).
+  const saveBody = {
+    user_id: userId,
+    country_code: payload.country,
+    document_key: payload.key,
+    status: 'uploaded',
+    file_name: payload.fileName,
+    file_url: storagePath,
+    updated_at: payload.updatedAt
+  };
+  const explicitExpiry = sanitizeExpiryDateIso(payload.expiresAt);
+  const defaultExpiry = defaultDocumentExpiryIso(payload.key, payload.updatedAt);
+  if (explicitExpiry || defaultExpiry) {
+    saveBody.expires_at = explicitExpiry || defaultExpiry;
+    saveBody.expiry_nudged_at = null;
+  }
+
+  let result = await supabaseDbRequest(
     'user_documents',
     'on_conflict=user_id,document_key,country_code',
     {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: [{
-        user_id: userId,
-        country_code: payload.country,
-        document_key: payload.key,
-        status: 'uploaded',
-        file_name: payload.fileName,
-        file_url: storagePath,
-        updated_at: payload.updatedAt
-      }]
+      body: [saveBody]
     }
   );
+  // Deploy-order safety: if the F3 expiry migration hasn't been applied yet the
+  // new columns 400 the whole upsert — retry without them so uploads never break.
+  if ((!result.ok || !Array.isArray(result.data) || result.data.length === 0) && ('expires_at' in saveBody)) {
+    delete saveBody.expires_at;
+    delete saveBody.expiry_nudged_at;
+    result = await supabaseDbRequest(
+      'user_documents',
+      'on_conflict=user_id,document_key,country_code',
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: [saveBody]
+      }
+    );
+  }
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   const row = result.data[0];
   return mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(payload.country, payload.key));
@@ -21679,16 +21708,230 @@ async function pushDocumentNotificationToUser(userId, notification) {
       ? stateResult.data[0].state
       : {};
     const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
-    updates.unshift({
+    const item = {
       type: notification.type || 'info',
       title: notification.title || 'Document update',
       detail: notification.detail || '',
       ts: new Date().toISOString()
-    });
+    };
+    // Optional in-app deep link (e.g. /pages/my-documents.html?reupload=<key>) —
+    // rendered by js/updates-sync.js so tapping the bell alert lands on the fix.
+    if (typeof notification.target === 'string' && notification.target.startsWith('/pages/')) {
+      item.target = notification.target.slice(0, 300);
+    }
+    updates.unshift(item);
     if (updates.length > 50) updates.length = 50;
     const nextState = { ...currentState, gp_link_updates: updates };
     await upsertSupabaseUserState(userId, nextState, new Date().toISOString());
   } catch (_) { /* non-critical */ }
+}
+
+// ── Phase 6 F3: document reliability (expiry + scan-failure authority) ─────
+// Doc types with a real validity window, in months. Used to (a) default
+// expires_at when a renewal-sensitive document is uploaded without an explicit
+// expiry, and (b) drive the renewal-nudge sweep in /api/cron/weekly-sweep.
+var DOC_EXPIRY_TYPES = {
+  certificate_good_standing: 3,   // regulators expect a CoGS issued within ~3 months
+  certificate_of_good_standing: 3,
+  criminal_history: 12,           // Fit2Work ICHC reference page — 12 months
+  criminal_history_check: 12,     // police checks / DBS — 12 months
+  police_check: 12
+};
+var DOC_EXPIRY_NUDGE_WINDOW_DAYS = 30;
+
+// Accepts 'YYYY-MM-DD' or a full ISO timestamp; returns a normalized ISO string
+// or '' when unparseable/absurd (guards against AI hallucinated or typo years).
+function sanitizeExpiryDateIso(value) {
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) raw += 'T00:00:00.000Z';
+  var d = new Date(raw);
+  if (isNaN(d.getTime())) return '';
+  var year = d.getUTCFullYear();
+  var now = new Date();
+  if (year < 2000 || year > now.getUTCFullYear() + 30) return '';
+  return d.toISOString();
+}
+
+function defaultDocumentExpiryIso(docKey, fromIso) {
+  var months = DOC_EXPIRY_TYPES[String(docKey || '')];
+  if (!months) return '';
+  var base = fromIso ? new Date(fromIso) : new Date();
+  if (isNaN(base.getTime())) base = new Date();
+  var d = new Date(base.getTime());
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString();
+}
+
+// Server-authoritative AI-scan failure counter. The old counter lived in
+// localStorage (my-documents.html CERT_SUPPORT_THRESHOLD), so it reset on a
+// device switch and the escalation was skipped when the cached file was gone.
+// Counts live in public.user_doc_scan_failures keyed by user + document key.
+var DOC_SCAN_FAIL_THRESHOLD = 3;
+
+function isDocScanFailureKey(key) {
+  var k = String(key || '');
+  if (!k) return false;
+  return PREPARED_DOCUMENT_KEYS.has(k) || INSTITUTION_DOCUMENT_KEYS.has(k) || k === 'criminal_history';
+}
+
+async function getDocScanFailureRow(userId, docKey) {
+  if (!isSupabaseDbConfigured() || !userId || !docKey) return null;
+  var r = await supabaseDbRequest('user_doc_scan_failures',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+// Increment the per-user/per-doc failure counter and persist the LAST failure
+// reason (so it survives the dismissable popup). Returns { count, escalate } —
+// escalate is true exactly once, when the counter crosses the threshold and the
+// current streak hasn't already been escalated.
+async function recordDocScanFailure(userId, docKey, countryCode, reason) {
+  if (!isSupabaseDbConfigured() || !userId || !isDocScanFailureKey(docKey)) return { count: 0, escalate: false };
+  var cleanReason = String(reason || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  var nowIso = new Date().toISOString();
+  try {
+    var existing = await getDocScanFailureRow(userId, docKey);
+    var nextCount = (existing ? Math.max(0, Number(existing.fail_count || 0)) : 0) + 1;
+    var body = {
+      user_id: userId,
+      document_key: String(docKey),
+      country_code: String(countryCode || (existing && existing.country_code) || ''),
+      fail_count: nextCount,
+      last_reason: cleanReason || (existing && existing.last_reason) || '',
+      last_failed_at: nowIso,
+      updated_at: nowIso
+    };
+    if (existing && existing.id != null) {
+      await supabaseDbRequest('user_doc_scan_failures', 'id=eq.' + encodeURIComponent(existing.id), { method: 'PATCH', body: body });
+    } else {
+      await supabaseDbRequest('user_doc_scan_failures', 'on_conflict=user_id,document_key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [body]
+      });
+    }
+    var alreadyEscalated = !!(existing && existing.escalated_at);
+    return { count: nextCount, escalate: nextCount >= DOC_SCAN_FAIL_THRESHOLD && !alreadyEscalated };
+  } catch (err) {
+    console.error('[DocScanFail] record error:', err.message);
+    return { count: 0, escalate: false };
+  }
+}
+
+// A successful scan/save wipes the streak (fresh document, fresh attempts).
+async function resetDocScanFailures(userId, docKey) {
+  if (!isSupabaseDbConfigured() || !userId || !docKey) return;
+  try {
+    await supabaseDbRequest('user_doc_scan_failures',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+      { method: 'PATCH', body: { fail_count: 0, last_reason: '', escalated_at: null, updated_at: new Date().toISOString() } });
+  } catch (err) { /* non-critical */ }
+}
+
+// Map of doc key -> { failCount, reason, ... } for the GP's documents page, so
+// the last AI-scan failure reason persists on the doc card after the popup.
+async function listDocScanFailuresForUser(userId) {
+  var out = {};
+  if (!isSupabaseDbConfigured() || !userId) return out;
+  try {
+    var r = await supabaseDbRequest('user_doc_scan_failures',
+      'select=document_key,fail_count,last_reason,last_failed_at,escalated_at&user_id=eq.' + encodeURIComponent(userId) + '&fail_count=gt.0&limit=100');
+    (r.ok && Array.isArray(r.data) ? r.data : []).forEach(function (row) {
+      if (!row || !row.document_key) return;
+      out[row.document_key] = {
+        failCount: Number(row.fail_count || 0),
+        reason: row.last_reason || '',
+        lastFailedAt: row.last_failed_at || null,
+        escalated: !!row.escalated_at,
+        threshold: DOC_SCAN_FAIL_THRESHOLD
+      };
+    });
+  } catch (err) { /* non-critical */ }
+  return out;
+}
+
+// Threshold hit at scan time: the scan endpoint HOLDS the file, so the server
+// itself performs the manual-review escalation (save as under_review + create
+// the Registration Support Officer review task + tell the GP) instead of
+// trusting the client's cached copy to still exist.
+async function escalateDocScanFailureToReview(userId, opts) {
+  var docKey = String((opts && opts.docKey) || '');
+  var country = normalizeDocumentCountry((opts && opts.country) || '') || 'uk';
+  if (!userId || !docKey || !opts.fileDataUrl) return null;
+  try {
+    var saved = await savePreparedDocumentForUser(userId, null, {
+      country: country,
+      key: docKey,
+      fileName: opts.fileName || (docKey + '-for-review'),
+      mimeType: opts.mimeType || 'application/pdf',
+      fileDataUrl: opts.fileDataUrl,
+      updatedAt: new Date().toISOString()
+    });
+    if (!saved) return null;
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&country_code=eq.' + encodeURIComponent(country),
+      { method: 'PATCH', body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() } });
+
+    var docLabel = getDocumentLabelForKey(docKey) || docKey;
+    try {
+      await createDocReviewTask(userId, docKey, docLabel, null, {
+        reason: String(opts.reason || 'Submitted for manual review after ' + DOC_SCAN_FAIL_THRESHOLD + ' failed AI scan attempts').slice(0, 1000),
+        identifiedAs: ''
+      }, isQualificationDocKey(docKey) ? 'ahpra' : undefined);
+    } catch (taskErr) {
+      console.error('[DocScanFail] escalation task error:', taskErr.message);
+    }
+    try {
+      await pushDocumentNotificationToUser(userId, {
+        type: 'info',
+        title: docLabel + ' under review',
+        detail: 'The automatic scan could not accept this document after ' + DOC_SCAN_FAIL_THRESHOLD + ' attempts, so our team will review it manually. This usually takes less than 24 hours.'
+      });
+    } catch (notifyErr) { /* non-critical */ }
+    try {
+      await supabaseDbRequest('user_doc_scan_failures',
+        'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+        { method: 'PATCH', body: { escalated_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+    } catch (flagErr) { /* non-critical */ }
+    return { ...saved, status: 'under_review' };
+  } catch (err) {
+    console.error('[DocScanFail] escalation error:', err.message);
+    return null;
+  }
+}
+
+// Shared post-AI-scan bookkeeping for the scan endpoints. On failure it
+// increments the server-side counter (and escalates at the threshold using the
+// in-hand file); the caller merges the returned fields into its JSON response.
+async function handleServerScanFailure(session, params) {
+  var result = { scanFailCount: 0, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD };
+  try {
+    var docKey = String(params.docKey || '');
+    if (!isDocScanFailureKey(docKey) || !isSupabaseDbConfigured()) return result;
+    var email = getSessionEmail(session);
+    var userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
+    if (!userId) return result;
+    var rec = await recordDocScanFailure(userId, docKey, params.country || '', params.reason || '');
+    result.scanFailCount = rec.count;
+    if (rec.escalate && params.fileDataUrl) {
+      var escDoc = await escalateDocScanFailureToReview(userId, {
+        docKey: docKey,
+        country: params.country || '',
+        fileName: params.fileName || '',
+        mimeType: params.mimeType || '',
+        fileDataUrl: params.fileDataUrl,
+        reason: params.reason || ''
+      });
+      if (escDoc) {
+        result.manualReview = true;
+        result.document = escDoc;
+      }
+    }
+  } catch (err) {
+    console.error('[DocScanFail] handler error:', err.message);
+  }
+  return result;
 }
 
 // ── Document Upload Pipeline ──────────────────────────────
@@ -21723,6 +21966,7 @@ function getDocumentLabelForKey(key) {
     certificate_good_standing: 'Certificate of Good Standing',
     certificate_of_good_standing: 'Certificate of Good Standing',
     criminal_history_check: 'Criminal History Check',
+    criminal_history: 'Criminal History Check',
     cv_signed_dated: 'CV (Signed and dated)',
     career_cover_letter: 'Cover Letter',
     confirmation_training: 'Confirmation of Training',
@@ -22190,7 +22434,8 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
       await pushDocumentNotificationToUser(userId, {
         type: 'action',
         title: (expectedLabel || documentKey) + ' needs attention',
-        detail: reason
+        detail: reason + ' Please upload a corrected copy.',
+        target: '/pages/my-documents.html?reupload=' + encodeURIComponent(documentKey)
       });
     }
   } catch (err) {
@@ -26365,9 +26610,83 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // ── F3: document expiry renewal nudges ─────────────────────────────
+      // Docs with a validity window that expire within DOC_EXPIRY_NUDGE_WINDOW_DAYS
+      // (or already expired) and not yet nudged for this window. expiry_nudged_at
+      // is the dedup flag; it resets whenever a fresh file/expiry is saved, so
+      // each renewal cycle nudges exactly once.
+      var wsExpiryNudged = 0;
+      try {
+        var wsWindowEnd = new Date(Date.now() + DOC_EXPIRY_NUDGE_WINDOW_DAYS * 86400000).toISOString();
+        var wsExpiringRes = await supabaseDbRequest('user_documents',
+          'select=id,user_id,document_key,country_code,expires_at,status' +
+          '&expires_at=not.is.null&expires_at=lte.' + encodeURIComponent(wsWindowEnd) +
+          '&expiry_nudged_at=is.null&status=neq.rejected&limit=200');
+        var wsExpiring = (wsExpiringRes.ok && Array.isArray(wsExpiringRes.data)) ? wsExpiringRes.data : [];
+        for (var wsDoc of wsExpiring) {
+          if (!wsDoc || !wsDoc.user_id || !wsDoc.expires_at) continue;
+          if (wsAdminIds.has(wsDoc.user_id)) continue;
+          var wsDocLabel = getDocumentLabelForKey(wsDoc.document_key) || String(wsDoc.document_key || '').replace(/_/g, ' ');
+          var wsExpDate = new Date(wsDoc.expires_at);
+          var wsExpDateStr = isNaN(wsExpDate.getTime()) ? '' : wsExpDate.toISOString().slice(0, 10);
+          var wsExpired = wsExpDate.getTime() <= Date.now();
+          var wsNudgeTitle = wsExpired
+            ? ('Your ' + wsDocLabel + ' has expired')
+            : ('Your ' + wsDocLabel + ' expires soon');
+          var wsNudgeMsg = wsExpired
+            ? ('Your ' + wsDocLabel + ' expired on ' + wsExpDateStr + '. Please upload a renewed copy from My Documents so your registration is not held up.')
+            : ('Your ' + wsDocLabel + ' expires on ' + wsExpDateStr + '. Please arrange a renewal and upload the new copy from My Documents.');
+          var wsDocTarget = '/pages/my-documents.html?reupload=' + encodeURIComponent(wsDoc.document_key || '');
+
+          // In-app bell alert with a deep link to the exact card.
+          await pushDocumentNotificationToUser(wsDoc.user_id, {
+            type: 'action', title: wsNudgeTitle, detail: wsNudgeMsg, target: wsDocTarget
+          });
+          // Nudge row -> shows in the "Your outstanding actions" panel (stage 'documents').
+          await supabaseDbRequest('user_nudges', '', {
+            method: 'POST',
+            body: [{
+              user_id: wsDoc.user_id,
+              stage: 'documents',
+              title: wsNudgeTitle,
+              message: wsNudgeMsg,
+              delivered_channels: ['in_app'],
+              status: 'pending',
+              created_by: 'system:doc-expiry'
+            }]
+          });
+          // Best-effort renewal email.
+          try {
+            var wsProfRes = await supabaseDbRequest('user_profiles', 'select=email,first_name&user_id=eq.' + encodeURIComponent(wsDoc.user_id) + '&limit=1');
+            var wsProf = (wsProfRes.ok && Array.isArray(wsProfRes.data) && wsProfRes.data[0]) ? wsProfRes.data[0] : null;
+            if (wsProf && wsProf.email && isEmailConfigured()) {
+              await sendEmail({
+                to: wsProf.email,
+                subject: 'GP Link — ' + wsNudgeTitle,
+                category: 'marketing',
+                html: buildCareerEmailHtml({
+                  title: wsNudgeTitle,
+                  body: (wsProf.first_name ? 'Hi ' + wsProf.first_name + ', ' : '') + wsNudgeMsg,
+                  ctaText: 'Upload renewal',
+                  ctaUrl: APP_BASE_URL + wsDocTarget,
+                  footer: 'This reminder was sent because a document on your GP Link file is reaching the end of its validity period.'
+                })
+              }).catch(function () { return null; });
+            }
+          } catch (wsMailErr) { /* non-critical */ }
+          // Dedup flag — one nudge per doc per validity window.
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(wsDoc.id), {
+            method: 'PATCH', body: { expiry_nudged_at: new Date().toISOString() }
+          });
+          wsExpiryNudged++;
+        }
+      } catch (wsExpErr) {
+        console.error('[WeeklySweep/Cron] expiry nudge pass failed:', wsExpErr.message);
+      }
+
       invalidateAdminDashboardCache();
-      console.log('[WeeklySweep/Cron] Scanned ' + wsCases.length + ', created ' + wsCreated + ', escalated ' + wsEscalated);
-      sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated });
+      console.log('[WeeklySweep/Cron] Scanned ' + wsCases.length + ', created ' + wsCreated + ', escalated ' + wsEscalated + ', expiry-nudged ' + wsExpiryNudged);
+      sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated, expiryNudged: wsExpiryNudged });
     } catch (wsErr) {
       console.error('[Cron] Weekly sweep failed:', wsErr);
       await respondServerError(res, wsErr, { route: pathname, method: req.method });
@@ -33346,9 +33665,30 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // F3 server-side fail counting: same pass rule the client applies (verified +
+    // a name match). Only counts when the client identifies the doc slot (docKey).
+    let qualScanMeta = {};
+    const qualDocKey = sanitizeUserString(body.docKey, 120);
+    if (qualDocKey && result.verification) {
+      const vq = result.verification;
+      const qNameOk = vq.nameMatch === 'exact' || vq.nameMatch === 'fuzzy';
+      if (!(vq.verified === true && qNameOk)) {
+        const qRaw = stripBase64DataUrlPrefix(imageBase64);
+        qualScanMeta = await handleServerScanFailure(session, {
+          docKey: qualDocKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: qRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + qRaw) : '',
+          reason: Array.isArray(vq.issues) && vq.issues.length ? vq.issues.join(' ') : 'The document details could not be verified against your account.'
+        });
+      }
+    }
+
     sendJson(res, 200, {
       ok: true,
       verification: result.verification,
+      ...qualScanMeta,
       spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount },
       unlimitedRetries: AI_VERIFY_UNLIMITED_EMAILS.has((verifyEmail || '').toLowerCase())
     });
@@ -33495,9 +33835,28 @@ Check this document for certification markings.`;
         return;
       }
 
+      // F3 server-side fail counting + at-threshold escalation (the server holds
+      // the file here, so the manual-review handoff can't be lost with the cache).
+      let certScanMeta = {};
+      const certDocKey = sanitizeUserString(body.docKey, 120);
+      if (certDocKey && certVerification.certified !== true) {
+        const cRaw = stripBase64DataUrlPrefix(imageBase64);
+        certScanMeta = await handleServerScanFailure(session, {
+          docKey: certDocKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: cRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + cRaw) : '',
+          reason: Array.isArray(certVerification.issues) && certVerification.issues.length
+            ? certVerification.issues.join(' ')
+            : 'The document does not appear to be properly certified.'
+        });
+      }
+
       sendJson(res, 200, {
         ok: true,
         verification: certVerification,
+        ...certScanMeta,
         spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount }
       });
     } catch (fetchErr) {
@@ -33636,22 +33995,32 @@ Return ONLY valid JSON, no markdown:
       // row ticks and reconcileGpDrive mirrors the page to the GP's Google Drive folder.
       const saved = await persistIchc('approved');
       if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
+      await resetDocScanFailures(saved.userId, 'criminal_history');
       sendJson(res, 200, { ok:true, verified:true, referenceNumber: extractedRef, applicantName: (verification.applicantName || null), document: saved.document });
       return;
     }
 
-    // Not verified.
-    if (finalAttempt) {
+    // Not verified — count the failure SERVER-SIDE (F3). No fileDataUrl is passed:
+    // the ICHC flow escalates through its own under_review persist path below.
+    const ichcIssues = (verification && Array.isArray(verification.issues) && verification.issues.length)
+      ? verification.issues
+      : ['This does not look like a Fit2Work ICHC reference page, or the reference number could not be read.'];
+    const ichcScanMeta = await handleServerScanFailure(session, {
+      docKey: 'criminal_history',
+      country: country,
+      reason: ichcIssues.join(' ')
+    });
+    // Server count is authoritative; the client's finalAttempt flag (from its
+    // local counter) is still honoured so an offline-counted 3rd try escalates too.
+    if (finalAttempt || ichcScanMeta.scanFailCount >= DOC_SCAN_FAIL_THRESHOLD) {
       const saved = await persistIchc('under_review');
       if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
       await ensureDocReviewOnUpload(saved.userId, 'criminal_history', 'Fit2Work ICHC Reference Page', 'ahpra').catch((e)=>console.error('[AI ICHC] review task error', e.message));
-      sendJson(res, 200, { ok:true, verified:false, manualReview:true, document: saved.document });
+      await resetDocScanFailures(saved.userId, 'criminal_history');
+      sendJson(res, 200, { ok:true, verified:false, manualReview:true, document: saved.document, scanFailCount: ichcScanMeta.scanFailCount, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD });
       return;
     }
-    const issues = (verification && Array.isArray(verification.issues) && verification.issues.length)
-      ? verification.issues
-      : ['This does not look like a Fit2Work ICHC reference page, or the reference number could not be read.'];
-    sendJson(res, 200, { ok:true, verified:false, issues });
+    sendJson(res, 200, { ok:true, verified:false, issues: ichcIssues, scanFailCount: ichcScanMeta.scanFailCount, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD });
     return;
   }
 
@@ -33729,7 +34098,7 @@ IMPORTANT:
 - If the expected document is "CV (Signed and dated)", return "matches": true only when the file is clearly a CV/resume and it appears signed and dated. If it is a CV missing a visible signature or date, return "matches": false and explain that it appears to be an unsigned or undated CV.
 
 Return ONLY valid JSON with no markdown formatting:
-{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"}`;
+{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation", "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
 
     const classifyUserPrompt = `The user is trying to upload a document for: ${expectedLabel}
 
@@ -33790,7 +34159,22 @@ Classify this document.`;
         return;
       }
 
-      sendJson(res, 200, { ok: true, classification: classifyResult });
+      // F3 server-side fail counting + at-threshold escalation for the
+      // non-certification prepared docs (CV, letters, ...).
+      let classifyScanMeta = {};
+      if (classifyResult.matches !== true) {
+        const clRaw = stripBase64DataUrlPrefix(fileBase64);
+        classifyScanMeta = await handleServerScanFailure(session, {
+          docKey: expectedKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: clRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + clRaw) : '',
+          reason: (classifyResult.identifiedAs ? 'This appears to be ' + classifyResult.identifiedAs + ', not ' + expectedLabel + '. ' : '') + (classifyResult.reason || '')
+        });
+      }
+
+      sendJson(res, 200, { ok: true, classification: classifyResult, ...classifyScanMeta });
     } catch (fetchErr) {
       console.error('[AI Classify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
@@ -35944,7 +36328,42 @@ Return ONLY valid JSON with no markdown formatting:
       const offerDocs = await getOfferDocumentsForUser(userId, country);
       Object.keys(offerDocs).forEach((key) => { if (!docs.docs[key]) docs.docs[key] = offerDocs[key]; });
     } catch (offerDocsErr) { /* non-fatal — prepared docs still answer */ }
-    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
+    // F3: persisted AI-scan failures (doc key -> { failCount, reason, ... }) so
+    // the card can still show WHY the last scan failed after the popup is gone.
+    let scanFailures = {};
+    try { scanFailures = await listDocScanFailuresForUser(userId); } catch (e) { /* non-fatal */ }
+    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null, scanFailures });
+    return;
+  }
+
+  // F3: GP sets/confirms the expiry date on an expiry-relevant document
+  // ("Valid until" on the My Documents card). Ownership enforced via session.
+  if (pathname === '/api/prepared-documents/expiry' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const expCountry = normalizeDocumentCountry(body && body.country || '');
+    const expKey = sanitizeUserString(body && body.key, 120);
+    const expiresAt = sanitizeExpiryDateIso(body && body.expiresAt);
+    if (!expCountry || !expKey) { sendJson(res, 400, { ok: false, message: 'country and key are required.' }); return; }
+    if (!expiresAt) { sendJson(res, 400, { ok: false, message: 'Please provide a valid expiry date.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id.' }); return; }
+    const existingRow = await getPreparedDocumentRow(userId, expCountry, expKey);
+    if (!existingRow) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+    const patchRes = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingRow.id), {
+      method: 'PATCH',
+      body: { expires_at: expiresAt, expiry_nudged_at: null, updated_at: new Date().toISOString() }
+    });
+    if (!patchRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to save the expiry date.' }); return; }
+    sendJson(res, 200, { ok: true, expiresAt });
     return;
   }
 
@@ -36357,6 +36776,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Invalid prepared document payload.' });
       return;
     }
+    // F3: optional expiry captured at upload (AI-extracted or GP-entered).
+    if (body && body.expiresAt) payload.expiresAt = sanitizeExpiryDateIso(body.expiresAt);
 
     // Validate file security
     if (payload.fileDataUrl) {
@@ -36413,6 +36834,10 @@ Return ONLY valid JSON with no markdown formatting:
         console.error('[PreparedDocuments] manual-review notify error:', notifyErr.message);
       }
 
+      // The doc is now with a human reviewer — clear the scan-failure streak so
+      // a later re-scan (e.g. after a reviewer rejection) starts fresh.
+      await resetDocScanFailures(userId, payload.key);
+
       sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
       return;
     }
@@ -36426,6 +36851,9 @@ Return ONLY valid JSON with no markdown formatting:
     // (closing this task) or reopens it idempotently.
     var preparedReviewStage = isQualificationDocKey(payload.key) ? 'ahpra' : undefined;
     await ensureDocReviewOnUpload(userId, payload.key, docLabel, preparedReviewStage);
+
+    // Successful (scan-passed) upload — wipe the server-side scan-failure streak.
+    await resetDocScanFailures(userId, payload.key);
 
     sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
 
@@ -42414,7 +42842,8 @@ Return ONLY valid JSON with no markdown formatting:
     await pushDocumentNotificationToUser(userId, {
       type: 'action',
       title: docLabel + ' needs attention',
-      detail: reason + ' Please re-upload from My Documents.'
+      detail: reason + ' Please re-upload from My Documents.',
+      target: '/pages/my-documents.html?reupload=' + encodeURIComponent(docKey || '')
     });
 
     sendJson(res, 200, { ok: true, message: 'Document rejected.' });
@@ -42922,6 +43351,14 @@ Return ONLY valid JSON with no markdown formatting:
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
           'Re-upload Document', rfReuploadUrl, '');
+        // F3: matching in-app alert (bell) with the same re-upload deep link, so
+        // the rejection isn't email-only.
+        await pushDocumentNotificationToUser(rfUserId, {
+          type: 'action',
+          title: rfDocLabel + ' needs attention',
+          detail: (rfNote ? rfNote + ' ' : '') + 'Please re-upload from My Documents.',
+          target: '/pages/my-documents.html' + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '')
+        });
       }
     }
 
