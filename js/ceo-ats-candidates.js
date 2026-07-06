@@ -35,6 +35,7 @@
 
   // ATS pipeline-stage labels + colours for the job-application rows.
   var ATS_STAGE = {
+    shortlisted: { l: 'Shortlisted', c: '#7c3aed' },
     applied: { l: 'Applied', c: 'var(--ats-blue)' },
     submitted: { l: 'Submitted', c: 'var(--ats-blue)' },
     reviewing: { l: 'Reviewing', c: 'var(--ats-purple)' },
@@ -47,6 +48,7 @@
 
   // Selectable ATS pipeline stages for the per-application <select> (value, label).
   var ATS_STAGE_OPTS = [
+    ['shortlisted', 'Shortlisted'],
     ['applied', 'Applied'], ['submitted', 'Submitted'], ['reviewing', 'Reviewing'],
     ['interview', 'Interview'], ['offer', 'Offer'], ['hired', 'Hired'], ['not_proceeding', 'Not proceeding']
   ];
@@ -58,6 +60,7 @@
   // Total-pipeline funnel: colour per bucket key (labels come from the endpoint).
   var BUCKET_COLOR = {
     unassociated: 'var(--ats-dim)',
+    shortlisted: '#7c3aed',
     applied: 'var(--ats-blue)',
     submitted: 'var(--ats-purple)',
     reviewing: 'var(--ats-amber)',

@@ -62,6 +62,16 @@ describe('AI Matching Task 1 — shortlisted stage', () => {
     });
   });
 
+  describe('js/ceo-ats-candidates.js (client-side candidates-tab stage maps)', () => {
+    const src = fs.readFileSync(path.join(root, 'js/ceo-ats-candidates.js'), 'utf8');
+
+    it('ATS_STAGE_OPTS includes shortlisted, ordered before applied', () => {
+      const optsBlock = src.slice(src.indexOf('var ATS_STAGE_OPTS = ['), src.indexOf('function stageOptLabel'));
+      expect(optsBlock).toMatch(/\['shortlisted',\s*'Shortlisted'\]/);
+      expect(optsBlock.indexOf('shortlisted')).toBeLessThan(optsBlock.indexOf('applied'));
+    });
+  });
+
   describe('server.js stage guards derive from the same source', () => {
     const src = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
