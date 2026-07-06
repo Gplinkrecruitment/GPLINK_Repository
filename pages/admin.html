@@ -10778,6 +10778,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['closed', 'Closed']].forEach(function(p) {
       html += '<button class="hub-filt ' + (filter === p[0] ? 'active' : '') + '" data-site-enq-filter="' + esc(p[0]) + '">' + esc(p[1]) + '</button>';
     });
+    // Phase 6 E1 (audit B3): CSV download of all enquiries (super-admin only —
+    // the export endpoint is CEO-session gated).
+    html += '<a class="hub-filt" href="/api/admin/export?entity=enquiries&format=csv" style="margin-left:auto;text-decoration:none">Export CSV</a>';
     html += '</div>';
 
     if (S.siteEnq.loadError) {

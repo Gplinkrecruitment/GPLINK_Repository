@@ -7607,6 +7607,70 @@ function onbUnsubPage(title, msg, bodyHtml) {
     + (bodyHtml || '') + '</div></body></html>';
 }
 
+// ── Phase 6 E1 (audit B6): generic marketing unsubscribe ────────────────────
+// Same HMAC + scanner-proof GET-confirm/POST-write pattern as the onboarding
+// nudge flow above, but keyed by EMAIL (marketing recipients — e.g. the 815
+// candidate_leads — may have no user account). Token is self-contained:
+//   base64url(lowercased email) + '.' + HMAC-SHA256(SECRET, 'mkt-unsub:<email>')
+// so /api/unsubscribe can recover the address without a lookup.
+function makeMarketingUnsubToken(email) {
+  var mkuLower = String(email || '').trim().toLowerCase();
+  var mkuPayload = Buffer.from(mkuLower, 'utf8').toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  var mkuSig = crypto.createHmac('sha256', SECRET).update('mkt-unsub:' + mkuLower).digest('hex');
+  return mkuPayload + '.' + mkuSig;
+}
+// Returns the (lowercased) email the token was minted for, or null when the
+// token is malformed / signature-invalid. Timing-safe comparison.
+function verifyMarketingUnsubToken(token) {
+  var raw = String(token || '').trim();
+  var dot = raw.indexOf('.');
+  if (dot <= 0) return null;
+  var payload = raw.slice(0, dot);
+  var sig = raw.slice(dot + 1);
+  var email;
+  try {
+    email = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+  } catch (e) { return null; }
+  email = String(email || '').trim().toLowerCase();
+  if (!email || !isValidEmail(email)) return null;
+  var expect = crypto.createHmac('sha256', SECRET).update('mkt-unsub:' + email).digest('hex');
+  if (sig.length !== expect.length) return null;
+  try { return crypto.timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expect, 'utf8')) ? email : null; } catch (e) { return null; }
+}
+function buildMarketingUnsubUrl(email) {
+  return APP_BASE_URL + '/api/unsubscribe?token=' + encodeURIComponent(makeMarketingUnsubToken(email));
+}
+// Flip candidate_leads.unsubscribed for every lead row matching this email
+// (case-insensitive; leads captured from Zoho may be stored in any case).
+// Idempotent; never throws — a failed lead flip must not undo/mask the
+// suppression write that already happened.
+async function markCandidateLeadUnsubscribed(email) {
+  var mclLower = String(email || '').trim().toLowerCase();
+  if (!mclLower) return;
+  try {
+    if (isSupabaseDbConfigured()) {
+      // ilike with LIKE-wildcards escaped = exact case-insensitive equality.
+      var mclPattern = mclLower.replace(/([\\%_])/g, '\\$1');
+      await supabaseDbRequest('candidate_leads', 'email=ilike.' + encodeURIComponent(mclPattern), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { unsubscribed: true }
+      });
+      return;
+    }
+    var mclRows = Array.isArray(dbState.candidateLeads) ? dbState.candidateLeads : [];
+    var mclChanged = false;
+    mclRows.forEach(function (l) {
+      if (l && String(l.email || '').trim().toLowerCase() === mclLower && !l.unsubscribed) {
+        l.unsubscribed = true;
+        mclChanged = true;
+      }
+    });
+    if (mclChanged) saveDbState();
+  } catch (e) {
+    console.error('[unsubscribe] candidate_leads flip failed:', e && e.message);
+  }
+}
+
 // ── Phase 6 D1b: practice one-click response pages ──────────────────────────
 // Small branded interstitial/confirmation pages for /api/practice/respond.
 // Callers pass PRE-ESCAPED HTML in msg/bodyHtml where markup is intended.
@@ -17498,6 +17562,209 @@ async function updateSiteEnquiryStatus(id, status) {
   return { ok: true, notFound: false };
 }
 
+// ── Phase 6 E1 (audit B3/B4): admin CSV exports + lead/archive browser ──────
+// RFC 4180 CSV: quote any field containing a comma, double-quote, CR or LF;
+// double interior quotes; everything else passes through unquoted. CRLF line
+// endings per the RFC. This is a FILE DOWNLOAD — no HTML escaping anywhere.
+const EXPORT_MAX_ROWS = 50000;
+
+function csvEscapeField(value) {
+  const s = String(value === null || value === undefined ? '' : value);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// columns: [{ key, label }]; rows: array of flat objects.
+function toCsv(columns, rows) {
+  const lines = [columns.map((c) => csvEscapeField(c.label)).join(',')];
+  rows.forEach((row) => {
+    lines.push(columns.map((c) => csvEscapeField(row ? row[c.key] : '')).join(','));
+  });
+  return lines.join('\r\n') + '\r\n';
+}
+
+// Every GP on file: registration_cases joined to user_profiles (prod) /
+// dbState.atsCandidates (local dev). Flat rows only — the CSV consumer is the
+// owner, PII is in scope (endpoint is requireCeoSession-gated).
+async function exportRowsForGps(cap) {
+  if (isSupabaseDbConfigured()) {
+    const casesRes = await supabaseDbRequest('registration_cases',
+      'select=user_id,stage,status,assigned_rso,assigned_va,created_at&order=created_at.desc&limit=' + cap);
+    const cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
+    const uids = Array.from(new Set(cases.map((c) => c.user_id).filter(Boolean)));
+    const profMap = {};
+    for (let i = 0; i < uids.length; i += 200) {
+      const listStr = uids.slice(i, i + 200).map((id) => '"' + String(id).replace(/"/g, '') + '"').join(',');
+      const pRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name,email,registration_country&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+      ((pRes.ok && pRes.data) || []).forEach((p) => { profMap[p.user_id] = p; });
+    }
+    return cases.map((c) => {
+      const prof = profMap[c.user_id] || {};
+      return {
+        name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim(),
+        email: prof.email || '',
+        country: prof.registration_country || '',
+        stage: c.stage || '',
+        assigned_rso: c.assigned_rso || c.assigned_va || '',
+        created_at: c.created_at || ''
+      };
+    });
+  }
+  return (dbState.atsCandidates || []).slice(0, cap).map((c) => ({
+    name: (c && c.name) || '',
+    email: (c && c.email) || '',
+    country: (c && c.country) || '',
+    stage: (c && c.regStage) || '',
+    assigned_rso: (c && c.rso) || '',
+    created_at: (c && c.joined) || ''
+  }));
+}
+
+async function exportRowsForPractices(cap) {
+  const derived = await atsListPracticesDerived();
+  return derived.slice(0, cap).map((p) => ({
+    name: p.name || '',
+    city: p.location_city || '',
+    state: p.location_state || '',
+    type: p.practice_type || '',
+    org_type: p.org_type || 'practice',
+    contact_name: p.contact_name || '',
+    contact_email: p.contact_email || '',
+    contact_phone: p.contact_phone || '',
+    stage: p.stage || 'active',
+    agreement_status: p.agreement_status || 'unsigned',
+    job_count: (p.jobs || []).length
+  }));
+}
+
+async function exportRowsForPlacements(cap) {
+  // The placements store clamps its limit at 200 — plenty for the current
+  // volume; revisit if placements ever outgrow that.
+  let rows = await atsOffersStore.listAtsPlacements({ limit: Math.min(cap, 200) });
+  if ((!rows || !rows.length) && isSupabaseDbConfigured()) {
+    rows = await atsDerivePlacementsFromCareerState(Math.min(cap, 200));
+  }
+  const enriched = await atsEnrichPlacements(rows || []);
+  return enriched.slice(0, cap).map((p) => ({
+    gp_name: p.gp_name || '',
+    practice_name: p.practice_name || '',
+    job_title: p.job_title || '',
+    location: p.location || '',
+    secured_at: p.secured_at || '',
+    commencement_date: p.commencement_date || ''
+  }));
+}
+
+async function exportRowsForEnquiries(cap) {
+  const rows = await listSiteEnquiryRows('');
+  return rows.slice(0, cap).map((e) => ({
+    created_at: e.created_at || '',
+    kind: e.kind || '',
+    status: e.status || '',
+    name: e.name || '',
+    email: e.email || '',
+    phone: e.phone || '',
+    practice_name: e.practice_name || '',
+    state: e.state || '',
+    message: e.message || ''
+  }));
+}
+
+// Shared by the leads browser, the archive summary and the leads CSV export.
+// Newest-first. Dual-mode: candidate_leads (prod) / dbState.candidateLeads (dev).
+async function listCandidateLeadRows(cap) {
+  const max = Math.max(1, Math.min(Number(cap) || EXPORT_MAX_ROWS, EXPORT_MAX_ROWS));
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('candidate_leads',
+      'select=id,name,email,phone,source,unsubscribed,created_at&order=created_at.desc&limit=' + max);
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  const rows = Array.isArray(dbState.candidateLeads) ? dbState.candidateLeads.slice() : [];
+  rows.sort((a, b) => String((b && b.created_at) || '').localeCompare(String((a && a.created_at) || '')));
+  return rows.slice(0, max);
+}
+
+async function exportRowsForLeads(cap) {
+  const rows = await listCandidateLeadRows(cap);
+  return rows.map((l) => ({
+    name: (l && l.name) || '',
+    email: (l && l.email) || '',
+    phone: (l && l.phone) || '',
+    source: (l && l.source) || '',
+    unsubscribed: (l && l.unsubscribed) ? 'yes' : 'no',
+    created_at: (l && l.created_at) || ''
+  }));
+}
+
+// Read-only zoho_archive roll-up: counts per module + last capture time.
+// Never dumps raw payloads (825 candidate blobs) — the browser card shows
+// counts and the leads table; raw data stays in the table.
+async function summarizeZohoArchive() {
+  let rows = [];
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('zoho_archive', 'select=entity_type,pulled_at&limit=10000');
+    rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+  } else {
+    rows = Array.isArray(dbState.zohoArchive) ? dbState.zohoArchive : [];
+  }
+  const counts = {};
+  let lastCapturedAt = null;
+  rows.forEach((row) => {
+    const kind = String((row && row.entity_type) || 'unknown');
+    counts[kind] = (counts[kind] || 0) + 1;
+    const at = (row && row.pulled_at) || null;
+    if (at && (!lastCapturedAt || String(at) > String(lastCapturedAt))) lastCapturedAt = at;
+  });
+  return { counts, total: rows.length, last_captured_at: lastCapturedAt };
+}
+
+// entity → { columns, load } for GET /api/admin/export. Loaders receive the
+// row cap (cap+1 is requested so the route can detect truncation).
+const EXPORT_ENTITIES = {
+  gps: {
+    columns: [
+      { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' },
+      { key: 'country', label: 'Country' }, { key: 'stage', label: 'Registration stage' },
+      { key: 'assigned_rso', label: 'Assigned RSO' }, { key: 'created_at', label: 'Created' }
+    ],
+    load: exportRowsForGps
+  },
+  practices: {
+    columns: [
+      { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' },
+      { key: 'type', label: 'Type' }, { key: 'org_type', label: 'Org type' },
+      { key: 'contact_name', label: 'Contact' }, { key: 'contact_email', label: 'Contact email' },
+      { key: 'contact_phone', label: 'Contact phone' }, { key: 'stage', label: 'Stage' },
+      { key: 'agreement_status', label: 'Agreement status' }, { key: 'job_count', label: 'Jobs' }
+    ],
+    load: exportRowsForPractices
+  },
+  placements: {
+    columns: [
+      { key: 'gp_name', label: 'GP' }, { key: 'practice_name', label: 'Practice' },
+      { key: 'job_title', label: 'Role' }, { key: 'location', label: 'Location' },
+      { key: 'secured_at', label: 'Secured' }, { key: 'commencement_date', label: 'Commencement' }
+    ],
+    load: exportRowsForPlacements
+  },
+  enquiries: {
+    columns: [
+      { key: 'created_at', label: 'Received' }, { key: 'kind', label: 'Kind' }, { key: 'status', label: 'Status' },
+      { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' },
+      { key: 'practice_name', label: 'Practice' }, { key: 'state', label: 'State' }, { key: 'message', label: 'Message' }
+    ],
+    load: exportRowsForEnquiries
+  },
+  leads: {
+    columns: [
+      { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' },
+      { key: 'source', label: 'Source' }, { key: 'unsubscribed', label: 'Unsubscribed' },
+      { key: 'created_at', label: 'Created' }
+    ],
+    load: exportRowsForLeads
+  }
+};
+
 // Optional admin notification — env-gated, best-effort. The enquiry API must
 // never fail (or slow down materially) because of an email problem, so every
 // failure mode here is caught and logged, never thrown.
@@ -22327,7 +22594,8 @@ async function recordEmailFailure(to, subject, errorText) {
 async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers, category }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   let recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
-  if (String(category || 'transactional') === 'marketing') {
+  const isMarketing = String(category || 'transactional') === 'marketing';
+  if (isMarketing) {
     const kept = [];
     for (const rcpt of recipients) {
       if (await isEmailSuppressed(rcpt)) {
@@ -22343,55 +22611,81 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
   }
   const fromEmail = (from && from.email && String(from.email).trim()) || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = (from && from.name && String(from.name).trim()) || process.env.RESEND_FROM_NAME || 'GP Link';
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const emailPayload = {
-      from: fromName + ' <' + fromEmail + '>',
-      to: recipients,
-      subject: subject,
-      html: html || '',
-      text: text || ''
-    };
-    if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
-    if (Array.isArray(attachments) && attachments.length > 0) {
-      const cleanAttachments = attachments
-        .filter((a) => a && a.filename && a.content)
-        .map((a) => {
-          const att = { filename: String(a.filename), content: String(a.content) };
-          if (a.contentType || a.mimeType) att.content_type = String(a.contentType || a.mimeType);
-          return att;
-        });
-      if (cleanAttachments.length > 0) emailPayload.attachments = cleanAttachments;
-    }
-    // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
-    // per-task sequences without a queue table or cron on serverless.
-    if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
-    // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
-    if (headers && typeof headers === 'object') emailPayload.headers = headers;
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(emailPayload)
-    });
-    const resBody = await res.text().catch(() => '');
-    if (!res.ok) {
-      console.error('[sendEmail] Resend API error:', res.status, resBody.slice(0, 300));
-      await recordEmailFailure(recipients, subject, 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200));
-      return { ok: false, error: 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200) };
-    }
-    console.log('[sendEmail] Resend accepted:', to, '| response:', resBody.slice(0, 200));
-    return { ok: true };
-  } catch (err) {
-    await recordEmailFailure(recipients, subject, String(err && err.message || err));
-    return { ok: false, error: String(err && err.message || err) };
-  } finally {
-    clearTimeout(timeout);
+  // Phase 6 E1 (audit B6): every marketing send carries RFC-8058 unsubscribe
+  // headers by construction. If the caller already set List-Unsubscribe (the
+  // onboarding-nudge flow builds its own user-id-keyed token), keep it exactly
+  // as passed — never double-set. Otherwise auto-build an email-keyed token
+  // per recipient (→ GET/POST /api/unsubscribe), sending one Resend call per
+  // recipient so each address gets its OWN token.
+  const callerHeaders = (headers && typeof headers === 'object') ? headers : null;
+  const callerHasListUnsub = !!(callerHeaders && Object.keys(callerHeaders).some(
+    (k) => String(k).toLowerCase() === 'list-unsubscribe'
+  ));
+  let sendPlans;
+  if (isMarketing && !callerHasListUnsub) {
+    sendPlans = recipients.map((rcpt) => ({
+      to: [rcpt],
+      headers: Object.assign({}, callerHeaders || {}, {
+        'List-Unsubscribe': '<mailto:hello@mygplink.com.au?subject=unsubscribe>, <' + buildMarketingUnsubUrl(rcpt) + '>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+      })
+    }));
+  } else {
+    sendPlans = [{ to: recipients, headers: callerHeaders }];
   }
+  let cleanAttachments = null;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    cleanAttachments = attachments
+      .filter((a) => a && a.filename && a.content)
+      .map((a) => {
+        const att = { filename: String(a.filename), content: String(a.content) };
+        if (a.contentType || a.mimeType) att.content_type = String(a.contentType || a.mimeType);
+        return att;
+      });
+    if (cleanAttachments.length === 0) cleanAttachments = null;
+  }
+  for (const plan of sendPlans) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const emailPayload = {
+        from: fromName + ' <' + fromEmail + '>',
+        to: plan.to,
+        subject: subject,
+        html: html || '',
+        text: text || ''
+      };
+      if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+      if (cleanAttachments) emailPayload.attachments = cleanAttachments;
+      // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
+      // per-task sequences without a queue table or cron on serverless.
+      if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
+      // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
+      if (plan.headers && typeof plan.headers === 'object') emailPayload.headers = plan.headers;
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(emailPayload)
+      });
+      const resBody = await res.text().catch(() => '');
+      if (!res.ok) {
+        console.error('[sendEmail] Resend API error:', res.status, resBody.slice(0, 300));
+        await recordEmailFailure(plan.to, subject, 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200));
+        return { ok: false, error: 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200) };
+      }
+      console.log('[sendEmail] Resend accepted:', plan.to, '| response:', resBody.slice(0, 200));
+    } catch (err) {
+      await recordEmailFailure(plan.to, subject, String(err && err.message || err));
+      return { ok: false, error: String(err && err.message || err) };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return { ok: true };
 }
 
 // ── Resend bounce/complaint webhook (Phase 6 C3, audit M2) ──────────────────
@@ -25439,6 +25733,54 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Phase 6 E1 (audit B6): GET /api/unsubscribe?token=<hmac> ────────────────
+  // Generic marketing unsubscribe (auto-added to every marketing-category
+  // sendEmail). No login. Scanner-proof, mirroring the onboarding flow above:
+  // GET performs NO write (SafeLinks-style prefetchers follow GET links) — a
+  // valid token only renders a confirm page with a one-click POST form.
+  // Invalid token: generic 400 page, no user enumeration.
+  if (req.method === 'GET' && pathname === '/api/unsubscribe') {
+    var mkuTok = String(url.searchParams.get('token') || '').trim();
+    var mkuEmail = verifyMarketingUnsubToken(mkuTok);
+    if (!mkuEmail) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    var mkuForm = '<form method="POST" action="/api/unsubscribe" style="margin-top:8px">'
+      + '<input type="hidden" name="token" value="' + onbuEscHtml(mkuTok) + '">'
+      + '<button type="submit" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;cursor:pointer">Unsubscribe</button>'
+      + '</form>';
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbUnsubPage('Unsubscribe from GP Link emails?', 'Click below and ' + onbuEscHtml(mkuEmail) + ' won’t receive marketing emails from GP Link anymore.', mkuForm));
+    return;
+  }
+
+  // POST /api/unsubscribe — token via query param (RFC 8058 one-click:
+  // Gmail/Yahoo POST straight to the List-Unsubscribe URL, which already
+  // carries the token) OR via the confirm page's own form body. Writes the
+  // email_suppression row (the C3 marketing gate consults it on every send)
+  // AND flips candidate_leads.unsubscribed for matching leads. Idempotent.
+  if (req.method === 'POST' && pathname === '/api/unsubscribe') {
+    var mkuBodyBuf = Buffer.alloc(0);
+    try { mkuBodyBuf = await readRawBody(req, 8192); } catch (e) { mkuBodyBuf = Buffer.alloc(0); }
+    var mkuFormParams = new URLSearchParams(mkuBodyBuf.toString('utf8'));
+    var mkuTok2 = String(url.searchParams.get('token') || mkuFormParams.get('token') || '').trim();
+    var mkuEmail2 = verifyMarketingUnsubToken(mkuTok2);
+    if (!mkuEmail2) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(onbUnsubPage('Link expired', 'This unsubscribe link is no longer valid.'));
+      return;
+    }
+    try {
+      await suppressEmail(mkuEmail2, 'unsubscribe', 'marketing');
+      await markCandidateLeadUnsubscribed(mkuEmail2);
+    } catch (e) { console.error('[unsubscribe] write failed:', e && e.message); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(onbUnsubPage('You’ve been unsubscribed', 'You won’t receive marketing emails from GP Link anymore.'));
+    return;
+  }
+
   // ── Hourly: chase GPs who started but never finished onboarding ────────────
   // Sequence per lib/onboarding-nudge.js: 1h, 24h, 3d, then weekly to day 31.
   // Reset on return: fresh activity re-anchors the clock and clears steps_sent.
@@ -27580,6 +27922,105 @@ async function handleApi(req, res, pathname) {
       return;
     }
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Phase 6 E1 (audit B3): GET /api/admin/export?entity=…&format=csv ───────
+  // Owner-only CSV download of the core entities (PII in scope — this is the
+  // owner exporting their own data). RFC 4180 escaping via toCsv; capped at
+  // EXPORT_MAX_ROWS (loader is asked for cap+1 so truncation is detectable →
+  // X-Export-Truncated: true response header).
+  if (pathname === '/api/admin/export' && req.method === 'GET') {
+    const expCtx = requireCeoSession(req, res);
+    if (!expCtx) return;
+    const expEntity = String(url.searchParams.get('entity') || '').trim().toLowerCase();
+    const expFormat = String(url.searchParams.get('format') || 'csv').trim().toLowerCase();
+    if (expFormat !== 'csv') {
+      sendJson(res, 400, { ok: false, message: 'Only format=csv is supported.' });
+      return;
+    }
+    const expSpec = EXPORT_ENTITIES[expEntity];
+    if (!expSpec) {
+      sendJson(res, 400, { ok: false, message: 'Unknown entity. Use one of: ' + Object.keys(EXPORT_ENTITIES).join(', ') + '.' });
+      return;
+    }
+    const expCap = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '', 10) || EXPORT_MAX_ROWS, EXPORT_MAX_ROWS));
+    let expRows;
+    try {
+      expRows = await expSpec.load(expCap + 1);
+    } catch (e) {
+      console.error('[export] loader failed for', expEntity, '-', e && e.message);
+      sendJson(res, 500, { ok: false, message: 'Export failed.' });
+      return;
+    }
+    expRows = Array.isArray(expRows) ? expRows : [];
+    const expTruncated = expRows.length > expCap;
+    if (expTruncated) expRows = expRows.slice(0, expCap);
+    const expHeaders = {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="gplink-' + expEntity + '-' + new Date().toISOString().slice(0, 10) + '.csv"',
+      'Cache-Control': 'no-store'
+    };
+    if (expTruncated) expHeaders['X-Export-Truncated'] = 'true';
+    res.writeHead(200, expHeaders);
+    res.end(toCsv(expSpec.columns, expRows));
+    return;
+  }
+
+  // ── Phase 6 E1 (audit B4): GET /api/admin/leads — lead browser ─────────────
+  // Paginated, searchable, READ-ONLY list of candidate_leads (the 815 Zoho
+  // leads + any future capture). Default 50 / max 200 per page; total included.
+  if (pathname === '/api/admin/leads' && req.method === 'GET') {
+    const leadsCtx = requireCeoSession(req, res);
+    if (!leadsCtx) return;
+    const lq = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const lStatus = String(url.searchParams.get('status') || '').trim().toLowerCase();
+    const lLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 200));
+    const lOffset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    let leadRows = await listCandidateLeadRows(EXPORT_MAX_ROWS);
+    if (lq) {
+      leadRows = leadRows.filter((l) =>
+        String((l && l.name) || '').toLowerCase().indexOf(lq) !== -1
+        || String((l && l.email) || '').toLowerCase().indexOf(lq) !== -1);
+    }
+    if (lStatus === 'unsubscribed') leadRows = leadRows.filter((l) => !!(l && l.unsubscribed));
+    else if (lStatus === 'subscribed') leadRows = leadRows.filter((l) => !(l && l.unsubscribed));
+    const lTotal = leadRows.length;
+    const lPage = leadRows.slice(lOffset, lOffset + lLimit).map((l) => ({
+      id: (l && l.id) || '',
+      name: (l && l.name) || '',
+      email: (l && l.email) || '',
+      phone: (l && l.phone) || '',
+      source: (l && l.source) || '',
+      unsubscribed: !!(l && l.unsubscribed),
+      created_at: (l && l.created_at) || ''
+    }));
+    sendJson(res, 200, { ok: true, leads: lPage, total: lTotal, offset: lOffset, limit: lLimit });
+    return;
+  }
+
+  // ── Phase 6 E1 (audit B4): GET /api/admin/archive-summary ──────────────────
+  // Read-only roll-up of the zoho_archive capture (counts per module + last
+  // capture time) plus lead totals. Never returns raw archive payloads.
+  if (pathname === '/api/admin/archive-summary' && req.method === 'GET') {
+    const arcCtx = requireCeoSession(req, res);
+    if (!arcCtx) return;
+    let arcSummary;
+    let arcLeads;
+    try {
+      arcSummary = await summarizeZohoArchive();
+      arcLeads = await listCandidateLeadRows(EXPORT_MAX_ROWS);
+    } catch (e) {
+      console.error('[archive-summary] failed:', e && e.message);
+      sendJson(res, 500, { ok: false, message: 'Could not load archive summary.' });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      archive: arcSummary,
+      leads_total: arcLeads.length,
+      leads_unsubscribed: arcLeads.filter((l) => !!(l && l.unsubscribed)).length
+    });
     return;
   }
 
@@ -49414,6 +49855,11 @@ module.exports.__testUtils = {
   sendEmail,
   isEmailSuppressed,
   suppressEmail,
+  makeMarketingUnsubToken,
+  verifyMarketingUnsubToken,
+  buildMarketingUnsubUrl,
+  csvEscapeField,
+  toCsv,
   recordEmailFailure,
   verifyResendWebhookSignature,
   respondServerError,

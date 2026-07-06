@@ -2052,7 +2052,8 @@
       // A8b: an actual per-placement list (populated asynchronously from
       // /api/ats/placements after the dashboard renders).
       html += '<div class="placements-list" id="placementsListMount" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--panel-border)">' +
-        '<div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Recent placements</div>' +
+        '<div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between"><span>Recent placements</span>' +
+        '<a href="/api/admin/export?entity=placements&format=csv" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:underline">Export CSV</a></div>' +
         '<div id="placementsListBody"><div style="font-size:12px;color:var(--text-dim)">Loading…</div></div>' +
         '</div>';
       return sectionCard('placements', '&#x1F3E5;', 'Placements & Career', html);
@@ -3234,9 +3235,99 @@
         + '<div class="ceo-tech-strip" id="techBugsStrip"><span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '<div class="ceo-tech-strip" id="techErrStrip"><span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '</div>';
+      // Phase 6 E1 (audit B4): candidate leads + Zoho archive browser card.
+      html += '<div class="ceo-tech-cards" style="margin-top:14px"><div class="ceo-tech-card" id="leadsArchiveCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading leads &amp; archive…</div></div></div>';
       c.innerHTML = html;
       loadTechnicalHealth();
       loadGmailWatchCard();
+      loadLeadsArchiveCard();
+    }
+
+    // ── Phase 6 E1 (audit B4): Candidate leads & Zoho archive card ──
+    // Read-only browser over candidate_leads (search + pagination) plus a
+    // counts-only roll-up of the zoho_archive capture. No editing — leads are
+    // reference data for the future marketing campaign.
+    var leadsState = { q: '', offset: 0, limit: 50, total: 0 };
+    var leadsSearchTimer = null;
+    function loadLeadsArchiveCard() {
+      var card = document.getElementById('leadsArchiveCard');
+      if (!card) return;
+      apiFetch('/api/admin/archive-summary').then(function (d) {
+        card = document.getElementById('leadsArchiveCard');
+        if (!card) return;
+        if (!d || !d.ok) {
+          card.innerHTML = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📇 Candidate leads &amp; Zoho archive</span></div><div class="ceo-tech-detail">Summary unavailable' + (d && d.message ? ': ' + esc(d.message) : '') + '</div>';
+          return;
+        }
+        var counts = (d.archive && d.archive.counts) || {};
+        var countBits = Object.keys(counts).sort().map(function (k) { return esc(k.replace(/_/g, ' ')) + ': <b>' + Number(counts[k] || 0) + '</b>'; });
+        var lastCap = d.archive && d.archive.last_captured_at ? new Date(d.archive.last_captured_at).toLocaleString() : 'never';
+        var h = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📇 Candidate leads &amp; Zoho archive</span>'
+          + '<a href="/api/admin/export?entity=leads&format=csv" style="font-size:12px;font-weight:600;color:var(--blue);text-decoration:underline">Export leads CSV</a></div>'
+          + '<div class="ceo-tech-detail"><b>Zoho archive (read-only):</b> ' + (countBits.length ? countBits.join(' · ') : 'empty') + ' · last capture ' + esc(lastCap) + '</div>'
+          + '<div class="ceo-tech-detail"><b>Leads:</b> <span id="leadsTotalLabel">' + Number(d.leads_total || 0) + '</span> total · ' + Number(d.leads_unsubscribed || 0) + ' unsubscribed</div>'
+          + '<div style="margin:10px 0 8px"><input type="text" id="leadsSearchInput" placeholder="Search leads by name or email…" style="width:100%;max-width:340px;background:transparent;border:1px solid var(--panel-border);border-radius:8px;padding:8px 10px;color:inherit;font-size:13px" value="' + esc(leadsState.q) + '"></div>'
+          + '<div id="leadsTableBody"><div style="font-size:12px;color:var(--text-dim)">Loading leads…</div></div>'
+          + '<div id="leadsPager" style="margin-top:8px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-muted)"></div>';
+        card.innerHTML = h;
+        var si = document.getElementById('leadsSearchInput');
+        if (si) si.addEventListener('input', function () {
+          var v = this.value;
+          if (leadsSearchTimer) clearTimeout(leadsSearchTimer);
+          leadsSearchTimer = setTimeout(function () { leadsState.q = v.trim(); leadsState.offset = 0; loadLeadsTable(); }, 300);
+        });
+        loadLeadsTable();
+      }).catch(function (e) {
+        var cc = document.getElementById('leadsArchiveCard');
+        if (cc) cc.innerHTML = '<div class="ceo-tech-detail">Error loading leads &amp; archive: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    function loadLeadsTable() {
+      var body = document.getElementById('leadsTableBody');
+      if (!body) return;
+      body.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Loading leads…</div>';
+      apiFetch('/api/admin/leads?q=' + encodeURIComponent(leadsState.q) + '&offset=' + leadsState.offset + '&limit=' + leadsState.limit).then(function (d) {
+        body = document.getElementById('leadsTableBody');
+        if (!body) return;
+        if (!d || !d.ok) { body.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Could not load leads.</div>'; return; }
+        leadsState.total = Number(d.total || 0);
+        var rows = Array.isArray(d.leads) ? d.leads : [];
+        if (!rows.length) {
+          body.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">' + (leadsState.q ? 'No leads match that search.' : 'No leads captured yet.') + '</div>';
+        } else {
+          var t = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+            + '<tr style="color:var(--text-muted);text-align:left"><th style="padding:5px 8px 5px 0;font-weight:600">Name</th><th style="padding:5px 8px 5px 0;font-weight:600">Email</th><th style="padding:5px 8px 5px 0;font-weight:600">Phone</th><th style="padding:5px 8px 5px 0;font-weight:600">Source</th><th style="padding:5px 8px 5px 0;font-weight:600">Status</th><th style="padding:5px 0;font-weight:600">Added</th></tr>';
+          rows.forEach(function (l) {
+            t += '<tr style="border-top:1px solid var(--panel-border)">'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.name || '—') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.email || '') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.phone || '—') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.source || '') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + (l.unsubscribed ? '<span class="ceo-tech-badge disconnected">Unsubscribed</span>' : '<span class="ceo-tech-badge connected">Subscribed</span>') + '</td>'
+              + '<td style="padding:6px 0">' + esc(String(l.created_at || '').slice(0, 10)) + '</td>'
+              + '</tr>';
+          });
+          t += '</table></div>';
+          body.innerHTML = t;
+        }
+        var pager = document.getElementById('leadsPager');
+        if (pager) {
+          var from = leadsState.total === 0 ? 0 : leadsState.offset + 1;
+          var to = Math.min(leadsState.offset + leadsState.limit, leadsState.total);
+          var ph = '<span>Showing ' + from + '–' + to + ' of ' + leadsState.total + '</span>';
+          ph += '<button id="leadsPrevBtn" ' + (leadsState.offset <= 0 ? 'disabled' : '') + ' style="background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Prev</button>';
+          ph += '<button id="leadsNextBtn" ' + (to >= leadsState.total ? 'disabled' : '') + ' style="background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Next</button>';
+          pager.innerHTML = ph;
+          var pb = document.getElementById('leadsPrevBtn');
+          if (pb) pb.onclick = function () { leadsState.offset = Math.max(0, leadsState.offset - leadsState.limit); loadLeadsTable(); };
+          var nb = document.getElementById('leadsNextBtn');
+          if (nb) nb.onclick = function () { leadsState.offset = leadsState.offset + leadsState.limit; loadLeadsTable(); };
+        }
+      }).catch(function (e) {
+        var bb = document.getElementById('leadsTableBody');
+        if (bb) bb.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Error: ' + esc(e.message) + '</div>';
+      });
     }
 
     // ── Gmail Watch & Detection card (status + self-service setup) ──
@@ -6771,7 +6862,7 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
   <script src="/js/ceo-ats-shared.js?v=20260703c"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260707c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260707d"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260707b"></script>
   <script src="/js/ceo-ats-practices.js?v=20260706a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260707a"></script>
