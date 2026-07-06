@@ -8922,6 +8922,27 @@ async function sendPracticeIntakeEmail(practice) {
 }
 
 /**
+ * Returns the practice's intake token, generating and persisting one (via the
+ * metadata stash — same dual-location convention sendPracticeIntakeEmail and
+ * findPracticeByIntakeToken already use) when the row doesn't have one yet.
+ * Best-effort persistence: on a failed patch the fresh token is still
+ * returned so the email link keeps working wherever the patch DID land;
+ * '' is only returned when there is no practice row at all.
+ */
+async function ensurePracticeIntakeToken(practice) {
+  if (!practice) return '';
+  var token = practice.intake_token || (practice.metadata && practice.metadata.intake_token);
+  if (token) return token;
+  token = practicePipeline.generateIntakeToken();
+  var patchedMeta = Object.assign({}, practice.metadata || {}, { intake_token: token });
+  var patched = await atsUpdatePracticeRow(practice.id, { metadata: patchedMeta }).catch(function () { return null; });
+  if (!patched) {
+    console.warn('[practice-status] could not persist generated intake_token for practice', practice.id);
+  }
+  return token;
+}
+
+/**
  * Looks up a practice row by its intake token (used by the token-authed
  * GET/POST /api/practice-intake routes and reused by later pipeline tasks).
  * Tokens live either in the dedicated `intake_token` column (new pipeline
@@ -27110,6 +27131,10 @@ async function handleApi(req, res, pathname) {
       html: buildCareerEmailHtml({
         title: 'Agreement signed ✔',
         body: 'Thanks for signing — here’s what happens next: our team reviews your job listing and it goes live to matched GPs. Your GP search has started — remember our 30-day sourcing promise.',
+        // D2: bookmarkable read-only status page, authed by the same intake
+        // token this signing request just used (so it's guaranteed to exist).
+        ctaText: 'Track your listing',
+        ctaUrl: APP_BASE_URL + '/pages/practice-status?token=' + encodeURIComponent(token),
         footer: 'A copy of your countersigned agreement is attached.'
       }),
       attachments: [{ filename: 'GP-Link-Recruitment-Services-Agreement-signed.pdf', content: stampedBase64, contentType: 'application/pdf' }]
@@ -46916,6 +46941,15 @@ Return ONLY valid JSON with no markdown formatting:
             || ajSrc.practice_contact_email || ajSrc.contact_email || '').trim();
         }
         if (ajContactEmail && isEmailConfigured()) {
+          // D2: bookmarkable read-only status page link. Ensure the practice
+          // row has an intake token (generating + persisting one if needed);
+          // if we only have a payload-level contact email and no practice
+          // row, there is no token to link — the email simply omits the CTA.
+          var ajStatusUrl = '';
+          try {
+            var ajStatusToken = ajPractice ? await ensurePracticeIntakeToken(ajPractice) : '';
+            if (ajStatusToken) ajStatusUrl = APP_BASE_URL + '/pages/practice-status?token=' + encodeURIComponent(ajStatusToken);
+          } catch (tokenErr) { ajStatusUrl = ''; }
           var escAj = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
           var ajRoleLabel = ajJob.title || 'your GP role';
           var ajPracticeLabel = ajJob.practice_name || 'your practice';
@@ -46933,13 +46967,17 @@ Return ONLY valid JSON with no markdown formatting:
             + '- Matched doctors can now see and apply to your role (identities stay protected until you approve a candidate).\n'
             + '- Our team reviews every applicant and will surface matched candidates to you for review.\n'
             + '- When you\'d like to meet someone, we\'ll arrange the interview and take care of the logistics.\n\n'
-            + 'You don\'t need to do anything right now — we\'ll be in touch as soon as there\'s a candidate worth your time. If anything about the role changes, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team';
+            + 'You don\'t need to do anything right now — we\'ll be in touch as soon as there\'s a candidate worth your time. If anything about the role changes, just reply to this email.\n\n'
+            + (ajStatusUrl ? 'Track your listing any time: ' + ajStatusUrl + '\n\n' : '')
+            + 'Kind regards,\nGP Link Recruitment Team';
           await sendEmail({
             to: ajContactEmail,
             subject: 'Your job is live on GP Link — ' + ajRoleLabel,
             html: buildCareerEmailHtml({
               title: 'Your job is live',
               body: ajBodyHtml,
+              ctaText: ajStatusUrl ? 'Track your listing' : '',
+              ctaUrl: ajStatusUrl,
               footer: 'Sent by the GP Link recruitment team.'
             }),
             text: ajText,
@@ -48668,6 +48706,9 @@ async function handleRequest(req, res) {
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
+    // D2: read-only practice status page — token-authed by the ?token= its
+    // own fetch sends to /api/practice/status (same public model as intake).
+    pathname === '/pages/practice-status.html' ||
     // C7 (audit 2026-07-07): legal/blog pages are linked from the public
     // marketing footers (/pages/privacy, /pages/terms, /pages/blog) and must
     // load for anonymous visitors. Extensionless forms are normalized to
