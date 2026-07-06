@@ -7,6 +7,7 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
   <script src="../js/bypass-config.js?v=20260702a"></script>
+  <script src="../js/journey-stages.js?v=20260707a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260706a" defer></script>
@@ -316,6 +317,49 @@
       color: var(--gp-ink);
       margin-bottom: 12px;
     }
+
+    /* ─── JOURNEY STEPPER + NOTICES ─── */
+    .journey-stepper { margin-bottom: 14px; }
+    .journey-stepper:empty { display: none; }
+    .data-error-banner, .stage-locked-notice {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; margin-bottom: 12px;
+      border-radius: var(--gp-r-md);
+      font-size: 12.5px; font-weight: 600; line-height: 1.45;
+    }
+    .data-error-banner {
+      background: var(--gp-red-soft, #fdf1f1); color: var(--gp-red, #b91c1c);
+      border: 1px solid var(--gp-red-border, #f3caca);
+      justify-content: space-between;
+    }
+    .data-error-banner button {
+      border: 1px solid currentColor; background: transparent; color: inherit;
+      font: inherit; font-weight: 700; padding: 4px 12px; border-radius: 999px;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .stage-locked-notice {
+      background: var(--gp-blue-soft); color: var(--gp-blue-ink, #1d4ed8);
+      border: 1px solid var(--gp-blue-border);
+    }
+    .stage-locked-notice svg {
+      width: 16px; height: 16px; flex-shrink: 0;
+      stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .stage-locked-notice span { flex: 1; }
+    .stage-locked-notice button {
+      border: none; background: transparent; color: inherit; cursor: pointer;
+      font-size: 18px; line-height: 1; padding: 0 2px; flex-shrink: 0;
+    }
+    .journey-toast {
+      position: fixed; left: 50%; bottom: calc(24px + var(--gp-shell-bottom-clearance, 0px));
+      transform: translateX(-50%);
+      background: var(--gp-ink, #0f172a); color: #fff;
+      padding: 10px 18px; border-radius: 10px;
+      font-size: 12.5px; font-weight: 700; z-index: 10000;
+      opacity: 0; transition: opacity .25s ease; pointer-events: none;
+      max-width: min(92vw, 420px); text-align: center;
+    }
+    .journey-toast.show { opacity: 1; }
 
     /* ─── JOURNEY LIST ─── */
     .journey-list {
@@ -848,6 +892,23 @@
 
     <!-- THE JOURNEY -->
     <div class="section-head gp-reveal gp-reveal-2">The Journey</div>
+
+    <!-- Honest failure state for the dashboard data refresh -->
+    <div class="data-error-banner" id="dataErrorBanner" hidden>
+      <span>We couldn't refresh your latest progress. What you see below may be out of date.</span>
+      <button type="button" id="dataErrorRetry">Retry</button>
+    </div>
+
+    <!-- Shown when a locked stage page bounced back here (?locked=<stage>) -->
+    <div class="stage-locked-notice" id="stageLockedNotice" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span id="stageLockedNoticeText"></span>
+      <button type="button" id="stageLockedNoticeClose" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <!-- 7-stage horizontal stepper (registration-stepper.js) -->
+    <div class="journey-stepper gp-reveal gp-reveal-2" id="journeyStepper"></div>
+
     <div class="journey-list gp-reveal gp-reveal-2" id="journeyList"></div>
 
     <!-- UPDATES FEED -->
@@ -922,7 +983,9 @@
         })
         .catch(function () { document.documentElement.style.visibility = ""; });
     })();
-    const TOTAL_STEPS = 6;
+    // 7 canonical stages (js/journey-stages.js). Commencement has no client-side
+    // completion signal, so displayed progress tops out at 6/7 until commencement.
+    const TOTAL_STEPS = 7;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1432,16 +1495,17 @@
           supervisedReady === UK_SUPERVISED_KEYS.length
         : false;
 
-      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
+      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, visaDone, pbsDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
       let currentRoute = "myinthealth";
       let currentTitle = "MyIntealth Account";
       let currentSub = epicCurrentLabel;
       if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Your Practice"; currentSub = "View your secured practice placement"; }
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "View your secured practice placement"; }
       else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "commencement"; currentTitle = "Commencement"; currentSub = "Pre-arrival checklist and your first day at the practice"; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1478,42 +1542,81 @@
       }
     }
 
+    function showJourneyToast(message) {
+      const existing = document.getElementById("journeyToast");
+      if (existing) existing.remove();
+      const toast = document.createElement("div");
+      toast.id = "journeyToast";
+      toast.className = "journey-toast";
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      requestAnimationFrame(() => toast.classList.add("show"));
+      setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 2600);
+    }
+
+    // Horizontal 7-stage stepper (js/registration-stepper.js). The stepper
+    // script is deferred, so this no-ops on the first parse-time render and
+    // is re-invoked on DOMContentLoaded once GPRegistrationStepper exists.
+    function renderJourneyStepper(stages, currentIdx) {
+      const el = document.getElementById("journeyStepper");
+      if (!el || !window.GPRegistrationStepper || typeof window.GPRegistrationStepper.render !== "function") return;
+      window.GPRegistrationStepper.render({
+        container: el,
+        ariaLabel: "Your 7-stage registration journey",
+        steps: stages.map((s, idx) => ({
+          id: s.key,
+          title: s.title,
+          description: s.locked ? (s.lockReason || "") : s.description,
+          status: s.done ? "completed" : s.locked ? "locked" : idx === currentIdx ? "current" : "upcoming",
+          current: idx === currentIdx,
+          // Every unlocked stage is navigable (AHPRA/Visa render their own
+          // in-page gates); locked stages explain themselves via toast.
+          interactive: !s.locked,
+          page: s.page,
+          lockReason: s.lockReason
+        })),
+        onStepSelect(step) { window.location.href = step.page; },
+        onLockedStep(step) { showJourneyToast(step.lockReason || "Complete the previous step to unlock this."); }
+      });
+    }
+
     function renderJourneyList() {
       const listEl = document.getElementById("journeyList");
-      if (!listEl) return;
+      if (!listEl || !window.GPJourneyStages) return;
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-      const regSubsDone = [snap.epicDone, snap.amcDone, snap.ahpraDone];
-      const regAllDone = regSubsDone.every(Boolean);
-      const regCompletedCount = regSubsDone.filter(Boolean).length;
+      // Canonical 7-stage journey — order, names and lock state come from
+      // js/journey-stages.js (shared with the app-shell registration dropdown).
+      const stages = window.GPJourneyStages.getStageStates(snap, bypassAll);
+
       // AHPRA is always navigable — gate page inside ahpra.html handles placement-required messaging
       const ahpraSubText = snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to continue" : "Specialist registration";
+      const liveSubText = {
+        career: snap.careerSecured ? "Placement secured" : "View your practice placement",
+        myinthealth: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
+        amc: snap.amcDone ? "Completed" : (snap.epicDone ? snap.amcCurrentLabel : null),
+        ahpra: ahpraSubText,
+        visa: snap.visaDone ? "Completed" : "Your pathway to permanent residency",
+        pbs: snap.pbsDone ? "Approved" : (snap.ahpraDone ? "Provider & prescriber numbers" : null),
+        commencement: snap.pbsDone ? "Pre-arrival checklist & first day" : null
+      };
 
-      const regSubs = [
-        { key: "myinthealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification.", done: snap.epicDone, locked: false, href: "myinthealth" },
-        { key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio and upload credentials.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc" },
-        { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra" }
-      ];
+      let currentIdx = stages.findIndex(s => !s.done && !s.locked);
+      if (currentIdx === -1) currentIdx = stages.length - 1;
 
-      const allSteps = [
-        { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
-        { key: "visa", title: "Visa Application", sub: snap.visaDone ? "Completed" : "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: snap.visaDone, locked: false, href: "visa" },
-        { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs" }
-      ];
-      const steps = allSteps.filter(Boolean).map((s, i) => ({ ...s, num: i + 1 }));
-
-      let currentIdx = steps.findIndex(s => !s.done && !s.locked);
-      if (currentIdx === -1) currentIdx = steps.length - 1;
+      renderJourneyStepper(stages, currentIdx);
 
       const checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
 
       listEl.innerHTML = "";
-      steps.forEach((step, idx) => {
+      stages.forEach((step, idx) => {
         const stepReturnable = step.done && (bypassAll || isRegistrationReturnAllowed(step.key));
         const isActive = idx === currentIdx && !step.done;
         const stateClass = step.done ? "done" : step.locked ? "locked" : isActive ? "active" : "";
         const isOpen = isActive || (bypassAll && idx === currentIdx) || (stepReturnable && idx === currentIdx);
+        // Locked rows explain WHY they're locked instead of a silent grey row.
+        const subText = liveSubText[step.key] || step.lockReason || step.description;
 
         const el = document.createElement("div");
         el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
@@ -1521,33 +1624,11 @@
         const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
         const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
 
-        let bodyHtml = "";
-        if (step.subs) {
-          bodyHtml = '<div class="journey-subs">' + step.subs.map((sub) => {
-            const subState = sub.done ? "done" : sub.locked ? "locked" : "active";
-            return `
-              <div class="journey-sub-item ${subState}">
-                <span class="journey-sub-dot ${subState}"></span>
-                <div class="journey-sub-info">
-                  <div class="journey-sub-title">${sub.title}</div>
-                  <div class="journey-sub-detail">${sub.sub}</div>
-                </div>
-                ${sub.done
-                  ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
-                  : sub.locked
-                    ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="/pages/${sub.href}" data-route="/pages/${sub.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
-                }
-              </div>
-            `;
-          }).join("") + '</div>';
-        } else {
-          bodyHtml = `<p>${step.detail}</p>`;
-          if (step.done) {
-            bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
-          } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="/pages/${step.href}" data-route="/pages/${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
-          }
+        let bodyHtml = `<p>${step.description}</p>`;
+        if (step.done) {
+          bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
+        } else if (!step.locked) {
+          bodyHtml += `<a class="journey-body-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
         }
 
         el.innerHTML = `
@@ -1555,7 +1636,7 @@
             <span class="journey-num">${step.done ? checkSvg : step.num}</span>
             <div class="journey-info">
               <div class="journey-title">${step.title}</div>
-              <div class="journey-subtitle">${step.sub}</div>
+              <div class="journey-subtitle">${subText}</div>
             </div>
             <span class="journey-pill ${pillClass}">${pillText}</span>
             ${step.locked ? '' : '<span class="journey-caret"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>'}
@@ -1576,6 +1657,11 @@
               el.classList.add("open");
               headBtn.setAttribute("aria-expanded", "true");
             }
+          });
+        } else {
+          const headBtn = el.querySelector(".journey-head");
+          headBtn.addEventListener("click", () => {
+            showJourneyToast(step.lockReason || "Complete the previous step to unlock this.");
           });
         }
 
@@ -1604,65 +1690,64 @@
     function getRegistrationRows() {
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
+      // Canonical 7-stage journey (js/journey-stages.js) — shared with the
+      // app-shell registration dropdown so the two surfaces always agree.
+      if (!window.GPJourneyStages || typeof window.GPJourneyStages.getStageStates !== "function") return [];
+      const stages = window.GPJourneyStages.getStageStates(snap, bypassAll);
       // AHPRA always navigable — gate page inside ahpra.html handles placement-required messaging
       var ahpraStatusHint = snap.ahpraDone ? "Completed"
         : !snap.careerSecured ? "Secure a placement to continue"
         : !snap.amcDone ? "Complete AMC first"
         : "In progress";
-      return [
-        buildRegistrationRow("career", {
-          title: "1. Your Practice",
+      const ROW_EXTRAS = {
+        career: {
           sub: "View your secured practice placement.",
           mobileDetail: "Your placed practice details and contact information.",
-          mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
-          done: snap.careerSecured,
-          href: "career"
-        }),
-        buildRegistrationRow("myinthealth", {
-          title: "2. MyIntealth Account",
+          mobileStatus: snap.careerSecured ? "Placement secured" : "View placement"
+        },
+        myinthealth: {
           sub: "Create account and complete EPIC verification.",
           mobileDetail: "EPIC verification is set up and moving forward.",
-          mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
-          done: snap.epicDone,
-          href: "myinthealth"
-        }),
-        buildRegistrationRow("amc", {
-          title: "3. AMC Portfolio",
+          mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel
+        },
+        amc: {
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
-          mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
-          locked: !bypassAll && !snap.epicDone,
-          done: snap.amcDone,
-          href: "amc"
-        }),
-        buildRegistrationRow("ahpra", {
-          title: "4. AHPRA Registration",
+          mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete"
+        },
+        ahpra: {
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-          mobileStatus: ahpraStatusHint,
-          locked: false,
-          done: snap.ahpraDone,
-          href: "ahpra"
-        }),
-        buildRegistrationRow("visa", {
-          title: "5. Visa Application",
+          mobileStatus: ahpraStatusHint
+        },
+        visa: {
           sub: "Your pathway to permanent residency.",
           mobileDetail: "Information about your 482 and 186 visa pathway.",
-          mobileStatus: snap.visaDone ? "Completed" : "View pathway",
-          locked: false,
-          done: snap.visaDone,
-          href: "visa"
-        }),
-        buildRegistrationRow("pbs", {
-          title: "6. PBS & Medicare",
+          mobileStatus: snap.visaDone ? "Completed" : "View pathway"
+        },
+        pbs: {
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
-          mobileStatus: snap.pbsDone ? "Completed" : !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
-          locked: !bypassAll && !snap.ahpraDone,
-          done: snap.pbsDone,
-          href: "pbs"
-        })
-      ];
+          mobileStatus: snap.pbsDone ? "Completed" : !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress"
+        },
+        commencement: {
+          sub: "Pre-arrival checklist and your first day at the practice.",
+          mobileDetail: "Travel, indemnity, orientation and first-day preparation at your practice.",
+          mobileStatus: snap.pbsDone ? "In progress" : "Unlocks once PBS & Medicare is complete"
+        }
+      };
+      return stages.map((stage) => {
+        const extra = ROW_EXTRAS[stage.key] || {};
+        return buildRegistrationRow(stage.key, {
+          title: stage.num + ". " + stage.title,
+          sub: extra.sub || stage.description,
+          mobileDetail: extra.mobileDetail || stage.description,
+          mobileStatus: stage.locked ? (stage.lockReason || extra.mobileStatus) : extra.mobileStatus,
+          locked: stage.locked,
+          done: stage.done,
+          href: stage.page
+        });
+      });
     }
 
     function renderRegistrationRows() {
@@ -1885,6 +1970,61 @@
       window.saveGpLinkUpdates(window.gpLinkUpdates);
     }
     renderRegistrationRows();
+
+    // registration-stepper.js is deferred — re-render the journey (and its
+    // stepper) once deferred scripts have executed so .render() actually runs.
+    document.addEventListener("DOMContentLoaded", () => { renderJourneyList(); });
+
+    // ── Locked-stage bounce notice (?locked=<stage>) ──
+    // The server stage gate redirects locked pages (e.g. /pages/commencement)
+    // back here with ?locked=<stage>; explain the lock instead of a silent bounce.
+    (function showStageLockedNotice() {
+      let lockedKey = "";
+      try { lockedKey = new URLSearchParams(window.location.search).get("locked") || ""; } catch (e) {}
+      if (!lockedKey || !window.GPJourneyStages) return;
+      // Server stage keys use "myintealth"; the journey key is "myinthealth".
+      if (lockedKey === "myintealth") lockedKey = "myinthealth";
+      const noticeEl = document.getElementById("stageLockedNotice");
+      const textEl = document.getElementById("stageLockedNoticeText");
+      if (!noticeEl || !textEl) return;
+      const states = window.GPJourneyStages.getStageStates(getProgressSnapshot(), !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()]);
+      const stage = states.find((s) => s.key === lockedKey);
+      if (!stage) return;
+      textEl.textContent = stage.locked
+        ? stage.title + " is still locked — " + (stage.lockReason || "complete the previous step to unlock it.")
+        : stage.title + " has just unlocked — you can open it from the journey below.";
+      noticeEl.hidden = false;
+      const closeBtn = document.getElementById("stageLockedNoticeClose");
+      if (closeBtn) closeBtn.addEventListener("click", () => { noticeEl.hidden = true; });
+      try { noticeEl.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+      // Drop the param so a refresh doesn't re-show the notice.
+      try {
+        const cleaned = new URL(window.location.href);
+        cleaned.searchParams.delete("locked");
+        window.history.replaceState(null, "", cleaned.pathname + cleaned.search + cleaned.hash);
+      } catch (e) {}
+    })();
+
+    // ── Honest API-failure state for the dashboard's server refresh ──
+    // The journey renders from locally cached progress; this check tells the
+    // GP when the server copy couldn't be reached instead of failing silently.
+    function checkServerState() {
+      const banner = document.getElementById("dataErrorBanner");
+      if (!banner) return;
+      fetch("/api/state", { credentials: "same-origin" })
+        .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(() => { banner.hidden = true; })
+        .catch(() => { banner.hidden = false; });
+    }
+    const dataErrorRetryBtn = document.getElementById("dataErrorRetry");
+    if (dataErrorRetryBtn) {
+      dataErrorRetryBtn.addEventListener("click", () => {
+        checkServerState();
+        renderDashboard();
+        renderUpdatesFeed();
+      });
+    }
+    checkServerState();
     activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
     if (activeNavItem) setActiveNav(activeNavItem, false);
 

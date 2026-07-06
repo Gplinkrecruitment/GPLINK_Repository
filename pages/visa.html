@@ -339,6 +339,132 @@
       color: var(--ink);
     }
 
+    /* ---- STATUS + CHECKLIST CARDS ---- */
+    .visa-card {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--gp-r-lg);
+      padding: var(--sp-5) var(--sp-5) var(--sp-5);
+      margin-bottom: var(--sp-4);
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .visa-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--sp-3); flex-wrap: wrap;
+      margin-bottom: var(--sp-2);
+    }
+    .visa-card-title {
+      font-family: var(--gp-font-display);
+      font-size: 16px; font-weight: 600;
+      color: var(--ink); letter-spacing: -0.01em;
+    }
+    .visa-card-sub {
+      font-size: 13px; color: var(--ink-soft); line-height: 1.6;
+      margin-bottom: var(--sp-4);
+    }
+    .visa-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 11px; font-weight: 800; letter-spacing: 0.02em;
+      text-transform: uppercase;
+      background: var(--gp-surface-sunken); color: var(--ink-soft);
+      border: 1px solid var(--border);
+    }
+    .visa-chip.progress { background: var(--gp-blue-soft); color: var(--gp-blue-ink, #1d4ed8); border-color: var(--gp-blue-border); }
+    .visa-chip.done { background: var(--gp-green-soft, #ecfdf3); color: var(--gp-green); border-color: var(--gp-green-border, #bbe5c8); }
+    .visa-chip.alert { background: var(--gp-amber-soft, #fef7ec); color: var(--gp-amber-ink, #92400e); border-color: var(--gp-amber-border, #f5dcb6); }
+    .visa-progress-track {
+      display: flex; gap: 4px; margin: var(--sp-3) 0 var(--sp-4);
+    }
+    .visa-progress-step {
+      flex: 1; text-align: center;
+      font-size: 10.5px; font-weight: 700; color: var(--gp-muted);
+      padding-top: 4px;
+    }
+    .visa-progress-dot {
+      display: block; height: 4px; border-radius: 999px;
+      background: var(--border); margin-bottom: 6px;
+    }
+    .visa-progress-step.done { color: var(--gp-green); }
+    .visa-progress-step.done .visa-progress-dot { background: var(--gp-green); }
+    .visa-progress-step.current { color: var(--gp-blue); }
+    .visa-progress-step.current .visa-progress-dot { background: var(--gp-blue); }
+    .visa-status-note { font-size: 13px; color: var(--ink-soft); line-height: 1.65; }
+    .visa-status-message {
+      font-size: 13px; color: var(--ink); font-weight: 500; line-height: 1.6;
+      background: var(--gp-surface-sunken); border-radius: var(--gp-r-md);
+      padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3);
+    }
+    .visa-detail-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: var(--sp-3); margin-bottom: var(--sp-3);
+    }
+    .visa-detail-item { min-width: 0; }
+    .visa-detail-label {
+      font-size: 10.5px; font-weight: 800; color: var(--gp-muted);
+      text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
+      margin-bottom: 2px;
+    }
+    .visa-detail-value { font-size: 13px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+    .visa-action-box {
+      border: 1px solid var(--gp-blue-border); background: var(--gp-blue-soft);
+      border-radius: var(--gp-r-md); padding: var(--sp-3) var(--sp-4);
+      margin-bottom: var(--sp-3);
+    }
+    .visa-action-title { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+    .visa-action-desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.55; }
+    .visa-action-owner { font-size: 11px; font-weight: 700; color: var(--gp-blue-ink, #1d4ed8); margin-top: 6px; }
+    .visa-updates-title {
+      font-size: 11px; font-weight: 800; color: var(--gp-muted);
+      text-transform: uppercase; letter-spacing: var(--gp-tracking-label);
+      margin: var(--sp-4) 0 var(--sp-2);
+    }
+    .visa-update-item {
+      display: grid; gap: 2px;
+      padding: var(--sp-2) 0;
+      border-top: 1px solid var(--border);
+      font-size: 12.5px; color: var(--ink-soft); line-height: 1.55;
+    }
+    .visa-update-date { font-size: 11px; font-weight: 700; color: var(--gp-muted); }
+    .visa-error {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--sp-3); flex-wrap: wrap;
+      font-size: 13px; color: var(--ink-soft); line-height: 1.55;
+    }
+    .visa-error button {
+      border: 1px solid var(--gp-border-strong); background: var(--gp-surface);
+      color: var(--ink); font-family: var(--font-body);
+      font-size: 12px; font-weight: 700; padding: 6px 16px;
+      border-radius: 999px; cursor: pointer;
+    }
+    .visa-error button:hover { border-color: var(--gp-blue-border); }
+    .visa-checklist { list-style: none; display: grid; gap: 0; }
+    .visa-check-item {
+      display: flex; align-items: flex-start; gap: var(--sp-3);
+      padding: var(--sp-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .visa-check-icon {
+      width: 18px; height: 18px; flex-shrink: 0;
+      border: 2px solid var(--gp-blue-border); border-radius: 6px;
+      margin-top: 2px;
+      background:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center / 10px no-repeat;
+    }
+    .visa-check-info { flex: 1; min-width: 0; }
+    .visa-check-title { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.4; }
+    .visa-check-desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.55; margin-top: 1px; }
+    .visa-check-badge {
+      flex-shrink: 0; padding: 3px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+      white-space: nowrap; margin-top: 2px;
+    }
+    .visa-check-badge.you { background: var(--gp-surface-sunken); color: var(--ink-soft); border: 1px solid var(--border); }
+    .visa-check-badge.us { background: var(--gp-blue-soft); color: var(--gp-blue-ink, #1d4ed8); border: 1px solid var(--gp-blue-border); }
+    @media (max-width: 480px) {
+      .visa-check-badge { display: none; }
+    }
+
     /* ---- MODAL ---- */
     .modal {
       position: fixed; inset: 0;
@@ -454,7 +580,7 @@
             </button>
           </div>
         </div>
-        <div class="step-eyebrow">Step 5</div>
+        <div class="step-eyebrow">Step 5 of 7</div>
         <div class="step-title">Visa Application</div>
         <div class="step-sub">Your recommended pathway to permanent residency in Australia.</div>
       </div>
@@ -466,7 +592,7 @@
       <!-- PATHWAY SECTION -->
       <div class="pathway-section gp-reveal gp-reveal-2">
         <h2 class="pathway-card-title">Your Pathway to Permanent Residency</h2>
-        <p class="pathway-card-desc">Based on our team's review of your CV and current GMC registration, the most streamlined pathway to permanent residency for you is through the Subclass 482 temporary visa followed by the Subclass 186 permanent visa. Your GP Link agent will guide you through each stage.</p>
+        <p class="pathway-card-desc">Based on our team's review of your CV and current GMC registration, the most streamlined pathway to permanent residency for you is through the Subclass 482 temporary visa followed by the Subclass 186 permanent visa. Your Registration Support Officer will guide you through each stage.</p>
 
         <div class="pathway-steps">
           <!-- Step 1: 482 -->
@@ -499,14 +625,109 @@
         </div>
       </div>
 
-      <!-- INFO BANNER -->
+      <!-- YOUR APPLICATION STATUS -->
+      <div class="visa-card gp-reveal gp-reveal-3" id="visaStatusCard">
+        <div class="visa-card-head">
+          <h3 class="visa-card-title">Your visa application</h3>
+          <span class="visa-chip" id="visaStageChip" hidden></span>
+        </div>
+        <div class="visa-progress-track" id="visaProgressTrack" hidden>
+          <div class="visa-progress-step" data-stage="nomination"><span class="visa-progress-dot"></span>Nomination</div>
+          <div class="visa-progress-step" data-stage="lodgement"><span class="visa-progress-dot"></span>Lodged</div>
+          <div class="visa-progress-step" data-stage="processing"><span class="visa-progress-dot"></span>Processing</div>
+          <div class="visa-progress-step" data-stage="granted"><span class="visa-progress-dot"></span>Granted</div>
+        </div>
+        <div id="visaStatusBody">
+          <p class="visa-status-note">Checking your visa status&hellip;</p>
+        </div>
+      </div>
+
+      <!-- SUPPORT FRAMING -->
       <div class="info-banner gp-reveal gp-reveal-3">
         <div class="info-banner-icon">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         </div>
         <div class="info-banner-text">
-          <strong>More information will appear here</strong> once you reach the visa step in your registration journey. Your GP Link agent will manage the process and update you at each stage.
+          <strong>Your Registration Support Officer manages this application with you.</strong>
+          You don't need to lodge anything yourself — we prepare the sponsorship and nomination with
+          your practice, tell you exactly which documents are needed and when, and keep you updated at
+          every stage right here.
+          <div style="margin-top:12px;">
+            <button class="btn-modern btn-primary" id="contactOfficerBtn" type="button">Contact your Registration Support Officer</button>
+          </div>
         </div>
+      </div>
+
+      <!-- DOCUMENT CHECKLIST -->
+      <div class="visa-card gp-reveal gp-reveal-4">
+        <h3 class="visa-card-title">Visa document checklist</h3>
+        <p class="visa-card-sub">Typical documents for an employer-sponsored Subclass 482 application. Your Registration Support Officer will confirm exactly which apply to you and request each one when it's needed — nothing is due until we ask.</p>
+        <ul class="visa-checklist">
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Current passport</div>
+              <div class="visa-check-desc">Colour copy of the photo page for you and every dependant travelling with you. Check it stays valid well past your planned start date.</div>
+            </div>
+            <span class="visa-check-badge you">You provide</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Signed employment contract</div>
+              <div class="visa-check-desc">Your contract with the sponsoring practice — finalised as part of securing your placement.</div>
+            </div>
+            <span class="visa-check-badge us">We arrange</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Sponsorship &amp; nomination documents</div>
+              <div class="visa-check-desc">Your practice's Standard Business Sponsorship and the nomination of your position — prepared with the practice on your behalf.</div>
+            </div>
+            <span class="visa-check-badge us">We arrange</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Qualifications &amp; registration evidence</div>
+              <div class="visa-check-desc">Medical degree, specialist qualifications and your AHPRA registration — largely reused from the documents already in your GP Link file.</div>
+            </div>
+            <span class="visa-check-badge you">You provide</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">English language evidence</div>
+              <div class="visa-check-desc">IELTS/OET results or passport-based exemption (for example UK or Irish citizens) — the same evidence used for your registration.</div>
+            </div>
+            <span class="visa-check-badge you">You provide</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Health examination</div>
+              <div class="visa-check-desc">Immigration medical through Bupa Medical Visa Services (or an approved panel clinic overseas). We send you the referral with your HAP ID when it's time to book.</div>
+            </div>
+            <span class="visa-check-badge us">We arrange the referral</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Police &amp; character checks</div>
+              <div class="visa-check-desc">A police certificate from each country you've lived in for 12 months or more during the last 10 years, for you and adult dependants.</div>
+            </div>
+            <span class="visa-check-badge you">You provide</span>
+          </li>
+          <li class="visa-check-item">
+            <span class="visa-check-icon" aria-hidden="true"></span>
+            <div class="visa-check-info">
+              <div class="visa-check-title">Dependant documents</div>
+              <div class="visa-check-desc">Marriage certificate and children's birth certificates for family members included on the application.</div>
+            </div>
+            <span class="visa-check-badge you">You provide</span>
+          </li>
+        </ul>
       </div>
 
       <!-- ALTERNATIVE PATHWAY (inline support text) -->
@@ -519,7 +740,7 @@
   <div class="modal" id="supportModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
       <h4 id="supportTitle">New support case</h4>
-      <p>Create a support case about your visa pathway. GP Link will follow up with next actions.</p>
+      <p>Create a support case about your visa. Your Registration Support Officer will follow up with next actions.</p>
       <div style="display:grid; gap:10px;">
         <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
           What is this about?
@@ -652,6 +873,176 @@
           body: JSON.stringify(payload)
         }).catch(function () {});
       } catch (e) {}
+    }
+
+    // ── Live visa application status (/api/visa/status) ──
+    var VISA_STAGE_ORDER = ["nomination", "lodgement", "processing", "granted"];
+    var VISA_STAGE_META = {
+      nomination: { label: "Nomination in progress", cls: "progress" },
+      lodgement: { label: "Application lodged", cls: "progress" },
+      processing: { label: "With the Department of Home Affairs", cls: "progress" },
+      granted: { label: "Visa granted", cls: "done" },
+      refused: { label: "Needs attention", cls: "alert" }
+    };
+
+    // Mirrors how the journey derives visa "done": the server-written case
+    // stage (gp_admin_stage_override) advances past visa (index 5) once done.
+    function isPastVisaStage() {
+      try {
+        var raw = localStorage.getItem("gp_admin_stage_override");
+        var stage = raw ? JSON.parse(raw) : null;
+        var order = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
+        return typeof stage === "string" && order.indexOf(stage) > 5;
+      } catch (e) { return false; }
+    }
+
+    // All dynamic values are set via textContent — never interpolated into HTML.
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function fmtDate(value) {
+      if (!value) return "";
+      var d = new Date(value);
+      return isNaN(d.getTime())
+        ? String(value)
+        : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    }
+
+    function renderVisaStatus(data) {
+      var body = document.getElementById("visaStatusBody");
+      var chip = document.getElementById("visaStageChip");
+      var track = document.getElementById("visaProgressTrack");
+      if (!body) return;
+      body.innerHTML = "";
+
+      var app = data && data.application;
+      if (!app) {
+        var pastVisa = isPastVisaStage();
+        if (chip) {
+          chip.hidden = false;
+          chip.className = "visa-chip" + (pastVisa ? " done" : "");
+          chip.textContent = pastVisa ? "Step complete" : "Not started";
+        }
+        if (track) track.hidden = true;
+        body.appendChild(el("p", "visa-status-note", pastVisa
+          ? "This step is marked complete on your journey. If anything further is ever needed for your visa, your Registration Support Officer will contact you directly."
+          : "Your visa case hasn't started yet. When you reach this step, your Registration Support Officer opens the application with your sponsoring practice — nomination first, then lodgement — and you'll see live progress here."));
+        return;
+      }
+
+      var stage = String(app.stage || "").toLowerCase();
+      var meta = VISA_STAGE_META[stage] || { label: "In progress", cls: "progress" };
+      if (chip) {
+        chip.hidden = false;
+        chip.className = "visa-chip " + meta.cls;
+        chip.textContent = meta.label;
+      }
+
+      if (track) {
+        var idx = VISA_STAGE_ORDER.indexOf(stage);
+        if (idx === -1) {
+          track.hidden = true;
+        } else {
+          track.hidden = false;
+          var stepEls = track.querySelectorAll(".visa-progress-step");
+          Array.prototype.forEach.call(stepEls, function (stepEl, i) {
+            stepEl.classList.remove("done", "current");
+            if (i < idx || stage === "granted") stepEl.classList.add("done");
+            else if (i === idx) stepEl.classList.add("current");
+          });
+        }
+      }
+
+      if (app.status_message) body.appendChild(el("div", "visa-status-message", app.status_message));
+
+      var grid = el("div", "visa-detail-grid");
+      function addDetail(label, value) {
+        if (!value) return;
+        var item = el("div", "visa-detail-item");
+        item.appendChild(el("div", "visa-detail-label", label));
+        item.appendChild(el("div", "visa-detail-value", value));
+        grid.appendChild(item);
+      }
+      addDetail("Visa type", app.visa_type || "Subclass 482 — Temporary Skill Shortage");
+      addDetail("Reference number", app.reference_number);
+      addDetail("Sponsoring practice", app.sponsor_name);
+      addDetail("Sponsorship status", app.sponsor_status);
+      addDetail("Nomination date", fmtDate(app.nomination_date));
+      addDetail("Lodged", fmtDate(app.lodgement_date));
+      addDetail("Granted", fmtDate(app.grant_date));
+      addDetail("Estimated timeline", app.estimated_timeline);
+      if (grid.children.length) body.appendChild(grid);
+
+      if (app.current_action_title || app.current_action_description) {
+        var box = el("div", "visa-action-box");
+        box.appendChild(el("div", "visa-action-title", app.current_action_title || "Current action"));
+        if (app.current_action_description) box.appendChild(el("div", "visa-action-desc", app.current_action_description));
+        if (app.current_action_owner) box.appendChild(el("div", "visa-action-owner", "With: " + app.current_action_owner));
+        body.appendChild(box);
+      }
+
+      if (stage === "refused") {
+        body.appendChild(el("p", "visa-status-note", "Your Registration Support Officer is already across this and will talk you through the next options — you don't need to do anything until we're in touch."));
+      }
+
+      var updates = Array.isArray(data.updates) ? data.updates.slice(0, 3) : [];
+      if (updates.length) {
+        body.appendChild(el("div", "visa-updates-title", "Latest updates"));
+        updates.forEach(function (u) {
+          var item = el("div", "visa-update-item");
+          var when = fmtDate(u && u.created_at);
+          if (when) item.appendChild(el("div", "visa-update-date", when));
+          item.appendChild(el("div", "", (u && (u.body || u.message)) || ""));
+          body.appendChild(item);
+        });
+      }
+    }
+
+    function renderVisaError() {
+      var body = document.getElementById("visaStatusBody");
+      var chip = document.getElementById("visaStageChip");
+      var track = document.getElementById("visaProgressTrack");
+      if (!body) return;
+      if (chip) chip.hidden = true;
+      if (track) track.hidden = true;
+      body.innerHTML = "";
+      var wrap = el("div", "visa-error");
+      wrap.appendChild(el("span", "", "We couldn't load your visa status right now."));
+      var btn = el("button", "", "Retry");
+      btn.type = "button";
+      btn.addEventListener("click", loadVisaStatus);
+      wrap.appendChild(btn);
+      body.appendChild(wrap);
+    }
+
+    function loadVisaStatus() {
+      var body = document.getElementById("visaStatusBody");
+      if (!body) return;
+      body.innerHTML = "";
+      body.appendChild(el("p", "visa-status-note", "Checking your visa status…"));
+      fetch("/api/visa/status", { credentials: "same-origin" })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function (data) {
+          if (!data || data.ok === false) throw new Error("Bad payload");
+          renderVisaStatus(data);
+        })
+        .catch(function () { renderVisaError(); });
+    }
+    loadVisaStatus();
+
+    // "Contact your Registration Support Officer" opens the support modal
+    var contactOfficerBtn = document.getElementById("contactOfficerBtn");
+    if (contactOfficerBtn) {
+      contactOfficerBtn.addEventListener("click", function () {
+        if (supportCategoryEl) supportCategoryEl.value = "Visa";
+        if (supportSummaryEl) supportSummaryEl.value = "Question about my visa application";
+        if (supportMessageEl) supportMessageEl.value = "";
+        openModal(supportModalEl);
+      });
     }
 
     if (supportSubmitBtn) {

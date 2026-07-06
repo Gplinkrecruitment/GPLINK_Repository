@@ -49731,7 +49731,11 @@ async function handleRequest(req, res) {
         var stageAllowed = await isStageAccessAllowed(gateEmail, pathname);
         if (!stageAllowed) {
           console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname, '(stage locked)');
-          res.writeHead(302, { Location: '/pages/index' });
+          // Carry the locked stage so the journey page can explain the lock
+          // (e.g. "Commencement unlocks once PBS & Medicare is complete")
+          // instead of a silent bounce. Display-only — the deny stands.
+          var lockedStage = PAGE_STAGE_MAP[pathname] || '';
+          res.writeHead(302, { Location: '/pages/index' + (lockedStage ? '?locked=' + encodeURIComponent(lockedStage) : '') });
           res.end();
           return;
         }
