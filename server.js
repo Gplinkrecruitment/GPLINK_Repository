@@ -3818,9 +3818,10 @@ function preFilterEmail(emailMeta) {
 }
 
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
-var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
+var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail, resolveEmailRouting } = require('./lib/email-triage.js');
 var ahpraS80 = require('./lib/ahpra-s80.js');
 var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
+var emailTemplatesLib = require('./lib/email-templates.js');
 var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
@@ -5370,27 +5371,41 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // Contact" category rather than the GP's current registration stage, so practice
         // correspondence is never mistaken for a step the GP is personally working through.
         // AHPRA mail keeps its own 'ahpra' stage; GP-sent mail stays on the GP's stage.
-        var emailRelatedStage;
-        if (isAhpra) {
-          emailRelatedStage = 'ahpra';
-        } else if (gpCase) {
+        //
+        // Phase 6 I1: the triage category now drives the stage group + priority
+        // (visa \u2192 visa, Medicare/PBS \u2192 pbs, practice enquiry \u2192 practice_contact,
+        // regulator/college senders (AMC/RACGP/ACRRM/Medical Board) \u2192 amc/ahpra).
+        // resolveEmailRouting is pure and allowlist-based; unmatched mail keeps the
+        // existing low-priority Support behaviour. The AHPRA 6-mode path is untouched \u2014
+        // this whole block is gated on !isAhpra.
+        var _senderIsGp = false;
+        if (gpCase) {
           var _gpEmailLookup = gpCase.user_id
             ? await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(gpCase.user_id) + '&limit=1')
             : { ok: false };
           var _gpOwnEmail = ((_gpEmailLookup.ok && _gpEmailLookup.data && _gpEmailLookup.data[0] && _gpEmailLookup.data[0].email) || '').toLowerCase();
           var _senderAddr = ((emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
-          emailRelatedStage = (_gpOwnEmail && _senderAddr === _gpOwnEmail) ? (gpCase.stage || '') : 'practice_contact';
-        } else {
-          emailRelatedStage = '';
+          _senderIsGp = !!(_gpOwnEmail && _senderAddr === _gpOwnEmail);
         }
+        var emailRouting = resolveEmailRouting({
+          sender: emailMeta.sender || '',
+          subject: emailMeta.subject || '',
+          bodySnippet: emailMeta.bodyText || '',
+          category: triageResult.category,
+          urgency: triageResult.urgency,
+          matched: !!gpCase,
+          gpStage: gpCase ? (gpCase.stage || '') : '',
+          senderIsGp: _senderIsGp
+        });
+        var emailRelatedStage = isAhpra ? 'ahpra' : emailRouting.related_stage;
 
         // Route GP-matched email tasks to that GP's RSO (assigned_va, default Hazel).
         var taskAssignee = gpCase ? await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va) : null;
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
           task_type: 'email_triage',
-          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
           description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
-          priority: triageResult.urgency === 'urgent' ? 'urgent' : gpCase ? 'normal' : 'low',
+          priority: emailRouting.priority,
           source_trigger: 'gmail_triage',
           related_stage: emailRelatedStage,
           assignee: taskAssignee,
@@ -41653,6 +41668,164 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── Email triage: suggest reply via AI ──
+  // ── Phase 6 I1 (audit M2): outbound email template library ──────────────────
+  // GET   /api/admin/email-templates  — merged defaults + DB rows (any admin)
+  // POST  /api/admin/email-templates  — add a custom template (super admin)
+  // PATCH /api/admin/email-templates  — edit by id, or override a default by key (super admin)
+  // DELETE /api/admin/email-templates — deactivate by id or key (super admin)
+  // Defaults live in lib/email-templates.js so the library works with no DB rows.
+  // Dual-mode storage: public.email_templates (prod) / dbState.emailTemplates (dev).
+  if (pathname === '/api/admin/email-templates') {
+    const listTemplateRows = async () => {
+      if (isSupabaseDbConfigured()) {
+        const r = await supabaseDbRequest('email_templates', 'select=*&order=created_at.asc&limit=500');
+        return (r.ok && Array.isArray(r.data)) ? r.data : [];
+      }
+      return Array.isArray(dbState.emailTemplates) ? dbState.emailTemplates.slice() : [];
+    };
+
+    if (req.method === 'GET') {
+      const tplCtx = requireAdminSession(req, res);
+      if (!tplCtx) return;
+      const rows = await listTemplateRows();
+      sendJson(res, 200, { ok: true, templates: emailTemplatesLib.mergeEmailTemplates(emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES, rows) });
+      return;
+    }
+
+    // All writes are CEO/super-admin only.
+    const tplAdmin = requireSuperAdminSession(req, res);
+    if (!tplAdmin) return;
+
+    if (req.method === 'POST' || req.method === 'PATCH') {
+      let tplBody;
+      try { tplBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+      tplBody = tplBody || {};
+      const tplFields = {};
+      ['name', 'category', 'stage', 'subject', 'body'].forEach((f) => {
+        if (tplBody[f] !== undefined) tplFields[f] = String(tplBody[f] || '');
+      });
+      if (tplBody.active !== undefined) tplFields.active = !!tplBody.active;
+
+      if (req.method === 'POST') {
+        if (!String(tplFields.name || '').trim() || !String(tplFields.body || '').trim()) {
+          sendJson(res, 400, { ok: false, message: 'name and body are required.' });
+          return;
+        }
+        const newRow = {
+          id: crypto.randomUUID(),
+          template_key: String(tplBody.key || tplBody.template_key || '').trim() || null,
+          name: tplFields.name, category: tplFields.category || '', stage: tplFields.stage || '',
+          subject: tplFields.subject || '', body: tplFields.body,
+          active: tplFields.active !== false,
+          created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const ins = await supabaseDbRequest('email_templates', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [newRow] });
+          if (!ins.ok) { sendJson(res, 500, { ok: false, message: 'Failed to save template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(newRow);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true, template: newRow });
+        return;
+      }
+
+      // PATCH: target an existing row by id, or a default template by key
+      // (creating an override row seeded from the default when none exists yet).
+      const tplId = String(tplBody.id || '').trim();
+      const tplKey = String(tplBody.key || tplBody.template_key || '').trim();
+      if (!tplId && !tplKey) { sendJson(res, 400, { ok: false, message: 'id or key required.' }); return; }
+      const rows = await listTemplateRows();
+      let target = null;
+      if (tplId) target = rows.find((r) => String(r.id) === tplId) || null;
+      if (!target && tplKey) target = rows.find((r) => String(r.template_key || '') === tplKey) || null;
+      if (!target) {
+        // Overriding a built-in default: seed a new row from the default + patch.
+        const def = emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES.find((d) => d.key === tplKey);
+        if (!def) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+        const override = {
+          id: crypto.randomUUID(), template_key: def.key,
+          name: tplFields.name !== undefined ? tplFields.name : def.name,
+          category: tplFields.category !== undefined ? tplFields.category : def.category,
+          stage: tplFields.stage !== undefined ? tplFields.stage : def.stage,
+          subject: tplFields.subject !== undefined ? tplFields.subject : def.subject,
+          body: tplFields.body !== undefined ? tplFields.body : def.body,
+          active: tplFields.active !== undefined ? tplFields.active : true,
+          created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const ins2 = await supabaseDbRequest('email_templates', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [override] });
+          if (!ins2.ok) { sendJson(res, 500, { ok: false, message: 'Failed to save template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(override);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true, template: override });
+        return;
+      }
+      const patch = Object.assign({}, tplFields, { updated_at: new Date().toISOString() });
+      if (isSupabaseDbConfigured()) {
+        const up = await supabaseDbRequest('email_templates', 'id=eq.' + encodeURIComponent(target.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+        if (!up.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update template.' }); return; }
+        sendJson(res, 200, { ok: true, template: (Array.isArray(up.data) && up.data[0]) || Object.assign({}, target, patch) });
+      } else {
+        Object.assign(target, patch);
+        saveDbState();
+        sendJson(res, 200, { ok: true, template: target });
+      }
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      const delId = String(url.searchParams.get('id') || '').trim();
+      const delKey = String(url.searchParams.get('key') || '').trim();
+      if (!delId && !delKey) { sendJson(res, 400, { ok: false, message: 'id or key required.' }); return; }
+      const rows = await listTemplateRows();
+      let target = null;
+      if (delId) target = rows.find((r) => String(r.id) === delId) || null;
+      if (!target && delKey) target = rows.find((r) => String(r.template_key || '') === delKey) || null;
+      if (!target && delKey) {
+        // Hiding a built-in default: store an inactive override row.
+        const def = emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES.find((d) => d.key === delKey);
+        if (!def) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+        const hideRow = {
+          id: crypto.randomUUID(), template_key: def.key, name: def.name,
+          category: def.category, stage: def.stage, subject: def.subject, body: def.body,
+          active: false, created_by: tplAdmin.email || 'admin',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        if (isSupabaseDbConfigured()) {
+          const insH = await supabaseDbRequest('email_templates', '', { method: 'POST', body: [hideRow] });
+          if (!insH.ok) { sendJson(res, 500, { ok: false, message: 'Failed to remove template.' }); return; }
+        } else {
+          if (!Array.isArray(dbState.emailTemplates)) dbState.emailTemplates = [];
+          dbState.emailTemplates.push(hideRow);
+          saveDbState();
+        }
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (!target) { sendJson(res, 404, { ok: false, message: 'Template not found.' }); return; }
+      if (isSupabaseDbConfigured()) {
+        const del = await supabaseDbRequest('email_templates', 'id=eq.' + encodeURIComponent(target.id), { method: 'PATCH', body: { active: false, updated_at: new Date().toISOString() } });
+        if (!del.ok) { sendJson(res, 500, { ok: false, message: 'Failed to remove template.' }); return; }
+      } else {
+        target.active = false;
+        target.updated_at = new Date().toISOString();
+        saveDbState();
+      }
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 405, { ok: false, message: 'Method not allowed.' });
+    return;
+  }
+
   if (pathname === '/api/admin/email-triage/suggest-reply' && req.method === 'POST') {
     var adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;

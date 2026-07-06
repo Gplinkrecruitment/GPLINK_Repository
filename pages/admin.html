@@ -3384,6 +3384,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='</div></div>';
             html+='<div class="et-section"><div class="et-section-title">Suggested Reply</div>';
             html+='<button class="btn sm primary" data-generate-reply="'+esc(t.id)+'">'+(epReply?'\u2713 Reply Generated':'Generate Suggested Reply')+'</button>';
+            html+=' <select data-tpl-insert data-tpl-task="'+esc(t.id)+'" data-tpl-target="et-reply-'+esc(t.id)+'" data-tpl-wrap="et-reply-wrap-'+esc(t.id)+'" data-tpl-first-name="'+esc(tplFirstName(u.gp_name||''))+'" data-tpl-gp-name="'+esc(u.gp_name||'')+'" data-tpl-practice-name="'+esc(u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||'')+'" style="font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--bg1,#fff);color:var(--text);max-width:190px;vertical-align:middle"><option value="">Insert template\u2026</option></select>';
             html+='<div id="et-reply-wrap-'+esc(t.id)+'" style="display:'+(epReply?'block':'none')+';margin-top:8px">';
             html+='<textarea class="et-reply-area" id="et-reply-'+esc(t.id)+'">'+esc(epReply)+'</textarea>';
             html+='<div class="et-btn-row"><button class="btn sm" data-copy-reply="'+esc(t.id)+'">Copy to Clipboard</button>';
@@ -8497,6 +8498,80 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
+  // ── Phase 6 I1 (audit M2): outbound template library ─────────────────────
+  // "Insert template ▾" selects (attribute data-tpl-insert) are populated from
+  // GET /api/admin/email-templates (cached) and insert the template body — with
+  // simple {{firstName}}/{{gpName}}/{{practiceName}}/{{rsoName}} substitution
+  // from data attributes — into the composer textarea. AI suggest-reply and
+  // free typing stay untouched: the template text is appended, never auto-sent.
+  var _tplPromise=null,_tplResolved=null;
+  function fetchEmailTemplates(){
+    if(!_tplPromise){
+      _tplPromise=fetch("/api/admin/email-templates",{credentials:"same-origin"})
+        .then(function(r){return r.json();})
+        .then(function(j){_tplResolved=(j&&j.ok&&Array.isArray(j.templates))?j.templates:[];return _tplResolved;})
+        .catch(function(){_tplPromise=null;return [];});
+    }
+    return _tplPromise;
+  }
+  function tplSubstitute(text,ctx){
+    return String(text||"").replace(/\{\{(\w+)\}\}/g,function(m,k){
+      var v=ctx&&ctx[k];
+      return (v!==undefined&&v!==null&&String(v).trim()!=="")?String(v):m;
+    });
+  }
+  function tplFirstName(name){
+    var n=String(name||"").trim().replace(/^dr\.?\s+/i,"");
+    return n.split(/\s+/)[0]||"";
+  }
+  function _tplPopulate(sel){
+    if(sel.dataset.tplLoaded)return;
+    var fill=function(list){
+      if(sel.dataset.tplLoaded)return;
+      sel.dataset.tplLoaded="1";
+      sel._tplList=list;
+      list.forEach(function(t,i){
+        var o=document.createElement("option");o.value=String(i);o.textContent=t.name;sel.appendChild(o);
+      });
+    };
+    if(_tplResolved){fill(_tplResolved);return;}
+    fetchEmailTemplates().then(fill);
+  }
+  document.addEventListener("mousedown",function(e){
+    var sel=e.target&&e.target.closest&&e.target.closest("select[data-tpl-insert]");
+    if(sel)_tplPopulate(sel);
+  });
+  document.addEventListener("focusin",function(e){
+    var sel=e.target;
+    if(sel&&sel.matches&&sel.matches("select[data-tpl-insert]"))_tplPopulate(sel);
+  });
+  document.addEventListener("change",function(e){
+    var sel=e.target;
+    if(!sel||!sel.matches||!sel.matches("select[data-tpl-insert]"))return;
+    var list=sel._tplList||[];var tpl=list[Number(sel.value)];
+    sel.value="";
+    if(!tpl)return;
+    var ctx={
+      firstName:sel.dataset.tplFirstName||"",
+      gpName:sel.dataset.tplGpName||"",
+      practiceName:sel.dataset.tplPracticeName||"",
+      rsoName:sel.dataset.tplRsoName||""
+    };
+    var body=tplSubstitute(tpl.body,ctx);
+    var target=sel.dataset.tplTarget?document.getElementById(sel.dataset.tplTarget):null;
+    if(!target){var wrapEl=sel.closest(".hub-composer");if(wrapEl)target=wrapEl.querySelector("textarea");}
+    if(!target)return;
+    target.value=target.value.trim()?(target.value.replace(/\s+$/,"")+"\n\n"+body):body;
+    if(sel.dataset.tplWrap){var w=document.getElementById(sel.dataset.tplWrap);if(w)w.style.display="block";}
+    // Keep the GP-file email panel's reply across re-renders (same store the AI draft uses).
+    if(sel.dataset.tplTask&&typeof S!=="undefined"&&S.openEmailPanels){
+      if(!S.openEmailPanels[sel.dataset.tplTask])S.openEmailPanels[sel.dataset.tplTask]={};
+      S.openEmailPanels[sel.dataset.tplTask].open=true;
+      S.openEmailPanels[sel.dataset.tplTask].reply=target.value;
+    }
+    target.focus();
+  });
+
   // Reusable email-conversation view. Used twice:
   //   • global Inbox tab  → createHubEmailView({panelId:"hubInboxPanel",showFilters:true})
   //   • GP-profile Emails → createHubEmailView({panelId:"gpEmailsPanel",caseId:<case id>,showFilters:false})
@@ -8579,6 +8654,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;registration@mygplink.com.au&gt;</div>'+
         '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(header.latestTaskId?'':' disabled')+'>✦ Suggest a reply</button>'+
+        '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
         '<textarea id="hubReply" placeholder="Type your reply…"'+(canSend?"":" disabled")+'></textarea>'+
         '<div class="hub-composer-foot">'+
