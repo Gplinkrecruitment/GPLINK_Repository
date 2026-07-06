@@ -3456,11 +3456,117 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="j-body"><div class="j-label">${esc(step.label)} <span class="j-badge ${esc(badge)}">${badge==="done"?"Complete":badge==="current"?"In Progress":badge==="locked"?"Locked":"Pending"}</span></div>
         ${isOpen?`${step.substeps.length?`<div class="j-subs">${step.substeps.map(s=>`<div class="j-sub"><span class="j-sub-dot ${esc(s.status)}"></span>${esc(s.label)}</div>`).join("")}</div>`:""}
         ${pb&&step.status!=="locked"?`<div class="j-playbook"><strong>GP:</strong> ${esc(pb.gp)}<br><strong>Your task:</strong> ${esc(pb.va)}</div>`:""}
-        ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa">Manage Visa</a>`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs">Manage PBS</a>`:""}`:""}
+        ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa">Manage Visa</a>${renderVisaQuestionnairePane(c)}`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs">Manage PBS</a>`:""}`:""}
         </div></div>`;
     });
     h+='</div>';
     return h;
+  }
+
+  /* ── Visa intake questionnaire wiring (Phase 6 I3) ──
+     RSO actions on the EXISTING server endpoints, surfaced in the GP file's visa step:
+       GET  /api/admin/visa/questionnaire?visaCaseId=   (load current state)
+       POST /api/admin/visa/questionnaire/request       (request from GP)
+       POST /api/admin/visa/questionnaire/review        (approve | return for changes)
+       GET  /api/admin/visa/questionnaire/pdf?visaCaseId= (download generated PDF)
+       POST /api/admin/visa/questionnaire/send          (mark ready | mark sent)
+       GET  /api/admin/visa/dependants?caseId=          (read-only dependants list) */
+  const VQ_ROUTES=[["gplink_migration_agent","GP Link migration agent"],["practice_agent","Practice's migration agent"],["practice_direct","Practice directly"]];
+  function vqStatusLabel(s){return s==="draft"?"Requested — waiting on GP":s==="submitted"?"Submitted — ready to review":s==="returned_for_changes"?"Returned to GP for changes":s==="va_reviewed"?"Reviewed — ready for PDF/send":s==="ready_to_send"?"Ready to send":s==="sent"?"Sent":"Not requested";}
+  function vqRouteLabel(r){const m=VQ_ROUTES.find(x=>x[0]===r);return m?m[1]:(r||"");}
+  function vqRouteSelect(id){return '<select id="'+id+'" style="padding:6px;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-size:12px">'+VQ_ROUTES.map(x=>'<option value="'+x[0]+'">'+esc(x[1])+'</option>').join("")+'</select>';}
+  function vqFields(obj){
+    if(!obj||typeof obj!=="object")return "";
+    let h="";
+    Object.keys(obj).forEach(k=>{
+      const v=obj[k];
+      if(v===null||v===undefined||v==="")return;
+      if(typeof v==="object"&&!Array.isArray(v))return;
+      const label=k.replace(/_/g," ").replace(/([A-Z])/g," $1").replace(/\b\w/g,ch=>ch.toUpperCase());
+      h+='<div style="display:flex;gap:8px;font-size:12px;padding:2px 0"><span style="color:var(--muted,#9aa3b2);min-width:140px">'+esc(label)+'</span><span>'+esc(Array.isArray(v)?v.join(", "):String(v))+'</span></div>';
+    });
+    return h;
+  }
+  function vqAnswers(q){
+    const data=q&&q.data&&typeof q.data==="object"?q.data:null;
+    if(!data||!Object.keys(data).length)return '<div class="empty">No answers recorded.</div>';
+    let h="";
+    const primary=data.primary||data.primaryApplicant;
+    if(primary)h+='<div style="margin:6px 0"><strong style="font-size:11px">Primary applicant</strong>'+vqFields(primary)+'</div>';
+    if(data.partner)h+='<div style="margin:6px 0"><strong style="font-size:11px">Partner</strong>'+vqFields(data.partner)+'</div>';
+    if(Array.isArray(data.children))data.children.forEach((ch,i)=>{h+='<div style="margin:6px 0"><strong style="font-size:11px">Child '+(i+1)+'</strong>'+vqFields(ch)+'</div>';});
+    if(!primary&&!data.partner)h+=vqFields(data);
+    return h||'<div class="empty">No answers recorded.</div>';
+  }
+  function renderVisaQuestionnairePane(c){
+    const vc=findVisa(c);
+    if(!vc)return '<div class="empty" style="margin-top:8px">No visa case yet — use Manage Visa to open one, then questionnaire actions appear here.</div>';
+    S.va.gpDetailCache[c.user_id]=S.va.gpDetailCache[c.user_id]||{};
+    const cache=S.va.gpDetailCache[c.user_id];
+    const vq=cache.visaQuestionnaire;
+    if(!vq||vq.visaCaseId!==vc.id){loadVisaQuestionnaire(c.user_id,vc.id);return '<div class="empty" style="margin-top:8px">Loading questionnaire…</div>';}
+    if(vq.error)return '<div class="empty" style="margin-top:8px">Could not load the questionnaire. <button class="btn sm" data-vq-refresh="1">Retry</button></div>';
+    const q=vq.questionnaire;
+    const deps=Array.isArray(vq.dependants)?vq.dependants:[];
+    const status=q?String(q.status||"draft"):"none";
+    const vcId=esc(vc.id),uid=esc(c.user_id||vc.user_id||"");
+    const pdfHref='/api/admin/visa/questionnaire/pdf?visaCaseId='+encodeURIComponent(vc.id);
+    let h='<div data-vq-panel="1" style="margin-top:10px;padding:10px;border:1px solid var(--border,#2a2f3a);border-radius:8px;background:var(--bg2,#171a22)">';
+    h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong style="font-size:12px">Visa intake questionnaire</strong><span class="j-badge '+(status==="sent"?"done":status==="none"?"pending":"current")+'">'+esc(vqStatusLabel(status))+'</span><button class="btn sm" data-vq-refresh="1" title="Reload questionnaire">↻</button></div>';
+    if(status==="none"){
+      h+='<div style="margin-top:8px"><button class="btn primary sm" data-vq-request="'+vcId+'" data-vq-user="'+uid+'">Request questionnaire from GP</button><div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">Creates the questionnaire, notifies the GP in-app and adds a tracking task.</div></div>';
+    }else if(status==="draft"){
+      h+='<div style="font-size:12px;color:var(--muted,#9aa3b2);margin-top:6px">Waiting on the GP to complete and submit it.</div>';
+    }else if(status==="returned_for_changes"){
+      h+='<div style="font-size:12px;color:var(--muted,#9aa3b2);margin-top:6px">Returned to the GP for changes'+(q.return_note?': “'+esc(q.return_note)+'”':'')+'. Waiting on resubmission.</div>';
+    }
+    if(q&&["submitted","va_reviewed","returned_for_changes","ready_to_send","sent"].includes(status)){
+      h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px">View submitted answers (v'+esc(String(q.version||1))+')</summary><div style="margin-top:6px">'+vqAnswers(q)+'</div></details>';
+    }
+    if(status==="submitted"){
+      h+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary sm" data-vq-approve="'+vcId+'">Approve</button><button class="btn sm" data-vq-return-toggle="1">Return for changes</button></div>';
+      h+='<div id="vqReturnPanel" style="display:none;margin-top:6px"><textarea id="vqReturnNote" placeholder="What needs to be corrected…" style="width:100%;min-height:50px;padding:8px;background:var(--bg,#0f1218);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-family:inherit;font-size:12px"></textarea><button class="btn sm" data-vq-return-confirm="'+vcId+'" style="margin-top:4px">Return to GP</button></div>';
+    }else if(status==="va_reviewed"){
+      h+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a>'+vqRouteSelect("vqRouteSel")+'<button class="btn primary sm" data-vq-ready="'+vcId+'">Mark ready to send</button></div>';
+    }else if(status==="ready_to_send"){
+      h+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a>'+vqRouteSelect("vqRouteSel")+'<input id="vqSendNote" placeholder="Send note (optional)" style="padding:6px;background:var(--bg,#0f1218);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-size:12px"><button class="btn primary sm" data-vq-sent="'+vcId+'">Mark sent</button></div>';
+      h+='<div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">Marking sent records who, when and where — attach the downloaded PDF to your email yourself.</div>';
+    }else if(status==="sent"){
+      h+='<div style="font-size:12px;margin-top:6px">'+(q.sent_by?'Sent by '+esc(q.sent_by):'Sent')+(q.sent_at?' on '+esc(new Date(q.sent_at).toLocaleDateString("en-AU")):'')+(q.recipient_route?' → '+esc(vqRouteLabel(q.recipient_route)):'')+'</div>';
+      h+='<div style="margin-top:6px"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a></div>';
+    }
+    h+='<div style="margin-top:10px"><strong style="font-size:11px">Dependants ('+deps.length+')</strong>';
+    if(!deps.length)h+='<div style="font-size:11px;color:var(--muted,#9aa3b2)">None recorded — the GP manages dependants on their visa page.</div>';
+    else deps.forEach(d=>{h+='<div style="font-size:12px;padding:2px 0">'+esc(d.full_name||"")+' — '+esc(d.relationship||"")+(d.date_of_birth?' · DOB '+esc(d.date_of_birth):'')+(d.visa_status?' · '+esc(String(d.visa_status).replace(/_/g," ")):'')+'</div>';});
+    h+='</div>';
+    h+='</div>';
+    return h;
+  }
+  async function loadVisaQuestionnaire(userId,visaCaseId){
+    S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
+    const cache=S.va.gpDetailCache[userId];
+    if(cache._vqLoading===visaCaseId)return;
+    cache._vqLoading=visaCaseId;
+    try{
+      const [qr,dr]=await Promise.all([
+        fetch("/api/admin/visa/questionnaire?visaCaseId="+encodeURIComponent(visaCaseId),{credentials:"same-origin"}).then(r=>r.json()).catch(()=>null),
+        fetch("/api/admin/visa/dependants?caseId="+encodeURIComponent(visaCaseId),{credentials:"same-origin"}).then(r=>r.json()).catch(()=>null)
+      ]);
+      if(qr&&qr.ok)cache.visaQuestionnaire={visaCaseId:visaCaseId,questionnaire:qr.questionnaire||null,dependants:(dr&&dr.ok&&Array.isArray(dr.dependants))?dr.dependants:[]};
+      else cache.visaQuestionnaire={visaCaseId:visaCaseId,error:true};
+    }catch{cache.visaQuestionnaire={visaCaseId:visaCaseId,error:true};}
+    cache._vqLoading=null;
+    renderDetail();
+  }
+  async function vqAction(btn,url,body,successMsg){
+    const c=S.cases.find(x=>x.id===S.selectedCaseId);
+    btn.disabled=true;const orig=btn.textContent;btn.textContent="Working…";
+    try{
+      const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok&&d.ok){toast(successMsg);if(c&&S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].visaQuestionnaire;renderDetail();}
+      else{toast("Failed: "+(d.message||("HTTP "+r.status)),"red");btn.disabled=false;btn.textContent=orig;}
+    }catch{toast("Network error — please try again","red");btn.disabled=false;btn.textContent=orig;}
   }
 
   function renderGpNotesPane(c){
@@ -7421,7 +7527,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const impBtn=e.target.closest("[data-impersonate-gp]");if(impBtn){const uid=impBtn.getAttribute("data-impersonate-gp");if(uid)window.open('/api/admin/impersonate?user_id='+encodeURIComponent(uid),'_blank');return;}
       const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}
-      const ts=e.target.closest("[data-toggle-step]");if(ts){const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
+      /* Visa questionnaire actions (Phase 6 I3) — must run BEFORE the step-toggle handler */
+      const vqReq=e.target.closest("[data-vq-request]");if(vqReq){vqAction(vqReq,"/api/admin/visa/questionnaire/request",{visaCaseId:vqReq.getAttribute("data-vq-request"),userId:vqReq.getAttribute("data-vq-user")},"Questionnaire requested from the GP");return;}
+      const vqAppr=e.target.closest("[data-vq-approve]");if(vqAppr){vqAction(vqAppr,"/api/admin/visa/questionnaire/review",{visaCaseId:vqAppr.getAttribute("data-vq-approve"),action:"approve"},"Questionnaire approved");return;}
+      const vqRetT=e.target.closest("[data-vq-return-toggle]");if(vqRetT){const p=document.getElementById("vqReturnPanel");if(p)p.style.display=p.style.display==="none"?"block":"none";return;}
+      const vqRet=e.target.closest("[data-vq-return-confirm]");if(vqRet){const noteEl=document.getElementById("vqReturnNote");const note=noteEl?noteEl.value.trim():"";if(!note){toast("Add a note explaining what needs fixing","red");return;}vqAction(vqRet,"/api/admin/visa/questionnaire/review",{visaCaseId:vqRet.getAttribute("data-vq-return-confirm"),action:"return",returnNote:note},"Returned to the GP for changes");return;}
+      const vqReady=e.target.closest("[data-vq-ready]");if(vqReady){const sel=document.getElementById("vqRouteSel");vqAction(vqReady,"/api/admin/visa/questionnaire/send",{visaCaseId:vqReady.getAttribute("data-vq-ready"),action:"ready",recipientRoute:sel?sel.value:null},"Marked ready to send");return;}
+      const vqSent=e.target.closest("[data-vq-sent]");if(vqSent){const sel=document.getElementById("vqRouteSel");const noteEl2=document.getElementById("vqSendNote");const sendNote=noteEl2?noteEl2.value.trim():"";vqAction(vqSent,"/api/admin/visa/questionnaire/send",{visaCaseId:vqSent.getAttribute("data-vq-sent"),action:"sent",recipientRoute:sel?sel.value:null,sendNote:sendNote||null},"Marked as sent");return;}
+      const vqRef=e.target.closest("[data-vq-refresh]");if(vqRef){const vqc=S.cases.find(x=>x.id===S.selectedCaseId);if(vqc&&S.va.gpDetailCache[vqc.user_id])delete S.va.gpDetailCache[vqc.user_id].visaQuestionnaire;renderDetail();return;}
+      const ts=e.target.closest("[data-toggle-step]");if(ts){if(e.target.closest("[data-vq-panel]"))return;const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
       const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
     document.getElementById("modalOverlay").addEventListener("click",async e=>{
