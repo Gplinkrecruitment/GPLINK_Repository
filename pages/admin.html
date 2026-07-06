@@ -1634,6 +1634,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,pendingRender:false,
+    fStage:"",fRso:"",fCountry:"",fAge:"",fMine:false,
     mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,_opsStatFilter:null,_opsCollapsed:new Set(),
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
@@ -2593,6 +2594,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return merged;
   }
 
+  /* Look up the va/dashboard users row for a case (carries country + quals etc.). */
+  function dashUserForCase(rc){
+    if(!rc||!S.va.dashboard||!Array.isArray(S.va.dashboard.users))return null;
+    return S.va.dashboard.users.find(u=>u.case_id===rc.id||u.user_id===rc.user_id)||null;
+  }
+
   function filteredCases(){
     let list=mergedCases();
     const q=S.query.trim().toLowerCase();
@@ -2606,6 +2613,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     else if(S.filter==="blocked")list=list.filter(m=>m.rc&&m.rc.blocker_status);
     else if(S.filter==="active")list=list.filter(m=>!m.rc||m.rc.status==="active");
     else if(S.filter==="complete")list=list.filter(m=>m.rc&&m.rc.status==="complete");
+    /* Structured filters (stage / RSO / country / stage-age) + "My caseload" —
+       fields come from /api/admin/cases (assigned_rso_email, days_in_stage) with
+       country looked up from the va/dashboard users payload. Candidate-only rows
+       (no registration case) drop out when a case-scoped filter is active. */
+    if(S.fMine){const my=String(S.viewer&&S.viewer.email||"").toLowerCase();list=list.filter(m=>m.rc&&my&&String(m.rc.assigned_rso_email||"").toLowerCase()===my);}
+    if(S.fStage)list=list.filter(m=>m.rc&&m.rc.stage===S.fStage);
+    if(S.fRso){
+      if(S.fRso==="__unassigned__")list=list.filter(m=>m.rc&&!(m.rc.assigned_rso||m.rc.assigned_va));
+      else list=list.filter(m=>m.rc&&(m.rc.assigned_rso===S.fRso||m.rc.assigned_va===S.fRso||m.rc.assigned_rso_id===S.fRso));
+    }
+    if(S.fCountry)list=list.filter(m=>{if(!m.rc)return false;const u=dashUserForCase(m.rc);return !!u&&u.country===S.fCountry;});
+    if(S.fAge){const minDays=Number(S.fAge)||14;list=list.filter(m=>m.rc&&Number(m.rc.days_in_stage||0)>=minDays);}
     list.sort((a,b)=>{
       const au=a.rc?a.rc.urgent_tasks||0:0,bu=b.rc?b.rc.urgent_tasks||0:0;
       if(au!==bu)return bu-au;
@@ -2653,7 +2672,62 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       {k:"all",l:"All",c:c.all},{k:"urgent",l:"Urgent",c:c.urgent},{k:"overdue",l:"Overdue",c:c.overdue},
       {k:"blocked",l:"Blocked",c:c.blocked},{k:"active",l:"Active",c:c.active},{k:"complete",l:"Complete",c:c.complete}
     ];
-    document.getElementById("filterBar").innerHTML=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
+    let html=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
+    if(S.view!=="queue"){
+      html+=renderCaseFilterSelects();
+      html+=renderRsoCaseloadStrip();
+    }
+    document.getElementById("filterBar").innerHTML=html;
+  }
+
+  /* ── Structured GP-list filters: stage / RSO / country / stage-age + My caseload ── */
+  const AGE_BUCKETS=[{v:"",l:"Any age"},{v:"14",l:"Stalled 14d+"},{v:"30",l:"Stalled 30d+"}];
+  function caseRsoOptions(){
+    // Prefer the dashboard rollup (live rso_team roster incl. Unassigned); fall back to VA accounts.
+    const wl=(S.va.dashboard&&Array.isArray(S.va.dashboard.rso_workload))?S.va.dashboard.rso_workload:[];
+    if(wl.length)return wl.map(w=>({id:w.rso_id,name:w.rso_name}));
+    return (S._vaAccounts||[]).map(va=>({id:va.user_id,name:va.display_name||va.email_address}));
+  }
+  function caseCountryOptions(){
+    const set=new Set();
+    ((S.va.dashboard&&S.va.dashboard.users)||[]).forEach(u=>{if(u.country)set.add(u.country);});
+    return[...set].sort();
+  }
+  function renderCaseFilterSelects(){
+    const stageOpts=['<option value="">All stages</option>']
+      .concat(STEPS.map(s=>`<option value="${esc(s.key)}" ${S.fStage===s.key?"selected":""}>${esc(s.label)}</option>`))
+      .concat([`<option value="complete" ${S.fStage==="complete"?"selected":""}>Complete</option>`]).join("");
+    const rsoOpts=['<option value="">All RSOs</option>']
+      .concat(caseRsoOptions().map(r=>`<option value="${esc(r.id)}" ${S.fRso===r.id?"selected":""}>${esc(r.id==="__unassigned__"?"Unassigned":r.name)}</option>`)).join("");
+    const countryOpts=['<option value="">All countries</option>']
+      .concat(caseCountryOptions().map(cc=>`<option value="${esc(cc)}" ${S.fCountry===cc?"selected":""}>${esc(cc)}</option>`)).join("");
+    const ageOpts=AGE_BUCKETS.map(a=>`<option value="${a.v}" ${S.fAge===a.v?"selected":""}>${a.l}</option>`).join("");
+    const selStyle='font-size:11px;font-weight:600;padding:3px 6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);max-width:130px';
+    const anyActive=S.fMine||S.fStage||S.fRso||S.fCountry||S.fAge;
+    return `<div id="caseFilterSelects" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;width:100%;margin-top:6px">
+      <button class="filter-btn ${S.fMine?"active":""}" data-my-caseload title="Show only cases assigned to me">My caseload</button>
+      <select data-ffield="fStage" style="${selStyle}">${stageOpts}</select>
+      <select data-ffield="fRso" style="${selStyle}">${rsoOpts}</select>
+      <select data-ffield="fCountry" style="${selStyle}">${countryOpts}</select>
+      <select data-ffield="fAge" style="${selStyle}">${ageOpts}</select>
+      ${anyActive?'<button class="filter-btn" data-clear-case-filters style="color:#dc2626">Clear</button>':''}
+    </div>`;
+  }
+  /* Compact per-RSO caseload strip (active cases / open / overdue per RSO) —
+     numbers come from the SAME ceoMetrics.computeRsoWorkload rollup as the CEO
+     "RSO Workload" card. Clicking a chip filters the list to that RSO. */
+  function renderRsoCaseloadStrip(){
+    const wl=(S.va.dashboard&&Array.isArray(S.va.dashboard.rso_workload))?S.va.dashboard.rso_workload:[];
+    if(!wl.length)return"";
+    const chips=wl.filter(w=>w.case_count>0||w.rso_id!=="__unassigned__").map(w=>{
+      const name=w.rso_id==="__unassigned__"?"Unassigned":w.rso_name;
+      const active=S.fRso===w.rso_id;
+      const mine=String(w.rso_email||"").toLowerCase()===String(S.viewer&&S.viewer.email||"").toLowerCase()&&w.rso_email;
+      return `<button class="filter-btn ${active?"active":""}" data-rso-chip="${esc(w.rso_id)}" title="${esc(name)}: ${w.case_count} cases, ${w.open_tasks} open tasks, ${w.overdue_tasks} overdue" style="font-size:10px">
+        ${esc(name)}${mine?' (me)':''}<span class="fc">${w.case_count}</span>${w.overdue_tasks?`<span class="fc" style="background:#fee2e2;color:#dc2626">${w.overdue_tasks} od</span>`:''}
+      </button>`;
+    }).join("");
+    return `<div id="rsoCaseloadStrip" style="display:flex;flex-wrap:wrap;gap:4px;width:100%;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">${chips}</div>`;
   }
 
   // The specific tasks that make a case "Needs Action" \u2014 so the card can show WHAT needs
@@ -2796,7 +2870,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${STEPS.map(s=>`<option value="${s.key}" ${c.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
       </select></div>
       <div style="display:flex;gap:6px;align-items:end"><button class="btn primary" data-save-case="${esc(c.id)}">Save Changes</button></div>
+      <div class="case-field" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:8px;margin-top:4px">
+        <label>Re-open a stage (targeted rollback)</label>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="case-stage-pill stage-${esc(c.stage||'')}" style="font-size:10px">now: ${esc(c.stage||'unknown')}</span>
+          <select id="rollbackStageSel_${esc(c.id)}" style="flex:1;min-width:140px">
+            <option value="">Choose a stage to re-open…</option>
+            ${ROLLBACK_STAGE_ORDER.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("")}
+          </select>
+          <button class="btn" data-rollback-stage="${esc(c.id)}" data-rollback-email="${esc(c.gp_email||'')}" data-rollback-current="${esc(c.stage||'')}" style="color:#b45309;border-color:#fde68a">Re-open stage</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Lets the GP go back into that step without the destructive full reset. Their current progress in other stages is kept.</div>
+      </div>
     </div>`;
+  }
+
+  /* ── Targeted stage rollback: re-open one stage for the GP via the existing
+     registration-return-overrides endpoint (NOT the destructive reset-gp).
+     Sends the natural-progression override map (everything up to the current
+     stage stays open) with the chosen stage forced open. Audit-logged server-side.
+     ROLLBACK_STAGE_ORDER mirrors the server's stage-gate STAGE_ORDER (NOT the UI
+     STAGE_ORDER above, which includes onboarding and sorts career differently). */
+  const ROLLBACK_STAGE_ORDER=["placement","myintealth","amc","career","ahpra","visa","pbs","commencement"];
+  async function rollbackStage(caseId,email,currentStage){
+    const sel=document.getElementById("rollbackStageSel_"+caseId);
+    const target=sel&&sel.value;
+    if(!target){alert("Choose which stage to re-open first.");return;}
+    if(!email){alert("This case has no GP email on file — cannot roll back.");return;}
+    if(!confirm("Re-open the \""+target+"\" stage for "+email+"?\n\nThe GP will be able to return to that step. This does NOT wipe any progress (unlike a full reset)."))return;
+    const ORDER=ROLLBACK_STAGE_ORDER;
+    const curIdx=ORDER.indexOf(currentStage);
+    const steps={};
+    ORDER.forEach((s,i)=>{steps[s]=curIdx>=0?(i<=curIdx):true;});
+    steps[target]=true;
+    try{
+      const r=await fetch("/api/admin/registration-return-overrides",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({email:email,steps:steps})});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){if(typeof showOpsToast==="function")showOpsToast("Stage \""+target+"\" re-opened for "+email);else alert("Stage re-opened.");}
+      else alert("Failed: "+((d&&d.message)||"Unknown error"));
+    }catch(err){alert("Error: "+err.message);}
   }
 
   function groupTasksByStage(tasks){
@@ -6670,7 +6782,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderSiteEnquiriesPanel();
       }
     });
-    document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
+    document.getElementById("filterBar").addEventListener("click",e=>{
+      const mc=e.target.closest("[data-my-caseload]");
+      if(mc){S.fMine=!S.fMine;if(S.fMine)S.fRso="";renderFilters();renderCaseList();return;}
+      const rsoChip=e.target.closest("[data-rso-chip]");
+      if(rsoChip){const id=rsoChip.getAttribute("data-rso-chip");S.fRso=(S.fRso===id)?"":id;S.fMine=false;renderFilters();renderCaseList();return;}
+      const clr=e.target.closest("[data-clear-case-filters]");
+      if(clr){S.fMine=false;S.fStage="";S.fRso="";S.fCountry="";S.fAge="";renderFilters();renderCaseList();return;}
+      const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
+    document.getElementById("filterBar").addEventListener("change",e=>{
+      const sel=e.target.closest("[data-ffield]");if(!sel)return;
+      const field=sel.getAttribute("data-ffield");
+      if(field==="fStage"||field==="fRso"||field==="fCountry"||field==="fAge"){S[field]=sel.value||"";if(field==="fRso"&&sel.value)S.fMine=false;renderFilters();renderCaseList();}
+    });
     document.getElementById("caseList").addEventListener("click",e=>{
       const agentRun=e.target.closest("[data-agent-run-id]");
       if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderCaseList();renderDetail();loadAgentRun(S.agent.selectedRunId);return;}
@@ -7080,6 +7204,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const ct=e.target.closest("[data-complete-task]");if(ct){var ctId=ct.getAttribute("data-complete-task");var ctTask=(S.tasks||[]).find(function(t){return t.id===ctId;});if(ctTask&&ctTask.task_type==='email_triage'){resolveEmailTask(ct,ctId);}else{completeTask(ctId);}return;}
       const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
       const sc=e.target.closest("[data-save-case]");if(sc){saveCase(sc.getAttribute("data-save-case"));return;}
+      const rb=e.target.closest("[data-rollback-stage]");if(rb){rollbackStage(rb.getAttribute("data-rollback-stage"),rb.getAttribute("data-rollback-email"),rb.getAttribute("data-rollback-current"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
       if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
@@ -10489,6 +10614,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (call.invitee_notes) {
       html += '<div class="zoom-task-notes" style="border-left:3px solid #2563eb;background:#eff6ff"><div class="zoom-task-notes-label" style="color:#2563eb">GP\'s Booking Notes</div>' + esc(call.invitee_notes) + '</div>';
     }
+    html += renderCallDispositionBlock(call);
     // Summary toggle for completed calls
     if (call.status === 'completed' && call.meeting_summary) {
       var sumId = 'zoom-sum-' + (call.id || '').replace(/[^a-zA-Z0-9]/g, '');
@@ -10505,6 +10631,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
       if (call.status === 'booked') {
+        html += '<button class="btn sm" onclick="openCallOutcomeModal(\'' + esc(call.id) + '\')" style="font-size:10px;background:#16a34a;color:#fff;border-color:#16a34a">Complete call</button>';
         html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
         html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
       }
@@ -10513,6 +10640,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (call.status === 'no_show' || call.status === 'cancelled') {
       html += '<div class="zoom-task-actions">';
       html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Schedule new call</button>';
+      html += '</div>';
+    }
+    if (call.status === 'completed' && !call.call_disposition) {
+      html += '<div class="zoom-task-actions">';
+      html += '<button class="btn sm" onclick="openCallOutcomeModal(\'' + esc(call.id) + '\')" style="font-size:10px;color:#16a34a;border-color:#bbf7d0">Log outcome</button>';
       html += '</div>';
     }
     if (call.status === 'completed' && !call.meeting_summary) {
@@ -10560,6 +10692,65 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.markZoomNoShow = markZoomNoShow;
+
+  // ── Structured call-outcome logging (disposition + required outcome note) ──
+  var CALL_DISPOSITION_LABELS = { resolved: 'Resolved', needs_followup: 'Needs follow-up', escalate: 'Escalated', no_answer: 'No answer', rescheduled: 'Rescheduled' };
+  var CALL_DISPOSITION_COLORS = { resolved: 'background:#dcfce7;color:#166534', needs_followup: 'background:#fef3c7;color:#92400e', escalate: 'background:#fee2e2;color:#b91c1c', no_answer: 'background:#e2e8f0;color:#475569', rescheduled: 'background:#dbeafe;color:#1d4ed8' };
+  // Shared: outcome badge + note shown on both the zoom task card and the call-history card.
+  function renderCallDispositionBlock(call) {
+    if (!call || !call.call_disposition) return '';
+    var label = CALL_DISPOSITION_LABELS[call.call_disposition] || call.call_disposition;
+    var color = CALL_DISPOSITION_COLORS[call.call_disposition] || 'background:#e2e8f0;color:#475569';
+    var html = '<div class="call-history-notes" style="border-left:3px solid #16a34a;padding-left:8px;color:var(--text)">';
+    html += '<strong style="font-size:11px;color:#16a34a">Outcome:</strong> <span style="display:inline-block;font-size:10px;font-weight:800;padding:1px 8px;border-radius:999px;' + color + '">' + esc(label) + '</span>';
+    if (call.outcome_note) html += '<div style="font-size:12px;margin-top:3px">' + esc(call.outcome_note) + '</div>';
+    html += '</div>';
+    return html;
+  }
+  function openCallOutcomeModal(callId) {
+    var existing = document.getElementById('callOutcomeOverlay');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'callOutcomeOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    var opts = Object.keys(CALL_DISPOSITION_LABELS).map(function (k) { return '<option value="' + k + '">' + CALL_DISPOSITION_LABELS[k] + '</option>'; }).join('');
+    overlay.innerHTML = '<div style="background:var(--bg,#fff);border-radius:14px;max-width:420px;width:100%;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)">'
+      + '<h3 style="margin:0 0 4px;font-size:15px">Log call outcome</h3>'
+      + '<div style="font-size:12px;color:var(--muted,#64748b);margin-bottom:12px">Pick what happened on the call and write a short outcome note. "Needs follow-up" and "Escalate" also raise a follow-up task on the case.</div>'
+      + '<label style="font-size:11px;font-weight:700;display:block;margin-bottom:3px">Disposition</label>'
+      + '<select id="callOutcomeDisposition" style="width:100%;font-size:13px;padding:7px;border:1px solid var(--border,#e2e8f0);border-radius:8px;margin-bottom:10px"><option value="">Choose…</option>' + opts + '</select>'
+      + '<label style="font-size:11px;font-weight:700;display:block;margin-bottom:3px">Outcome note (required)</label>'
+      + '<textarea id="callOutcomeNote" rows="3" placeholder="What was discussed / agreed / still needed?" style="width:100%;font-size:13px;padding:7px;border:1px solid var(--border,#e2e8f0);border-radius:8px;resize:vertical;box-sizing:border-box"></textarea>'
+      + '<div id="callOutcomeError" style="color:#dc2626;font-size:11px;min-height:14px;margin:4px 0"></div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'
+      + '<button class="btn sm" onclick="document.getElementById(\'callOutcomeOverlay\').remove()" style="font-size:11px">Cancel</button>'
+      + '<button class="btn sm" onclick="submitCallOutcome(\'' + esc(callId) + '\')" style="font-size:11px;background:#16a34a;color:#fff;border-color:#16a34a">Save &amp; complete</button>'
+      + '</div></div>';
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+  window.openCallOutcomeModal = openCallOutcomeModal;
+  async function submitCallOutcome(callId) {
+    var disposition = (document.getElementById('callOutcomeDisposition') || {}).value || '';
+    var note = ((document.getElementById('callOutcomeNote') || {}).value || '').trim();
+    var errEl = document.getElementById('callOutcomeError');
+    if (!disposition) { if (errEl) errEl.textContent = 'Choose a disposition first.'; return; }
+    if (!note) { if (errEl) errEl.textContent = 'An outcome note is required.'; return; }
+    try {
+      var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ action: 'complete', disposition: disposition, outcome_note: note })
+      });
+      var d = await r.json();
+      if (d.ok) {
+        var ov = document.getElementById('callOutcomeOverlay'); if (ov) ov.remove();
+        _callHistCache = {}; // force a refetch so the new outcome shows
+        showOpsToast('Call outcome logged');
+        refreshAfterCallAction();
+      } else { if (errEl) errEl.textContent = 'Failed: ' + (d.message || 'Unknown error'); }
+    } catch (e) { if (errEl) errEl.textContent = 'Error: ' + e.message; }
+  }
+  window.submitCallOutcome = submitCallOutcome;
 
   async function rescheduleZoomCall(callId) {
     if (!confirm('Reschedule this call? A new Zoom invite will be sent to the GP.')) return;
@@ -11160,6 +11351,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (call.invitee_notes) {
       html += '<div class="call-history-notes" style="border-left:3px solid #2563eb;padding-left:8px;color:var(--text)"><strong style="font-size:11px;color:#2563eb">GP\'s Booking Notes:</strong> ' + esc(call.invitee_notes) + '</div>';
     }
+    html += renderCallDispositionBlock(call);
     // Action buttons for active calls
     if (call.status !== 'completed') {
       html += '<div class="zoom-task-actions">';
@@ -11173,12 +11365,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<button class="btn sm" onclick="cancelZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#dc2626;border-color:#fecaca">Cancel</button>';
       }
       if (call.status === 'booked') {
+        html += '<button class="btn sm" onclick="openCallOutcomeModal(\'' + esc(call.id) + '\')" style="font-size:10px;background:#16a34a;color:#fff;border-color:#16a34a">Complete call</button>';
         html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
         html += '<button class="btn sm" onclick="markZoomNoShow(\'' + esc(call.id) + '\')" style="font-size:10px;color:#b45309;border-color:#fde68a">No Show</button>';
       }
       if (call.status === 'no_show' || call.status === 'cancelled') {
         html += '<button class="btn sm" onclick="rescheduleZoomCall(\'' + esc(call.id) + '\')" style="font-size:10px;color:#2563eb;border-color:#bfdbfe">Reschedule</button>';
       }
+      html += '</div>';
+    }
+    if (call.status === 'completed' && !call.call_disposition) {
+      html += '<div class="zoom-task-actions">';
+      html += '<button class="btn sm" onclick="openCallOutcomeModal(\'' + esc(call.id) + '\')" style="font-size:10px;color:#16a34a;border-color:#bbf7d0">Log outcome</button>';
       html += '</div>';
     }
     // Meeting summary for completed calls

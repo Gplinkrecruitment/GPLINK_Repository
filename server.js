@@ -33056,6 +33056,13 @@ async function handleApi(req, res, pathname) {
     currentState.gp_registration_return_overrides = JSON.stringify(steps);
     currentState.updatedAt = new Date().toISOString();
     await upsertSupabaseUserState(userId, currentState, currentState.updatedAt);
+    // Targeted stage-rollback / re-open is an admin action on a GP's registration —
+    // audit it (non-destructive alternative to admin_reset_gp).
+    await logAdminAction(req, admin, 'admin_stage_rollback', {
+      targetType: 'gp',
+      targetId: email,
+      detail: { steps: steps }
+    });
     sendJson(res, 200, { ok: true, email, steps });
     return;
   }
@@ -34418,6 +34425,59 @@ async function handleApi(req, res, pathname) {
       const resultCall = await handleScheduledCallFailure(call, 'no_show', { adminNote: body && body.admin_notes });
       sendJson(res, 200, { ok: true, call: resultCall });
       return;
+    }
+
+    // Complete with a structured outcome: disposition (required, from the fixed list)
+    // + a required outcome note. Allowed from booked (RSO closing out the call) or
+    // completed (logging the outcome on a call the auto-complete cron already closed).
+    if (requestedAction === 'complete' || requestedAction === 'completed') {
+      if (!['booked', 'completed'].includes(call.status)) {
+        sendJson(res, 409, { ok: false, message: 'Can only log an outcome for calls with status booked or completed.' });
+        return;
+      }
+      const CALL_DISPOSITIONS = ['resolved', 'needs_followup', 'escalate', 'no_answer', 'rescheduled'];
+      const disposition = String(body && body.disposition || '').trim().toLowerCase();
+      if (!CALL_DISPOSITIONS.includes(disposition)) {
+        sendJson(res, 400, { ok: false, message: 'A disposition is required: ' + CALL_DISPOSITIONS.join(', ') + '.' });
+        return;
+      }
+      const outcomeNote = String(body && body.outcome_note || '').trim();
+      if (!outcomeNote) {
+        sendJson(res, 400, { ok: false, message: 'An outcome note is required when completing a call.' });
+        return;
+      }
+      const completeNowIso = new Date().toISOString();
+      patch.status = 'completed';
+      patch.completed_at = call.completed_at || completeNowIso;
+      patch.call_disposition = disposition;
+      patch.outcome_note = outcomeNote.slice(0, 2000);
+      // Keep the Zoom-summary pipeline intact: same transition the auto-complete
+      // cron applies — only kick a pending fetch when none was ever requested.
+      patch.summary_status = (call.summary_status === 'not_requested' || !call.summary_status) ? 'pending' : call.summary_status;
+
+      // Needs follow-up / escalate → raise a follow-up task on the case (existing task path).
+      if (disposition === 'needs_followup' || disposition === 'escalate') {
+        try {
+          const fuProfRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email', { method: 'GET' });
+          const fuGp = (fuProfRes.ok && Array.isArray(fuProfRes.data) && fuProfRes.data[0]) ? fuProfRes.data[0] : {};
+          const fuName = ((String(fuGp.first_name || '').trim() + ' ' + String(fuGp.last_name || '').trim()).trim()) || fuGp.email || 'the GP';
+          const fuStage = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[call.stage] || (call.stage || '');
+          // task_type 'chase' (not 'followup'): chase is the type the live call-failure
+          // path already inserts, so it is proven against the LIVE task_type constraint.
+          await _createRegTask(call.case_id, {
+            task_type: 'chase',
+            title: (disposition === 'escalate' ? 'Escalated from call — ' : 'Call follow-up — ') + fuName + (fuStage ? ' (' + fuStage + ')' : ''),
+            description: 'Call outcome logged as "' + disposition + '" by ' + (admin.email || 'admin') + ': ' + outcomeNote.slice(0, 800),
+            status: 'open',
+            priority: disposition === 'escalate' ? 'urgent' : 'high',
+            source_trigger: 'call_disposition',
+            related_stage: call.stage,
+            _actor: admin.email || 'admin'
+          });
+        } catch (fuErr) {
+          console.error('[calls complete] follow-up task error:', fuErr && fuErr.message);
+        }
+      }
     }
 
     // Cancel (from invited, booked, or no_show — admins can close out a missed call)
@@ -39134,6 +39194,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Exclude admin/VA users from GP cases list
     const adminUserIds = await getAdminUserIdSet();
     var HIDDEN_CASE_EMAILS = new Set(['khaleedmahmoud1211@gmail.com', 'hazel@mygplink.com.au', 'hello@mygplink.com.au']);
+    // RSO roster: resolve assigned RSO name/email per case so the admin GP list
+    // can filter by RSO / "my caseload" client-side. days_in_stage uses the same
+    // ceoMetrics.caseAgeMs aging as the CEO pipeline drilldown so numbers agree.
+    const listRosterRows = await loadRsoTeam({ includeInactive: true });
+    const listRsoById = {};
+    for (var lri = 0; lri < listRosterRows.length; lri++) { listRsoById[listRosterRows[lri].user_id] = listRosterRows[lri]; }
+    const listNowMs = Date.now();
     const enriched = [];
     for (var ci = 0; ci < cases.length; ci++) {
       var c = cases[ci];
@@ -39143,10 +39210,16 @@ Return ONLY valid JSON with no markdown formatting:
       if (HIDDEN_CASE_EMAILS.has(caseEmailLc)) continue;
       if (caseEmailLc && (isAdminEmail(caseEmailLc) || MONITORED_VA_EMAILS.includes(caseEmailLc))) continue;
       var tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      var listRsoKey = c.assigned_rso || c.assigned_va || null;
+      var listRso = listRsoKey ? listRsoById[listRsoKey] : null;
       enriched.push(Object.assign({}, c, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
+        assigned_rso_id: listRsoKey,
+        assigned_rso_name: listRso ? (listRso.name || '') : (listRsoKey ? 'Unknown' : ''),
+        assigned_rso_email: listRso ? String(listRso.email || '').toLowerCase() : '',
+        days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, listNowMs) / ceoMetrics.DAY_MS)),
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
       }));
     }
@@ -41539,6 +41612,32 @@ Return ONLY valid JSON with no markdown formatting:
     const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
     const openTickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
 
+    // RSO roster: names/emails for per-case assignment + the per-RSO caseload rollup.
+    // Same loader + lib rollup the CEO "RSO Workload" card uses so the numbers match.
+    const dashRosterRows = await loadRsoTeam({ includeInactive: true });
+    const dashRsoNameById = {};
+    const dashRsoEmailById = {};
+    for (const rr of dashRosterRows) {
+      dashRsoNameById[rr.user_id] = rr.name || '';
+      dashRsoEmailById[rr.user_id] = String(rr.email || '').toLowerCase();
+    }
+    const dashNowMs = Date.now();
+    const dashTodayStr = new Date(dashNowMs).toISOString().slice(0, 10);
+    const dashRsoWorkload = ceoMetrics.computeRsoWorkload(
+      cases, tasks,
+      dashRosterRows.map(function (rr) { return { rso_id: rr.user_id, rso_name: rr.name }; }),
+      dashTodayStr
+    ).map(function (w) {
+      return {
+        rso_id: w.rso_id,
+        rso_name: w.rso_name,
+        rso_email: w.rso_id === '__unassigned__' ? '' : (dashRsoEmailById[w.rso_id] || ''),
+        case_count: w.case_count,
+        open_tasks: w.open_tasks,
+        overdue_tasks: w.overdue_tasks
+      };
+    });
+
     const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
     let stateMap = {};
@@ -41671,6 +41770,7 @@ Return ONLY valid JSON with no markdown formatting:
           visibleMyintealthId = null;
         }
       }
+      var dashAssignedRsoId = c.assigned_rso || c.assigned_va || null;
       users.push({
         case_id: c.id,
         user_id: c.user_id,
@@ -41681,6 +41781,10 @@ Return ONLY valid JSON with no markdown formatting:
         country: countryCode,
         stage: c.stage,
         substage: c.substage,
+        assigned_rso_id: dashAssignedRsoId,
+        assigned_rso: dashAssignedRsoId ? (dashRsoNameById[dashAssignedRsoId] || 'Unknown') : 'Unassigned',
+        assigned_rso_email: dashAssignedRsoId ? (dashRsoEmailById[dashAssignedRsoId] || '') : '',
+        days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, dashNowMs) / ceoMetrics.DAY_MS)),
         status: c.status,
         blocker_status: c.blocker_status,
         created_at: c.created_at,
@@ -41781,6 +41885,7 @@ Return ONLY valid JSON with no markdown formatting:
         open_tickets: enrichedTickets.length
       },
       users: users,
+      rso_workload: dashRsoWorkload,
       todays_tasks: enrichedTasks,
       open_tickets: enrichedTickets,
       whatsapp_number: HAZEL_WHATSAPP_NUMBER
