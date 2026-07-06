@@ -137,6 +137,7 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -23018,6 +23019,86 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div></body></html>`;
 }
 
+// 3-sentence, highly-recommending summary of the GP's experience, written by
+// AI from the verified careers CV. Returns '' on ANY failure — the email
+// simply omits the recommendation block (submit-to-practice must never be
+// blocked on this being available).
+async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName }) {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return '';
+    var mime = String(mimeType || '').toLowerCase();
+    var blocks = [];
+    if (mime === 'application/pdf') blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+    else if (/^image\//.test(mime)) blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+    else if (mime.includes('wordprocessingml')) {
+      var text = await extractDocxTextWithMammoth(buffer);
+      if (!text) return '';
+      blocks.push({ type: 'text', text: 'CV TEXT:\n\n' + text.slice(0, 30000) });
+    } else return '';
+    blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + String(gpName || '').trim() + '\'s experience and strengths, framed as a strong recommendation. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts. Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 400, messages: [{ role: 'user', content: blocks }] })
+    });
+    if (!resp.ok) return '';
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var out = (json && json.content && json.content[0] && json.content[0].text || '').trim();
+    return out.length > 20 && out.length < 1200 ? out : '';
+  } catch (err) {
+    console.warn('[submit-to-practice] recommendation generation failed (email sends without it):', err && err.message);
+    return '';
+  }
+}
+
+// Body of the submit-to-practice introduction email (wrapped by
+// buildCareerEmailHtml). Email-safe inline styles; structure follows the
+// approved mockup (docs/mockups/career-cv-gate-practice-email.html, Section 2):
+// greeting -> "About Dr X" card (intro paragraph + fact chips) -> optional AI
+// recommendation -> attachment line -> big green Approve button + small
+// "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
+// ACTUALLY attached (not just requested) so the copy never claims an
+// attachment that isn't really there.
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter }) {
+  // No shared escapeHtml export exists in this file (every email builder
+  // defines its own inline one-liner — see e.g. the escHtml consts near
+  // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
+  // same established convention here rather than adding a new shared helper.
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var safeIntro = intro || {};
+  var displayName = /^dr\b/i.test(String(gpName || '')) ? gpName : 'Dr ' + gpName;
+  var factsHtml = (safeIntro.facts || []).map(function (f) {
+    return '<span style="display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0">' + esc(f.icon + ' ' + f.label) + '</span>';
+  }).join('');
+  var recHtml = recommendation ? (
+    '<div style="border-left:4px solid #2563eb;background:#eff4ff;border-radius:0 16px 16px 0;padding:16px 20px;margin:20px 0">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">⭐ Why we recommend ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#22376b;font-style:italic;margin:0">&ldquo;' + esc(recommendation) + '&rdquo;</p></div>'
+  ) : '';
+  // Attach-line copy must match reality: only claim an attachment that was
+  // actually fetched (hasCv/hasCoverLetter), never assume the request means
+  // the download succeeded — same "graceful, honest fallback" rule the old
+  // in-app branch followed.
+  var attachLine = hasCv
+    ? (hasCoverLetter ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+    : (hasCoverLetter ? 'Their cover letter is attached — we’ll follow up with their CV shortly.' : 'We’ll follow up with their CV shortly.');
+  return (
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Dear ' + esc(practiceName || 'team') + ',</p>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">We&rsquo;re delighted to introduce <b>' + esc(displayName) + '</b> for your <b>' + esc(roleTitle || 'GP') + '</b> position.</p>' +
+    '<div style="border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">About ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0">' + esc(safeIntro.paragraph) + '</p>' +
+    '<div style="margin-top:10px">' + factsHtml + '</div></div>' +
+    recHtml +
+    '<p style="font-size:13px;color:#64748b;margin:16px 0 4px">' + attachLine + '</p>' +
+    '<div style="text-align:center;margin:28px 0 6px">' +
+    '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
+    '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>'
+  );
+}
+
 // ============================================================================
 // IN-APP ATS — Jobs / Practices / Candidates (dual-mode: Supabase | local-JSON)
 // See docs/superpowers/specs/2026-06-27-ats-ceo-restructure-design.md
@@ -30731,111 +30812,159 @@ async function handleApi(req, res, pathname) {
     const inAppRoleLabel = (inAppRole && inAppRole.title) || 'General Practitioner';
     const inAppPracticeLabel = (inAppPractice && inAppPractice.name) || (inAppRole && inAppRole.practice_name) || 'the practice';
 
-    // Country (user_profiles.registration_country → user_state.gp_selected_country,
-    // the same fallback _resolveGpCountry uses) + qualification summary from the
-    // onboarding answers (same source the candidate drawer shows).
+    // Country (user_profiles.registration_country → user_state.gp_onboarding.country,
+    // read by the candidate-intro builder below) + onboarding state, same
+    // source the candidate drawer shows.
     let inAppStateVal = {};
     try {
       const inAppStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
       inAppStateVal = inAppStateRes.ok && Array.isArray(inAppStateRes.data) && inAppStateRes.data[0] && inAppStateRes.data[0].state
         ? inAppStateRes.data[0].state : {};
     } catch (stateErr) { inAppStateVal = {}; }
-    const inAppCountryNames = { uk: 'United Kingdom', gb: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia' };
-    const inAppCountryRaw = String(inAppProfile.registration_country || inAppStateVal.gp_selected_country || '').trim();
-    const inAppCountryLabel = inAppCountryRaw ? (inAppCountryNames[inAppCountryRaw.toLowerCase()] || inAppCountryRaw) : '';
-    let inAppSpecialty = '';
-    try {
-      inAppSpecialty = atsSpecialtyFromOnboarding(_parseStateVal(inAppStateVal.gp_onboarding) || {});
-    } catch (spErr) { inAppSpecialty = ''; }
 
-    // The GP's CV (user_documents key cv_signed_dated) — same storage-path
-    // download the doc pipeline uses (processDocumentUpload). If there's no CV
-    // row or the file can't be fetched, the email still goes out without the
-    // attachment and says the CV will follow.
+    // The GP's CV attachment. Source order (bug fix, plan 2026-07-06): the
+    // AI-verified careers CV (document_key 'career_cv', Task 3) FIRST — it can
+    // only ever be a genuine CV because it was AI-checked at upload — with a
+    // legacy fallback to the registration-file 'cv_signed_dated' document
+    // ONLY when status='uploaded'. Before this fix the legacy query had no
+    // status filter at all, so a REJECTED cv_signed_dated row (e.g. a
+    // contract mistakenly filed under that key) could be the most-recently
+    // updated row and still get emailed out as the candidate's "CV". If
+    // there's no CV row or the file can't be fetched, the email still goes
+    // out without the attachment and says the CV will follow.
+    let inAppCvRow = null;
+    let inAppCvBuffer = null;
     let inAppCvAttachment = null;
     try {
-      const inAppCvRes = await supabaseDbRequest('user_documents',
-        `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1`);
-      const inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      inAppCvRow = await getCareerProfileDocument(appRow.user_id, 'career_cv');
+      if (!inAppCvRow) {
+        const inAppCvRes = await supabaseDbRequest('user_documents',
+          `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&status=eq.uploaded&order=updated_at.desc&limit=1`);
+        inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      }
       const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';
       if (inAppCvPath && !/^https?:/i.test(inAppCvPath)) {
         const inAppCvDl = await supabaseStorageDownloadObject(inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppCvPath);
         if (inAppCvDl && inAppCvDl.buffer && inAppCvDl.buffer.length) {
+          inAppCvBuffer = inAppCvDl.buffer;
           inAppCvAttachment = {
             filename: inAppCvRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-CV.pdf'),
-            content: inAppCvDl.buffer.toString('base64'),
+            content: inAppCvBuffer.toString('base64'),
             contentType: inAppCvRow.mime_type || inAppCvDl.mimeType || 'application/pdf'
           };
         }
       }
-    } catch (cvErr) { inAppCvAttachment = null; }
+    } catch (cvErr) { inAppCvRow = null; inAppCvBuffer = null; inAppCvAttachment = null; }
 
-    // D1a: cached AI handover summary → a practice-appropriate "Candidate
-    // overview" section. ONLY overview + key_history are shared — concerns and
-    // action_items are internal, RSO-facing notes and must never reach a
-    // practice. Read the cached value only (no generation here); any failure
-    // just skips the section — the introduction email itself must still send.
-    let inAppAiOverview = '';
-    let inAppAiHistory = '';
+    // Optional cover letter (career_cover_letter) — same AI-free profile-doc
+    // pipeline as the CV. Never sourced from registration-file documents.
+    let inAppClAttachment = null;
     try {
-      const inAppAiRes = await supabaseDbRequest('registration_cases',
-        `select=ai_handover_summary&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
-      const inAppAiRow = inAppAiRes.ok && Array.isArray(inAppAiRes.data) && inAppAiRes.data[0] ? inAppAiRes.data[0] : null;
-      const inAppAi = inAppAiRow && inAppAiRow.ai_handover_summary && typeof inAppAiRow.ai_handover_summary === 'object'
-        ? inAppAiRow.ai_handover_summary : null;
-      if (inAppAi) {
-        inAppAiOverview = String(inAppAi.overview || '').trim();
-        inAppAiHistory = String(inAppAi.key_history || '').trim();
+      const inAppClRow = await getCareerProfileDocument(appRow.user_id, 'career_cover_letter');
+      const inAppClPath = inAppClRow ? String(inAppClRow.storage_path || inAppClRow.file_url || '').trim() : '';
+      if (inAppClPath && !/^https?:/i.test(inAppClPath)) {
+        const inAppClDl = await supabaseStorageDownloadObject(inAppClRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppClPath);
+        if (inAppClDl && inAppClDl.buffer && inAppClDl.buffer.length) {
+          inAppClAttachment = {
+            filename: inAppClRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-Cover-Letter.pdf'),
+            content: inAppClDl.buffer.toString('base64'),
+            contentType: inAppClRow.mime_type || inAppClDl.mimeType || 'application/pdf'
+          };
+        }
       }
-    } catch (aiErr) { inAppAiOverview = ''; inAppAiHistory = ''; }
+    } catch (clErr) { inAppClAttachment = null; }
+    const inAppAttachments = [inAppCvAttachment, inAppClAttachment].filter(Boolean);
+
+    // Stable action token — reused across resubmits (an already-submitted
+    // application 409s above, but a token generated once must never rotate
+    // under an approve/turn-down link already sent to a practice inbox).
+    let inAppActionToken = appRow.practice_action_token;
+    if (!inAppActionToken) inAppActionToken = crypto.randomBytes(24).toString('base64url');
+    const inAppApproveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=approve';
+    const inAppTurnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=turn_down';
+
+    // Profile-driven candidate intro (Task 2) — same onboarding read the old
+    // copy used (_parseStateVal(inAppStateVal.gp_onboarding)), now feeding the
+    // shared pure builder instead of hand-rolled sentences.
+    const inAppOb = _parseStateVal(inAppStateVal.gp_onboarding);
+    const inAppIntro = careerIntro.buildCandidateIntro({
+      gpName: inAppGpName,
+      countryCode: inAppProfile.registration_country || inAppOb.country,
+      accountStatus: inAppProfile.account_status || inAppStateVal.account_status,
+      specialty: atsSpecialtyFromOnboarding(inAppOb),
+      targetDate: inAppProfile.target_arrival_date || inAppOb.targetDate,
+      practiceName: inAppPracticeLabel,
+      roleTitle: inAppRoleLabel
+    });
+    const inAppDisplayName = /^dr\b/i.test(inAppGpName) ? inAppGpName : 'Dr ' + inAppGpName;
+
+    // AI 3-sentence recommendation, generated from the actual verified CV
+    // bytes — only attempted when a CV was actually downloaded above. Returns
+    // '' on ANY failure (AI down/unconfigured/over budget) — the email still
+    // sends, it simply omits the recommendation block.
+    const inAppRecommendation = inAppCvBuffer
+      ? ((await generateCandidateRecommendation({
+          buffer: inAppCvBuffer,
+          mimeType: (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf',
+          fileName: inAppCvRow && inAppCvRow.file_name,
+          gpName: inAppGpName
+        })) || '')
+      : '';
+
+    const introSubject = 'Candidate introduction: ' + inAppDisplayName + ' — ' + inAppRoleLabel;
+    // buildCareerEmailHtml drops `title` straight into an <h1> with no
+    // escaping of its own (every other call site in this file only ever
+    // passes a static string, e.g. 'Offer accepted' at ~24109) — so unlike
+    // the plain-text `subject` above, the HTML title must be escaped here
+    // since it now carries the GP's name and the role title.
+    const introTitleEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const introTitleHtml = 'Candidate introduction: ' + introTitleEsc(inAppDisplayName) + ' — ' + introTitleEsc(inAppRoleLabel);
+    const inAppHasCv = !!inAppCvAttachment;
+    const inAppHasCl = !!inAppClAttachment;
+    const introBodyHtml = buildCandidateSubmissionEmailHtml({
+      gpName: inAppGpName,
+      roleTitle: inAppRoleLabel,
+      practiceName: inAppPracticeLabel,
+      intro: inAppIntro,
+      recommendation: inAppRecommendation,
+      approveUrl: inAppApproveUrl,
+      turnDownUrl: inAppTurnDownUrl,
+      hasCv: inAppHasCv,
+      hasCoverLetter: inAppHasCl
+    });
+    // Plain-text fallback mirrors the HTML structure (greeting, intro
+    // paragraph, optional recommendation, attach line, plain-URL decision
+    // links) — every other sendEmail call site in this file provides one.
+    const inAppAttachLine = inAppHasCv
+      ? (inAppHasCl ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+      : (inAppHasCl ? 'Their cover letter is attached — we\'ll follow up with their CV shortly.' : 'We\'ll follow up with their CV shortly.');
+    const introText = [
+      'Dear ' + (inAppPracticeLabel || 'team') + ',',
+      '',
+      'We\'re delighted to introduce ' + inAppDisplayName + ' for your ' + inAppRoleLabel + ' position.',
+      '',
+      inAppIntro.paragraph
+    ]
+      .concat(inAppRecommendation ? ['', 'Why we recommend ' + inAppDisplayName + ':', inAppRecommendation] : [])
+      .concat(['', inAppAttachLine])
+      .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
+      .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
+      .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
+      .join('\n');
 
     // Compose + send the introduction. From/branding matches the other
     // ATS practice-facing emails (interview confirmations): the registration
     // hub mailbox as 'GP Link', via the shared sendEmail helper.
-    const escIntro = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const introFacts = [];
-    if (inAppCountryLabel) introFacts.push('Registration country: ' + inAppCountryLabel);
-    if (inAppSpecialty) introFacts.push('Qualification: ' + inAppSpecialty);
-    const introCvLine = inAppCvAttachment
-      ? 'We\'ve attached ' + inAppGpName + '\'s CV to this email for your review.'
-      : 'We\'ll follow up with the candidate\'s CV shortly.';
-    const introSubject = 'Candidate introduction: ' + inAppGpName + ' — ' + inAppRoleLabel;
-    const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
-    const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
-    const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
-    // Candidate overview (D1a): overview + key history only — see the guard
-    // above where concerns/action_items are deliberately never read out.
-    const introOverviewHtml = inAppAiOverview
-      ? '<br><br><strong>Candidate overview</strong><br>' + escIntro(inAppAiOverview)
-        + (inAppAiHistory ? '<br><br><strong>Key history</strong><br>' + escIntro(inAppAiHistory) : '')
-      : '';
-    const introOverviewText = inAppAiOverview
-      ? ['', 'Candidate overview:', inAppAiOverview].concat(inAppAiHistory ? ['', 'Key history:', inAppAiHistory] : [])
-      : [];
-    const introBodyHtml =
-      escIntro(introGreeting) + '<br><br>' +
-      'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
-      (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
-      introOverviewHtml +
-      '<br><br>' + escIntro(introCvLine) +
-      '<br><br>' + escIntro(introClose);
-    const introText = [introGreeting, '', introLead]
-      .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
-      .concat(introOverviewText)
-      .concat(['', introCvLine, '', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
-      .join('\n');
-
     const introSendResult = await sendEmail({
       to: inAppContactEmail,
       subject: introSubject,
       html: buildCareerEmailHtml({
-        title: 'Candidate introduction',
-        body: introBodyHtml,
-        footer: 'Sent by the GP Link recruitment team on behalf of ' + escIntro(inAppGpName) + '.'
+        title: introTitleHtml,
+        bodyHtml: introBodyHtml
       }),
       text: introText,
       from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
-      attachments: inAppCvAttachment ? [inAppCvAttachment] : undefined
+      attachments: inAppAttachments.length ? inAppAttachments : undefined
     });
     if (!introSendResult || !introSendResult.ok) {
       console.error('[admin career applications] in-app submit-to-practice email failed:', introSendResult && introSendResult.error);
@@ -30853,6 +30982,8 @@ async function handleApi(req, res, pathname) {
       practice_contact_email: inAppContactEmail,
       submitted_to_practice_at: inAppNowIso,
       submitted_to_practice_by: admin.email || '',
+      practice_action_token: inAppActionToken,
+      ai_recommendation: inAppRecommendation || null,
       updated_at: inAppNowIso
     };
     const inAppPatchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
@@ -49328,6 +49459,9 @@ module.exports.__testUtils = {
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
-  enumerateIncompleteOnboardingGps
+  enumerateIncompleteOnboardingGps,
+  buildCandidateSubmissionEmailHtml,
+  generateCandidateRecommendation,
+  buildCandidateIntro: careerIntro.buildCandidateIntro
 };
 // cache-bust 1778597236

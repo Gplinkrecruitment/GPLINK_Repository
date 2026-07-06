@@ -113,7 +113,12 @@ const db = {
   ],
   ats_stage_events: [],
   user_documents: [
-    { id: 'doc-cv-1', user_id: GP.userId, document_key: 'cv_signed_dated', country_code: 'AU', file_name: 'Dr-Test-CV.pdf', mime_type: 'application/pdf', storage_path: CV_STORAGE_PATH, status: 'approved', updated_at: NOW }
+    // Task 6 (2026-07-06 plan): the legacy cv_signed_dated fallback now
+    // requires status='uploaded' — this is the bug fix (a rejected doc filed
+    // under this key could otherwise still be the most-recently-updated row
+    // and get emailed out as the candidate's "CV"). This GP has no career_cv
+    // row, so this uploaded legacy doc is what the fallback picks up.
+    { id: 'doc-cv-1', user_id: GP.userId, document_key: 'cv_signed_dated', country_code: 'AU', file_name: 'Dr-Test-CV.pdf', mime_type: 'application/pdf', storage_path: CV_STORAGE_PATH, status: 'uploaded', updated_at: NOW }
   ],
   integration_connections: [],
   runtime_kv: []
@@ -398,16 +403,24 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(email.attachments[0].content_type).toBe('application/pdf');
     expect(String(email.html)).not.toContain('CV shortly');
 
-    // D1a: the cached AI handover summary surfaces as a practice-appropriate
-    // "Candidate overview" (overview + key history), while the internal-only
-    // concerns/action_items NEVER reach the practice.
-    expect(String(email.html)).toContain('Candidate overview');
-    expect(String(email.html)).toContain('Experienced UK-trained GP with a strong chronic-disease focus.');
-    expect(String(email.html)).toContain('Key history');
-    expect(String(email.html)).toContain('Ten years in NHS general practice across Leeds.');
+    // Task 6 (2026-07-06 plan) replaced the old D1a "Candidate overview" /
+    // "Key history" section (sourced from the cached ai_handover_summary)
+    // with the new profile-driven intro + AI recommendation + approve/
+    // turn-down buttons — see docs/mockups/career-cv-gate-practice-email.html
+    // Section 2, which has no such section. The seeded ai_handover_summary on
+    // case-1 (including its INTERNAL-ONLY concerns/action_items) is simply
+    // never read by this endpoint any more, so it can never leak either.
+    expect(String(email.html)).not.toContain('Candidate overview');
     expect(String(email.html)).not.toContain('INTERNAL-ONLY');
-    expect(String(email.text)).toContain('Candidate overview');
     expect(String(email.text)).not.toContain('INTERNAL-ONLY');
+    // New copy in its place: profile-driven intro sentence, AI recommendation
+    // (test-suite has no ANTHROPIC_API_KEY, so it's simply omitted), and the
+    // one-click decision buttons/token.
+    expect(String(email.html)).toContain('Expedited Specialist Pathway');
+    expect(String(email.html)).toContain('/pages/practice-decision.html?token=');
+    expect(String(email.html)).toContain('action=approve');
+    expect(String(email.html)).toContain('action=turn_down');
+    expect(String(email.html)).not.toContain('Why we recommend'); // no ANTHROPIC_API_KEY in this suite
 
     // gp_applications parity patch.
     const app = db.gp_applications.find((a) => a.id === 'app-1');
