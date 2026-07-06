@@ -28359,7 +28359,21 @@ async function handleApi(req, res, pathname) {
     const cvFileSize = Number(body && body.fileSize) || 0;
 
     if (!cvFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
     if (cvFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    let cvBuffer;
+    try { cvBuffer = Buffer.from(cvFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (cvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
       sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
       return;
     }
@@ -28368,12 +28382,6 @@ async function handleApi(req, res, pathname) {
     const cvAllowed = await checkRateLimitWindow(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
     if (!cvAllowed) {
       sendJson(res, 429, { ok: false, code: 'rate_limited', message: "You've reached today's CV check limit — please try again tomorrow." });
-      return;
-    }
-
-    let cvBuffer;
-    try { cvBuffer = Buffer.from(cvFileBase64, 'base64'); } catch {
-      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
       return;
     }
 
@@ -28424,10 +28432,25 @@ async function handleApi(req, res, pathname) {
     const clFileSize = Number(body && body.fileSize) || 0;
 
     if (!clFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
     if (clFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
       sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
       return;
     }
+
+    let clBuffer;
+    try { clBuffer = Buffer.from(clFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (clBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+
     if (clMimeType && !CAREER_PROFILE_ALLOWED_MIME_TYPES.has(clMimeType)) {
       sendJson(res, 400, { ok: false, message: 'Unsupported file type — please upload a PDF, Word document, or image.' });
       return;
@@ -28437,7 +28460,7 @@ async function handleApi(req, res, pathname) {
       fileName: clFileName,
       fileBase64: clFileBase64,
       mimeType: clMimeType || 'application/octet-stream',
-      fileSize: clFileSize || Math.floor(clFileBase64.length * 0.75)
+      fileSize: clFileSize || clBuffer.length
     });
     if (!clSaved) {
       sendJson(res, 502, { ok: false, message: 'Failed to save your cover letter — please try again.' });

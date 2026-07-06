@@ -260,6 +260,14 @@ describe('career profile gate', () => {
     expect(res.status).toBe(413);
   });
 
+  it('rejects uploads with small fileSize but large decoded buffer', async () => {
+    // Create a base64 string that decodes to > 3 MB
+    const largeBuffer = Buffer.alloc(3 * 1024 * 1024 + 100, 65);
+    const largeBase64 = largeBuffer.toString('base64');
+    const res = await httpReq('POST', '/api/career/profile/cv', { cookie: cookie(), body: { fileName: 'fake.pdf', fileBase64: largeBase64, mimeType: 'application/pdf', fileSize: 100 } });
+    expect(res.status).toBe(413);
+  });
+
   it('requires auth', async () => {
     const res = await httpReq('GET', '/api/career/profile/status', {});
     expect([401, 403]).toContain(res.status);
