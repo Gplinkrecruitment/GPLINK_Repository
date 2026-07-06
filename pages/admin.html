@@ -1463,6 +1463,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="hubInbox">Inbox</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="interviews" id="interviewsTab" style="display:none">Interviews</div>
+    <div class="view-tab" data-view="stuck">Stuck cases</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="scheduled_calls">Calls</div>
@@ -1567,6 +1568,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 <div id="guidePanel" style="display:none"></div>
 <div id="interviewsPanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
+<div id="stuckPanel" style="display:none"></div>
 <div id="siteEnquiriesPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
@@ -2253,6 +2255,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
     if(S.view==="interviews"){var ivTabEl=document.getElementById("interviewsTab");if(ivTabEl)ivTabEl.style.display="";vaShowPanel("interviews");renderInterviewsPanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
+    if(S.view==="stuck"){vaShowPanel("stuck");renderStuckPanel();return;}
     if(S.view==="website"){vaShowPanel("website");renderSiteEnquiriesPanel();return;}
     if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
     S.view="tools";
@@ -6661,6 +6664,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         await loadInterviews();
       }else if(view==="scheduled_calls"){
         renderScheduledCallsPanel();
+      }else if(view==="stuck"){
+        renderStuckPanel();
       }else if(view==="website"){
         renderSiteEnquiriesPanel();
       }
@@ -8363,7 +8368,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website","stuckPanel":"stuck"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -10658,6 +10663,66 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.scheduleCallFromTask = scheduleCallFromTask;
 
   // ── Scheduled Calls Top-Level Panel (Task 14) ────────────────
+  /* ── Stuck cases / SLA view (Phase 6 G1) ─────────────────────────────── */
+  async function renderStuckPanel() {
+    var panel = document.getElementById('stuckPanel');
+    if (!panel) return;
+    var escS = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    panel.innerHTML = '<div class="calls-panel"><h2>Stuck cases</h2><div style="color:var(--muted);font-size:13px">Loading…</div></div>';
+    try {
+      var r = await fetch('/api/admin/stuck-cases', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (!d.ok) { panel.innerHTML = '<div class="calls-panel"><h2>Stuck cases</h2><div class="empty">Failed to load stuck cases.</div></div>'; return; }
+      var sweepNote = d.last_sweep && d.last_sweep.at
+        ? 'Last SLA sweep: ' + escS(new Date(d.last_sweep.at).toLocaleString())
+        : 'The daily SLA sweep has not run yet.';
+      var html = '<div class="calls-panel"><h2>Stuck cases</h2>' +
+        '<p style="color:var(--muted);font-size:13px;margin:4px 0 14px">Every active GP file grouped by days without GP activity (same aging the CEO dashboard uses). Click a row to open the GP file. <span style="opacity:.8">' + sweepNote + ' · ' + (d.total || 0) + ' active case' + ((d.total || 0) === 1 ? '' : 's') + '</span></p>';
+      (d.buckets || []).forEach(function (b) {
+        var tone = b.key === 'b31_plus' ? '#dc2626' : b.key === 'b15_30' ? '#d97706' : b.key === 'b8_14' ? '#ca8a04' : '#16a34a';
+        html += '<div style="margin-bottom:18px">' +
+          '<h3 style="font-size:14px;margin:0 0 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + tone + ';margin-right:6px"></span>' +
+          escS(b.label) + ' stalled <span style="color:var(--muted);font-weight:400">(' + (b.count || 0) + ')</span></h3>';
+        if (!b.items || !b.items.length) { html += '<div style="color:var(--muted);font-size:12px;padding:0 0 0 16px">None.</div></div>'; return; }
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>' +
+          '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line,#e5e7eb)">GP</th>' +
+          '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line,#e5e7eb)">Stage</th>' +
+          '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line,#e5e7eb)">Registration Support Officer</th>' +
+          '<th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--line,#e5e7eb)">Days stalled</th></tr></thead><tbody>';
+        b.items.forEach(function (it) {
+          html += '<tr data-stuck-case="' + escS(it.case_id) + '" style="cursor:pointer">' +
+            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)"><b>' + escS(it.gp_name) + '</b>' +
+            (it.blocker_status ? ' <span style="color:#dc2626;font-size:11px">⛔ ' + escS(it.blocker_status) + '</span>' : '') +
+            '<br><span style="color:var(--muted);font-size:11px">' + escS(it.gp_email || '') + '</span></td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)">' + escS(it.stage || '—') +
+            (it.substage ? ' <span style="color:var(--muted);font-size:11px">/ ' + escS(it.substage) + '</span>' : '') + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)">' + escS(it.assigned_rso || 'Unassigned') + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9);text-align:right;font-weight:600;color:' + tone + '">' + (it.days_stalled || 0) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      });
+      html += '</div>';
+      panel.innerHTML = html;
+    } catch (e) {
+      panel.innerHTML = '<div class="calls-panel"><h2>Stuck cases</h2><div class="empty">Could not load stuck cases. Try again.</div></div>';
+    }
+  }
+  /* Stuck-cases rows → open the GP file (panel-scoped; the generic
+     data-view-todo-case handler only listens inside inbox/tools). */
+  document.addEventListener('click', function (e) {
+    var sPanel = document.getElementById('stuckPanel');
+    if (!sPanel || !sPanel.contains(e.target)) return;
+    var row = e.target.closest('[data-stuck-case]');
+    if (!row) return;
+    e.preventDefault();
+    S.selectedCaseId = row.getAttribute('data-stuck-case');
+    S.view = 'gps';
+    document.querySelectorAll('.view-tab').forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-view') === 'gps'); });
+    vaShowPanel('gps');
+    renderCaseList();
+    renderDetail();
+  }, true);
+
   async function renderScheduledCallsPanel() {
     var panel = document.getElementById('scheduledCallsPanel');
     if (!panel) return;

@@ -6746,7 +6746,9 @@ const CRON_SCHEDULES = {
   'check-model-updates': { schedule: '0 5 * * 1', cadenceMinutes: 10080 },
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
-  'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 }
+  'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
+  'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -13907,6 +13909,64 @@ async function runSlaCheck(actor) {
   const checked = (staleCases.ok ? (staleCases.data || []).length : 0) + (overdueTasks.ok ? (overdueTasks.data || []).length : 0);
 
   return { checked, created };
+}
+
+// ── Stuck cases / SLA aging (Phase 6 G1) ─────────────────────────────────────
+// One aging computation shared by GET /api/admin/stuck-cases (the RSO "Stuck
+// cases" tab) and the daily /api/cron/sla-sweep snapshot. Reuses
+// ceoMetrics.caseAgeMs — the exact activity-age fallback chain the CEO
+// pipeline drilldown uses for days_in_stage — so the admin view always
+// matches the CEO-side numbers.
+const STUCK_CASE_BUCKETS = [
+  { key: 'b0_7', label: '0–7 days', min: 0, max: 7 },
+  { key: 'b8_14', label: '8–14 days', min: 8, max: 14 },
+  { key: 'b15_30', label: '15–30 days', min: 15, max: 30 },
+  { key: 'b31_plus', label: '30+ days', min: 31, max: null }
+];
+const STUCK_CASE_BUCKET_ITEM_CAP = 200; // bounded response — count stays exact
+
+async function computeStuckCaseBuckets(nowMs) {
+  const scNow = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const scCasesRes = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,substage,status,assigned_va,created_at,updated_at,last_gp_activity_at,blocker_status,practice_name&status=eq.active&limit=1000');
+  const scAll = (scCasesRes.ok && Array.isArray(scCasesRes.data)) ? scCasesRes.data : [];
+  // Same "active" definition as the CEO dashboard: withdrawn out, >6-months-dead out.
+  const scActive = ceoMetrics.filterActiveCases(scAll, { nowMs: scNow });
+  const scProfilesRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name');
+  const scProfiles = (scProfilesRes.ok && Array.isArray(scProfilesRes.data)) ? scProfilesRes.data : [];
+  const scProfileById = {};
+  for (const sp of scProfiles) { if (sp.user_id) scProfileById[sp.user_id] = sp; }
+  function scName(uid) {
+    const p = scProfileById[uid];
+    return p ? (((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || 'Unknown') : 'Unknown';
+  }
+  const buckets = STUCK_CASE_BUCKETS.map((b) => ({ key: b.key, label: b.label, min: b.min, max: b.max, count: 0, items: [] }));
+  for (const c of scActive) {
+    let days = Math.floor(ceoMetrics.caseAgeMs(c, scNow) / 86400000);
+    if (!Number.isFinite(days) || days < 0) days = 0;
+    let bucket = buckets[buckets.length - 1];
+    for (const b of buckets) { if (b.max === null || days <= b.max) { bucket = b; break; } }
+    bucket.count++;
+    bucket.items.push({
+      case_id: c.id,
+      user_id: c.user_id,
+      gp_name: scName(c.user_id),
+      gp_email: (scProfileById[c.user_id] || {}).email || '',
+      stage: c.stage || '',
+      substage: c.substage || '',
+      assigned_rso: c.assigned_va ? scName(c.assigned_va) : 'Unassigned',
+      assigned_rso_id: c.assigned_va || null,
+      days_stalled: days,
+      last_gp_activity_at: c.last_gp_activity_at || null,
+      blocker_status: c.blocker_status || null,
+      practice_name: c.practice_name || ''
+    });
+  }
+  for (const b of buckets) {
+    b.items.sort((a, z) => z.days_stalled - a.days_stalled);
+    if (b.items.length > STUCK_CASE_BUCKET_ITEM_CAP) b.items = b.items.slice(0, STUCK_CASE_BUCKET_ITEM_CAP);
+  }
+  return { total: scActive.length, buckets };
 }
 
 function generateQuestionnairePdf(questionnaire, gpProfile, visaCase) {
@@ -24118,6 +24178,32 @@ async function sendStalledReminderEmail(userId, stage) {
   );
 }
 
+// Chase reminder transport (Phase 6 G1/R2). Prefer the case's Gmail mailbox so
+// the reminder lands in the SAME thread the practice/officer already has; fall
+// back to Resend when the Gmail client is unavailable (e.g. local/dev) so the
+// chase still goes out. Chases are TRANSACTIONAL (registration-critical):
+// always sent, never gated by notification prefs or the marketing
+// suppression list.
+async function sendChaseReminderEmail(opts) {
+  try {
+    const si = await resolveCaseSenderInfo(opts.caseId);
+    const g = await sendGmailEmail({
+      from: si.from,
+      fromName: si.fromName,
+      to: opts.to,
+      subject: opts.subject,
+      bodyHtml: opts.bodyHtml,
+      threadId: opts.threadId || undefined,
+      inReplyTo: opts.inReplyTo || undefined,
+      references: opts.references || undefined,
+      caseId: opts.caseId
+    });
+    if (g && g.ok) return { ok: true, via: 'gmail', threadId: g.threadId || opts.threadId || null };
+  } catch (e) { /* fall through to Resend */ }
+  const r = await sendEmail({ to: opts.to, subject: opts.subject, html: opts.bodyHtml, category: 'transactional' });
+  return { ok: !!(r && r.ok), via: 'resend' };
+}
+
 // 7. Document Approved
 async function sendDocumentApprovedEmail(userId, docLabel) {
   await sendGpNotificationEmail(userId,
@@ -27086,6 +27172,259 @@ async function handleApi(req, res, pathname) {
     } catch (wsErr) {
       console.error('[Cron] Weekly sweep failed:', wsErr);
       await respondServerError(res, wsErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // Cron: daily SLA sweep (Phase 6 G1/R1) — the /api/admin/sla/check logic was
+  // orphaned (manual POST only, no schedule, no UI). This runs the same
+  // runSlaCheck on a schedule and stores a bucketed stuck-case snapshot in
+  // runtime_kv ('sla_sweep_last_results') so the admin "Stuck cases" tab can
+  // show when the sweep last ran. Heartbeat is recorded automatically by the
+  // /api dispatcher (CRON_SCHEDULES['sla-sweep']).
+  if (req.method === 'GET' && pathname === '/api/cron/sla-sweep') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', checked: 0, created: 0 }); return; }
+    try {
+      var slaResult = await runSlaCheck('system:sla-sweep');
+      var slaBucketSummary = null;
+      try {
+        var slaStuck = await computeStuckCaseBuckets(Date.now());
+        slaBucketSummary = slaStuck.buckets.map(function (b) { return { key: b.key, label: b.label, count: b.count }; });
+        await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: [{ key: 'sla_sweep_last_results', value: { at: new Date().toISOString(), checked: slaResult.checked, created: slaResult.created, total: slaStuck.total, buckets: slaBucketSummary } }]
+        });
+      } catch (slaBkErr) { console.error('[sla-sweep] bucket snapshot failed (ignored):', slaBkErr && slaBkErr.message); }
+      try { res.gpCronDetail = 'checked ' + slaResult.checked + ', created ' + slaResult.created; } catch (e) {}
+      sendJson(res, 200, { ok: true, checked: slaResult.checked, created: slaResult.created, buckets: slaBucketSummary });
+    } catch (slaErr) {
+      console.error('[Cron] SLA sweep failed:', slaErr);
+      await respondServerError(res, slaErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // Cron: chase non-responders (Phase 6 G1/R2) — nothing chased these before:
+  //   A) practices sitting on an SPPA-00 (sppa_state sent_to_practice /
+  //      corrections_requested) — reminder email to the practice + RSO note/task;
+  //   B) AHPRA officers who never replied to our last outbound message on an
+  //      open ahpra_correspondence card — threaded follow-up to the officer + RSO task;
+  //   C) GP progress stalls in stages the weekly sweep does NOT cover
+  //      (career/ahpra/visa/pbs — the sweep only chases myintealth/amc).
+  // Reminders are TRANSACTIONAL (registration-critical): always sent, never
+  // gated by notification prefs or the marketing suppression list. Each
+  // category chases at most once per its window (dedup flags/task lookups)
+  // and each run is capped per category (CHASE_MAX_PER_RUN). Heartbeat via
+  // CRON_SCHEDULES['chase-nonresponders'].
+  if (req.method === 'GET' && pathname === '/api/cron/chase-nonresponders') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', practice: 0, officer: 0, gp: 0 }); return; }
+    try {
+      var chDayMs = 86400000;
+      var chNowMs = Date.now();
+      var chNowIso = new Date(chNowMs).toISOString();
+      var chEnvInt = function (key, dflt) { var v = parseInt(process.env[key] || '', 10); return (Number.isFinite(v) && v > 0) ? v : dflt; };
+      // Per-category windows (env-overridable): a party is chased once it has
+      // been silent ≥ window days, then at most once per window thereafter.
+      var chPracticeDays = chEnvInt('CHASE_PRACTICE_SPPA_DAYS', 4);
+      var chOfficerDays = chEnvInt('CHASE_AHPRA_OFFICER_DAYS', 6);
+      var chStallDays = chEnvInt('CHASE_GP_STALL_DAYS', 14);
+      var chCap = chEnvInt('CHASE_MAX_PER_RUN', 15); // per category per run
+      var chChased = { practice: 0, officer: 0, gp: 0 };
+      var chErrors = [];
+
+      var chParseMeta = function (t) {
+        var m = t && t.metadata;
+        if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = {}; } }
+        return (m && typeof m === 'object') ? m : {};
+      };
+      var chWithinWindow = function (iso, windowDays) {
+        if (!iso) return false;
+        var t = new Date(iso).getTime();
+        return Number.isFinite(t) && (chNowMs - t) < windowDays * chDayMs;
+      };
+      // RSO visibility: one open chase task per case per category (re-chases
+      // add case-event notes instead of piling up duplicate tasks).
+      var chEnsureRsoTask = async function (caseId, sourceTrigger, title, description, relatedStage) {
+        var existing = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.chase&source_trigger=eq.' + encodeURIComponent(sourceTrigger) +
+          '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&limit=1');
+        if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) return existing.data[0];
+        return _createRegTask(caseId, {
+          task_type: 'chase', title: title, description: description, priority: 'high',
+          source_trigger: sourceTrigger, related_stage: relatedStage || null, _actor: 'system:chase'
+        });
+      };
+
+      // ── A) Practices sitting on an SPPA-00 ─────────────────────────────
+      try {
+        var chSppaRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,status,title,metadata,gmail_thread_id,updated_at' +
+          '&related_document_key=eq.sppa_00&status=in.(open,in_progress,waiting,waiting_on_practice,waiting_on_external)&limit=300');
+        var chSppaTasks = (chSppaRes.ok && Array.isArray(chSppaRes.data)) ? chSppaRes.data : [];
+        for (var chS = 0; chS < chSppaTasks.length && chChased.practice < chCap; chS++) {
+          var spTask = chSppaTasks[chS];
+          var spMeta = chParseMeta(spTask);
+          if (spMeta.sppa_state !== 'sent_to_practice' && spMeta.sppa_state !== 'corrections_requested') continue;
+          var spEmail = String(spMeta.sent_to_practice_email || '').trim();
+          if (!spEmail) continue;
+          // Dedup anchor: last chase if any, else the original send.
+          var spAnchor = spMeta.practice_chase_last_at || spMeta.sent_to_practice_at || spTask.updated_at;
+          if (chWithinWindow(spAnchor, chPracticeDays)) continue;
+          var spGpName = 'the candidate';
+          try {
+            var spCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(spTask.case_id) + '&limit=1');
+            var spCase = (spCaseRes.ok && Array.isArray(spCaseRes.data) && spCaseRes.data[0]) ? spCaseRes.data[0] : null;
+            if (spCase && spCase.user_id) {
+              var spProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(spCase.user_id) + '&limit=1');
+              var spProf = (spProfRes.ok && Array.isArray(spProfRes.data) && spProfRes.data[0]) ? spProfRes.data[0] : null;
+              var spFullName = spProf ? ((spProf.first_name || '') + ' ' + (spProf.last_name || '')).trim() : '';
+              if (spFullName) spGpName = 'Dr ' + spFullName;
+            }
+          } catch (e) { /* name is cosmetic */ }
+          var spSend = await sendChaseReminderEmail({
+            caseId: spTask.case_id,
+            to: spEmail,
+            threadId: spTask.gmail_thread_id || undefined,
+            subject: 'Reminder: Supervised Practice Plan (SPPA-00) for ' + spGpName,
+            bodyHtml: '<p>Hello,</p>' +
+              '<p>Just a friendly reminder — we are still waiting on the completed and signed Supervised Practice Plan Agreement (SPPA-00) for ' + spGpName + '.</p>' +
+              '<p>When it is ready, please reply to our earlier email with the signed document attached. If anything is unclear, or you need a fresh copy of the form, just reply to this email and we will help straight away.</p>' +
+              '<p>Kind regards,<br>GP Link Registration Team</p>'
+          });
+          if (!spSend.ok) { chErrors.push('practice:' + spTask.id); continue; }
+          spMeta.practice_chase_last_at = chNowIso;
+          spMeta.practice_chase_count = (Number(spMeta.practice_chase_count) || 0) + 1;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(spTask.id),
+            { method: 'PATCH', body: { metadata: spMeta, updated_at: chNowIso } });
+          await _logCaseEvent(spTask.case_id, spTask.id, 'note', 'Automatic reminder sent — practice has not returned the SPPA-00', spEmail, 'system:chase');
+          await chEnsureRsoTask(spTask.case_id, 'practice_sppa_chase',
+            'Practice has not returned the SPPA-00',
+            'Automatic reminder #' + spMeta.practice_chase_count + ' emailed to ' + spEmail + '. Consider phoning the practice if this keeps stalling.',
+            'placement');
+          chChased.practice++;
+        }
+      } catch (chAErr) { chErrors.push('practice_pass:' + String(chAErr && chAErr.message)); }
+
+      // ── B) AHPRA officers who have not replied ─────────────────────────
+      try {
+        var chAhRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,status,title,metadata,gmail_thread_id,updated_at' +
+          '&task_type=eq.ahpra_correspondence&status=in.(open,in_progress,waiting,waiting_on_external,escalated)&limit=200');
+        var chAhTasks = (chAhRes.ok && Array.isArray(chAhRes.data)) ? chAhRes.data : [];
+        var chAhCaseIds = [];
+        for (var chAc = 0; chAc < chAhTasks.length; chAc++) {
+          if (chAhTasks[chAc].case_id && chAhCaseIds.indexOf(chAhTasks[chAc].case_id) < 0) chAhCaseIds.push(chAhTasks[chAc].case_id);
+        }
+        var chAhCaseById = {};
+        if (chAhCaseIds.length > 0) {
+          var chAhCasesRes = await supabaseDbRequest('registration_cases',
+            'select=id,user_id,ahpra_officer_email,ahpra_officer_name&id=in.(' + chAhCaseIds.map(encodeURIComponent).join(',') + ')');
+          var chAhCases = (chAhCasesRes.ok && Array.isArray(chAhCasesRes.data)) ? chAhCasesRes.data : [];
+          for (var chAcc = 0; chAcc < chAhCases.length; chAcc++) chAhCaseById[chAhCases[chAcc].id] = chAhCases[chAcc];
+        }
+        for (var chA = 0; chA < chAhTasks.length && chChased.officer < chCap; chA++) {
+          var ahTask = chAhTasks[chA];
+          var ahCase = chAhCaseById[ahTask.case_id];
+          var ahOfficerEmail = ahCase ? String(ahCase.ahpra_officer_email || '').trim() : '';
+          if (!ahOfficerEmail) continue;
+          var ahMeta = chParseMeta(ahTask);
+          if (chWithinWindow(ahMeta.officer_chase_last_at, chOfficerDays)) continue;
+          // Only chase when WE spoke last: the latest message on the card must
+          // be outbound and ≥ window days old. If the officer replied last the
+          // ball is with the RSO, not the officer — nothing to chase.
+          var ahMsgRes = await supabaseDbRequest('task_messages',
+            'select=direction,created_at,subject,rfc822_message_id,rfc822_references,gmail_thread_id&task_id=eq.' + encodeURIComponent(ahTask.id) +
+            '&order=created_at.desc&limit=1');
+          var ahLast = (ahMsgRes.ok && Array.isArray(ahMsgRes.data) && ahMsgRes.data[0]) ? ahMsgRes.data[0] : null;
+          if (!ahLast || ahLast.direction !== 'outbound') continue;
+          if (chWithinWindow(ahLast.created_at, chOfficerDays)) continue;
+          var ahSubject = ahLast.subject
+            ? (/^re:/i.test(ahLast.subject) ? ahLast.subject : 'Re: ' + ahLast.subject)
+            : 'Following up on our recent correspondence';
+          var ahOfficerName = (ahCase && ahCase.ahpra_officer_name) ? String(ahCase.ahpra_officer_name).trim() : '';
+          var ahSend = await sendChaseReminderEmail({
+            caseId: ahTask.case_id,
+            to: ahOfficerEmail,
+            threadId: ahTask.gmail_thread_id || ahLast.gmail_thread_id || undefined,
+            inReplyTo: ahLast.rfc822_message_id || undefined,
+            references: ahLast.rfc822_references || ahLast.rfc822_message_id || undefined,
+            subject: ahSubject,
+            bodyHtml: '<p>Dear ' + (ahOfficerName || 'Officer') + ',</p>' +
+              '<p>We are following up on our earlier email regarding this application. Could you please let us know whether any further information is required, or when we can expect an update?</p>' +
+              '<p>Thank you for your time.</p>' +
+              '<p>Kind regards,<br>GP Link Registration Team</p>'
+          });
+          if (!ahSend.ok) { chErrors.push('officer:' + ahTask.id); continue; }
+          ahMeta.officer_chase_last_at = chNowIso;
+          ahMeta.officer_chase_count = (Number(ahMeta.officer_chase_count) || 0) + 1;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(ahTask.id),
+            { method: 'PATCH', body: { metadata: ahMeta, updated_at: chNowIso } });
+          await _logCaseEvent(ahTask.case_id, ahTask.id, 'note', 'Automatic follow-up sent — AHPRA officer has not replied', ahOfficerEmail, 'system:chase');
+          await chEnsureRsoTask(ahTask.case_id, 'ahpra_officer_chase',
+            'AHPRA officer has not replied',
+            'Automatic follow-up #' + ahMeta.officer_chase_count + ' emailed to ' + ahOfficerEmail + '. Consider calling AHPRA if there is still no response.',
+            'ahpra');
+          chChased.officer++;
+        }
+      } catch (chBErr) { chErrors.push('officer_pass:' + String(chBErr && chBErr.message)); }
+
+      // ── C) GP progress stalls in stages the weekly sweep does not cover ──
+      // weekly-sweep chases myintealth/amc with its own weekly_checkin dedup;
+      // this pass extends the ≥N-day stall chase to career/ahpra/visa/pbs
+      // with no overlap.
+      try {
+        var chStallCutoffIso = new Date(chNowMs - chStallDays * chDayMs).toISOString();
+        var chStallRes = await supabaseDbRequest('registration_cases',
+          'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
+          '&stage=in.(career,ahpra,visa,pbs)&status=eq.active' +
+          '&created_at=lte.' + encodeURIComponent(chStallCutoffIso) + '&limit=300');
+        var chStallCases = (chStallRes.ok && Array.isArray(chStallRes.data)) ? chStallRes.data : [];
+        var chAdminIds = await getAdminUserIdSet();
+        for (var chG = 0; chG < chStallCases.length && chChased.gp < chCap; chG++) {
+          var stCase = chStallCases[chG];
+          if (stCase.user_id && chAdminIds.has(stCase.user_id)) continue; // staff, never chase
+          var stLastActivity = stCase.last_gp_activity_at || stCase.created_at;
+          if (!stLastActivity || stLastActivity > chStallCutoffIso) continue;
+          // Dedup: one chase per window — the chase task's created_at is the flag.
+          var stExisting = await supabaseDbRequest('registration_tasks',
+            'select=id&case_id=eq.' + encodeURIComponent(stCase.id) +
+            '&task_type=eq.chase&source_trigger=eq.stall_chase&created_at=gte.' + encodeURIComponent(chStallCutoffIso) + '&limit=1');
+          if (stExisting.ok && Array.isArray(stExisting.data) && stExisting.data.length > 0) continue;
+          await _createRegTask(stCase.id, {
+            task_type: 'chase',
+            title: 'GP stalled ≥' + chStallDays + ' days on ' + stCase.stage,
+            description: 'No GP activity for ≥' + chStallDays + ' days on the ' + stCase.stage + ' stage. An automatic nudge email was sent — follow up via WhatsApp if it stays quiet.',
+            priority: 'high',
+            source_trigger: 'stall_chase',
+            related_stage: stCase.stage,
+            related_substage: stCase.substage || null,
+            _actor: 'system:chase'
+          });
+          // Transactional nudge — registration-critical, never pref-gated.
+          try { await sendStalledReminderEmail(stCase.user_id, stCase.stage); }
+          catch (stMailErr) { chErrors.push('gp_mail:' + stCase.id); }
+          chChased.gp++;
+        }
+      } catch (chCErr) { chErrors.push('gp_pass:' + String(chCErr && chCErr.message)); }
+
+      try {
+        res.gpCronDetail = 'practice ' + chChased.practice + ', officer ' + chChased.officer + ', gp ' + chChased.gp +
+          (chErrors.length ? (', errors ' + chErrors.length) : '');
+      } catch (e) {}
+      console.log('[chase-nonresponders] chased=' + JSON.stringify(chChased) + (chErrors.length ? (' errors=' + JSON.stringify(chErrors.slice(0, 10))) : ''));
+      sendJson(res, 200, {
+        ok: true,
+        practice: chChased.practice, officer: chChased.officer, gp: chChased.gp,
+        cap: chCap,
+        windows: { practice_days: chPracticeDays, officer_days: chOfficerDays, gp_stall_days: chStallDays },
+        errors: chErrors.slice(0, 20)
+      });
+    } catch (chErr) {
+      console.error('[Cron] chase-nonresponders failed:', chErr);
+      await respondServerError(res, chErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -47192,6 +47531,33 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const result = await runSlaCheck(adminCtx.email);
     sendJson(res, 200, { ok: true, ...result });
+    return;
+  }
+
+  // ── Admin: Stuck cases / SLA view (Phase 6 G1/R1) ──
+  // Bucketed days-in-stage aging for the RSO dashboard "Stuck cases" tab —
+  // same computation the CEO pipeline drilldown uses, so the numbers match.
+  if (pathname === '/api/admin/stuck-cases' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const stuckCtx = requireAdminSession(req, res);
+    if (!stuckCtx) return;
+    try {
+      const stuckResult = await computeStuckCaseBuckets(Date.now());
+      let stuckLastSweep = null;
+      try {
+        const stuckKv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.sla_sweep_last_results&limit=1');
+        stuckLastSweep = (stuckKv.ok && Array.isArray(stuckKv.data) && stuckKv.data[0]) ? stuckKv.data[0].value : null;
+      } catch (e) { /* snapshot is optional */ }
+      sendJson(res, 200, {
+        ok: true,
+        generated_at: new Date().toISOString(),
+        total: stuckResult.total,
+        buckets: stuckResult.buckets,
+        last_sweep: stuckLastSweep
+      });
+    } catch (stuckErr) {
+      await respondServerError(res, stuckErr, { route: pathname, method: req.method, safeMessage: 'Could not load stuck cases.' });
+    }
     return;
   }
 
