@@ -756,6 +756,7 @@
     .cv-upload-area[hidden] { display: none; }
     .cv-upload-label { display: block; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: var(--gp-muted, #64748b); }
     .cv-upload-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .cv-modal-hint { font-size: 12px; color: var(--gp-muted, #64748b); margin: 10px 0 0; line-height: 1.4; }
     .cv-file-preview {
       display: flex;
       align-items: center;
@@ -1134,13 +1135,15 @@
         <h3 class="cv-modal-title">Upload Your CV</h3>
         <button class="cv-modal-close" id="cvModalClose" type="button" aria-label="Close">&times;</button>
       </div>
-      <p class="cv-modal-desc">A signed and dated CV is required to apply. Upload a PDF (max 10 MB). Doctors with a complete CV are shortlisted first.</p>
+      <p class="cv-modal-desc">A signed and dated CV is required to apply. Upload a PDF or Word document, under 3 MB. Doctors with a complete CV are shortlisted first.</p>
 
       <div class="cv-upload-area" id="cvUploadArea">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
         <span class="cv-upload-label">Tap to select file or drag &amp; drop</span>
-        <input class="cv-upload-input" id="cvFileInput" type="file" accept=".pdf,application/pdf" />
+        <input class="cv-upload-input" id="cvFileInput" type="file" accept=".pdf,.doc,.docx" />
       </div>
+
+      <p class="cv-modal-hint">We'll quickly check it's a genuine CV before sending applications.</p>
 
       <div class="cv-file-preview" id="cvFilePreview" hidden>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -2661,13 +2664,15 @@
       var file = cvFileInput.files && cvFileInput.files[0];
       if (!file) return;
 
-      if (file.type !== "application/pdf") {
-        cvUploadStatus.textContent = "Please select a PDF file.";
+      var cvAllowedTypes = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+      var cvAllowedExt = /\.(pdf|doc|docx)$/i;
+      if (cvAllowedTypes.indexOf(file.type) === -1 && !cvAllowedExt.test(file.name || "")) {
+        cvUploadStatus.textContent = "Please select a PDF or Word file.";
         cvFileInput.value = "";
         return;
       }
-      if (file.size > 10 * 1024 * 1024) {
-        cvUploadStatus.textContent = "File too large. Maximum 10 MB.";
+      if (file.size > 3 * 1024 * 1024) {
+        cvUploadStatus.textContent = "File too large. Maximum 3 MB.";
         cvFileInput.value = "";
         return;
       }
@@ -2696,40 +2701,66 @@
     cvUploadBtn.addEventListener("click", async function () {
       if (!selectedCvFile) return;
       cvUploadBtn.disabled = true;
-      cvUploadBtn.textContent = "Uploading...";
+      cvUploadBtn.textContent = "Checking CV…";
       cvUploadStatus.textContent = "";
 
       try {
-        // Read file as base64 data URL
+        // Read file as base64 data URL, then strip the "data:...;base64," prefix —
+        // the endpoint wants the raw base64 payload, not a data URL.
         var dataUrl = await new Promise(function (resolve, reject) {
           var reader = new FileReader();
           reader.onload = function () { resolve(reader.result); };
           reader.onerror = function () { reject(new Error("Failed to read file")); };
           reader.readAsDataURL(selectedCvFile);
         });
+        var fileBase64 = String(dataUrl).split(",")[1] || "";
 
-        // Upload CV
-        var uploadRes = await fetch("/api/career/upload-cv", {
+        // Upload + AI-scan the CV via the careers profile gate endpoint —
+        // the only path that stores document_key "career_cv".
+        var uploadRes = await fetch("/api/career/profile/cv", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify({
             fileName: selectedCvFile.name,
-            fileDataUrl: dataUrl,
-            mimeType: selectedCvFile.type
+            fileBase64: fileBase64,
+            mimeType: selectedCvFile.type,
+            fileSize: selectedCvFile.size
           })
         });
-        var uploadData = await uploadRes.json();
+        var uploadData = await uploadRes.json().catch(function () { return null; });
 
-        if (!uploadData.ok) {
-          cvUploadStatus.textContent = uploadData.message || "Upload failed. Try again.";
+        if (uploadRes.status === 200 && uploadData && uploadData.ok && uploadData.verified) {
+          // Falls through to the retry-apply logic below, unchanged.
+        } else if (uploadRes.status === 422) {
+          // AI scan ran and flagged the file as not a genuine CV.
+          var reasonMsg = (uploadData && uploadData.reason) || "Upload failed. Try again.";
+          if (uploadData && typeof uploadData.attemptsRemaining === "number") {
+            reasonMsg += " (" + uploadData.attemptsRemaining + " checks remaining today)";
+          }
+          cvUploadStatus.textContent = reasonMsg;
+          cvUploadBtn.disabled = false;
+          cvUploadBtn.textContent = "Upload & Apply";
+          return;
+        } else if (uploadRes.status === 429) {
+          // Daily scan limit reached — no point retrying today, leave disabled.
+          cvUploadStatus.textContent = (uploadData && uploadData.message) || "You've reached today's CV check limit — please try again tomorrow.";
+          cvUploadBtn.textContent = "Upload & Apply";
+          return;
+        } else if (uploadRes.status === 413) {
+          cvUploadStatus.textContent = (uploadData && uploadData.message) || "File too large. Maximum 3 MB.";
+          cvUploadBtn.disabled = false;
+          cvUploadBtn.textContent = "Upload & Apply";
+          return;
+        } else {
+          cvUploadStatus.textContent = "Upload failed. Try again.";
           cvUploadBtn.disabled = false;
           cvUploadBtn.textContent = "Upload & Apply";
           return;
         }
 
-        // CV uploaded, now retry the application through the same
-        // guard-aware outcome handling as the main apply path.
+        // CV uploaded and AI-verified, now retry the application through the
+        // same guard-aware outcome handling as the main apply path.
         cvUploadBtn.textContent = "Applying...";
 
         var applyRes = await fetch("/api/career/apply", {
