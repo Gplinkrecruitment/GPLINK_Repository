@@ -33057,8 +33057,9 @@ async function handleApi(req, res, pathname) {
     let ewAlready = false;
     if (isSupabaseDbConfigured()) {
       // Idempotent per email: one eligibility_waitlist lead per address.
+      // eq (not ilike) so a % or * in the address can't act as a wildcard and match a different lead.
       const existing = await supabaseDbRequest('candidate_leads',
-        'select=id&source=eq.eligibility_waitlist&email=ilike.' + encodeURIComponent(ewEmail) + '&limit=1');
+        'select=id&source=eq.eligibility_waitlist&email=eq.' + encodeURIComponent(ewEmail) + '&limit=1');
       const existingRow = existing.ok && Array.isArray(existing.data) && existing.data[0] ? existing.data[0] : null;
       if (existingRow) {
         ewAlready = true;
