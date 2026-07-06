@@ -355,6 +355,7 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
         email: r.email || '',
         phone: r.phone || '',
         active: (r.active === undefined || r.active === null) ? true : !!r.active,
+        on_leave: !!r.on_leave,
         calendly_event_url: r.calendly_event_url || ''
       };
     })
@@ -371,7 +372,12 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
 // in which case we transparently use the seed array.
 async function loadRsoTeam(opts) {
   try {
-    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
+    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,on_leave,calendly_event_url&order=name.asc', { method: 'GET' });
+    if (!res || !res.ok) {
+      // Defensive: if the on_leave column has not been migrated yet, retry without it
+      // rather than silently falling back to the in-memory seed roster.
+      res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
+    }
     var rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
     return mergeRsoRoster(rows, RSO_TEAM, opts);
   } catch (e) {
@@ -1073,6 +1079,10 @@ function buildRsoWritePayload(input = {}, opts = {}) {
   if (has('active')) out.active = !!input.active;
   else if (create) out.active = true;
 
+  // ON LEAVE (G2a) — column on rso_team; roster selection refuses on-leave targets.
+  if (has('on_leave') || has('onLeave')) out.on_leave = !!(has('on_leave') ? input.on_leave : input.onLeave);
+  else if (create) out.on_leave = false;
+
   // CALENDLY
   if (create || has('calendlyEventUrl') || has('calendly_event_url')) {
     const raw = input.calendlyEventUrl != null ? input.calendlyEventUrl : input.calendly_event_url;
@@ -1088,8 +1098,251 @@ function buildRsoWritePayload(input = {}, opts = {}) {
     out.user_id = userId;
   }
 
+  // MAILBOX (va_gmail) — NOT an rso_team column: it lives in va_gmail_accounts, so it is
+  // validated here but returned separately (vaGmail) for the endpoint to upsert.
+  // undefined = not supplied; '' = supplied blank (endpoints treat as no change).
+  // Only @mygplink.com.au inboxes can be impersonated for outbound sending (domain-wide
+  // delegation), so anything else is rejected up front instead of silently not working.
+  let vaGmail;
+  if (has('va_gmail') || has('vaGmail')) {
+    const rawMb = has('va_gmail') ? input.va_gmail : input.vaGmail;
+    const mb = String(rawMb == null ? '' : rawMb).trim().toLowerCase();
+    if (mb && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mb)) errors.push('Mailbox is not a valid email address.');
+    else if (mb && !/@mygplink\.com\.au$/.test(mb)) errors.push('Mailbox must be an @mygplink.com.au address.');
+    vaGmail = mb;
+  }
+
   out.updated_at = input.nowIso || new Date().toISOString();
-  return { valid: errors.length === 0, errors, payload: out };
+  return { valid: errors.length === 0, errors, payload: out, vaGmail };
+}
+
+// G2a: link an RSO to their Gmail mailbox (va_gmail_accounts row). Used by the
+// admin RSO create/update endpoints when a mailbox (va_gmail) is supplied.
+// - Refuses a mailbox already linked to a DIFFERENT team member.
+// - Updates the existing row in place when the RSO already has one (user_id is the
+//   stable link the sender-identity + Gmail label pipeline reads), else inserts.
+// - Best-effort starts a Gmail watch on the inbox so replies get processed.
+// Returns { ok, error?, unchanged? }.
+async function upsertRsoMailbox(rsoUserId, mailboxEmail, displayName) {
+  var email = String(mailboxEmail || '').trim().toLowerCase();
+  if (!rsoUserId || !email) return { ok: false, error: 'Missing RSO id or mailbox.' };
+  var taken = await supabaseDbRequest('va_gmail_accounts',
+    'select=user_id&email_address=eq.' + encodeURIComponent(email) + '&user_id=neq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+  if (taken.ok && Array.isArray(taken.data) && taken.data.length > 0) {
+    return { ok: false, error: 'That mailbox is already linked to another team member.' };
+  }
+  var existing = await supabaseDbRequest('va_gmail_accounts',
+    'select=id,email_address,display_name&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+  var row = (existing.ok && Array.isArray(existing.data) && existing.data[0]) ? existing.data[0] : null;
+  var write;
+  if (row) {
+    var sameEmail = String(row.email_address || '').trim().toLowerCase() === email;
+    var sameName = !displayName || String(row.display_name || '') === String(displayName);
+    if (sameEmail && sameName) return { ok: true, unchanged: true };
+    var patchBody = { email_address: email };
+    if (displayName) patchBody.display_name = String(displayName);
+    write = await supabaseDbRequest('va_gmail_accounts', 'user_id=eq.' + encodeURIComponent(rsoUserId), {
+      method: 'PATCH', body: patchBody, headers: { Prefer: 'return=representation' }
+    });
+  } else {
+    write = await supabaseDbRequest('va_gmail_accounts', '', {
+      method: 'POST',
+      body: { user_id: rsoUserId, email_address: email, display_name: String(displayName || email), watch_active: true },
+      headers: { Prefer: 'return=representation' }
+    });
+  }
+  if (!write.ok) {
+    // Most likely the va_gmail_accounts.user_id FK (auth.users): an RSO row created
+    // before the person has a real GP Link account cannot hold a mailbox link yet.
+    return { ok: false, error: 'Could not save the mailbox link. If this RSO has never signed in, they need a GP Link account first.' };
+  }
+  try { await setupGmailWatch(email); } catch (watchErr) {
+    console.error('[upsertRsoMailbox] Gmail watch setup failed (mailbox saved):', watchErr && watchErr.message);
+  }
+  return { ok: true };
+}
+
+// ── Gmail Label Management on VA assignment ──
+// Extracted verbatim from the single-case PUT /api/admin/case handler (G2a) so the
+// bulk-reassign endpoint runs the SAME per-case side-effects. Archives the old owner's
+// working label, copies message history, creates labels for the new owner, and backfills
+// existing GP threads. reassigningToArchive: new owner is GP Link Admin (hello@) — hand
+// off by archiving only (hello@ is never provisioned a watched mailbox).
+// Returns { emailTransferred, emailTransferError }:
+// null = no transfer attempted; true = succeeded; false = failed (see emailTransferError).
+async function transferCaseEmailOwnership(caseId, newAssignedVa, oldAssignedVa, reassigningToArchive) {
+  var emailTransferred = null;
+  var emailTransferError = null;
+  if (newAssignedVa) {
+    if (reassigningToArchive) {
+      // GP Link Admin (master archive / hello@) now owns the case. hello@ is never
+      // Gmail-watched and already mirrors every case email (silent copies on the hello@
+      // sub-label), so there is no VA mailbox to provision — just hand off cleanly by
+      // archiving the previous RSO's working label.
+      try {
+        if (oldAssignedVa && oldAssignedVa !== newAssignedVa) {
+          var oldVaArcRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
+          var oldVaArc = oldVaArcRes.ok && oldVaArcRes.data && oldVaArcRes.data[0] ? oldVaArcRes.data[0] : null;
+          if (oldVaArc) await archiveLabelForVA(oldVaArc.email_address, caseId);
+        }
+        // Ownership moved to GP Link Admin; the master archive already holds the history.
+        emailTransferred = true;
+      } catch (arcErr) {
+        console.error('[Gmail Labels] Handoff to GP Link Admin failed:', arcErr.message);
+        emailTransferred = false;
+        emailTransferError = String(arcErr && arcErr.message || arcErr).slice(0, 300);
+      }
+    } else try {
+        var labelCaseRes = await supabaseDbRequest('registration_cases',
+          'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
+        if (!labelCase) throw new Error('Case not found for label setup');
+
+        var gpProfileRes = await supabaseDbRequest('user_profiles',
+          'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+        var gpProfile = gpProfileRes.ok && gpProfileRes.data && gpProfileRes.data[0] ? gpProfileRes.data[0] : {};
+        var gpName = [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() || 'Unknown';
+
+        var vaAccRes = await supabaseDbRequest('va_gmail_accounts',
+          'select=email_address,display_name&user_id=eq.' + encodeURIComponent(newAssignedVa) + '&limit=1');
+        var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
+        if (!vaAcc) {
+          // RSO-driven reassignments are guarded upstream (resolveRsoReassignmentTarget),
+          // so this only fires for legacy direct assigned_va writes with no mailbox.
+          console.log('[Gmail Labels] No VA Gmail account registered for user', newAssignedVa, '— skipping label setup');
+          throw new Error('skip');
+        }
+
+        // Archive old VA's label if this is a reassignment
+        var historyMessages = [];
+        if (oldAssignedVa && oldAssignedVa !== newAssignedVa) {
+          var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
+          var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
+          if (oldVaAcc && labelCase.gmail_label_id) {
+            await archiveLabelForVA(oldVaAcc.email_address, caseId);
+
+            // Copy email history to new VA
+            var oldGmail = await getGmailClient(oldVaAcc.email_address);
+            if (oldGmail) {
+              try {
+                var oldMsgs = await oldGmail.users.messages.list({
+                  userId: oldVaAcc.email_address, labelIds: [labelCase.gmail_label_id], maxResults: 100
+                });
+                var msgList = (oldMsgs.data && oldMsgs.data.messages) || [];
+                for (var mIdx = 0; mIdx < msgList.length; mIdx++) {
+                  var rawMsg = await oldGmail.users.messages.get({
+                    userId: oldVaAcc.email_address, id: msgList[mIdx].id, format: 'raw'
+                  });
+                  if (rawMsg.data && rawMsg.data.raw) {
+                    historyMessages.push(Buffer.from(rawMsg.data.raw, 'base64'));
+                  }
+                }
+              } catch (copyErr) {
+                console.error('[Gmail Labels] History fetch failed:', copyErr.message);
+              }
+            }
+
+            // Move hello@ sub-label to new VA's folder
+            if (labelCase.gmail_label_hello_id) {
+              var newHelloName = buildHelloLabelName(vaAcc.display_name, gpName, labelCase.practice_name || '');
+              await renameGmailLabel(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, newHelloName);
+            }
+          }
+        }
+
+        // Create labels for the new VA
+        var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
+        // Core label/mailbox transfer succeeded (backfill below is best-effort) (#12).
+        emailTransferred = true;
+
+        // Insert history messages into new VA's label (reassignment)
+        if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
+          for (var hi = 0; hi < historyMessages.length; hi++) {
+            await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
+          }
+          console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
+        }
+
+        // Backfill: search VA's inbox for existing emails matching this GP
+        // Only matches GP email directly, then labels all messages in those threads
+        // (so practice emails in the same conversation are included)
+        if (result.vaLabelId) {
+          try {
+            var gpEmailRes = await supabaseDbRequest('user_profiles',
+              'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+            var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
+
+            if (gpEmail) {
+              var vaGmail = await getGmailClient(vaAcc.email_address);
+              if (vaGmail) {
+                // Search for emails directly involving the GP
+                var searchRes = await vaGmail.users.messages.list({
+                  userId: vaAcc.email_address, q: 'from:' + gpEmail + ' OR to:' + gpEmail, maxResults: 50
+                });
+                var gpMsgs = (searchRes.data && searchRes.data.messages) || [];
+
+                // Collect unique thread IDs from GP emails
+                var gpThreadIds = {};
+                for (var si = 0; si < gpMsgs.length; si++) {
+                  var msgMeta = await vaGmail.users.messages.get({
+                    userId: vaAcc.email_address, id: gpMsgs[si].id, format: 'metadata', metadataHeaders: ['From']
+                  });
+                  if (msgMeta.data && msgMeta.data.threadId) {
+                    gpThreadIds[msgMeta.data.threadId] = true;
+                  }
+                }
+
+                // Label all messages in those threads (includes practice replies in same thread)
+                var labeledCount = 0;
+                var threadKeys = Object.keys(gpThreadIds);
+                for (var ti = 0; ti < threadKeys.length; ti++) {
+                  try {
+                    var threadRes = await vaGmail.users.threads.get({
+                      userId: vaAcc.email_address, id: threadKeys[ti], format: 'minimal'
+                    });
+                    var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
+                    for (var tmi = 0; tmi < threadMsgs.length; tmi++) {
+                      await applyGmailLabel(vaAcc.email_address, threadMsgs[tmi].id, result.vaLabelId);
+                      labeledCount++;
+                      // Copy to hello@
+                      if (result.helloLabelId) {
+                        try {
+                          var rawM = await vaGmail.users.messages.get({
+                            userId: vaAcc.email_address, id: threadMsgs[tmi].id, format: 'raw'
+                          });
+                          if (rawM.data && rawM.data.raw) {
+                            await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
+                          }
+                        } catch (hErr) { /* skip */ }
+                      }
+                    }
+                  } catch (thErr) { /* skip thread errors */ }
+                }
+                if (labeledCount > 0) {
+                  console.log('[Gmail Labels] Backfilled', labeledCount, 'emails across', threadKeys.length, 'threads for', gpName);
+                }
+              }
+            }
+          } catch (backfillErr) {
+            console.error('[Gmail Labels] Backfill failed:', backfillErr.message);
+          }
+        }
+    } catch (err) {
+      console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
+      // 'skip' is the intentional no-mailbox sentinel (not a real transfer failure);
+      // every other throw is a genuine failure surfaced to the caller (#12).
+      if (err && err.message === 'skip') {
+        emailTransferred = false;
+        emailTransferError = 'No Gmail mailbox registered for the new owner; labels not transferred.';
+      } else {
+        emailTransferred = false;
+        emailTransferError = String(err && err.message || err).slice(0, 300);
+      }
+    }
+  }
+  return { emailTransferred: emailTransferred, emailTransferError: emailTransferError };
 }
 
 function getScheduledCallRegistrationTaskId(callRecord) {
@@ -2295,6 +2548,17 @@ async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
   try {
     var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
     if (!rsoUserId) return fallback;
+    // The RSO's registered Gmail mailbox (va_gmail_accounts — what the Team UI saves as
+    // "Mailbox" and what the Gmail watch/label pipeline uses) is the source of truth for
+    // the From address, so replies land in the inbox that is actually watched. Roster
+    // email is the legacy fallback for RSOs with no registered mailbox.
+    try {
+      var mbRes = await supabaseDbRequest('va_gmail_accounts',
+        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+      var mbRow = (mbRes && mbRes.ok && Array.isArray(mbRes.data) && mbRes.data[0]) ? mbRes.data[0] : null;
+      var mbEmail = mbRow ? String(mbRow.email_address || '').trim().toLowerCase() : '';
+      if (mbEmail && /@mygplink\.com\.au$/.test(mbEmail)) return mbEmail;
+    } catch (mbErr) { /* fall through to roster email */ }
     var roster = await loadRsoTeam({ includeInactive: true });
     var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
     var email = (rso && rso.email) ? String(rso.email).trim().toLowerCase() : '';
@@ -33472,6 +33736,18 @@ async function handleApi(req, res, pathname) {
     const includeInactiveParam = String(rsoQp.get('include_inactive') || '').trim().toLowerCase();
     const includeInactive = includeInactiveParam === '1' || includeInactiveParam === 'true';
     const rsos = includeInactive ? await loadRsoTeam({ includeInactive: true }) : await loadRsoTeam();
+    // G2a: attach each RSO's registered Gmail mailbox (va_gmail) so the Team UI can
+    // show + edit it. Fail-soft: mailboxes stay '' when the lookup is unavailable.
+    try {
+      const mbListRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address', { method: 'GET' });
+      const mbByUser = {};
+      if (mbListRes.ok && Array.isArray(mbListRes.data)) {
+        mbListRes.data.forEach(function (m) { if (m && m.user_id && !mbByUser[m.user_id]) mbByUser[m.user_id] = String(m.email_address || ''); });
+      }
+      rsos.forEach(function (r) { r.va_gmail = mbByUser[r.user_id] || ''; });
+    } catch (mbErr) {
+      rsos.forEach(function (r) { if (r.va_gmail === undefined) r.va_gmail = ''; });
+    }
     sendJson(res, 200, { ok: true, rsos: rsos });
     return;
   }
@@ -33532,12 +33808,14 @@ async function handleApi(req, res, pathname) {
     }
 
     // Reject duplicates by email (exact, on the already-lowercased value) or user_id.
-    // PostgREST or=() members use dot syntax (column.operator.value); both values are safe
-    // to interpolate (user_id is a validated UUID, email passed the validator above).
-    const dupQuery = 'select=user_id,email&or=(email.eq.' + encodeURIComponent(built.payload.email) +
-      ',user_id.eq.' + encodeURIComponent(resolvedUserId) + ')&limit=1';
-    const dupCheck = await supabaseDbRequest('rso_team', dupQuery, { method: 'GET' });
-    if (dupCheck.ok && Array.isArray(dupCheck.data) && dupCheck.data.length > 0) {
+    // Two eq-filter lookups (not a PostgREST or=()) — same result, and both values are
+    // safe to interpolate (user_id is a validated UUID, email passed the validator above).
+    const dupByEmail = await supabaseDbRequest('rso_team',
+      'select=user_id&email=eq.' + encodeURIComponent(built.payload.email) + '&limit=1', { method: 'GET' });
+    const dupById = await supabaseDbRequest('rso_team',
+      'select=user_id&user_id=eq.' + encodeURIComponent(resolvedUserId) + '&limit=1', { method: 'GET' });
+    if ((dupByEmail.ok && Array.isArray(dupByEmail.data) && dupByEmail.data.length > 0)
+      || (dupById.ok && Array.isArray(dupById.data) && dupById.data.length > 0)) {
       sendJson(res, 409, { ok: false, message: 'An RSO with this email already exists.' });
       return;
     }
@@ -33553,7 +33831,18 @@ async function handleApi(req, res, pathname) {
     }
     const insertedRow = Array.isArray(ins.data) ? ins.data[0] : ins.data;
     const normalized = insertedRow ? (mergeRsoRoster([insertedRow], RSO_TEAM, { includeInactive: true })[0] || insertedRow) : built.payload;
-    sendJson(res, 201, { ok: true, rso: normalized, linkedAccount: linkedAccount, generatedUserId: generatedUserId });
+    // G2a: link the RSO's Gmail mailbox (va_gmail_accounts) when supplied. The RSO row is
+    // already created — a mailbox failure is reported, not rolled back, so the admin can
+    // retry the mailbox from Edit without re-adding the person.
+    let mailboxLinked = null;
+    let mailboxError = null;
+    if (built.vaGmail) {
+      const mbResult = await upsertRsoMailbox(resolvedUserId, built.vaGmail, built.payload.name);
+      mailboxLinked = !!mbResult.ok;
+      if (!mbResult.ok) mailboxError = mbResult.error || 'Mailbox link failed.';
+    }
+    normalized.va_gmail = (mailboxLinked ? built.vaGmail : '') || '';
+    sendJson(res, 201, { ok: true, rso: normalized, linkedAccount: linkedAccount, generatedUserId: generatedUserId, mailboxLinked: mailboxLinked, mailboxError: mailboxError });
     return;
   }
 
@@ -33578,7 +33867,9 @@ async function handleApi(req, res, pathname) {
     body = body && typeof body === 'object' ? body : {};
     const built = buildRsoWritePayload(body, { mode: 'update' });
     const updatableKeys = Object.keys(built.payload).filter(k => k !== 'updated_at');
-    if (updatableKeys.length === 0) {
+    // A non-empty mailbox (va_gmail) counts as an update even with no rso_team columns —
+    // it writes to va_gmail_accounts below.
+    if (updatableKeys.length === 0 && !built.vaGmail) {
       sendJson(res, 400, { ok: false, message: 'No fields to update.' });
       return;
     }
@@ -33613,7 +33904,156 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const normalizedUpdated = mergeRsoRoster([updatedRow], RSO_TEAM, { includeInactive: true })[0] || updatedRow;
-    sendJson(res, 200, { ok: true, rso: normalizedUpdated });
+    // G2a: update the RSO's Gmail mailbox link (va_gmail_accounts) when supplied.
+    let mailboxLinked = null;
+    let mailboxError = null;
+    if (built.vaGmail) {
+      const mbResult = await upsertRsoMailbox(rsoUserId, built.vaGmail, normalizedUpdated.name || undefined);
+      mailboxLinked = !!mbResult.ok;
+      if (!mbResult.ok) mailboxError = mbResult.error || 'Mailbox link failed.';
+    }
+    // Reflect the current mailbox in the response so the UI can re-render without refetch.
+    try {
+      const curMbRes = await supabaseDbRequest('va_gmail_accounts',
+        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+      normalizedUpdated.va_gmail = (curMbRes.ok && Array.isArray(curMbRes.data) && curMbRes.data[0]) ? String(curMbRes.data[0].email_address || '') : '';
+    } catch (curMbErr) { normalizedUpdated.va_gmail = ''; }
+    sendJson(res, 200, { ok: true, rso: normalizedUpdated, mailboxLinked: mailboxLinked, mailboxError: mailboxError });
+    return;
+  }
+
+  // POST /api/admin/rso/bulk-reassign — move ALL active cases from one RSO to another
+  // in a single action (G2a / R4). Super-admin only. Body:
+  //   { fromRsoId|fromEmail, toRsoId|toEmail, dryRun? }
+  // dryRun:true returns the count of cases that WOULD move (for the UI confirm step)
+  // without needing a target. The real run loops the same per-case side-effects as the
+  // single-case reassign: registration_cases patch (assigned_va + assigned_rso in
+  // lock-step), timeline event, DoubleTick chat ownership, and the Gmail label transfer
+  // via transferCaseEmailOwnership — the latter under a time budget so a huge caseload
+  // cannot hang the request (DB ownership always moves; label moves report as skipped).
+  if (req.method === 'POST' && pathname === '/api/admin/rso/bulk-reassign') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    body = body && typeof body === 'object' ? body : {};
+    const bulkDryRun = !!body.dryRun;
+    const bulkRoster = await loadRsoTeam({ includeInactive: true });
+    const findRosterRso = function (idOrEmail) {
+      const key = String(idOrEmail == null ? '' : idOrEmail).trim();
+      if (!key) return null;
+      const keyLower = key.toLowerCase();
+      return bulkRoster.find(function (r) {
+        return String(r.user_id) === key || String(r.email || '').toLowerCase() === keyLower;
+      }) || null;
+    };
+    const fromRso = findRosterRso(body.fromRsoId || body.fromEmail);
+    if (!fromRso) {
+      sendJson(res, 400, { ok: false, message: 'Source RSO not found on the roster.' });
+      return;
+    }
+    // Collect the source RSO's ACTIVE cases. assigned_va (mailbox owner) and assigned_rso
+    // (CEO attribution) are written in lock-step, but legacy rows can carry only one —
+    // check both columns and de-duplicate. Two eq-filter queries (PostgREST-safe values:
+    // user_id comes off the loaded roster).
+    const bulkSeen = {};
+    const bulkCases = [];
+    const caseCols = ['assigned_va', 'assigned_rso'];
+    for (let ci = 0; ci < caseCols.length; ci++) {
+      const colRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,assigned_va&status=eq.active&' + caseCols[ci] + '=eq.' + encodeURIComponent(fromRso.user_id) + '&limit=500', { method: 'GET' });
+      const colRows = (colRes.ok && Array.isArray(colRes.data)) ? colRes.data : [];
+      for (let ri = 0; ri < colRows.length; ri++) {
+        const row = colRows[ri];
+        if (row && row.id && !bulkSeen[row.id]) { bulkSeen[row.id] = true; bulkCases.push(row); }
+      }
+    }
+    if (bulkDryRun) {
+      sendJson(res, 200, {
+        ok: true, dryRun: true, total: bulkCases.length,
+        from: { user_id: fromRso.user_id, name: fromRso.name, email: fromRso.email }
+      });
+      return;
+    }
+    const toRso = findRosterRso(body.toRsoId || body.toEmail);
+    if (!toRso) {
+      sendJson(res, 400, { ok: false, message: 'Target RSO not found on the roster.' });
+      return;
+    }
+    if (String(toRso.user_id) === String(fromRso.user_id)) {
+      sendJson(res, 400, { ok: false, message: 'Source and target RSO are the same.' });
+      return;
+    }
+    // Same target validation as the single-case reassign: active, not on leave, and
+    // holding a registered mailbox (or the master-archive handoff account).
+    const bulkMailRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address,display_name', { method: 'GET' });
+    const bulkMailRows = (bulkMailRes.ok && Array.isArray(bulkMailRes.data)) ? bulkMailRes.data : [];
+    const bulkResolved = ceoMetrics.resolveRsoReassignmentTarget(bulkRoster, bulkMailRows, toRso.user_id, MASTER_ARCHIVE_EMAIL);
+    if (!bulkResolved.ok) {
+      sendJson(res, 400, { ok: false, message: bulkResolved.error });
+      return;
+    }
+    // Bound the operation: DB moves are cheap but the Gmail label transfer is not.
+    const BULK_CASE_CAP = 200;
+    const BULK_EMAIL_BUDGET_MS = 45000;
+    const bulkBatch = bulkCases.slice(0, BULK_CASE_CAP);
+    const bulkStartedAt = Date.now();
+    let bulkMoved = 0;
+    let bulkMoveFailed = 0;
+    let bulkEmailFailed = 0;
+    let bulkEmailSkipped = 0;
+    for (let bi = 0; bi < bulkBatch.length; bi++) {
+      const bCase = bulkBatch[bi];
+      const bNowIso = new Date().toISOString();
+      const bPatch = { assigned_va: toRso.user_id, assigned_rso: toRso.user_id, last_va_action_at: bNowIso };
+      const bRes = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(bCase.id), { method: 'PATCH', body: bPatch });
+      if (!bRes.ok) { bulkMoveFailed++; continue; }
+      bulkMoved++;
+      // Timeline event (same shape as the single-case reassign's audit entry).
+      try {
+        await _logCaseEvent(bCase.id, null, 'status_change',
+          'Case reassigned (bulk): ' + (fromRso.name || fromRso.email) + ' → ' + (toRso.name || toRso.email),
+          JSON.stringify(bPatch), adminCtx.email);
+      } catch (evErr) { console.error('[bulk-reassign] timeline log failed for case', bCase.id, ':', evErr && evErr.message); }
+      // DoubleTick chat ownership follows the case owner (best-effort, like the single path).
+      try {
+        const bGpPhone = await getGpWhatsAppPhone(bCase.user_id);
+        if (bGpPhone) await syncCaseChatAssignment({ gpPhone: bGpPhone, assignedVaUserId: toRso.user_id });
+      } catch (dtErr) { console.error('[bulk-reassign] DoubleTick sync failed for case', bCase.id, ':', dtErr && dtErr.message); }
+      // Gmail label transfer — the SAME helper the single-case path uses. Time-boxed:
+      // once the budget is spent, remaining cases still move in the DB but their label
+      // transfer is reported as skipped (re-running the tool is safe / idempotent-ish).
+      if (Date.now() - bulkStartedAt > BULK_EMAIL_BUDGET_MS) {
+        bulkEmailSkipped++;
+        continue;
+      }
+      try {
+        const bTransfer = await transferCaseEmailOwnership(
+          bCase.id, toRso.user_id, bCase.assigned_va || fromRso.user_id, !!bulkResolved.isArchive);
+        if (bTransfer.emailTransferred === false) bulkEmailFailed++;
+      } catch (btErr) {
+        console.error('[bulk-reassign] label transfer failed for case', bCase.id, ':', btErr && btErr.message);
+        bulkEmailFailed++;
+      }
+    }
+    sendJson(res, 200, {
+      ok: true,
+      moved: bulkMoved,
+      total: bulkCases.length,
+      moveFailed: bulkMoveFailed,
+      remaining: bulkCases.length > BULK_CASE_CAP ? bulkCases.length - BULK_CASE_CAP : 0,
+      emailTransfersFailed: bulkEmailFailed,
+      emailTransfersSkipped: bulkEmailSkipped,
+      from: { user_id: fromRso.user_id, name: fromRso.name },
+      to: { user_id: toRso.user_id, name: toRso.name }
+    });
     return;
   }
 
@@ -39129,6 +39569,15 @@ Return ONLY valid JSON with no markdown formatting:
     //    workload/owner numbers don't drift from admin reassignments.
     if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va
         && !Object.prototype.hasOwnProperty.call(patch, 'assigned_rso')) {
+      // On-leave guard (G2a): the admin-page path writes assigned_va directly and skips
+      // resolveRsoReassignmentTarget above — refuse handing a case to an on-leave RSO
+      // here too so both dashboards behave the same.
+      var vaRosterRows = await loadRsoTeam({ includeInactive: true });
+      var vaTargetRso = (vaRosterRows || []).find(function (rr) { return String(rr.user_id) === String(patch.assigned_va); });
+      if (vaTargetRso && vaTargetRso.on_leave === true) {
+        sendJson(res, 400, { ok: false, message: 'Target RSO "' + (vaTargetRso.name || vaTargetRso.email) + '" is on leave. Clear the on-leave flag first, or pick another RSO.' });
+        return;
+      }
       patch.assigned_rso = patch.assigned_va;
     }
 
@@ -39165,177 +39614,11 @@ Return ONLY valid JSON with no markdown formatting:
     // Capture whether the Gmail label transfer succeeded so the caller learns the
     // truth instead of the try/catch silently swallowing failures (#12).
     // null = no transfer attempted; true = succeeded; false = failed (see emailTransferError).
-    var emailTransferred = null;
-    var emailTransferError = null;
-    if (patch.assigned_va) {
-      if (reassigningToArchive) {
-        // GP Link Admin (master archive / hello@) now owns the case. hello@ is never
-        // Gmail-watched and already mirrors every case email (silent copies on the hello@
-        // sub-label), so there is no VA mailbox to provision — just hand off cleanly by
-        // archiving the previous RSO's working label.
-        try {
-          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
-            var oldVaArcRes = await supabaseDbRequest('va_gmail_accounts',
-              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
-            var oldVaArc = oldVaArcRes.ok && oldVaArcRes.data && oldVaArcRes.data[0] ? oldVaArcRes.data[0] : null;
-            if (oldVaArc) await archiveLabelForVA(oldVaArc.email_address, caseId);
-          }
-          // Ownership moved to GP Link Admin; the master archive already holds the history.
-          emailTransferred = true;
-        } catch (arcErr) {
-          console.error('[Gmail Labels] Handoff to GP Link Admin failed:', arcErr.message);
-          emailTransferred = false;
-          emailTransferError = String(arcErr && arcErr.message || arcErr).slice(0, 300);
-        }
-      } else try {
-          var labelCaseRes = await supabaseDbRequest('registration_cases',
-            'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-          var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
-          if (!labelCase) throw new Error('Case not found for label setup');
-
-          var gpProfileRes = await supabaseDbRequest('user_profiles',
-            'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
-          var gpProfile = gpProfileRes.ok && gpProfileRes.data && gpProfileRes.data[0] ? gpProfileRes.data[0] : {};
-          var gpName = [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() || 'Unknown';
-
-          var vaAccRes = await supabaseDbRequest('va_gmail_accounts',
-            'select=email_address,display_name&user_id=eq.' + encodeURIComponent(patch.assigned_va) + '&limit=1');
-          var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
-          if (!vaAcc) {
-            // RSO-driven reassignments are guarded upstream (resolveRsoReassignmentTarget),
-            // so this only fires for legacy direct assigned_va writes with no mailbox.
-            console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va, '— skipping label setup');
-            throw new Error('skip');
-          }
-
-          // Archive old VA's label if this is a reassignment
-          var historyMessages = [];
-          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
-            var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
-              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
-            var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
-            if (oldVaAcc && labelCase.gmail_label_id) {
-              await archiveLabelForVA(oldVaAcc.email_address, caseId);
-
-              // Copy email history to new VA
-              var oldGmail = await getGmailClient(oldVaAcc.email_address);
-              if (oldGmail) {
-                try {
-                  var oldMsgs = await oldGmail.users.messages.list({
-                    userId: oldVaAcc.email_address, labelIds: [labelCase.gmail_label_id], maxResults: 100
-                  });
-                  var msgList = (oldMsgs.data && oldMsgs.data.messages) || [];
-                  for (var mIdx = 0; mIdx < msgList.length; mIdx++) {
-                    var rawMsg = await oldGmail.users.messages.get({
-                      userId: oldVaAcc.email_address, id: msgList[mIdx].id, format: 'raw'
-                    });
-                    if (rawMsg.data && rawMsg.data.raw) {
-                      historyMessages.push(Buffer.from(rawMsg.data.raw, 'base64'));
-                    }
-                  }
-                } catch (copyErr) {
-                  console.error('[Gmail Labels] History fetch failed:', copyErr.message);
-                }
-              }
-
-              // Move hello@ sub-label to new VA's folder
-              if (labelCase.gmail_label_hello_id) {
-                var newHelloName = buildHelloLabelName(vaAcc.display_name, gpName, labelCase.practice_name || '');
-                await renameGmailLabel(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, newHelloName);
-              }
-            }
-          }
-
-          // Create labels for the new VA
-          var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
-          // Core label/mailbox transfer succeeded (backfill below is best-effort) (#12).
-          emailTransferred = true;
-
-          // Insert history messages into new VA's label (reassignment)
-          if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
-            for (var hi = 0; hi < historyMessages.length; hi++) {
-              await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
-            }
-            console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
-          }
-
-          // Backfill: search VA's inbox for existing emails matching this GP
-          // Only matches GP email directly, then labels all messages in those threads
-          // (so practice emails in the same conversation are included)
-          if (result.vaLabelId) {
-            try {
-              var gpEmailRes = await supabaseDbRequest('user_profiles',
-                'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
-              var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
-
-              if (gpEmail) {
-                var vaGmail = await getGmailClient(vaAcc.email_address);
-                if (vaGmail) {
-                  // Search for emails directly involving the GP
-                  var searchRes = await vaGmail.users.messages.list({
-                    userId: vaAcc.email_address, q: 'from:' + gpEmail + ' OR to:' + gpEmail, maxResults: 50
-                  });
-                  var gpMsgs = (searchRes.data && searchRes.data.messages) || [];
-
-                  // Collect unique thread IDs from GP emails
-                  var gpThreadIds = {};
-                  for (var si = 0; si < gpMsgs.length; si++) {
-                    var msgMeta = await vaGmail.users.messages.get({
-                      userId: vaAcc.email_address, id: gpMsgs[si].id, format: 'metadata', metadataHeaders: ['From']
-                    });
-                    if (msgMeta.data && msgMeta.data.threadId) {
-                      gpThreadIds[msgMeta.data.threadId] = true;
-                    }
-                  }
-
-                  // Label all messages in those threads (includes practice replies in same thread)
-                  var labeledCount = 0;
-                  var threadKeys = Object.keys(gpThreadIds);
-                  for (var ti = 0; ti < threadKeys.length; ti++) {
-                    try {
-                      var threadRes = await vaGmail.users.threads.get({
-                        userId: vaAcc.email_address, id: threadKeys[ti], format: 'minimal'
-                      });
-                      var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
-                      for (var tmi = 0; tmi < threadMsgs.length; tmi++) {
-                        await applyGmailLabel(vaAcc.email_address, threadMsgs[tmi].id, result.vaLabelId);
-                        labeledCount++;
-                        // Copy to hello@
-                        if (result.helloLabelId) {
-                          try {
-                            var rawM = await vaGmail.users.messages.get({
-                              userId: vaAcc.email_address, id: threadMsgs[tmi].id, format: 'raw'
-                            });
-                            if (rawM.data && rawM.data.raw) {
-                              await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
-                            }
-                          } catch (hErr) { /* skip */ }
-                        }
-                      }
-                    } catch (thErr) { /* skip thread errors */ }
-                  }
-                  if (labeledCount > 0) {
-                    console.log('[Gmail Labels] Backfilled', labeledCount, 'emails across', threadKeys.length, 'threads for', gpName);
-                  }
-                }
-              }
-            } catch (backfillErr) {
-              console.error('[Gmail Labels] Backfill failed:', backfillErr.message);
-            }
-          }
-      } catch (err) {
-        console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
-        // 'skip' is the intentional no-mailbox sentinel (not a real transfer failure);
-        // every other throw is a genuine failure surfaced to the caller (#12).
-        if (err && err.message === 'skip') {
-          emailTransferred = false;
-          emailTransferError = 'No Gmail mailbox registered for the new owner; labels not transferred.';
-        } else {
-          emailTransferred = false;
-          emailTransferError = String(err && err.message || err).slice(0, 300);
-        }
-      }
-    }
+    // The heavy lifting lives in transferCaseEmailOwnership (extracted for G2a so the
+    // bulk-reassign endpoint runs the exact same per-case side-effects).
+    var _emailTransfer = await transferCaseEmailOwnership(caseId, patch.assigned_va || null, oldAssignedVa, reassigningToArchive);
+    var emailTransferred = _emailTransfer.emailTransferred;
+    var emailTransferError = _emailTransfer.emailTransferError;
 
     // ── Gmail Label Rename on practice_name change ──
     if (patch.practice_name) {
@@ -52187,6 +52470,7 @@ module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
+module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   makePracticeActionToken,
   verifyPracticeActionToken,

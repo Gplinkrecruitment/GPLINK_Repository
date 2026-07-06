@@ -129,6 +129,10 @@ function buildRsoWritePayload(input = {}, opts = {}) {
   if (has('active')) out.active = !!input.active;
   else if (create) out.active = true;
 
+  // ON LEAVE (G2a) — column on rso_team; roster selection refuses on-leave targets.
+  if (has('on_leave') || has('onLeave')) out.on_leave = !!(has('on_leave') ? input.on_leave : input.onLeave);
+  else if (create) out.on_leave = false;
+
   // CALENDLY
   if (create || has('calendlyEventUrl') || has('calendly_event_url')) {
     const raw = input.calendlyEventUrl != null ? input.calendlyEventUrl : input.calendly_event_url;
@@ -144,8 +148,22 @@ function buildRsoWritePayload(input = {}, opts = {}) {
     out.user_id = userId;
   }
 
+  // MAILBOX (va_gmail) — NOT an rso_team column: it lives in va_gmail_accounts, so it is
+  // validated here but returned separately (vaGmail) for the endpoint to upsert.
+  // undefined = not supplied; '' = supplied blank (endpoints treat as no change).
+  // Only @mygplink.com.au inboxes can be impersonated for outbound sending (domain-wide
+  // delegation), so anything else is rejected up front instead of silently not working.
+  let vaGmail;
+  if (has('va_gmail') || has('vaGmail')) {
+    const rawMb = has('va_gmail') ? input.va_gmail : input.vaGmail;
+    const mb = String(rawMb == null ? '' : rawMb).trim().toLowerCase();
+    if (mb && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mb)) errors.push('Mailbox is not a valid email address.');
+    else if (mb && !/@mygplink\.com\.au$/.test(mb)) errors.push('Mailbox must be an @mygplink.com.au address.');
+    vaGmail = mb;
+  }
+
   out.updated_at = input.nowIso || new Date().toISOString();
-  return { valid: errors.length === 0, errors, payload: out };
+  return { valid: errors.length === 0, errors, payload: out, vaGmail };
 }
 
 function getScheduledCallRegistrationTaskId(callRecord) {

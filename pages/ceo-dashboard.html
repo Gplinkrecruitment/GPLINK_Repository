@@ -2663,6 +2663,7 @@
         var rsoAction = rsoActionEl.getAttribute('data-rso-action');
         if (rsoAction === 'add') { openAddRsoModal(); return; }
         if (rsoAction === 'edit') { openEditRsoModal(rsoActionEl.getAttribute('data-rso-id')); return; }
+        if (rsoAction === 'bulk') { openBulkReassignModal(rsoActionEl.getAttribute('data-rso-id')); return; }
       }
       // RSO oversight card -> RSO detail
       var rsoCard = e.target.closest('.rso-card[data-rso-id]');
@@ -2842,6 +2843,8 @@
               phone: a.phone || '',
               calendly_event_url: a.calendly_event_url || '',
               active: a.active,
+              on_leave: !!a.on_leave,
+              va_gmail: a.va_gmail || '',
               hasAdminRecord: true,
               case_count: s ? s.case_count : 0,
               open_tasks: s ? s.open_tasks : 0,
@@ -2862,6 +2865,8 @@
             phone: '',
             calendly_event_url: '',
             active: cr.active,
+            on_leave: false,
+            va_gmail: '',
             hasAdminRecord: false,
             case_count: cr.case_count || 0,
             open_tasks: cr.open_tasks || 0,
@@ -2887,8 +2892,19 @@
       for (var i = 0; i < rsos.length; i++) {
         var r = rsos[i];
         html += '<div class="rso-card' + (r.active === false ? ' inactive' : '') + '" data-rso-id="' + esc(r.rso_id) + '">';
-        html += '<div class="rso-card-name">' + esc(r.rso_name) + (r.active === false ? ' <span style="font-size:10px;color:var(--text-dim)">(inactive)</span>' : '') + '</div>';
+        html += '<div class="rso-card-name">' + esc(r.rso_name)
+          + (r.active === false ? ' <span style="font-size:10px;color:var(--text-dim)">(inactive)</span>' : '')
+          + (r.on_leave ? ' <span style="font-size:10px;color:var(--amber);border:1px solid var(--amber);border-radius:8px;padding:1px 6px;margin-left:4px">On leave</span>' : '')
+          + '</div>';
         if (r.email) html += '<div class="rso-card-email">' + esc(r.email) + '</div>';
+        // Mailbox line — the Gmail inbox their GP emails send from / land in.
+        if (r.hasAdminRecord) {
+          if (r.va_gmail) {
+            html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Mailbox: ' + esc(r.va_gmail) + '</div>';
+          } else {
+            html += '<div style="font-size:11px;color:var(--amber);margin-top:4px">No mailbox linked — emails fall back to the team inbox</div>';
+          }
+        }
         // Calendly status line — muted when set, amber when missing.
         if (r.calendly_event_url) {
           html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Calendly link set</div>';
@@ -2900,9 +2916,12 @@
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value">' + (r.open_tasks || 0) + '</span><span class="rso-card-stat-label">Open</span></div>';
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value" style="color:' + ((r.overdue_tasks || 0) > 0 ? 'var(--red)' : 'var(--text)') + '">' + (r.overdue_tasks || 0) + '</span><span class="rso-card-stat-label">Overdue</span></div>';
         html += '</div>';
-        // Edit button — only when we hold the full admin record (has user_id) to prefill from.
+        // Edit + bulk-reassign — only when we hold the full admin record (has user_id).
         if (r.hasAdminRecord && r.user_id) {
-          html += '<div style="margin-top:12px"><button class="btn" data-rso-action="edit" data-rso-id="' + esc(r.user_id) + '">Edit</button></div>';
+          html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'
+            + '<button class="btn" data-rso-action="edit" data-rso-id="' + esc(r.user_id) + '">Edit</button>'
+            + '<button class="btn" data-rso-action="bulk" data-rso-id="' + esc(r.user_id) + '">Reassign all cases</button>'
+            + '</div>';
         }
         html += '</div>';
       }
@@ -2919,14 +2938,20 @@
       var emailV = rec ? escAttr(rec.email || '') : '';
       var phoneV = rec ? escAttr(rec.phone || '') : '';
       var calV = rec ? escAttr(rec.calendly_event_url || '') : '';
+      var mailboxV = rec ? escAttr(rec.va_gmail || '') : '';
       var activeChecked = (!rec || rec.active !== false) ? ' checked' : '';
+      var onLeaveChecked = (rec && rec.on_leave) ? ' checked' : '';
       var h = '';
       h += '<div class="modal-field"><label class="modal-label">Name</label><input class="modal-input" id="mRsoName" value="' + nameV + '"></div>';
       h += '<div class="modal-field"><label class="modal-label">Email</label><input class="modal-input" id="mRsoEmail" type="email" value="' + emailV + '"></div>';
+      h += '<div class="modal-field"><label class="modal-label">Mailbox (Gmail)</label><input class="modal-input" id="mRsoMailbox" type="email" placeholder="name@mygplink.com.au" value="' + mailboxV + '">';
+      h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">The @mygplink.com.au inbox their GP emails send from and land in. Leave blank to keep the current mailbox.</div></div>';
       h += '<div class="modal-field"><label class="modal-label">Phone (optional)</label><input class="modal-input" id="mRsoPhone" value="' + phoneV + '"></div>';
       h += '<div class="modal-field"><label class="modal-label">Calendly link</label><input class="modal-input" id="mRsoCalendly" placeholder="https://calendly.com/..." value="' + calV + '">';
       h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">Leave blank to use the default GP Link Calendly link.</div></div>';
       h += '<div class="modal-field"><label class="modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="mRsoActive"' + activeChecked + '> Active</label></div>';
+      h += '<div class="modal-field"><label class="modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="mRsoOnLeave"' + onLeaveChecked + '> On leave</label>';
+      h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">On-leave officers can’t be given new cases. Their existing cases stay put — use “Reassign all cases” to hand them over.</div></div>';
       return h;
     }
 
@@ -2951,7 +2976,9 @@
         email: rec.email || '',
         phone: rec.phone || '',
         calendly_event_url: rec.calendly_event_url || '',
-        active: rec.active
+        active: rec.active,
+        on_leave: !!rec.on_leave,
+        va_gmail: rec.va_gmail || ''
       };
       var html = '<div class="modal-title">Edit RSO</div>';
       html += rsoModalFields(view);
@@ -2962,28 +2989,39 @@
     function submitRsoSave(userId) {
       var nameEl = document.getElementById('mRsoName');
       var emailEl = document.getElementById('mRsoEmail');
+      var mailboxEl = document.getElementById('mRsoMailbox');
       var phoneEl = document.getElementById('mRsoPhone');
       var calEl = document.getElementById('mRsoCalendly');
       var activeEl = document.getElementById('mRsoActive');
+      var onLeaveEl = document.getElementById('mRsoOnLeave');
       var name = nameEl ? nameEl.value.trim() : '';
       var email = emailEl ? emailEl.value.trim() : '';
+      var mailbox = mailboxEl ? mailboxEl.value.trim() : '';
       var phone = phoneEl ? phoneEl.value.trim() : '';
       var calendly = calEl ? calEl.value.trim() : '';
       // Client-side validation. Name + email required when adding.
       if (!userId && (!name || !email)) { showToast('Name and email are required', 'error'); return; }
+      if (mailbox && !/@mygplink\.com\.au$/i.test(mailbox)) {
+        showToast('Mailbox must be an @mygplink.com.au address', 'error');
+        return;
+      }
       if (calendly && calendly.indexOf('https://calendly.com/') !== 0) {
         showToast('Calendly link must start with https://calendly.com/', 'error');
         return;
       }
       var btn = document.getElementById('mRsoSubmit');
       if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-      var body = { name: name, email: email, phone: phone, calendly_event_url: calendly, active: activeEl ? activeEl.checked : true };
+      var body = { name: name, email: email, phone: phone, calendly_event_url: calendly, active: activeEl ? activeEl.checked : true, on_leave: onLeaveEl ? onLeaveEl.checked : false };
+      if (mailbox) body.va_gmail = mailbox;
       var req = userId
         ? apiFetch('/api/admin/rsos/' + encodeURIComponent(userId), { method: 'PATCH', body: body })
         : apiFetch('/api/admin/rsos', { method: 'POST', body: body });
       req.then(function(d) {
         if (d && d.ok) {
-          if (!userId && d.generatedUserId) {
+          if (mailbox && d.mailboxLinked === false) {
+            // The RSO record saved but the mailbox link failed — surface why.
+            showToast('Saved, but the mailbox wasn’t linked: ' + (d.mailboxError || 'unknown error'), 'error');
+          } else if (!userId && d.generatedUserId) {
             // No GP Link account matched this email, so a standalone id was created. Make
             // the silent path visible — case assignment / Gmail routing need a real account.
             showToast('RSO added, but no GP Link account matched this email yet — case assignment and email routing won’t work until they sign in with this email.', 'info');
@@ -2999,6 +3037,72 @@
       }).catch(function(e) {
         showToast('Error: ' + e.message, 'error');
         if (btn) { btn.disabled = false; btn.textContent = userId ? 'Save Changes' : 'Add RSO'; }
+      });
+    }
+
+    /* ── Bulk reassignment: move ALL of one RSO's active cases to another RSO ── */
+    function openBulkReassignModal(fromUserId) {
+      var fromRec = null;
+      for (var i = 0; i < rsoAdminRosterCache.length; i++) {
+        if (rsoAdminRosterCache[i].user_id === fromUserId) { fromRec = rsoAdminRosterCache[i]; break; }
+      }
+      if (!fromRec) { showToast('RSO record not found — try refreshing', 'error'); return; }
+      var fromName = fromRec.name || fromRec.email || 'this RSO';
+      // Confirm step needs the real count — ask the server (dry run) before rendering.
+      openModal('<div class="modal-title">Reassign all cases</div><div style="padding:12px 0;font-size:13px;color:var(--text-dim)">Counting ' + esc(fromName) + '&rsquo;s active cases&hellip;</div>');
+      apiFetch('/api/admin/rso/bulk-reassign', { method: 'POST', body: { fromRsoId: fromUserId, dryRun: true } }).then(function(d) {
+        if (!d || !d.ok) { showToast('Failed: ' + ((d && d.message) || 'count failed'), 'error'); closeModal(); return; }
+        var total = d.total || 0;
+        var html = '<div class="modal-title">Reassign all cases</div>';
+        html += '<div style="font-size:13px;line-height:1.6;margin-bottom:12px"><b>' + total + '</b> active case' + (total === 1 ? '' : 's') + ' currently assigned to <b>' + esc(fromName) + '</b> will move to the officer you pick. Their emails, WhatsApp chats and Gmail folders follow automatically.</div>';
+        if (total === 0) {
+          html += '<div class="modal-note" style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Nothing to move — you can still close this window.</div>';
+          html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>';
+          openModal(html);
+          return;
+        }
+        // Target picker: everyone else on the roster who is active and not on leave.
+        var opts = '';
+        for (var j = 0; j < rsoAdminRosterCache.length; j++) {
+          var t = rsoAdminRosterCache[j];
+          if (!t.user_id || t.user_id === fromUserId) continue;
+          if (t.active === false || t.on_leave) continue;
+          opts += '<option value="' + escAttr(t.user_id) + '">' + esc(t.name || t.email || t.user_id) + (t.va_gmail ? '' : ' (no mailbox)') + '</option>';
+        }
+        if (!opts) {
+          html += '<div class="modal-note" style="font-size:12px;color:var(--amber);margin-bottom:12px">No other active officer is available to take these cases.</div>';
+          html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>';
+          openModal(html);
+          return;
+        }
+        html += '<div class="modal-field"><label class="modal-label">Move all ' + total + ' cases to</label><select class="modal-input" id="mBulkTarget">' + opts + '</select></div>';
+        html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-blue" id="mBulkSubmit" onclick="submitBulkReassign(\'' + esc(fromUserId) + '\',' + total + ')">Move ' + total + ' case' + (total === 1 ? '' : 's') + '</button></div>';
+        openModal(html);
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); closeModal(); });
+    }
+
+    function submitBulkReassign(fromUserId, expectedTotal) {
+      var sel = document.getElementById('mBulkTarget');
+      var toUserId = sel ? sel.value : '';
+      if (!toUserId) { showToast('Pick an officer to move the cases to', 'error'); return; }
+      var btn = document.getElementById('mBulkSubmit');
+      if (btn) { btn.disabled = true; btn.textContent = 'Moving...'; }
+      apiFetch('/api/admin/rso/bulk-reassign', { method: 'POST', body: { fromRsoId: fromUserId, toRsoId: toUserId } }).then(function(d) {
+        if (d && d.ok) {
+          var msg = 'Moved ' + (d.moved || 0) + ' of ' + (d.total != null ? d.total : expectedTotal) + ' cases to ' + ((d.to && d.to.name) || 'the new officer');
+          if (d.remaining) msg += ' — ' + d.remaining + ' still to go (run this again)';
+          if (d.emailTransfersSkipped) msg += '; ' + d.emailTransfersSkipped + ' Gmail folder move(s) deferred';
+          if (d.emailTransfersFailed) msg += '; ' + d.emailTransfersFailed + ' Gmail folder move(s) failed';
+          showToast(msg, (d.emailTransfersFailed || d.moveFailed) ? 'info' : 'success');
+          closeModal();
+          loadRsoOversight();
+        } else {
+          showToast('Failed: ' + ((d && d.message) || 'bulk reassign failed'), 'error');
+          if (btn) { btn.disabled = false; btn.textContent = 'Move cases'; }
+        }
+      }).catch(function(e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Move cases'; }
       });
     }
 
