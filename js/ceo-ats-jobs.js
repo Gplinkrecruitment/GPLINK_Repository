@@ -35,6 +35,79 @@
     { value: 'filled', label: 'Filled' },
     { value: 'closed', label: 'Closed' }
   ];
+  // Phase 3 (Zoho decommission): intake-parity vocabulary. These are the SAME
+  // enums lib/practice-pipeline.js validates, so the editor sends exactly what
+  // the practice intake form does (billing_style/mmm/state), never the legacy
+  // free-text `billing` key.
+  var BILLING_STYLE_OPTS = [
+    { value: 'mixed', label: 'Mixed billing' },
+    { value: 'bulk', label: 'Bulk billing' },
+    { value: 'private', label: 'Private billing' }
+  ];
+  var MMM_OPTS = [
+    { value: '', label: '— Not specified —' },
+    { value: 'MM1', label: 'MM1' }, { value: 'MM2', label: 'MM2' }, { value: 'MM3', label: 'MM3' },
+    { value: 'MM4', label: 'MM4' }, { value: 'MM5', label: 'MM5' }, { value: 'MM6', label: 'MM6' },
+    { value: 'MM7', label: 'MM7' }
+  ];
+  // Optional booleans (visa sponsorship, nursing on site) allow a blank
+  // "unknown" — the server stores that as null (not a confirmed "no").
+  var TRISTATE_OPTS = [
+    { value: '', label: 'Unknown / blank' },
+    { value: 'true', label: 'Yes' },
+    { value: 'false', label: 'No' }
+  ];
+
+  /* -------------------- intake-editor field helpers -------------------- */
+  // 'true'|'false'|'' (from a select/hidden) -> true|false|null.
+  function boolFromSel(v) { return v === 'true' ? true : (v === 'false' ? false : null); }
+  // boolean|null -> 'true'|'false'|'' (for prefilling a select/segment).
+  function boolToSel(v) { return v === true ? 'true' : (v === false ? 'false' : ''); }
+
+  function formSection(title, inner) {
+    return '<div class="ats-edit-section" style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(120,120,140,0.18)">' +
+      '<div style="font-size:11.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--ats-dim);margin-bottom:8px">' + A.esc(title) + '</div>' +
+      inner + '</div>';
+  }
+  function boolSelect(id, value) {
+    return '<select id="' + id + '">' + valueOptions(TRISTATE_OPTS, boolToSel(value)) + '</select>';
+  }
+  // Prominent DPA yes/no segmented control (DPA is the owner's durable control —
+  // it drives the doctor-facing masked title). Writes into a hidden input.
+  function dpaSegment(hiddenId, segId, value) {
+    var v = boolToSel(value);
+    function btn(bv, label, color) {
+      var on = v === bv;
+      return '<button type="button" data-dpa-val="' + bv + '" ' +
+        'style="flex:1;padding:11px 10px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13.5px;' +
+        'border:2px solid ' + (on ? color : 'rgba(120,120,140,0.3)') + ';' +
+        'background:' + (on ? color : 'transparent') + ';color:' + (on ? '#fff' : 'var(--ats-dim)') + '">' + label + '</button>';
+    }
+    return '<input type="hidden" id="' + hiddenId + '" value="' + A.escAttr(v) + '" />' +
+      '<div id="' + segId + '" style="display:flex;gap:8px">' +
+        btn('true', 'DPA eligible', 'var(--ats-green)') +
+        btn('false', 'Non-DPA', 'var(--ats-red)') +
+      '</div>';
+  }
+  function bindDpaSegment(segId, hiddenId) {
+    var seg = el(segId);
+    if (!seg) return;
+    seg.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-dpa-val]') : null;
+      if (!b) return;
+      var v = b.getAttribute('data-dpa-val');
+      var hidden = el(hiddenId);
+      if (hidden) hidden.value = v;
+      var btns = seg.querySelectorAll('[data-dpa-val]');
+      for (var i = 0; i < btns.length; i++) {
+        var on = btns[i].getAttribute('data-dpa-val') === v;
+        var color = btns[i].getAttribute('data-dpa-val') === 'true' ? 'var(--ats-green)' : 'var(--ats-red)';
+        btns[i].style.border = '2px solid ' + (on ? color : 'rgba(120,120,140,0.3)');
+        btns[i].style.background = on ? color : 'transparent';
+        btns[i].style.color = on ? '#fff' : 'var(--ats-dim)';
+      }
+    });
+  }
 
   /* -------------------- module state -------------------- */
   var currentBoardJobId = null;   // exposed indirectly via atsOpenJobBoard
@@ -177,15 +250,23 @@
     }).join('');
   }
 
+  // Cosmetic DPA / Non-DPA chip — only when the list payload carries the flag.
+  function dpaChip(j) {
+    if (j.dpa === true) return '<span class="ats-pill green">DPA</span>';
+    if (j.dpa === false) return '<span class="ats-pill muted">Non-DPA</span>';
+    return '';
+  }
+
   function jobCardHtml(j) {
     var active = j.active_count || 0;
     var pending = j.approval_status === 'pending';
     var approveBtn = pending
       ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-approve-job="' + A.escAttr(j.id) + '">Review &amp; approve</button>'
       : '';
+    var chip = dpaChip(j);
     return '<div class="ats-job-card" data-job-id="' + A.escAttr(j.id) + '">' +
       '<div>' +
-        '<h3>' + A.esc(j.masked_title || j.title || '—') + ' ' + statusPill(j.status) + ' ' + approvalPill(j) + '</h3>' +
+        '<h3>' + A.esc(j.masked_title || j.title || '—') + ' ' + statusPill(j.status) + ' ' + approvalPill(j) + (chip ? ' ' + chip : '') + '</h3>' +
         '<div class="ats-job-meta">' +
           '<span>🏥 ' + A.esc(j.practice_name || '—') + '</span>' +
           '<span>📍 ' + A.esc(j.suburb ? j.suburb : locStr(j)) + '</span>' +
@@ -493,7 +574,9 @@
     A.api('/api/ats/practices').then(function (d) {
       var practices = (d && d.practices) || [];
       var practiceOptions = practices.map(function (p) {
-        return '<option value="' + A.escAttr(p.id) + '">' + A.esc(p.name) + '</option>';
+        // Corporation options carry a "(Corporation)" hint when the payload marks them.
+        var suffix = p.org_type === 'corporation' ? ' (Corporation)' : '';
+        return '<option value="' + A.escAttr(p.id) + '">' + A.esc(p.name) + A.esc(suffix) + '</option>';
       }).join('') || '<option value="">No practices yet</option>';
 
       A.setOverlay(addJobModalHtml(practiceOptions));
@@ -502,29 +585,75 @@
       on('atsAddJobClose', 'click', closeAddJobModal);
       on('atsAddJobCancel', 'click', closeAddJobModal);
       on('atsAddJobCreate', 'click', submitAddJob);
+      bindDpaSegment('atsNjDpaSeg', 'atsNjDpa');
     });
   }
   function closeAddJobModal() { A.setOverlay(''); }
 
+  function req(label) { return '<span style="color:var(--ats-red)">*</span> ' + label; }
+
+  // Full manual creation form — the SAME fields the practice fills on the
+  // Facebook intake form, so the job lands as a pending row through the exact
+  // same pipeline (approval + suburb-photo gate unchanged).
   function addJobModalHtml(practiceOptions) {
     return '<div class="ats-modal-wrap" id="atsAddJobModal">' +
       '<div class="ats-modal">' +
         '<div class="ats-modal-head"><h3>Add a job</h3><button class="ats-drawer-close" id="atsAddJobClose">×</button></div>' +
         '<div class="ats-modal-body">' +
-          '<label>Job title</label>' +
-          '<input type="text" id="atsNjTitle" placeholder="e.g. General Practitioner — VR" />' +
+          '<div id="atsNjError" style="display:none;background:rgba(220,60,60,0.12);border:1px solid var(--ats-red);color:var(--ats-red);border-radius:8px;padding:9px 11px;font-size:12.5px;margin-bottom:6px"></div>' +
           '<label>Practice</label>' +
           '<select id="atsNjPractice">' + practiceOptions + '</select>' +
-          '<div class="ats-form-row">' +
-            '<div><label>City</label><input type="text" id="atsNjCity" placeholder="Brisbane" /></div>' +
-            '<div><label>State</label><select id="atsNjState">' + plainOptions(AU_STATES, 'QLD') + '</select></div>' +
-          '</div>' +
-          '<div class="ats-form-row">' +
-            '<div><label>Type</label><select id="atsNjType">' + plainOptions(JOB_TYPES, JOB_TYPES[0]) + '</select></div>' +
-            '<div><label>Billing</label><select id="atsNjBilling">' + plainOptions(BILLINGS, BILLINGS[0]) + '</select></div>' +
-          '</div>' +
-          '<label>About the role (shown to doctors)</label>' +
-          '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>' +
+          formSection('Role',
+            '<label>' + req('Job title') + '</label>' +
+            '<input type="text" id="atsNjTitle" placeholder="e.g. General Practitioner — VR" />' +
+            '<label>About the role (shown to doctors)</label>' +
+            '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>'
+          ) +
+          formSection('Location',
+            '<div class="ats-form-row">' +
+              '<div><label>' + req('Suburb') + '</label><input type="text" id="atsNjSuburb" placeholder="Rangeville" /></div>' +
+              '<div><label>' + req('Nearest city') + '</label><input type="text" id="atsNjNearestCity" placeholder="Toowoomba" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>' + req('State') + '</label><select id="atsNjState">' + valueOptions(AU_STATES.map(function (s) { return { value: s, label: s }; }), 'QLD') + '</select></div>' +
+              '<div><label>General location</label><input type="text" id="atsNjGeneralLoc" placeholder="Darling Downs" /></div>' +
+            '</div>' +
+            '<label>' + req('Address') + '</label>' +
+            '<input type="text" id="atsNjAddress" placeholder="12 Main Street, Rangeville" />'
+          ) +
+          formSection('Billing &amp; terms',
+            '<label>' + req('Billing style') + '</label>' +
+            '<select id="atsNjBilling">' + valueOptions(BILLING_STYLE_OPTS, 'mixed') + '</select>' +
+            '<label style="margin-top:12px">' + req('DPA (District of Priority Area)') + '</label>' +
+            dpaSegment('atsNjDpa', 'atsNjDpaSeg', null) +
+            '<div class="ats-form-row" style="margin-top:12px">' +
+              '<div><label>' + req('Percentage split') + '</label><input type="text" id="atsNjPctSplit" placeholder="65%" /></div>' +
+              '<div><label>Estimated earnings</label><input type="text" id="atsNjEarnings" placeholder="$350k+ estimated" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>Modified Monash (MMM)</label><select id="atsNjMmm">' + valueOptions(MMM_OPTS, '') + '</select></div>' +
+              '<div></div>' +
+            '</div>' +
+            '<label>Incentives</label>' +
+            '<textarea id="atsNjIncentives" rows="2" placeholder="Relocation bonus, sign-on bonus…"></textarea>'
+          ) +
+          formSection('Practice profile',
+            '<div class="ats-form-row">' +
+              '<div><label>Ownership</label><input type="text" id="atsNjOwnership" placeholder="Privately owned" /></div>' +
+              '<div><label>Number of GPs</label><input type="text" id="atsNjGpCount" placeholder="6" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>Years operating</label><input type="text" id="atsNjYears" placeholder="12" /></div>' +
+              '<div><label>Nursing on site</label>' + boolSelect('atsNjNursing', null) + '</div>' +
+            '</div>' +
+            '<label>Visa sponsorship offered</label>' + boolSelect('atsNjVisa', null)
+          ) +
+          formSection('Introduction',
+            '<label>Introduction text</label>' +
+            '<textarea id="atsNjIntroText" rows="3" placeholder="Welcome to our practice…"></textarea>' +
+            '<label>Intro video URL</label>' +
+            '<input type="text" id="atsNjIntroVideo" placeholder="https://…" />'
+          ) +
         '</div>' +
         '<div class="ats-modal-foot">' +
           '<button class="ats-btn ats-btn-ghost" id="atsAddJobCancel">Cancel</button>' +
@@ -534,22 +663,61 @@
     '</div>';
   }
 
+  function njError(msg) {
+    var e = el('atsNjError');
+    if (e) { e.textContent = msg; e.style.display = msg ? 'block' : 'none'; }
+  }
+
   function submitAddJob() {
+    njError('');
     var title = (val('atsNjTitle') || '').trim();
-    if (!title) { A.toast('Enter a job title'); return; }
-    var body = {
-      title: title,
-      practice_id: val('atsNjPractice'),
-      city: (val('atsNjCity') || '').trim(),
-      state: val('atsNjState'),
-      type: val('atsNjType'),
-      billing: val('atsNjBilling'),
-      summary: (val('atsNjSummary') || '').trim()
+    var practiceId = val('atsNjPractice');
+    var billingStyle = val('atsNjBilling');
+    var dpa = boolFromSel(val('atsNjDpa'));
+    var pctSplit = (val('atsNjPctSplit') || '').trim();
+    var suburb = (val('atsNjSuburb') || '').trim();
+    var nearestCity = (val('atsNjNearestCity') || '').trim();
+    var state = val('atsNjState');
+    var address = (val('atsNjAddress') || '').trim();
+
+    // Client-side required checks, in plain language, before the round-trip.
+    if (!practiceId) { njError('Choose a practice for this job.'); return; }
+    if (!title) { njError('Enter a job title.'); return; }
+    if (!billingStyle) { njError('Choose a billing style.'); return; }
+    if (dpa === null) { njError('Choose whether this job is DPA eligible.'); return; }
+    if (!pctSplit) { njError('Enter the percentage split.'); return; }
+    if (!suburb) { njError('Enter the suburb.'); return; }
+    if (!nearestCity) { njError('Enter the nearest city.'); return; }
+    if (!state) { njError('Choose a state.'); return; }
+    if (!address) { njError('Enter the practice address.'); return; }
+
+    var intake = {
+      role_title: title,
+      role_summary: (val('atsNjSummary') || '').trim(),
+      billing_style: billingStyle,
+      dpa: dpa,
+      percentage_split: pctSplit,
+      earnings_text: (val('atsNjEarnings') || '').trim(),
+      mmm: val('atsNjMmm') || '',
+      incentives: (val('atsNjIncentives') || '').trim(),
+      suburb: suburb,
+      nearest_city: nearestCity,
+      state: state,
+      address: address,
+      general_location: (val('atsNjGeneralLoc') || '').trim(),
+      ownership: (val('atsNjOwnership') || '').trim(),
+      gp_count: (val('atsNjGpCount') || '').trim(),
+      years_operating: (val('atsNjYears') || '').trim(),
+      nursing_on_site: boolFromSel(val('atsNjNursing')),
+      visa_sponsorship: boolFromSel(val('atsNjVisa')),
+      intro_text: (val('atsNjIntroText') || '').trim(),
+      intro_video_url: (val('atsNjIntroVideo') || '').trim()
     };
-    A.api('/api/ats/jobs', { method: 'POST', body: body }).then(function (d) {
-      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not create job'); return; }
+
+    A.api('/api/ats/jobs', { method: 'POST', body: { practice_id: practiceId, intake: intake } }).then(function (d) {
+      if (!d || !d.ok) { njError((d && d.message) || 'Could not create job.'); return; }
       closeAddJobModal();
-      A.toast('Job created');
+      A.toast('Job created as PENDING — add a suburb header photo and approve it (Review & approve) to make it live to doctors.');
       loadJobsTab();
     });
   }
@@ -560,37 +728,95 @@
   function openJobSettings() {
     if (!currentBoardJobId) return;
     A.api('/api/ats/job?id=' + encodeURIComponent(currentBoardJobId)).then(function (d) {
-      if (!d || !d.ok || !d.job) { A.toast((d && d.message) || 'Could not load job settings'); return; }
-      settingsOriginal = d.job;
-      A.setOverlay(jobSettingsModalHtml(d.job));
+      if (!d || !d.ok || !d.editor) { A.toast((d && d.message) || 'Could not load job settings'); return; }
+      // Baseline for the diff-only PATCH is the intake-parity editor payload
+      // (billing_style/dpa/… vocabulary), NOT the display card.
+      settingsOriginal = d.editor;
+      A.setOverlay(jobSettingsModalHtml(d.editor));
       var modal = el('atsJobSettingsModal');
       if (modal) modal.classList.add('open');
       on('atsJsClose', 'click', closeJobSettings);
       on('atsJsCancel', 'click', closeJobSettings);
       on('atsJsSave', 'click', submitJobSettings);
+      bindDpaSegment('atsJsDpaSeg', 'atsJsDpa');
     });
   }
   function closeJobSettings() { A.setOverlay(''); }
 
-  function jobSettingsModalHtml(job) {
+  function jsError(msg) {
+    var e = el('atsJsError');
+    if (e) { e.textContent = msg; e.style.display = msg ? 'block' : 'none'; }
+  }
+
+  // Sectioned intake-parity editor. `e` is the /api/ats/job editor payload.
+  function jobSettingsModalHtml(e) {
     return '<div class="ats-modal-wrap" id="atsJobSettingsModal">' +
       '<div class="ats-modal">' +
         '<div class="ats-modal-head"><h3>Job settings</h3><button class="ats-drawer-close" id="atsJsClose">×</button></div>' +
         '<div class="ats-modal-body">' +
-          '<label>Job title</label>' +
-          '<input type="text" id="atsJsTitle" value="' + A.escAttr(job.title || '') + '" />' +
-          '<div class="ats-form-row">' +
-            '<div><label>City</label><input type="text" id="atsJsCity" value="' + A.escAttr(job.city || '') + '" /></div>' +
-            '<div><label>State</label><select id="atsJsState">' + plainOptions(optionsWithCurrent(AU_STATES, job.state), job.state) + '</select></div>' +
+          '<div style="background:rgba(120,120,140,0.1);border-radius:8px;padding:9px 11px;margin-bottom:4px">' +
+            '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ats-dim)">Doctor-facing title (masked)</div>' +
+            '<div style="font-weight:600;font-size:13.5px" id="atsJsMaskedPreview">' + A.esc(e.masked_title || '—') + '</div>' +
+            '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:2px">Location, billing and DPA changes update this automatically on save.</div>' +
           '</div>' +
-          '<div class="ats-form-row">' +
-            '<div><label>Type</label><select id="atsJsType">' + plainOptions(optionsWithCurrent(JOB_TYPES, job.type), job.type) + '</select></div>' +
-            '<div><label>Billing</label><select id="atsJsBilling">' + plainOptions(optionsWithCurrent(BILLINGS, job.billing), job.billing) + '</select></div>' +
-          '</div>' +
-          '<label>About the role (shown to doctors)</label>' +
-          '<textarea id="atsJsSummary" rows="3" placeholder="A short, friendly description of the practice and the role…">' + A.esc(job.summary || '') + '</textarea>' +
-          '<label>Status</label>' +
-          '<select id="atsJsStatus">' + valueOptions(JOB_STATUSES, job.status) + '</select>' +
+          '<div id="atsJsError" style="display:none;background:rgba(220,60,60,0.12);border:1px solid var(--ats-red);color:var(--ats-red);border-radius:8px;padding:9px 11px;font-size:12.5px;margin:6px 0"></div>' +
+          formSection('Role',
+            '<label>Job title</label>' +
+            '<input type="text" id="atsJsTitle" value="' + A.escAttr(e.title || '') + '" />' +
+            '<div class="ats-form-row">' +
+              '<div><label>Type</label><select id="atsJsType">' + plainOptions(optionsWithCurrent(JOB_TYPES, e.employment_type), e.employment_type) + '</select></div>' +
+              '<div><label>Status</label><select id="atsJsStatus">' + valueOptions(JOB_STATUSES, e.job_status) + '</select></div>' +
+            '</div>' +
+            '<label>About the role (shown to doctors)</label>' +
+            '<textarea id="atsJsSummary" rows="3" placeholder="A short, friendly description of the practice and the role…">' + A.esc(e.role_summary || '') + '</textarea>'
+          ) +
+          formSection('Location',
+            '<div class="ats-form-row">' +
+              '<div><label>Suburb</label><input type="text" id="atsJsSuburb" value="' + A.escAttr(e.suburb || '') + '" /></div>' +
+              '<div><label>Nearest city</label><input type="text" id="atsJsNearestCity" value="' + A.escAttr(e.nearest_city || '') + '" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>City</label><input type="text" id="atsJsCity" value="' + A.escAttr(e.city || '') + '" /></div>' +
+              '<div><label>State</label><select id="atsJsState">' + plainOptions(optionsWithCurrent(AU_STATES, e.state), e.state) + '</select></div>' +
+            '</div>' +
+            '<label>Address</label>' +
+            '<input type="text" id="atsJsAddress" value="' + A.escAttr(e.address || '') + '" />' +
+            '<label>General location</label>' +
+            '<input type="text" id="atsJsGeneralLoc" value="' + A.escAttr(e.general_location || '') + '" />'
+          ) +
+          formSection('Billing &amp; terms',
+            '<label>Billing style</label>' +
+            '<select id="atsJsBilling">' + valueOptions(BILLING_STYLE_OPTS, e.billing_style) + '</select>' +
+            '<label style="margin-top:12px">DPA (District of Priority Area)</label>' +
+            dpaSegment('atsJsDpa', 'atsJsDpaSeg', e.dpa) +
+            '<div class="ats-form-row" style="margin-top:12px">' +
+              '<div><label>Percentage split</label><input type="text" id="atsJsPctSplit" value="' + A.escAttr(e.percentage_split || '') + '" /></div>' +
+              '<div><label>Estimated earnings</label><input type="text" id="atsJsEarnings" value="' + A.escAttr(e.earnings_text || '') + '" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>Modified Monash (MMM)</label><select id="atsJsMmm">' + valueOptions(MMM_OPTS, e.mmm) + '</select></div>' +
+              '<div></div>' +
+            '</div>' +
+            '<label>Incentives</label>' +
+            '<textarea id="atsJsIncentives" rows="2" placeholder="Relocation bonus, sign-on bonus…">' + A.esc(e.incentives || '') + '</textarea>'
+          ) +
+          formSection('Practice profile',
+            '<div class="ats-form-row">' +
+              '<div><label>Ownership</label><input type="text" id="atsJsOwnership" value="' + A.escAttr(e.ownership || '') + '" /></div>' +
+              '<div><label>Number of GPs</label><input type="text" id="atsJsGpCount" value="' + A.escAttr(e.gp_count || '') + '" /></div>' +
+            '</div>' +
+            '<div class="ats-form-row">' +
+              '<div><label>Years operating</label><input type="text" id="atsJsYears" value="' + A.escAttr(e.years_operating || '') + '" /></div>' +
+              '<div><label>Nursing on site</label>' + boolSelect('atsJsNursing', e.nursing_on_site) + '</div>' +
+            '</div>' +
+            '<label>Visa sponsorship offered</label>' + boolSelect('atsJsVisa', e.visa_sponsorship)
+          ) +
+          formSection('Introduction',
+            '<label>Introduction text</label>' +
+            '<textarea id="atsJsIntroText" rows="3" placeholder="Welcome to our practice…">' + A.esc(e.intro_text || '') + '</textarea>' +
+            '<label>Intro video URL</label>' +
+            '<input type="text" id="atsJsIntroVideo" value="' + A.escAttr(e.intro_video_url || '') + '" />'
+          ) +
         '</div>' +
         '<div class="ats-modal-foot">' +
           '<button class="ats-btn ats-btn-ghost" id="atsJsCancel">Cancel</button>' +
@@ -602,29 +828,70 @@
 
   function submitJobSettings() {
     if (!currentBoardJobId || !settingsOriginal) return;
-    var fields = [
-      ['title', 'atsJsTitle'],
-      ['city', 'atsJsCity'],
-      ['state', 'atsJsState'],
-      ['type', 'atsJsType'],
-      ['billing', 'atsJsBilling'],
-      ['summary', 'atsJsSummary'],
-      ['status', 'atsJsStatus']
-    ];
+    jsError('');
+    var o = settingsOriginal;
     var body = {};
-    fields.forEach(function (f) {
-      var v = val(f[1]);
-      if (f[0] === 'title' || f[0] === 'city') v = (v || '').trim();
-      var orig = settingsOriginal[f[0]] == null ? '' : String(settingsOriginal[f[0]]);
+
+    // Diff-only string/enum fields: [bodyKey, elId, baselineKey, trim].
+    var strFields = [
+      ['title', 'atsJsTitle', 'title', true],
+      ['type', 'atsJsType', 'employment_type', false],
+      ['job_status', 'atsJsStatus', 'job_status', false],
+      ['role_summary', 'atsJsSummary', 'role_summary', true],
+      ['suburb', 'atsJsSuburb', 'suburb', true],
+      ['nearest_city', 'atsJsNearestCity', 'nearest_city', true],
+      ['city', 'atsJsCity', 'city', true],
+      ['state', 'atsJsState', 'state', false],
+      ['address', 'atsJsAddress', 'address', true],
+      ['general_location', 'atsJsGeneralLoc', 'general_location', true],
+      ['billing_style', 'atsJsBilling', 'billing_style', false],
+      ['percentage_split', 'atsJsPctSplit', 'percentage_split', true],
+      ['earnings_text', 'atsJsEarnings', 'earnings_text', true],
+      ['mmm', 'atsJsMmm', 'mmm', false],
+      ['incentives', 'atsJsIncentives', 'incentives', true],
+      ['ownership', 'atsJsOwnership', 'ownership', true],
+      ['gp_count', 'atsJsGpCount', 'gp_count', true],
+      ['years_operating', 'atsJsYears', 'years_operating', true],
+      ['intro_text', 'atsJsIntroText', 'intro_text', true],
+      ['intro_video_url', 'atsJsIntroVideo', 'intro_video_url', true]
+    ];
+    strFields.forEach(function (f) {
+      var v = val(f[1]) || '';
+      if (f[3]) v = v.trim();
+      var orig = o[f[2]] == null ? '' : String(o[f[2]]);
       if (v !== orig) body[f[0]] = v;
     });
-    if ('title' in body && !body.title) { A.toast('Job title cannot be empty'); return; }
+
+    // Diff-only booleans (true|false|null). DPA is required — never send a null
+    // that would strip the owner's control; only send an explicit yes/no change.
+    var dpaCur = boolFromSel(val('atsJsDpa'));
+    var dpaOrig = typeof o.dpa === 'boolean' ? o.dpa : null;
+    if (dpaCur !== dpaOrig && dpaCur !== null) body.dpa = dpaCur;
+
+    var visaCur = boolFromSel(val('atsJsVisa'));
+    var visaOrig = typeof o.visa_sponsorship === 'boolean' ? o.visa_sponsorship : null;
+    if (visaCur !== visaOrig) body.visa_sponsorship = visaCur;
+
+    var nurseCur = boolFromSel(val('atsJsNursing'));
+    var nurseOrig = typeof o.nursing_on_site === 'boolean' ? o.nursing_on_site : null;
+    if (nurseCur !== nurseOrig) body.nursing_on_site = nurseCur;
+
+    if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
 
     A.api('/api/ats/job?id=' + encodeURIComponent(currentBoardJobId), { method: 'PATCH', body: body }).then(function (d) {
-      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not save job settings'); return; }
+      if (!d || !d.ok) {
+        // 400s name the offending field — surface it inline, not just a toast.
+        jsError((d && d.message) || 'Could not save job settings');
+        return;
+      }
+      // Show the recomputed masked title from the PATCH response, then reload.
+      var newMasked = (d.editor && d.editor.masked_title) || '';
+      var prev = el('atsJsMaskedPreview');
+      if (prev && newMasked) prev.textContent = newMasked;
+      settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
-      A.toast('Job settings saved');
+      A.toast(newMasked ? 'Saved · ' + newMasked : 'Job settings saved');
       atsOpenJobBoard(currentBoardJobId); // re-open the board with fresh data
     });
   }

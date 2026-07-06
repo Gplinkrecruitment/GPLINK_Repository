@@ -27126,7 +27126,10 @@ function atsJobCard(job, practicesById, appsByJob) {
     approval_status: job.approval_status || 'approved',
     header_image_url: job.header_image_url || '',
     suburb: job.suburb || '',
-    masked_title: job.masked_title || ''
+    masked_title: job.masked_title || '',
+    // DPA flag for the admin Jobs-tab chip (cosmetic). Admin-only surface —
+    // atsJobCard never feeds GP/public payloads. null when the column is absent.
+    dpa: (typeof job.dpa === 'boolean') ? job.dpa : null
   };
 }
 
