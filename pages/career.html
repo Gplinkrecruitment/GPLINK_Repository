@@ -11957,7 +11957,8 @@
       if (state === 'bad') {
         careerGateEl('careerGateScanBad').hidden = false;
         careerGateEl('careerGateScanBadText').textContent = (opts && opts.reason) || 'This file doesn’t look like a CV.';
-        careerGateEl('careerGateScanBadHint').textContent = (opts && typeof opts.attemptsRemaining === 'number') ? ('Please upload your actual CV. ' + opts.attemptsRemaining + ' checks remaining today.') : 'Please upload your actual CV.';
+        careerGateEl('careerGateScanBadHint').textContent = (opts && opts.hint) ? opts.hint
+          : ((opts && typeof opts.attemptsRemaining === 'number') ? ('Please upload your actual CV. ' + opts.attemptsRemaining + ' checks remaining today.') : 'Please upload your actual CV.');
       }
     }
     function careerGateSyncCta() {
@@ -11982,7 +11983,14 @@
         else careerGateEl('careerGateClHint').textContent = 'That file is over 3 MB — please choose a smaller file.';
         return;
       }
-      var base64 = await careerGateReadFile(file);
+      var base64;
+      try {
+        base64 = await careerGateReadFile(file);
+      } catch (err) {
+        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'We couldn\'t read that file — please try again.' });
+        else careerGateEl('careerGateClHint').textContent = 'We couldn\'t read that file — please try again.';
+        return;
+      }
       var endpoint = kind === 'cv' ? '/api/career/profile/cv' : '/api/career/profile/cover-letter';
       if (kind === 'cv') careerGateSetScanState('checking');
       var res, data;
@@ -11992,7 +12000,7 @@
       } catch (err) { data = {}; }
       if (kind === 'cv') {
         if (res && res.ok && data.verified) { careerGateState.cvVerified = true; careerGateSetScanState('ok', { fileName: data.fileName }); }
-        else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit — please try again tomorrow.' });
+        else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit — please try again tomorrow.', hint: 'Come back tomorrow to try again.' });
         else careerGateSetScanState('bad', { reason: data.reason || data.message || 'We couldn’t check that file — please try again.', attemptsRemaining: data.attemptsRemaining });
         careerGateSyncCta();
       } else {
@@ -12001,13 +12009,14 @@
     }
     async function ensureCareerGate() {
       if (careerGateState.checked) return;
-      if (shouldLockCareerToSecuredView()) return; // placed GPs never see the gate
+      if (shouldLockCareerToSecuredView()) return; // belt-and-braces; server truth (gateRequired) below is authoritative
       try {
         var res = await fetch('/api/career/profile/status', { credentials: 'same-origin' });
         if (!res.ok) return;
         var data = await res.json();
         careerGateState.checked = true;
         if (data && data.cv) { careerGateState.cvVerified = true; return; }
+        if (!data || data.gateRequired !== true) return; // server truth: e.g. already placed on a stale local cache
         careerGateSyncCta();
         openCareerGateModal();
       } catch (err) { /* network failure: don't lock the page */ }

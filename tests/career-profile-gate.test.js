@@ -212,6 +212,20 @@ describe('career profile gate', () => {
     expect(res.body.cv).toBeNull();
     expect(res.body.coverLetter).toBeNull();
     expect(res.body.scanRemaining).toBeGreaterThan(0);
+    // Non-placed, no career_cv yet: the gate must open.
+    expect(res.body.gateRequired).toBe(true);
+    expect(res.body.placed).toBe(false);
+  });
+
+  it('a GP with a secured placement and no career_cv gets gateRequired:false (server truth beats a stale client cache)', async () => {
+    db.user_profiles.push({ user_id: 'u-gate-placed', email: 'gate-placed@example.com', registration_country: 'uk' });
+    db.user_state.push({ user_id: 'u-gate-placed', state: { gp_onboarding_complete: true } });
+    db.gp_applications.push({ id: 'app-placed-1', user_id: 'u-gate-placed', status: 'placed' });
+    const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie('gate-placed@example.com', 'u-gate-placed') });
+    expect(res.status).toBe(200);
+    expect(res.body.cv).toBeNull();
+    expect(res.body.gateRequired).toBe(false);
+    expect(res.body.placed).toBe(true);
   });
 
   it('rejects a non-CV upload and stores nothing', async () => {

@@ -28322,17 +28322,25 @@ async function handleApi(req, res, pathname) {
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
 
-    const [cvRow, coverLetterRow, scanRemaining] = await Promise.all([
+    const [cvRow, coverLetterRow, scanRemaining, priorAppsResult] = await Promise.all([
       getCareerProfileDocument(userId, 'career_cv'),
       getCareerProfileDocument(userId, 'career_cover_letter'),
-      peekRateLimitRemaining('career-cv-scan:' + userId, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS)
+      peekRateLimitRemaining('career-cv-scan:' + userId, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS),
+      // Same already-placed check /api/career/apply uses — server truth so a
+      // stale client-side gpCache entry (up to 10 min fresh, no network) can
+      // never show the non-dismissible gate to a GP who is already placed.
+      supabaseDbRequest('gp_applications', `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`)
     ]);
+    const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
+    const hasSecuredPlacement = priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status));
 
     sendJson(res, 200, {
       ok: true,
       cv: cvRow ? { fileName: cvRow.file_name, updatedAt: cvRow.updated_at } : null,
       coverLetter: coverLetterRow ? { fileName: coverLetterRow.file_name, updatedAt: coverLetterRow.updated_at } : null,
-      scanRemaining
+      scanRemaining,
+      gateRequired: !cvRow && !hasSecuredPlacement,
+      placed: hasSecuredPlacement
     });
     return;
   }
