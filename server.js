@@ -25900,6 +25900,354 @@ async function sendMatchEmail(applicationRow, opts) {
   }
 }
 
+// ============================================================================
+// AI Matching (Task 6 of the 2026-07-06 implementation plan) — hired/closed
+// job "redirect" fan-out. When a practice hires one GP (or the team closes a
+// job as filled/closed), every other GP still live on that job gets moved to
+// not_proceeding + match_outcome='position_filled' and sent a graceful
+// "position filled — here's what we've already found you" email (mockup
+// docs/mockups/matching/matching-rejection-v6.html; spec §8).
+//
+// GLOBAL CONSTRAINT (binding, re-affirmed for this surface specifically):
+// place/fit tags ONLY — NEVER income/billing/money — and this email carries
+// NO 98% stat and NO countdown (unlike the match email/reminder above).
+// Declared at true top-level (same reasoning as buildMatchEmailHtml above) so
+// it's unit-testable via module.exports.__testUtils.
+// ============================================================================
+
+// "Regional <STATE>" / "Metro" place tag — mirrors the career-roles filter
+// token convention (mapCareerRoleRowToClient) but only ever emits ONE of the
+// two (a role is flagged regional XOR metro, never both).
+function _redirectRegionMetroTag(job) {
+  var j = job || {};
+  var state = String(j.location_state || '').trim().toUpperCase();
+  if (j.regional === true) return state ? ('Regional ' + state) : 'Regional';
+  if (j.metro === true) return 'Metro';
+  return '';
+}
+
+// GP-facing "why this is a good alternative" tags — place/fit ONLY. Never
+// earnings_text, billing_model, or any percentage/dollar figure (that data is
+// used ONLY for the internal ranking in _redirectRankAlternatives below, and
+// never rendered here).
+function buildRedirectAlternativeTags(job) {
+  var j = job || {};
+  var tags = [];
+  if (j.dpa === true) tags.push('DPA approved');
+  if (j.visa_pathway_aligned === true) tags.push('Visa pathway aligned');
+  if (j.family_friendly === true) tags.push('Family friendly');
+  var regionTag = _redirectRegionMetroTag(j);
+  if (regionTag) tags.push(regionTag);
+  var practiceType = String(j.practice_type || '').trim();
+  if (practiceType) tags.push(practiceType);
+  return tags;
+}
+
+// Masked, GP-facing practice label for an alternative role — same precedence
+// /api/career/roles uses (mapCareerRoleRowToClient's practiceName): the
+// vetted masked_title first (never the real practice name pre-placement),
+// else the derived public headline, else a generic confidential label.
+function _redirectAltPracticeName(job) {
+  var j = job || {};
+  if (j.masked_title && String(j.masked_title).trim()) return String(j.masked_title).trim();
+  try {
+    var meta = getCareerRoleGpLinkMeta(j);
+    if (meta && meta.publicHeadline && String(meta.publicHeadline).trim()) return String(meta.publicHeadline).trim();
+  } catch (e) { /* ignore — fall through to the generic label */ }
+  return 'Confidential GP practice';
+}
+
+// Deterministic, INTERNAL-ONLY ranking (spec §8 / brief): same location_state
+// as the filled job first, then a same-billing-model / same-earnings-text
+// similarity tiebreak. This similarity data is NEVER surfaced to the GP — see
+// buildRedirectAlternativeTags above, which builds the rendered tags from an
+// entirely separate (place/fit only) field set. Stable sort (ties keep the
+// pool's original order) so results are reproducible in tests.
+function _redirectRankAlternatives(originalJob, candidates) {
+  var orig = originalJob || {};
+  var origState = String(orig.location_state || '').trim().toUpperCase();
+  var origBilling = String(orig.billing_model || '').trim().toLowerCase();
+  var origEarnings = String(orig.earnings_text || '').trim().toLowerCase();
+  function rankOf(job) {
+    var sameState = (origState && String(job.location_state || '').trim().toUpperCase() === origState) ? 0 : 1;
+    var billingMatch = (origBilling && String(job.billing_model || '').trim().toLowerCase() === origBilling) ? 0 : 1;
+    var earningsMatch = (origEarnings && String(job.earnings_text || '').trim().toLowerCase() === origEarnings) ? 0 : 1;
+    return sameState * 100 + billingMatch * 10 + earningsMatch;
+  }
+  return (candidates || [])
+    .map(function (job, idx) { return { job: job, idx: idx, r: rankOf(job) }; })
+    .sort(function (a, b) { return (a.r - b.r) || (a.idx - b.idx); })
+    .map(function (e) { return e.job; });
+}
+
+// The exact GP-facing shape stored in gp_applications.redirect_alternatives
+// .alternatives[] and consumed by GET /api/career/matches (Task 4) — see
+// mmPositionFilled in that endpoint, and pages/career.html's
+// buildPositionFilledHtml (alt.jobTitle||alt.title, alt.locationCity/State,
+// alt.tags[]). headerImageUrl passes through _matchSafeUrl so a stray
+// javascript:/data: URL in career_roles.header_image_url can never reach the
+// GP's inbox or browser.
+function _buildRedirectAlternativePayload(job) {
+  var j = job || {};
+  return {
+    roleId: j.id != null ? String(j.id) : '',
+    title: careerRoleTypeLabel(j),
+    practiceName: _redirectAltPracticeName(j),
+    locationCity: j.location_city || '',
+    locationState: j.location_state || '',
+    headerImageUrl: _matchSafeUrl(j.header_image_url) || '',
+    tags: buildRedirectAlternativeTags(j)
+  };
+}
+
+// Builds the "position filled" redirect email — same email-safe inline-HTML
+// idiom as buildMatchEmailHtml above, laid out per mockup
+// docs/mockups/matching/matching-rejection-v6.html (POSITION UPDATE chip,
+// filled card, green reassurance box, alternative cards, shiny CTA). `row` is
+// the gp_applications row being redirected, `job` is the FILLED job's
+// career_roles row, `practice` its practices row (either may be null),
+// `alternatives` is the exact payload array built by
+// _buildRedirectAlternativePayload above. `opts.rsoFirstName` feeds the
+// zero-alternative fallback / "or reply" line.
+//
+// HARD RULE (tested): unlike buildMatchEmailHtml, this NEVER renders the 98%
+// stat or any countdown/urgency box — a "position filled" notice is not a
+// sales pitch and carries no deadline.
+function buildRedirectEmailHtml(row, job, practice, alternatives, opts) {
+  var o = opts || {};
+  var jobRow = job || {};
+  var practiceRow = practice || {};
+  var alts = Array.isArray(alternatives) ? alternatives : [];
+  var practiceName = _matchEmailEsc(practiceRow.name || jobRow.masked_title || jobRow.practice_name || 'the practice');
+  var jobTitle = _matchEmailEsc(jobRow.title || 'General Practitioner');
+  var billingModel = String(jobRow.billing_model || '').trim();
+  var roleLine = jobTitle + (billingModel ? ' — ' + _matchEmailEsc(billingModel) : '');
+  var city = String(jobRow.location_city || '').trim();
+  var state = String(jobRow.location_state || '').trim();
+  var locationLine = [city, state].filter(Boolean).join(', ');
+  var lastName = String(o.gpLastName || '').trim();
+  var greetName = lastName ? ('Dr ' + _matchEmailEsc(lastName)) : 'Doctor';
+  var rsoFirstName = _matchEmailEsc(String(o.rsoFirstName || 'your team').trim() || 'your team');
+
+  var filledCardHtml =
+    '<div style="display:table;width:100%;border:1px solid #e3e9f4;background:#f8fafd;border-radius:14px;padding:14px 16px;margin:18px 0;">' +
+      '<div style="display:table-cell;width:42px;vertical-align:middle;">' +
+        '<span style="display:inline-block;width:42px;height:42px;border-radius:12px;background:#f1f5f9;text-align:center;line-height:42px;font-size:20px;">🏥</span>' +
+      '</div>' +
+      '<div style="display:table-cell;padding-left:12px;vertical-align:middle;">' +
+        '<div style="font-weight:700;font-size:14.5px;color:#0f172a;">' + practiceName + '</div>' +
+        '<div style="font-size:12.5px;color:#64748b;">' + roleLine + (locationLine ? ' · ' + _matchEmailEsc(locationLine) : '') + '</div>' +
+      '</div>' +
+      '<div style="display:table-cell;text-align:right;vertical-align:middle;white-space:nowrap;">' +
+        '<span style="font-size:11px;font-weight:700;color:#991b1b;background:#fdf0f0;border:1px solid #f5cfcf;border-radius:999px;padding:4px 10px;">Position filled</span>' +
+      '</div>' +
+    '</div>';
+
+  // Verbatim (mockup v6, round-9-safe — no money mention).
+  var reassureHtml =
+    '<div style="border-left:4px solid #16a34a;background:#eafaf0;border-radius:6px;padding:12px 16px;margin:18px 0;font-size:13.5px;color:#166534;">' +
+      '<b style="color:#14532d;">This changes nothing about how the practices see you.</b> Your profile stayed strong through every round — the timing simply favoured another candidate. Our team has already lined up where you go next.' +
+    '</div>';
+
+  var altHeadHtml = alts.length ? (
+    '<div style="font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#173da6;margin:22px 0 4px;">✦ Already matched for you — similar positions</div>' +
+    '<p style="font-size:13px;color:#64748b;margin:0 0 14px;">Picked because they’re a strong fit for where you want to be next.</p>'
+  ) : '';
+
+  var altCardsHtml = alts.map(function (alt) {
+    var altPhoto = _matchSafeUrl(alt.headerImageUrl);
+    var altCity = String(alt.locationCity || '').trim();
+    var altState = String(alt.locationState || '').trim();
+    var altMeta = [altCity, altState].filter(Boolean).join(', ');
+    var altTags = Array.isArray(alt.tags) ? alt.tags : [];
+    var photoBlock = altPhoto ? (
+      '<div style="position:relative;height:96px;overflow:hidden;">' +
+        '<img src="' + _matchEmailEsc(altPhoto) + '" alt="' + (altCity ? _matchEmailEsc(altCity) : 'Area photo') + '" style="width:100%;height:100%;object-fit:cover;display:block;">' +
+      '</div>'
+    ) : '';
+    var tagsHtml = altTags.length ? (
+      '<div style="margin-bottom:10px;">' + altTags.map(function (t) {
+        return '<span style="display:inline-block;font-size:11px;font-weight:700;color:#173da6;background:#eff4ff;border:1px solid #d6e2fb;border-radius:999px;padding:3px 10px;margin:0 6px 6px 0;">' + _matchEmailEsc(t) + '</span>';
+      }).join('') + '</div>'
+    ) : '';
+    // GP-facing deep link — same sign-in-bounce pattern as the match email's
+    // Accept URL, landing on the career page instead of a specific accept.
+    var altUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?role=' + (alt.roleId || ''));
+    return (
+      '<div style="border:1px solid #d6e2fb;border-radius:14px;overflow:hidden;margin-bottom:12px;background:#fff;">' +
+        photoBlock +
+        '<div style="padding:12px 14px 13px;">' +
+          '<div style="font-family:\'Source Serif 4\',Georgia,serif;font-size:15.5px;font-weight:700;color:#0f172a;">' + _matchEmailEsc(alt.practiceName || '') + '</div>' +
+          // Meta line is location-only — NEVER billing (brief: "meta line
+          // WITHOUT billing"), even though the mockup's earlier draft showed it.
+          '<div style="font-size:12px;color:#64748b;margin:2px 0 8px;">' + _matchEmailEsc([alt.title, altMeta].filter(Boolean).join(' · ')) + '</div>' +
+          tagsHtml +
+          '<a href="' + _matchEmailEsc(altUrl) + '" style="display:block;text-align:center;font-size:13px;font-weight:700;color:#2563eb;border:1.5px solid #2563eb;border-radius:11px;padding:9px;text-decoration:none;">View this role</a>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  var seeAllUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career');
+  var seeAllBtnHtml = alts.length ? (
+    '<a href="' + _matchEmailEsc(seeAllUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:14.5px;padding:14px;border-radius:12px;margin:18px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">See all roles picked for you</a>'
+  ) : '';
+
+  // Zero-alternatives fallback (brief/spec §8): no cards at all, just the
+  // personal "reply and <RSO> will match you" line. With alternatives, the
+  // SAME sentiment appears as a small secondary line under the shiny button
+  // (mirrors the mockup's "Or reply to this email…" footnote).
+  var closingLineHtml = alts.length
+    ? '<p style="text-align:center;font-size:12.5px;color:#94a3b8;margin:0;">Or reply to this email and ' + rsoFirstName + ' will match you personally.</p>'
+    : '<p style="text-align:center;font-size:13.5px;color:#334155;margin:18px 0 4px;">Reply to this email and ' + rsoFirstName + ' will match you personally.</p>';
+
+  var innerHtml =
+    '<span style="display:inline-block;background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:5px 12px;border-radius:999px;margin-bottom:14px;">Position update</span>' +
+    '<h1 style="font-family:\'Source Serif 4\',Georgia,serif;font-size:23px;color:#0f172a;margin:0 0 14px;line-height:1.25;">' + greetName + ', the ' + (city ? _matchEmailEsc(city) : 'role’s') + ' position has been filled.</h1>' +
+    '<p style="margin:0 0 14px;">The practice has moved forward with another GP for this role. We know that’s not the news you were hoping for — thank you for putting yourself forward.</p>' +
+    filledCardHtml +
+    reassureHtml +
+    altHeadHtml +
+    altCardsHtml +
+    seeAllBtnHtml +
+    closingLineHtml;
+
+  return (
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+    '<body style="margin:0;padding:0;background:#f4f6fb;font-family:\'DM Sans\',-apple-system,\'Segoe UI\',sans-serif;">' +
+    '<div style="padding:28px 16px;">' +
+      '<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 4px 24px -8px rgba(15,23,42,.12);">' +
+        '<div style="background:linear-gradient(135deg,#2e6bf0 0%,#1d4ed8 100%);padding:18px 28px;color:#fff;font-weight:700;font-size:16px;letter-spacing:.02em;">GP Link</div>' +
+        '<div style="padding:28px;color:#1f2b43;font-size:15px;line-height:1.6;">' + innerHtml + '</div>' +
+        '<div style="text-align:center;font-size:12px;color:#94a3b8;padding:18px 28px 26px;">Sent by your GP Link placement team · GP Link, Australia</div>' +
+      '</div>' +
+    '</div>' +
+    '</body></html>'
+  );
+}
+
+// Sends the redirect email for one gp_applications row already flipped to
+// not_proceeding/position_filled. Same "never throw back into the caller"
+// contract as sendMatchEmail. `job` may be passed in (redirectOthersForJob
+// already has it loaded) to avoid a redundant fetch.
+async function sendRedirectEmail(applicationRow, job, alternatives) {
+  if (!applicationRow || !applicationRow.id) return { ok: false, error: 'missing_application' };
+  if (!isEmailConfigured()) return { ok: false, error: 'email_not_configured' };
+  try {
+    var jobRow = job || (applicationRow.career_role_id ? await atsGetJobRow(applicationRow.career_role_id) : null);
+    if (!jobRow) return { ok: false, error: 'job_not_found' };
+    var practice = jobRow.practice_id ? await atsGetPracticeRow(jobRow.practice_id) : null;
+    var gp = await getGpEmailContext(applicationRow.user_id);
+    if (!gp || !gp.email) return { ok: false, error: 'gp_not_found' };
+    var rso = await resolveAssignedRsoForCareerEmail(applicationRow.user_id);
+    var fromOpts = buildRsoEmailFromOpts(rso);
+    var rsoFirstName = String((rso && rso.name) || 'Hazel').trim().split(/\s+/)[0] || 'Hazel';
+    var practiceName = String((practice && practice.name) || jobRow.masked_title || jobRow.practice_name || 'the practice').trim();
+    var city = String(jobRow.location_city || '').trim();
+    var alts = Array.isArray(alternatives) ? alternatives : [];
+    var doorsPhrase = alts.length === 1 ? 'the door' : (alts.length + ' doors');
+    var subject = alts.length > 0
+      ? 'An update on ' + practiceName + ' — and ' + doorsPhrase + " we've already opened"
+      : 'An update on ' + practiceName + (city ? ' — ' + city : '');
+    var html = buildRedirectEmailHtml(applicationRow, jobRow, practice, alts, { gpLastName: gp.lastName, rsoFirstName: rsoFirstName });
+    return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
+  } catch (e) {
+    console.error('[redirect-email] send failed:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
+// The Task 6 fan-out itself. Called (a) from POST /api/ats/application PATCH
+// when a stage move to 'hired' carries redirect_others:true, and (b) from
+// POST /api/ats/job PATCH when job_status flips to filled/closed with the
+// same flag. `hiredAppId` is excluded from the redirected set (pass null for
+// the job-close path, where there may be no single "winning" application).
+//
+// Every row is try/catch isolated (brief: "per-row failure isolation") — one
+// bad PATCH/email must never stop the rest of the job's candidates from being
+// redirected. Returns { redirected, errors } — never throws.
+async function redirectOthersForJob(jobId, hiredAppId) {
+  var result = { redirected: 0, errors: [] };
+  if (!jobId || !isSupabaseDbConfigured()) return result;
+  var roLiveStages = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+  try {
+    var roRowsRes = await supabaseDbRequest('gp_applications',
+      'select=*&career_role_id=eq.' + encodeURIComponent(jobId) +
+      '&ats_stage=in.(' + roLiveStages.join(',') + ')&limit=500');
+    var roRows = (roRowsRes.ok && Array.isArray(roRowsRes.data)) ? roRowsRes.data : [];
+    var roTargets = roRows.filter(function (r) { return String(r.id) !== String(hiredAppId || ''); });
+    if (!roTargets.length) return result;
+
+    var roOriginalJob = await atsGetJobRow(jobId);
+
+    // Shared candidate pool (open+active roles) — same select shape as Task 2's
+    // GET /api/ats/matching/jobs. Fetched ONCE; per-GP exclusion is applied below.
+    var roPoolRes = await supabaseDbRequest('career_roles',
+      'select=id,provider,title,masked_title,practice_name,practice_id,suburb,nearest_city,' +
+      'location_city,location_state,billing_model,earnings_text,dpa,visa_pathway_aligned,' +
+      'family_friendly,regional,metro,practice_type,header_image_url,job_status,is_active' +
+      '&job_status=eq.open&is_active=eq.true&limit=500');
+    var roPool = (roPoolRes.ok && Array.isArray(roPoolRes.data)) ? roPoolRes.data : [];
+
+    for (var ri = 0; ri < roTargets.length; ri++) {
+      var roRow = roTargets[ri];
+      try {
+        // Defensive — the query above already excludes not_proceeding rows,
+        // but a row already told (declined/withdrawn/etc earlier) must never
+        // be re-notified even if this ever races with another writer.
+        if (roRow.ats_stage === 'not_proceeding') continue;
+
+        var roAppsRes = await supabaseDbRequest('gp_applications',
+          'select=career_role_id,ats_stage&user_id=eq.' + encodeURIComponent(roRow.user_id) + '&limit=500');
+        var roGpApps = (roAppsRes.ok && Array.isArray(roAppsRes.data)) ? roAppsRes.data : [];
+        var roExclude = {};
+        roGpApps.forEach(function (a) {
+          if (atsPracticeUtil.ATS_STAGES.indexOf(a.ats_stage) !== -1) roExclude[String(a.career_role_id)] = true;
+        });
+        roExclude[String(jobId)] = true; // never re-suggest the very job that just rejected them
+
+        var roCandidates = roPool.filter(function (j) { return !roExclude[String(j.id)]; });
+        var roRanked = _redirectRankAlternatives(roOriginalJob, roCandidates).slice(0, 3);
+        var roAlternatives = roRanked.map(_buildRedirectAlternativePayload);
+
+        var roNowIso = atsNowIso();
+        var roPatch = {
+          ats_stage: 'not_proceeding',
+          ats_stage_updated_at: roNowIso,
+          match_outcome: 'position_filled',
+          redirect_alternatives: { alternatives: roAlternatives, generated_at: roNowIso, _dismissed: false },
+          updated_at: roNowIso
+        };
+        var roUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(roRow.id), {
+          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: roPatch
+        });
+        var roUpdatedRow = (roUpd.ok && Array.isArray(roUpd.data) && roUpd.data[0]) ? roUpd.data[0] : null;
+        if (!roUpdatedRow) { result.errors.push({ id: roRow.id, error: 'update_failed' }); continue; }
+
+        await atsRecordStageEvent(roRow.id, roRow.ats_stage, 'not_proceeding', 'system');
+        result.redirected++;
+
+        try {
+          var roSendRes = await sendRedirectEmail(roUpdatedRow, roOriginalJob, roAlternatives);
+          if (!roSendRes || !roSendRes.ok) {
+            result.errors.push({ id: roRow.id, error: 'email_' + ((roSendRes && roSendRes.error) || 'failed') });
+          }
+        } catch (roEmailErr) {
+          result.errors.push({ id: roRow.id, error: 'email_' + (roEmailErr && roEmailErr.message) });
+        }
+      } catch (roRowErr) {
+        result.errors.push({ id: roRow.id, error: roRowErr && roRowErr.message });
+      }
+    }
+
+    if (result.redirected > 0) invalidateAdminDashboardCache();
+  } catch (roErr) {
+    console.error('[redirect-others] failed for job', jobId, ':', roErr && roErr.message);
+    result.errors.push({ error: roErr && roErr.message });
+  }
+  return result;
+}
+
 // Shared by POST /api/career/apply and POST /api/career/match/respond
 // (accept = self-apply on a matched job, spec §7): creates the "Submit
 // <GP> to practice" VA follow-up task, links it onto the application row,
@@ -52219,7 +52567,24 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
     if (!updatedJ) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
-    sendJson(res, 200, { ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayload(updatedJ) });
+    // AI Matching (Task 6): a REAL flip to filled/closed (never a no-op resave
+    // of a job that was already in that status) fans the redirect email out
+    // to every GP still live on this job — same opt-in flag + confirm-dialog
+    // pattern as the hire path above. `hiredAppId` is null here: a job close
+    // has no single "winning" application.
+    var jpRedirected = 0;
+    var jpJustClosed = (patchJ.job_status === 'filled' || patchJ.job_status === 'closed')
+      && jobRowJP.job_status !== patchJ.job_status;
+    if (jpJustClosed && bodyJP.redirect_others === true) {
+      try {
+        var jpRedirectRes = await redirectOthersForJob(jpId, null);
+        jpRedirected = (jpRedirectRes && jpRedirectRes.redirected) || 0;
+      } catch (jpRedirectErr) {
+        console.error('[ats] redirect-others failed for job', jpId, ':', jpRedirectErr && jpRedirectErr.message);
+      }
+    }
+    sendJson(res, 200, Object.assign({ ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayload(updatedJ) },
+      (jpJustClosed && bodyJP.redirect_others === true) ? { redirected: jpRedirected } : {}));
     return;
   }
 
@@ -52817,7 +53182,23 @@ Return ONLY valid JSON with no markdown formatting:
         detail: { from: upAP.prevStage || '', to: newStage }
       });
     }
-    sendJson(res, 200, { ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null });
+    // AI Matching (Task 6): a REAL move into 'hired' — never a no-op resave of
+    // an already-hired card — fans the redirect email out to everyone else
+    // still live on this job, but ONLY when the client explicitly opted in
+    // via redirect_others:true (the ATS confirm dialog's "Yes, send" path).
+    // Without the flag: hiring behaves exactly as before this task.
+    var apRedirected = 0;
+    var apJustHired = !!(updatedAP && newStage === 'hired' && upAP.prevStage !== 'hired' && bodyAP.redirect_others === true);
+    if (apJustHired) {
+      try {
+        var apRedirectRes = await redirectOthersForJob(updatedAP.career_role_id, apId);
+        apRedirected = (apRedirectRes && apRedirectRes.redirected) || 0;
+      } catch (apRedirectErr) {
+        console.error('[ats] redirect-others failed for job', updatedAP.career_role_id, ':', apRedirectErr && apRedirectErr.message);
+      }
+    }
+    sendJson(res, 200, Object.assign({ ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null },
+      apJustHired ? { redirected: apRedirected } : {}));
     return;
   }
 
@@ -55095,6 +55476,10 @@ module.exports.__testUtils = {
   sendEmail,
   buildMatchEmailHtml,
   sendMatchEmail,
+  buildRedirectEmailHtml,
+  sendRedirectEmail,
+  redirectOthersForJob,
+  buildRedirectAlternativeTags,
   isEmailSuppressed,
   suppressEmail,
   makeMarketingUnsubToken,

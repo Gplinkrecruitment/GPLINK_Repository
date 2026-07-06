@@ -505,18 +505,60 @@
     if (target) { target.cards = target.cards || []; target.cards.push(found.card); }
   }
 
+  // AI Matching (Task 6): live-stage keys eligible for the hired/closed
+  // redirect fan-out — mirrors server.js redirectOthersForJob's own stage
+  // list exactly (never 'offer', 'hired', or the reject stage).
+  var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+
+  // Count of cards currently sitting in a redirect-eligible stage, from the
+  // board data already loaded for this job — excludes `excludeId` (the card
+  // being moved to Hired) when given; pass nothing for a whole-job close.
+  function countOtherLiveCards(excludeId) {
+    var cols = (boardData && boardData.columns) || [];
+    var n = 0;
+    for (var i = 0; i < cols.length; i++) {
+      if (REDIRECT_LIVE_STAGES.indexOf(cols[i].key) === -1) continue;
+      var cards = cols[i].cards || [];
+      for (var j = 0; j < cards.length; j++) {
+        if (excludeId != null && String(cards[j].id) === String(excludeId)) continue;
+        n++;
+      }
+    }
+    return n;
+  }
+
+  // EXACT confirm copy (brief): "<N> other GPs are still active on this job
+  // — send them the redirect email?" Returns the redirect_others value to
+  // send with the PATCH — true (OK), false (Cancel — the hire/close still
+  // proceeds, just without the fan-out) — or undefined to skip the dialog
+  // entirely when there's no one else on the job to redirect.
+  function confirmRedirectOthers(excludeId) {
+    var n = countOtherLiveCards(excludeId);
+    if (n <= 0) return undefined;
+    return window.confirm(n + ' other GPs are still active on this job — send them the redirect email?');
+  }
+
+  function redirectedSuffix(d) {
+    return (d && typeof d.redirected === 'number' && d.redirected > 0) ? (' · ' + d.redirected + ' GP(s) redirected') : '';
+  }
+
   // PATCH the application's stage, then move the card in the board + update counts.
   function moveCard(id, stage) {
     var found = findCard(id);
     if (!found) return;
     if (found.col.key === stage) return; // already there
     var name = found.card.name || 'Candidate';
-    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
+    var body = { stage: stage };
+    if (stage === 'hired') {
+      var redirectOthers = confirmRedirectOthers(id);
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(id, stage);
       renderBoard();
       renderBoardMeta();
-      A.toast(name + ' → ' + stageLabel(stage));
+      A.toast(name + ' → ' + stageLabel(stage) + redirectedSuffix(d));
     });
   }
 
@@ -592,11 +634,18 @@
   function onDrawerStageChange() {
     var stage = val('atsJobDrawerStage');
     if (!drawerCardId || !stage) return;
-    A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
+    var found = findCard(drawerCardId);
+    var body = { stage: stage };
+    if (stage === 'hired' && (!found || found.col.key !== 'hired')) {
+      var redirectOthers = confirmRedirectOthers(drawerCardId);
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+    A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(drawerCardId, stage);
       renderBoard();
       renderBoardMeta();
+      if (d && d.redirected) A.toast(d.redirected + ' GP(s) redirected');
     });
   }
 
@@ -949,6 +998,15 @@
     if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
 
+    // AI Matching (Task 6): closing/filling a job from here is the same
+    // redirect trigger as marking a candidate Hired — same confirm copy,
+    // same opt-in flag. `o.job_status` is the job's status BEFORE this save,
+    // so this only fires on a REAL flip into filled/closed.
+    if ((body.job_status === 'filled' || body.job_status === 'closed') && o.job_status !== body.job_status) {
+      var redirectOthers = confirmRedirectOthers();
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+
     // Guard against a double-submit while the PATCH round-trips.
     var saveBtn = el('atsJsSave');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
@@ -964,7 +1022,7 @@
       var newMasked = (d.editor && d.editor.masked_title) || '';
       settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
-      A.toast(newMasked ? 'Saved · ' + newMasked : 'Job settings saved');
+      A.toast((newMasked ? 'Saved · ' + newMasked : 'Job settings saved') + redirectedSuffix(d));
       atsOpenJobBoard(currentBoardJobId); // re-open the board with fresh data
     }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }
