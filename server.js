@@ -6496,6 +6496,9 @@ function createEmptyState() {
     users: {},
     userProfiles: {},
     userState: {},
+    // Phase 6 F4: per-user session epochs + notification preferences (local mode)
+    sessionEpochs: {},
+    notificationPrefs: {},
     hybridAgentBridgeStore: null,
     // In-app ATS collections (dev / local-JSON mode). In prod these live in Supabase.
     atsPractices: [],
@@ -7724,6 +7727,79 @@ async function markCandidateLeadUnsubscribed(email) {
   }
 }
 
+// ── Phase 6 F4 (audit G6): per-GP notification preferences ──────────────────
+// Channel toggles for NON-CRITICAL mail/messages only (onboarding nudges,
+// WhatsApp check-in niceties, future push niceties). These preferences must
+// NEVER gate transactional/critical mail — OTP, security notices, password
+// resets, document-expiry reminders, offers/interviews/placements all send
+// regardless. Enforcement therefore lives ONLY inside the non-critical
+// senders, never inside sendEmail() itself.
+// Stored in public.notification_preferences (Supabase) / dbState
+// .notificationPrefs (local JSON), keyed by lowercased email.
+const NOTIFICATION_PREF_KEYS = ['emailNudges', 'whatsapp', 'push'];
+const NOTIFICATION_PREF_COLUMNS = { emailNudges: 'email_nudges', whatsapp: 'whatsapp', push: 'push' };
+
+async function getNotificationPreferences(email) {
+  const key = String(email || '').trim().toLowerCase();
+  const prefs = { emailNudges: true, whatsapp: true, push: true };
+  if (!key) return prefs;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('notification_preferences',
+        'select=email_nudges,whatsapp,push&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+      if (row) {
+        if (row.email_nudges === false) prefs.emailNudges = false;
+        if (row.whatsapp === false) prefs.whatsapp = false;
+        if (row.push === false) prefs.push = false;
+      }
+      return prefs;
+    }
+    const map = dbState.notificationPrefs && typeof dbState.notificationPrefs === 'object' ? dbState.notificationPrefs : {};
+    const rec = map[key];
+    if (rec && typeof rec === 'object') {
+      NOTIFICATION_PREF_KEYS.forEach(function (k) { if (rec[k] === false) prefs[k] = false; });
+    }
+    return prefs;
+  } catch (err) {
+    // Fail-open: an unreadable pref store must never silence anything by
+    // accident. Defaults = everything on.
+    return prefs;
+  }
+}
+
+async function saveNotificationPreferences(email, patch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  const current = await getNotificationPreferences(key);
+  NOTIFICATION_PREF_KEYS.forEach(function (k) {
+    if (patch && typeof patch[k] === 'boolean') current[k] = patch[k];
+  });
+  if (isSupabaseDbConfigured()) {
+    const row = { email: key, updated_at: new Date().toISOString() };
+    NOTIFICATION_PREF_KEYS.forEach(function (k) { row[NOTIFICATION_PREF_COLUMNS[k]] = current[k]; });
+    const w = await supabaseDbRequest('notification_preferences', 'on_conflict=email', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [row]
+    });
+    if (!w.ok) return null;
+    return current;
+  }
+  if (!dbState.notificationPrefs || typeof dbState.notificationPrefs !== 'object') dbState.notificationPrefs = {};
+  dbState.notificationPrefs[key] = Object.assign({}, dbState.notificationPrefs[key], current, { updatedAt: new Date().toISOString() });
+  saveDbState();
+  return current;
+}
+
+// channel: 'emailNudges' | 'whatsapp' | 'push'. ONLY call this from
+// non-critical senders (nudges/niceties) — never from transactional paths.
+async function allowsNonCriticalNotification(email, channel) {
+  if (!email) return true;
+  const prefs = await getNotificationPreferences(email);
+  return prefs[channel] !== false;
+}
+
 // ── Phase 6 D1b: practice one-click response pages ──────────────────────────
 // Small branded interstitial/confirmation pages for /api/practice/respond.
 // Callers pass PRE-ESCAPED HTML in msg/bodyHtml where markup is intended.
@@ -7896,6 +7972,11 @@ async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   var to = String((row && row.email) || '').trim();
   if (!to) return { ok: false, error: 'No email on reminder row' };
+  // Phase 6 F4 (G6): nudges are non-critical — respect the GP's "email nudges"
+  // preference. Transactional mail is NOT routed through here and never checks.
+  if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) {
+    return { ok: false, skipped: true, optedOut: true, error: 'Recipient opted out of nudge emails' };
+  }
   var firstName = String((row && row.name) || '').split(' ')[0] || '';
   var copy = onboardingNudge.copyForStep(stepIndex, { name: firstName || 'there', stepsLeft: stepsLeft });
   var step = (row && row.last_step != null && row.last_step >= 0 && row.last_step < 5) ? row.last_step : 0;
@@ -8203,8 +8284,15 @@ function base64UrlDecode(input) {
 var _macFn = crypto['createHmac'].bind(crypto);
 function hmacSign(data) { return _macFn('sha512', SECRET).update(data).digest('hex'); }
 
-function createSignedSessionToken(userProfile, expiresAt) {
-  const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
+function createSignedSessionToken(userProfile, expiresAt, sessionEpoch) {
+  // Phase 6 F4 (security L2): tokens optionally carry the user's session epoch.
+  // Only embed a POSITIVE epoch — epoch 0 (the default for every user until
+  // they first trigger a revoke) is expressed by OMITTING the claim, so tokens
+  // for never-revoked users are byte-identical to pre-F4 tokens.
+  const epochNum = Math.floor(Number(sessionEpoch));
+  const claims = { userProfile, expiresAt };
+  if (Number.isFinite(epochNum) && epochNum > 0) claims.epoch = epochNum;
+  const payload = base64UrlEncode(JSON.stringify(claims));
   return `${payload}.${hmacSign(payload)}`;
 }
 
@@ -8229,10 +8317,141 @@ function parseSignedSessionToken(token) {
     if (!parsed.userProfile || typeof parsed.userProfile !== 'object') return null;
     if (typeof parsed.expiresAt !== 'number') return null;
     if (parsed.expiresAt <= now()) return null;
-    return { userProfile: parsed.userProfile, expiresAt: parsed.expiresAt };
+    // A token with no epoch claim (every pre-F4 session) parses as epoch 0.
+    const tokenEpoch = Math.floor(Number(parsed.epoch));
+    return {
+      userProfile: parsed.userProfile,
+      expiresAt: parsed.expiresAt,
+      epoch: Number.isFinite(tokenEpoch) && tokenEpoch > 0 ? tokenEpoch : 0
+    };
   } catch (err) {
     return null;
   }
+}
+
+// ── Phase 6 F4: per-user session epoch ("sign out of all devices") ──────────
+// Stored in public.user_session_epoch (Supabase) / dbState.sessionEpochs
+// (local JSON), keyed by lowercased email. A gp_session token is REJECTED only
+// when the user's KNOWN stored epoch is greater than the epoch embedded in the
+// token. Everything else fails open by design so deploying this can never
+// mass-log-out live users:
+//   • token has no epoch claim  → treated as epoch 0 (all pre-F4 sessions)
+//   • user has no stored row    → stored epoch 0 → 0 > 0 is false → valid
+//   • store unreadable / table missing (pre-migration) → treated as unknown → valid
+// Only an explicit revoke (sign-out-all, account deletion, password change,
+// email change) writes a stored epoch > 0, and only then do older tokens die.
+const SESSION_EPOCH_CACHE_TTL_MS = Number(process.env.SESSION_EPOCH_CACHE_TTL_MS || 60 * 1000);
+const _sessionEpochCache = new Map(); // email -> { epoch, fetchedAt }
+
+function cacheSessionEpoch(email, epoch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return;
+  const num = Math.floor(Number(epoch));
+  _sessionEpochCache.set(key, { epoch: Number.isFinite(num) && num > 0 ? num : 0, fetchedAt: Date.now() });
+}
+
+// Synchronous, cache-only check used inside getSession(). Returns true ONLY
+// when we positively know the stored epoch is newer than the token's. A cache
+// miss returns false (valid) — handleApi warms the cache per request, so API
+// calls are enforced; anything reached before a warm cache simply behaves like
+// pre-F4 (fail-open, never a surprise logout).
+function isSessionEpochRevokedSync(email, tokenEpoch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return false;
+  const entry = _sessionEpochCache.get(key);
+  if (!entry) return false;
+  return entry.epoch > (Number(tokenEpoch) || 0);
+}
+
+async function getStoredSessionEpoch(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return 0;
+  const cached = _sessionEpochCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < SESSION_EPOCH_CACHE_TTL_MS) return cached.epoch;
+  let epoch = 0;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('user_session_epoch', 'select=epoch&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (!r.ok) {
+        // Pre-migration table / transient failure: keep any stale cached value
+        // (never let an error look like a revoke) and treat unknown as 0.
+        return cached ? cached.epoch : 0;
+      }
+      const row = Array.isArray(r.data) ? r.data[0] : null;
+      epoch = row && Number.isFinite(Number(row.epoch)) ? Math.floor(Number(row.epoch)) : 0;
+    } else {
+      const map = dbState.sessionEpochs && typeof dbState.sessionEpochs === 'object' ? dbState.sessionEpochs : {};
+      epoch = Number.isFinite(Number(map[key])) ? Math.floor(Number(map[key])) : 0;
+    }
+  } catch (err) {
+    return cached ? cached.epoch : 0;
+  }
+  cacheSessionEpoch(key, epoch);
+  return epoch;
+}
+
+// Bump the user's epoch → every previously-issued token (lower epoch) becomes
+// invalid at its next validation. Returns the new epoch, or null on failure
+// (callers must NOT claim sessions were revoked when this returns null).
+async function bumpSessionEpoch(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  // Fresh read (bypass cache) so concurrent bumps still move forward.
+  let current = 0;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('user_session_epoch', 'select=epoch&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (r.ok && Array.isArray(r.data) && r.data[0]) current = Math.floor(Number(r.data[0].epoch)) || 0;
+      const next = current + 1;
+      const w = await supabaseDbRequest('user_session_epoch', 'on_conflict=email', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [{ email: key, epoch: next, updated_at: new Date().toISOString() }]
+      });
+      if (!w.ok) return null;
+      cacheSessionEpoch(key, next);
+      return next;
+    }
+    if (!dbState.sessionEpochs || typeof dbState.sessionEpochs !== 'object') dbState.sessionEpochs = {};
+    current = Math.floor(Number(dbState.sessionEpochs[key])) || 0;
+    const nextLocal = current + 1;
+    dbState.sessionEpochs[key] = nextLocal;
+    saveDbState();
+    cacheSessionEpoch(key, nextLocal);
+    return nextLocal;
+  } catch (err) {
+    console.error('[session-epoch] bump failed for', key, err && err.message);
+    return null;
+  }
+}
+
+// Warm the epoch cache for the requesting user so the synchronous check in
+// getSession() is authoritative for this request. Cheap: one cookie parse +
+// at most one DB read per user per SESSION_EPOCH_CACHE_TTL_MS per instance.
+async function preloadSessionEpochForRequest(req) {
+  try {
+    const cookies = getCookies(req);
+    const token = cookies[COOKIE_NAME];
+    if (!token) return;
+    const signed = parseSignedSessionToken(token);
+    if (!signed) return;
+    const email = signed.userProfile && typeof signed.userProfile.email === 'string'
+      ? signed.userProfile.email.trim().toLowerCase() : '';
+    if (!email) return;
+    await getStoredSessionEpoch(email);
+  } catch (err) { /* fail-open by design */ }
+}
+
+// Issue a GP session embedding the user's CURRENT stored epoch, so a fresh
+// login after a revoke stays valid while older tokens are rejected.
+async function issueGpSession(res, userProfile) {
+  const email = userProfile && typeof userProfile.email === 'string'
+    ? userProfile.email.trim().toLowerCase() : '';
+  let epoch = 0;
+  if (email) {
+    try { epoch = await getStoredSessionEpoch(email); } catch (err) { epoch = 0; }
+  }
+  setSession(res, userProfile, epoch);
 }
 
 function hashPassword(password) {
@@ -9309,9 +9528,9 @@ async function registerAdminLoginFailure(email) {
   }
 }
 
-function setSession(res, userProfile) {
+function setSession(res, userProfile, sessionEpoch) {
   const expiresAt = now() + SESSION_TTL_MS;
-  const token = createSignedSessionToken(userProfile, expiresAt);
+  const token = createSignedSessionToken(userProfile, expiresAt, sessionEpoch);
 
   const secureCookie = process.env.COOKIE_SECURE
     ? process.env.COOKIE_SECURE === 'true'
@@ -9596,6 +9815,103 @@ function verifyPracticeActionToken(token) {
   return { ok: true, applicationId, action };
 }
 
+// ── Phase 6 F4: verified email change ───────────────────────────────────────
+// Same purpose-token scheme: unforgeable, expiring, single-purpose. The token
+// is minted at request time and only ever emailed to the NEW address, so
+// possession proves control of the new inbox.
+const EMAIL_CHANGE_TOKEN_PURPOSE = 'email_change';
+const EMAIL_CHANGE_TOKEN_TTL_MS = Number(process.env.EMAIL_CHANGE_TOKEN_TTL_MS || 60 * 60 * 1000);
+
+// Is this address already attached to any account? Checks user_profiles (and
+// the auth system best-effort) in Supabase mode, dbState maps locally.
+async function isChangeEmailAddressTaken(candidateEmail) {
+  const key = String(candidateEmail || '').trim().toLowerCase();
+  if (!key) return true;
+  if (isSupabaseDbConfigured()) {
+    try {
+      const r = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (r.ok && Array.isArray(r.data) && r.data.length > 0) return true;
+    } catch (err) { /* fall through to auth check */ }
+    try {
+      // Best-effort GoTrue lookup; shape varies by version so only a positive
+      // match counts. Failures do NOT block (user_profiles is the source of truth).
+      const a = await supabaseAuthAdminRequest('admin/users?email=' + encodeURIComponent(key));
+      const users = a.ok && a.data && Array.isArray(a.data.users) ? a.data.users : [];
+      if (users.some((u) => String((u && u.email) || '').trim().toLowerCase() === key)) return true;
+    } catch (err) { /* ignore */ }
+    return false;
+  }
+  return !!(dbState.users[key] || dbState.userProfiles[key]);
+}
+
+// Apply a VERIFIED email change. Order is deliberate: the auth-system email
+// (what the user signs in with) changes FIRST and any failure there aborts the
+// whole operation with nothing modified — so a partial failure can never lock
+// the user out. App-side rows then update best-effort (profile lookups also
+// fall back to user_id, so a missed row degrades gracefully, never locks out).
+// Finally every session for the OLD address is revoked via the epoch bump.
+async function applyVerifiedEmailChange({ userId, oldEmail, newEmail }) {
+  const oldKey = String(oldEmail || '').trim().toLowerCase();
+  const newKey = String(newEmail || '').trim().toLowerCase();
+  const warnings = [];
+  if (!oldKey || !newKey) return { ok: false, message: 'Invalid email change request.' };
+
+  if (isSupabaseDbConfigured()) {
+    const uid = String(userId || '').trim() || await getSupabaseUserIdByEmail(oldKey);
+    if (!uid) return { ok: false, message: 'Could not resolve your account. Nothing was changed.' };
+
+    // 1) Auth system first — abort entirely if this fails.
+    const authRes = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(uid), {
+      method: 'PUT',
+      body: { email: newKey, email_confirm: true }
+    });
+    if (!authRes.ok) {
+      console.error('[change-email] auth update failed:', authRes.status, JSON.stringify(authRes.data || {}).slice(0, 200));
+      return { ok: false, message: 'Could not update the sign-in system. Nothing was changed — your current email still works.' };
+    }
+
+    // 2) App-side rows (best-effort; profile reads fall back to user_id).
+    const emailPatches = [
+      ['user_profiles', 'user_id=eq.' + encodeURIComponent(uid)],
+      ['onboarding_reminders', 'user_id=eq.' + encodeURIComponent(uid)],
+      ['notification_preferences', 'email=eq.' + encodeURIComponent(oldKey)]
+    ];
+    for (const [table, filter] of emailPatches) {
+      try {
+        const pr = await supabaseDbRequest(table, filter, {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { email: newKey }
+        });
+        if (!pr.ok) warnings.push(table + ' not updated (' + pr.status + ')');
+      } catch (err) { warnings.push(table + ' not updated (' + (err && err.message) + ')'); }
+    }
+  } else {
+    // Local JSON mode: move the email-keyed records.
+    if (dbState.users[oldKey]) {
+      dbState.users[newKey] = { ...dbState.users[oldKey], email: newKey, updatedAt: new Date().toISOString() };
+      delete dbState.users[oldKey];
+    }
+    if (dbState.userProfiles[oldKey]) {
+      dbState.userProfiles[newKey] = { ...dbState.userProfiles[oldKey], email: newKey };
+      delete dbState.userProfiles[oldKey];
+    }
+    if (dbState.userState && dbState.userState[oldKey]) {
+      dbState.userState[newKey] = dbState.userState[oldKey];
+      delete dbState.userState[oldKey];
+    }
+    if (dbState.notificationPrefs && dbState.notificationPrefs[oldKey]) {
+      dbState.notificationPrefs[newKey] = dbState.notificationPrefs[oldKey];
+      delete dbState.notificationPrefs[oldKey];
+    }
+    saveDbState();
+  }
+
+  // 3) Kill every session issued for the old address (they embed the old
+  //    email, so bumping the old key's epoch invalidates all of them).
+  const bumped = await bumpSessionEpoch(oldKey);
+  if (bumped == null) warnings.push('session revoke failed — old sessions may live until expiry');
+  return { ok: true, warnings };
+}
+
 // TOTP first, then single-use backup code (consumed on success). Returns
 // { ok, method } and persists consumption + last_used_at.
 //
@@ -9641,7 +9957,15 @@ function getSession(req) {
   if (!token) return null;
 
   const signedSession = parseSignedSessionToken(token);
-  if (signedSession) return signedSession;
+  if (signedSession) {
+    // Phase 6 F4 session kill-switch: reject only when the KNOWN stored epoch
+    // outruns the token's. Unknown/uncached epoch → valid (fail-open, so the
+    // deploy itself can never log anyone out — see isSessionEpochRevokedSync).
+    const epochEmail = signedSession.userProfile && typeof signedSession.userProfile.email === 'string'
+      ? signedSession.userProfile.email.trim().toLowerCase() : '';
+    if (epochEmail && isSessionEpochRevokedSync(epochEmail, signedSession.epoch || 0)) return null;
+    return signedSession;
+  }
 
   // Backward compatibility: previously-issued server-side session tokens.
   const tokenHash = hashToken(token);
@@ -25462,6 +25786,11 @@ function atsJobEditorPayload(job) {
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
+  // Phase 6 F4 (security L2): warm the session-epoch cache for this user so
+  // the synchronous revocation check inside getSession() is authoritative for
+  // every route below. No-op without a gp_session cookie; fail-open on error.
+  await preloadSessionEpochForRequest(req);
+
   if (pathname === '/api/health' && req.method === 'GET') {
     sendJson(res, 200, {
       ok: true,
@@ -26545,6 +26874,11 @@ async function handleApi(req, res, pathname) {
               last_sent_at: new Date().toISOString()
             });
             onbSent++;
+          } else if (onbSendRes && onbSendRes.optedOut) {
+            // GP turned nudge emails off in account preferences — a silent,
+            // expected skip (not an error). Leave steps_sent untouched so the
+            // sequence resumes from here if they ever opt back in.
+            onbSkipped++;
           } else {
             console.error('[OnbNudge] send failed for ' + onbG.email + ':', (onbSendRes && onbSendRes.error) || 'unknown');
             onbSkipped++;
@@ -27269,7 +27603,7 @@ async function handleApi(req, res, pathname) {
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
-        setSession(res, profile);
+        await issueGpSession(res, profile);
         sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
 
         return;
@@ -27291,7 +27625,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(email);
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
@@ -27319,7 +27653,7 @@ async function handleApi(req, res, pathname) {
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
-        setSession(res, profile);
+        await issueGpSession(res, profile);
         sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
         return;
       }
@@ -27334,7 +27668,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(email);
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
@@ -27356,7 +27690,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(entry.email);
       const access = createOAuthAccessToken(profile);
       const newRefreshToken = createOAuthRefreshToken(entry.email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: newRefreshToken, profile });
       return;
     }
@@ -27479,7 +27813,7 @@ async function handleApi(req, res, pathname) {
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
     await ensureSupabaseUserProfile(loginUser);
     const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrap = await resolveAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -27561,7 +27895,7 @@ async function handleApi(req, res, pathname) {
       upsertLocalUserFromSupabaseUser(loginUser);
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
-      setSession(res, sessionProfile);
+      await issueGpSession(res, sessionProfile);
       // Send welcome email on first login (confirmed_at exists but last_sign_in was null before this login)
       const supaUserId = sessionProfile.supabaseUserId;
       if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
@@ -27602,7 +27936,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const sessionProfile = getSessionProfileFromUser(email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrapResult = resolveFastAuthBootstrap(email, { sessionProfile });
     sendJson(res, 200, {
       ok: true,
@@ -27637,8 +27971,276 @@ async function handleApi(req, res, pathname) {
     const hasPlacement = await userHasActivePlacement(userId);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
     if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    // Phase 6 F4: invalidate every other device's session too (the dialog
+    // promises "signs you out" — make that true everywhere, not just here).
+    if (email) { await bumpSessionEpoch(email); }
     clearSession(res, req);
     sendJson(res, 200, { ok: true, purgeAfter, message: 'Your account has been closed. You can reinstate it within 90 days by signing in again.' });
+    return;
+  }
+
+  // ── Phase 6 F4 (security L2): sign out of ALL devices ──────────────────────
+  // Bumps the user's session epoch so every previously-issued gp_session token
+  // (which carries a lower epoch, or none = 0) fails validation from now on.
+  // The current device is signed out too — "sign out everywhere" is the whole
+  // point, and it keeps the UX unambiguous.
+  if (pathname === '/api/account/sign-out-all' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
+    const newEpoch = await bumpSessionEpoch(email);
+    if (newEpoch == null) {
+      sendJson(res, 502, { ok: false, message: 'Could not sign out of all devices right now. Please try again.' });
+      return;
+    }
+    clearSession(res, req);
+    sendJson(res, 200, { ok: true, message: 'Signed out on all devices. Please sign in again.' });
+    return;
+  }
+
+  // ── Phase 6 F4 (audit G6): notification preferences ────────────────────────
+  if (pathname === '/api/account/notification-preferences' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    const preferences = await getNotificationPreferences(email);
+    sendJson(res, 200, { ok: true, preferences });
+    return;
+  }
+
+  if (pathname === '/api/account/notification-preferences' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    let npBody;
+    try { npBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const patch = {};
+    let sawAny = false;
+    NOTIFICATION_PREF_KEYS.forEach(function (k) {
+      if (npBody && typeof npBody[k] === 'boolean') { patch[k] = npBody[k]; sawAny = true; }
+    });
+    if (!sawAny) { sendJson(res, 400, { ok: false, message: 'Provide at least one of emailNudges, whatsapp, push as true/false.' }); return; }
+    const preferences = await saveNotificationPreferences(email, patch);
+    if (!preferences) { sendJson(res, 502, { ok: false, message: 'Could not save preferences right now.' }); return; }
+    sendJson(res, 200, { ok: true, preferences });
+    return;
+  }
+
+  // ── Phase 6 F4 (GDPR): "Download my data" — the GP's own data as JSON ──────
+  // Metadata only for files (never bytes/URLs), own rows only, bounded limits.
+  if (pathname === '/api/account/export' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    const pick = (row, keys) => {
+      const out = {};
+      keys.forEach((k) => { if (row && row[k] !== undefined && row[k] !== null) out[k] = row[k]; });
+      return out;
+    };
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      account: { email },
+      profile: null,
+      registration: { case: null, tasks: [] },
+      documents: [],
+      applications: [],
+      interviews: [],
+      nudges: [],
+      notificationPreferences: await getNotificationPreferences(email),
+      state: []
+    };
+    try {
+      if (isSupabaseDbConfigured()) {
+        const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+        const profRow = await getSupabaseUserProfile(email, userId).catch(() => null);
+        if (profRow) {
+          const mapped = mapSupabaseProfileRowToApiProfile(profRow, email);
+          // Strip inline file bytes (base64 data URLs) — metadata only.
+          delete mapped.profilePhotoDataUrl;
+          delete mapped.idCopyDataUrl;
+          exportPayload.profile = mapped;
+        }
+        if (userId) {
+          const uid = encodeURIComponent(userId);
+          const caseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + uid + '&limit=1');
+          const caseRow = caseRes.ok && Array.isArray(caseRes.data) ? caseRes.data[0] : null;
+          if (caseRow) {
+            exportPayload.registration.case = pick(caseRow, ['stage', 'substage', 'status', 'created_at', 'updated_at']);
+            const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseRow.id) + '&limit=500');
+            exportPayload.registration.tasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [])
+              .map((t) => pick(t, ['title', 'task_type', 'status', 'related_stage', 'due_date', 'created_at', 'updated_at', 'completed_at']));
+          }
+          const docsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + uid + '&limit=500');
+          exportPayload.documents = (docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [])
+            .map((d) => pick(d, ['document_key', 'country_code', 'status', 'file_name', 'expires_at', 'created_at', 'updated_at']));
+          const appsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + uid + '&limit=200');
+          exportPayload.applications = (appsRes.ok && Array.isArray(appsRes.data) ? appsRes.data : [])
+            .map((a) => pick(a, ['job_title', 'practice_name', 'status', 'ats_stage', 'offer_status', 'created_at', 'updated_at']));
+          const intRes = await supabaseDbRequest('career_interviews', 'select=*&user_id=eq.' + uid + '&limit=100');
+          exportPayload.interviews = (intRes.ok && Array.isArray(intRes.data) ? intRes.data : [])
+            .map((i) => pick(i, ['practice_name', 'status', 'scheduled_at', 'created_at', 'updated_at']));
+          const nudgeRes = await supabaseDbRequest('user_nudges', 'select=*&user_id=eq.' + uid + '&limit=200');
+          exportPayload.nudges = (nudgeRes.ok && Array.isArray(nudgeRes.data) ? nudgeRes.data : [])
+            .map((n) => pick(n, ['stage', 'substage', 'title', 'message', 'status', 'created_at']));
+          const stateRes = await supabaseDbRequest('user_state', 'select=state,updated_at&user_id=eq.' + uid + '&limit=20');
+          exportPayload.state = (stateRes.ok && Array.isArray(stateRes.data) ? stateRes.data : [])
+            .map((s) => ({ state: s.state, updated_at: s.updated_at }));
+        }
+      } else {
+        const user = dbState.users[email] || {};
+        const stored = dbState.userProfiles[email] || {};
+        exportPayload.profile = {
+          firstName: stored.firstName || user.firstName || '',
+          lastName: stored.lastName || user.lastName || '',
+          email,
+          phone: stored.phone || '',
+          registrationNumber: stored.registrationNumber || '',
+          specialistCountry: user.registrationCountry || stored.specialistCountry || '',
+          cvFileName: stored.cvFileName || '',
+          updatedAt: stored.updatedAt || null
+        };
+        const stWrap = (dbState.userState && dbState.userState[email]) || null;
+        if (stWrap) exportPayload.state = [{ state: stWrap.state || stWrap, updated_at: stWrap.updatedAt || null }];
+      }
+    } catch (expErr) {
+      console.error('[account-export] failed for', email, expErr && expErr.message);
+      sendJson(res, 500, { ok: false, message: 'Could not build your export right now. Please try again.' });
+      return;
+    }
+    const exportName = 'gp-link-data-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    sendJson(res, 200, exportPayload, {
+      'Content-Disposition': 'attachment; filename="' + exportName + '"',
+      'Cache-Control': 'no-store'
+    });
+    return;
+  }
+
+  // ── Phase 6 F4: verified self-serve email change ────────────────────────────
+  // Step 1: request. Validates + checks availability, then emails a signed,
+  // short-lived confirm link to the NEW address. NOTHING changes yet.
+  if (pathname === '/api/account/change-email' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    if (!(await checkRateLimitWindow('email-change:' + getClientIp(req), 5, 15 * 60 * 1000))) {
+      sendJson(res, 429, { ok: false, message: 'Too many attempts. Please wait a few minutes and try again.' });
+      return;
+    }
+    let ceBody;
+    try { ceBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const newEmail = String((ceBody && ceBody.newEmail) || '').trim().toLowerCase();
+    if (!isValidEmail(newEmail)) { sendJson(res, 400, { ok: false, message: 'Please enter a valid email address.' }); return; }
+    if (newEmail === email) { sendJson(res, 400, { ok: false, message: 'That is already your email address.' }); return; }
+    if (await isChangeEmailAddressTaken(newEmail)) {
+      sendJson(res, 409, { ok: false, message: 'That email address is already in use on another GP Link account.' });
+      return;
+    }
+    if (!isEmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Email sending is not configured right now.' }); return; }
+    const userId = getSessionSupabaseUserId(session)
+      || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : '') || '';
+    const ceToken = createSignedPurposeToken(EMAIL_CHANGE_TOKEN_PURPOSE,
+      { userId: String(userId || ''), oldEmail: email, newEmail }, EMAIL_CHANGE_TOKEN_TTL_MS);
+    const confirmUrl = APP_BASE_URL + '/api/account/change-email/confirm?token=' + encodeURIComponent(ceToken);
+    const sendRes = await sendEmail({
+      to: newEmail,
+      subject: 'Confirm your new GP Link email address',
+      html: buildCareerEmailHtml({
+        title: 'Confirm your new email address',
+        body: 'A request was made to change the GP Link login email for ' + email + ' to this address. '
+          + 'If that was you, confirm below within 1 hour. If not, you can safely ignore this email — nothing will change.',
+        ctaText: 'Confirm email change',
+        ctaUrl: confirmUrl,
+        footer: 'This link expires in 1 hour and can only be used once.'
+      }),
+      text: 'Confirm your new GP Link email address: ' + confirmUrl + ' (expires in 1 hour)'
+    });
+    if (!sendRes || !sendRes.ok) {
+      sendJson(res, 502, { ok: false, message: 'Could not send the verification email right now. Please try again.' });
+      return;
+    }
+    console.log('[change-email] verification sent for', email, '->', newEmail);
+    sendJson(res, 200, { ok: true, message: 'Check the inbox of ' + newEmail + ' and click the confirmation link to finish.' });
+    return;
+  }
+
+  // Step 2a: GET confirm link → scanner-proof interstitial. The real change
+  // happens only on the POST below (email scanners follow GETs, never POSTs).
+  if (pathname === '/api/account/change-email/confirm' && req.method === 'GET') {
+    const ceParsed = parseSignedPurposeToken(String(url.searchParams.get('token') || ''), EMAIL_CHANGE_TOKEN_PURPOSE);
+    if (!ceParsed || !isValidEmail(String(ceParsed.newEmail || ''))) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('This link has expired', 'This email-change link is no longer valid. You can request a new one from your Account page.'));
+      return;
+    }
+    const ceEsc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(practiceRespondPage(
+      'Confirm your new email',
+      'Change the GP Link login email from <b>' + ceEsc(ceParsed.oldEmail) + '</b> to <b>' + ceEsc(ceParsed.newEmail) + '</b>? You will be signed out everywhere and will sign in with the new address.',
+      '<form method="post" action="/api/account/change-email/confirm?token=' + encodeURIComponent(String(url.searchParams.get('token') || '')) + '" style="margin-top:18px">'
+      + '<button type="submit" style="background:#4f8df9;color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer">Confirm email change</button>'
+      + '</form>'
+    ));
+    return;
+  }
+
+  // Step 2b: POST confirm → verify token, update auth email FIRST (abort on
+  // failure so nothing half-updates), then app-side rows, revoke all sessions
+  // for the old address, and notify the OLD inbox (security).
+  if (pathname === '/api/account/change-email/confirm' && req.method === 'POST') {
+    let ceToken = String(url.searchParams.get('token') || '');
+    if (!ceToken) {
+      try { const b = await readJsonBody(req); ceToken = String((b && b.token) || ''); } catch (e) { /* fall through */ }
+    }
+    const wantsHtml = /text\/html/.test(String(req.headers.accept || ''))
+      || /application\/x-www-form-urlencoded/.test(String(req.headers['content-type'] || ''));
+    const ceRespond = (status, title, msg) => {
+      if (wantsHtml) {
+        res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(practiceRespondPage(title, msg));
+      } else {
+        sendJson(res, status, { ok: status < 400, message: msg });
+      }
+    };
+    const ceParsed = parseSignedPurposeToken(ceToken, EMAIL_CHANGE_TOKEN_PURPOSE);
+    const oldEmail = ceParsed ? String(ceParsed.oldEmail || '').trim().toLowerCase() : '';
+    const newEmail = ceParsed ? String(ceParsed.newEmail || '').trim().toLowerCase() : '';
+    if (!ceParsed || !isValidEmail(oldEmail) || !isValidEmail(newEmail)) {
+      ceRespond(410, 'This link has expired', 'This email-change link is no longer valid. You can request a new one from your Account page.');
+      return;
+    }
+    if (await isChangeEmailAddressTaken(newEmail)) {
+      ceRespond(409, 'Email already in use', 'That email address is now in use on another GP Link account. Nothing was changed.');
+      return;
+    }
+    const appliedResult = await applyVerifiedEmailChange({ userId: String(ceParsed.userId || ''), oldEmail, newEmail });
+    if (!appliedResult.ok) {
+      ceRespond(502, 'Could not change your email', appliedResult.message || 'Something went wrong and nothing was changed. Please try again.');
+      return;
+    }
+    // Security notice to the OLD address (transactional — always sends).
+    try {
+      await sendEmail({
+        to: oldEmail,
+        subject: 'Your GP Link login email was changed',
+        html: buildCareerEmailHtml({
+          title: 'Your login email was changed',
+          body: 'The login email for your GP Link account was just changed from ' + oldEmail + ' to ' + newEmail
+            + '. All devices have been signed out. If you did NOT do this, contact us immediately at hello@mygplink.com.au.',
+          footer: 'This is a security notification about your GP Link account.'
+        }),
+        text: 'Your GP Link login email was changed from ' + oldEmail + ' to ' + newEmail + '. If this was not you, contact hello@mygplink.com.au immediately.'
+      });
+    } catch (noticeErr) {
+      console.error('[change-email] old-address notice failed:', noticeErr && noticeErr.message);
+    }
+    console.log('[change-email] applied', oldEmail, '->', newEmail, appliedResult.warnings && appliedResult.warnings.length ? ('warnings: ' + appliedResult.warnings.join('; ')) : '');
+    ceRespond(200, 'Email updated', 'Your login email is now ' + newEmail + '. You have been signed out everywhere — please sign in again with the new address.');
     return;
   }
 
@@ -27653,7 +28255,7 @@ async function handleApi(req, res, pathname) {
     if (!st) { sendJson(res, 404, { ok: false, message: 'Account not found.' }); return; }
     if (st.account_status === 'archived') { await reinstateUserAccount(st.user_id); }
     const sessionProfile = getSessionProfileFromSupabaseUser({ id: st.user_id, email: st.email }, st.email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     sendJson(res, 200, { ok: true, redirectTo: '/pages/index.html', message: 'Welcome back — your account has been reinstated.' });
     return;
   }
@@ -27797,7 +28399,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrapResult = resolveFastAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -27899,7 +28501,7 @@ async function handleApi(req, res, pathname) {
     }
 
     saveDbState();
-    setSession(res, userProfile);
+    await issueGpSession(res, userProfile);
 
     const bootstrap = await resolveAuthBootstrap(userProfile.email, { sessionProfile: userProfile });
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index', bootstrap });
@@ -35133,6 +35735,7 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
       revokeAllRefreshTokensForEmail(email);
+      await bumpSessionEpoch(email); // F4: password change signs out every device
       clearSession(res, req);
       sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
       return;
@@ -35153,6 +35756,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
     saveDbState();
     revokeAllRefreshTokensForEmail(email);
+    await bumpSessionEpoch(email); // F4: password change signs out every device
     clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
     return;
@@ -35338,6 +35942,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
     saveDbState();
     revokeAllRefreshTokensForEmail(email);
+    await bumpSessionEpoch(email); // F4: password reset signs out every device
     clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password reset successful.' });
     return;
@@ -35393,7 +35998,7 @@ Return ONLY valid JSON with no markdown formatting:
 
       // Set GP session with impersonation marker
       gpProfile._impersonatedBy = admin.email;
-      setSession(res, gpProfile);
+      await issueGpSession(res, gpProfile);
 
       console.log('[admin-impersonate] %s (%s) impersonating GP %s <%s>',
         admin.email, admin.role, targetUserId, gpProfile.email);
@@ -40822,7 +41427,9 @@ Return ONLY valid JSON with no markdown formatting:
     const gpPhone = pRow.phone_number || pRow.phone || '';
     const gpEmail = pRow.email || '';
     const gpFirstName = pRow.first_name || firstName || '';
-    if (gpPhone && DOUBLETICK_API_KEY) {
+    // Phase 6 F4 (G6): WhatsApp nudges are non-critical niceties — respect the
+    // GP's WhatsApp preference. The in-app nudge row is still created below.
+    if (gpPhone && DOUBLETICK_API_KEY && (await allowsNonCriticalNotification(gpEmail, 'whatsapp'))) {
       dtResult = await sendDoubleTickNudge(gpPhone, stage, substage, gpFirstName, message).catch(() => null);
       if (dtResult && dtResult.ok) channels.push('whatsapp');
     }
