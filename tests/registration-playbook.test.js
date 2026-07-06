@@ -12,6 +12,17 @@ describe('playbookForStage', () => {
   it('maps the "placement" stage to the same section as "career"', () => {
     expect(playbookForStage('placement')).toBe(playbookForStage('career'));
   });
+  it('visa has its own playbook section, distinct from AHPRA', () => {
+    const visa = playbookForStage('visa');
+    expect(visa.length).toBeGreaterThan(0);
+    expect(visa).not.toBe(playbookForStage('ahpra'));
+    const t = visa.toLowerCase();
+    expect(t).toContain('482');
+    expect(t).toContain('sponsor');
+    // No medical-registration specifics grounded into visa replies
+    expect(t).not.toContain('certified cop');
+    expect(t).not.toContain('english language');
+  });
   it('returns empty string for an unknown stage (no crash)', () => {
     expect(playbookForStage('nonsense')).toBe('');
     expect(playbookForStage(null)).toBe('');
