@@ -25819,7 +25819,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
       : '');
 
   var acceptButtonHtml =
-    '<a href="' + acceptUrl + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">Accept this match</a>' +
+    '<a href="' + _matchEmailEsc(acceptUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">Accept this match</a>' +
     '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>';
 
   var nextStepsHtml = reminder ? '' : (
@@ -26157,17 +26157,30 @@ async function sendRedirectEmail(applicationRow, job, alternatives) {
   }
 }
 
-// The Task 6 fan-out itself. Called (a) from POST /api/ats/application PATCH
-// when a stage move to 'hired' carries redirect_others:true, and (b) from
-// POST /api/ats/job PATCH when job_status flips to filled/closed with the
-// same flag. `hiredAppId` is excluded from the redirected set (pass null for
-// the job-close path, where there may be no single "winning" application).
+// The Task 6 fan-out itself. Called from every path that fills a job:
+//  (a) POST /api/ats/application PATCH — stage move to 'hired' with
+//      redirect_others:true (kanban drag / drawer select, confirm dialog);
+//  (b) POST /api/ats/job PATCH — job_status flips to filled/closed with the
+//      same flag (Job settings modal, confirm dialog);
+//  (c) POST /api/career/offer/accept — AUTO-FIRED, no flag/dialog: the GP
+//      accepting their official offer IS the definitive fill event (spec §8:
+//      a job filled "by ANY path" redirects everyone else), and no staff
+//      member is present to answer a dialog;
+//  (d) POST /api/ats/placement — staff "Mark placement secured" with
+//      redirect_others:true (candidate-drawer confirm dialog).
+// `hiredAppId` is excluded from the redirected set (pass null for the
+// job-close path, where there may be no single "winning" application).
 //
 // Every row is try/catch isolated (brief: "per-row failure isolation") — one
 // bad PATCH/email must never stop the rest of the job's candidates from being
-// redirected. Returns { redirected, errors } — never throws.
+// redirected. Idempotent by construction: the SELECT only matches the five
+// live stages AND the PATCH itself re-asserts that precondition, so rows
+// already not_proceeding (a prior fan-out, a decline, an expiry sweep) are
+// never re-written or re-emailed — a hire followed by "mark placement
+// secured" on the same job fans out ONCE. Returns { redirected, skipped,
+// errors } — never throws.
 async function redirectOthersForJob(jobId, hiredAppId) {
-  var result = { redirected: 0, errors: [] };
+  var result = { redirected: 0, skipped: 0, errors: [] };
   if (!jobId || !isSupabaseDbConfigured()) return result;
   var roLiveStages = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
   try {
@@ -26218,14 +26231,48 @@ async function redirectOthersForJob(jobId, hiredAppId) {
           redirect_alternatives: { alternatives: roAlternatives, generated_at: roNowIso, _dismissed: false },
           updated_at: roNowIso
         };
-        var roUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(roRow.id), {
+        // Stage precondition ON THE PATCH ITSELF (review hardening): the row
+        // was selected in a live stage above, but another writer (a parallel
+        // hire, an offer being recorded, the GP accepting) may have advanced
+        // it between the SELECT and this PATCH. Re-asserting the live-stage
+        // filter here makes the write conditional — a row that moved on is
+        // matched by zero rows, left completely alone, and counted as
+        // skipped (NOT redirected, NOT an error).
+        var roUpd = await supabaseDbRequest('gp_applications',
+          'id=eq.' + encodeURIComponent(roRow.id) + '&ats_stage=in.(' + roLiveStages.join(',') + ')', {
           method: 'PATCH', headers: { Prefer: 'return=representation' }, body: roPatch
         });
-        var roUpdatedRow = (roUpd.ok && Array.isArray(roUpd.data) && roUpd.data[0]) ? roUpd.data[0] : null;
-        if (!roUpdatedRow) { result.errors.push({ id: roRow.id, error: 'update_failed' }); continue; }
+        if (!roUpd.ok) { result.errors.push({ id: roRow.id, error: 'update_failed' }); continue; }
+        var roUpdatedRow = (Array.isArray(roUpd.data) && roUpd.data[0]) ? roUpd.data[0] : null;
+        if (!roUpdatedRow) { result.skipped++; continue; } // advanced mid-flight — leave it alone
 
         await atsRecordStageEvent(roRow.id, roRow.ats_stage, 'not_proceeding', 'system');
         result.redirected++;
+
+        // Cancel any live scheduled interviews for this application (review
+        // fix, IMPORTANT #2) — an interview for a filled position must not
+        // stay on anyone's calendar. Mirrors the GP-withdraw path's
+        // cancellation (status → cancelled + Zoom meeting deletion), and is
+        // its own try/catch so a Zoom/DB hiccup never blocks the email or
+        // the rest of the batch.
+        try {
+          var roIvRes = await supabaseDbRequest('career_interviews',
+            'select=id,zoom_meeting_id&application_id=eq.' + encodeURIComponent(roRow.id) + '&status=in.(scheduled,confirmed)');
+          if (roIvRes.ok && Array.isArray(roIvRes.data)) {
+            for (var roIvI = 0; roIvI < roIvRes.data.length; roIvI++) {
+              var roIv = roIvRes.data[roIvI];
+              await supabaseDbRequest('career_interviews', 'id=eq.' + encodeURIComponent(roIv.id), {
+                method: 'PATCH',
+                body: { status: 'cancelled', updated_at: new Date().toISOString() }
+              });
+              if (roIv.zoom_meeting_id && isZoomConfigured()) {
+                deleteZoomMeeting(roIv.zoom_meeting_id).catch(function () {});
+              }
+            }
+          }
+        } catch (roIvErr) {
+          result.errors.push({ id: roRow.id, error: 'interview_cancel_' + (roIvErr && roIvErr.message) });
+        }
 
         try {
           var roSendRes = await sendRedirectEmail(roUpdatedRow, roOriginalJob, roAlternatives);
@@ -32613,12 +32660,31 @@ async function handleApi(req, res, pathname) {
     // two can never drift; notifications fire exactly once (sent→accepted only).
     await finalizeInAppPlacement(acceptTargetApp, acceptOffer, acceptUserId, acceptEmail, { isResume: acceptIsResume });
 
+    // AI Matching (Task 6): the GP accepting their official offer IS the
+    // definitive fill event (spec §8: a job filled "by ANY path" redirects
+    // everyone else) — AUTO-FIRED here, no confirm dialog, because no staff
+    // member is present to answer one. Safe on a resume too:
+    // redirectOthersForJob's live-stage SELECT + conditional PATCH skip rows
+    // already not_proceeding, so nobody is ever emailed twice. Own try/catch
+    // — a fan-out failure must never fail the GP's own acceptance.
+    let acceptRedirected = 0;
+    try {
+      const acceptRedirectRes = await redirectOthersForJob(acceptTargetApp.career_role_id, acceptTargetApp.id);
+      acceptRedirected = (acceptRedirectRes && acceptRedirectRes.redirected) || 0;
+      if (acceptRedirected > 0) {
+        console.log('[offer-accept] redirected ' + acceptRedirected + ' other GP(s) off job ' + acceptTargetApp.career_role_id);
+      }
+    } catch (acceptRedirectErr) {
+      console.error('[offer-accept] redirect fan-out failed for job', acceptTargetApp.career_role_id, ':', acceptRedirectErr && acceptRedirectErr.message);
+    }
+
     sendJson(res, 200, {
       ok: true,
       applicationId: String(acceptTargetApp.id),
       ats_stage: acceptNextStage ? 'hired' : (acceptStoredStage || 'hired'),
       advanced: !!acceptNextStage,
-      placement_secured: true
+      placement_secured: true,
+      redirected: acceptRedirected
     });
     return;
   }
@@ -53588,12 +53654,29 @@ Return ONLY valid JSON with no markdown formatting:
       targetType: 'application', targetId: plcAppId,
       detail: { commencement_date: plcCommence || null, resume: plcIsResume }
     });
-    sendJson(res, 200, {
+    // AI Matching (Task 6): "Mark placement secured" fills the job — staff is
+    // present here, so this mirrors the kanban-hire pattern: the candidate
+    // drawer shows the confirm dialog and passes redirect_others:true on OK;
+    // without the flag the placement proceeds exactly as before, no fan-out.
+    // Idempotent vs an earlier kanban-hire fan-out on the same job (the
+    // fan-out's live-stage SELECT + conditional PATCH skip rows already
+    // not_proceeding — nobody is emailed twice).
+    var plcWantRedirect = !!(bodyPlc && bodyPlc.redirect_others === true);
+    var plcRedirected = 0;
+    if (plcWantRedirect) {
+      try {
+        var plcRedirectRes = await redirectOthersForJob(plcApp.career_role_id, plcAppId);
+        plcRedirected = (plcRedirectRes && plcRedirectRes.redirected) || 0;
+      } catch (plcRedirectErr) {
+        console.error('[ats] redirect-others failed for job', plcApp.career_role_id, ':', plcRedirectErr && plcRedirectErr.message);
+      }
+    }
+    sendJson(res, 200, Object.assign({
       ok: true,
       applicationId: plcAppId,
       ats_stage: plcResult.nextStage ? 'hired' : (plcResult.storedStage || 'hired'),
       placement_secured: true
-    });
+    }, plcWantRedirect ? { redirected: plcRedirected } : {}));
     return;
   }
 

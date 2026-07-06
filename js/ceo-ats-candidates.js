@@ -601,16 +601,47 @@
     if (!window.confirm('Record this placement as secured? This finalises the doctor\'s placement (the same as them accepting in-app) and notifies them. Continue?')) return;
     var confirmBtn = box.querySelector('.ats-placement-confirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Recording…'; }
-    ATS.api('/api/ats/placement', { method: 'POST', body: { applicationId: String(appId), commencementDate: commencementDate } }).then(function (res) {
-      if (res && res.ok) {
-        ATS.toast('Placement secured — the doctor has been notified.');
-        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id);
-      } else {
-        ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
-        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
-      }
-    });
+
+    // AI Matching (Task 6): a placement fills the job — same redirect confirm
+    // as marking a card Hired on the kanban. The count of OTHER live
+    // applications on this job comes from the job's pipeline; redirect_others
+    // is only added when the dialog was actually shown (OK → true, Cancel →
+    // false: the placement still proceeds, just without the fan-out). Skipped
+    // entirely (no dialog, no flag) when nobody else is live on the job or
+    // the pipeline can't be read.
+    var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+    function submitPlacement(redirectOthers) {
+      var body = { applicationId: String(appId), commencementDate: commencementDate };
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+      ATS.api('/api/ats/placement', { method: 'POST', body: body }).then(function (res) {
+        if (res && res.ok) {
+          var redirectedNote = (typeof res.redirected === 'number' && res.redirected > 0)
+            ? ' · ' + res.redirected + ' other GP(s) redirected' : '';
+          ATS.toast('Placement secured — the doctor has been notified.' + redirectedNote);
+          if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+          window.atsOpenCandidate(c.case_id);
+        } else {
+          ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
+          if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
+        }
+      });
+    }
+
+    var app = appFromCurrent(appId);
+    var jobId = app && app.job_id;
+    if (!jobId) { submitPlacement(); return; }
+    ATS.api('/api/ats/job/pipeline?id=' + encodeURIComponent(jobId)).then(function (d) {
+      var n = 0;
+      var cols = (d && d.ok && Array.isArray(d.columns)) ? d.columns : [];
+      cols.forEach(function (col) {
+        if (REDIRECT_LIVE_STAGES.indexOf(col.key) === -1) return;
+        (col.cards || []).forEach(function (card) {
+          if (String(card.id) !== String(appId)) n++;
+        });
+      });
+      if (n <= 0) { submitPlacement(); return; }
+      submitPlacement(window.confirm(n + ' other GPs are still active on this job — send them the redirect email?'));
+    }).catch(function () { submitPlacement(); });
   }
 
   function acceptApplicationLineHtml(a) {

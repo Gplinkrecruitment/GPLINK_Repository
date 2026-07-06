@@ -533,6 +533,17 @@ describe('POST /api/career/offer/accept — offer record exists', () => {
     // Case timeline audit entry.
     const tl = db.task_timeline.find((t) => t.case_id === 'case-1' && /Offer accepted in-app/.test(String(t.title || '')));
     expect(tl).toBeTruthy();
+
+    // AI Matching (Task 6 review fix): the GP accepting their offer FILLS
+    // role-1, which auto-fires the redirect fan-out — the one other
+    // live-stage row on this job (app-8, 'applied'; all other fixtures sit
+    // in the 'offer' lane, which is not a redirect stage) moves to
+    // not_proceeding/position_filled. This is deliberate cross-fixture
+    // behavior the guardrail suite below must NOT assume away.
+    expect(r.body.redirected).toBe(1);
+    const redirectedRow = db.gp_applications.find((a) => a.id === 'app-8');
+    expect(redirectedRow.ats_stage).toBe('not_proceeding');
+    expect(redirectedRow.match_outcome).toBe('position_filled');
   });
 
   it('repeat accept is idempotent — no new writes, no new emails', async () => {
@@ -676,15 +687,24 @@ describe('POST /api/career/offer/accept — guardrails', () => {
     expect(app.status).toBe('applied');
   });
 
-  it("an 'applied' application with NO offer cannot be self-hired (404, no writes)", async () => {
+  it("an application with NO offer cannot be self-hired (404, no writes from THIS call)", async () => {
+    // NOTE (AI Matching Task 6): by the time this suite runs, app-8 is no
+    // longer in its seeded 'applied' state — app-1's in-app acceptance above
+    // filled role-1 and the auto redirect fan-out legitimately moved it to
+    // not_proceeding/position_filled (asserted in that test). The guardrail
+    // under test here is unchanged — this 404 must produce ZERO writes — so
+    // it asserts before/after equality instead of assuming pristine fixtures.
+    const before = JSON.stringify(db.gp_applications.find((a) => a.id === 'app-8'));
+    const eventsBefore = db.ats_stage_events.filter((e) => e.application_id === 'app-8').length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-8' }, GP4);
     expect(r.status).toBe(404);
     expect(r.body.ok).toBe(false);
     expect(r.body.code).toBe('no_offer');
     const app = db.gp_applications.find((a) => a.id === 'app-8');
-    expect(app.ats_stage).toBe('applied'); // the applied→hired exploit is closed
-    expect(app.status).toBe('applied');
-    expect(db.ats_stage_events.find((e) => e.application_id === 'app-8')).toBeUndefined();
+    expect(app.ats_stage).not.toBe('hired');            // the self-hire exploit stays closed
+    expect(app.status).toBe('applied');                 // never placement_secured
+    expect(JSON.stringify(app)).toBe(before);           // zero writes from this call
+    expect(db.ats_stage_events.filter((e) => e.application_id === 'app-8').length).toBe(eventsBefore);
   });
 });
 

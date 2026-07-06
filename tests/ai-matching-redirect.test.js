@@ -95,6 +95,64 @@ describe('AI Matching Task 6 — source wiring', () => {
   it('pages/ceo-dashboard.html loads the bumped ceo-ats-jobs.js cache buster', () => {
     expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-jobs\.js\?v=20260707[a-z]"><\/script>/);
   });
+
+  // ── Review-fix wiring (the two REAL fill paths + hardening) ────────────────
+  const candidatesSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
+
+  it('POST /api/career/offer/accept AUTO-fires the fan-out after finalizeInAppPlacement (no flag gate)', () => {
+    const idx = serverSrc.indexOf("pathname === '/api/career/offer/accept'");
+    const idxFinalize = serverSrc.indexOf('await finalizeInAppPlacement(acceptTargetApp', idx);
+    const idxFanout = serverSrc.indexOf('redirectOthersForJob(acceptTargetApp.career_role_id, acceptTargetApp.id)', idx);
+    expect(idx).toBeGreaterThan(-1);
+    expect(idxFinalize).toBeGreaterThan(idx);
+    expect(idxFanout).toBeGreaterThan(idxFinalize); // fires AFTER the placement finalizes
+    // Deliberately NOT gated on redirect_others — the GP accepting IS the fill event.
+    const between = serverSrc.slice(idxFinalize, idxFanout);
+    expect(between).not.toContain('redirect_others');
+  });
+
+  it('POST /api/ats/placement fans out only with redirect_others:true, after finalize + audit', () => {
+    const idx = serverSrc.indexOf("pathname === '/api/ats/placement' && req.method === 'POST'");
+    const idxFanout = serverSrc.indexOf('redirectOthersForJob(plcApp.career_role_id, plcAppId)', idx);
+    expect(idx).toBeGreaterThan(-1);
+    expect(idxFanout).toBeGreaterThan(idx);
+    const guardSrc = serverSrc.slice(idx, idxFanout);
+    expect(guardSrc).toContain('bodyPlc && bodyPlc.redirect_others === true');
+  });
+
+  it('the fan-out PATCH re-asserts the live-stage precondition and counts advanced rows as skipped', () => {
+    const idx = serverSrc.indexOf('async function redirectOthersForJob');
+    const fnSrc = serverSrc.slice(idx, idx + 9000);
+    expect(fnSrc).toContain("'id=eq.' + encodeURIComponent(roRow.id) + '&ats_stage=in.(' + roLiveStages.join(',') + ')'");
+    expect(fnSrc).toContain('result.skipped++');
+  });
+
+  it('the fan-out cancels live career_interviews (scheduled/confirmed) the way the withdraw path does', () => {
+    const idx = serverSrc.indexOf('async function redirectOthersForJob');
+    const fnSrc = serverSrc.slice(idx, idx + 9000);
+    expect(fnSrc).toContain('status=in.(scheduled,confirmed)');
+    expect(fnSrc).toContain("body: { status: 'cancelled', updated_at: new Date().toISOString() }");
+    expect(fnSrc).toContain('deleteZoomMeeting(roIv.zoom_meeting_id)');
+    expect(fnSrc).toContain('isZoomConfigured()');
+  });
+
+  it('candidate drawer placement confirm mirrors the kanban dialog and flag semantics', () => {
+    expect(candidatesSrc).toContain("n + ' other GPs are still active on this job — send them the redirect email?'");
+    expect(candidatesSrc).toContain("var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];");
+    expect(candidatesSrc).toContain('/api/ats/job/pipeline?id=');
+    // Flag only added when the dialog was shown; count-0 path posts with no flag.
+    expect(candidatesSrc).toContain('if (redirectOthers !== undefined) body.redirect_others = redirectOthers;');
+    expect(candidatesSrc).toContain('if (n <= 0) { submitPlacement(); return; }');
+  });
+
+  it('pages/ceo-dashboard.html loads the bumped ceo-ats-candidates.js cache buster', () => {
+    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260707[a-z]"><\/script>/);
+    expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707e'); // pre-fix pin superseded
+  });
+
+  it("Task-4 match email's Accept href is attribute-escaped like every other URL insertion", () => {
+    expect(serverSrc).toContain('_matchEmailEsc(acceptUrl)');
+  });
 });
 
 // ── Endpoint + fan-out behavior against a real Supabase-mode boot ───────────
@@ -114,6 +172,13 @@ function superCookie() {
   const payload = b64url(JSON.stringify({ userProfile: { email: 'super@gplink-test.local', adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+}
+// GP session cookie (pattern from tests/ai-matching-gp-flow.test.js) — used by
+// the POST /api/career/offer/accept auto-fire test.
+function userCookie(email, supabaseUserId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
 }
 function httpReq(method, p, { host, cookie, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -150,6 +215,13 @@ function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 // Any PATCH whose matched rows include one of these ids fails with a 500 and
 // leaves the row unmodified — used for the per-row failure-isolation test.
 const failPatchIds = new Set();
+
+// Race simulator (review-fix MINOR #3 test): after a gp_applications GET
+// returns a row whose id is in this map, the row's ats_stage is advanced to
+// the mapped value (one-shot). This deterministically reproduces "another
+// writer advanced the row between the fan-out's SELECT and its PATCH" — the
+// stage-preconditioned PATCH must then match zero rows and skip it.
+const advanceAfterSelect = new Map();
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
@@ -230,7 +302,18 @@ function startSupabaseEmulator() {
         let out = rows.filter(matches);
         const limit = parseInt(u.searchParams.get('limit') || '', 10);
         if (Number.isFinite(limit)) out = out.slice(0, limit);
-        send(200, out);
+        // Snapshot BEFORE the race hook fires, so the caller sees the row as
+        // it was at SELECT time (like a real DB would), then advance it.
+        const snapshot = out.map((r) => ({ ...r }));
+        if (m[1] === 'gp_applications' && advanceAfterSelect.size) {
+          out.forEach((row) => {
+            if (advanceAfterSelect.has(String(row.id))) {
+              row.ats_stage = advanceAfterSelect.get(String(row.id));
+              advanceAfterSelect.delete(String(row.id));
+            }
+          });
+        }
+        send(200, snapshot);
         return;
       }
       if (req.method === 'POST') {
@@ -270,14 +353,11 @@ function startSupabaseEmulator() {
 // mirroring how tests/ai-matching-cron.test.js pushes later-phase fixtures
 // inside individual it() blocks rather than at module scope.
 function resetDb() {
-  db.user_profiles.length = 0;
-  db.user_state.length = 0;
-  db.registration_cases.length = 0;
-  db.rso_team.length = 0;
-  db.ats_stage_events.length = 0;
-  db.practices.length = 0;
-  db.career_roles.length = 0;
-  db.gp_applications.length = 0;
+  // Clear EVERY table (including any tableOf() auto-created during the
+  // previous test — the placement-finalization tests touch ats_offers,
+  // placements, career_interviews, registration_tasks, …).
+  Object.keys(db).forEach((name) => { db[name].length = 0; });
+  advanceAfterSelect.clear();
 }
 
 beforeAll(async () => {
@@ -307,6 +387,14 @@ beforeAll(async () => {
       let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
       resendCalls.push({ url: u, body: parsed });
       return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+    }
+    // Only the local Supabase emulator may be fetched for real. Everything
+    // else (WhatsApp/Zoom/Google side effects reachable from the placement
+    // finalization the review-fix tests exercise) gets a generic stub so no
+    // test ever touches the network — every such step in server.js is
+    // best-effort/try-catch'd, so a bland {} response degrades cleanly.
+    if (!/^https?:\/\/127\.0\.0\.1[:/]/.test(u)) {
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
     }
     return realFetch(url, opts);
   };
@@ -755,5 +843,281 @@ describe('HTTP wiring — PATCH /api/ats/job close path (phase 6)', () => {
   it('401s the HTTP triggers without an ATS session (no fan-out possible without auth)', async () => {
     const r = await httpReq('PATCH', '/api/ats/job?id=job-close-1', { body: { job_status: 'closed', redirect_others: true } });
     expect(r.status).toBe(401);
+  });
+});
+
+// ── Review fixes: the two REAL fill paths (phase 7) ─────────────────────────
+// Seeds a complete in-app-offer world (ats_offers row + registration case +
+// user_state) so finalizeInAppPlacement runs for real against the emulator —
+// same machinery tests/audit-breadth.test.js already exercises.
+function seedOfferWorld(prefix, opts) {
+  const o = opts || {};
+  const jobId = prefix + '-job';
+  const winnerId = prefix + '-winner';
+  const winnerAppId = prefix + '-app-winner';
+  db.practices.push({ id: prefix + '-prac', name: 'Fill Path Medical', website: '', intro_video_url: '' });
+  db.career_roles.push({
+    id: jobId, provider: 'internal_ats', provider_role_id: 'ats_' + prefix, title: 'General Practitioner',
+    masked_title: 'DPA - FillPath - Mixed Billing', practice_name: 'Fill Path Medical', practice_id: prefix + '-prac',
+    location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+    job_status: 'open', is_active: true
+  });
+  db.user_profiles.push({ user_id: winnerId, email: winnerId + '@gplink-test.local', first_name: 'Winner', last_name: 'Doctor', registration_country: 'ireland' });
+  db.user_state.push({ user_id: winnerId, state: { gp_onboarding_complete: true } });
+  db.registration_cases.push({ id: prefix + '-case', user_id: winnerId, status: 'active' });
+  db.gp_applications.push({ id: winnerAppId, user_id: winnerId, career_role_id: jobId, provider_role_id: 'ats_' + prefix, status: 'applied', ats_stage: o.winnerStage || 'offer', applied_at: iso(NOW - 86400000) });
+  tableOf('ats_offers').push({
+    id: prefix + '-offer', application_id: winnerAppId, status: 'sent', practice_id: prefix + '-prac',
+    practice_name: 'Fill Path Medical', job_title: 'General Practitioner', billing_split: '70%',
+    sessions_per_week: '8', compensation_range: '', start_date: null, sent_by: 'super@gplink-test.local',
+    sent_at: iso(NOW - 3600000), created_at: iso(NOW - 3600000)
+  });
+  const others = [];
+  const otherStages = o.otherStages || ['shortlisted', 'interview'];
+  otherStages.forEach((stage, i) => {
+    const uid = prefix + '-other-' + i;
+    const appId = prefix + '-app-other-' + i;
+    db.user_profiles.push({ user_id: uid, email: uid + '@gplink-test.local', first_name: 'Other', last_name: 'Doctor' + i, registration_country: 'united kingdom' });
+    db.gp_applications.push({ id: appId, user_id: uid, career_role_id: jobId, ats_stage: stage, matched_at: null });
+    others.push({ userId: uid, appId, email: uid + '@gplink-test.local' });
+  });
+  return { jobId, winnerId, winnerAppId, others };
+}
+
+describe('review fix — POST /api/career/offer/accept auto-fires the fan-out (phase 7)', () => {
+  it('GP accepting their offer redirects every other live GP with NO flag needed; the hired GP is untouched by the fan-out', async () => {
+    resetDb();
+    const w = seedOfferWorld('oa');
+    resendCalls.length = 0;
+
+    const r = await httpReq('POST', '/api/career/offer/accept', {
+      cookie: userCookie(w.winnerId + '@gplink-test.local', w.winnerId),
+      body: { applicationId: w.winnerAppId }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.redirected).toBe(2);
+
+    // Others: moved + stamped + emailed.
+    w.others.forEach((other) => {
+      const row = db.gp_applications.find((a) => a.id === other.appId);
+      expect(row.ats_stage).toBe('not_proceeding');
+      expect(row.match_outcome).toBe('position_filled');
+      expect(Array.isArray(row.redirect_alternatives.alternatives)).toBe(true);
+      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(true);
+    });
+
+    // The accepting GP's own row: hired + placement_secured, never redirected.
+    const winnerRow = db.gp_applications.find((a) => a.id === w.winnerAppId);
+    expect(winnerRow.ats_stage).toBe('hired');
+    expect(winnerRow.status).toBe('placement_secured');
+    expect(winnerRow.match_outcome).not.toBe('position_filled');
+    expect(winnerRow.redirect_alternatives).toBeUndefined();
+    // No redirect email to the winner (subject check — they DO get other
+    // congrats/notify emails from the placement itself).
+    expect(resendCalls.some((c) =>
+      (c.body.to || []).includes(w.winnerId + '@gplink-test.local') && /An update on/.test(c.body.subject || ''))).toBe(false);
+  }, 30000);
+});
+
+describe('review fix — POST /api/ats/placement honors redirect_others (phase 8)', () => {
+  it('with redirect_others:true, marking the placement secured redirects the others and returns {redirected:N}', async () => {
+    resetDb();
+    const w = seedOfferWorld('plt');
+    resendCalls.length = 0;
+
+    const r = await httpReq('POST', '/api/ats/placement', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { applicationId: w.winnerAppId, redirect_others: true }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.redirected).toBe(2);
+
+    w.others.forEach((other) => {
+      const row = db.gp_applications.find((a) => a.id === other.appId);
+      expect(row.ats_stage).toBe('not_proceeding');
+      expect(row.match_outcome).toBe('position_filled');
+      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(true);
+    });
+    const winnerRow = db.gp_applications.find((a) => a.id === w.winnerAppId);
+    expect(winnerRow.ats_stage).toBe('hired');
+    expect(winnerRow.match_outcome).not.toBe('position_filled');
+  }, 30000);
+
+  it('without the flag, the placement still finalizes but nothing is redirected (flag honored)', async () => {
+    resetDb();
+    const w = seedOfferWorld('plf');
+    resendCalls.length = 0;
+
+    const r = await httpReq('POST', '/api/ats/placement', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { applicationId: w.winnerAppId }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.redirected).toBeUndefined();
+
+    w.others.forEach((other) => {
+      const row = db.gp_applications.find((a) => a.id === other.appId);
+      expect(['shortlisted', 'interview']).toContain(row.ats_stage); // untouched
+      expect(row.match_outcome).toBeFalsy();
+      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(false);
+    });
+  }, 30000);
+});
+
+describe('review fix — double trigger sends zero duplicate emails (phase 9)', () => {
+  it('kanban hire (fan-out) followed by mark-placement-secured (fan-out again) emails each redirected GP exactly once', async () => {
+    resetDb();
+    const w = seedOfferWorld('dbl', { winnerStage: 'offer' });
+    resendCalls.length = 0;
+
+    // First trigger: staff kanban-hire with the flag → 2 redirected.
+    const r1 = await httpReq('PATCH', '/api/ats/application?id=' + w.winnerAppId, {
+      host: SUPER_HOST, cookie: superCookie(), body: { stage: 'hired', redirect_others: true }
+    });
+    expect(r1.status).toBe(200);
+    expect(r1.body.redirected).toBe(2);
+    const firstRunRedirectEmails = resendCalls.filter((c) => /An update on/.test((c.body && c.body.subject) || '')).length;
+    expect(firstRunRedirectEmails).toBe(2);
+
+    // Second trigger on the SAME job: mark placement secured, flag on again
+    // (a stale/duplicated confirm). Rows are already not_proceeding — the
+    // fan-out's live-stage SELECT matches nobody: zero redirects, zero mail.
+    resendCalls.length = 0;
+    const r2 = await httpReq('POST', '/api/ats/placement', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { applicationId: w.winnerAppId, redirect_others: true }
+    });
+    expect(r2.status).toBe(200);
+    expect(r2.body.ok).toBe(true);
+    expect(r2.body.redirected).toBe(0);
+    const secondRunRedirectEmails = resendCalls.filter((c) => /An update on/.test((c.body && c.body.subject) || '')).length;
+    expect(secondRunRedirectEmails).toBe(0);
+    w.others.forEach((other) => {
+      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(false);
+    });
+  }, 30000);
+});
+
+describe('review fix — interview cancellation for redirected GPs (phase 10)', () => {
+  it('cancels a scheduled career_interviews row for an interview-stage redirected GP; completed rows untouched', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-iv-1', name: 'Interview Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-iv-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - IV - Mixed Billing',
+      practice_name: 'Interview Medical', practice_id: 'prac-iv-1',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    db.user_profiles.push({ user_id: 'gp-iv-1', email: 'gp-iv-1@gplink-test.local', first_name: 'Iv', last_name: 'Doctor', registration_country: 'ireland' });
+    db.gp_applications.push({ id: 'app-iv-1', user_id: 'gp-iv-1', career_role_id: 'job-iv-1', ats_stage: 'interview', matched_at: null });
+    db.career_interviews = db.career_interviews || [];
+    db.career_interviews.push(
+      { id: 'iv-live-1', application_id: 'app-iv-1', status: 'scheduled', zoom_meeting_id: 'zoom-123' },
+      { id: 'iv-done-1', application_id: 'app-iv-1', status: 'completed', zoom_meeting_id: null }
+    );
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-iv-1', null);
+
+    expect(result.redirected).toBe(1);
+    expect(result.errors).toEqual([]);
+    const live = db.career_interviews.find((iv) => iv.id === 'iv-live-1');
+    const done = db.career_interviews.find((iv) => iv.id === 'iv-done-1');
+    expect(live.status).toBe('cancelled');       // scheduled → cancelled
+    expect(live.updated_at).toBeTruthy();
+    expect(done.status).toBe('completed');       // history untouched
+    // The redirect email still went out after the cancellation.
+    expect(resendCalls.some((c) => (c.body.to || []).includes('gp-iv-1@gplink-test.local'))).toBe(true);
+  });
+});
+
+describe('review fix — stage precondition on the fan-out PATCH (phase 11)', () => {
+  it('a row that advanced between SELECT and PATCH is left alone and counted as skipped', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-race-1', name: 'Race Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-race-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Race - Mixed Billing',
+      practice_name: 'Race Medical', practice_id: 'prac-race-1',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    ['gp-race-steady-1', 'gp-race-moved-1'].forEach((uid) => {
+      db.user_profiles.push({ user_id: uid, email: uid + '@gplink-test.local', first_name: 'Race', last_name: 'Doctor', registration_country: 'ireland' });
+    });
+    db.gp_applications.push(
+      { id: 'app-race-steady-1', user_id: 'gp-race-steady-1', career_role_id: 'job-race-1', ats_stage: 'applied', matched_at: null },
+      { id: 'app-race-moved-1', user_id: 'gp-race-moved-1', career_role_id: 'job-race-1', ats_stage: 'applied', matched_at: null }
+    );
+    // Simulate the race: the moment the fan-out's SELECT returns this row,
+    // "another writer" advances it to offer (an offer being recorded).
+    advanceAfterSelect.set('app-race-moved-1', 'offer');
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-race-1', null);
+
+    expect(result.redirected).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.errors).toEqual([]);
+
+    const steady = db.gp_applications.find((a) => a.id === 'app-race-steady-1');
+    expect(steady.ats_stage).toBe('not_proceeding');
+    expect(steady.match_outcome).toBe('position_filled');
+
+    // The advanced row: completely untouched by the fan-out — stage stays
+    // where the "other writer" put it, no outcome, no alternatives, no
+    // stage event, no email.
+    const moved = db.gp_applications.find((a) => a.id === 'app-race-moved-1');
+    expect(moved.ats_stage).toBe('offer');
+    expect(moved.match_outcome).toBeFalsy();
+    expect(moved.redirect_alternatives).toBeUndefined();
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-race-moved-1')).toBe(false);
+    expect(resendCalls.some((c) => (c.body.to || []).includes('gp-race-moved-1@gplink-test.local'))).toBe(false);
+  });
+});
+
+describe('review fix — _redirectAltPracticeName fallback for a role with no masked_title (phase 12)', () => {
+  it('an alternative without masked_title gets the anonymous derived headline — never the real practice name', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-fb-1', name: 'Fallback Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-fb-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - FB - Mixed Billing',
+      practice_name: 'Fallback Medical', practice_id: 'prac-fb-1',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    // The alternative: NO masked_title at all → _redirectAltPracticeName must
+    // fall through to the derived anonymous headline / generic label.
+    db.career_roles.push({
+      id: 'role-fb-alt-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: '',
+      practice_name: 'Secret Real Name Family Practice', practice_id: null,
+      location_city: 'Gympie', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      regional: true, practice_type: 'Independent', job_status: 'open', is_active: true
+    });
+    db.user_profiles.push({ user_id: 'gp-fb-1', email: 'gp-fb-1@gplink-test.local', first_name: 'Fb', last_name: 'Doctor', registration_country: 'ireland' });
+    db.gp_applications.push({ id: 'app-fb-1', user_id: 'gp-fb-1', career_role_id: 'job-fb-1', ats_stage: 'applied', matched_at: null });
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-fb-1', null);
+    expect(result.redirected).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-fb-1');
+    const alt = row.redirect_alternatives.alternatives.find((a) => a.roleId === 'role-fb-alt-1');
+    expect(alt).toBeTruthy();
+    expect(alt.practiceName).toBeTruthy();                       // non-empty fallback label
+    expect(alt.practiceName).not.toContain('Secret Real Name');  // never the real identity
+    const email = resendCalls.find((c) => (c.body.to || []).includes('gp-fb-1@gplink-test.local'));
+    expect(email.body.html).not.toContain('Secret Real Name');
   });
 });
