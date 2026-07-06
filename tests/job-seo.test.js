@@ -219,6 +219,30 @@ describe('injectJobSeoIntoHtml (pure)', () => {
     expect(out).toContain('Earn $300k+ with $&amp; style text');
   });
 
+  it('inserts JSON-LD containing $&, $\' and $$ literally (no replacement-pattern corruption)', () => {
+    // The </head> insertion must use a FUNCTION replacer: with a string 2nd
+    // arg, `$&`/`$'`/`$$` inside the JSON-LD are replacement-pattern specials
+    // ($' would splice in the page tail; $$ collapses to $), corrupting the
+    // script or terminating it early.
+    const publicJob = {
+      ...testUtils.mapCareerRoleRowToPublicJob(ROW_A),
+      title: 'GP role $& deluxe',
+      summary: "Earn $$300k and $' more"
+    };
+    const html = '<head><title>x</title></head><body><p>page tail</p></body>';
+    const out = testUtils.injectJobSeoIntoHtml(html, publicJob);
+    const jsonLd = extractJsonLd(out); // null / JSON.parse throw if the script is malformed
+    expect(jsonLd).toBeTruthy();
+    expect(jsonLd['@type']).toBe('JobPosting');
+    expect(jsonLd.title).toBe('GP role $& deluxe');
+    expect(jsonLd.description).toContain("Earn $$300k and $' more");
+    // Exactly one well-formed head/body — nothing duplicated or spliced in.
+    expect(out.match(/<\/head>/g)).toHaveLength(1);
+    expect(out.match(/<\/body>/g)).toHaveLength(1);
+    expect(out.match(/<p>page tail<\/p>/g)).toHaveLength(1);
+    expect(out.endsWith('</body>')).toBe(true);
+  });
+
   it('escapes </script-breaking sequences inside the JSON-LD', () => {
     const publicJob = { ...testUtils.mapCareerRoleRowToPublicJob(ROW_A), summary: 'bad </script><script>alert(1)' };
     const out = testUtils.injectJobSeoIntoHtml('<head><title>x</title></head>', publicJob);

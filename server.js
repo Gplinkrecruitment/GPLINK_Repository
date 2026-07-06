@@ -17650,7 +17650,8 @@ function injectJobSeoIntoHtml(html, job) {
   out = out.replace(/(<meta property="og:title" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(title) + post);
   out = out.replace(/(<meta property="og:description" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(description) + post);
   out = out.replace(/(<meta property="og:url" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(url) + post);
-  out = out.replace('</head>', '<script type="application/ld+json">' + jsonLd + '</script>\n</head>');
+  // Function replacer so $-sequences in job text ($&, $', $$) are inserted literally.
+  out = out.replace('</head>', () => '<script type="application/ld+json">' + jsonLd + '</script>\n</head>');
   return out;
 }
 
@@ -17748,7 +17749,7 @@ const SITE_ENQUIRY_STATUSES = ['new', 'contacted', 'closed'];
 // endpoint, so an enquiry can't be hand-marked converted without a practice.
 // List filtering accepts it; SITE_ENQUIRY_STATUSES stays the manual set.
 // Live prod CHECK verified 2026-07-06 before widening (migration
-// 20260706150000): status IN ('new','contacted','closed').
+// 20260706200000): status IN ('new','contacted','closed').
 const SITE_ENQUIRY_LIST_STATUSES = SITE_ENQUIRY_STATUSES.concat(['converted']);
 const SITE_ENQUIRY_MESSAGE_MAX = 4000;
 const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
@@ -17906,7 +17907,7 @@ async function getSiteEnquiryRowById(id) {
 // Marks an enquiry converted and stashes the created practice id in metadata
 // (metadata.converted_practice_id is ALSO the idempotency key for the convert
 // endpoint). If the status CHECK hasn't been widened to include 'converted'
-// yet (migration 20260706150000 unapplied), the status PATCH fails — retry
+// yet (migration 20260706200000 unapplied), the status PATCH fails — retry
 // with the metadata alone so idempotency still holds and no duplicate
 // practice can ever be created by a second click.
 async function markSiteEnquiryConverted(id, practiceId) {
@@ -17923,7 +17924,7 @@ async function markSiteEnquiryConverted(id, practiceId) {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'converted', metadata }
     });
     if (full.ok) return { ok: true, statusSet: true };
-    console.error('[enquiry-convert] status=converted rejected (migration 20260706150000 unapplied?) — recording metadata only');
+    console.error('[enquiry-convert] status=converted rejected (migration 20260706200000 unapplied?) — recording metadata only');
     const metaOnly = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(String(id)), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { metadata }
     });
@@ -28383,9 +28384,9 @@ async function handleApi(req, res, pathname) {
       if (!cvCreated && isSupabaseDbConfigured()) {
         // Missing-column / CHECK tolerance (mirrors the FB-lead webhook): the
         // pipeline migration (20260705100000) or the source-CHECK widening
-        // (20260706150000) may not be applied. Retry with the legacy column
+        // (20260706200000) may not be applied. Retry with the legacy column
         // set + source 'manual' so the convert never 500s on lagging DDL.
-        console.error('[enquiry-convert] practices insert rejected — run migrations 20260705100000 + 20260706150000');
+        console.error('[enquiry-convert] practices insert rejected — run migrations 20260705100000 + 20260706200000');
         cvCreated = await atsInsertPracticeRow({
           name: cvRow.name,
           location_city: '',
