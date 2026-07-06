@@ -117,9 +117,28 @@
       fetchAndRender();
     });
 
-    // Delegated: expand a summary row.
+    // Delegated: cancel & rebook a booked interview (GAP A2).
     var list = el.querySelector('#mtg-list');
     if (list) list.addEventListener('click', function (e) {
+      var cancelBtn = e.target.closest ? e.target.closest('.mtg-cancel-btn') : null;
+      if (cancelBtn) {
+        e.stopPropagation();
+        var appId = cancelBtn.getAttribute('data-app-id');
+        if (!appId) return;
+        if (!window.confirm('Cancel this booked interview? The doctor and practice will be told, and it can be rebooked from the candidate\'s Applications card.')) return;
+        cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelling…';
+        ATS.api('/api/ats/interview/cancel', { method: 'POST', body: { applicationId: String(appId) } }).then(function (r) {
+          if (r && r.ok) {
+            ATS.toast('Interview cancelled — rebook it from the candidate\'s card.');
+            fetchAndRender();
+          } else {
+            ATS.toast((r && (r.error || r.message)) || 'Could not cancel the interview.');
+            cancelBtn.disabled = false; cancelBtn.textContent = 'Cancel & rebook';
+          }
+        });
+        return;
+      }
+      // Delegated: expand a summary row.
       var row = e.target.closest ? e.target.closest('.mtg-row[data-summary]') : null;
       if (!row) return;
       var body = row.querySelector('.mtg-summary-body');
@@ -192,6 +211,13 @@
         '" target="_blank" rel="noopener">Join</a>';
     }
 
+    // GAP A2: cancel & rebook a booked interview straight from the Meetings tab.
+    var cancelHtml = '';
+    if (isInterview && m.status === 'booked' && m.application_id) {
+      cancelHtml = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm mtg-cancel-btn" data-app-id="' +
+        ATS.escAttr(String(m.application_id)) + '">Cancel &amp; rebook</button>';
+    }
+
     // Practice name (interviews only).
     var practiceHtml = (isInterview && m.practice_name)
       ? '<span class="mtg-practice">' + ATS.esc(m.practice_name) + '</span>'
@@ -222,6 +248,7 @@
         '<span class="ats-pill ' + sm.mod + '">' + ATS.esc(sm.label) + '</span>' +
         expandHint +
         joinHtml +
+        cancelHtml +
       '</div>' +
       summaryBody +
     '</div>';

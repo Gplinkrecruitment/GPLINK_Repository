@@ -334,8 +334,9 @@ describe('POST /api/career/interview/book', () => {
     const app = db.gp_applications.find((a) => a.id === 'app-int-1');
     expect(app.ats_stage).toBe('interview');
 
-    // Confirmation emails (GP + practice) were sent and awaited before the response returned.
-    expect(resendCalls.length - beforeEmails).toBe(2);
+    // Confirmation emails were sent and awaited before the response returned:
+    // GP + practice + the ops inbox (hello@) booking notification (GAP A4).
+    expect(resendCalls.length - beforeEmails).toBe(3);
 
     // A local fakeCalendar entry was created — read straight from the on-disk local DB state
     // (fakeCalendar is a dbState-only structure, independent of the Supabase emulator above).

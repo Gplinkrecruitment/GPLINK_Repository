@@ -45550,6 +45550,144 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Interview use standard times (POST) ---------------------------------
+  // GAP A1: when a practice never replies with availability, an operator can
+  // force the interview onto GP Link's DEFAULT_PRACTICE_CONFIG standard evening/
+  // weekend times — exactly the state the GP self-serve path sets at
+  // /api/career/interview/slots (practice_availability_status='defaulted'). Once
+  // flipped, _interviewSlotContext computes bookable slots straight away.
+  if (pathname === '/api/ats/interview/use-default-times' && req.method === 'POST') {
+    var ctxUD = requireAtsSession(req, res); if (!ctxUD) return;
+    var bodyUD; try { bodyUD = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var udAppId = (bodyUD && (bodyUD.applicationId != null ? bodyUD.applicationId : bodyUD.application_id) != null)
+      ? String(bodyUD.applicationId != null ? bodyUD.applicationId : bodyUD.application_id) : '';
+    if (!udAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    var udRef = await findInterviewForApplication(udAppId);
+    if (!udRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(udRef.id)), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { practice_availability_status: interviewMeetings.PRACTICE_AVAIL.DEFAULTED, updated_at: atsNowIso() }
+      });
+    } else {
+      var udRow = (dbState.scheduledCalls || []).find(function (r) { return String(r.id) === String(udRef.id); });
+      if (udRow) { udRow.practice_availability_status = interviewMeetings.PRACTICE_AVAIL.DEFAULTED; udRow.updated_at = atsNowIso(); saveDbState(); }
+    }
+    sendJson(res, 200, { ok: true, status: interviewMeetings.PRACTICE_AVAIL.DEFAULTED });
+    return;
+  }
+
+  // ---- Interview cancel (POST) ---------------------------------------------
+  // GAP A2: cancel a BOOKED interview from the ATS and leave it rebookable.
+  // Design: the booked row is flipped to status='cancelled' (matches the
+  // scheduled_calls vocabulary the admin calls path uses, keeps a clean audit
+  // trail in the Meetings tab, and — because the reminder cron and
+  // findInterviewForApplication both filter status!='cancelled'/status='booked'
+  // — automatically stops reminders and hides the dead booking). A FRESH
+  // interview row is then created for the same application, inheriting the
+  // practice's availability (received/defaulted) so the candidate card and the
+  // GP self-serve scheduler immediately recompute slots ("Cancel & rebook").
+  // We create a fresh row rather than reset the cancelled one because
+  // _interviewSlotContext/findInterviewForApplication intentionally exclude
+  // cancelled rows — so the cancelled row can never block a new booking.
+  if (pathname === '/api/ats/interview/cancel' && req.method === 'POST') {
+    var ctxCX = requireAtsSession(req, res); if (!ctxCX) return;
+    var bodyCX; try { bodyCX = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var cxAppId = (bodyCX && (bodyCX.applicationId != null ? bodyCX.applicationId : bodyCX.application_id) != null)
+      ? String(bodyCX.applicationId != null ? bodyCX.applicationId : bodyCX.application_id) : '';
+    var cxReason = (bodyCX && bodyCX.reason != null) ? String(bodyCX.reason).trim() : '';
+    if (!cxAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+
+    // Load the current non-cancelled interview row for this application.
+    var cxRow = null;
+    if (isSupabaseDbConfigured()) {
+      var cxRes = await supabaseDbRequest('scheduled_calls',
+        'select=*&application_id=eq.' + encodeURIComponent(cxAppId) + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=1');
+      cxRow = (cxRes.ok && Array.isArray(cxRes.data) && cxRes.data[0]) ? cxRes.data[0] : null;
+    } else {
+      cxRow = (dbState.scheduledCalls || []).find(function (r) {
+        return String(r.application_id) === String(cxAppId) && r.meeting_kind === 'interview' && r.status !== 'cancelled';
+      }) || null;
+    }
+    if (!cxRow) { sendJson(res, 404, { ok: false, message: 'No interview to cancel for this application.' }); return; }
+    if (cxRow.status !== 'booked') { sendJson(res, 409, { ok: false, message: 'Interview is not booked — nothing to cancel.' }); return; }
+
+    // Best-effort remote cleanup. A Zoom deletion helper (deleteZoomMeeting)
+    // exists; there is NO Google Calendar event-delete helper in this codebase,
+    // so the GCal event is deliberately left in place (documented, not faked).
+    if (cxRow.zoom_meeting_id && !/^zoom_local_/.test(String(cxRow.zoom_meeting_id))) {
+      try { await deleteZoomMeeting(cxRow.zoom_meeting_id); } catch (e) { /* best-effort */ }
+    }
+
+    var cxNow = atsNowIso();
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(cxRow.id)), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'cancelled', updated_at: cxNow }
+      });
+    } else {
+      cxRow.status = 'cancelled'; cxRow.updated_at = cxNow; saveDbState();
+    }
+
+    var cxCtx = await atsGetApplicationContext(cxAppId);
+
+    // Create a fresh, pre-booked interview row inheriting the practice's
+    // availability so the pipeline immediately shows the slot picker again.
+    var cxFresh = interviewMeetings.buildInterviewRow({
+      caseId: cxRow.case_id || (cxCtx && cxCtx.caseId) || null,
+      userId: cxRow.user_id || (cxCtx && cxCtx.userId) || null,
+      applicationId: cxAppId,
+      careerRoleId: (cxRow.career_role_id != null ? cxRow.career_role_id : (cxCtx && cxCtx.careerRoleId)) || null,
+      practiceName: cxRow.practice_name || (cxCtx && cxCtx.practiceName) || '',
+      createdBy: ctxCX.email || '',
+      nowIso: cxNow
+    });
+    // Inherit the availability the cancelled booking already earned so the
+    // rebook does not need another practice round-trip.
+    var cxInheritStatus = cxRow.practice_availability_status || interviewMeetings.PRACTICE_AVAIL.DEFAULTED;
+    if (cxInheritStatus !== interviewMeetings.PRACTICE_AVAIL.RECEIVED && cxInheritStatus !== interviewMeetings.PRACTICE_AVAIL.DEFAULTED) {
+      cxInheritStatus = interviewMeetings.PRACTICE_AVAIL.DEFAULTED;
+    }
+    cxFresh.practice_availability_status = cxInheritStatus;
+    if (Array.isArray(cxRow.practice_availability_windows)) cxFresh.practice_availability_windows = cxRow.practice_availability_windows;
+    if (cxRow.practice_availability_received_at) cxFresh.practice_availability_received_at = cxRow.practice_availability_received_at;
+    cxFresh.assigned_rso_email = cxRow.assigned_rso_email || String(ctxCX.email || '').trim().toLowerCase();
+    cxFresh.correlation_token = generateCorrelationToken();
+    var cxFreshSaved = await insertScheduledCallRow(cxFresh);
+
+    // Notify GP + practice — best-effort, never blocks the cancellation.
+    (async function () {
+      try {
+        var cxGpEmail = (cxCtx && cxCtx.gpEmail) || '';
+        var cxGpName = (cxCtx && cxCtx.gpName) || 'there';
+        var cxPracticeName = (cxCtx && cxCtx.practiceName) || cxRow.practice_name || 'the practice';
+        var cxPracticeEmail = (cxCtx && cxCtx.practiceEmail) || '';
+        var cxReasonLine = cxReason ? (' Reason: ' + cxReason + '.') : '';
+        if (cxGpEmail && isEmailConfigured()) {
+          await sendEmail({
+            to: cxGpEmail,
+            subject: 'Your interview has been cancelled',
+            text: 'Hi ' + cxGpName + ', your interview with ' + cxPracticeName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch shortly to arrange a new time — or you can pick a new slot in the app.',
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        }
+        if (cxPracticeEmail && isEmailConfigured()) {
+          await sendEmail({
+            to: cxPracticeEmail,
+            subject: 'Interview cancelled — ' + cxGpName,
+            text: 'The interview with ' + cxGpName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch to rearrange.',
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        }
+      } catch (cxNotifyErr) {
+        console.warn('[interview] cancel notify error (ignored):', cxNotifyErr && cxNotifyErr.message);
+      }
+    })().catch(function () {});
+
+    sendJson(res, 200, { ok: true, cancelled: true, rebookable: true, interview_id: cxFreshSaved ? cxFreshSaved.id : null });
+    return;
+  }
+
   // ---- Practices -----------------------------------------------------------
   if (pathname === '/api/ats/practices' && req.method === 'GET') {
     var ctxPL = requireAtsSession(req, res); if (!ctxPL) return;
@@ -46697,6 +46835,22 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           text: 'Your interview at ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         });
+      }
+      // GAP A4: signal the ops inbox so the team sees new interview bookings
+      // without having to poll the dashboard. Separate try so a failure here
+      // never affects the GP/practice confirmations above.
+      try {
+        if (isEmailConfigured()) {
+          var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String((appCtx.caseId != null ? appCtx.caseId : (appCtx.app && appCtx.app.id)) || ''));
+          await sendEmail({
+            to: 'hello@mygplink.com.au',
+            subject: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' — ' + timeLabel,
+            text: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' for ' + timeLabel + '.\n\nZoom: ' + (zoom.join_url || '(link pending)') + '\nOpen the candidate: ' + opsDeepLink,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          });
+        }
+      } catch (opsErr) {
+        console.warn('[interview] book ops notify error (ignored):', opsErr && opsErr.message);
       }
     } catch (notifyErr) {
       console.warn('[interview] book notify error (ignored):', notifyErr && notifyErr.message);

@@ -407,7 +407,8 @@
       } else if (a.interview.status === 'booked') {
         var dt = '';
         try { dt = new Date(a.interview.scheduled_at).toLocaleString(); } catch (ex) { dt = a.interview.scheduled_at || ''; }
-        interviewHtml = '<span class="ats-app-interview-booked">Booked for ' + ATS.esc(dt) + '</span>';
+        interviewHtml = '<span class="ats-app-interview-booked">Booked for ' + ATS.esc(dt) + '</span>' +
+          ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-cancel" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Cancel &amp; rebook</button>';
         if (a.interview.summary) {
           interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
         }
@@ -665,7 +666,29 @@
         return;
       }
       if (res.status === 'requested') {
-        containerEl.innerHTML = '<span class="ats-app-interview-pending">Waiting for the practice to share their availability.</span>';
+        // GAP A1: unstick a practice that never replied. Operators can paste the
+        // practice's emailed availability, or force GP Link's standard times.
+        containerEl.innerHTML =
+          '<div class="ats-app-interview-pending">Waiting for the practice to share their availability.</div>' +
+          '<div class="ats-slot-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-paste-reply" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Paste practice reply</button>' +
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-use-default" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Use standard times</button>' +
+          '</div>';
+        var pasteBtn = containerEl.querySelector('.ats-int-paste-reply');
+        if (pasteBtn) pasteBtn.addEventListener('click', function () { atsPastePracticeReply(applicationId, containerEl, caseId); });
+        var defBtn = containerEl.querySelector('.ats-int-use-default');
+        if (defBtn) defBtn.addEventListener('click', function () {
+          defBtn.disabled = true; defBtn.textContent = 'Applying…';
+          ATS.api('/api/ats/interview/use-default-times', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (r) {
+            if (r && r.ok) {
+              ATS.toast('Standard times applied — pick a slot below.');
+              window.atsRenderSlotPicker(applicationId, containerEl, caseId);
+            } else {
+              ATS.toast((r && (r.error || r.message)) || 'Could not apply standard times.');
+              defBtn.disabled = false; defBtn.textContent = 'Use standard times';
+            }
+          });
+        });
         return;
       }
       var slots = res.slots || [];
@@ -702,6 +725,71 @@
       });
     });
   };
+
+  // GAP A1: paste the practice's emailed availability → /api/ats/interview/ingest-reply.
+  // Exposed on window so the same flow can be reused from other ATS surfaces.
+  window.atsPastePracticeReply = function (applicationId, containerEl, caseId) {
+    ATS.setOverlay(
+      '<div class="ats-modal-wrap open" id="ats-paste-wrap">' +
+        '<div class="ats-modal">' +
+          '<div class="ats-modal-head"><h3>Paste the practice\'s reply</h3><button class="ats-drawer-close" id="ats-paste-close">×</button></div>' +
+          '<div class="ats-modal-body">' +
+            '<label>Practice availability email</label>' +
+            '<textarea id="ats-paste-text" placeholder="Paste the times the practice sent, e.g. “Tuesday and Thursday evenings after 6pm, or Saturday morning”" style="min-height:120px;resize:vertical"></textarea>' +
+            '<p style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">We read the times from the email and turn them into bookable slots.</p>' +
+          '</div>' +
+          '<div class="ats-modal-foot">' +
+            '<button class="ats-btn ats-btn-ghost" id="ats-paste-cancel">Cancel</button>' +
+            '<button class="ats-btn ats-btn-primary" id="ats-paste-submit">Read availability</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>');
+    var root = document.getElementById('atsOverlayRoot');
+    if (!root) return;
+    function close() { ATS.setOverlay(''); }
+    var closeBtn = root.querySelector('#ats-paste-close');
+    var cancelBtn = root.querySelector('#ats-paste-cancel');
+    var wrap = root.querySelector('#ats-paste-wrap');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (cancelBtn) cancelBtn.addEventListener('click', close);
+    if (wrap) wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    var submit = root.querySelector('#ats-paste-submit');
+    if (submit) submit.addEventListener('click', function () {
+      var text = (root.querySelector('#ats-paste-text') || {}).value || '';
+      if (!text.trim()) { ATS.toast('Paste the practice\'s reply first.'); return; }
+      submit.disabled = true; submit.textContent = 'Reading…';
+      ATS.api('/api/ats/interview/ingest-reply', { method: 'POST', body: { application_id: String(applicationId), reply_text: text } }).then(function (r) {
+        if (r && r.ok) {
+          close();
+          if (r.status === 'received') {
+            ATS.toast('Availability read' + (r.windows_count ? (' — ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.') : '.'));
+          } else {
+            ATS.toast('Reply saved (status: ' + (r.status || 'unknown') + ').');
+          }
+          if (containerEl) window.atsRenderSlotPicker(applicationId, containerEl, caseId);
+          else if (caseId) window.atsOpenCandidate(caseId);
+        } else {
+          ATS.toast((r && (r.error || r.message)) || 'Could not read the reply.');
+          submit.disabled = false; submit.textContent = 'Read availability';
+        }
+      });
+    });
+  };
+
+  // GAP A2: cancel a booked interview and re-open the slot picker (cancel & rebook).
+  function cancelInterview(appId, c) {
+    if (!appId) return;
+    if (!window.confirm('Cancel this booked interview? The doctor and practice will be told, and you\'ll be able to book a new time straight away.')) return;
+    ATS.api('/api/ats/interview/cancel', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Interview cancelled — pick a new time to rebook.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        if (c && c.case_id) window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not cancel the interview.');
+      }
+    });
+  }
 
   function onboardingCardInner(c) {
     var ob = c.onboarding || {};
@@ -844,6 +932,8 @@
       if (withdrawBtn) { withdrawOffer(withdrawBtn.getAttribute('data-app-id'), c); return; }
       var acceptBtn = e.target.closest('.ats-accept-application');
       if (acceptBtn) { acceptApplication(acceptBtn.getAttribute('data-app-id'), c); return; }
+      var intCancelBtn = e.target.closest('.ats-int-cancel');
+      if (intCancelBtn) { cancelInterview(intCancelBtn.getAttribute('data-app-id'), c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');

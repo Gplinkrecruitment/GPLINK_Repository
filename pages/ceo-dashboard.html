@@ -2695,6 +2695,21 @@
         if (_rsoTab) _rsoTab.click();
       }
     } catch (e) {}
+    /* Deep-link: /pages/ceo-dashboard?case=<id> opens that candidate on load
+       (used by the "interview booked" ops email so hello@ can jump straight to
+       the doctor's ATS card). Candidates is the default tab, so we just open
+       the drawer once atsOpenCandidate is available. */
+    try {
+      var _caseParam = new URLSearchParams(location.search).get('case');
+      if (_caseParam) {
+        var _tries = 0;
+        var _openCase = function () {
+          if (window.atsOpenCandidate) { window.atsOpenCandidate(_caseParam); return; }
+          if (_tries++ < 40) setTimeout(_openCase, 100);
+        };
+        _openCase();
+      }
+    } catch (e) {}
 
     /* ═══ RSO OVERSIGHT (standalone tab) ═══ */
     // Full RSO records (source of truth incl. user_id + calendly_event_url + phone) from
@@ -6676,9 +6691,9 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices) -->
   <script src="/js/ceo-ats-shared.js?v=20260703c"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260705c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260707a"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260706a"></script>
   <script src="/js/ceo-ats-practices.js?v=20260706a"></script>
-  <script src="/js/ceo-ats-meetings.js?v=20260630b"></script>
+  <script src="/js/ceo-ats-meetings.js?v=20260707a"></script>
 </body>
 </html>
