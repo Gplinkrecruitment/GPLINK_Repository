@@ -409,6 +409,66 @@ function seedWithdrawStrike(userId, roleId, whenIso) {
   return appId;
 }
 
+// Review fix (FIX 1): a completed interview whose application ended
+// not_proceeding because the PRACTICE filled the role with someone else
+// (Task 6's redirect fan-out sets match_outcome='position_filled') — not a
+// strike, even though the interview itself completed.
+function seedInterviewPositionFilled(userId, roleId, whenIso) {
+  seedRole(roleId);
+  const appId = 'app-' + roleId;
+  db.gp_applications.push({
+    id: appId, user_id: userId, career_role_id: roleId,
+    ats_stage: 'not_proceeding', match_outcome: 'position_filled',
+    ats_stage_updated_at: whenIso, updated_at: whenIso
+  });
+  db.career_interviews.push({
+    id: 'iv-' + roleId, application_id: appId, user_id: userId,
+    status: 'completed', scheduled_at: whenIso, updated_at: whenIso
+  });
+  return appId;
+}
+
+// Review fix (FIX 1): a completed interview whose application ended
+// not_proceeding with NO match_outcome at all, but staff recorded the
+// PRACTICE's own decision via reason='practice_passed' on the stage event —
+// not a strike.
+function seedInterviewPracticePassed(userId, roleId, whenIso) {
+  seedRole(roleId);
+  const appId = 'app-' + roleId;
+  db.gp_applications.push({
+    id: appId, user_id: userId, career_role_id: roleId,
+    ats_stage: 'not_proceeding', ats_stage_updated_at: whenIso, updated_at: whenIso
+  });
+  db.career_interviews.push({
+    id: 'iv-' + roleId, application_id: appId, user_id: userId,
+    status: 'completed', scheduled_at: whenIso, updated_at: whenIso
+  });
+  db.ats_stage_events.push({
+    id: 'ev-' + roleId, application_id: appId, from_stage: 'interview', to_stage: 'not_proceeding',
+    actor: 'staff@gplink-test.local', reason: 'practice_passed', created_at: whenIso
+  });
+  return appId;
+}
+
+// Review fix (FIX 1, fail-safe): a completed interview whose application
+// ended not_proceeding with NEITHER a GP signal (match_outcome='declined' /
+// reason='gp_withdrew') NOR an explicit practice signal (staff moved it with
+// no reason at all) — must NOT count as a strike (a strike must be
+// affirmatively GP-driven, never assumed by default).
+function seedInterviewNoSignal(userId, roleId, whenIso) {
+  seedRole(roleId);
+  const appId = 'app-' + roleId;
+  db.gp_applications.push({
+    id: appId, user_id: userId, career_role_id: roleId,
+    ats_stage: 'not_proceeding', ats_stage_updated_at: whenIso, updated_at: whenIso
+  });
+  db.career_interviews.push({
+    id: 'iv-' + roleId, application_id: appId, user_id: userId,
+    status: 'completed', scheduled_at: whenIso, updated_at: whenIso
+  });
+  return appId;
+}
+
 describe('computeCareerStrikes', () => {
   it('counts a completed interview whose application ended at not_proceeding', async () => {
     const GP = uid();
@@ -439,7 +499,11 @@ describe('computeCareerStrikes', () => {
     const when = new Date(Date.now() - 3 * 86400000).toISOString();
     seedRole(roleId);
     const appId = 'app-' + roleId;
-    db.gp_applications.push({ id: appId, user_id: GP, career_role_id: roleId, ats_stage: 'not_proceeding', ats_stage_updated_at: when, updated_at: when });
+    // match_outcome:'declined' — BOTH signals are genuinely GP-driven and
+    // valid here (review fix, FIX 1: an interview-source strike requires
+    // match_outcome==='declined'), so this test proves true precedence
+    // rather than accidentally falling back to the withdrawal source.
+    db.gp_applications.push({ id: appId, user_id: GP, career_role_id: roleId, ats_stage: 'not_proceeding', match_outcome: 'declined', ats_stage_updated_at: when, updated_at: when });
     db.career_interviews.push({ id: 'iv-' + roleId, application_id: appId, user_id: GP, status: 'completed', scheduled_at: when, updated_at: when });
     db.ats_stage_events.push({ id: 'ev-' + roleId, application_id: appId, from_stage: 'submitted', to_stage: 'not_proceeding', actor: GP, reason: 'gp_withdrew', created_at: when });
 
@@ -474,6 +538,48 @@ describe('computeCareerStrikes', () => {
     const strikes = await testUtils.computeCareerStrikes(GP);
     expect(strikes.length).toBe(1);
     expect(strikes[0].applicationId).toBe('app-role-strike-new');
+  });
+
+  // ── Review fix (FIX 1): practice-driven outcomes are never a strike ───────
+  it('review fix: three completed interviews all ending position_filled → zero strikes', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewPositionFilled(GP, 'role-pf-a', new Date(Date.now() - 9 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-pf-b', new Date(Date.now() - 6 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-pf-c', new Date(Date.now() - 3 * 86400000).toISOString());
+
+    const strikes = await testUtils.computeCareerStrikes(GP);
+    expect(strikes.length).toBe(0);
+  });
+
+  it('review fix: a practice_passed stage-event reason on the move to not_proceeding is not a strike, even with a completed interview', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewPracticePassed(GP, 'role-pp-a', new Date(Date.now() - 5 * 86400000).toISOString());
+
+    const strikes = await testUtils.computeCareerStrikes(GP);
+    expect(strikes.length).toBe(0);
+  });
+
+  it('review fix (fail-safe): a reason-less not_proceeding after a completed interview is not a strike', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewNoSignal(GP, 'role-ns-a', new Date(Date.now() - 5 * 86400000).toISOString());
+
+    const strikes = await testUtils.computeCareerStrikes(GP);
+    expect(strikes.length).toBe(0);
+  });
+
+  it('review fix: mixed outcomes only count the GP-driven ones — 2 GP-declined + 1 position_filled = 2 strikes', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewStrike(GP, 'role-mix-a', new Date(Date.now() - 9 * 86400000).toISOString());
+    seedInterviewStrike(GP, 'role-mix-b', new Date(Date.now() - 6 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-mix-c', new Date(Date.now() - 3 * 86400000).toISOString());
+
+    const strikes = await testUtils.computeCareerStrikes(GP);
+    expect(strikes.length).toBe(2);
+    expect(strikes.map((s) => s.applicationId).sort()).toEqual(['app-role-mix-a', 'app-role-mix-b']);
   });
 });
 
@@ -530,6 +636,31 @@ describe('evaluateCareerLocks', () => {
     seedGp(GP, GP + '@gplink-test.local');
     seedInterviewStrike(GP, 'role-lock2-a', new Date(Date.now() - 6 * 86400000).toISOString());
     seedInterviewStrike(GP, 'role-lock2-b', new Date(Date.now() - 3 * 86400000).toISOString());
+
+    await testUtils.evaluateCareerLocks(Date.now() + 20000, GP);
+    const stateRow = db.user_state.find((s) => s.user_id === GP);
+    expect((stateRow.state.career_lock || {}).locked_at).toBeFalsy();
+  });
+
+  // ── Review fix (FIX 1): practice-driven strikes never trigger a lock ──────
+  it('review fix: three practice-driven (position_filled) interviews never lock the GP', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewPositionFilled(GP, 'role-lockpf-a', new Date(Date.now() - 9 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-lockpf-b', new Date(Date.now() - 6 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-lockpf-c', new Date(Date.now() - 3 * 86400000).toISOString());
+
+    await testUtils.evaluateCareerLocks(Date.now() + 20000, GP);
+    const stateRow = db.user_state.find((s) => s.user_id === GP);
+    expect((stateRow.state.career_lock || {}).locked_at).toBeFalsy();
+  });
+
+  it('review fix: 2 GP-declined + 1 position_filled = 2 real strikes, GP not locked', async () => {
+    const GP = uid();
+    seedGp(GP, GP + '@gplink-test.local');
+    seedInterviewStrike(GP, 'role-lockmix-a', new Date(Date.now() - 9 * 86400000).toISOString());
+    seedInterviewStrike(GP, 'role-lockmix-b', new Date(Date.now() - 6 * 86400000).toISOString());
+    seedInterviewPositionFilled(GP, 'role-lockmix-c', new Date(Date.now() - 3 * 86400000).toISOString());
 
     await testUtils.evaluateCareerLocks(Date.now() + 20000, GP);
     const stateRow = db.user_state.find((s) => s.user_id === GP);
@@ -756,7 +887,10 @@ describe('Interview-completion PATCH hook', () => {
     // the hook should fire.
     seedRole('role-hook-c');
     const appId = 'app-role-hook-c';
-    db.gp_applications.push({ id: appId, user_id: GP, career_role_id: 'role-hook-c', ats_stage: 'not_proceeding', updated_at: new Date().toISOString() });
+    // match_outcome:'declined' — review fix, FIX 1: an interview-source
+    // strike now requires an affirmative GP signal (the GP declined after
+    // interviewing), not merely a completed interview + not_proceeding.
+    db.gp_applications.push({ id: appId, user_id: GP, career_role_id: 'role-hook-c', ats_stage: 'not_proceeding', match_outcome: 'declined', updated_at: new Date().toISOString() });
     const ivId = 'iv-role-hook-c';
     db.career_interviews.push({ id: ivId, application_id: appId, user_id: GP, status: 'scheduled', scheduled_at: new Date().toISOString() });
 

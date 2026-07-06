@@ -553,7 +553,12 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
       location_city: 'Geelong', location_state: 'VIC', billing_model: 'Bulk billing', earnings_text: '55% billings',
       job_status: 'open', is_active: true
     });
-    db.user_profiles.push({ user_id: 'gp-rank-1', email: 'gp-rank-1@gplink-test.local', first_name: 'Rank', last_name: 'Doctor', registration_country: 'ireland' });
+    // Australia-trained (DPA-eligible) so the DPA filter (review fix FIX 2)
+    // never interferes with this test's ranking-only assertions — some of
+    // the alt roles below are deliberately non-DPA (dpa:false/absent), which
+    // a DPA-ineligible GP would now have filtered out; DPA-gating itself is
+    // covered by its own dedicated tests further down this file.
+    db.user_profiles.push({ user_id: 'gp-rank-1', email: 'gp-rank-1@gplink-test.local', first_name: 'Rank', last_name: 'Doctor', registration_country: 'australia' });
     db.gp_applications.push(
       { id: 'app-rank-1', user_id: 'gp-rank-1', career_role_id: 'job-fill-2', ats_stage: 'shortlisted', matched_at: null },
       { id: 'app-rank-1-other', user_id: 'gp-rank-1', career_role_id: 'role-alt-exclude', ats_stage: 'applied', matched_at: null }
@@ -1096,12 +1101,14 @@ describe('review fix — _redirectAltPracticeName fallback for a role with no ma
       job_status: 'open', is_active: true
     });
     // The alternative: NO masked_title at all → _redirectAltPracticeName must
-    // fall through to the derived anonymous headline / generic label.
+    // fall through to the derived anonymous headline / generic label. dpa:
+    // true so this test (about the fallback label, not DPA) still surfaces
+    // the alt for an Ireland-trained (DPA-ineligible) GP post review-fix.
     db.career_roles.push({
       id: 'role-fb-alt-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: '',
       practice_name: 'Secret Real Name Family Practice', practice_id: null,
       location_city: 'Gympie', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
-      regional: true, practice_type: 'Independent', job_status: 'open', is_active: true
+      dpa: true, regional: true, practice_type: 'Independent', job_status: 'open', is_active: true
     });
     db.user_profiles.push({ user_id: 'gp-fb-1', email: 'gp-fb-1@gplink-test.local', first_name: 'Fb', last_name: 'Doctor', registration_country: 'ireland' });
     db.gp_applications.push({ id: 'app-fb-1', user_id: 'gp-fb-1', career_role_id: 'job-fb-1', ats_stage: 'applied', matched_at: null });
@@ -1119,5 +1126,136 @@ describe('review fix — _redirectAltPracticeName fallback for a role with no ma
     expect(alt.practiceName).not.toContain('Secret Real Name');  // never the real identity
     const email = resendCalls.find((c) => (c.body.to || []).includes('gp-fb-1@gplink-test.local'));
     expect(email.body.html).not.toContain('Secret Real Name');
+  });
+});
+
+// ── Review fix (FIX 2): the alternatives pool must honor the DPA gate ──────
+// (spec §4) — never suggest a DPA-restricted role (dpa!==true) to a GP who
+// isn't DPA-eligible (Australia-trained). Mirrors checkMatchEligibility's
+// `j.dpa !== true && g.dpaEligible !== true` predicate in
+// lib/ai-candidate-job-match.js, applied here to redirectOthersForJob's
+// per-GP candidate pool via the shared atsBuildGpMatchInputs builder.
+describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix FIX 2)', () => {
+  it('a DPA-ineligible GP never receives a dpa=false alternative, in either the stored payload or the email', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-dpa-a', name: 'DPA Gate A Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-dpa-a', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - GateA - Mixed Billing',
+      practice_name: 'DPA Gate A Medical', practice_id: 'prac-dpa-a',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-a-open', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Open A - Mixed Billing',
+      practice_name: 'Open Practice A', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: true, job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-a-restricted', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Restricted A - Mixed Billing',
+      practice_name: 'Restricted Practice A', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: false, job_status: 'open', is_active: true
+    });
+    // Not Australia-trained → dpaEligible: false (fallback chain in
+    // atsBuildGpMatchInputs / _resolveGpJobsProfile).
+    db.user_profiles.push({ user_id: 'gp-dpa-a', email: 'gp-dpa-a@gplink-test.local', first_name: 'Dpa', last_name: 'DoctorA', registration_country: 'united kingdom' });
+    db.gp_applications.push({ id: 'app-dpa-a', user_id: 'gp-dpa-a', career_role_id: 'job-dpa-a', ats_stage: 'applied', matched_at: null });
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-dpa-a', null);
+    expect(result.redirected).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-dpa-a');
+    const roleIds = row.redirect_alternatives.alternatives.map((a) => a.roleId);
+    expect(roleIds).toContain('role-dpa-a-open');
+    expect(roleIds).not.toContain('role-dpa-a-restricted');
+
+    const email = resendCalls.find((c) => (c.body.to || []).includes('gp-dpa-a@gplink-test.local'));
+    expect(email).toBeTruthy();
+    expect(email.body.html).toContain('DPA - Open A - Mixed Billing');
+    expect(email.body.html).not.toContain('Non-DPA - Restricted A - Mixed Billing');
+  });
+
+  it('a DPA-eligible (Australia-trained) GP still receives dpa=false alternatives', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-dpa-b', name: 'DPA Gate B Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-dpa-b', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - GateB - Mixed Billing',
+      practice_name: 'DPA Gate B Medical', practice_id: 'prac-dpa-b',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-b-open', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Open B - Mixed Billing',
+      practice_name: 'Open Practice B', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: true, job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-b-restricted', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Restricted B - Mixed Billing',
+      practice_name: 'Restricted Practice B', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: false, job_status: 'open', is_active: true
+    });
+    db.user_profiles.push({ user_id: 'gp-dpa-b', email: 'gp-dpa-b@gplink-test.local', first_name: 'Dpa', last_name: 'DoctorB', registration_country: 'australia' });
+    db.gp_applications.push({ id: 'app-dpa-b', user_id: 'gp-dpa-b', career_role_id: 'job-dpa-b', ats_stage: 'applied', matched_at: null });
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-dpa-b', null);
+    expect(result.redirected).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-dpa-b');
+    const roleIds = row.redirect_alternatives.alternatives.map((a) => a.roleId);
+    expect(roleIds).toContain('role-dpa-b-open');
+    expect(roleIds).toContain('role-dpa-b-restricted');
+
+    const email = resendCalls.find((c) => (c.body.to || []).includes('gp-dpa-b@gplink-test.local'));
+    expect(email).toBeTruthy();
+    expect(email.body.html).toContain('DPA - Open B - Mixed Billing');
+    expect(email.body.html).toContain('Non-DPA - Restricted B - Mixed Billing');
+  });
+
+  it('an unknown-eligibility GP (no profile/case row at all) is treated as ineligible — fail closed', async () => {
+    resetDb();
+    db.practices.push({ id: 'prac-dpa-c', name: 'DPA Gate C Medical', website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-dpa-c', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - GateC - Mixed Billing',
+      practice_name: 'DPA Gate C Medical', practice_id: 'prac-dpa-c',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-c-open', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Open C - Mixed Billing',
+      practice_name: 'Open Practice C', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: true, job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'role-dpa-c-restricted', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Restricted C - Mixed Billing',
+      practice_name: 'Restricted Practice C', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: false, job_status: 'open', is_active: true
+    });
+    // Deliberately NO user_profiles / registration_cases row for this GP —
+    // atsBuildGpMatchInputs will therefore never include them in its output
+    // map at all ("unknown candidate"), so the dpaEligible lookup is
+    // undefined and must fail closed (treated as NOT dpaEligible).
+    db.gp_applications.push({ id: 'app-dpa-c', user_id: 'gp-dpa-c-unknown', career_role_id: 'job-dpa-c', ats_stage: 'applied', matched_at: null });
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-dpa-c', null);
+    expect(result.redirected).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-dpa-c');
+    const roleIds = row.redirect_alternatives.alternatives.map((a) => a.roleId);
+    expect(roleIds).toContain('role-dpa-c-open');
+    expect(roleIds).not.toContain('role-dpa-c-restricted');
   });
 });

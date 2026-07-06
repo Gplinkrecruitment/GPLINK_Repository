@@ -26210,6 +26210,16 @@ async function redirectOthersForJob(jobId, hiredAppId) {
       '&job_status=eq.open&is_active=eq.true&limit=500');
     var roPool = (roPoolRes.ok && Array.isArray(roPoolRes.data)) ? roPoolRes.data : [];
 
+    // DPA eligibility per GP (review fix, FIX 2) — the alternatives pool must
+    // honor the SAME gate checkMatchEligibility enforces everywhere else
+    // (spec §4): never suggest a DPA-restricted role (dpa!==true) to a GP who
+    // isn't DPA-eligible. Batched ONCE for every target GP via the shared
+    // builder (same registration-country fallback chain _resolveGpJobsProfile
+    // / atsBuildGpMatchInputs use elsewhere) rather than a query per row.
+    // Fail-closed: a GP with no profile/case row at all is simply absent from
+    // the map, so the lookup below treats them as NOT dpaEligible.
+    var roGpMap = await atsBuildGpMatchInputs(roTargets.map(function (r) { return r.user_id; }));
+
     for (var ri = 0; ri < roTargets.length; ri++) {
       var roRow = roTargets[ri];
       try {
@@ -26227,7 +26237,10 @@ async function redirectOthersForJob(jobId, hiredAppId) {
         });
         roExclude[String(jobId)] = true; // never re-suggest the very job that just rejected them
 
-        var roCandidates = roPool.filter(function (j) { return !roExclude[String(j.id)]; });
+        var roDpaEligible = !!(roGpMap[roRow.user_id] && roGpMap[roRow.user_id].dpaEligible === true);
+        var roCandidates = roPool.filter(function (j) {
+          return !roExclude[String(j.id)] && (j.dpa === true || roDpaEligible);
+        });
         var roRanked = _redirectRankAlternatives(roOriginalJob, roCandidates).slice(0, 3);
         var roAlternatives = roRanked.map(_buildRedirectAlternativePayload);
 
@@ -26720,16 +26733,31 @@ function isCareerLocked(careerLock) {
 }
 
 // Strike = (a) a completed interview whose application ended at
-// 'not_proceeding' without ever being accepted/hired, or (b) a late
-// withdrawal — an ats_stage_events row Task 7 wrote with reason='gp_withdrew'
-// on a move to not_proceeding. Both sources require the application to
-// currently sit at not_proceeding (interviewing-then-hired never reaches this
-// state; accepted-then-still-in-flight doesn't either). One strike per
-// application max — interview source preferred over a withdrawal event on
-// the same row. Only strikes AFTER the GP's last release count (a released
-// GP starts a fresh 3-strike count) — pass a pre-fetched careerLock via
-// opts.careerLock to avoid a redundant user_state read when the caller
-// (evaluateCareerLocks) already has it.
+// 'not_proceeding' AND the GP is the one who walked away (match_outcome=
+// 'declined'), or (b) a late withdrawal — an ats_stage_events row Task 7
+// wrote with reason='gp_withdrew' on a move to not_proceeding. Both sources
+// require the application to currently sit at not_proceeding (interviewing-
+// then-hired never reaches this state; accepted-then-still-in-flight doesn't
+// either).
+//
+// PRACTICE-driven outcomes never cost a strike (review fix — a completed
+// interview alone is not GP-driven): source (a) is explicitly excluded
+// whenever match_outcome='position_filled' (Task 6's redirect fan-out — the
+// job went to someone else) OR staff recorded reason='practice_passed' on
+// the stage-event row for the move to not_proceeding (the practice's own
+// decision, logged by staff — same ats_stage_events plumbing already read
+// for 'gp_withdrew' below). And — fail-SAFE for the GP, by deliberate choice
+// — a plain not_proceeding row with NEITHER an affirmative GP signal
+// (match_outcome='declined' / reason='gp_withdrew') NOR an explicit practice
+// signal (e.g. staff moved it with no reason at all) is ALSO not counted: a
+// strike must be affirmatively GP-driven, never assumed by default just
+// because an interview happened to complete first.
+//
+// One strike per application max — interview source preferred over a
+// withdrawal event on the same row. Only strikes AFTER the GP's last release
+// count (a released GP starts a fresh 3-strike count) — pass a pre-fetched
+// careerLock via opts.careerLock to avoid a redundant user_state read when
+// the caller (evaluateCareerLocks) already has it.
 async function computeCareerStrikes(userId, opts) {
   var o = opts || {};
   var careerLock = o.careerLock;
@@ -26767,6 +26795,15 @@ async function computeCareerStrikes(userId, opts) {
     if (!csEvByApp[key] || Date.parse(r.created_at) > Date.parse(csEvByApp[key])) csEvByApp[key] = r.created_at;
   });
 
+  // Practice-driven exclusion signal (review fix, source a): a reason=
+  // 'practice_passed' stage event on the SAME move to not_proceeding means
+  // staff recorded the practice's own decision — never a GP strike even if
+  // the interview itself completed.
+  var csPpEvRes = await supabaseDbRequest('ats_stage_events',
+    'select=application_id&application_id=in.(' + encodeURIComponent(_atsInList(csAppIds)) + ')&reason=eq.practice_passed&to_stage=eq.not_proceeding&limit=500');
+  var csPracticePassedSet = {};
+  ((csPpEvRes.ok && csPpEvRes.data) || []).forEach(function (r) { csPracticePassedSet[String(r.application_id)] = true; });
+
   // Practice name/location for display (career-paused page + admin panel).
   var csRoleIds = Array.from(new Set(csNotProceeding.map(function (a) { return a.career_role_id; }).filter(Boolean)));
   var csRoleMap = {};
@@ -26780,7 +26817,15 @@ async function computeCareerStrikes(userId, opts) {
   csNotProceeding.forEach(function (a) {
     var id = String(a.id);
     var interviewedAt = csIvByApp[id] || null;
-    var source = interviewedAt ? 'interview' : (csEvByApp[id] ? 'late_withdrawal' : null);
+    // Source (a) fires ONLY when the interview completed AND the GP is the
+    // one who declined (match_outcome='declined'). position_filled / a
+    // practice_passed reason / a bare reason-less not_proceeding are all
+    // excluded here (see the fail-safe comment above the function) — a
+    // completed interview is not, by itself, evidence the GP walked away.
+    var isGpDeclineOutcome = a.match_outcome === 'declined';
+    var isPracticeDriven = a.match_outcome === 'position_filled' || csPracticePassedSet[id] === true;
+    var source = (interviewedAt && isGpDeclineOutcome && !isPracticeDriven) ? 'interview'
+      : (csEvByApp[id] ? 'late_withdrawal' : null);
     if (!source) return; // not_proceeding for some other reason — not strike-eligible
     var dateVal = interviewedAt || csEvByApp[id];
     if (sinceMs && Date.parse(dateVal) <= sinceMs) return; // predates the last release
