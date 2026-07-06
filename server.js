@@ -26886,11 +26886,24 @@ async function handleApi(req, res, pathname) {
         try {
           var mlSendRes = await sendMatchEmail(mlRemRow, { reminder: true });
           if (mlSendRes && mlSendRes.ok) {
-            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mlRemRow.id), {
+            // supabaseDbRequest never throws — it resolves {ok:false} on
+            // failure — so the stamp write's result MUST be checked (review
+            // fix): a successful send whose stamp silently failed would
+            // otherwise be counted as reminded while the row stays
+            // unstamped, and next hour's run would re-send the same
+            // reminder to the same GP with nothing in the response hinting
+            // why. The re-send itself can't be un-rung (the email already
+            // went out; the stamp didn't) — but the failure is now VISIBLE
+            // in errors[] instead of being reported as a clean success.
+            var mlStampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mlRemRow.id), {
               method: 'PATCH', headers: { Prefer: 'return=minimal' },
               body: { match_reminder_sent_at: new Date().toISOString() }
             });
-            mlReminded++;
+            if (mlStampRes && mlStampRes.ok) {
+              mlReminded++;
+            } else {
+              mlErrors.push({ id: mlRemRow.id, stage: 'reminder', error: 'stamp_failed' });
+            }
           } else {
             mlErrors.push({ id: mlRemRow.id, stage: 'reminder', error: (mlSendRes && mlSendRes.error) || 'send_failed' });
           }

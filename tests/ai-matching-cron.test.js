@@ -127,6 +127,14 @@ const db = {
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
+// Test hook: any PATCH whose matched rows include one of these ids fails with
+// a 500 and leaves the row unmodified — used to prove that a successful
+// reminder send whose match_reminder_sent_at stamp write fails is reported in
+// errors[] (stamp_failed), NOT counted as reminded. supabaseDbRequest never
+// throws (it resolves {ok:false}), so this is the only way that branch can
+// actually be exercised.
+const failPatchIds = new Set();
+
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
   const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
@@ -234,6 +242,10 @@ function startSupabaseEmulator() {
       if (req.method === 'PATCH') {
         const patch = await readBody(req);
         const matched = rows.filter(matches);
+        if (matched.some((row) => failPatchIds.has(String(row.id)))) {
+          send(500, { message: 'forced PATCH failure (test hook)' });
+          return;
+        }
         matched.forEach((row) => Object.assign(row, patch || {}));
         send(200, matched);
         return;
@@ -419,5 +431,114 @@ describe('GET /api/cron/match-lifecycle — expiry pass (phase 3)', () => {
     expect(r.body.expired).toBe(0);
     const summaryEmails = resendCalls.filter((c) => /expired/i.test(c.body && c.body.subject || ''));
     expect(summaryEmails.length).toBe(0);
+  });
+});
+
+// ── Reviewer follow-ups (phase 4) ────────────────────────────────────────────
+// Fixture rows here are pushed inside each test (not at boot) so the earlier
+// phases' exact reminded/expired/email counts stay untouched.
+describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () => {
+  it('a matched, never-reminded row already PAST expiry gets NO reminder — the expiry pass sweeps it instead', async () => {
+    resendCalls.length = 0;
+    db.user_profiles.push({
+      user_id: 'gp-past-1', email: 'past@gplink-test.local',
+      first_name: 'Test', last_name: 'DoctorPast', registration_country: 'united kingdom'
+    });
+    db.gp_applications.push({
+      id: 'app-past-1', user_id: 'gp-past-1', career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      // Expired 1h ago, reminder never sent (e.g. the cron was down for the
+      // final day). The gte-now bound must exclude it from the reminder pass
+      // — a "24 hours left" email about an already-dead match would be a lie
+      // — and the expiry pass must sweep it in the same run.
+      matched_at: iso(Date.now() - 6 * 86400000), match_expires_at: iso(Date.now() - 3600000), match_reminder_sent_at: null
+    });
+
+    const r = await callCron();
+    expect(r.status).toBe(200);
+    expect(r.body.reminded).toBe(0);
+    expect(r.body.expired).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-past-1');
+    expect(row.match_reminder_sent_at).toBeFalsy();
+    expect(row.ats_stage).toBe('not_proceeding');
+    expect(row.match_outcome).toBe('expired');
+
+    // No reminder email reached the GP; the only email is the 1-GP summary.
+    expect(resendCalls.filter((c) => (c.body.to || []).includes('past@gplink-test.local')).length).toBe(0);
+    const summaries = resendCalls.filter((c) => /expired/i.test((c.body && c.body.subject) || ''));
+    expect(summaries.length).toBe(1);
+    expect(summaries[0].body.text).toContain('Test DoctorPast');
+  });
+
+  it('a row expiring right at the 24h boundary is included in the reminder pass', async () => {
+    resendCalls.length = 0;
+    // The cron computes ITS OWN now a few ms after this row is written, so an
+    // expiry stamped test-time+24h lands just inside the lte upper bound —
+    // the closest a wall-clock HTTP test can get to the exact edge. It proves
+    // the boundary is included (and would catch the window shrinking, e.g. a
+    // future refactor to a 23h lookahead or a strict lt with margin).
+    const reqNow = Date.now();
+    db.user_profiles.push({
+      user_id: 'gp-boundary-1', email: 'boundary@gplink-test.local',
+      first_name: 'Test', last_name: 'DoctorBoundary', registration_country: 'united kingdom'
+    });
+    db.gp_applications.push({
+      id: 'app-boundary-1', user_id: 'gp-boundary-1', career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: ['Coastal Queensland fit'] },
+      matched_at: iso(reqNow - 4 * 86400000), match_expires_at: iso(reqNow + 24 * 3600000), match_reminder_sent_at: null
+    });
+
+    const r = await callCron();
+    expect(r.status).toBe(200);
+    expect(r.body.reminded).toBe(1);
+    expect(r.body.expired).toBe(0);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-boundary-1');
+    expect(row.match_reminder_sent_at).toBeTruthy();
+    expect(resendCalls.some((c) => (c.body.to || []).includes('boundary@gplink-test.local'))).toBe(true);
+  });
+
+  it('a successful send whose stamp PATCH fails is NOT counted as reminded and lands in errors[] as stamp_failed', async () => {
+    resendCalls.length = 0;
+    db.user_profiles.push({
+      user_id: 'gp-stampfail-1', email: 'stampfail@gplink-test.local',
+      first_name: 'Test', last_name: 'DoctorStampfail', registration_country: 'united kingdom'
+    });
+    db.gp_applications.push({
+      id: 'app-stampfail-1', user_id: 'gp-stampfail-1', career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: ['Coastal Queensland fit'] },
+      matched_at: iso(Date.now() - 86400000), match_expires_at: iso(Date.now() + 6 * 3600000), match_reminder_sent_at: null
+    });
+    failPatchIds.add('app-stampfail-1');
+    try {
+      const r = await callCron();
+      expect(r.status).toBe(200);
+      expect(r.body.reminded).toBe(0);
+      expect(r.body.errors.some((e) => e.id === 'app-stampfail-1' && e.stage === 'reminder' && e.error === 'stamp_failed')).toBe(true);
+
+      // The email itself DID go out — the failure is the stamp write, not
+      // the send. The honest outcome is a visible error (and a re-send next
+      // hour), never a clean "reminded" count over an unstamped row.
+      expect(resendCalls.some((c) => (c.body.to || []).includes('stampfail@gplink-test.local'))).toBe(true);
+      const row = db.gp_applications.find((a) => a.id === 'app-stampfail-1');
+      expect(row.match_reminder_sent_at).toBeFalsy();
+    } finally {
+      failPatchIds.delete('app-stampfail-1');
+    }
+  });
+
+  it('self-heals: once the stamp write succeeds again, the next run re-sends and stamps the same row', async () => {
+    resendCalls.length = 0;
+    const r = await callCron();
+    expect(r.status).toBe(200);
+    expect(r.body.reminded).toBe(1);
+
+    const row = db.gp_applications.find((a) => a.id === 'app-stampfail-1');
+    expect(row.match_reminder_sent_at).toBeTruthy();
+    expect(resendCalls.some((c) => (c.body.to || []).includes('stampfail@gplink-test.local'))).toBe(true);
   });
 });
