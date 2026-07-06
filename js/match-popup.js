@@ -181,6 +181,27 @@
       '</a>'
     ) : "";
 
+    // Reserve strip derived from the row's REAL expiry (review minor): whole
+    // days remaining while there's ≥2 of them, then the concrete end date.
+    // Falls back to the design's default 5-day wording only when expiresAt is
+    // missing/unparseable.
+    var reserveInnerHtml = 'for <span class="gpmp-cd-u">5 days</span>';
+    var reserveMsLeft = match.expiresAt ? new Date(match.expiresAt).getTime() - Date.now() : NaN;
+    if (isFinite(reserveMsLeft) && reserveMsLeft > 0) {
+      var reserveDaysLeft = Math.ceil(reserveMsLeft / 86400000);
+      if (reserveDaysLeft >= 2) {
+        reserveInnerHtml = 'for <span class="gpmp-cd-u">' + reserveDaysLeft + ' more days</span>';
+      } else {
+        var reserveUntilLabel = "";
+        try {
+          reserveUntilLabel = new Date(match.expiresAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+        } catch (e) {}
+        reserveInnerHtml = reserveUntilLabel
+          ? '<span class="gpmp-cd-u">until ' + escapeHtml(reserveUntilLabel) + '</span>'
+          : 'for <span class="gpmp-cd-u">1 more day</span>';
+      }
+    }
+
     return (
       '<div class="gpmp-confetti-host"></div>' +
       '<div class="gpmp-badge">✦ Matched by your team</div>' +
@@ -196,7 +217,7 @@
       '</div>' +
       reasonsHtml + videoHtml +
       '<div class="gpmp-stat"><div class="gpmp-pct">98%</div><div class="gpmp-lbl"><b>of team-matched GPs are accepted by the practice.</b></div></div>' +
-      '<div class="gpmp-cd">⏳ This match is reserved for you for <span class="gpmp-cd-u">5 days</span></div>' +
+      '<div class="gpmp-cd">⏳ This match is reserved for you ' + reserveInnerHtml + '</div>' +
       '<button type="button" class="gpmp-accept shiny" data-gpmp-accept>Accept this match</button>' +
       '<a href="#" class="gpmp-later" data-gpmp-later>I’ll look at this later</a>'
     );

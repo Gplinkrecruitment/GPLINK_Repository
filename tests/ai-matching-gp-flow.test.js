@@ -714,3 +714,195 @@ describe('GET /api/career/interview-usage', () => {
     expect(res.body.limit).toBe(3);
   });
 });
+
+// ── Review fixes (Task 4 follow-up) ─────────────────────────────────────────
+
+// Extracts a top-level `function <name>(...) {...}` declaration from inline
+// page source by brace counting, so the REAL client-side renderer can be
+// executed (not just regex-inspected) in these tests.
+function extractFunctionSource(src, name) {
+  const start = src.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`function ${name} not found`);
+  const open = src.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error(`function ${name} braces never balanced`);
+}
+
+describe('review fix 1 — card URL scheme gate (career.html, executed for real)', () => {
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+  // Build a sandbox with the page's real escapeHtml/formatMatchCountdown/
+  // matchSafeUrl/buildMatchCardHtml and run the actual card renderer.
+  const sandboxSrc = [
+    extractFunctionSource(careerHtml, 'escapeHtml'),
+    extractFunctionSource(careerHtml, 'matchSafeUrl'),
+    extractFunctionSource(careerHtml, 'formatMatchCountdown'),
+    extractFunctionSource(careerHtml, 'buildMatchCardHtml'),
+    'return buildMatchCardHtml(matchInput);'
+  ].join('\n');
+  const renderCard = (matchInput) => new Function('matchInput', sandboxSrc)(matchInput);
+
+  const baseMatch = {
+    applicationId: 'app-x-1', jobTitle: 'GP — Mixed Billing', practiceName: 'Evil Test Practice',
+    locationCity: 'Bundaberg', locationState: 'QLD', dpa: true,
+    reasons: ['Coastal fit'], expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(),
+    website: '', introVideoUrl: '', headerImageUrl: ''
+  };
+
+  it('a javascript: practice website renders NO link at all', () => {
+    const html = renderCard({ ...baseMatch, website: 'javascript:alert(document.cookie)' });
+    expect(html).not.toContain('javascript:');
+    expect(html).not.toContain('at-match-weblink');
+  });
+
+  it('a data: intro video renders NO video chip; javascript: photo renders NO img', () => {
+    const html = renderCard({
+      ...baseMatch,
+      introVideoUrl: 'data:text/html,<script>alert(1)</script>',
+      headerImageUrl: 'javascript:alert(1)'
+    });
+    expect(html).not.toContain('data:text/html');
+    expect(html).not.toContain('javascript:');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('Meet the practice');
+  });
+
+  it('genuine https URLs still render (gate is scheme-only, not a blanket removal)', () => {
+    const html = renderCard({
+      ...baseMatch,
+      website: 'https://evil-free.example.com.au',
+      introVideoUrl: 'https://videos.example/intro.mp4',
+      headerImageUrl: 'https://images.example/photo.jpg'
+    });
+    expect(html).toContain('href="https://evil-free.example.com.au"');
+    expect(html).toContain('href="https://videos.example/intro.mp4"');
+    expect(html).toContain('src="https://images.example/photo.jpg"');
+  });
+});
+
+describe('review fix 2 — email builder escapes URL attribute breakouts', () => {
+  const row = {
+    id: 'app-esc-1',
+    match_reasons: { reasons: ['Coastal fit'] },
+    match_expires_at: iso(NOW + 3 * 86400000)
+  };
+  // Valid https scheme (passes _matchSafeUrl) but carrying a `"` breakout
+  // attempt — must be neutralised by attribute-escaping, not passed raw.
+  const breakout = 'https://practice.example/x"onmouseover="alert(1)';
+
+  it('website href: the quote cannot break out of the attribute', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(row, { title: 'GP' }, { name: 'P', website: breakout }, {});
+    expect(html).not.toContain('x"onmouseover');
+    expect(html).toContain('x&quot;onmouseover');
+  });
+
+  it('header image src + intro video href: same escaping', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(
+      row,
+      { title: 'GP', header_image_url: breakout, suburb: 'Bargara' },
+      { name: 'P', intro_video_url: breakout },
+      {}
+    );
+    expect(html).not.toContain('x"onmouseover');
+    // Both insertion points escaped (src= and href=).
+    expect((html.match(/x&quot;onmouseover/g) || []).length).toBe(2);
+  });
+});
+
+describe('review fix 3a — respond is account-gated like /matches', () => {
+  it('an under_review account gets 403 account_gated and the row is untouched', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(GATED_GP.email, GATED_GP.userId),
+      body: { applicationId: 'app-gated-1', action: 'accept' }
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toBe('account_gated');
+
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-gated-1');
+    expect(row.ats_stage).toBe('shortlisted');
+    expect(row.match_outcome).toBeNull();
+    // And no ops/GP email fired.
+    expect(resendCalls.length).toBe(0);
+  });
+});
+
+describe('review fix 3b — deep link never posts an accept', () => {
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+
+  it('handleMatchDeepLink contains NO respond call and uses the still-interested probe', () => {
+    const fnSrc = extractFunctionSource(careerHtml, 'handleMatchDeepLink');
+    expect(fnSrc).not.toContain('/api/career/match/respond');
+    expect(fnSrc).not.toContain('accept');
+    expect(fnSrc).toContain('/api/career/match/still-interested');
+  });
+
+  it('still-interested on an expired match → state expired + ops email, row untouched', async () => {
+    const res = await httpReq('POST', '/api/career/match/still-interested', {
+      cookie: userCookie(EXPIRED_GP.email, EXPIRED_GP.userId),
+      body: { applicationId: 'app-expired-1' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('expired');
+
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-expired-1');
+    expect(row.ats_stage).toBe('shortlisted'); // probe NEVER moves the row
+
+    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match — still interested:/.test(c.body.subject));
+    expect(opsEmail).toBeTruthy();
+  });
+
+  it('still-interested on a live match → state live, NO email', async () => {
+    const res = await httpReq('POST', '/api/career/match/still-interested', {
+      cookie: userCookie(VIEW_GP.email, VIEW_GP.userId),
+      body: { applicationId: 'app-view-1' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe('live');
+    expect(resendCalls.length).toBe(0);
+  });
+
+  it('still-interested on a resolved (position_filled) row → state resolved, NO email', async () => {
+    const res = await httpReq('POST', '/api/career/match/still-interested', {
+      cookie: userCookie(FILLED_GP.email, FILLED_GP.userId),
+      body: { applicationId: 'app-filled-1' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe('resolved');
+    expect(resendCalls.length).toBe(0);
+  });
+
+  it('still-interested is account-gated + owner-scoped too', async () => {
+    const gated = await httpReq('POST', '/api/career/match/still-interested', {
+      cookie: userCookie(GATED_GP.email, GATED_GP.userId),
+      body: { applicationId: 'app-gated-1' }
+    });
+    expect(gated.status).toBe(403);
+    expect(gated.body.error).toBe('account_gated');
+
+    const wrongOwner = await httpReq('POST', '/api/career/match/still-interested', {
+      cookie: userCookie(OTHER_GP.email, OTHER_GP.userId),
+      body: { applicationId: 'app-view-1' }
+    });
+    expect(wrongOwner.status).toBe(404);
+    expect(resendCalls.length).toBe(0);
+  });
+});
+
+describe('review minor — popup reserve strip derives from expiresAt', () => {
+  const popupSrc = fs.readFileSync(path.join(ROOT, 'js/match-popup.js'), 'utf8');
+  it('computes days-left / until-date from match.expiresAt instead of a static 5-days string', () => {
+    expect(popupSrc).toContain('match.expiresAt');
+    expect(popupSrc).toContain('more days');
+    expect(popupSrc).toMatch(/until/);
+    // The static wording survives ONLY as the missing-expiry fallback.
+    expect(popupSrc).toContain("reserveInnerHtml = 'for <span class=\"gpmp-cd-u\">5 days</span>'");
+  });
+});

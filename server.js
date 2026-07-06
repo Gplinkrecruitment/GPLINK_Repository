@@ -24261,15 +24261,18 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var acceptUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?match=' + applicationId);
   var expiresLabel = (row && row.match_expires_at) ? _matchWeekdayDateLabel(row.match_expires_at) : '';
 
+  // NOTE: every stored URL below passes BOTH gates — _matchSafeUrl (http(s)
+  // scheme only, above) AND _matchEmailEsc at the insertion point, so a `"`
+  // inside an otherwise-valid https URL can never break out of the attribute.
   var photoHtml = headerImageUrl ? (
     '<div style="position:relative;height:170px;overflow:hidden;">' +
-      '<img src="' + headerImageUrl + '" alt="' + (areaName ? _matchEmailEsc(areaName) : practiceName) + '" style="width:100%;height:100%;object-fit:cover;display:block;">' +
+      '<img src="' + _matchEmailEsc(headerImageUrl) + '" alt="' + (areaName ? _matchEmailEsc(areaName) : practiceName) + '" style="width:100%;height:100%;object-fit:cover;display:block;">' +
       (areaName ? '<div style="position:absolute;left:0;right:0;bottom:0;padding:26px 16px 10px;background:linear-gradient(transparent, rgba(11,19,34,.82));color:#fff;font-size:12.5px;font-weight:600;">📍 ' + _matchEmailEsc(areaName) + '</div>' : '') +
     '</div>'
   ) : '';
 
   var websiteHtml = website
-    ? '<a href="' + website + '" style="display:inline-block;font-size:13.5px;font-weight:600;color:#2563eb;text-decoration:none;">🌐 ' + _matchEmailEsc(websiteLabel) + '</a>'
+    ? '<a href="' + _matchEmailEsc(website) + '" style="display:inline-block;font-size:13.5px;font-weight:600;color:#2563eb;text-decoration:none;">🌐 ' + _matchEmailEsc(websiteLabel) + '</a>'
     : '';
 
   var jobCardHtml =
@@ -24298,7 +24301,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   ) : '';
 
   var videoHtml = (!reminder && introVideoUrl) ? (
-    '<a href="' + introVideoUrl + '" style="position:relative;border-radius:14px;overflow:hidden;margin:14px 0 20px;display:block;text-decoration:none;">' +
+    '<a href="' + _matchEmailEsc(introVideoUrl) + '" style="position:relative;border-radius:14px;overflow:hidden;margin:14px 0 20px;display:block;text-decoration:none;">' +
       '<div style="background:linear-gradient(160deg,#0b1322 0%,#1a2c4e 60%,#14203a 100%);height:130px;display:flex;align-items:center;justify-content:center;">' +
         '<div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.94);display:flex;align-items:center;justify-content:center;">' +
           '<span style="width:0;height:0;border-left:15px solid #1d4ed8;border-top:9px solid transparent;border-bottom:9px solid transparent;margin-left:4px;display:block;"></span>' +
@@ -30207,6 +30210,64 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/career/match/still-interested {applicationId} — the ?match=
+  // deep-link path's status probe (review fix: the deep link must NEVER post
+  // an accept to find out why a card is missing). Read-mostly: it never
+  // changes the application row; its ONLY side effect is the "GP clicked
+  // expired match — still interested" ops note when the row is genuinely
+  // expired (which is exactly the spec §7 late-click signal, and what keeps
+  // the client's "your team has been told you're interested" copy honest).
+  // Returns { ok:true, state:'live'|'expired'|'resolved' }.
+  if (pathname === '/api/career/match/still-interested' && req.method === 'POST') {
+    const siSession = requireSession(req, res);
+    if (!siSession) return;
+    const siEmail = getSessionEmail(siSession);
+    if (!siEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const siUserId = getSessionSupabaseUserId(siSession) || await getSupabaseUserIdByEmail(siEmail);
+    if (!siUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let siBody; try { siBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const siAppId = String((siBody && siBody.applicationId) || '').trim();
+    if (!siAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    // Same account gate as /matches and /respond — a gated account gets no
+    // match surfaces AND must not be able to page the team via old links.
+    const siStateResult = await getSupabaseUserStateByEmail(siEmail);
+    const siState = (siStateResult && siStateResult.state && typeof siStateResult.state === 'object') ? siStateResult.state : {};
+    const siAcctStatus = String(siState.account_status || 'active').toLowerCase();
+    const siGated = !siState.gp_onboarding_complete || siAcctStatus === 'under_review' || siAcctStatus === 'pep_waitlist' || siAcctStatus === 'archived';
+    if (siGated) { sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' }); return; }
+
+    const siRowRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(siAppId) + '&user_id=eq.' + encodeURIComponent(siUserId) + '&limit=1');
+    const siRow = (siRowRes.ok && Array.isArray(siRowRes.data) && siRowRes.data[0]) ? siRowRes.data[0] : null;
+    if (!siRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
+
+    // Same expiry classification as /respond (below).
+    const siIsStillWaiting = siRow.ats_stage === 'shortlisted';
+    const siIsSweptExpired = siRow.ats_stage === 'not_proceeding' && siRow.match_outcome === 'expired';
+    const siIsExpired = (siIsStillWaiting && siRow.match_expires_at && Date.parse(siRow.match_expires_at) < Date.now()) || siIsSweptExpired;
+    if (siIsExpired) {
+      // Profile lookup happens BEFORE sendJson: no awaits between the
+      // response and the ops send (same rule as respond's expired branch),
+      // so on serverless the email reliably fires in the same beat.
+      const siProfileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(siUserId) + '&limit=1');
+      const siProfile = (siProfileRes.ok && Array.isArray(siProfileRes.data) && siProfileRes.data[0]) ? siProfileRes.data[0] : {};
+      const siGpDisplayName = [siProfile.first_name || '', siProfile.last_name || ''].join(' ').trim() || siEmail;
+      const siJobTitle = String(siRow.job_title || 'a role').trim();
+      sendJson(res, 200, { ok: true, state: 'expired' });
+      if (isEmailConfigured()) {
+        sendEmail({
+          to: 'hello@mygplink.com.au',
+          subject: 'GP clicked expired match — still interested: ' + siGpDisplayName + ', ' + siJobTitle,
+          text: siGpDisplayName + ' clicked to respond to an expired match for "' + siJobTitle + '" and is still interested. Application: ' + siRow.id,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        }).catch(() => {});
+      }
+      return;
+    }
+    sendJson(res, 200, { ok: true, state: siIsStillWaiting ? 'live' : 'resolved' });
+    return;
+  }
+
   // POST /api/career/match/respond {applicationId, action:'accept'|'decline', reason?}
   // Accept = self-apply on a matched job (spec §7): identical downstream effects
   // to POST /api/career/apply (shared helpers above), plus match bookkeeping +
@@ -30227,6 +30288,20 @@ async function handleApi(req, res, pathname) {
     const mrAction = String((mrBody && mrBody.action) || '').trim().toLowerCase();
     if (!mrAppId || (mrAction !== 'accept' && mrAction !== 'decline')) {
       sendJson(res, 400, { ok: false, message: 'applicationId and a valid action (accept|decline) are required.' });
+      return;
+    }
+
+    // Same account gate GET /api/career/matches enforces (review fix): a
+    // gated account (mid-onboarding / under_review / pep_waitlist / archived)
+    // sees no match surfaces — so it must not be able to accept/decline via a
+    // stale email deep link or a hand-crafted POST either. Fail closed BEFORE
+    // any row read or side effect.
+    const mrStateResult = await getSupabaseUserStateByEmail(mrEmail);
+    const mrState = (mrStateResult && mrStateResult.state && typeof mrStateResult.state === 'object') ? mrStateResult.state : {};
+    const mrAcctStatus = String(mrState.account_status || 'active').toLowerCase();
+    const mrGated = !mrState.gp_onboarding_complete || mrAcctStatus === 'under_review' || mrAcctStatus === 'pep_waitlist' || mrAcctStatus === 'archived';
+    if (mrGated) {
+      sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' });
       return;
     }
 

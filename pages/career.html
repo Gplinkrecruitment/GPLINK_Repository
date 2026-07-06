@@ -11132,23 +11132,35 @@
       return { label, amber, expired: false };
     }
 
+    // http(s)-only URL gate for practice-supplied links (website / intro
+    // video / area photo) — anything else (javascript:, data:, relative
+    // paths, garbage) renders NOTHING. Same rule as the popup's safeUrl and
+    // the email builder's _matchSafeUrl: never let a stored URL become a
+    // script-scheme href in the GP's session.
+    function matchSafeUrl(value) {
+      const v = String(value || "").trim();
+      return /^https?:\/\//i.test(v) ? v : "";
+    }
+
     function buildMatchCardHtml(match) {
       const countdown = formatMatchCountdown(match.expiresAt);
-      const website = String(match.website || "").trim();
+      const website = matchSafeUrl(match.website);
       const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
+      const introVideoUrl = matchSafeUrl(match.introVideoUrl);
+      const headerImageUrl = matchSafeUrl(match.headerImageUrl);
       const locationLine = [match.locationCity, match.locationState].filter(Boolean).join(", ");
       const metaBits = [locationLine, match.dpa ? "DPA approved" : ""].filter(Boolean);
       const reasons = Array.isArray(match.reasons) ? match.reasons : [];
       const shownReasons = reasons.slice(0, 2);
       const moreCount = reasons.length - shownReasons.length;
-      const photoHtml = match.headerImageUrl
-        ? `<div class="at-match-photo"><img src="${escapeHtml(match.headerImageUrl)}" alt="" loading="lazy"><div class="at-match-cap">📍 ${escapeHtml(locationLine || match.practiceName || "")}</div></div>`
+      const photoHtml = headerImageUrl
+        ? `<div class="at-match-photo"><img src="${escapeHtml(headerImageUrl)}" alt="" loading="lazy"><div class="at-match-cap">📍 ${escapeHtml(locationLine || match.practiceName || "")}</div></div>`
         : "";
       const websiteHtml = website
         ? `<a class="at-match-weblink" href="${escapeHtml(website)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">🌐 ${escapeHtml(websiteLabel)}</a>`
         : "";
-      const videoHtml = match.introVideoUrl
-        ? `<a class="at-match-chip" href="${escapeHtml(match.introVideoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">▶ Meet the practice · video</a>`
+      const videoHtml = introVideoUrl
+        ? `<a class="at-match-chip" href="${escapeHtml(introVideoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">▶ Meet the practice · video</a>`
         : "";
       return `<article class="at-match-pin${countdown.amber ? " at-match-pin--amber" : ""}" data-match-id="${escapeHtml(match.applicationId)}">
         <div class="at-match-ribbon${countdown.amber ? " at-match-ribbon--amber" : ""}">
@@ -11326,33 +11338,49 @@
       }
     }
 
+    function highlightMatchCard(matchId) {
+      const card = document.querySelector(`[data-match-id="${window.CSS && CSS.escape ? CSS.escape(matchId) : matchId}"]`);
+      if (!card) return false;
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("at-match-pin--highlight");
+      setTimeout(() => card.classList.remove("at-match-pin--highlight"), 2600);
+      return true;
+    }
+
     // ?match=<id> deep link (the email's Accept button, after the sign-in
     // bounce). If the card is live, just scroll to + highlight it — the GP
     // still completes the confirm sheet in-app (spec §7: every accept path
     // goes through the confirm sheet, "one tap" just means getting here fast).
-    // If it's NOT among the live matches, deliberately call respond() to learn
-    // why (expired → 410 + ops email; anything else → already resolved)
-    // instead of guessing client-side.
+    // If the card is NOT present, ask the status probe why — NEVER post an
+    // accept from here (review fix: an accept only ever leaves the explicit
+    // confirm-sheet flow). The still-interested probe never changes the
+    // application; on a genuinely expired match it fires the "GP clicked
+    // expired match — still interested" ops note, which is what keeps the
+    // expired notice's "your team has been told" line honest.
     function handleMatchDeepLink() {
       let matchId = "";
       try { matchId = new URL(window.location.href).searchParams.get("match") || ""; } catch (e) {}
       if (!matchId) return;
-      const card = document.querySelector(`[data-match-id="${window.CSS && CSS.escape ? CSS.escape(matchId) : matchId}"]`);
-      if (card) {
-        card.scrollIntoView({ behavior: "smooth", block: "center" });
-        card.classList.add("at-match-pin--highlight");
-        setTimeout(() => card.classList.remove("at-match-pin--highlight"), 2600);
-        return;
-      }
-      fetch("/api/career/match/respond", {
+      if (highlightMatchCard(matchId)) return;
+      fetch("/api/career/match/still-interested", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId: matchId, action: "accept" })
-      }).then((res) => {
-        if (res.status === 410) { showMatchExpiredNotice(); return; }
-        if (res.status === 409 || res.status === 404) {
+        body: JSON.stringify({ applicationId: matchId })
+      }).then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (res.status === 404 || res.status === 409) {
           showToast("This match has already been responded to.");
+          return;
         }
+        if (!res.ok || !data || !data.ok) return;
+        if (data.state === "expired") { showMatchExpiredNotice(); return; }
+        if (data.state === "live") {
+          // Live on the server but not rendered — this page's match list is
+          // stale (e.g. matched moments ago). Refresh and retry the scroll once.
+          loadTeamMatches().then(() => { renderPage(); highlightMatchCard(matchId); });
+          return;
+        }
+        showToast("This match has already been responded to.");
       }).catch(() => {});
     }
 
