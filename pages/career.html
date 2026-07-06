@@ -5186,6 +5186,323 @@
       flex-wrap: wrap;
     }
 
+    /* ============ Careers profile-completion gate modal (Task 5) ============
+       Visual source of truth: docs/mockups/career-cv-gate-practice-email.html
+       (Section 1). Classes are the mockup's gate-modal/req-row/dropzone/boost/
+       scanline/gate-cta set, prefixed career-gate- to avoid collisions. Property
+       values are copied verbatim from the mockup. */
+    .career-gate-card {
+      max-width: 520px;
+      padding: 0;
+      display: block;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .career-gate-modal.is-open {
+      display: flex;
+    }
+
+    .career-gate-top {
+      background: linear-gradient(135deg, var(--gp-blue-ink), var(--gp-blue));
+      padding: 26px 28px 22px;
+      color: #fff;
+    }
+
+    .career-gate-kicker {
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
+
+    .career-gate-top h3 {
+      font-family: var(--gp-font-display);
+      font-size: 23px;
+      margin-top: 6px;
+      line-height: 1.25;
+    }
+
+    .career-gate-top p {
+      font-size: 13.5px;
+      opacity: .85;
+      margin-top: 8px;
+    }
+
+    .career-gate-body {
+      padding: 24px 28px 28px;
+    }
+
+    .career-gate-req {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 16px;
+      border: 1px solid var(--gp-border);
+      border-radius: var(--gp-r-lg);
+      background: var(--gp-surface-sunken);
+    }
+
+    .career-gate-req + .career-gate-req {
+      margin-top: 14px;
+    }
+
+    .career-gate-req-ico {
+      width: 40px;
+      height: 40px;
+      flex: none;
+      border-radius: 12px;
+      background: var(--gp-blue-soft);
+      border: 1px solid var(--gp-blue-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .career-gate-req-main {
+      flex: 1;
+    }
+
+    .career-gate-req-title {
+      font-weight: 700;
+      color: var(--gp-ink);
+      font-size: 14.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .career-gate-tag {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: var(--gp-r-pill);
+    }
+
+    .career-gate-tag-req {
+      background: #fdecec;
+      color: var(--gp-red);
+    }
+
+    .career-gate-tag-opt {
+      background: var(--gp-blue-soft);
+      color: var(--gp-blue-ink);
+    }
+
+    .career-gate-req-desc {
+      font-size: 13px;
+      color: var(--gp-muted);
+      margin-top: 3px;
+    }
+
+    .career-gate-dropzone {
+      margin-top: 12px;
+      border: 1.5px dashed var(--gp-blue-border);
+      border-radius: var(--gp-r-md);
+      background: #fff;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color .18s;
+    }
+
+    .career-gate-dropzone:hover {
+      border-color: var(--gp-blue);
+    }
+
+    .career-gate-dz-btn {
+      background: var(--gp-blue);
+      color: #fff;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 8px 16px;
+      border-radius: var(--gp-r-md);
+      border: none;
+      cursor: pointer;
+      flex: none;
+    }
+
+    .career-gate-dz-btn-secondary {
+      background: #fff;
+      color: var(--gp-blue-ink);
+      border: 1px solid var(--gp-blue-border);
+    }
+
+    .career-gate-dz-hint {
+      font-size: 12.5px;
+      color: var(--gp-muted);
+    }
+
+    .career-gate-boost {
+      position: relative;
+      display: flex;
+      gap: 13px;
+      align-items: center;
+      margin-top: 12px;
+      background: linear-gradient(135deg, #1c1405 0%, #332508 42%, #1f1706 78%, #2a1f08 100%);
+      border: 1px solid rgba(212, 175, 55, .55);
+      border-radius: var(--gp-r-md);
+      padding: 13px 16px;
+      overflow: hidden;
+      box-shadow: 0 6px 18px rgba(58, 43, 12, .35), inset 0 1px 0 rgba(247, 231, 176, .22);
+    }
+
+    .career-gate-boost::before {
+      content: "";
+      position: absolute;
+      top: -60%;
+      bottom: -60%;
+      left: -30%;
+      width: 36%;
+      background: linear-gradient(105deg, transparent 0%, rgba(255, 241, 196, .16) 40%, rgba(255, 248, 222, .34) 50%, rgba(255, 241, 196, .16) 60%, transparent 100%);
+      transform: skewX(-18deg);
+      animation: career-gate-sheen 4.2s ease-in-out infinite;
+    }
+
+    @keyframes career-gate-sheen {
+      0%, 55% { left: -40%; }
+      85%, 100% { left: 130%; }
+    }
+
+    .career-gate-boost-medal {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      flex: none;
+      border-radius: 50%;
+      background: radial-gradient(circle at 32% 28%, #fdf0c0 0%, #e8c565 38%, #a97e1f 78%, #8a6516 100%);
+      border: 1px solid rgba(255, 240, 200, .65);
+      box-shadow: 0 3px 9px rgba(0, 0, 0, .4), inset 0 -2px 4px rgba(90, 62, 10, .5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: #5c430c;
+      text-shadow: 0 1px 0 rgba(255, 244, 210, .6);
+    }
+
+    .career-gate-boost-copy {
+      position: relative;
+    }
+
+    .career-gate-boost-kicker {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      background: linear-gradient(105deg, #c89b3c, #f7e7b0 45%, #d4af37 70%, #f3d67e);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: #d4af37;
+      margin-bottom: 3px;
+    }
+
+    .career-gate-boost-copy span {
+      font-size: 12.5px;
+      color: #e9dcb8;
+      display: block;
+      line-height: 1.5;
+    }
+
+    .career-gate-boost-copy b {
+      background: linear-gradient(105deg, #e8c565, #fdf0c0 45%, #d4af37 75%, #f3d67e);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: #f3d67e;
+      font-weight: 700;
+    }
+
+    .career-gate-scanline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 11px 14px;
+      border-radius: var(--gp-r-md);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .career-gate-scan-checking {
+      background: var(--gp-blue-soft);
+      border: 1px solid var(--gp-blue-border);
+      color: var(--gp-blue-ink);
+    }
+
+    .career-gate-scan-ok {
+      background: #ecfdf3;
+      border: 1px solid #bbe7cc;
+      color: #0f7a37;
+    }
+
+    .career-gate-scan-bad {
+      background: #fdecec;
+      border: 1px solid #f6c8c8;
+      color: var(--gp-red);
+    }
+
+    .career-gate-scan-bad small {
+      display: block;
+      font-weight: 500;
+      color: #b25454;
+      margin-top: 2px;
+    }
+
+    .career-gate-spinner {
+      width: 15px;
+      height: 15px;
+      border: 2.5px solid var(--gp-blue-border);
+      border-top-color: var(--gp-blue);
+      border-radius: 50%;
+      animation: career-gate-spin 1s linear infinite;
+      flex: none;
+    }
+
+    @keyframes career-gate-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .career-gate-cta {
+      width: 100%;
+      margin-top: 22px;
+      padding: 14px;
+      border-radius: var(--gp-r-md);
+      border: none;
+      font-family: var(--gp-font-body);
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .18s;
+    }
+
+    .career-gate-cta:disabled {
+      background: #e6ebf5;
+      color: #9aa7bd;
+      cursor: not-allowed;
+    }
+
+    .career-gate-cta.is-enabled {
+      background: var(--gp-green);
+      color: #fff;
+      box-shadow: 0 8px 22px rgba(22, 163, 74, .32);
+    }
+
+    .career-gate-foot {
+      font-size: 12px;
+      color: var(--gp-muted);
+      text-align: center;
+      margin-top: 12px;
+    }
+
     .toast {
       position: fixed;
       right: 12px;
@@ -7400,6 +7717,57 @@
   </div>
 
   <div class="toast" id="careerToast"></div>
+
+  <!-- Careers profile-completion gate modal (Task 5). Not dismissible: no close
+       button, no scrim-click close, no Escape handler — the CTA only enables
+       once the CV is AI-verified, and that's the only way to close it. -->
+  <div class="modal career-gate-modal" id="careerGateModal" aria-hidden="true" role="dialog" aria-label="Complete your careers profile">
+    <div class="modal-card career-gate-card">
+      <div class="career-gate-top">
+        <div class="career-gate-kicker">One quick step</div>
+        <h3>Complete your profile to start browsing careers</h3>
+        <p>Medical centres see your CV the moment we introduce you — let’s make sure it’s ready.</p>
+      </div>
+      <div class="career-gate-body">
+        <div class="career-gate-req">
+          <div class="career-gate-req-ico">📄</div>
+          <div class="career-gate-req-main">
+            <div class="career-gate-req-title">Your CV <span class="career-gate-tag career-gate-tag-req">Required</span></div>
+            <div class="career-gate-req-desc">PDF or Word, under 3 MB. This exact file is what practices receive with your introduction.</div>
+            <label class="career-gate-dropzone" for="careerGateCvInput">
+              <span class="career-gate-dz-btn">Upload CV</span>
+              <span class="career-gate-dz-hint">PDF, DOC, DOCX · max 3 MB</span>
+              <input type="file" id="careerGateCvInput" accept=".pdf,.doc,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+            </label>
+            <div class="career-gate-scanline career-gate-scan-checking" id="careerGateScanChecking" hidden><span class="career-gate-spinner"></span>Checking this is a genuine CV…</div>
+            <div class="career-gate-scanline career-gate-scan-ok" id="careerGateScanOk" hidden>✓&nbsp;<span id="careerGateScanOkText">CV verified</span></div>
+            <div class="career-gate-scanline career-gate-scan-bad" id="careerGateScanBad" hidden><div>✕&nbsp;<span id="careerGateScanBadText"></span><small id="careerGateScanBadHint"></small></div></div>
+          </div>
+        </div>
+        <div class="career-gate-req">
+          <div class="career-gate-req-ico">✉️</div>
+          <div class="career-gate-req-main">
+            <div class="career-gate-req-title">Cover letter <span class="career-gate-tag career-gate-tag-opt">Optional</span></div>
+            <div class="career-gate-req-desc">A short letter introducing yourself, sent alongside your CV.</div>
+            <div class="career-gate-boost">
+              <div class="career-gate-boost-medal">★</div>
+              <div class="career-gate-boost-copy">
+                <div class="career-gate-boost-kicker">Your exclusive edge</div>
+                <span>GPs with a cover letter are <b>150% more likely</b> to be offered a position by medical centres.</span>
+              </div>
+            </div>
+            <label class="career-gate-dropzone" for="careerGateClInput">
+              <span class="career-gate-dz-btn career-gate-dz-btn-secondary">Add cover letter</span>
+              <span class="career-gate-dz-hint" id="careerGateClHint">You can also add this later</span>
+              <input type="file" id="careerGateClInput" accept=".pdf,.doc,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+            </label>
+          </div>
+        </div>
+        <button class="career-gate-cta" id="careerGateCta" disabled>Upload your CV to continue</button>
+        <div class="career-gate-foot">Your documents are only shared with practices when we introduce you to a role.</div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const CAREER_STATE_KEY = "gp_career_state";
@@ -11572,6 +11940,86 @@
       }));
     }
 
+    /* ============ Careers profile-completion gate (Task 5) ============
+       Shown to non-placed GPs the first time they open Careers, until they
+       have an AI-verified CV on file. Placed GPs never see this — guarded by
+       shouldLockCareerToSecuredView(). A network failure on the status check
+       must never lock the page (fails open). */
+    var careerGateState = { cvVerified: false, checked: false };
+    function careerGateEl(id) { return document.getElementById(id); }
+    function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); } }
+    function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } }
+
+    function careerGateSetScanState(state, opts) {
+      ['careerGateScanChecking', 'careerGateScanOk', 'careerGateScanBad'].forEach(function (id) { var el = careerGateEl(id); if (el) el.hidden = true; });
+      if (state === 'checking') careerGateEl('careerGateScanChecking').hidden = false;
+      if (state === 'ok') { careerGateEl('careerGateScanOk').hidden = false; careerGateEl('careerGateScanOkText').textContent = 'CV verified — ' + (opts && opts.fileName ? opts.fileName : 'your CV') + ' is ready to send to practices'; }
+      if (state === 'bad') {
+        careerGateEl('careerGateScanBad').hidden = false;
+        careerGateEl('careerGateScanBadText').textContent = (opts && opts.reason) || 'This file doesn’t look like a CV.';
+        careerGateEl('careerGateScanBadHint').textContent = (opts && typeof opts.attemptsRemaining === 'number') ? ('Please upload your actual CV. ' + opts.attemptsRemaining + ' checks remaining today.') : 'Please upload your actual CV.';
+      }
+    }
+    function careerGateSyncCta() {
+      var cta = careerGateEl('careerGateCta');
+      if (!cta) return;
+      cta.disabled = !careerGateState.cvVerified;
+      cta.textContent = careerGateState.cvVerified ? 'Start browsing careers' : 'Upload your CV to continue';
+      cta.classList.toggle('is-enabled', careerGateState.cvVerified);
+    }
+    function careerGateReadFile(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+    async function careerGateUpload(kind, file) {
+      if (!file) return;
+      if (file.size > 3 * 1024 * 1024) {
+        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'That file is over 3 MB — please save a smaller PDF and try again.' });
+        else careerGateEl('careerGateClHint').textContent = 'That file is over 3 MB — please choose a smaller file.';
+        return;
+      }
+      var base64 = await careerGateReadFile(file);
+      var endpoint = kind === 'cv' ? '/api/career/profile/cv' : '/api/career/profile/cover-letter';
+      if (kind === 'cv') careerGateSetScanState('checking');
+      var res, data;
+      try {
+        res = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: file.name, fileBase64: base64, mimeType: file.type || '', fileSize: file.size }) });
+        data = await res.json().catch(function () { return {}; });
+      } catch (err) { data = {}; }
+      if (kind === 'cv') {
+        if (res && res.ok && data.verified) { careerGateState.cvVerified = true; careerGateSetScanState('ok', { fileName: data.fileName }); }
+        else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit — please try again tomorrow.' });
+        else careerGateSetScanState('bad', { reason: data.reason || data.message || 'We couldn’t check that file — please try again.', attemptsRemaining: data.attemptsRemaining });
+        careerGateSyncCta();
+      } else {
+        careerGateEl('careerGateClHint').textContent = (res && res.ok) ? ('Added ✓ ' + file.name) : (data.message || 'Upload failed — please try again.');
+      }
+    }
+    async function ensureCareerGate() {
+      if (careerGateState.checked) return;
+      if (shouldLockCareerToSecuredView()) return; // placed GPs never see the gate
+      try {
+        var res = await fetch('/api/career/profile/status', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        var data = await res.json();
+        careerGateState.checked = true;
+        if (data && data.cv) { careerGateState.cvVerified = true; return; }
+        careerGateSyncCta();
+        openCareerGateModal();
+      } catch (err) { /* network failure: don't lock the page */ }
+    }
+    document.addEventListener('change', function (ev) {
+      if (ev.target && ev.target.id === 'careerGateCvInput') careerGateUpload('cv', ev.target.files && ev.target.files[0]);
+      if (ev.target && ev.target.id === 'careerGateClInput') careerGateUpload('cover', ev.target.files && ev.target.files[0]);
+    });
+    document.addEventListener('click', function (ev) {
+      if (ev.target && ev.target.id === 'careerGateCta' && !ev.target.disabled) closeCareerGateModal();
+    });
+
     (async function init() {
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       await hydrateCareerSessionEmail();
@@ -11583,6 +12031,7 @@
       await loadRemoteApplications({ render: false });
       syncCareerViewFromLocation();
       renderPage();
+      ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
