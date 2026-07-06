@@ -36,7 +36,7 @@ Single test: `npx vitest run tests/oauth.test.js`
 ### Server (`server.js`)
 - Handles ALL routes: API endpoints, static file serving, auth, admin dashboard
 - Deployed on Vercel via `@vercel/node` — every request routes through `server.js` (see `vercel.json`)
-- Auth: OTP-based login, session cookies (`gp_session` for users, `gp_admin_session` for admin)
+- Auth: email + password login (plus Supabase session/OAuth login), session cookies (`gp_session` for users, `gp_admin_session` for admin). The OTP endpoints (`/api/auth/send-code`, `/api/auth/verify-code`) still exist but are unused/legacy — the shipped sign-in UI is password-based
 - DB: Supabase (production), local JSON file fallback (development)
 - Integrations: Zoho Recruit (job sync), Domain API (housing search), Anthropic API (qualification AI verification), OpenAI (career AI profiles)
 
