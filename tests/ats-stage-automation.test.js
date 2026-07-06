@@ -352,41 +352,9 @@ describe('reconcileAtsStageAfterStatusSync (the per-row step syncZohoRecruitAppl
   });
 });
 
-// ── Zoho status sync: never downgrade a locally secured placement (F4) ──────
-describe('syncZohoRecruitApplicationStatuses — downgrade guard', () => {
-  it('applies a normal forward status but SKIPS a row whose local status is placement-secured', async () => {
-    const synced = await testUtils.syncZohoRecruitApplicationStatuses({
-      accessToken: 'test-zoho-token',
-      apiDomain: ZOHO_API_BASE,
-      connection: {}
-    });
-
-    // Normal row: live 'Interview Scheduled' lands (status patched + kanban pulled forward).
-    expect(synced).toBe(1);
-    const okApp = appRow('app-zsync-ok');
-    expect(okApp.status).toBe('interview_scheduled');
-    expect(okApp.ats_stage).toBe('interview');
-
-    // Secured row: live Zoho still shows the stale pre-offer status — the sync
-    // must NOT downgrade the status, NOT rebuild the placement, and NOT touch
-    // gp_career_state (the in-app acceptance owns this placement).
-    const secApp = appRow('app-zsync-sec');
-    expect(secApp.status).toBe('placement_secured');
-    expect(secApp.ats_stage).toBe('hired');
-    const stateAfter = db.user_state.find((s) => s.user_id === GP2.userId).state;
-    expect(stateAfter.gp_career_state).toBeUndefined();
-  });
-
-  it('re-running the sync is idempotent for both rows', async () => {
-    const synced = await testUtils.syncZohoRecruitApplicationStatuses({
-      accessToken: 'test-zoho-token',
-      apiDomain: ZOHO_API_BASE,
-      connection: {}
-    });
-    expect(synced).toBe(0); // ok-row now matches live; secured row still skipped
-    expect(appRow('app-zsync-sec').status).toBe('placement_secured');
-  });
-});
+// Zoho Recruit decommissioned — the syncZohoRecruitApplicationStatuses
+// downgrade-guard tests were removed with the function. reconcileAtsStageAfterStatusSync
+// (the per-row step it used) is still covered above.
 
 // ── Manual kanban moves (PATCH /api/ats/application) ────────────────────────
 describe('PATCH /api/ats/application notifier', () => {

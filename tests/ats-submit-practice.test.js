@@ -471,63 +471,30 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
   });
 });
 
-describe('Zoho branch preserved (ids + connection present)', () => {
-  it('routes to Zoho — token endpoint hit, 503 kept, in-app email branch does NOT fire', async () => {
-    // Seed a connection row: from here on "a Zoho connection exists".
+// Zoho Recruit is decommissioned — the old Zoho submit branch (and its
+// connection-read 503 guard, F5) is gone. Every application, including legacy
+// ones that still carry zoho ids, now takes the in-app email branch.
+describe('legacy Zoho-id applications now submit in-app (post-decommission)', () => {
+  it('an app WITH zoho ids takes the in-app email branch even if a legacy connection row exists', async () => {
     db.integration_connections.push({
       id: 'conn-1', provider: 'zoho_recruit', status: 'connected',
       refresh_token: 'rt-test-1', accounts_server: 'https://accounts.zoho.com',
       api_domain: 'https://www.zohoapis.com', scopes: [], metadata: {}, updated_at: NOW
     });
-    const beforeEmails = resendCalls.length;
+    const before = resendCalls.length;
     try {
       const r = await submitApp('app-3');
-      // The connection exists but can't refresh → current-code 503 behaviour.
-      expect(r.status).toBe(503);
-      expect(r.body.message).toBe('Zoho Recruit is not connected.');
-      // Proof the Zoho branch (not the email branch) ran: the token endpoint
-      // was called, no practice email went out, nothing was patched.
-      expect(zohoTokenCalls.length).toBeGreaterThan(0);
-      expect(resendCalls.length).toBe(beforeEmails);
+      expect(r.status).toBe(200);
+      expect(r.body.submission_mode).toBe('in_app_email');
+      expect(resendCalls.length - before).toBe(1);
       const app = db.gp_applications.find((a) => a.id === 'app-3');
-      expect(app.practice_submission_status).toBeUndefined();
-      expect(app.ats_stage).toBe('applied');
+      expect(app.practice_submission_status).toBe('submitted_to_practice');
     } finally {
-      db.integration_connections.length = 0; // disconnect again for any later tests
-    }
-  }, 30000); // token refresh retries back off ~3s before the 503
-
-  it('with the connection row gone, the same Zoho-id app takes the in-app branch', async () => {
-    const before = resendCalls.length;
-    const r = await submitApp('app-3');
-    expect(r.status).toBe(200);
-    expect(r.body.submission_mode).toBe('in_app_email');
-    expect(resendCalls.length - before).toBe(1);
-    const app = db.gp_applications.find((a) => a.id === 'app-3');
-    expect(app.practice_submission_status).toBe('submitted_to_practice');
-  });
-});
-
-describe('connection-read failure ≠ disconnected (F5)', () => {
-  it('a transient integration_connections read error → retryable 503, no email, no writes', async () => {
-    simulateConnReadFailure = true;
-    const before = resendCalls.length;
-    try {
-      const r = await submitApp('app-7');
-      expect(r.status).toBe(503);
-      expect(r.body.ok).toBe(false);
-      expect(String(r.body.message)).toContain("Couldn't confirm the Zoho Recruit connection");
-      // Nothing sent, nothing patched — the submit stays fully retryable.
-      expect(resendCalls.length).toBe(before);
-      const app = db.gp_applications.find((a) => a.id === 'app-7');
-      expect(app.practice_submission_status).toBeUndefined();
-      expect(app.ats_stage).toBe('applied');
-    } finally {
-      simulateConnReadFailure = false;
+      db.integration_connections.length = 0;
     }
   });
 
-  it('once the read succeeds again (genuine no-row disconnect), the same app submits in-app', async () => {
+  it('an app WITH zoho ids and no connection row also submits in-app', async () => {
     const before = resendCalls.length;
     const r = await submitApp('app-7');
     expect(r.status).toBe(200);

@@ -359,29 +359,11 @@ describe('PATCH /api/ats/application — dragging into the Offer lane is silent 
   });
 });
 
-describe('POST /api/ats/offer — Zoho-managed applications (F4)', () => {
-  it('409s while a Zoho Recruit connection exists (offer must be run in Zoho)', async () => {
-    db.integration_connections.push({
-      id: 'conn-1', provider: 'zoho_recruit', status: 'connected',
-      refresh_token: 'rt-test-1', accounts_server: 'https://accounts.zoho.com',
-      api_domain: 'https://www.zohoapis.com', scopes: [], metadata: {}, updated_at: NOW
-    });
-    const before = resendCalls.length;
-    try {
-      const r = await atsPost('/api/ats/offer', { application_id: 'app-z1', billing_split: '70 / 30' });
-      expect(r.status).toBe(409);
-      expect(r.body.ok).toBe(false);
-      expect(r.body.code).toBe('zoho_managed');
-      expect(String(r.body.message)).toContain('managed in Zoho Recruit');
-      // Nothing saved, nothing sent.
-      expect(db.ats_offers.find((o) => o.application_id === 'app-z1')).toBeUndefined();
-      expect(resendCalls.length).toBe(before);
-    } finally {
-      db.integration_connections.length = 0;
-    }
-  });
-
-  it('with Zoho DISCONNECTED (no connection row), a legacy Zoho app may receive an in-app offer', async () => {
+describe('POST /api/ats/offer — legacy Zoho-imported applications (post-decommission)', () => {
+  // Zoho Recruit is decommissioned — the old "block offers while a Zoho
+  // connection exists" guard (F4) is gone. Legacy Zoho-imported apps now always
+  // take in-app offers.
+  it('a legacy Zoho app may receive an in-app offer', async () => {
     const before = resendCalls.length;
     const r = await atsPost('/api/ats/offer', { application_id: 'app-z1', billing_split: '70 / 30', sessions_per_week: '7' });
     expect(r.status).toBe(200);
