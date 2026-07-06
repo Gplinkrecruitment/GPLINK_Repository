@@ -103,6 +103,9 @@ const parse = (raw) => { try { return JSON.parse(raw); } catch { return null; } 
 // Seeded application ids used across the pipeline + extend tests below.
 const MATCHED_ACTIVE_ID = 'ms-active';   // shortlisted, matched, still within its 5-day window
 const MATCHED_EXPIRED_ID = 'ms-expired'; // shortlisted, matched, window already elapsed + outcome:'expired'
+const MATCHED_SWEPT_ID = 'ms-swept';     // not_proceeding + outcome:'expired' (lifecycle-swept) — the legit reopen case
+const MATCHED_HIRED_ID = 'ms-hired';     // matched but already progressed to hired — extend must be rejected
+const MATCHED_INTERVIEW_ID = 'ms-interview'; // matched but already progressed to interview — extend must be rejected
 
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
@@ -139,6 +142,31 @@ beforeAll(async () => {
       match_expires_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       match_seen_at: nowIso, match_outcome: 'expired', match_score: 72,
       match_reasons: { reasons: ['Strong AHPRA alignment'], _history: [{ outcome: 'declined', decline_reason: null, at: nowIso }] }
+    },
+    // Review-fix fixtures for the extend stage gate:
+    {
+      id: MATCHED_SWEPT_ID, name: 'Dr Swept Match', country: 'Ireland', career_role_id: 'j1',
+      ats_stage: 'not_proceeding', email: 'swept-match@example.com', ats_notes: '',
+      matched_by: 'admin@gplink-test.local', matched_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      match_expires_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      match_seen_at: null, match_outcome: 'expired', match_score: 61,
+      match_reasons: { reasons: ['Regional experience'], _history: [] }
+    },
+    {
+      id: MATCHED_HIRED_ID, name: 'Dr Hired Match', country: 'United Kingdom', career_role_id: 'j1',
+      ats_stage: 'hired', email: 'hired-match@example.com', ats_notes: '',
+      matched_by: 'admin@gplink-test.local', matched_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+      match_expires_at: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+      match_seen_at: nowIso, match_outcome: 'accepted', match_score: 88,
+      match_reasons: { reasons: ['Great fit'], _history: [] }
+    },
+    {
+      id: MATCHED_INTERVIEW_ID, name: 'Dr Interview Match', country: 'New Zealand', career_role_id: 'j1',
+      ats_stage: 'interview', email: 'interview-match@example.com', ats_notes: '',
+      matched_by: 'admin@gplink-test.local', matched_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      match_expires_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      match_seen_at: nowIso, match_outcome: 'accepted', match_score: 79,
+      match_reasons: { reasons: ['Visa pathway aligned'], _history: [] }
     }
   );
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
@@ -219,6 +247,43 @@ describe('PATCH /api/ats/application {match_extend:true}', () => {
     expect(r.status).toBe(400);
     const b = parse(r.raw);
     expect(b.ok).toBe(false);
+  });
+
+  it('allows extend on a lifecycle-swept row (not_proceeding + outcome expired) and moves it back to shortlisted', async () => {
+    const r = await req('PATCH', '/api/ats/application?id=' + MATCHED_SWEPT_ID, { host: SUPER_HOST, cookie: superCookie(), body: { match_extend: true } });
+    expect(r.status).toBe(200);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    expect(b.application.ats_stage).toBe('shortlisted');
+    expect(b.application.match_outcome).toBe(null);
+
+    // Persisted: the card is now in the Shortlist column, not not_proceeding.
+    const after = await req('GET', '/api/ats/job/pipeline?id=j1', { host: SUPER_HOST, cookie: superCookie() });
+    const cols = parse(after.raw).columns;
+    expect(cols.find((c) => c.key === 'shortlisted').cards.some((c) => c.id === MATCHED_SWEPT_ID)).toBe(true);
+    expect(cols.find((c) => c.key === 'not_proceeding').cards.some((c) => c.id === MATCHED_SWEPT_ID)).toBe(false);
+  });
+
+  it('rejects extend on a matched row that already progressed to hired (fail-closed stage gate)', async () => {
+    const r = await req('PATCH', '/api/ats/application?id=' + MATCHED_HIRED_ID, { host: SUPER_HOST, cookie: superCookie(), body: { match_extend: true } });
+    expect(r.status).toBe(400);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(false);
+    expect(b.error).toBe('invalid_stage_for_extend');
+
+    // The row is untouched — still hired, outcome intact.
+    const after = await req('GET', '/api/ats/job/pipeline?id=j1', { host: SUPER_HOST, cookie: superCookie() });
+    const hired = parse(after.raw).columns.find((c) => c.key === 'hired').cards.find((c) => c.id === MATCHED_HIRED_ID);
+    expect(hired).toBeTruthy();
+    expect(hired.match_outcome).toBe('accepted');
+  });
+
+  it('rejects extend on a matched row that already progressed to interview', async () => {
+    const r = await req('PATCH', '/api/ats/application?id=' + MATCHED_INTERVIEW_ID, { host: SUPER_HOST, cookie: superCookie(), body: { match_extend: true } });
+    expect(r.status).toBe(400);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(false);
+    expect(b.error).toBe('invalid_stage_for_extend');
   });
 
   it('404s match_extend on an unknown application id', async () => {

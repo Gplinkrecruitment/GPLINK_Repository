@@ -48800,7 +48800,21 @@ Return ONLY valid JSON with no markdown formatting:
       }
       if (!meRow) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
       if (!meRow.matched_at) { sendJson(res, 400, { ok: false, message: 'This application was never matched — nothing to extend.' }); return; }
+      // Fail-closed stage gate (review fix): only the two legitimate extend
+      // cases are allowed — a still-waiting 'shortlisted' row, or one the
+      // lifecycle sweep already expired out to not_proceeding
+      // (match_outcome='expired'). An application that progressed
+      // (interview/offer/hired/…) or was closed for any other reason must
+      // never be yanked back to 'shortlisted' by a stale UI or a direct API
+      // call — the server never trusts the client here, same as every other
+      // gate in this codebase.
       var mePrevStage = meRow.ats_stage || '';
+      var meExtendable = (mePrevStage === 'shortlisted')
+        || (mePrevStage === 'not_proceeding' && meRow.match_outcome === 'expired');
+      if (!meExtendable) {
+        sendJson(res, 400, { ok: false, error: 'invalid_stage_for_extend', message: 'Only a shortlisted or expired match can be extended.' });
+        return;
+      }
       var meNowIso = atsNowIso();
       var mePatch = {
         match_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
