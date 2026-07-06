@@ -6501,7 +6501,7 @@ async function getCareerProfileDocument(userId, key) {
     'user_documents',
     'select=*&user_id=eq.' + encodeURIComponent(userId) +
       '&document_key=eq.' + encodeURIComponent(key) +
-      '&status=eq.uploaded&order=updated_at.desc&limit=1'
+      '&status=in.(uploaded,approved)&order=updated_at.desc&limit=1'
   );
   return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
 }
@@ -30826,12 +30826,14 @@ async function handleApi(req, res, pathname) {
     // AI-verified careers CV (document_key 'career_cv', Task 3) FIRST — it can
     // only ever be a genuine CV because it was AI-checked at upload — with a
     // legacy fallback to the registration-file 'cv_signed_dated' document
-    // ONLY when status='uploaded'. Before this fix the legacy query had no
-    // status filter at all, so a REJECTED cv_signed_dated row (e.g. a
-    // contract mistakenly filed under that key) could be the most-recently
-    // updated row and still get emailed out as the candidate's "CV". If
-    // there's no CV row or the file can't be fetched, the email still goes
-    // out without the attachment and says the CV will follow.
+    // ONLY when status is 'uploaded' or 'approved'. Before this fix the
+    // legacy query had no status filter at all, so a REJECTED cv_signed_dated
+    // row (e.g. a contract mistakenly filed under that key) could be the
+    // most-recently updated row and still get emailed out as the candidate's
+    // "CV". Approved docs (reviewed and accepted by admin/RSO) are good docs
+    // and must not be excluded. If there's no CV row or the file can't be
+    // fetched, the email still goes out without the attachment and says the
+    // CV will follow.
     let inAppCvRow = null;
     let inAppCvBuffer = null;
     let inAppCvAttachment = null;
@@ -30839,7 +30841,7 @@ async function handleApi(req, res, pathname) {
       inAppCvRow = await getCareerProfileDocument(appRow.user_id, 'career_cv');
       if (!inAppCvRow) {
         const inAppCvRes = await supabaseDbRequest('user_documents',
-          `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&status=eq.uploaded&order=updated_at.desc&limit=1`);
+          `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&status=in.(uploaded,approved)&order=updated_at.desc&limit=1`);
         inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
       }
       const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';

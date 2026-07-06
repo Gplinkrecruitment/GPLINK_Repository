@@ -314,3 +314,19 @@ describe('apply gate requires career_cv', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('career_cv approved status is not excluded from the gate', () => {
+  it('a GP whose career_cv was reviewed and approved (status=approved, not uploaded) still has cv non-null and gateRequired:false', async () => {
+    // Review/delivery flows PATCH user_documents.status to 'approved' after
+    // the CV was uploaded. getCareerProfileDocument must not exclude it —
+    // only rejected/superseded rows should be filtered out.
+    db.user_profiles.push({ user_id: 'u-gate-approved', email: 'gate-approved@example.com', registration_country: 'uk' });
+    db.user_state.push({ user_id: 'u-gate-approved', state: { gp_onboarding_complete: true } });
+    db.user_documents.push({ id: 'doc-approved-cv', user_id: 'u-gate-approved', document_key: 'career_cv', status: 'approved', country_code: 'uk', file_name: 'Approved-CV.pdf', updated_at: '2026-01-01T00:00:00Z' });
+    const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie('gate-approved@example.com', 'u-gate-approved') });
+    expect(res.status).toBe(200);
+    expect(res.body.cv).not.toBeNull();
+    expect(res.body.cv.fileName).toBe('Approved-CV.pdf');
+    expect(res.body.gateRequired).toBe(false);
+  });
+});

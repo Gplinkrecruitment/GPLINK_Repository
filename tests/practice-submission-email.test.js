@@ -28,12 +28,14 @@ const db = {
   user_profiles: [
     { user_id: 'u-1', email: 'smith@example.com', first_name: 'Smith', last_name: 'Miller', registration_country: 'uk' },
     { user_id: 'u-2', email: 'cover@example.com', first_name: 'Cover', last_name: 'Letter', registration_country: 'uk' },
-    { user_id: 'u-3', email: 'noai@example.com', first_name: 'Noai', last_name: 'Doctor', registration_country: 'uk' }
+    { user_id: 'u-3', email: 'noai@example.com', first_name: 'Noai', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: 'u-4', email: 'approved-legacy@example.com', first_name: 'Approved', last_name: 'Legacy', registration_country: 'uk' }
   ],
   user_state: [
     { user_id: 'u-1', state: { gp_onboarding: { country: 'uk', targetDate: '2026-11' } }, updated_at: NOW },
     { user_id: 'u-2', state: { gp_onboarding: { country: 'uk', targetDate: '2026-11' } }, updated_at: NOW },
-    { user_id: 'u-3', state: { gp_onboarding: { country: 'uk', targetDate: '2026-11' } }, updated_at: NOW }
+    { user_id: 'u-3', state: { gp_onboarding: { country: 'uk', targetDate: '2026-11' } }, updated_at: NOW },
+    { user_id: 'u-4', state: { gp_onboarding: { country: 'uk', targetDate: '2026-11' } }, updated_at: NOW }
   ],
   career_roles: [
     {
@@ -46,7 +48,8 @@ const db = {
   gp_applications: [
     { id: 'app-1', user_id: 'u-1', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW },
     { id: 'app-2', user_id: 'u-2', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW },
-    { id: 'app-3', user_id: 'u-3', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW }
+    { id: 'app-3', user_id: 'u-3', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW },
+    { id: 'app-4', user_id: 'u-4', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW }
   ],
   user_documents: [
     // u-1: rejected legacy doc is NEWER than the verified career_cv — proves
@@ -57,7 +60,12 @@ const db = {
     { id: 'doc-cv-2', user_id: 'u-2', document_key: 'career_cv', status: 'uploaded', file_name: 'Cover-Letter-Test-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-2/cv.pdf', mime_type: 'application/pdf', updated_at: NOW },
     { id: 'doc-cl-2', user_id: 'u-2', document_key: 'career_cover_letter', status: 'uploaded', file_name: 'Cover-Letter-Test-CL.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-2/cl.pdf', mime_type: 'application/pdf', updated_at: NOW },
     // u-3: career_cv only — used for the AI-unavailable scenario.
-    { id: 'doc-cv-3', user_id: 'u-3', document_key: 'career_cv', status: 'uploaded', file_name: 'Noai-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-3/cv.pdf', mime_type: 'application/pdf', updated_at: NOW }
+    { id: 'doc-cv-3', user_id: 'u-3', document_key: 'career_cv', status: 'uploaded', file_name: 'Noai-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-3/cv.pdf', mime_type: 'application/pdf', updated_at: NOW },
+    // u-4: no career_cv at all — only a legacy cv_signed_dated doc that a
+    // review/delivery flow has since PATCHed to status='approved'. Approved
+    // docs are good docs and must still be attached (only rejected/superseded
+    // legacy docs should be excluded).
+    { id: 'doc-legacy-4', user_id: 'u-4', document_key: 'cv_signed_dated', status: 'approved', file_name: 'Approved-Legacy-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'legacy/u-4/cv.pdf', mime_type: 'application/pdf', updated_at: NOW }
   ],
   registration_cases: [],
   registration_tasks: [],
@@ -72,7 +80,8 @@ const STORAGE_FILES = {
   'career/u-1/cv.pdf': CV_PDF,
   'career/u-2/cv.pdf': CV_PDF,
   'career/u-2/cl.pdf': CL_PDF,
-  'career/u-3/cv.pdf': CV_PDF
+  'career/u-3/cv.pdf': CV_PDF,
+  'legacy/u-4/cv.pdf': CV_PDF
 };
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
@@ -366,5 +375,15 @@ describe('POST submit-to-practice — verified-CV email rebuild', () => {
     } finally {
       aiMode = 'ok';
     }
+  });
+
+  it('attaches an approved legacy cv_signed_dated doc when there is no career_cv (approved is a good doc, not excluded like rejected)', async () => {
+    const before = resendCaptured.length;
+    const res = await submit('app-4');
+    expect(res.status).toBe(200);
+    const sent = resendCaptured[before];
+    expect(sent).toBeTruthy();
+    const names = (sent.attachments || []).map((a) => a.filename);
+    expect(names).toContain('Approved-Legacy-CV.pdf');
   });
 });
