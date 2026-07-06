@@ -27261,7 +27261,7 @@ async function handleApi(req, res, pathname) {
         body: { practice_submission_status: prTarget, practice_responded_at: prNowIso, practice_response_action: prAction, updated_at: prNowIso }
       });
       if (!prPatchRes.ok && (isMissingColumnInsertError(prPatchRes, 'practice_responded_at') || isMissingColumnInsertError(prPatchRes, 'practice_response_action'))) {
-        // Migration 20260706093000's audit columns missing — still record the
+        // Migration 20260706190000's audit columns missing — still record the
         // decision itself (the widened CHECK is part of the same migration,
         // so if THAT is missing this retry fails too and we fail loud below).
         prPatchRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(prVerified.applicationId), {
@@ -27270,7 +27270,7 @@ async function handleApi(req, res, pathname) {
         });
       }
       prSaved = !!prPatchRes.ok;
-      if (!prSaved) console.error('[practice-respond] persist failed (run migration 20260706093000?):', prPatchRes.status, JSON.stringify(prPatchRes.data || '').slice(0, 300));
+      if (!prSaved) console.error('[practice-respond] persist failed (run migration 20260706190000?):', prPatchRes.status, JSON.stringify(prPatchRes.data || '').slice(0, 300));
     } else {
       Object.assign(prApp, { practice_submission_status: prTarget, practice_responded_at: prNowIso, practice_response_action: prAction, updated_at: prNowIso });
       saveDbState();
