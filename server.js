@@ -26410,6 +26410,14 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
 // 'applied' rather than silently escaping the cap.
 var ACTIVE_APPLICATION_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
 var ACTIVE_APPLICATION_CAP = 3;
+
+// Withdraw-reason vocabulary for PATCH /api/ats/application's optional
+// `reason` on a move to not_proceeding — must stay in lockstep with the
+// client selects in js/ceo-ats-jobs.js + js/ceo-ats-candidates.js
+// (WITHDRAW_REASONS). Server-side whitelist (review fix): any value outside
+// this list is stored as null, protecting Task 8's exact-match
+// reason='gp_withdrew' strike query from free-text lookalikes.
+var ATS_WITHDRAW_REASON_VALUES = ['gp_withdrew', 'practice_passed', 'unresponsive', 'other'];
 async function countActiveApplications(userId) {
   var caaRes = await supabaseDbRequest('gp_applications',
     'select=ats_stage,status,practice_submission_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
@@ -33237,7 +33245,42 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    // AI Matching (Task 7 review fix): the rate limiter must stay the FIRST
+    // gate (a burst of garbage applies must never drive the ~8 DB-hitting
+    // gates below unthrottled, exactly like main) — but accepting a live team
+    // match must never count against it. ONE cheap precheck decides which:
+    // userId strictly from the session (no DB — real GP sessions carry
+    // supabaseUserId from login), roleId parsed purely, then a single bounded
+    // single-row lookup on gp_applications' UNIQUE(user_id, provider_role_id)
+    // pair for a live 'shortlisted' row. Found → this is a match-accept (or a
+    // stale-match 410) — skip the limiter; not found (or no session userId) →
+    // the limiter runs BEFORE every other gate, same as main. The full
+    // existing-application branch further down remains the authoritative
+    // accept/expired handler — this precheck ONLY picks the limiter path.
+    const preSessionUserId = getSessionSupabaseUserId(session);
+    const preParsedRoleId = parseCareerRolePublicId(roleId); // pure, no DB
+    let applyIsMatchAccept = false;
+    if (preSessionUserId && preParsedRoleId) {
+      const preRes = await supabaseDbRequest(
+        'gp_applications',
+        `select=id&user_id=eq.${encodeURIComponent(preSessionUserId)}&provider_role_id=eq.${encodeURIComponent(preParsedRoleId.providerRoleId)}&ats_stage=eq.shortlisted&limit=1`
+      );
+      applyIsMatchAccept = !!(preRes.ok && Array.isArray(preRes.data) && preRes.data.length > 0);
+    }
+    if (!applyIsMatchAccept) {
+      // Per-user rate limiting — verbatim main behavior, first real gate.
+      const rateLimitUserId = preSessionUserId || email;
+      const now = Date.now();
+      const timestamps = (_applyRateLimitStore.get(rateLimitUserId) || []).filter((ts) => now - ts < APPLY_RATE_WINDOW_MS);
+      if (timestamps.length >= APPLY_RATE_MAX) {
+        sendJson(res, 429, { ok: false, message: 'Too many applications. Please try again later.' });
+        return;
+      }
+      timestamps.push(now);
+      _applyRateLimitStore.set(rateLimitUserId, timestamps);
+    }
+
+    const userId = preSessionUserId || await getSupabaseUserIdByEmail(email);
     if (!userId) {
       sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' });
       return;
@@ -33379,7 +33422,8 @@ async function handleApi(req, res, pathname) {
     // AI Matching (Task 7): active-application cap — only reached for a
     // genuinely NEW application (no existing row on this exact role at all;
     // accepting a match above already returned). 4th active application →
-    // blocked, per spec §9.
+    // blocked, per spec §9. (The per-user rate limiter already ran as the
+    // FIRST gate at the top of this handler — review fix.)
     const activeApplicationCount = await countActiveApplications(userId);
     if (activeApplicationCount >= ACTIVE_APPLICATION_CAP) {
       sendJson(res, 409, {
@@ -33388,19 +33432,6 @@ async function handleApi(req, res, pathname) {
       });
       return;
     }
-
-    // Per-user rate limiting — moved here (from the top of this handler) so
-    // accepting a match above never counts against it; only genuinely new
-    // applications reach this point.
-    const rateLimitUserId = getSessionSupabaseUserId(session) || email;
-    const now = Date.now();
-    const timestamps = (_applyRateLimitStore.get(rateLimitUserId) || []).filter((ts) => now - ts < APPLY_RATE_WINDOW_MS);
-    if (timestamps.length >= APPLY_RATE_MAX) {
-      sendJson(res, 429, { ok: false, message: 'Too many applications. Please try again later.' });
-      return;
-    }
-    timestamps.push(now);
-    _applyRateLimitStore.set(rateLimitUserId, timestamps);
 
     // Zoho Recruit decommissioned — no external application is created; the
     // in-app gp_applications row below is the system of record.
@@ -53449,8 +53480,13 @@ Return ONLY valid JSON with no markdown formatting:
     // move INTO not_proceeding (the client's withdraw-reason prompt only ever
     // sends it there); stored on the stage event as the strike-source data
     // Task 8 reads (a 'gp_withdrew' reason on a submitted+ -> not_proceeding
-    // event is a late-withdrawal strike).
-    var apWithdrawReason = (newStage === 'not_proceeding' && typeof bodyAP.reason === 'string') ? bodyAP.reason.trim().slice(0, 200) : null;
+    // event is a late-withdrawal strike). Review fix: whitelisted server-side
+    // to the exact vocabulary the client select offers — anything else is
+    // silently dropped to null (never a 400; the stage move itself is fine),
+    // so Task 8's exact-match reason='gp_withdrew' query can never be diluted
+    // by free-text lookalikes ("GP Withdrew", "gp_withdrew ", etc.).
+    var apReasonRaw = typeof bodyAP.reason === 'string' ? bodyAP.reason.trim() : '';
+    var apWithdrawReason = (newStage === 'not_proceeding' && ATS_WITHDRAW_REASON_VALUES.indexOf(apReasonRaw) !== -1) ? apReasonRaw : null;
     var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '', apWithdrawReason);
     var updatedAP = upAP ? upAP.row : null;
     if (!updatedAP && newStage) {
@@ -54041,10 +54077,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (!bkCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
     // AI Matching (Task 7): interview cap — same 3/month merged count as the
-    // GP-facing booking endpoint (below), so staff can't accidentally over-
-    // book a GP who's already at their monthly limit. Human-readable message
-    // for the ATS drawer's error toast.
-    var bkMonthWindow = currentInterviewMonthWindow(bkNow);
+    // GP-facing booking endpoint, so staff can't accidentally over-book a GP
+    // who's already at their monthly limit. Human-readable message for the
+    // ATS drawer's error toast. Review fix: the month window comes from the
+    // REAL clock, never from bodyBK.now — that body field is a pre-existing
+    // slot-math test-determinism hook (bkNow, used by _bookInterviewSlot
+    // below, unchanged), and letting it pick the cap window would make the
+    // cap spoofable by any client that posts a synthetic `now`.
+    var bkMonthWindow = currentInterviewMonthWindow(new Date());
     var bkInterviewCount = await countMonthlyCareerInterviews(bkCtx.userId, bkMonthWindow.start, bkMonthWindow.end);
     if (bkInterviewCount >= INTERVIEW_MONTHLY_CAP) {
       var bkResetsLabel = bkMonthWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
@@ -55865,6 +55905,7 @@ module.exports.__testUtils = {
   countActiveApplications,
   ACTIVE_APPLICATION_CAP,
   ACTIVE_APPLICATION_STAGES,
+  ATS_WITHDRAW_REASON_VALUES,
   countMonthlyCareerInterviews,
   currentInterviewMonthWindow,
   INTERVIEW_MONTHLY_CAP,

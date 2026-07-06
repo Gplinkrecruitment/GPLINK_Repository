@@ -54,7 +54,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(gpFnSrc).toContain('countMonthlyCareerInterviews(cbUserId');
 
     const atsIdx = serverSrc.indexOf("pathname === '/api/ats/interview/book'");
-    const atsFnSrc = serverSrc.slice(atsIdx, atsIdx + 3000);
+    const atsFnSrc = serverSrc.slice(atsIdx, atsIdx + 3600);
     expect(atsFnSrc).toContain("error: 'interview_cap'");
     expect(atsFnSrc).toContain('countMonthlyCareerInterviews(bkCtx.userId');
     expect(atsFnSrc).toMatch(/This GP has used all 3 interviews this month/);
@@ -77,24 +77,37 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(serverSrc.indexOf('await acceptShortlistedMatchRow(existingAppRow, userId, email, profile)', applyIdx)).toBeGreaterThan(applyIdx);
   });
 
-  it('POST /api/career/apply self-apply-as-accept branch is reached BEFORE the active cap and the rate limiter, both scoped to genuinely-new applies', () => {
+  it('POST /api/career/apply: the rate limiter is the FIRST gate (review fix), guarded only by the one-bounded-query match precheck', () => {
     const idx = serverSrc.indexOf("pathname === '/api/career/apply'");
+    // Precheck: session-only userId (no DB), pure roleId parse, single
+    // bounded gp_applications lookup on the UNIQUE(user_id, provider_role_id)
+    // pair for a live shortlisted row — then the limiter, gated on it.
+    const precheckIdx = serverSrc.indexOf('const preSessionUserId = getSessionSupabaseUserId(session);', idx);
+    const precheckQueryIdx = serverSrc.indexOf('&ats_stage=eq.shortlisted&limit=1', idx);
+    const rateIdx = serverSrc.indexOf('const rateLimitUserId = preSessionUserId || email;', idx);
+    expect(precheckIdx).toBeGreaterThan(idx);
+    expect(precheckQueryIdx).toBeGreaterThan(precheckIdx);
+    expect(rateIdx).toBeGreaterThan(precheckQueryIdx);
+    expect(serverSrc.slice(idx, rateIdx)).toContain('if (!applyIsMatchAccept) {');
+    // The limiter runs BEFORE every other DB-hitting gate: onboarding state,
+    // CV, and the role lookup all come after it.
+    const onboardingIdx = serverSrc.indexOf('getSupabaseUserStateByEmail(email)', idx);
+    const cvIdx = serverSrc.indexOf("getCareerProfileDocument(userId, 'career_cv')", idx);
+    const roleIdx = serverSrc.indexOf('getCareerRoleRow(parsedRoleId.provider', idx);
+    expect(rateIdx).toBeLessThan(onboardingIdx);
+    expect(rateIdx).toBeLessThan(cvIdx);
+    expect(rateIdx).toBeLessThan(roleIdx);
+    // The self-apply-as-accept branch still precedes the active cap.
     const existingIdx = serverSrc.indexOf('const existingAppRow =', idx);
-    const capIdx = serverSrc.indexOf('const activeApplicationCount = await countActiveApplications(userId);', idx);
-    const rateIdx = serverSrc.indexOf('const rateLimitUserId = getSessionSupabaseUserId(session) || email;', idx);
-    expect(existingIdx).toBeGreaterThan(idx);
-    expect(capIdx).toBeGreaterThan(existingIdx);
-    expect(rateIdx).toBeGreaterThan(capIdx);
-    // The self-apply-as-accept branch returns before either the cap or the
-    // rate limiter block: it lives INSIDE the existingAppRow `if` block.
     const acceptIdx = serverSrc.indexOf("existingAppRow.ats_stage === 'shortlisted'", idx);
+    const capIdx = serverSrc.indexOf('const activeApplicationCount = await countActiveApplications(userId);', idx);
     expect(acceptIdx).toBeGreaterThan(existingIdx);
     expect(acceptIdx).toBeLessThan(capIdx);
   });
 
   it('a still-shortlisted-but-expired match self-applied returns the same 410-equivalent expired hint as /match/respond', () => {
     const idx = serverSrc.indexOf("pathname === '/api/career/apply'");
-    const fnSrc = serverSrc.slice(idx, idx + 6000);
+    const fnSrc = serverSrc.slice(idx, idx + 9000);
     expect(fnSrc).toContain('matchIsExpired');
     expect(fnSrc).toMatch(/sendJson\(res, 410, \{\s*ok: false, expired: true,/);
   });
@@ -143,10 +156,33 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).toContain('if (reason) ev.reason = String(reason).trim().slice(0, 200);');
   });
 
-  it('PATCH /api/ats/application only accepts a reason on a move INTO not_proceeding', () => {
+  it('PATCH /api/ats/application only accepts a WHITELISTED reason on a move INTO not_proceeding (review fix)', () => {
+    expect(serverSrc).toContain("var ATS_WITHDRAW_REASON_VALUES = ['gp_withdrew', 'practice_passed', 'unresponsive', 'other'];");
+    expect(serverSrc).toContain('ATS_WITHDRAW_REASON_VALUES,'); // exported for tests
     const idx = serverSrc.indexOf("pathname === '/api/ats/application' && req.method === 'PATCH'");
-    const fnSrc = serverSrc.slice(idx, idx + 4700);
-    expect(fnSrc).toContain("newStage === 'not_proceeding' && typeof bodyAP.reason === 'string'");
+    const fnSrc = serverSrc.slice(idx, idx + 5400);
+    expect(fnSrc).toContain("newStage === 'not_proceeding' && ATS_WITHDRAW_REASON_VALUES.indexOf(apReasonRaw) !== -1");
+  });
+
+  it('ATS book cap window comes from the REAL clock, never the bodyBK.now slot-math hook (review fix)', () => {
+    const idx = serverSrc.indexOf("pathname === '/api/ats/interview/book'");
+    const fnSrc = serverSrc.slice(idx, idx + 3200);
+    expect(fnSrc).toContain('currentInterviewMonthWindow(new Date())');
+    expect(fnSrc).not.toContain('currentInterviewMonthWindow(bkNow)');
+    // The pre-existing slot-math determinism hook is untouched.
+    expect(fnSrc).toContain('_bookInterviewSlot(bkRow, bkCtx, bkSlotStart, bkNow.getTime()');
+  });
+
+  it('js/ceo-ats-candidates.js: the per-application stage select gets the same withdraw-reason prompt (review fix)', () => {
+    expect(candidatesSrc).toContain("{ value: 'gp_withdrew', label: 'GP withdrew after submission' }");
+    expect(candidatesSrc).toMatch(/function stageNeedsWithdrawReason/);
+    expect(candidatesSrc).toMatch(/function openWithdrawReasonPrompt/);
+    // Select carries the FROM stage; the change handler gates on it, sends
+    // the reason with the PATCH, and Cancel reverts the select (no PATCH).
+    expect(candidatesSrc).toContain('data-stage-was="');
+    expect(candidatesSrc).toContain("newStage === 'not_proceeding' && stageNeedsWithdrawReason(stageWas)");
+    expect(candidatesSrc).toContain('if (reason) body.reason = reason;');
+    expect(candidatesSrc).toContain('sel.value = stageWas;');
   });
 
   it('job.html has the deliberate-apply confirm sheet with the verbatim cap note + a meter line', () => {
@@ -194,6 +230,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260707[a-z]"><\/script>/);
     expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-jobs\.js\?v=20260707[a-z]"><\/script>/);
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707f'); // pre-Task-7 pin superseded
+    expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707g'); // pre-review-fix pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-jobs.js?v=20260707e'); // pre-Task-7 pin superseded
   });
 });
@@ -250,6 +287,11 @@ const db = {
   scheduled_calls: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+// Which tables the app READ (GET), in order — used to prove the rate limiter
+// fires before any of the apply gates' DB reads. Tests truncate it
+// (dbReadLog.length = 0) right before the request they want to inspect.
+const dbReadLog = [];
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
@@ -327,6 +369,9 @@ function startSupabaseEmulator() {
       const matches = buildMatcher(u.searchParams);
 
       if (req.method === 'GET') {
+        // Read log for the rate-limiter-is-first assertions: which tables
+        // the app read, in order. Reset by tests before targeted requests.
+        dbReadLog.push(decodeURIComponent(m[1]));
         let out = rows.filter(matches);
         const limit = parseInt(u.searchParams.get('limit') || '', 10);
         if (Number.isFinite(limit)) out = out.slice(0, limit);
@@ -546,6 +591,29 @@ describe('Self-apply-as-accept (spec §7)', () => {
     }
   });
 
+  it('review fix: a burst of garbage applies hits 429 as a rate-limit (not role_not_found), with ONLY the bounded precheck read', async () => {
+    const GP = { userId: 'u-burst-1', email: 'burst1@gplink-test.local' };
+    seedGp(GP.userId, GP.email);
+    // 10 applies to NONEXISTENT roles — each passes the limiter (consuming a
+    // slot) and then 404s at the role lookup, exactly like main.
+    for (let i = 1; i <= 10; i++) {
+      const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:garbage_' + i } });
+      expect(res.status).toBe(404);
+      expect(res.body.message).toMatch(/Role not found/i);
+    }
+    // Let any stray fire-and-forget reads from earlier tests settle, then
+    // inspect exactly what the 11th (throttled) request reads.
+    await new Promise((r) => setTimeout(r, 100));
+    dbReadLog.length = 0;
+    const throttled = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:garbage_11' } });
+    expect(throttled.status).toBe(429);
+    expect(throttled.body.message).toMatch(/Too many applications/i);
+    // Zero unthrottled gate reads: the ONLY read is the single bounded
+    // gp_applications precheck — never career_roles / user_state /
+    // user_profiles / user_documents.
+    expect(dbReadLog).toEqual(['gp_applications']);
+  });
+
   it('a still-shortlisted-but-past-expiry row (cron has not swept it yet) returns the expired hint, not an accept', async () => {
     const GP = { userId: 'u-expired-1', email: 'expired1@gplink-test.local' };
     seedGp(GP.userId, GP.email);
@@ -684,6 +752,37 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     const atsScRow = db.scheduled_calls.find((r) => r.id === 'sc-ivcap-ats');
     expect(atsScRow.status).toBe('invited');
   });
+
+  it("review fix: the ATS book cap ignores body.now — a spoofed next-month `now` can't dodge this month's cap", async () => {
+    const GP = { userId: 'u-ivcap-spoof-1', email: 'ivcap-spoof1@gplink-test.local' };
+    seedGp(GP.userId, GP.email);
+    const now = new Date();
+    // 3 interviews in the CURRENT REAL month → the GP is at cap right now.
+    const midMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 12, 9, 0, 0)).toISOString();
+    db.career_interviews.push(
+      { id: 'ci-spoof-1', user_id: GP.userId, status: 'scheduled', scheduled_at: midMonth },
+      { id: 'ci-spoof-2', user_id: GP.userId, status: 'confirmed', scheduled_at: midMonth },
+      { id: 'ci-spoof-3', user_id: GP.userId, status: 'completed', scheduled_at: midMonth }
+    );
+    seedRole('role-ivcap-spoof', 'ivcap_spoof');
+    db.gp_applications.push({
+      id: 'app-ivcap-spoof', user_id: GP.userId, career_role_id: 'role-ivcap-spoof', provider_role_id: 'ivcap_spoof',
+      status: 'applied', ats_stage: 'interview', job_title: 'General Practitioner — VR'
+    });
+    db.scheduled_calls.push({ id: 'sc-ivcap-spoof', user_id: GP.userId, application_id: 'app-ivcap-spoof', meeting_kind: 'interview', status: 'invited' });
+    // Spoof `now` into NEXT month — if the cap window (wrongly) followed
+    // bodyBK.now, the count would be 0 and the request would sail past the
+    // cap into the slot machinery instead of 409ing with interview_cap.
+    const spoofedNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 5, 9, 0, 0)).toISOString();
+    const res = await httpReq('POST', '/api/ats/interview/book', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { application_id: 'app-ivcap-spoof', slot_start_utc: new Date(Date.now() + 86400000).toISOString(), now: spoofedNow }
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('interview_cap');
+    const scRow = db.scheduled_calls.find((r) => r.id === 'sc-ivcap-spoof');
+    expect(scRow.status).toBe('invited'); // never booked
+  });
 });
 
 describe('Velocity flag (spec §9: 5+ applies/24h)', () => {
@@ -789,5 +888,44 @@ describe('Withdraw-reason stage events (Task 8 strike-source data)', () => {
     const event = db.ats_stage_events.find((e) => String(e.application_id) === 'app-wd-2' && e.to_stage === 'interview');
     expect(event).toBeTruthy();
     expect(event.reason == null).toBe(true);
+  });
+
+  it('review fix: a NON-whitelisted reason is silently dropped (stage move still succeeds, reason stored null)', async () => {
+    seedRole('role-wd-3', 'wd_3');
+    db.gp_applications.push({
+      id: 'app-wd-3', user_id: 'u-wd-3', career_role_id: 'role-wd-3', provider_role_id: 'wd_3',
+      status: 'submitted_to_practice', ats_stage: 'submitted', job_title: 'General Practitioner — VR'
+    });
+    // A free-text lookalike that would dilute Task 8's exact-match query.
+    const res = await httpReq('PATCH', '/api/ats/application?id=app-wd-3', {
+      host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason: 'GP Withdrew (chatty free text)' }
+    });
+    expect(res.status).toBe(200); // never a 400 — the move itself is fine
+    expect(res.body.ok).toBe(true);
+    const row = db.gp_applications.find((a) => a.id === 'app-wd-3');
+    expect(row.ats_stage).toBe('not_proceeding');
+    const event = db.ats_stage_events.find((e) => String(e.application_id) === 'app-wd-3' && e.to_stage === 'not_proceeding');
+    expect(event).toBeTruthy();
+    expect(event.reason == null).toBe(true);
+  });
+
+  it('review fix: every whitelisted reason value round-trips onto the event verbatim', async () => {
+    const { ATS_WITHDRAW_REASON_VALUES } = (await import('../server.js')).__testUtils;
+    expect(ATS_WITHDRAW_REASON_VALUES).toEqual(['gp_withdrew', 'practice_passed', 'unresponsive', 'other']);
+    for (let i = 0; i < ATS_WITHDRAW_REASON_VALUES.length; i++) {
+      const reason = ATS_WITHDRAW_REASON_VALUES[i];
+      const appId = 'app-wd-wl-' + i;
+      seedRole('role-wd-wl-' + i, 'wd_wl_' + i);
+      db.gp_applications.push({
+        id: appId, user_id: 'u-wd-wl-' + i, career_role_id: 'role-wd-wl-' + i, provider_role_id: 'wd_wl_' + i,
+        status: 'submitted_to_practice', ats_stage: 'reviewing', job_title: 'General Practitioner — VR'
+      });
+      const res = await httpReq('PATCH', '/api/ats/application?id=' + appId, {
+        host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason }
+      });
+      expect(res.status).toBe(200);
+      const event = db.ats_stage_events.find((e) => String(e.application_id) === appId && e.to_stage === 'not_proceeding');
+      expect(event && event.reason).toBe(reason);
+    }
   });
 });

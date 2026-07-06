@@ -57,6 +57,64 @@
     return s ? String(s) : '—';
   }
 
+  // AI Matching (Task 7 review fix, spec §9): late-withdrawal reason capture
+  // on THIS surface too — the candidate drawer's per-application stage
+  // <select> can move a card to not_proceeding just like the Jobs board, and
+  // without the same prompt Task 8's strike data would systematically miss
+  // withdrawals made from here. Same reason values, same PATCH `reason`
+  // field, same "submitted or later" trigger as js/ceo-ats-jobs.js.
+  var WITHDRAW_REASONS = [
+    { value: 'gp_withdrew', label: 'GP withdrew after submission' },
+    { value: 'practice_passed', label: 'Practice passed on the candidate' },
+    { value: 'unresponsive', label: 'Candidate went unresponsive' },
+    { value: 'other', label: 'Other' }
+  ];
+  function stageNeedsWithdrawReason(fromStageKey) {
+    var order = ATS_STAGE_OPTS.map(function (o) { return o[0]; });
+    var fromIdx = order.indexOf(fromStageKey);
+    var submittedIdx = order.indexOf('submitted');
+    // 'not_proceeding' itself is last in ATS_STAGE_OPTS but a no-op move
+    // (already there) never reaches this check via the change handler.
+    return fromIdx !== -1 && fromStageKey !== 'not_proceeding' && fromIdx >= submittedIdx;
+  }
+  // onProceed(reason) fires only on the confirm button (reason may be ''
+  // when skipped); Cancel/close calls onCancel — the caller reverts the
+  // select and never PATCHes.
+  function openWithdrawReasonPrompt(onProceed, onCancel) {
+    ATS.setOverlay(
+      '<div class="ats-modal-wrap open" id="ats-withdraw-wrap">' +
+        '<div class="ats-modal" style="max-width:420px">' +
+          '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="ats-withdraw-close">×</button></div>' +
+          '<div class="ats-modal-body">' +
+            '<label>Reason (optional — helps track patterns)</label>' +
+            '<select id="ats-withdraw-reason"><option value="">— No reason (skip) —</option>' +
+              WITHDRAW_REASONS.map(function (r) { return '<option value="' + r.value + '">' + ATS.esc(r.label) + '</option>'; }).join('') +
+            '</select>' +
+          '</div>' +
+          '<div class="ats-modal-foot">' +
+            '<button class="ats-btn ats-btn-ghost" id="ats-withdraw-cancel">Cancel</button>' +
+            '<button class="ats-btn ats-btn-primary" id="ats-withdraw-save">Move to Not Proceeding</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>');
+    var root = document.getElementById('atsOverlayRoot');
+    if (!root) { if (onCancel) onCancel(); return; }
+    function close() { ATS.setOverlay(''); }
+    function cancel() { close(); if (onCancel) onCancel(); }
+    var closeBtn = root.querySelector('#ats-withdraw-close');
+    var cancelBtn = root.querySelector('#ats-withdraw-cancel');
+    var wrap = root.querySelector('#ats-withdraw-wrap');
+    if (closeBtn) closeBtn.addEventListener('click', cancel);
+    if (cancelBtn) cancelBtn.addEventListener('click', cancel);
+    if (wrap) wrap.addEventListener('click', function (e) { if (e.target === wrap) cancel(); });
+    var save = root.querySelector('#ats-withdraw-save');
+    if (save) save.addEventListener('click', function () {
+      var reason = (root.querySelector('#ats-withdraw-reason') || {}).value || '';
+      close();
+      onProceed(reason);
+    });
+  }
+
   // Total-pipeline funnel: colour per bucket key (labels come from the endpoint).
   var BUCKET_COLOR = {
     unassociated: 'var(--ats-dim)',
@@ -472,7 +530,10 @@
     var apps = c.apps || [];
     var appsHtml = apps.length ? apps.map(function (a) {
       var meta = atsStageMeta(a.ats_stage);
-      var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '">' +
+      // data-stage-was: the stage at render time — the withdraw-reason prompt
+      // (Task 7) needs the FROM stage to know a not_proceeding move is a
+      // post-submission withdrawal, and Cancel needs it to revert the select.
+      var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '" data-stage-was="' + ATS.escAttr(a.ats_stage || '') + '">' +
         ATS_STAGE_OPTS.map(function (o) {
           return '<option value="' + o[0] + '"' + (a.ats_stage === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
         }).join('') + '</select>';
@@ -1203,19 +1264,36 @@
       })(pickEls[pi]);
     }
     // delegated change: a per-application stage <select> moves the GP along the pipeline.
+    function commitAppStageMove(sel, appId, newStage, reason) {
+      sel.disabled = true;
+      var body = { stage: newStage };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
+        else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
+      });
+    }
     host.addEventListener('change', function (e) {
       var sel = e.target.closest ? e.target.closest('.ats-app-stage') : null;
       if (!sel) return;
       var appId = sel.getAttribute('data-app-id');
       if (!appId) return;
       var newStage = sel.value;
-      sel.disabled = true;
-      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: { stage: newStage } }).then(function (res) {
-        if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
-        else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
-        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
-      });
+      var stageWas = sel.getAttribute('data-stage-was') || '';
+      // AI Matching (Task 7 review fix): moving to not_proceeding from
+      // submitted or later prompts for the withdraw reason (same flow as the
+      // Jobs board); Cancel reverts the select and never PATCHes.
+      if (newStage === 'not_proceeding' && stageNeedsWithdrawReason(stageWas)) {
+        openWithdrawReasonPrompt(function (reason) {
+          commitAppStageMove(sel, appId, newStage, reason);
+        }, function () {
+          sel.value = stageWas;
+        });
+        return;
+      }
+      commitAppStageMove(sel, appId, newStage, null);
     });
   }
 
