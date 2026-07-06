@@ -24170,6 +24170,333 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor) {
   }
 }
 
+// ============================================================================
+// AI Matching (Task 4 of the 2026-07-06 implementation plan) — GP surfaces.
+// Helpers used by both the new /api/career/match/* routes (in handleApi,
+// below) AND (for the two shared-side-effect helpers) by POST /api/career/
+// apply, since accepting a match is spec'd as "self-apply on a matched job"
+// — identical downstream effects, just entered from a different door.
+// Declared at true top-level (NOT nested inside handleApi) so buildMatchEmailHtml
+// and sendMatchEmail can also be unit-tested directly via module.exports.__testUtils.
+// ============================================================================
+
+// Resolve the GP's assigned RSO (registration_cases.assigned_rso, falling back
+// to assigned_va — a uuid matched against the rso_team roster), defaulting to
+// the team's default RSO when unassigned/unresolved. Mirrors the "Guidance
+// officer" resolution already used by GET /api/career/offer (server.js ~29339).
+async function resolveAssignedRsoForCareerEmail(userId) {
+  try {
+    var assigned = null;
+    if (isSupabaseDbConfigured() && userId) {
+      var caseRes = await supabaseDbRequest('registration_cases', 'select=assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var caseRow = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+      assigned = caseRow ? (caseRow.assigned_rso || caseRow.assigned_va || null) : null;
+    }
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = assigned ? roster.find(function (r) { return String(r.user_id) === String(assigned); }) : null;
+    if (!rso) rso = roster.find(function (r) { return r.user_id === DEFAULT_RSO_USER_ID; }) || (roster.length ? roster[0] : null);
+    return rso || null;
+  } catch (e) { return null; }
+}
+
+// Minimal HTML-escape for the free-text fields (AI-written match reasons,
+// practice name, GP name) interpolated into the match email/popup/card. These
+// come from the ATS/AI pipeline rather than directly from the GP, but are
+// never trusted raw in HTML — a stray "&"/"<" in an AI-written reason must
+// never break the markup.
+function _matchEmailEsc(value) {
+  return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Only ever emit http(s) links — defends against a stray javascript:/data:
+// URL slipping into practices.website / intro_video_url / header_image_url.
+function _matchSafeUrl(value) {
+  var v = String(value || '').trim();
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function _matchWeekdayDateLabel(iso) {
+  try {
+    return new Intl.DateTimeFormat('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
+  } catch (e) { return ''; }
+}
+
+// Builds the match notification email (mockup docs/mockups/matching/
+// matching-email-popup-v3.html + the v5 urgency box), as email-safe HTML
+// (every style inlined — no external/embedded <style> block, since mail
+// clients strip both <style> reliability and CSS animation). `row` is the
+// gp_applications row (match_reasons/match_expires_at/matched_at/id), `job`
+// is the career_roles row, `practice` is the practices row (either may be
+// null — every field degrades gracefully). `opts.reminder` renders the
+// shorter Task-5 reminder variant (amber urgency banner, no video/next-steps
+// block) — the SUBJECT line is built by the caller (sendMatchEmail).
+//
+// IMPORTANT (tested): this function renders ONLY the reasons already stored
+// on the row (row.match_reasons.reasons) — it never invents or appends its
+// own reason text, so the "no income/billing % in GP-facing copy" rule is
+// entirely the AI-ranking lib's responsibility (lib/ai-candidate-job-match.js),
+// not this renderer's.
+function buildMatchEmailHtml(row, job, practice, opts) {
+  var o = opts || {};
+  var reminder = o.reminder === true;
+  var reasons = (row && row.match_reasons && typeof row.match_reasons === 'object' && !Array.isArray(row.match_reasons) && Array.isArray(row.match_reasons.reasons))
+    ? row.match_reasons.reasons : [];
+  var jobRow = job || {};
+  var practiceRow = practice || {};
+  var practiceName = _matchEmailEsc(practiceRow.name || jobRow.practice_name || 'the practice');
+  var jobTitle = _matchEmailEsc(jobRow.title || 'General Practitioner');
+  var billingModel = String(jobRow.billing_model || '').trim();
+  var roleLine = jobTitle + (billingModel ? ' — ' + _matchEmailEsc(billingModel) : '');
+  var city = String(jobRow.location_city || '').trim();
+  var state = String(jobRow.location_state || '').trim();
+  var locationLine = [city, state].filter(Boolean).join(', ');
+  var dpaLine = jobRow.dpa === true ? 'DPA approved' : '';
+  var metaLine = [locationLine, dpaLine].filter(Boolean).join(' · ');
+  var website = _matchSafeUrl(practiceRow.website);
+  var websiteLabel = website ? website.replace(/^https?:\/\//i, '').replace(/\/$/, '') : '';
+  var introVideoUrl = _matchSafeUrl(practiceRow.intro_video_url);
+  var headerImageUrl = _matchSafeUrl(jobRow.header_image_url);
+  var areaName = String(jobRow.suburb || jobRow.location_city || '').trim();
+  var lastName = String(o.gpLastName || '').trim();
+  var greetName = lastName ? ('Dr ' + _matchEmailEsc(lastName)) : 'Doctor';
+  var applicationId = (row && row.id) ? String(row.id) : '';
+  var acceptUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?match=' + applicationId);
+  var expiresLabel = (row && row.match_expires_at) ? _matchWeekdayDateLabel(row.match_expires_at) : '';
+
+  var photoHtml = headerImageUrl ? (
+    '<div style="position:relative;height:170px;overflow:hidden;">' +
+      '<img src="' + headerImageUrl + '" alt="' + (areaName ? _matchEmailEsc(areaName) : practiceName) + '" style="width:100%;height:100%;object-fit:cover;display:block;">' +
+      (areaName ? '<div style="position:absolute;left:0;right:0;bottom:0;padding:26px 16px 10px;background:linear-gradient(transparent, rgba(11,19,34,.82));color:#fff;font-size:12.5px;font-weight:600;">📍 ' + _matchEmailEsc(areaName) + '</div>' : '') +
+    '</div>'
+  ) : '';
+
+  var websiteHtml = website
+    ? '<a href="' + website + '" style="display:inline-block;font-size:13.5px;font-weight:600;color:#2563eb;text-decoration:none;">🌐 ' + _matchEmailEsc(websiteLabel) + '</a>'
+    : '';
+
+  var jobCardHtml =
+    '<div style="border:1px solid #e3e9f4;border-radius:14px;overflow:hidden;margin:20px 0 14px;background:#f8fafd;">' +
+      photoHtml +
+      '<div style="padding:18px 20px;">' +
+        '<div style="font-family:\'Source Serif 4\',Georgia,serif;font-size:18px;font-weight:700;color:#0f172a;margin-bottom:2px;">' + practiceName + '</div>' +
+        '<div style="font-weight:600;font-size:14.5px;color:#1f2b43;margin-bottom:4px;">' + roleLine + '</div>' +
+        (metaLine ? '<div style="font-size:13.5px;color:#64748b;margin-bottom:8px;">' + _matchEmailEsc(metaLine) + '</div>' : '') +
+        websiteHtml +
+      '</div>' +
+    '</div>';
+
+  var reasonsHtml = reasons.length ? (
+    '<div style="margin:18px 0 6px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#173da6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Why this matches you</div>' +
+      reasons.map(function (reason) {
+        return '<div style="display:table;width:100%;margin-bottom:10px;">' +
+          '<div style="display:table-cell;width:29px;vertical-align:top;">' +
+            '<span style="display:inline-block;width:21px;height:21px;border-radius:50%;background:#2563eb;color:#fff;text-align:center;line-height:21px;font-size:12px;font-weight:800;">✓</span>' +
+          '</div>' +
+          '<div style="display:table-cell;font-size:14px;color:#1f2b43;line-height:1.5;vertical-align:top;">' + _matchEmailEsc(reason) + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>'
+  ) : '';
+
+  var videoHtml = (!reminder && introVideoUrl) ? (
+    '<a href="' + introVideoUrl + '" style="position:relative;border-radius:14px;overflow:hidden;margin:14px 0 20px;display:block;text-decoration:none;">' +
+      '<div style="background:linear-gradient(160deg,#0b1322 0%,#1a2c4e 60%,#14203a 100%);height:130px;display:flex;align-items:center;justify-content:center;">' +
+        '<div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.94);display:flex;align-items:center;justify-content:center;">' +
+          '<span style="width:0;height:0;border-left:15px solid #1d4ed8;border-top:9px solid transparent;border-bottom:9px solid transparent;margin-left:4px;display:block;"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:#0f172a;color:#e8ecf4;font-size:12.5px;padding:9px 14px;">▶ <b style="color:#fff;">Meet ' + practiceName + '</b> — a welcome from the team</div>' +
+    '</a>'
+  ) : '';
+
+  var statCalloutHtml =
+    '<div style="display:table;width:100%;background:#eafaf0;border:1px solid #c5ecd4;border-radius:14px;padding:16px 20px;margin:20px 0;">' +
+      '<div style="display:table-cell;width:70px;font-family:\'Source Serif 4\',Georgia,serif;font-size:38px;font-weight:700;color:#166534;line-height:1;vertical-align:middle;">98%</div>' +
+      '<div style="display:table-cell;font-size:13.5px;color:#166534;line-height:1.45;vertical-align:middle;"><b>of GPs we match are accepted by the practice.</b><br>When our team puts you forward, the practice already wants what you offer.</div>' +
+    '</div>';
+
+  var urgencyHtml = reminder
+    ? '<div style="display:table;width:100%;background:#fdf3e1;border:1px solid #f4ddb0;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
+        '<div style="display:table-cell;width:60px;font-family:\'Source Serif 4\',Georgia,serif;font-size:22px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">24h</div>' +
+        '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>Less than 24 hours left to accept this match.</b> After that we may offer the position to another GP.</div>' +
+      '</div>'
+    : (expiresLabel
+      ? '<div style="display:table;width:100%;background:#fdf3e1;border:1px solid #f4ddb0;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
+          '<div style="display:table-cell;width:70px;font-family:\'Source Serif 4\',Georgia,serif;font-size:20px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">5 days</div>' +
+          '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>This match is reserved for you until ' + _matchEmailEsc(expiresLabel) + '.</b> After that we may offer the position to another GP.</div>' +
+        '</div>'
+      : '');
+
+  var acceptButtonHtml =
+    '<a href="' + acceptUrl + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">Accept this match</a>' +
+    '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>';
+
+  var nextStepsHtml = reminder ? '' : (
+    '<div style="border-left:4px solid #2563eb;background:#f1f5f9;border-radius:6px;padding:12px 16px;margin:20px 0 4px;font-size:13.5px;color:#334155;">' +
+      '<div style="font-size:12px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">What happens next</div>' +
+      'Accept the match and we\'ll confirm your interest with the practice. You\'ll then receive your <b>official offer with an interview date</b> — we handle everything in between.' +
+    '</div>'
+  );
+
+  var chipLabel = reminder ? '⏳ 24 hours left' : '✦ Team match';
+  var chipHtml = '<span style="display:inline-block;background:' + (reminder ? '#fdf3e1' : '#eff4ff') + ';border:1px solid ' + (reminder ? '#f4ddb0' : '#d6e2fb') + ';color:' + (reminder ? '#92400e' : '#173da6') + ';font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:5px 12px;border-radius:999px;margin-bottom:14px;">' + chipLabel + '</span>';
+
+  var headline = reminder
+    ? greetName + ', your matched position is about to expire.'
+    : greetName + ', we’ve matched you to a position.';
+
+  var introParagraph = reminder
+    ? '<p style="margin:0 0 14px;">This match closes soon — here’s a reminder of the role your team picked for you.</p>'
+    : '<p style="margin:0 0 14px;">Our team has <b>specifically matched you</b> to this role based on your preferences and experience — and on what the medical practice is looking for in their next GP.</p>';
+
+  var innerHtml =
+    chipHtml +
+    '<h1 style="font-family:\'Source Serif 4\',Georgia,serif;font-size:24px;color:#0f172a;margin:0 0 14px;line-height:1.25;">' + headline + '</h1>' +
+    introParagraph +
+    jobCardHtml +
+    reasonsHtml +
+    videoHtml +
+    statCalloutHtml +
+    urgencyHtml +
+    acceptButtonHtml +
+    nextStepsHtml;
+
+  return (
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+    '<body style="margin:0;padding:0;background:#f4f6fb;font-family:\'DM Sans\',-apple-system,\'Segoe UI\',sans-serif;">' +
+    '<div style="padding:28px 16px;">' +
+      '<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 4px 24px -8px rgba(15,23,42,.12);">' +
+        '<div style="background:linear-gradient(135deg,#2e6bf0 0%,#1d4ed8 100%);padding:18px 28px;color:#fff;font-weight:700;font-size:16px;letter-spacing:.02em;">GP Link</div>' +
+        '<div style="padding:28px;color:#1f2b43;font-size:15px;line-height:1.6;">' + innerHtml + '</div>' +
+        '<div style="text-align:center;font-size:12px;color:#94a3b8;padding:18px 28px 26px;">Sent by your GP Link placement team · GP Link, Australia<br>You\'re receiving this because our team matched you to a position.</div>' +
+      '</div>' +
+    '</div>' +
+    '</body></html>'
+  );
+}
+
+// Sends the match email for a gp_applications row (the Task-2 shortlist
+// endpoint's `if (typeof sendMatchEmail === 'function')` seam calls this).
+// Loads the job + practice + GP's contact details + assigned RSO, builds the
+// HTML, and sends via Resend. Every failure degrades to a logged no-op —
+// this must NEVER throw back into the shortlist endpoint's request path.
+async function sendMatchEmail(applicationRow, opts) {
+  var o = opts || {};
+  if (!applicationRow || !applicationRow.id) return { ok: false, error: 'missing_application' };
+  if (!isEmailConfigured()) return { ok: false, error: 'email_not_configured' };
+  try {
+    var jobId = applicationRow.career_role_id;
+    var job = jobId ? await atsGetJobRow(jobId) : null;
+    if (!job) return { ok: false, error: 'job_not_found' };
+    var practice = job.practice_id ? await atsGetPracticeRow(job.practice_id) : null;
+    var gp = await getGpEmailContext(applicationRow.user_id);
+    if (!gp || !gp.email) return { ok: false, error: 'gp_not_found' };
+    var rso = await resolveAssignedRsoForCareerEmail(applicationRow.user_id);
+    var fromOpts = buildRsoEmailFromOpts(rso);
+    var practiceName = String((practice && practice.name) || job.practice_name || '').trim();
+    var city = String(job.location_city || '').trim();
+    var state = String(job.location_state || '').trim();
+    var subjectLoc = [city, state].filter(Boolean).join(' ');
+    var reminder = o.reminder === true;
+    var subject = reminder
+      ? '⏳ 24 hours left — your matched position in ' + (city || subjectLoc || 'your area')
+      : "You've been personally matched — " + practiceName + (subjectLoc ? ', ' + subjectLoc : '');
+    var html = buildMatchEmailHtml(applicationRow, job, practice, { gpLastName: gp.lastName, reminder: reminder });
+    return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
+  } catch (e) {
+    console.error('[match-email] send failed:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
+// Shared by POST /api/career/apply and POST /api/career/match/respond
+// (accept = self-apply on a matched job, spec §7): creates the "Submit
+// <GP> to practice" VA follow-up task, links it onto the application row,
+// and logs the case event. AWAITED by both callers before they respond, so
+// the returned application payload already carries submission_task_id —
+// this is a line-for-line extraction of apply's pre-existing inline code,
+// not a behavior change.
+async function createCareerApplicationSubmissionTask(userId, profile, roleRow, application) {
+  var caseId = null;
+  var prof = profile || {};
+  var gpDisplayName = [prof.first_name || '', prof.last_name || ''].join(' ').trim() || prof.email || '';
+  try {
+    var regCase = await _ensureRegCase(userId);
+    if (regCase) {
+      caseId = regCase.id;
+      var practiceLabel = String((roleRow && roleRow.practice_name) || 'practice').trim();
+      var roleLabel = String((roleRow && roleRow.title) || 'role').trim();
+      var task = await _createRegTask(regCase.id, {
+        task_type: 'manual',
+        title: 'Submit ' + gpDisplayName + ' to practice',
+        description: gpDisplayName + ' applied for ' + roleLabel + ' at ' + practiceLabel + '. Submit to the practice from the application. Application ID: ' + application.id,
+        priority: 'high',
+        source_trigger: 'career_application',
+        related_stage: 'career',
+        _actor: 'system'
+      });
+      if (task) {
+        await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(application.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { submission_task_id: task.id, practice_submission_status: 'pending_va_submission', updated_at: new Date().toISOString() }
+        });
+        application.submission_task_id = task.id;
+        application.practice_submission_status = 'pending_va_submission';
+      }
+      await _logCaseEvent(regCase.id, task ? task.id : null, 'system', 'Career application received', gpDisplayName + ' applied for ' + roleLabel + ' at ' + practiceLabel, 'system');
+    }
+  } catch (taskErr) {
+    console.error('[career apply] failed to create VA follow-up task:', taskErr && taskErr.message);
+  }
+  return caseId;
+}
+
+// Shared by the same two callers as above: push/in-app notification, the
+// GP's own confirmation email, and the ops "GAP A3" heads-up email. Fire-
+// and-forget by design (mirrors apply's pre-existing non-blocking calls) —
+// callers must NOT await this.
+function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayName) {
+  var locationLabel = (roleRow && roleRow.location_city) ? (roleRow.location_city + (roleRow.location_state ? ', ' + roleRow.location_state : '')) : 'a new role';
+  pushCareerNotificationToUser(userId, {
+    type: 'success', title: 'Application Submitted',
+    body: 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.'
+  }).catch(function () {});
+  sendPushNotification(userId, {
+    title: 'Application Submitted',
+    body: 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.',
+    data: { type: 'career', action: 'application_submitted', url: '/pages/career.html#applications' }
+  }).catch(function () {});
+  if (isEmailConfigured()) {
+    sendEmail({
+      to: email,
+      subject: 'Application Submitted — GP Link',
+      html: buildCareerEmailHtml({
+        title: 'Application Submitted',
+        body: 'Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.',
+        ctaText: 'View Your Applications',
+        ctaUrl: APP_BASE_URL + '/pages/career.html#applications',
+        footer: 'You\'re receiving this because you applied for a role on GP Link.'
+      })
+    }).catch(function () {});
+  }
+  try {
+    if (isEmailConfigured()) {
+      var opsJobTitle = String((roleRow && roleRow.title) || 'a role').trim();
+      var opsPracticeName = String((roleRow && roleRow.practice_name) || 'a practice').trim();
+      var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(caseId || ''));
+      sendEmail({
+        to: 'hello@mygplink.com.au',
+        subject: gpDisplayName + ' applied to ' + opsJobTitle + ' — ' + opsPracticeName,
+        text: gpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.'
+          + '\n\nHas CV: yes'
+          + '\nOpen the candidate: ' + opsDeepLink,
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+      }).catch(function () {});
+    }
+  } catch (opsApplyErr) {
+    console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
+  }
+}
+
 // ---- AI Matching (Task 2 of the 2026-07-06 implementation plan) -----------
 // Helpers for the three /api/ats/matching/* endpoints. The AI ranking + the
 // pure eligibility gate itself live in lib/ai-candidate-job-match.js — these
@@ -29705,43 +30032,14 @@ async function handleApi(req, res, pathname) {
 
     // Captured inside the follow-up-task try so the A3 ops email below can
     // deep-link straight to this doctor's ATS card (?case=<registration case id>).
-    let applyOpsCaseId = null;
+    // AI Matching (Task 4): the task-creation + notification side effects below
+    // are shared with POST /api/career/match/respond's accept path (spec §7:
+    // "self-apply on a matched job = accepting the match") — extracted into
+    // createCareerApplicationSubmissionTask / notifyGpApplicationSubmitted
+    // (defined above, before this handler) rather than duplicated. Same calls,
+    // same order as before this extraction — apply's behavior is unchanged.
     const applyGpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
-
-    try {
-      const regCase = await _ensureRegCase(userId);
-      if (regCase) {
-        applyOpsCaseId = regCase.id;
-        const gpDisplayName = applyGpDisplayName;
-        const practiceLabel = String(roleRow.practice_name || 'practice').trim();
-        const roleLabel = String(roleRow.title || 'role').trim();
-        const task = await _createRegTask(regCase.id, {
-          task_type: 'manual',
-          title: `Submit ${gpDisplayName} to practice`,
-          description: `${gpDisplayName} applied for ${roleLabel} at ${practiceLabel}. Submit to the practice from the application. Application ID: ${savedApplication.id}`,
-          priority: 'high',
-          source_trigger: 'career_application',
-          related_stage: 'career',
-          _actor: 'system'
-        });
-        if (task) {
-          await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(savedApplication.id)}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: {
-              submission_task_id: task.id,
-              practice_submission_status: 'pending_va_submission',
-              updated_at: new Date().toISOString()
-            }
-          });
-          savedApplication.submission_task_id = task.id;
-          savedApplication.practice_submission_status = 'pending_va_submission';
-        }
-        await _logCaseEvent(regCase.id, task ? task.id : null, 'system', 'Career application received', `${gpDisplayName} applied for ${roleLabel} at ${practiceLabel}`, 'system');
-      }
-    } catch (taskErr) {
-      console.error('[career apply] failed to create VA follow-up task:', taskErr && taskErr.message);
-    }
+    const applyOpsCaseId = await createCareerApplicationSubmissionTask(userId, profile, roleRow, savedApplication);
 
     invalidateAdminDashboardCache();
 
@@ -29751,55 +30049,273 @@ async function handleApi(req, res, pathname) {
       application: savedApplication
     });
 
-    // Push career notification (non-blocking)
-    const locationLabel = roleRow && roleRow.location_city ? `${roleRow.location_city}${roleRow.location_state ? ', ' + roleRow.location_state : ''}` : 'a new role';
-    pushCareerNotificationToUser(userId, {
-      type: 'success',
-      title: 'Application Submitted',
-      body: `Your application for the ${locationLabel} role has been submitted. We'll keep you updated on its progress.`
-    }).catch(() => {});
-    sendPushNotification(userId, {
-      title: 'Application Submitted',
-      body: `Your application for the ${locationLabel} role has been submitted. We'll keep you updated on its progress.`,
-      data: { type: 'career', action: 'application_submitted', url: '/pages/career.html#applications' }
-    }).catch(() => {});
+    notifyGpApplicationSubmitted(userId, email, roleRow, applyOpsCaseId, applyGpDisplayName);
 
-    // Send email notification (non-blocking)
-    if (isEmailConfigured()) {
-      sendEmail({
-        to: email,
-        subject: 'Application Submitted — GP Link',
-        html: buildCareerEmailHtml({
-          title: 'Application Submitted',
-          body: 'Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.',
-          ctaText: 'View Your Applications',
-          ctaUrl: APP_BASE_URL + '/pages/career.html#applications',
-          footer: 'You\'re receiving this because you applied for a role on GP Link.'
-        })
-      }).catch(() => {});
+    return;
+  }
+
+  // ============================================================================
+  // AI Matching (Task 4): GP-facing match surfaces. GP session auth
+  // (requireSession), same pattern as every other /api/career/* route above.
+  // ============================================================================
+
+  // GET /api/career/matches — the current GP's live shortlisted matches +
+  // any recent "position filled" redirects. Never surfaces anything to a
+  // gated account (mid-onboarding / under_review / pep_waitlist / archived) —
+  // a GP can only ever have BEEN shortlisted while eligible (Task 2's gate),
+  // so this only matters if their status changed after the match was made.
+  if (pathname === '/api/career/matches' && req.method === 'GET') {
+    const mmSession = requireSession(req, res);
+    if (!mmSession) return;
+    const mmEmail = getSessionEmail(mmSession);
+    if (!mmEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const mmUserId = getSessionSupabaseUserId(mmSession) || await getSupabaseUserIdByEmail(mmEmail);
+    if (!mmUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const mmStateResult = await getSupabaseUserStateByEmail(mmEmail);
+    const mmState = (mmStateResult && mmStateResult.state && typeof mmStateResult.state === 'object') ? mmStateResult.state : {};
+    const mmAcctStatus = String(mmState.account_status || 'active').toLowerCase();
+    const mmGated = !mmState.gp_onboarding_complete || mmAcctStatus === 'under_review' || mmAcctStatus === 'pep_waitlist' || mmAcctStatus === 'archived';
+    if (mmGated) { sendJson(res, 200, { ok: true, matches: [], positionFilled: [], locked: false }); return; }
+
+    const mmRowsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(mmUserId) + '&limit=500');
+    const mmRows = (mmRowsRes.ok && Array.isArray(mmRowsRes.data)) ? mmRowsRes.data : [];
+    const mmLive = mmRows.filter((r) => r.ats_stage === 'shortlisted' && r.matched_at);
+    const mmFilled = mmRows.filter((r) => {
+      if (r.match_outcome !== 'position_filled') return false;
+      const alt = r.redirect_alternatives;
+      return !(alt && typeof alt === 'object' && alt._dismissed === true);
+    });
+
+    const mmJobIds = Array.from(new Set(mmLive.concat(mmFilled).map((r) => r.career_role_id).filter((v) => v !== null && v !== undefined)));
+    const mmJobById = {};
+    for (const mmJobId of mmJobIds) {
+      const mmJob = await atsGetJobRow(mmJobId);
+      if (mmJob) mmJobById[mmJobId] = mmJob;
+    }
+    const mmPracticeIds = Array.from(new Set(Object.keys(mmJobById).map((k) => mmJobById[k].practice_id).filter(Boolean)));
+    const mmPracticeById = {};
+    for (const mmPracticeId of mmPracticeIds) {
+      const mmPractice = await atsGetPracticeRow(mmPracticeId);
+      if (mmPractice) mmPracticeById[mmPracticeId] = mmPractice;
     }
 
-    // GAP A3: signal the ops inbox the moment a GP applies, so the team sees
-    // new applications without polling the dashboard. Own try/catch — a mail
-    // failure here must NEVER affect the apply (which already responded above).
-    try {
+    const mmMatches = mmLive.map((r) => {
+      const job = mmJobById[r.career_role_id] || {};
+      const practice = mmPracticeById[job.practice_id] || {};
+      const reasons = (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
+        ? r.match_reasons.reasons : [];
+      return {
+        applicationId: r.id, roleId: r.career_role_id, score: (r.match_score != null ? r.match_score : null),
+        reasons, expiresAt: r.match_expires_at || null, seenAt: r.match_seen_at || null, matchedAt: r.matched_at || null,
+        jobTitle: job.title || r.job_title || '', practiceName: practice.name || job.practice_name || r.practice_name || '',
+        website: practice.website || '', introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
+        locationCity: job.location_city || '', locationState: job.location_state || '', dpa: job.dpa === true
+      };
+    }).sort((a, b) => new Date(b.matchedAt || 0) - new Date(a.matchedAt || 0));
+
+    const mmPositionFilled = mmFilled.map((r) => {
+      const job = mmJobById[r.career_role_id] || {};
+      const alt = (r.redirect_alternatives && typeof r.redirect_alternatives === 'object' && Array.isArray(r.redirect_alternatives.alternatives))
+        ? r.redirect_alternatives.alternatives : [];
+      return {
+        applicationId: r.id, practiceName: job.practice_name || r.practice_name || '', jobTitle: job.title || r.job_title || '',
+        locationCity: job.location_city || '', locationState: job.location_state || '', alternatives: alt
+      };
+    });
+
+    const mmGp = await getGpEmailContext(mmUserId);
+    sendJson(res, 200, {
+      ok: true, matches: mmMatches, positionFilled: mmPositionFilled, locked: false,
+      gp: { firstName: (mmGp && mmGp.firstName) || '', lastName: (mmGp && mmGp.lastName) || '' }
+    });
+    return;
+  }
+
+  // POST /api/career/match/seen {applicationId} — sets match_seen_at ONLY if
+  // it's currently null (idempotent: the popup and the pinned card can both
+  // race to call this on the same load).
+  if (pathname === '/api/career/match/seen' && req.method === 'POST') {
+    const msnSession = requireSession(req, res);
+    if (!msnSession) return;
+    const msnEmail = getSessionEmail(msnSession);
+    if (!msnEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const msnUserId = getSessionSupabaseUserId(msnSession) || await getSupabaseUserIdByEmail(msnEmail);
+    if (!msnUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let msnBody; try { msnBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const msnAppId = String((msnBody && msnBody.applicationId) || '').trim();
+    if (!msnAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+    const msnRowRes = await supabaseDbRequest('gp_applications', 'select=id,user_id,match_seen_at&id=eq.' + encodeURIComponent(msnAppId) + '&user_id=eq.' + encodeURIComponent(msnUserId) + '&limit=1');
+    const msnRow = (msnRowRes.ok && Array.isArray(msnRowRes.data) && msnRowRes.data[0]) ? msnRowRes.data[0] : null;
+    if (!msnRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
+    if (!msnRow.match_seen_at) {
+      const msnNowIso = new Date().toISOString();
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(msnAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { match_seen_at: msnNowIso } });
+      sendJson(res, 200, { ok: true, seenAt: msnNowIso });
+      return;
+    }
+    sendJson(res, 200, { ok: true, seenAt: msnRow.match_seen_at });
+    return;
+  }
+
+  // POST /api/career/match/dismiss-filled {applicationId} — dismisses a
+  // "position filled" redirect notice. No new column: the dismissal flag lives
+  // INSIDE redirect_alternatives (redirect_alternatives._dismissed = true),
+  // preserving whatever alternatives payload Task 6 wrote there.
+  if (pathname === '/api/career/match/dismiss-filled' && req.method === 'POST') {
+    const mdfSession = requireSession(req, res);
+    if (!mdfSession) return;
+    const mdfEmail = getSessionEmail(mdfSession);
+    if (!mdfEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const mdfUserId = getSessionSupabaseUserId(mdfSession) || await getSupabaseUserIdByEmail(mdfEmail);
+    if (!mdfUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let mdfBody; try { mdfBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const mdfAppId = String((mdfBody && mdfBody.applicationId) || '').trim();
+    if (!mdfAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+    const mdfRowRes = await supabaseDbRequest('gp_applications', 'select=id,user_id,match_outcome,redirect_alternatives&id=eq.' + encodeURIComponent(mdfAppId) + '&user_id=eq.' + encodeURIComponent(mdfUserId) + '&limit=1');
+    const mdfRow = (mdfRowRes.ok && Array.isArray(mdfRowRes.data) && mdfRowRes.data[0]) ? mdfRowRes.data[0] : null;
+    if (!mdfRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    if (mdfRow.match_outcome !== 'position_filled') { sendJson(res, 400, { ok: false, message: 'Nothing to dismiss.' }); return; }
+    const mdfExisting = (mdfRow.redirect_alternatives && typeof mdfRow.redirect_alternatives === 'object') ? mdfRow.redirect_alternatives : {};
+    const mdfPatched = Object.assign({}, mdfExisting, { _dismissed: true });
+    await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mdfAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { redirect_alternatives: mdfPatched } });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // GET /api/career/interview-usage — {used, limit:3, resetsAt}, counting
+  // career_interviews rows for this GP with status scheduled/confirmed/
+  // completed and scheduled_at within the CURRENT UTC calendar month.
+  if (pathname === '/api/career/interview-usage' && req.method === 'GET') {
+    const iuSession = requireSession(req, res);
+    if (!iuSession) return;
+    const iuEmail = getSessionEmail(iuSession);
+    if (!iuEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const iuUserId = getSessionSupabaseUserId(iuSession) || await getSupabaseUserIdByEmail(iuEmail);
+    if (!iuUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const iuNow = new Date();
+    const iuStart = new Date(Date.UTC(iuNow.getUTCFullYear(), iuNow.getUTCMonth(), 1, 0, 0, 0));
+    const iuEnd = new Date(Date.UTC(iuNow.getUTCFullYear(), iuNow.getUTCMonth() + 1, 1, 0, 0, 0));
+    const iuRes = await supabaseDbRequest('career_interviews',
+      'select=id&user_id=eq.' + encodeURIComponent(iuUserId) +
+      '&status=in.(scheduled,confirmed,completed)' +
+      '&scheduled_at=gte.' + encodeURIComponent(iuStart.toISOString()) +
+      '&scheduled_at=lt.' + encodeURIComponent(iuEnd.toISOString()) +
+      '&limit=500');
+    const iuUsed = (iuRes.ok && Array.isArray(iuRes.data)) ? iuRes.data.length : 0;
+    sendJson(res, 200, { ok: true, used: iuUsed, limit: 3, resetsAt: iuEnd.toISOString() });
+    return;
+  }
+
+  // POST /api/career/match/respond {applicationId, action:'accept'|'decline', reason?}
+  // Accept = self-apply on a matched job (spec §7): identical downstream effects
+  // to POST /api/career/apply (shared helpers above), plus match bookkeeping +
+  // an ops email. Decline = not_proceeding + decline_reason + ops email. A row
+  // whose window has passed (or that the lifecycle cron already swept to
+  // not_proceeding/expired) never accepts/declines — it 410s with the graceful
+  // "still interested" message + notifies the team (spec §7's "late click on
+  // an old email" rule), regardless of which action was requested.
+  if (pathname === '/api/career/match/respond' && req.method === 'POST') {
+    const mrSession = requireSession(req, res);
+    if (!mrSession) return;
+    const mrEmail = getSessionEmail(mrSession);
+    if (!mrEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const mrUserId = getSessionSupabaseUserId(mrSession) || await getSupabaseUserIdByEmail(mrEmail);
+    if (!mrUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let mrBody; try { mrBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const mrAppId = String((mrBody && mrBody.applicationId) || '').trim();
+    const mrAction = String((mrBody && mrBody.action) || '').trim().toLowerCase();
+    if (!mrAppId || (mrAction !== 'accept' && mrAction !== 'decline')) {
+      sendJson(res, 400, { ok: false, message: 'applicationId and a valid action (accept|decline) are required.' });
+      return;
+    }
+
+    // Row must belong to the session user — the filter is IN the query, not a
+    // post-hoc check, so a wrong-owner id simply looks like "not found".
+    const mrRowRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(mrAppId) + '&user_id=eq.' + encodeURIComponent(mrUserId) + '&limit=1');
+    const mrRow = (mrRowRes.ok && Array.isArray(mrRowRes.data) && mrRowRes.data[0]) ? mrRowRes.data[0] : null;
+    if (!mrRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
+
+    const mrProfileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(mrUserId) + '&limit=1');
+    const mrProfile = (mrProfileRes.ok && Array.isArray(mrProfileRes.data) && mrProfileRes.data[0]) ? mrProfileRes.data[0] : {};
+    const mrGpDisplayName = [mrProfile.first_name || '', mrProfile.last_name || ''].join(' ').trim() || mrEmail;
+
+    // Expiry beats every other state — a row can only be "still waiting"
+    // (shortlisted, past its window) or "already swept" (not_proceeding +
+    // expired) to count here, so an already-accepted/declined row can never
+    // be misclassified as expired just because time has since passed.
+    const mrIsStillWaiting = mrRow.ats_stage === 'shortlisted';
+    const mrIsSweptExpired = mrRow.ats_stage === 'not_proceeding' && mrRow.match_outcome === 'expired';
+    const mrIsExpired = (mrIsStillWaiting && mrRow.match_expires_at && Date.parse(mrRow.match_expires_at) < Date.now()) || mrIsSweptExpired;
+    if (mrIsExpired) {
+      sendJson(res, 410, {
+        ok: false, expired: true,
+        message: "This match has expired — the role may still be open; your team has been told you're interested."
+      });
       if (isEmailConfigured()) {
-        const opsJobTitle = String(roleRow.title || 'a role').trim();
-        const opsPracticeName = String(roleRow.practice_name || 'a practice').trim();
-        const opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(applyOpsCaseId || ''));
+        // No extra await here (mirrors the decline branch below): job_title is
+        // already denormalized onto the row at shortlist time, so an ops email
+        // that fires right after sendJson never has to yield the event loop on
+        // an extra DB round-trip first.
+        const mrExpJobTitle = String(mrRow.job_title || 'a role').trim();
         sendEmail({
           to: 'hello@mygplink.com.au',
-          subject: applyGpDisplayName + ' applied to ' + opsJobTitle + ' — ' + opsPracticeName,
-          text: applyGpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.'
-            + '\n\nHas CV: yes'
-            + '\nOpen the candidate: ' + opsDeepLink,
+          subject: 'GP clicked expired match — still interested: ' + mrGpDisplayName + ', ' + mrExpJobTitle,
+          text: mrGpDisplayName + ' clicked to respond to an expired match for "' + mrExpJobTitle + '" and is still interested. Application: ' + mrRow.id,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         }).catch(() => {});
       }
-    } catch (opsApplyErr) {
-      console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
+      return;
     }
 
+    if (mrRow.ats_stage !== 'shortlisted') {
+      sendJson(res, 409, { ok: false, message: 'This match has already been responded to.' });
+      return;
+    }
+
+    const mrJob = mrRow.career_role_id ? await atsGetJobRow(mrRow.career_role_id) : null;
+    const mrNowIso = new Date().toISOString();
+
+    if (mrAction === 'decline') {
+      const mrDeclineReason = typeof (mrBody && mrBody.reason) === 'string' ? mrBody.reason.trim().slice(0, 2000) : null;
+      const mrDeclinePatch = { ats_stage: 'not_proceeding', match_outcome: 'declined', decline_reason: mrDeclineReason || null, ats_stage_updated_at: mrNowIso, updated_at: mrNowIso };
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mrAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: mrDeclinePatch });
+      await atsRecordStageEvent(mrAppId, 'shortlisted', 'not_proceeding', mrEmail);
+      invalidateAdminDashboardCache();
+      sendJson(res, 200, { ok: true, action: 'decline' });
+      if (isEmailConfigured()) {
+        const mrDeclineJobTitle = String((mrJob && mrJob.title) || mrRow.job_title || 'a role').trim();
+        sendEmail({
+          to: 'hello@mygplink.com.au',
+          subject: 'Match declined: ' + mrGpDisplayName + ' → ' + mrDeclineJobTitle,
+          text: mrGpDisplayName + ' declined the match for "' + mrDeclineJobTitle + '".' + (mrDeclineReason ? ('\n\nReason: ' + mrDeclineReason) : '\n\nNo reason given.') + '\n\nApplication: ' + mrRow.id,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    // accept — self-apply on a matched job (spec §7): identical downstream
+    // flow to a normal apply (shared helpers above), plus match bookkeeping
+    // and its own ops email.
+    const mrAcceptPatch = { ats_stage: 'applied', match_outcome: 'accepted', ats_stage_updated_at: mrNowIso, applied_at: mrNowIso, updated_at: mrNowIso };
+    const mrUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mrAppId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: mrAcceptPatch });
+    const mrUpdatedRow = (mrUpd.ok && Array.isArray(mrUpd.data) && mrUpd.data[0]) ? mrUpd.data[0] : Object.assign({}, mrRow, mrAcceptPatch);
+    await atsRecordStageEvent(mrAppId, 'shortlisted', 'applied', mrEmail);
+
+    const mrCaseId = await createCareerApplicationSubmissionTask(mrUserId, mrProfile, mrJob || {}, mrUpdatedRow);
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrUpdatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
+    notifyGpApplicationSubmitted(mrUserId, mrEmail, mrJob || {}, mrCaseId, mrGpDisplayName);
+    if (isEmailConfigured()) {
+      const mrAcceptJobTitle = String((mrJob && mrJob.title) || mrRow.job_title || 'a role').trim();
+      sendEmail({
+        to: 'hello@mygplink.com.au',
+        subject: 'Match accepted: ' + mrGpDisplayName + ' → ' + mrAcceptJobTitle,
+        text: mrGpDisplayName + ' accepted the team match for "' + mrAcceptJobTitle + '". Application: ' + mrUpdatedRow.id,
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+      }).catch(() => {});
+    }
     return;
   }
 
@@ -51236,6 +51752,8 @@ module.exports.__testUtils = {
   recordServerError,
   recordCronRun,
   sendEmail,
+  buildMatchEmailHtml,
+  sendMatchEmail,
   isEmailSuppressed,
   suppressEmail,
   makeMarketingUnsubToken,

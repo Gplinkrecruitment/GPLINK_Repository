@@ -1,0 +1,716 @@
+// Task 4 (AI Matching, 2026-07-06 plan) — GP-facing match surfaces:
+// buildMatchEmailHtml/sendMatchEmail, GET /api/career/matches,
+// POST /api/career/match/seen, POST /api/career/match/respond,
+// POST /api/career/match/dismiss-filled, GET /api/career/interview-usage.
+//
+// Boots the real server against a tiny in-memory PostgREST emulator (pattern
+// from tests/career-internal-apply.test.js), so the FULL Supabase-mode code
+// paths run — including the RSO roster fallback (rso_team empty → RSO_TEAM
+// seed) and the shared post-apply side-effect helpers. Resend calls are
+// captured by wrapping global.fetch (pattern from tests/ats-endpoints.test.js).
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import http from 'http';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+
+// ── Client wiring (source regex, no browser needed) ─────────────────────────
+describe('AI Matching Task 4 — client wiring (source regex)', () => {
+  const appShellHtml = fs.readFileSync(path.join(ROOT, 'pages/app-shell.html'), 'utf8');
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+  const popupSrc = fs.readFileSync(path.join(ROOT, 'js/match-popup.js'), 'utf8');
+
+  it('pages/app-shell.html loads match-popup.js AFTER app-shell.js, with a cache buster', () => {
+    const shellIdx = appShellHtml.indexOf('/js/app-shell.js?v=');
+    const popupMatch = appShellHtml.match(/<script src="\/js\/match-popup\.js\?v=20260707[a-z]" defer><\/script>/);
+    expect(shellIdx).toBeGreaterThan(-1);
+    expect(popupMatch).toBeTruthy();
+    expect(appShellHtml.indexOf(popupMatch[0])).toBeGreaterThan(shellIdx);
+  });
+
+  it('js/match-popup.js fetches matches, marks seen, and posts respond/accept', () => {
+    expect(popupSrc).toContain('/api/career/matches');
+    expect(popupSrc).toContain('/api/career/match/seen');
+    expect(popupSrc).toContain('/api/career/match/respond');
+    expect(popupSrc).toMatch(/respond\(match\.applicationId,\s*"accept"\)/);
+    // Never stacks a second popup.
+    expect(popupSrc).toContain('document.getElementById("gpMatchPopup")');
+    // Respects prefers-reduced-motion for the confetti loop.
+    expect(popupSrc).toContain('prefers-reduced-motion');
+  });
+
+  it('pages/career.html has the pinned matches section + position-filled host', () => {
+    expect(careerHtml).toContain('id="teamMatchesSection"');
+    expect(careerHtml).toContain('id="positionFilledSection"');
+    expect(careerHtml).toMatch(/renderTeamMatches\(\)/);
+  });
+
+  it('pages/career.html wires accept/decline/dismiss + the confirm-sheet cap copy verbatim', () => {
+    expect(careerHtml).toContain('data-match-accept');
+    expect(careerHtml).toContain('data-match-decline');
+    expect(careerHtml).toContain('data-filled-dismiss');
+    expect(careerHtml).toContain("You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.");
+    expect(careerHtml).toContain("Once they confirm their availability, you'll choose an interview time.");
+  });
+
+  it('pages/career.html handles the ?match= deep link via handleMatchDeepLink()', () => {
+    expect(careerHtml).toContain('function handleMatchDeepLink()');
+    expect(careerHtml).toContain('handleMatchDeepLink();');
+  });
+});
+
+const RUN_ID = crypto.randomBytes(4).toString('hex');
+const DB_FILE = path.join('/tmp', `gplink-ai-matching-gp-${RUN_ID}.json`);
+let server, port;
+let sbServer, sbPort;
+const resendCalls = [];
+let realFetch;
+
+const NOW = Date.now();
+const iso = (ms) => new Date(ms).toISOString();
+
+// ── Fixture users ────────────────────────────────────────────────────────────
+const ACCEPT_GP = { userId: 'gp-accept-1', email: 'accept@gplink-test.local' };
+const DECLINE_GP = { userId: 'gp-decline-1', email: 'decline@gplink-test.local' };
+const EXPIRED_GP = { userId: 'gp-expired-1', email: 'expired@gplink-test.local' };
+const SWEPT_GP = { userId: 'gp-swept-1', email: 'swept@gplink-test.local' };
+const VIEW_GP = { userId: 'gp-view-1', email: 'view@gplink-test.local' };
+const OTHER_GP = { userId: 'gp-other-1', email: 'other@gplink-test.local' };
+const GATED_GP = { userId: 'gp-gated-1', email: 'gated@gplink-test.local' };
+const SEEN_GP = { userId: 'gp-seen-1', email: 'seen@gplink-test.local' };
+const FILLED_GP = { userId: 'gp-filled-1', email: 'filled@gplink-test.local' };
+const IV_GP = { userId: 'gp-interview-1', email: 'interview@gplink-test.local' };
+
+const ALL_GPS = [ACCEPT_GP, DECLINE_GP, EXPIRED_GP, SWEPT_GP, VIEW_GP, OTHER_GP, GATED_GP, SEEN_GP, FILLED_GP, IV_GP];
+
+// ── In-memory PostgREST emulator ────────────────────────────────────────────
+const db = {
+  user_profiles: ALL_GPS.map((g, i) => ({
+    user_id: g.userId, email: g.email, first_name: 'Test', last_name: `Doctor${i}`,
+    registration_country: 'united kingdom'
+  })),
+  user_state: ALL_GPS.map((g) => ({
+    user_id: g.userId,
+    state: g.userId === GATED_GP.userId
+      ? { gp_onboarding_complete: true, account_status: 'under_review' }
+      : { gp_onboarding_complete: true },
+    updated_at: iso(NOW)
+  })),
+  user_documents: [],
+  user_roles: [],
+  registration_cases: [],
+  registration_tasks: [],
+  task_timeline: [],
+  ats_stage_events: [],
+  rso_team: [],
+  practices: [
+    {
+      id: 'prac-1', name: 'Coral Coast Family Practice',
+      website: 'https://coralcoastfamilypractice.com.au',
+      intro_video_url: 'https://videos.gplink-test.local/coral.mp4'
+    },
+    { id: 'prac-2', name: 'Riverbend Medical Centre', website: '', intro_video_url: '' }
+  ],
+  career_roles: [
+    {
+      id: 'job-1', provider: 'internal_ats', provider_role_id: 'ats_job1',
+      title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      practice_id: 'prac-1', location_city: 'Bundaberg', location_state: 'QLD',
+      dpa: true, header_image_url: 'https://images.gplink-test.local/bargara.jpg', suburb: 'Bargara',
+      billing_model: 'Mixed billing', job_status: 'open', is_active: true
+    },
+    {
+      id: 'job-2', provider: 'internal_ats', provider_role_id: 'ats_job2',
+      title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
+      practice_id: 'prac-2', location_city: 'Toowoomba', location_state: 'QLD',
+      dpa: false, header_image_url: '', job_status: 'open', is_active: true
+    }
+  ],
+  gp_applications: [
+    // ACCEPT_GP: live match, 4 days left.
+    {
+      id: 'app-accept-1', user_id: ACCEPT_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 82, match_reasons: { reasons: ['Coastal Queensland — your preferred location', 'DPA approved supports your visa pathway'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 86400000), match_expires_at: iso(NOW + 4 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // DECLINE_GP: live match.
+    {
+      id: 'app-decline-1', user_id: DECLINE_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 70, match_reasons: { reasons: ['Regional QLD supports your visa pathway'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 86400000), match_expires_at: iso(NOW + 3 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // EXPIRED_GP: still 'shortlisted' but match_expires_at is in the past (cron hasn't swept it yet).
+    {
+      id: 'app-expired-1', user_id: EXPIRED_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 60, match_reasons: { reasons: ['Family friendly hours nearby'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 6 * 86400000), match_expires_at: iso(NOW - 86400000),
+      match_seen_at: iso(NOW - 2 * 86400000), match_outcome: null
+    },
+    // SWEPT_GP: already flipped to not_proceeding/expired by a (future) lifecycle cron.
+    {
+      id: 'app-swept-1', user_id: SWEPT_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'not_proceeding', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 55, match_reasons: { reasons: ['Coastal QLD fit'], _history: [{ outcome: 'expired', at: iso(NOW - 86400000) }] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 10 * 86400000), match_expires_at: iso(NOW - 5 * 86400000),
+      match_seen_at: iso(NOW - 6 * 86400000), match_outcome: 'expired'
+    },
+    // VIEW_GP: live match with full job/practice fields, for the matches-shape test.
+    {
+      id: 'app-view-1', user_id: VIEW_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 91, match_reasons: { reasons: ['Coastal Queensland — your preferred location', 'DPA approved', 'Family-friendly hours'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 5 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // OTHER_GP: a second live match — used to prove VIEW_GP never sees it.
+    {
+      id: 'app-other-1', user_id: OTHER_GP.userId, career_role_id: 'job-2',
+      provider_role_id: 'ats_job2', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
+      match_score: 65, match_reasons: { reasons: ['Large family patient base'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 5 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // GATED_GP: live match, but the account is under_review — must never surface.
+    {
+      id: 'app-gated-1', user_id: GATED_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 88, match_reasons: { reasons: ['Coastal QLD fit'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 5 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // SEEN_GP: match_seen_at already null — used for the seen-set-once test.
+    {
+      id: 'app-seen-1', user_id: SEEN_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 77, match_reasons: { reasons: ['Coastal QLD fit'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 5 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
+    // FILLED_GP: position_filled, with an un-dismissed redirect_alternatives payload.
+    {
+      id: 'app-filled-1', user_id: FILLED_GP.userId, career_role_id: 'job-2',
+      provider_role_id: 'ats_job2', ats_stage: 'not_proceeding', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
+      match_score: 60, match_reasons: { reasons: ['Regional QLD fit'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 8 * 86400000), match_expires_at: iso(NOW - 3 * 86400000),
+      match_seen_at: iso(NOW - 7 * 86400000), match_outcome: 'position_filled',
+      redirect_alternatives: { alternatives: [{ jobTitle: 'GP — Coastal Clinic', locationCity: 'Gladstone', locationState: 'QLD', tags: ['Same coastal region'] }] }
+    }
+  ]
+};
+function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
+function buildMatcher(searchParams) {
+  const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
+  const filters = [];
+  for (const [key, raw] of searchParams.entries()) {
+    if (reserved.has(key)) continue;
+    const dot = raw.indexOf('.');
+    const op = dot > 0 ? raw.slice(0, dot) : '';
+    if (!FILTER_OPS.includes(op)) continue;
+    const val = raw.slice(dot + 1);
+    filters.push({ col: key, op, val });
+  }
+  function coerce(cell, val) {
+    if (typeof cell === 'string' && /^\d{4}-\d{2}-\d{2}/.test(cell) && /^\d{4}-\d{2}-\d{2}/.test(val)) {
+      return [Date.parse(cell), Date.parse(val)];
+    }
+    const cellNum = Number(cell), valNum = Number(val);
+    if (cell !== null && cell !== undefined && cell !== '' && !Number.isNaN(cellNum) && !Number.isNaN(valNum)) {
+      return [cellNum, valNum];
+    }
+    return [String(cell), val];
+  }
+  return (row) => filters.every(({ col, op, val }) => {
+    const cell = row ? row[col] : undefined;
+    if (op === 'eq') return String(cell) === val;
+    if (op === 'neq') return String(cell) !== val;
+    if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
+    if (op === 'in') {
+      return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
+        .map((s) => s.trim().replace(/^"/, '').replace(/"$/, ''))
+        .includes(String(cell));
+    }
+    if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
+      if (cell === null || cell === undefined) return false;
+      const [a, b] = coerce(cell, val);
+      if (op === 'gt') return a > b;
+      if (op === 'gte') return a >= b;
+      if (op === 'lt') return a < b;
+      if (op === 'lte') return a <= b;
+    }
+    return true;
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null')); }
+      catch { resolve(null); }
+    });
+  });
+}
+
+function startSupabaseEmulator() {
+  return new Promise((resolve) => {
+    sbServer = http.createServer(async (req, res) => {
+      const u = new URL(req.url, 'http://sb.local');
+      const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+      const send = (status, payload) => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      };
+      if (!m) { send(404, { message: 'not found' }); return; }
+      const rows = tableOf(decodeURIComponent(m[1]));
+      const matches = buildMatcher(u.searchParams);
+
+      if (req.method === 'GET') {
+        let out = rows.filter(matches);
+        const limit = parseInt(u.searchParams.get('limit') || '', 10);
+        if (Number.isFinite(limit)) out = out.slice(0, limit);
+        send(200, out);
+        return;
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+        const saved = incoming.map((r) => {
+          const row = { id: r.id || crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+          rows.push(row);
+          return row;
+        });
+        send(201, saved);
+        return;
+      }
+      if (req.method === 'PATCH') {
+        const patch = await readBody(req);
+        const matched = rows.filter(matches);
+        matched.forEach((row) => Object.assign(row, patch || {}));
+        send(200, matched);
+        return;
+      }
+      send(405, { message: 'method not allowed' });
+    });
+    sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+  });
+}
+
+function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+function userCookie(email, supabaseUserId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+}
+function httpReq(method, p, { cookie, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null;
+    const headers = {};
+    if (cookie) headers.Cookie = cookie;
+    if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+      const c = []; res.on('data', (x) => c.push(x));
+      res.on('end', () => {
+        const raw = Buffer.concat(c).toString('utf8');
+        let parsed = null; try { parsed = JSON.parse(raw); } catch {}
+        resolve({ status: res.statusCode, body: parsed, raw });
+      });
+    });
+    r.on('error', reject); r.end(data);
+  });
+}
+
+let serverModule;
+
+beforeAll(async () => {
+  await startSupabaseEmulator();
+
+  process.env.AGENT_SKIP_DOTENV = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AUTH_SECRET = 'ai-matching-gp-secret-' + RUN_ID;
+  process.env.REQUIRE_SUPABASE_DB = 'false';
+  process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  process.env.ENFORCE_SAME_ORIGIN = 'false';
+  process.env.DB_FILE_PATH = DB_FILE;
+  process.env.ZOHO_RECRUIT_CLIENT_ID = '';
+  process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
+  process.env.OPENAI_API_KEY = '';
+  process.env.ADMIN_EMAILS = '';
+  process.env.SUPER_ADMIN_EMAILS = '';
+  process.env.RESEND_API_KEY = 'test-resend-key';
+
+  realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => {
+    const u = String(url && url.url ? url.url : url);
+    if (u.startsWith('https://api.resend.com/')) {
+      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+      resendCalls.push({ url: u, body: parsed });
+      return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+    }
+    return realFetch(url, opts);
+  };
+
+  serverModule = await import('../server.js');
+  server = serverModule.createServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+});
+
+afterAll(async () => {
+  if (server) await new Promise((r) => server.close(r));
+  if (sbServer) await new Promise((r) => sbServer.close(r));
+  globalThis.fetch = realFetch;
+  try { fs.unlinkSync(DB_FILE); } catch {}
+});
+
+beforeEach(() => {
+  resendCalls.length = 0;
+});
+
+// ── buildMatchEmailHtml / sendMatchEmail (unit-level, via __testUtils) ──────
+describe('buildMatchEmailHtml', () => {
+  const baseRow = {
+    id: 'app-unit-1',
+    match_reasons: { reasons: ['Coastal Queensland — your preferred location', 'A reason mentioning 70% billings split (stored verbatim)'] },
+    match_expires_at: iso(NOW + 3 * 86400000)
+  };
+  const job = {
+    title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+    location_city: 'Bundaberg', location_state: 'QLD', dpa: true,
+    header_image_url: 'https://images.gplink-test.local/bargara.jpg', suburb: 'Bargara'
+  };
+  const practice = { name: 'Coral Coast Family Practice', website: 'https://coralcoastfamilypractice.com.au', intro_video_url: 'https://videos.gplink-test.local/coral.mp4' };
+
+  it('contains the practice name, website, verbatim 98% line, and the reserve-until date', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, job, practice, { gpLastName: 'Okafor' });
+    expect(html).toContain('Coral Coast Family Practice');
+    expect(html).toContain('coralcoastfamilypractice.com.au');
+    expect(html).toContain('98% of GPs we match are accepted by the practice.'.replace('98% ', ''));
+    expect(html).toContain('of GPs we match are accepted by the practice.');
+    expect(html).toContain('98%');
+    expect(html).toContain('This match is reserved for you until');
+    expect(html).toContain('Dr Okafor');
+  });
+
+  it('renders ONLY the stored reasons verbatim — never injects its own money/billing strings', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, job, practice, { gpLastName: 'Okafor' });
+    // The stored reason (which happens to mention billings) renders verbatim —
+    // that's the fixture's business, not the builder's.
+    expect(html).toContain('A reason mentioning 70% billings split (stored verbatim)');
+    // Outside of that ONE stored string, the builder itself must never author
+    // its own money-shaped copy anywhere else in the document.
+    const withoutStoredReason = html.replace('A reason mentioning 70% billings split (stored verbatim)', '');
+    expect(withoutStoredReason).not.toMatch(/\d+%\s*billings?/i);
+    expect(withoutStoredReason).not.toMatch(/\$\d/);
+  });
+
+  it('omits the photo strip, website link, and video block when absent', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, {}, {}, {});
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('🌐');
+    expect(html).not.toContain('Meet ');
+  });
+
+  it('reminder variant: compressed body, amber urgency banner, no video/next-steps block', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, job, practice, { gpLastName: 'Okafor', reminder: true });
+    expect(html).toContain('Less than 24 hours left');
+    expect(html).not.toContain('What happens next');
+    expect(html).not.toContain('Meet Coral Coast Family Practice');
+    // Still renders the job card + reasons + 98% line even when compressed.
+    expect(html).toContain('Coral Coast Family Practice');
+    expect(html).toContain('of GPs we match are accepted by the practice.');
+  });
+});
+
+describe('sendMatchEmail', () => {
+  it('sends the normal-variant subject with practice name + city/state', async () => {
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-view-1');
+    const result = await serverModule.__testUtils.sendMatchEmail(row);
+    expect(result.ok).toBe(true);
+    expect(resendCalls.length).toBe(1);
+    expect(resendCalls[0].body.subject).toBe("You've been personally matched — Coral Coast Family Practice, Bundaberg QLD");
+    expect(resendCalls[0].body.html).toContain('Coral Coast Family Practice');
+  });
+
+  it('reminder variant carries the ⏳ 24-hours subject naming the city', async () => {
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-view-1');
+    const result = await serverModule.__testUtils.sendMatchEmail(row, { reminder: true });
+    expect(result.ok).toBe(true);
+    expect(resendCalls.length).toBe(1);
+    expect(resendCalls[0].body.subject).toBe('⏳ 24 hours left — your matched position in Bundaberg');
+  });
+});
+
+// ── GET /api/career/matches ──────────────────────────────────────────────────
+describe('GET /api/career/matches', () => {
+  it('returns the shape described in the brief for a live match', async () => {
+    const res = await httpReq('GET', '/api/career/matches', { cookie: userCookie(VIEW_GP.email, VIEW_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.locked).toBe(false);
+    expect(Array.isArray(res.body.matches)).toBe(true);
+    const m = res.body.matches.find((x) => x.applicationId === 'app-view-1');
+    expect(m).toBeTruthy();
+    expect(m.jobTitle).toBe('General Practitioner — Mixed Billing');
+    expect(m.practiceName).toBe('Coral Coast Family Practice');
+    expect(m.website).toBe('https://coralcoastfamilypractice.com.au');
+    expect(m.introVideoUrl).toBe('https://videos.gplink-test.local/coral.mp4');
+    expect(m.headerImageUrl).toBe('https://images.gplink-test.local/bargara.jpg');
+    expect(m.locationCity).toBe('Bundaberg');
+    expect(m.locationState).toBe('QLD');
+    expect(m.dpa).toBe(true);
+    expect(m.score).toBe(91);
+    expect(Array.isArray(m.reasons)).toBe(true);
+    expect(m.reasons.length).toBe(3);
+    expect(m.seenAt).toBeNull();
+    expect(typeof m.expiresAt).toBe('string');
+  });
+
+  it('only returns the requesting GP\'s own rows — never another GP\'s match', async () => {
+    const res = await httpReq('GET', '/api/career/matches', { cookie: userCookie(VIEW_GP.email, VIEW_GP.userId) });
+    expect(res.status).toBe(200);
+    const ids = res.body.matches.map((m) => m.applicationId);
+    expect(ids).toContain('app-view-1');
+    expect(ids).not.toContain('app-other-1');
+
+    const otherRes = await httpReq('GET', '/api/career/matches', { cookie: userCookie(OTHER_GP.email, OTHER_GP.userId) });
+    const otherIds = otherRes.body.matches.map((m) => m.applicationId);
+    expect(otherIds).toContain('app-other-1');
+    expect(otherIds).not.toContain('app-view-1');
+  });
+
+  it('returns empty matches (never a popup/card trigger) for a gated (under_review) account', async () => {
+    const res = await httpReq('GET', '/api/career/matches', { cookie: userCookie(GATED_GP.email, GATED_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.matches).toEqual([]);
+    expect(res.body.positionFilled).toEqual([]);
+  });
+
+  it('includes a position-filled entry with its alternatives, and excludes it once dismissed', async () => {
+    const res = await httpReq('GET', '/api/career/matches', { cookie: userCookie(FILLED_GP.email, FILLED_GP.userId) });
+    expect(res.status).toBe(200);
+    const filled = res.body.positionFilled.find((f) => f.applicationId === 'app-filled-1');
+    expect(filled).toBeTruthy();
+    expect(filled.practiceName).toBe('Riverbend Medical Centre');
+    expect(filled.alternatives.length).toBe(1);
+    expect(filled.alternatives[0].jobTitle).toBe('GP — Coastal Clinic');
+
+    const dismiss = await httpReq('POST', '/api/career/match/dismiss-filled', {
+      cookie: userCookie(FILLED_GP.email, FILLED_GP.userId), body: { applicationId: 'app-filled-1' }
+    });
+    expect(dismiss.status).toBe(200);
+    expect(dismiss.body.ok).toBe(true);
+
+    const res2 = await httpReq('GET', '/api/career/matches', { cookie: userCookie(FILLED_GP.email, FILLED_GP.userId) });
+    expect(res2.body.positionFilled.find((f) => f.applicationId === 'app-filled-1')).toBeUndefined();
+  });
+
+  it('401/redirects without a session', async () => {
+    const res = await httpReq('GET', '/api/career/matches', {});
+    expect([302, 401, 403]).toContain(res.status);
+  });
+});
+
+// ── POST /api/career/match/seen ─────────────────────────────────────────────
+describe('POST /api/career/match/seen', () => {
+  it('sets match_seen_at, then leaves it unchanged on a second call (set-once)', async () => {
+    const before = tableOf('gp_applications').find((a) => a.id === 'app-seen-1');
+    expect(before.match_seen_at).toBeNull();
+
+    const first = await httpReq('POST', '/api/career/match/seen', {
+      cookie: userCookie(SEEN_GP.email, SEEN_GP.userId), body: { applicationId: 'app-seen-1' }
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.ok).toBe(true);
+    const stampedAt = first.body.seenAt;
+    expect(typeof stampedAt).toBe('string');
+    expect(tableOf('gp_applications').find((a) => a.id === 'app-seen-1').match_seen_at).toBe(stampedAt);
+
+    const second = await httpReq('POST', '/api/career/match/seen', {
+      cookie: userCookie(SEEN_GP.email, SEEN_GP.userId), body: { applicationId: 'app-seen-1' }
+    });
+    expect(second.status).toBe(200);
+    expect(second.body.seenAt).toBe(stampedAt);
+  });
+
+  it('404s for another GP\'s applicationId (ownership enforced)', async () => {
+    const res = await httpReq('POST', '/api/career/match/seen', {
+      cookie: userCookie(OTHER_GP.email, OTHER_GP.userId), body: { applicationId: 'app-accept-1' }
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ── POST /api/career/match/respond ──────────────────────────────────────────
+describe('POST /api/career/match/respond — accept', () => {
+  it('accepts: ats_stage → applied, match_outcome → accepted, submission task created, ops email fired', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(ACCEPT_GP.email, ACCEPT_GP.userId),
+      body: { applicationId: 'app-accept-1', action: 'accept' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.action).toBe('accept');
+
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-accept-1');
+    expect(row.ats_stage).toBe('applied');
+    expect(row.match_outcome).toBe('accepted');
+
+    // Shared post-apply side effect: the SAME "Submit <GP> to practice" VA
+    // follow-up task apply's own flow creates, reusing the extracted helper.
+    const task = tableOf('registration_tasks').find((t) => t.source_trigger === 'career_application' && t.description.includes('app-accept-1'));
+    expect(task).toBeTruthy();
+    expect(task.title).toMatch(/^Submit .* to practice$/);
+    expect(row.submission_task_id).toBe(task.id);
+    expect(row.practice_submission_status).toBe('pending_va_submission');
+
+    // ats_stage_events audit row.
+    const stageEvent = tableOf('ats_stage_events').find((e) => e.application_id === 'app-accept-1' && e.to_stage === 'applied');
+    expect(stageEvent).toBeTruthy();
+    expect(stageEvent.from_stage).toBe('shortlisted');
+
+    // Ops emails: the standard A3 "applied" notice AND the match-specific one.
+    const subjects = resendCalls.map((c) => c.body && c.body.subject);
+    expect(subjects.some((s) => /^Match accepted: .* → General Practitioner — Mixed Billing$/.test(s))).toBe(true);
+    expect(subjects.some((s) => / applied to .* — Coral Coast Family Practice$/.test(s))).toBe(true);
+    // And the GP's own "Application Submitted" confirmation email.
+    expect(subjects).toContain('Application Submitted — GP Link');
+  });
+
+  it('a second accept on the SAME (now applied) row 409s — no double-processing', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(ACCEPT_GP.email, ACCEPT_GP.userId),
+      body: { applicationId: 'app-accept-1', action: 'accept' }
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.ok).toBe(false);
+  });
+});
+
+describe('POST /api/career/match/respond — decline', () => {
+  it('declines with a reason: not_proceeding + declined + decline_reason + ops email', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(DECLINE_GP.email, DECLINE_GP.userId),
+      body: { applicationId: 'app-decline-1', action: 'decline', reason: 'Too far from family in Sydney.' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.action).toBe('decline');
+
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-decline-1');
+    expect(row.ats_stage).toBe('not_proceeding');
+    expect(row.match_outcome).toBe('declined');
+    expect(row.decline_reason).toBe('Too far from family in Sydney.');
+
+    const subjects = resendCalls.map((c) => c.body && c.body.subject);
+    expect(subjects.some((s) => s.startsWith('Match declined:'))).toBe(true);
+    const declineEmail = resendCalls.find((c) => c.body.subject.startsWith('Match declined:'));
+    expect(declineEmail.body.text).toContain('Too far from family in Sydney.');
+  });
+});
+
+describe('POST /api/career/match/respond — expired', () => {
+  it('a still-shortlisted row past its window 410s with the graceful message + ops email', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(EXPIRED_GP.email, EXPIRED_GP.userId),
+      body: { applicationId: 'app-expired-1', action: 'accept' }
+    });
+    expect(res.status).toBe(410);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.expired).toBe(true);
+    expect(res.body.message).toMatch(/expired.*may still be open.*told you're interested/i);
+
+    // Row untouched — never silently accepted/declined.
+    const row = tableOf('gp_applications').find((a) => a.id === 'app-expired-1');
+    expect(row.ats_stage).toBe('shortlisted');
+    expect(row.match_outcome).toBeNull();
+
+    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match — still interested:/.test(c.body.subject));
+    expect(opsEmail).toBeTruthy();
+  });
+
+  it('a row already swept to not_proceeding/expired by the (future) lifecycle cron also 410s', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(SWEPT_GP.email, SWEPT_GP.userId),
+      body: { applicationId: 'app-swept-1', action: 'decline' }
+    });
+    expect(res.status).toBe(410);
+    expect(res.body.expired).toBe(true);
+  });
+});
+
+describe('POST /api/career/match/respond — ownership + validation', () => {
+  it('404s when the applicationId belongs to a different GP', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(OTHER_GP.email, OTHER_GP.userId),
+      body: { applicationId: 'app-view-1', action: 'accept' }
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('400s on a missing/invalid action', async () => {
+    const res = await httpReq('POST', '/api/career/match/respond', {
+      cookie: userCookie(VIEW_GP.email, VIEW_GP.userId),
+      body: { applicationId: 'app-view-1', action: 'maybe' }
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ── GET /api/career/interview-usage ─────────────────────────────────────────
+describe('GET /api/career/interview-usage', () => {
+  it('counts only scheduled/confirmed/completed interviews within the CURRENT UTC month (boundary-correct)', async () => {
+    const now = new Date();
+    const thisMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const lastDayThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 0));
+    const firstDayNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0));
+    const lastDayPrevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 0, 0));
+
+    tableOf('career_interviews').push(
+      { id: 'iv-1', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'scheduled', scheduled_at: thisMonthStart.toISOString() },
+      { id: 'iv-2', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'confirmed', scheduled_at: lastDayThisMonth.toISOString() },
+      { id: 'iv-3', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'completed', scheduled_at: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15)).toISOString() },
+      // Out of window: last day of PREVIOUS month.
+      { id: 'iv-4', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'scheduled', scheduled_at: lastDayPrevMonth.toISOString() },
+      // Out of window: first day of NEXT month (the exclusive upper bound).
+      { id: 'iv-5', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'scheduled', scheduled_at: firstDayNextMonth.toISOString() },
+      // In-window date, but wrong status — must not count.
+      { id: 'iv-6', application_id: 'app-view-1', user_id: IV_GP.userId, status: 'cancelled', scheduled_at: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 10)).toISOString() }
+    );
+
+    const res = await httpReq('GET', '/api/career/interview-usage', { cookie: userCookie(IV_GP.email, IV_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.used).toBe(3);
+    expect(res.body.limit).toBe(3);
+    expect(new Date(res.body.resetsAt).toISOString()).toBe(firstDayNextMonth.toISOString());
+  });
+
+  it('returns 0 used for a GP with no interviews this month', async () => {
+    const res = await httpReq('GET', '/api/career/interview-usage', { cookie: userCookie(SEEN_GP.email, SEEN_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.used).toBe(0);
+    expect(res.body.limit).toBe(3);
+  });
+});
