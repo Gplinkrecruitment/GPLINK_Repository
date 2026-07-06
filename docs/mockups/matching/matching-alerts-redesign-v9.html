@@ -1,0 +1,261 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
+  .gpm { font-family:"DM Sans",-apple-system,"Segoe UI",sans-serif; }
+
+  .phone { width:375px; max-width:100%; margin:0 auto; background:#0b1322; border-radius:38px; padding:10px; box-shadow:0 18px 50px -18px rgba(11,19,34,.55); }
+  .screen { border-radius:30px; overflow:hidden; position:relative; min-height:750px; display:flex; flex-direction:column; background:#f4f6fb; color:#0f172a; }
+  .status { display:flex; justify-content:space-between; padding:14px 22px 0; font-size:12px; font-weight:600; color:#334155; }
+
+  .mp-head { padding:16px 18px 10px; display:flex; justify-content:space-between; align-items:center; }
+  .mp-head h4 { font-family:"Source Serif 4",Georgia,serif; font-size:21px; font-weight:600; letter-spacing:-.01em; margin:0; }
+  .mp-head p { margin:2px 0 0; font-size:12px; color:#64748b; }
+  .bellbtn { position:relative; width:34px; height:34px; border-radius:10px; background:#fff; border:1px solid #e3e9f4; display:grid; place-items:center; }
+  .bellbtn svg { width:16px; height:16px; stroke:#334155; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .bellbtn .dot { position:absolute; top:6px; right:7px; width:7px; height:7px; border-radius:50%; background:#dc2626; border:1.5px solid #fff; }
+  .scroll { flex:1; padding:2px 14px 12px; overflow:hidden; }
+
+  .card { background:#fff; border:1px solid #e3e9f4; border-radius:18px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.05), 0 2px 10px -4px rgba(15,23,42,.08); position:relative; margin-bottom:12px; }
+  .card::before { content:''; position:absolute; inset:0 0 auto 0; height:3px; background:linear-gradient(135deg,#2e6bf0 0%,#1d4ed8 100%); border-radius:18px 18px 0 0; }
+  .card-inner { padding:18px 18px 16px; display:grid; gap:10px; }
+  .tagrow { display:flex; gap:6px; flex-wrap:wrap; }
+  .rtag { padding:4px 10px; border-radius:7px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; background:rgba(37,99,235,.08); color:#2563eb; border:1px solid rgba(37,99,235,.12); }
+  .rtag-red { background:#fdf0f0; color:#991b1b; border:1px solid #f5cfcf; }
+  .rtag-muted { background:transparent; color:#64748b; border:1px solid #e3e9f4; text-transform:none; letter-spacing:0; font-weight:700; }
+  .card-title { font-family:"Source Serif 4",Georgia,serif; font-size:18px; font-weight:600; letter-spacing:-.01em; color:#0f172a; line-height:1.25; margin:0; }
+  .card-note { font-size:12.5px; color:#475569; line-height:1.55; margin:0; }
+  .card-note b { color:#0f172a; font-weight:700; }
+  .dismiss { position:absolute; top:12px; right:12px; width:26px; height:26px; border-radius:999px; border:1px solid #e3e9f4; background:#fff; color:#64748b; font-size:13px; font-weight:700; display:grid; place-items:center; z-index:2; }
+  .scenery { width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; position:relative; }
+  .scenery img { width:100%; height:100%; object-fit:cover; display:block; }
+  .scenery .loc { position:absolute; left:10px; bottom:10px; background:rgba(255,255,255,.92); color:#0f172a; font-size:10.5px; font-weight:700; border-radius:999px; padding:4px 10px; }
+  .cta { padding:10px 16px; border:1px solid rgba(37,99,235,.18); background:rgba(37,99,235,.04); color:#2563eb; font-size:12.5px; font-weight:800; text-align:center; text-decoration:none; display:inline-flex; align-items:center; gap:7px; border-radius:11px; width:fit-content; }
+  .cta::after { content:'→'; font-size:13px; }
+  .sec-label { font-size:10px; letter-spacing:.11em; text-transform:uppercase; font-weight:800; color:#64748b; margin:14px 4px 8px; display:flex; align-items:center; gap:8px; }
+  .sec-label .cnt { background:rgba(37,99,235,.08); border:1px solid rgba(37,99,235,.12); color:#2563eb; border-radius:7px; padding:1px 7px; font-size:10px; }
+  .plain-card { background:#fff; border:1px solid #e3e9f4; border-radius:18px; padding:16px 18px; margin-bottom:10px; opacity:.7; }
+  .plain-card .t { font-family:"Source Serif 4",Georgia,serif; font-size:16px; font-weight:600; }
+  .plain-card .m { font-size:11.5px; color:#64748b; margin-top:3px; }
+
+  .nav { display:flex; border-top:1px solid #e3e9f4; background:#fff; padding:9px 6px 12px; }
+  .nav div { flex:1; text-align:center; font-size:9.5px; color:#94a3b8; font-weight:700; }
+  .nav svg { width:18px; height:18px; display:block; margin:0 auto 3px; stroke:#94a3b8; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .nav .on { color:#2563eb; }
+  .nav .on svg { stroke:#2563eb; }
+
+  /* ══ REDESIGNED Team Alerts — ships app-wide via updates-sync.js ══ */
+  .dim { position:absolute; inset:0; background:rgba(15,23,42,.32); z-index:5; backdrop-filter:blur(2px); }
+  .al2 { position:absolute; top:18px; left:8px; right:8px; z-index:6; border-radius:20px; border:1px solid #dbe7fb; background:#fff; box-shadow:0 26px 60px -26px rgba(15,23,42,.5); overflow:hidden; }
+  .al2 .head { display:flex; align-items:center; gap:10px; padding:16px 16px 12px; }
+  .al2 .head h5 { margin:0; font-family:"Source Serif 4",Georgia,serif; font-size:18px; font-weight:600; letter-spacing:-.01em; color:#0f172a; }
+  .al2 .head .new { font-size:10px; font-weight:800; color:#2563eb; background:rgba(37,99,235,.08); border:1px solid rgba(37,99,235,.12); border-radius:7px; padding:2px 8px; text-transform:uppercase; letter-spacing:.04em; }
+  .al2 .head .markall { margin-left:auto; font-size:11.5px; font-weight:700; color:#64748b; text-decoration:none; }
+  .al2 .head .x { border:1px solid #dbe7fb; background:#fff; color:#334155; border-radius:999px; width:28px; height:28px; font-size:15px; font-weight:700; display:grid; place-items:center; }
+  .al2 .filters { display:flex; gap:6px; padding:0 16px 12px; border-bottom:1px solid #eef2f9; }
+  .al2 .fchip { font-size:11px; font-weight:700; border-radius:999px; padding:5px 12px; border:1px solid #e3e9f4; color:#64748b; background:#fff; }
+  .al2 .fchip.on { background:#0f172a; border-color:#0f172a; color:#fff; }
+  .al2 .grp { font-size:10px; letter-spacing:.11em; text-transform:uppercase; font-weight:800; color:#94a3b8; padding:12px 18px 6px; }
+  .al2 .list { padding:0 10px 6px; display:grid; gap:6px; }
+
+  .ai2 { display:grid; grid-template-columns:36px 1fr auto; gap:11px; align-items:start; border:1px solid transparent; border-radius:14px; padding:10px 10px 11px; background:transparent; text-align:left; position:relative; }
+  .ai2.unread { background:#f8fbff; border-color:#e0ebfd; }
+  .ai2 .ic { width:36px; height:36px; border-radius:11px; display:grid; place-items:center; }
+  .ai2 .ic svg { width:17px; height:17px; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .ai2.k-action .ic { background:#fdf3e1; border:1px solid #f4ddb0; } .ai2.k-action .ic svg { stroke:#d97706; }
+  .ai2.k-update .ic { background:#eff4ff; border:1px solid #d6e2fb; } .ai2.k-update .ic svg { stroke:#2563eb; }
+  .ai2.k-support .ic { background:#eafaf0; border:1px solid #c5ecd4; } .ai2.k-support .ic svg { stroke:#16a34a; }
+  .ai2 .ttl { font-size:13px; font-weight:700; color:#0f172a; line-height:1.35; }
+  .ai2 .bd { font-size:12px; color:#64748b; line-height:1.5; margin-top:2px; }
+  .ai2 .meta { display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .ai2 .kind { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+  .ai2.k-action .kind { color:#92400e; } .ai2.k-update .kind { color:#1d4ed8; } .ai2.k-support .kind { color:#166534; }
+  .ai2 .time { font-size:10.5px; color:#94a3b8; font-weight:600; }
+  .ai2 .go { font-size:11.5px; font-weight:800; color:#2563eb; text-decoration:none; margin-top:7px; display:inline-flex; align-items:center; gap:5px; }
+  .ai2 .go::after { content:'→'; }
+  .ai2 .udot { width:8px; height:8px; border-radius:50%; background:#2563eb; margin-top:5px; }
+  .ai2.read { opacity:.78; }
+  .al2 .seeall { display:block; text-align:center; padding:12px; font-size:12.5px; font-weight:700; color:#2563eb; text-decoration:none; border-top:1px solid #e8edf5; }
+</style>
+
+<div class="gpm">
+<h2>v9 — income removed + Team Alerts redesigned (app-wide)</h2>
+<p class="subtitle">Left: the "picked next" cards with <b>no income or percentage</b> — similarity is explained by place and fit only. Right: the redesigned <b>Team Alerts</b> panel. It's one shared component (<code>updates-sync.js</code>) injected on every page, so this redesign upgrades the whole app at once.</p>
+
+<div class="split" style="align-items:flex-start; margin-top:22px">
+
+  <div class="mockup">
+    <div class="mockup-header">📱 My Practice — no income talk</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:26px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="mp-head">
+            <div>
+              <h4>My Practice</h4>
+              <p>Browse roles and track your applications</p>
+            </div>
+            <div class="bellbtn">
+              <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              <span class="dot"></span>
+            </div>
+          </div>
+          <div class="scroll">
+
+            <div class="card">
+              <button class="dismiss">✕</button>
+              <div class="card-inner" style="padding-top:20px">
+                <div class="tagrow">
+                  <span class="rtag rtag-red">Position filled</span>
+                  <span class="rtag rtag-muted">Bundaberg, QLD</span>
+                </div>
+                <h3 class="card-title">Coral Coast Family Practice</h3>
+                <p class="card-note">The practice moved forward with another GP for this role. <b>It says nothing about you</b> — your team has already picked similar positions below.</p>
+              </div>
+            </div>
+
+            <div class="sec-label">Picked for you next <span class="cnt">2</span></div>
+
+            <div class="card">
+              <div class="card-inner">
+                <div class="tagrow">
+                  <span class="rtag">Same coastal region</span>
+                  <span class="rtag">DPA approved</span>
+                  <span class="rtag">Family friendly</span>
+                </div>
+                <h3 class="card-title">Hervey Bay, QLD</h3>
+                <div class="scenery">
+                  <img src="https://images.unsplash.com/photo-1519046904884-53103b34b206?w=750&q=60" alt="Hervey Bay">
+                  <span class="loc">1 hr down the same coast</span>
+                </div>
+                <p class="card-note">Full-time GP role in an established family practice — picked because it's on the same stretch of coast you chose, with the same kind of community feel.</p>
+                <a class="cta" href="#">View role</a>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-inner">
+                <div class="tagrow">
+                  <span class="rtag">Regional QLD</span>
+                  <span class="rtag">Visa pathway aligned</span>
+                </div>
+                <h3 class="card-title">Gympie, QLD</h3>
+                <p class="card-note">Group practice near the Sunshine Coast — picked because it fits your visa pathway and preferred state.</p>
+                <a class="cta" href="#">View role</a>
+              </div>
+            </div>
+
+            <div class="plain-card">
+              <div class="t">Gladstone, QLD</div>
+              <div class="m">Coastal clinic · Mixed billing</div>
+            </div>
+
+          </div>
+          <div class="nav">
+            <div><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/></svg>Home</div>
+            <div><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 10h8M8 14h5"/></svg>Journey</div>
+            <div class="on"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>My Practice</div>
+            <div><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-6 8-6s6.5 2 8 6"/></svg>Account</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">🔔 Team Alerts — redesigned, ships to the whole app</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:26px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="mp-head">
+            <div>
+              <h4>My Practice</h4>
+              <p>Browse roles and track your applications</p>
+            </div>
+            <div class="bellbtn"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+          </div>
+
+          <div class="dim"></div>
+          <div class="al2">
+            <div class="head">
+              <h5>Team Alerts</h5>
+              <span class="new">2 new</span>
+              <a class="markall" href="#">Mark all read</a>
+              <span class="x">×</span>
+            </div>
+            <div class="filters">
+              <span class="fchip on">All</span>
+              <span class="fchip">Actions</span>
+              <span class="fchip">Updates</span>
+              <span class="fchip">Replies</span>
+            </div>
+
+            <div class="grp">New</div>
+            <div class="list">
+              <div class="ai2 k-action unread">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+                <span>
+                  <span class="ttl">Bundaberg position filled</span>
+                  <span class="bd">The practice went with another GP. Your team has already picked 2 similar roles on the same coast.</span>
+                  <span class="meta"><span class="kind">Action</span><span class="time">Just now</span></span>
+                  <a class="go" href="#">See what's picked for you</a>
+                </span>
+                <span class="udot"></span>
+              </div>
+              <div class="ai2 k-update unread">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <span>
+                  <span class="ttl">Interview confirmed — Riverbend Medical Centre</span>
+                  <span class="bd">Tue 14 July, 9:30am AEST. The Zoom link is in your calendar and on your placement page.</span>
+                  <span class="meta"><span class="kind">Update</span><span class="time">2 hrs ago</span></span>
+                </span>
+                <span class="udot"></span>
+              </div>
+            </div>
+
+            <div class="grp">Earlier</div>
+            <div class="list">
+              <div class="ai2 k-update read">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v6c0 5 4 8 9 9 5-1 9-4 9-9V7z"/></svg></span>
+                <span>
+                  <span class="ttl">Your team matched you to a position</span>
+                  <span class="bd">Bundaberg, QLD — matched on your preferences and experience.</span>
+                  <span class="meta"><span class="kind">Update</span><span class="time">6 days ago</span></span>
+                </span>
+              </div>
+              <div class="ai2 k-support read">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg></span>
+                <span>
+                  <span class="ttl">Your CV passed review</span>
+                  <span class="bd">It's verified and ready to share with practices.</span>
+                  <span class="meta"><span class="kind">Reply</span><span class="time">2 weeks ago</span></span>
+                </span>
+              </div>
+            </div>
+
+            <a class="seeall" href="#">See all updates</a>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:26px">
+  <h3>Happy with these two fixes?</h3>
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="approve-no-income" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Income removed — good</h3><p>No money or percentages in GP-facing match/similarity reasons. The job detail page keeps its own terms as today.</p></div>
+    </div>
+    <div class="option" data-choice="approve-alerts" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Team Alerts redesign — good, ship app-wide</h3><p>Serif header, filters, New/Earlier groups, icon + title + detail + time + inline action. One component, every page.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-v9" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal what to adjust.</p></div>
+    </div>
+  </div>
+</div>
+</div>
