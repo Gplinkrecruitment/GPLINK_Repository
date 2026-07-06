@@ -222,6 +222,16 @@ const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD |
 const ANTHROPIC_MESSAGES_URL = process.env.ANTHROPIC_MESSAGES_URL || 'https://api.anthropic.com/v1/messages';
 // Careers CV genuine-document scans allowed per GP per rolling 24h.
 const CAREER_CV_SCAN_MAX_PER_DAY = Number(process.env.CAREER_CV_SCAN_MAX_PER_DAY || 5);
+// Careers profile gate (Task 3) — CV / cover-letter upload limits, shared by
+// the /api/career/profile/cv and /api/career/profile/cover-letter routes.
+const CAREER_PROFILE_DOCUMENT_MAX_BYTES = 3 * 1024 * 1024;
+const CAREER_PROFILE_SCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CAREER_PROFILE_ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp'
+]);
 // Resend endpoint — env-overridable so tests can capture outbound email.
 const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 // Whitelist of document types accepted by the AI qualification verification endpoint.
@@ -5945,6 +5955,22 @@ function buildAccountCareerDocumentStoragePath(userId, key) {
   ].join('/');
 }
 
+// Careers profile gate (Task 3) — CV / cover-letter storage path. Unlike the
+// account-career path above (fixed 'current' suffix, one object ever), each
+// upload here gets its own timestamped object name so a rejected/replaced
+// upload never clobbers bytes still referenced by an in-flight signed URL;
+// the user_documents row (see saveCareerProfileDocument) is what actually
+// tracks "current" via its own upsert.
+function buildCareerProfileDocumentStoragePath(userId, key, fileName) {
+  return [
+    'account-career',
+    sanitizeStoragePathSegment(ACCOUNT_CAREER_DOCUMENT_COUNTRY, 20).toLowerCase(),
+    sanitizeStoragePathSegment(userId, 80),
+    sanitizeStoragePathSegment(key, 60),
+    `${Date.now()}-${sanitizeStoragePathSegment(fileName, 140)}`
+  ].join('/');
+}
+
 function sanitizeAccountCareerDocumentPayload(body) {
   const input = body && typeof body === 'object' ? body : {};
   const type = getAccountCareerDocumentType(input.type);
@@ -6427,6 +6453,56 @@ async function saveAccountCareerDocumentForUser(userId, payload) {
   );
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   return mapAccountCareerDocumentRow(payload.type, result.data[0]);
+}
+
+// Careers profile gate (Task 3). Distinct document_keys from the onboarding
+// CV (cv_signed_dated): 'career_cv' (AI-checked) and 'career_cover_letter'
+// (shared with the existing Account-page cover letter slot — same key/country
+// tuple, so either upload path keeps the other in sync). Supabase-only, same
+// as saveAccountCareerDocumentForUser above — there is no dbState.userDocuments
+// local-JSON collection for user_documents.
+async function saveCareerProfileDocument(userId, key, payload) {
+  if (!userId || !payload || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildCareerProfileDocumentStoragePath(userId, key, payload.fileName);
+  const dataUrl = 'data:' + (payload.mimeType || 'application/octet-stream') + ';base64,' + payload.fileBase64;
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, dataUrl, payload.mimeType);
+  if (!uploaded) return null;
+
+  const updatedAt = new Date().toISOString();
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: ACCOUNT_CAREER_DOCUMENT_COUNTRY,
+        document_key: key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+        storage_path: storagePath,
+        mime_type: payload.mimeType,
+        file_size: payload.fileSize,
+        updated_at: updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function getCareerProfileDocument(userId, key) {
+  if (!userId || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest(
+    'user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) +
+      '&document_key=eq.' + encodeURIComponent(key) +
+      '&status=eq.uploaded&order=updated_at.desc&limit=1'
+  );
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
 }
 
 function now() {
@@ -9026,6 +9102,24 @@ async function checkRateLimitWindow(rateKey, maxCount, windowMs) {
   dbState.rateLimits[rateKey] = current;
   saveDbState();
   return true;
+}
+
+// Non-mutating read of a checkRateLimitWindow(...) counter, for reporting
+// "attempts remaining" to a client without spending an attempt. Mirrors
+// checkRateLimitWindow's storage exactly (runtime_kv in Supabase mode,
+// dbState.rateLimits locally) but never writes.
+async function peekRateLimitRemaining(rateKey, maxCount, windowMs) {
+  const ts = now();
+  if (isSupabaseDbConfigured()) {
+    const runtimeKey = `authratelimit:${rateKey}`;
+    const existing = await getRuntimeKv(runtimeKey);
+    const current = existing && existing.value && typeof existing.value === 'object' ? existing.value : null;
+    if (!current || ts - Number(current.windowStart || 0) > windowMs) return maxCount;
+    return Math.max(0, maxCount - Number(current.count || 0));
+  }
+  const current = dbState.rateLimits[rateKey];
+  if (!current || ts - current.windowStart > windowMs) return maxCount;
+  return Math.max(0, maxCount - current.count);
 }
 
 async function enforceAuthRateLimit(req, res, scope) {
@@ -21040,6 +21134,52 @@ async function extractDocxTextWithMammoth(buffer) {
   }
 }
 
+// Careers profile gate (Task 3) — AI genuine-CV check, run on every
+// /api/career/profile/cv upload before it is stored. Distinct from
+// classifyDocumentWithAI below (which checks a doc matches an EXPECTED type
+// against a fixed catalogue): this asks a single yes/no "is this a CV at
+// all" question and returns a plain-English reason either way.
+//
+// Returns { ok:false, reason } when the AI is unavailable/unconfigured/over
+// budget/erroring — the caller decides the fallback (accept unscanned rather
+// than block a GP on our outage). Otherwise returns
+// { ok:true, isCv:boolean, reason:string }.
+async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
+  if (!ANTHROPIC_API_KEY) return { ok: false, reason: 'ai_unconfigured' };
+  if (!(await checkAnthropicBudget())) return { ok: false, reason: 'ai_budget' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var blocks = [];
+  if (mime === 'application/pdf') {
+    blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+  } else if (/^image\/(png|jpe?g|webp|gif)$/.test(mime)) {
+    blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+  } else if (mime.includes('wordprocessingml') || /\.docx$/i.test(String(fileName || ''))) {
+    var text = await extractDocxTextWithMammoth(buffer);
+    if (!text) return { ok: true, isCv: false, reason: 'We could not read this Word file — please export your CV as a PDF and try again.' };
+    blocks.push({ type: 'text', text: 'DOCUMENT TEXT (extracted from Word file):\n\n' + text.slice(0, 30000) });
+  } else {
+    return { ok: true, isCv: false, reason: 'Unsupported file type — please upload a PDF or Word document.' };
+  }
+  blocks.push({ type: 'text', text: 'Is the document above a genuine curriculum vitae / resume for a medical professional? A CV lists a person\'s career history, education and skills. Contracts, certificates, letters, forms and IDs are NOT CVs. Respond with ONLY valid JSON: {"isCv": true|false, "reason": "<short plain-English reason a non-technical person understands>"}' });
+
+  try {
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_SCAN_MODEL, max_tokens: 300, messages: [{ role: 'user', content: blocks }] })
+    });
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var textOut = (json && json.content && json.content[0] && json.content[0].text) || '';
+    var parsed = JSON.parse(textOut.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim());
+    return { ok: true, isCv: parsed.isCv === true, reason: String(parsed.reason || '') };
+  } catch (err) {
+    console.error('[career-cv-scan] AI scan failed:', err && err.message);
+    return { ok: false, reason: 'ai_error' };
+  }
+}
+
 async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLabel) {
   if (!ANTHROPIC_API_KEY) return { confidence: null, identifiedAs: '', reason: 'AI not configured' };
 
@@ -28165,6 +28305,146 @@ async function handleApi(req, res, pathname) {
       console.warn('[career apply] ops notify error (ignored):', opsApplyErr && opsApplyErr.message);
     }
 
+    return;
+  }
+
+  // ── Careers profile gate (Task 3) ───────────────────────────────────────
+  // A GP-facing CV (document_key 'career_cv', AI-checked on upload — distinct
+  // from the onboarding 'cv_signed_dated') plus an optional cover letter
+  // (document_key 'career_cover_letter', shared with the existing Account-page
+  // slot). Consumed by the careers apply-gate (Task 4/5) and the
+  // submit-to-practice email rebuild (Task 6). Auth mirrors /api/career/apply
+  // above verbatim (session -> email -> Supabase user id).
+
+  if (pathname === '/api/career/profile/status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const [cvRow, coverLetterRow, scanRemaining] = await Promise.all([
+      getCareerProfileDocument(userId, 'career_cv'),
+      getCareerProfileDocument(userId, 'career_cover_letter'),
+      peekRateLimitRemaining('career-cv-scan:' + userId, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS)
+    ]);
+
+    sendJson(res, 200, {
+      ok: true,
+      cv: cvRow ? { fileName: cvRow.file_name, updatedAt: cvRow.updated_at } : null,
+      coverLetter: coverLetterRow ? { fileName: coverLetterRow.file_name, updatedAt: coverLetterRow.updated_at } : null,
+      scanRemaining
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cv' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const cvFileName = sanitizeUserString(body && body.fileName, 240) || 'cv.pdf';
+    const cvFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const cvMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const cvFileSize = Number(body && body.fileSize) || 0;
+
+    if (!cvFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+    if (cvFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    const cvRateKey = 'career-cv-scan:' + userId;
+    const cvAllowed = await checkRateLimitWindow(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+    if (!cvAllowed) {
+      sendJson(res, 429, { ok: false, code: 'rate_limited', message: "You've reached today's CV check limit — please try again tomorrow." });
+      return;
+    }
+
+    let cvBuffer;
+    try { cvBuffer = Buffer.from(cvFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    const cvScan = await verifyCareerCvWithAI(cvBuffer, cvMimeType, cvFileName);
+    if (cvScan.ok && cvScan.isCv === false) {
+      const attemptsRemaining = await peekRateLimitRemaining(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+      sendJson(res, 422, { ok: false, verified: false, reason: cvScan.reason, attemptsRemaining });
+      return;
+    }
+    if (!cvScan.ok) {
+      // AI down/unconfigured/over budget — never block a GP's upload on our
+      // outage; accept it unscanned and log so ops can see it happened.
+      console.warn('[career-cv-scan] scan unavailable, accepting unscanned:', cvScan.reason);
+    }
+
+    const cvSaved = await saveCareerProfileDocument(userId, 'career_cv', {
+      fileName: cvFileName,
+      fileBase64: cvFileBase64,
+      mimeType: cvMimeType || 'application/octet-stream',
+      fileSize: cvFileSize || cvBuffer.length
+    });
+    if (!cvSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your CV — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, verified: true, fileName: cvFileName });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cover-letter' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const clFileName = sanitizeUserString(body && body.fileName, 240) || 'cover-letter.pdf';
+    const clFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const clMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const clFileSize = Number(body && body.fileSize) || 0;
+
+    if (!clFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+    if (clFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+    if (clMimeType && !CAREER_PROFILE_ALLOWED_MIME_TYPES.has(clMimeType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported file type — please upload a PDF, Word document, or image.' });
+      return;
+    }
+
+    const clSaved = await saveCareerProfileDocument(userId, 'career_cover_letter', {
+      fileName: clFileName,
+      fileBase64: clFileBase64,
+      mimeType: clMimeType || 'application/octet-stream',
+      fileSize: clFileSize || Math.floor(clFileBase64.length * 0.75)
+    });
+    if (!clSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your cover letter — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, fileName: clFileName });
     return;
   }
 
