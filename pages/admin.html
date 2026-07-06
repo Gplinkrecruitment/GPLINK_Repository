@@ -1435,6 +1435,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         </div>
       </div>
       <button class="btn ghost" id="syncBtn" title="Sync cases">Sync</button>
+      <button class="btn ghost" id="securityBtn" title="Two-factor authentication for your admin account">Security</button>
       <button class="btn ghost" id="logoutBtn">Logout</button>
     </div>
   </div>
@@ -7380,6 +7381,111 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("pdfEditorOverlay").addEventListener("click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
+
+    /* ── Security: two-factor authentication (Phase 6 C1) ─────────────── */
+    document.getElementById("securityBtn").addEventListener("click",()=>{openSecurityModal();});
+    function mfaModalShell(inner){
+      document.getElementById("modalTitle").textContent="Two-factor authentication";
+      document.getElementById("modalBody").innerHTML=inner;
+      document.getElementById("modalOverlay").classList.add("open");
+    }
+    async function openSecurityModal(){
+      mfaModalShell('<div style="padding:12px;color:#666">Loading…</div>');
+      try{
+        const r=await fetch("/api/admin/mfa/status",{credentials:"same-origin"});
+        const d=await r.json();
+        if(!r.ok||!d.ok)throw new Error(d.message||"Could not load security settings.");
+        renderMfaStatusCard(d);
+      }catch(e){mfaModalShell('<div style="padding:12px;color:#dc2626">'+esc(e.message)+'</div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Close</button></div>');}
+    }
+    function renderMfaStatusCard(d){
+      if(d.enrolled){
+        mfaModalShell(
+          '<div style="display:grid;gap:10px">'
+          +'<div style="padding:10px 12px;border-radius:10px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;font-weight:600">Two-factor authentication is ON'+(d.enrolledAt?' <span style="font-weight:400;color:#047857">(since '+esc(String(d.enrolledAt).slice(0,10))+')</span>':'')+'</div>'
+          +'<div style="font-size:0.85rem;color:#555">Signing in requires your password plus a 6-digit code from your authenticator app. You have <strong>'+Number(d.backupCodesRemaining||0)+'</strong> backup code(s) left for lost-device recovery.</div>'
+          +'<div style="border-top:1px solid #eee;padding-top:10px">'
+          +'<div style="font-weight:600;margin-bottom:6px">Turn off two-factor</div>'
+          +'<div style="font-size:0.82rem;color:#666;margin-bottom:8px">Enter the current code from your app — or one of your backup codes if you lost the device.</div>'
+          +'<div style="display:flex;gap:6px"><input id="mfaDisableCode" type="text" placeholder="123456 or XXXX-XXXX" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px" /><button class="btn red" id="mfaDisableBtn">Turn Off</button></div>'
+          +'</div>'
+          +'<div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Close</button></div>'
+          +'</div>');
+        document.getElementById("mfaDisableBtn").addEventListener("click",async()=>{
+          const code=document.getElementById("mfaDisableCode").value.trim();
+          if(!code){toast("Enter a code first","red");return;}
+          const btn=document.getElementById("mfaDisableBtn");btn.disabled=true;btn.textContent="Checking…";
+          try{
+            const r=await fetch("/api/admin/mfa/disable",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:code})});
+            const dd=await r.json();
+            if(!r.ok||!dd.ok){toast(dd.message||"Could not turn off two-factor","red");btn.disabled=false;btn.textContent="Turn Off";return;}
+            toast("Two-factor authentication turned off","green");
+            openSecurityModal();
+          }catch(e){toast("Network error","red");btn.disabled=false;btn.textContent="Turn Off";}
+        });
+        return;
+      }
+      mfaModalShell(
+        '<div style="display:grid;gap:10px">'
+        +'<div style="padding:10px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-weight:600">Two-factor authentication is OFF</div>'
+        +'<div style="font-size:0.85rem;color:#555">Add a second lock to your account: after your password, you’ll also enter a 6-digit code from an authenticator app (Google Authenticator, 1Password, Authy…). You’ll get backup codes so you can never be locked out.</div>'
+        +(d.mfaGloballyRequired?'<div style="font-size:0.82rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px">Your organisation asks all admins to turn this on.</div>':'')
+        +'<div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-close-modal>Close</button><button class="btn primary" id="mfaEnableBtn">Enable two-factor</button></div>'
+        +'</div>');
+      document.getElementById("mfaEnableBtn").addEventListener("click",startMfaEnrolment);
+    }
+    async function startMfaEnrolment(){
+      mfaModalShell('<div style="padding:12px;color:#666">Preparing your secret key…</div>');
+      try{
+        const r=await fetch("/api/admin/mfa/setup",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"});
+        const d=await r.json();
+        if(!r.ok||!d.ok)throw new Error(d.message||"Setup failed.");
+        const grouped=String(d.secret||"").replace(/(.{4})/g,"$1 ").trim();
+        mfaModalShell(
+          '<div style="display:grid;gap:10px">'
+          +'<div style="font-weight:600">Step 1 — Add GP Link Admin to your authenticator app</div>'
+          +'<div style="font-size:0.85rem;color:#555">Open your authenticator app, choose <strong>Add account &rarr; Enter a setup key</strong>, and type this key (spaces don’t matter):</div>'
+          +'<div style="font-family:monospace;font-size:1.02rem;letter-spacing:1px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;text-align:center" id="mfaSecretText">'+esc(grouped)+'</div>'
+          +'<div style="display:flex;gap:6px"><button class="btn" id="mfaCopySecretBtn">Copy key</button><button class="btn" id="mfaCopyUriBtn" title="For apps that accept otpauth:// links">Copy setup link</button></div>'
+          +'<div style="font-weight:600;margin-top:4px">Step 2 — Confirm it works</div>'
+          +'<div style="font-size:0.85rem;color:#555">Enter the 6-digit code your app now shows for GP Link Admin:</div>'
+          +'<div style="display:flex;gap:6px"><input id="mfaConfirmCode" type="text" inputmode="numeric" maxlength="8" placeholder="123456" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px" /><button class="btn primary" id="mfaConfirmBtn">Turn On</button></div>'
+          +'<div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Cancel</button></div>'
+          +'</div>');
+        document.getElementById("mfaCopySecretBtn").addEventListener("click",()=>{navigator.clipboard.writeText(d.secret).then(()=>toast("Key copied","green")).catch(()=>toast("Copy failed — select the key text manually","red"));});
+        document.getElementById("mfaCopyUriBtn").addEventListener("click",()=>{navigator.clipboard.writeText(d.otpauthUri).then(()=>toast("Setup link copied","green")).catch(()=>toast("Copy failed","red"));});
+        document.getElementById("mfaConfirmBtn").addEventListener("click",async()=>{
+          const code=document.getElementById("mfaConfirmCode").value.trim();
+          if(!code){toast("Enter the 6-digit code from your app","red");return;}
+          const btn=document.getElementById("mfaConfirmBtn");btn.disabled=true;btn.textContent="Checking…";
+          try{
+            const r2=await fetch("/api/admin/mfa/enable",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({setupToken:d.setupToken,token:code})});
+            const d2=await r2.json();
+            if(!r2.ok||!d2.ok){toast(d2.message||"That code did not match","red");btn.disabled=false;btn.textContent="Turn On";return;}
+            renderMfaBackupCodes(d2.backupCodes||[]);
+          }catch(e){toast("Network error","red");btn.disabled=false;btn.textContent="Turn On";}
+        });
+      }catch(e){mfaModalShell('<div style="padding:12px;color:#dc2626">'+esc(e.message)+'</div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Close</button></div>');}
+    }
+    function renderMfaBackupCodes(codes){
+      mfaModalShell(
+        '<div style="display:grid;gap:10px">'
+        +'<div style="padding:10px 12px;border-radius:10px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;font-weight:600">Two-factor authentication is now ON</div>'
+        +'<div style="font-weight:600">Save your backup codes now — they are shown only once</div>'
+        +'<div style="font-size:0.85rem;color:#555">If you ever lose your phone, any ONE of these codes signs you in (each works once) and can turn two-factor off. Keep them somewhere safe, like a password manager.</div>'
+        +'<div style="font-family:monospace;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">'+codes.map(c=>'<div>'+esc(c)+'</div>').join("")+'</div>'
+        +'<div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" id="mfaCopyCodesBtn">Copy all codes</button><button class="btn primary" data-close-modal>Done</button></div>'
+        +'</div>');
+      document.getElementById("mfaCopyCodesBtn").addEventListener("click",()=>{navigator.clipboard.writeText(codes.join("\n")).then(()=>toast("Backup codes copied","green")).catch(()=>toast("Copy failed — write them down manually","red"));});
+    }
+    /* After a sign-in where the org requires 2FA but this admin hasn't enrolled,
+       the sign-in page sets this flag — prompt (never block). */
+    try{
+      if(sessionStorage.getItem("gpAdminMfaEnrolPrompt")==="1"){
+        sessionStorage.removeItem("gpAdminMfaEnrolPrompt");
+        setTimeout(()=>{toast("Please set up two-factor authentication — click the Security button (top right)","blue");},1500);
+      }
+    }catch(e){}
 
     /* Ops Queue bindings — stat card filter toggle */
     document.getElementById("opsStats").addEventListener("click",function(e){

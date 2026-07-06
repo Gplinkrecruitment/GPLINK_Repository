@@ -162,13 +162,23 @@
     <div class="scope-chip" id="portalScopeChip">Loading portal...</div>
     <p id="portalCopy">Use an internal admin account to access the GP Link operations dashboard.</p>
     <form id="adminLoginForm">
-      <div class="field">
-        <label for="email">Work email</label>
-        <input id="email" name="email" type="email" autocomplete="email" required />
+      <div id="credentialsStep">
+        <div class="field">
+          <label for="email">Work email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
       </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <div id="mfaStep" style="display:none">
+        <div class="field">
+          <label for="mfaCode">Two-factor code</label>
+          <input id="mfaCode" name="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" maxlength="16" />
+        </div>
+        <p style="margin-top:6px;">Enter the 6-digit code from your authenticator app. Lost your device? Type one of your backup codes instead (looks like <strong>XXXX-XXXX</strong>).</p>
+        <p style="text-align:left;margin-top:6px;"><a href="#" id="mfaBackLink" style="color:var(--blue-1);font-size:12px;font-weight:600;text-decoration:none;">&larr; Back to password</a></p>
       </div>
       <div class="field">
         <button id="submitBtn" type="submit">Sign In</button>
@@ -221,10 +231,67 @@
       }
     }
 
+    // Two-factor step-up state: set when the password succeeds but the account
+    // has 2FA enrolled. The server returns a short-lived signed challenge we
+    // exchange (with the authenticator code or a backup code) for the session.
+    let mfaChallenge = "";
+
+    function showMfaStep() {
+      document.getElementById("credentialsStep").style.display = "none";
+      document.getElementById("mfaStep").style.display = "";
+      submitBtnEl.textContent = "Verify Code";
+      const codeEl = document.getElementById("mfaCode");
+      codeEl.value = "";
+      codeEl.focus();
+    }
+
+    function showCredentialsStep() {
+      mfaChallenge = "";
+      document.getElementById("mfaStep").style.display = "none";
+      document.getElementById("credentialsStep").style.display = "";
+      submitBtnEl.textContent = "Sign In";
+    }
+
+    function completeSignin(data) {
+      applyPortalContext(data);
+      setStatus("Signed in. Redirecting...", "ok");
+      window.location.href = data.redirectTo || "/pages/admin";
+    }
+
     formEl.addEventListener("submit", async (event) => {
       event.preventDefault();
       setStatus("");
       submitBtnEl.disabled = true;
+
+      // Step 2: we already hold an MFA challenge — verify the code.
+      if (mfaChallenge) {
+        const code = String(document.getElementById("mfaCode").value || "").trim();
+        if (!code) {
+          setStatus("Enter the code from your authenticator app (or a backup code).", "error");
+          submitBtnEl.disabled = false;
+          return;
+        }
+        try {
+          const response = await fetch("/api/admin/auth/login/mfa", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ challenge: mfaChallenge, token: code })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) {
+            setStatus(data.message || "That code did not work. Try again.", "error");
+            if (String(data.message || "").indexOf("sign in again") !== -1) showCredentialsStep();
+            return;
+          }
+          completeSignin(data);
+        } catch (err) {
+          setStatus("Network error. Please try again.", "error");
+        } finally {
+          submitBtnEl.disabled = false;
+        }
+        return;
+      }
 
       const email = String(formEl.elements.email.value || "").trim();
       const password = String(formEl.elements.password.value || "");
@@ -246,14 +313,28 @@
           setStatus(data.message || "Sign in failed.", "error");
           return;
         }
-        applyPortalContext(data);
-        setStatus("Signed in. Redirecting...", "ok");
-        window.location.href = data.redirectTo || "/pages/admin";
+        if (data.mfaRequired && data.challenge) {
+          mfaChallenge = data.challenge;
+          showMfaStep();
+          setStatus("Password accepted. Now enter your two-factor code.", "ok");
+          return;
+        }
+        if (data.mfaEnrolmentRequired) {
+          // Never blocks sign-in — the dashboard Security panel prompts enrolment.
+          try { sessionStorage.setItem("gpAdminMfaEnrolPrompt", "1"); } catch (e) {}
+        }
+        completeSignin(data);
       } catch (err) {
         setStatus("Network error. Please try again.", "error");
       } finally {
         submitBtnEl.disabled = false;
       }
+    });
+
+    document.getElementById("mfaBackLink").addEventListener("click", (event) => {
+      event.preventDefault();
+      setStatus("");
+      showCredentialsStep();
     });
 
     document.getElementById("forgotLink").addEventListener("click", async (event) => {

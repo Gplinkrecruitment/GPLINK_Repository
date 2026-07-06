@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const hybridAgents = require('./scripts/agents.js');
+const adminTotp = require('./lib/totp.js');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
@@ -1956,6 +1957,9 @@ const BACKUP_TABLES = [
   'scheduled_calls', 'rso_team', 'va_gmail_accounts',
   'site_enquiries', 'pep_waitlist', 'onboarding_reminders',
   'candidate_leads', 'zoho_archive', 'admin_audit_log'
+  // SECURITY (Phase 6 C1): 'admin_mfa' is deliberately EXCLUDED — it holds
+  // TOTP secrets + backup-code hashes. 2FA secrets must never leave the DB
+  // into Drive backup exports. Do NOT add it to this list.
 ];
 const MASTER_ARCHIVE_EMAIL = String(process.env.MASTER_ARCHIVE_EMAIL || 'hello@mygplink.com.au').trim().toLowerCase();
 // Admin/archive inboxes that must NEVER be watched or turned into Ops Queue tasks.
@@ -8890,6 +8894,135 @@ function clearAdminSession(res) {
   const cookie = [`${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`];
   if (secureCookie) cookie.push('Secure');
   res.setHeader('Set-Cookie', cookie.join('; '));
+}
+
+// ── Admin two-factor authentication (TOTP) — Phase 6 C1 (audit S1) ─────────
+// LOCKOUT-SAFE BY DESIGN: enrolment is opt-in per admin. Login only demands a
+// TOTP code when an ACTIVE admin_mfa row exists for that email. An un-enrolled
+// admin (including the owner) always logs in with password alone — even when
+// REQUIRE_ADMIN_MFA is set, which merely flags mfaEnrolmentRequired so the UI
+// can nag; it NEVER blocks. Lost device → single-use backup codes complete
+// login and can disable 2FA entirely.
+
+const ADMIN_MFA_CHALLENGE_TTL_MS = Number(process.env.ADMIN_MFA_CHALLENGE_TTL_MS || 5 * 60 * 1000);
+const ADMIN_MFA_SETUP_TTL_MS = Number(process.env.ADMIN_MFA_SETUP_TTL_MS || 15 * 60 * 1000);
+const ADMIN_MFA_BACKUP_CODE_COUNT = 8;
+
+// Read at request time (not boot) so ops can flip the flag without a redeploy
+// and tests can exercise both branches in one server boot.
+function isAdminMfaGloballyRequired() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.REQUIRE_ADMIN_MFA || '').trim());
+}
+
+function hashAdminBackupCode(code) {
+  const normalized = String(code || '').toUpperCase().replace(/[\s-]/g, '');
+  return crypto.createHmac('sha256', SECRET).update(`admin_mfa_backup|${normalized}`).digest('hex');
+}
+
+// 8 codes like "K7PQ-4MZ2" — unambiguous alphabet (no 0/O/1/I/L/S/5/B/8).
+function generateAdminBackupCodes(count = ADMIN_MFA_BACKUP_CODE_COUNT) {
+  const alphabet = 'ACDEFGHJKMNPQRTUVWXYZ234679';
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    let raw = '';
+    for (let j = 0; j < 8; j++) raw += alphabet[crypto.randomInt(alphabet.length)];
+    codes.push(`${raw.slice(0, 4)}-${raw.slice(4)}`);
+  }
+  return codes;
+}
+
+// Dual-mode row access: Supabase admin_mfa table in production, dbState.adminMfa
+// map in local JSON mode (loadDbState preserves unknown keys via `...parsed`).
+async function getAdminMfaRecord(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  if (isSupabaseDbConfigured()) {
+    const res = await supabaseDbRequest('admin_mfa', `admin_email=eq.${encodeURIComponent(key)}&limit=1`);
+    if (res.ok && Array.isArray(res.data) && res.data.length > 0) return res.data[0];
+    return null;
+  }
+  const rec = (dbState.adminMfa || {})[key];
+  return rec ? { admin_email: key, ...rec } : null;
+}
+
+async function saveAdminMfaRecord(email, fields) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return false;
+  const row = { admin_email: key, updated_at: new Date().toISOString(), ...fields };
+  if (isSupabaseDbConfigured()) {
+    const res = await supabaseDbRequest('admin_mfa', 'on_conflict=admin_email', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [row]
+    });
+    if (!res.ok) console.error('[MFA] admin_mfa upsert failed', res.status);
+    return !!res.ok;
+  }
+  dbState.adminMfa = dbState.adminMfa && typeof dbState.adminMfa === 'object' ? dbState.adminMfa : {};
+  dbState.adminMfa[key] = { ...(dbState.adminMfa[key] || {}), ...row };
+  saveDbState();
+  return true;
+}
+
+// Short-lived signed tokens for the two half-open states. Payload shapes are
+// deliberately DIFFERENT from { userProfile, expiresAt } so neither token can
+// ever be replayed as a gp_admin_session cookie (parseSignedSessionToken
+// rejects them), and both carry a purpose tag checked on parse.
+function createSignedPurposeToken(purpose, data, ttlMs) {
+  const payload = base64UrlEncode(JSON.stringify({ purpose, data, exp: now() + ttlMs }));
+  return `${payload}.${hmacSign(payload)}`;
+}
+
+function parseSignedPurposeToken(token, purpose) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = hmacSign(payload);
+  const sigValid = signature.length === expected.length
+    && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'));
+  if (!sigValid) return null;
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.purpose !== purpose) return null;
+    if (typeof parsed.exp !== 'number' || parsed.exp <= now()) return null;
+    if (!parsed.data || typeof parsed.data !== 'object') return null;
+    return parsed.data;
+  } catch (err) {
+    return null;
+  }
+}
+
+// TOTP first, then single-use backup code (consumed on success). Returns
+// { ok, method } and persists backup-code consumption + last_used_at.
+async function verifyAdminMfaCode(record, code) {
+  const secret = record && record.totp_secret ? String(record.totp_secret) : '';
+  if (!secret) return { ok: false, method: null };
+  const input = String(code || '').trim();
+  if (adminTotp.verifyTotp(secret, input, { window: 1 })) {
+    await saveAdminMfaRecord(record.admin_email, { last_used_at: new Date().toISOString() });
+    return { ok: true, method: 'totp' };
+  }
+  const storedHashes = Array.isArray(record.backup_codes) ? record.backup_codes.map(String) : [];
+  if (storedHashes.length) {
+    const candidateHash = hashAdminBackupCode(input);
+    let matched = false;
+    const remaining = [];
+    for (const hash of storedHashes) {
+      if (!matched && timingSafeEqualStrings(hash, candidateHash)) { matched = true; continue; }
+      remaining.push(hash);
+    }
+    if (matched) {
+      await saveAdminMfaRecord(record.admin_email, {
+        backup_codes: remaining,
+        last_used_at: new Date().toISOString()
+      });
+      return { ok: true, method: 'backup_code' };
+    }
+  }
+  return { ok: false, method: null };
 }
 
 function getSession(req) {
@@ -32711,7 +32844,33 @@ Return ONLY valid JSON with no markdown formatting:
     }
     upsertLocalUserFromSupabaseUser(loginUser);
     await ensureSupabaseUserProfile(loginUser);
-    setAdminSession(res, buildAdminSessionProfile(getSessionProfileFromSupabaseUser(loginUser, email), adminRole));
+    const adminSessionProfile = buildAdminSessionProfile(getSessionProfileFromSupabaseUser(loginUser, email), adminRole);
+
+    // Phase 6 C1: two-factor step-up — ONLY for admins who chose to enrol.
+    // An enrolled (active) row means the password alone is not enough: no
+    // session cookie yet, just a short-lived signed challenge that
+    // /api/admin/auth/login/mfa exchanges (with a TOTP or backup code) for
+    // the exact same session the password path would have issued.
+    let adminMfaRecord = null;
+    try { adminMfaRecord = await getAdminMfaRecord(email); } catch (err) {
+      console.error('[MFA] lookup failed at login (failing OPEN — no lockout):', err && err.message);
+    }
+    const adminMfaActive = !!(adminMfaRecord && adminMfaRecord.totp_secret && !adminMfaRecord.disabled);
+    if (adminMfaActive) {
+      const challenge = createSignedPurposeToken('admin_mfa_challenge', {
+        profile: adminSessionProfile,
+        hostScope
+      }, ADMIN_MFA_CHALLENGE_TTL_MS);
+      sendJson(res, 200, {
+        ok: true,
+        mfaRequired: true,
+        challenge,
+        message: 'Enter the 6-digit code from your authenticator app (or a backup code).'
+      });
+      return;
+    }
+
+    setAdminSession(res, adminSessionProfile);
     await logAdminAction(req, { email, role: adminRole }, 'admin_login_success', { detail: { hostScope } });
     sendJson(res, 200, {
       ok: true,
@@ -32719,6 +32878,9 @@ Return ONLY valid JSON with no markdown formatting:
       redirectTo: '/pages/admin',
       hostScope,
       hostLabel: getAdminHostLabel(hostScope),
+      // REQUIRE_ADMIN_MFA never blocks an un-enrolled admin (lockout-safe);
+      // it only asks the UI to prompt for enrolment.
+      ...(isAdminMfaGloballyRequired() ? { mfaEnrolmentRequired: true } : {}),
       profile: {
         email,
         adminRole,
@@ -32730,9 +32892,178 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Phase 6 C1: second half of the MFA login — exchanges (challenge, code)
+  // for the admin session. Pre-session by definition, so rate-limited hard.
+  if (pathname === '/api/admin/auth/login/mfa' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'admin-login-mfa'))) return;
+    let body;
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const challengeData = parseSignedPurposeToken(body.challenge, 'admin_mfa_challenge');
+    if (!challengeData || !challengeData.profile || !challengeData.profile.email) {
+      sendJson(res, 401, { ok: false, message: 'This sign-in attempt has expired. Please sign in again.' });
+      return;
+    }
+    const mfaEmail = String(challengeData.profile.email || '').trim().toLowerCase();
+    const mfaRole = challengeData.profile.adminRole;
+    // The challenge is bound to the host scope it was minted on.
+    const currentHostScope = getAdminHostScope(req);
+    if (!currentHostScope || currentHostScope !== challengeData.hostScope) {
+      sendJson(res, 403, { ok: false, message: 'This sign-in attempt is not valid on this host.' });
+      return;
+    }
+    const record = await getAdminMfaRecord(mfaEmail);
+    if (!record || !record.totp_secret || record.disabled) {
+      // Enrolment vanished between the two steps — the password already
+      // succeeded and 2FA is off, so fall back to a plain sign-in retry.
+      sendJson(res, 401, { ok: false, message: 'Two-factor is not active for this account. Please sign in again.' });
+      return;
+    }
+    const verdict = await verifyAdminMfaCode(record, body.token != null ? body.token : body.code);
+    if (!verdict.ok) {
+      await logAdminAction(req, null, 'admin_login_mfa_failure', {
+        actorEmail: mfaEmail, success: false, detail: { hostScope: currentHostScope }
+      });
+      sendJson(res, 401, { ok: false, message: 'That code is not valid. Try the current code from your app, or a backup code.' });
+      return;
+    }
+    setAdminSession(res, challengeData.profile);
+    await logAdminAction(req, { email: mfaEmail, role: mfaRole }, 'admin_login_mfa_success', {
+      detail: { hostScope: currentHostScope, method: verdict.method }
+    });
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Authenticated',
+      redirectTo: '/pages/admin',
+      hostScope: currentHostScope,
+      hostLabel: getAdminHostLabel(currentHostScope),
+      ...(verdict.method === 'backup_code' ? { usedBackupCode: true } : {}),
+      profile: {
+        email: mfaEmail,
+        adminRole: mfaRole,
+        roleLabel: getAdminRoleLabel(mfaRole),
+        hostScope: currentHostScope,
+        hostLabel: getAdminHostLabel(currentHostScope)
+      }
+    });
+    return;
+  }
+
   if (pathname === '/api/admin/auth/logout' && req.method === 'POST') {
     clearAdminSession(res);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Phase 6 C1: admin 2FA enrolment (self-service, already-authenticated).
+  // Uses resolveAdminRequestContext (not requireAdminSession) so ATS-only
+  // consultants can also protect their accounts.
+  if (pathname === '/api/admin/mfa/status' && req.method === 'GET') {
+    const adminCtx = resolveAdminRequestContext(req, res);
+    if (!adminCtx) return;
+    const record = await getAdminMfaRecord(adminCtx.email);
+    const enrolled = !!(record && record.totp_secret && !record.disabled);
+    sendJson(res, 200, {
+      ok: true,
+      enrolled,
+      enrolledAt: enrolled ? record.enrolled_at || null : null,
+      backupCodesRemaining: enrolled && Array.isArray(record.backup_codes) ? record.backup_codes.length : 0,
+      mfaGloballyRequired: isAdminMfaGloballyRequired()
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/mfa/setup' && req.method === 'POST') {
+    const adminCtx = resolveAdminRequestContext(req, res);
+    if (!adminCtx) return;
+    // Nothing is persisted here: the candidate secret rides inside a signed,
+    // short-lived setup token (stateless — survives serverless instance hops)
+    // and only becomes active once /enable proves the authenticator works.
+    const secret = adminTotp.generateSecret();
+    const otpauthUri = adminTotp.totpUri({ secret, label: adminCtx.email, issuer: 'GP Link Admin' });
+    const setupToken = createSignedPurposeToken('admin_mfa_setup', {
+      email: adminCtx.email,
+      secret
+    }, ADMIN_MFA_SETUP_TTL_MS);
+    sendJson(res, 200, {
+      ok: true,
+      secret,
+      otpauthUri,
+      setupToken,
+      expiresInSeconds: Math.floor(ADMIN_MFA_SETUP_TTL_MS / 1000)
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/mfa/enable' && req.method === 'POST') {
+    const adminCtx = resolveAdminRequestContext(req, res);
+    if (!adminCtx) return;
+    if (!(await enforceAuthRateLimit(req, res, 'admin-mfa-manage'))) return;
+    let body;
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const setupData = parseSignedPurposeToken(body.setupToken, 'admin_mfa_setup');
+    if (!setupData || String(setupData.email || '').toLowerCase() !== String(adminCtx.email || '').toLowerCase()) {
+      sendJson(res, 400, { ok: false, message: 'Setup session expired. Start again from "Enable two-factor".' });
+      return;
+    }
+    if (!adminTotp.verifyTotp(setupData.secret, String(body.token || ''), { window: 1 })) {
+      sendJson(res, 400, { ok: false, message: 'That code did not match. Check your authenticator app and try again.' });
+      return;
+    }
+    const backupCodes = generateAdminBackupCodes();
+    const saved = await saveAdminMfaRecord(adminCtx.email, {
+      totp_secret: setupData.secret,
+      enrolled_at: new Date().toISOString(),
+      backup_codes: backupCodes.map(hashAdminBackupCode),
+      last_used_at: null,
+      disabled: false
+    });
+    if (!saved) {
+      sendJson(res, 500, { ok: false, message: 'Could not save your two-factor enrolment. Nothing was changed.' });
+      return;
+    }
+    await logAdminAction(req, adminCtx, 'admin_mfa_enabled', { detail: { backupCodes: backupCodes.length } });
+    // The plaintext backup codes are shown exactly ONCE — only hashes persist.
+    sendJson(res, 200, { ok: true, enrolled: true, backupCodes });
+    return;
+  }
+
+  if (pathname === '/api/admin/mfa/disable' && req.method === 'POST') {
+    const adminCtx = resolveAdminRequestContext(req, res);
+    if (!adminCtx) return;
+    if (!(await enforceAuthRateLimit(req, res, 'admin-mfa-manage'))) return;
+    let body;
+    try { body = await readJsonBody(req); } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const record = await getAdminMfaRecord(adminCtx.email);
+    if (!record || !record.totp_secret || record.disabled) {
+      sendJson(res, 200, { ok: true, enrolled: false, message: 'Two-factor is already off for this account.' });
+      return;
+    }
+    // Accepts the current TOTP code OR a backup code — the lost-device escape
+    // hatch: a backup code alone is enough to turn 2FA off.
+    const verdict = await verifyAdminMfaCode(record, body.token != null ? body.token : body.backupCode);
+    if (!verdict.ok) {
+      sendJson(res, 401, { ok: false, message: 'That code is not valid. Use the current app code or a backup code.' });
+      return;
+    }
+    const saved = await saveAdminMfaRecord(adminCtx.email, {
+      disabled: true,
+      backup_codes: []
+    });
+    if (!saved) {
+      sendJson(res, 500, { ok: false, message: 'Could not update your two-factor settings.' });
+      return;
+    }
+    await logAdminAction(req, adminCtx, 'admin_mfa_disabled', { detail: { method: verdict.method } });
+    sendJson(res, 200, { ok: true, enrolled: false });
     return;
   }
 
