@@ -1445,6 +1445,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="hubInbox">Inbox</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
+    <div class="view-tab" data-view="interviews" id="interviewsTab" style="display:none">Interviews</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="scheduled_calls">Calls</div>
@@ -1545,6 +1546,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div id="techArchivedAccountsPanel" style="display:none"></div>
 </div>
 <div id="guidePanel" style="display:none"></div>
+<div id="interviewsPanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
 <div id="siteEnquiriesPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
@@ -2208,6 +2210,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       medicalcentres:"medicalCentresPanel",
       support:"supportPanel",
       guide:"guidePanel",
+      interviews:"interviewsPanel",
       scheduled_calls:"scheduledCallsPanel",
       website:"siteEnquiriesPanel",
       technical:"technicalPanel"
@@ -2228,6 +2231,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="medicalcentres"){vaShowPanel("medicalcentres");renderMedicalCentresPanel();return;}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
+    if(S.view==="interviews"){var ivTabEl=document.getElementById("interviewsTab");if(ivTabEl)ivTabEl.style.display="";vaShowPanel("interviews");renderInterviewsPanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
     if(S.view==="website"){vaShowPanel("website");renderSiteEnquiriesPanel();return;}
     if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
@@ -6633,6 +6637,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }else if(view==="guide"){
         if(!S.guide.folders)await loadGuideData();
         renderGuidePanel();
+      }else if(view==="interviews"){
+        await loadInterviews();
       }else if(view==="scheduled_calls"){
         renderScheduledCallsPanel();
       }else if(view==="website"){
@@ -8232,7 +8238,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -9523,6 +9529,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       e.preventDefault();e.stopPropagation();
       const appId=appSchedule.getAttribute("data-app-schedule");
       S.view="interviews";
+      const ivTab=document.getElementById("interviewsTab");
+      if(ivTab)ivTab.style.display="";
       document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="interviews"));
       vaShowPanel("interviews");
       await loadInterviews();
