@@ -980,6 +980,39 @@
     }
     .success-screen .btn-next { min-width: 200px; }
 
+    /* ── ELIGIBILITY OFF-RAMP (country not yet supported) ── */
+    .country-list li.country-not-listed {
+      color: var(--gp-muted);
+      border-top: 1px solid var(--gp-border-strong);
+    }
+    .not-eligible-globe { font-size: 42px; margin-bottom: 14px; }
+    .waitlist-form {
+      width: 100%;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-align: left;
+    }
+    .waitlist-form .btn-next { width: 100%; margin-top: 4px; }
+    .waitlist-error { display: none; color: var(--red); font-size: 13px; }
+    .waitlist-error.show { display: block; }
+    .waitlist-back {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 13px;
+      font-family: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+      margin-top: 20px;
+      padding: 4px;
+    }
+    .waitlist-capture { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    .waitlist-done { display: none; flex-direction: column; align-items: center; }
+    #notEligibleScreen.waitlist-submitted .waitlist-capture { display: none; }
+    #notEligibleScreen.waitlist-submitted .waitlist-done { display: flex; }
+
     /* ── LOGO MARQUEE ─────────────────────────── */
     .partners-section {
       margin-top: 12px;
@@ -1056,6 +1089,41 @@ if (window.parent && window.parent !== window) {
     <h1>You're all set.</h1>
     <p>Your personalised pathway is ready. We'll guide you through registration, placement, and relocation — step by step.</p>
     <button class="btn-next" id="successContinueBtn">Go to Dashboard</button>
+  </div>
+
+  <!-- Eligibility off-ramp: the GP trained in a country we don't support yet.
+       Friendly "Not yet eligible" screen + waitlist capture (Phase 6 G3). -->
+  <div class="success-screen" id="notEligibleScreen">
+    <div class="waitlist-capture" id="waitlistCapture">
+      <div class="not-eligible-globe" aria-hidden="true">&#127758;</div>
+      <h1>Not yet eligible</h1>
+      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; leave your details and we'll let you know the moment yours is supported.</p>
+      <form class="waitlist-form" id="waitlistForm" novalidate>
+        <div>
+          <label class="field-label" for="waitlistCountry">Country where you trained</label>
+          <input type="text" id="waitlistCountry" placeholder="e.g. South Africa" autocomplete="country-name" />
+        </div>
+        <div>
+          <label class="field-label" for="waitlistEmail">Email</label>
+          <input type="text" id="waitlistEmail" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+        </div>
+        <div>
+          <label class="field-label" for="waitlistName">Name (optional)</label>
+          <input type="text" id="waitlistName" placeholder="Dr Jane Smith" autocomplete="name" />
+        </div>
+        <div class="waitlist-error" id="waitlistError">Please enter your country and a valid email address.</div>
+        <button class="btn-next" type="submit" id="waitlistSubmitBtn">Notify me when it's supported</button>
+      </form>
+      <button type="button" class="waitlist-back" id="waitlistBackBtn">Selected the wrong country? Go back</button>
+    </div>
+    <div class="waitlist-done" id="waitlistDone">
+      <div class="success-check">
+        <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <h1>You're on the list.</h1>
+      <p>Thanks &mdash; we'll be in touch as soon as we support GPs trained in your country. There's nothing more you need to do right now.</p>
+      <button type="button" class="waitlist-back" id="waitlistDoneBackBtn">Selected the wrong country? Go back</button>
+    </div>
   </div>
 
   <div class="onboarding-shell" id="shell" data-step="0">
@@ -1310,6 +1378,6 @@ if (window.parent && window.parent !== window) {
   </div>
 
   <script src="../js/qualification-camera.js?v=20260614a"></script>
-  <script src="../js/onboarding.js?v=20260705b"></script>
+  <script src="../js/onboarding.js?v=20260707a"></script>
 </body>
 </html>

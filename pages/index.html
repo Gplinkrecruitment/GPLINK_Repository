@@ -318,6 +318,47 @@
       margin-bottom: 12px;
     }
 
+    /* ─── OUTSTANDING ACTIONS (unified GP task inbox) ─── */
+    .outstanding-card[hidden] { display: none; }
+    .outstanding-list {
+      display: flex; flex-direction: column;
+      border: 1px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-lg);
+      background: var(--gp-surface-raised, var(--gp-surface));
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .outstanding-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px;
+      text-decoration: none;
+      border-bottom: 1px solid var(--gp-border);
+      transition: background 0.15s ease;
+    }
+    .outstanding-item:last-child { border-bottom: none; }
+    .outstanding-item:hover { background: var(--gp-surface-sunken); }
+    .outstanding-dot {
+      flex: 0 0 auto;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--gp-blue);
+    }
+    .outstanding-dot.high { background: var(--gp-amber, #d97706); }
+    .outstanding-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .outstanding-title { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.35; }
+    .outstanding-desc {
+      font-size: 11.5px; color: var(--muted); font-weight: 500; margin-top: 1px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .outstanding-stage {
+      flex: 0 0 auto;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gp-blue-ink); background: var(--gp-blue-soft);
+      border: 1px solid var(--gp-blue-border);
+      padding: 3px 8px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .outstanding-chevron { flex: 0 0 auto; width: 16px; height: 16px; stroke: var(--gp-faint); fill: none; stroke-width: 2; }
+
     /* ─── JOURNEY STEPPER + NOTICES ─── */
     .journey-stepper { margin-bottom: 14px; }
     .journey-stepper:empty { display: none; }
@@ -889,6 +930,13 @@
       <span id="ring-num">3%</span>
       <span id="next-milestone">Next milestone: Step 1 complete</span>
     </div>
+
+    <!-- OUTSTANDING ACTIONS — everything currently waiting on the GP, in one
+         place. Hidden entirely when nothing is outstanding (Phase 6 G4). -->
+    <section class="outstanding-card" id="outstandingActions" hidden>
+      <div class="section-head">Your outstanding actions</div>
+      <div class="outstanding-list" id="outstandingList"></div>
+    </section>
 
     <!-- THE JOURNEY -->
     <div class="section-head gp-reveal gp-reveal-2">The Journey</div>
@@ -2166,6 +2214,52 @@
       video.addEventListener("canplay", function() {
         clearTimeout(stallTimer);
       }, { once: true });
+    })();
+  </script>
+
+  <script>
+    // ── OUTSTANDING ACTIONS — unified GP task inbox (Phase 6 G4) ─────────────
+    // Read-only aggregation from /api/gp/outstanding: AHPRA more-info items,
+    // rejected documents needing re-upload, tasks waiting on the GP, and
+    // actionable nudges. Each row deep-links to the page that resolves it
+    // (nav-shell-bridge routes the <a> clicks through the app shell, query
+    // string intact). The whole panel stays hidden when nothing is outstanding.
+    (function loadOutstandingActions() {
+      var panel = document.getElementById("outstandingActions");
+      var list = document.getElementById("outstandingList");
+      if (!panel || !list) return;
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+        });
+      }
+      var STAGE_LABELS = {
+        career: "Placement", placement: "Placement",
+        myintealth: "MyIntealth", myinthealth: "MyIntealth", epic: "MyIntealth",
+        amc: "AMC", ahpra: "AHPRA", visa: "Visa",
+        pbs: "PBS & Medicare", medicare: "PBS & Medicare",
+        commencement: "Commencement", documents: "Documents", onboarding: "Setup"
+      };
+      fetch("/api/gp/outstanding", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok || !Array.isArray(d.items) || d.items.length === 0) return; // no panel when nothing outstanding
+          list.innerHTML = d.items.map(function (item) {
+            var stageLabel = STAGE_LABELS[String(item.stage || "").toLowerCase()] || "";
+            var href = /^\/pages\//.test(String(item.deepLink || "")) ? item.deepLink : "#";
+            return '<a class="outstanding-item" href="' + esc(href) + '">' +
+              '<span class="outstanding-dot' + (item.priority === "high" ? " high" : "") + '" aria-hidden="true"></span>' +
+              '<span class="outstanding-info">' +
+                '<span class="outstanding-title">' + esc(item.title || "A task needs your attention") + '</span>' +
+                (item.description ? '<span class="outstanding-desc">' + esc(item.description) + '</span>' : "") +
+              '</span>' +
+              (stageLabel ? '<span class="outstanding-stage">' + esc(stageLabel) + '</span>' : "") +
+              '<svg class="outstanding-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>' +
+            '</a>';
+          }).join("");
+          panel.hidden = false;
+        })
+        .catch(function () { /* panel stays hidden — never break the dashboard */ });
     })();
   </script>
 </body>

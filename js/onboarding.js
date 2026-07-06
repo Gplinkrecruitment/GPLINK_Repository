@@ -130,6 +130,14 @@
       li.addEventListener("click", () => selectCountry(c));
       countryList.appendChild(li);
     });
+    // Always-visible off-ramp: a GP trained anywhere else is NOT eligible yet —
+    // route them to the "Not yet eligible" waitlist instead of a dead end.
+    const liOther = document.createElement("li");
+    liOther.className = "country-not-listed";
+    liOther.id = "countryNotListed";
+    liOther.innerHTML = '<span class="country-flag">\u{1F30E}</span> My country isn’t listed';
+    liOther.addEventListener("click", () => openEligibilityOfframp(countrySearch.value || ""));
+    countryList.appendChild(liOther);
   }
 
   function selectCountry(c) {
@@ -154,6 +162,114 @@
     const match = COUNTRIES.find((c) => c.code === state.country);
     if (match) countrySearch.value = match.name;
   }
+
+  // ── Eligibility off-ramp: country not yet supported (Not yet eligible) ──
+  // GP Link only supports UK/Ireland/NZ-trained GPs today. Anyone else gets a
+  // graceful waitlist ("notify me when my country is supported") instead of
+  // being trapped on step 1 forever. Once waitlisted, returning to this page
+  // shows the "we'll be in touch" state, not the wizard.
+  const ELIGIBILITY_WAITLIST_KEY = "gp_eligibility_waitlist";
+
+  function getWaitlistRecord() {
+    try {
+      const raw = localStorage.getItem(ELIGIBILITY_WAITLIST_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  function showEligibilityScreen(submitted) {
+    const screen = document.getElementById("notEligibleScreen");
+    if (!screen) return;
+    screen.classList.toggle("waitlist-submitted", !!submitted);
+    screen.classList.add("show");
+  }
+
+  function hideEligibilityScreen() {
+    const screen = document.getElementById("notEligibleScreen");
+    if (screen) screen.classList.remove("show", "waitlist-submitted");
+  }
+
+  function openEligibilityOfframp(countryGuess) {
+    const rec = getWaitlistRecord();
+    if (rec) { showEligibilityScreen(true); return; }
+    const countryInput = document.getElementById("waitlistCountry");
+    const emailInput = document.getElementById("waitlistEmail");
+    const nameInput = document.getElementById("waitlistName");
+    const profile = window.gpSessionProfile || {};
+    const typed = String(countryGuess || "").trim();
+    if (countryInput && !countryInput.value && typed && !COUNTRIES.some((c) => c.name.toLowerCase() === typed.toLowerCase())) {
+      countryInput.value = typed;
+    }
+    if (emailInput && !emailInput.value && profile.email) emailInput.value = profile.email;
+    if (nameInput && !nameInput.value) {
+      const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
+      if (fullName) nameInput.value = fullName;
+    }
+    showEligibilityScreen(false);
+  }
+
+  const waitlistForm = document.getElementById("waitlistForm");
+  if (waitlistForm) {
+    waitlistForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("waitlistError");
+      const submitBtn = document.getElementById("waitlistSubmitBtn");
+      const country = (document.getElementById("waitlistCountry").value || "").trim();
+      const email = (document.getElementById("waitlistEmail").value || "").trim();
+      const name = (document.getElementById("waitlistName").value || "").trim();
+      const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      if (!country || !emailOk) {
+        if (errorEl) {
+          errorEl.textContent = "Please enter your country and a valid email address.";
+          errorEl.classList.add("show");
+        }
+        return;
+      }
+      if (errorEl) errorEl.classList.remove("show");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
+      try {
+        const resp = await fetch("/api/eligibility-waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email: email, country: country, name: name }),
+        });
+        const data = await resp.json().catch(() => null);
+        if (resp.ok && data && data.ok) {
+          try {
+            localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, JSON.stringify({ country: country, email: email, at: new Date().toISOString() }));
+          } catch (err) { /* ignore */ }
+          showEligibilityScreen(true);
+        } else if (errorEl) {
+          errorEl.textContent = (data && data.message) || "We couldn't save your details. Please try again.";
+          errorEl.classList.add("show");
+        }
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = "We couldn't save your details. Please check your connection and try again.";
+          errorEl.classList.add("show");
+        }
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Notify me when it's supported"; }
+      }
+    });
+  }
+
+  function exitEligibilityOfframp() {
+    try { localStorage.removeItem(ELIGIBILITY_WAITLIST_KEY); } catch (e) { /* ignore */ }
+    // Clear the server-side flag too so other devices stop showing the waitlist.
+    fetch("/api/state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ state: { gp_eligibility_waitlist: null } }),
+    }).catch(() => { /* best effort */ });
+    hideEligibilityScreen();
+  }
+  const waitlistBackBtn = document.getElementById("waitlistBackBtn");
+  if (waitlistBackBtn) waitlistBackBtn.addEventListener("click", exitEligibilityOfframp);
+  const waitlistDoneBackBtn = document.getElementById("waitlistDoneBackBtn");
+  if (waitlistDoneBackBtn) waitlistDoneBackBtn.addEventListener("click", exitEligibilityOfframp);
 
   // ── Qualification document verification (Step 2) ──
   const qualDocsContainer = document.getElementById("qualDocsContainer");
@@ -695,7 +811,7 @@
       }
 
       // Persist the actual file regardless of the verification outcome. A name
-      // mismatch / failed scan still needs a human (RSO) to open and review the
+      // mismatch / failed scan still needs a Registration Support Officer to open and review the
       // real document — previously only verified docs were saved, which is why a
       // flagged qualification showed "No document is stored for this task".
       try {
@@ -1342,6 +1458,26 @@
       }
       // Store profile for name matching
       if (data.profile) window.gpSessionProfile = data.profile;
+
+      // Already on the eligibility waitlist (country not supported yet)?
+      // Show the "we'll be in touch" state instead of the wizard trap.
+      if (getWaitlistRecord()) {
+        showEligibilityScreen(true);
+        return;
+      }
+      // Cross-device: this browser may not have the local flag — check the
+      // server-side state too (async, so supported GPs render instantly).
+      fetch("/api/state", { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((d) => {
+          var flag = d && d.state && d.state.gp_eligibility_waitlist;
+          if (!flag) return;
+          try {
+            localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, typeof flag === "string" ? flag : JSON.stringify(flag));
+          } catch (e) { /* ignore */ }
+          showEligibilityScreen(true);
+        })
+        .catch(() => { /* best effort */ });
 
       // If onboarding already completed and navigated here directly, allow re-entry
       // (removed auto-redirect to dashboard so users can redo onboarding via button)

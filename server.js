@@ -5737,7 +5737,8 @@ const USER_STATE_KEYS = [
   'gp_amc_myintealth_id',
   'gp_amc_myintealth_id_updated_at',
   'gp_admin_stage_override',
-  'gp_stage_override_at'
+  'gp_stage_override_at',
+  'gp_eligibility_waitlist'
 ];
 
 const EPIC_STAGE_META = [
@@ -33026,6 +33027,105 @@ async function handleApi(req, res, pathname) {
   }
 
   // ── Onboarding endpoints ──────────────────────────────────────
+  // ── Eligibility waitlist (Phase 6 G3) ─────────────────────────────────────
+  // Onboarding only supports GB/IE/NZ-trained GPs. A GP from any other country
+  // used to be trapped forever (couldn't pass step 1, index.html kept bouncing
+  // them back). The onboarding off-ramp posts here so we can notify them when
+  // their country is supported. Stores a candidate_leads row
+  // (source='eligibility_waitlist' — reuses the existing campaign/unsubscribe
+  // plumbing) and remembers the waitlisted state on the GP's user_state so a
+  // returning GP sees "we'll be in touch", not the trap. Idempotent per email.
+  if (pathname === '/api/eligibility-waitlist' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const sessionEmail = getSessionEmail(session);
+    if (!sessionEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    // Rate limit: it only ever needs to fire once per GP, so a small window is plenty.
+    const ewAllowed = await checkRateLimitWindow('eligibility_waitlist:' + sessionEmail.toLowerCase(), 10, 60 * 60 * 1000);
+    if (!ewAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests. Please try again later.' }); return; }
+
+    let ewBody;
+    try { ewBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const ewCountry = sanitizeUserString(ewBody && ewBody.country, 120).trim();
+    const ewName = sanitizeUserString(ewBody && ewBody.name, 160).trim();
+    let ewEmail = sanitizeUserString(ewBody && ewBody.email, 254).trim().toLowerCase();
+    if (!ewEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ewEmail)) ewEmail = sessionEmail.toLowerCase();
+    if (!ewCountry) { sendJson(res, 400, { ok: false, message: 'Please tell us which country you trained in.' }); return; }
+
+    const ewNowIso = new Date().toISOString();
+    let ewAlready = false;
+    if (isSupabaseDbConfigured()) {
+      // Idempotent per email: one eligibility_waitlist lead per address.
+      const existing = await supabaseDbRequest('candidate_leads',
+        'select=id&source=eq.eligibility_waitlist&email=ilike.' + encodeURIComponent(ewEmail) + '&limit=1');
+      const existingRow = existing.ok && Array.isArray(existing.data) && existing.data[0] ? existing.data[0] : null;
+      if (existingRow) {
+        ewAlready = true;
+        // Refresh country/name best-effort (country column may predate the migration).
+        const patch = await supabaseDbRequest('candidate_leads', 'id=eq.' + encodeURIComponent(existingRow.id),
+          { method: 'PATCH', body: { country: ewCountry, name: ewName || undefined } });
+        if (!patch.ok) {
+          await supabaseDbRequest('candidate_leads', 'id=eq.' + encodeURIComponent(existingRow.id),
+            { method: 'PATCH', body: { name: ewName || undefined } });
+        }
+      } else {
+        const ins = await supabaseDbRequest('candidate_leads', '', {
+          method: 'POST',
+          body: [{ name: ewName, email: ewEmail, source: 'eligibility_waitlist', country: ewCountry }]
+        });
+        if (!ins.ok) {
+          // The country column ships in migration 20260707100000 — until it is
+          // applied, still capture the lead (country survives in user_state below).
+          const retry = await supabaseDbRequest('candidate_leads', '', {
+            method: 'POST',
+            body: [{ name: ewName, email: ewEmail, source: 'eligibility_waitlist' }]
+          });
+          if (!retry.ok) { sendJson(res, 502, { ok: false, message: 'Could not save your details. Please try again.' }); return; }
+        }
+      }
+      // Remember the waitlisted state on the GP's account so a returning GP
+      // (any device) sees the "we'll be in touch" screen instead of the trap.
+      try {
+        const ewUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(sessionEmail);
+        if (ewUserId) {
+          const remote = await getSupabaseUserStateByEmail(sessionEmail);
+          const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+          current.gp_eligibility_waitlist = JSON.stringify({ country: ewCountry, email: ewEmail, at: ewNowIso });
+          await upsertSupabaseUserState(ewUserId, current, ewNowIso);
+        }
+      } catch (ewStateErr) { console.error('[EligibilityWaitlist] state save failed:', ewStateErr.message); }
+    } else {
+      if (!Array.isArray(dbState.candidateLeads)) dbState.candidateLeads = [];
+      const existingLead = dbState.candidateLeads.find(function (l) {
+        return l && String(l.source) === 'eligibility_waitlist' && String(l.email || '').toLowerCase() === ewEmail;
+      });
+      if (existingLead) {
+        ewAlready = true;
+        existingLead.country = ewCountry;
+        if (ewName) existingLead.name = ewName;
+      } else {
+        dbState.candidateLeads.push({
+          id: crypto.randomUUID(),
+          name: ewName,
+          email: ewEmail,
+          source: 'eligibility_waitlist',
+          country: ewCountry,
+          unsubscribed: false,
+          created_at: ewNowIso
+        });
+      }
+      if (sessionEmail !== '__proto__' && sessionEmail !== 'constructor' && sessionEmail !== 'prototype') {
+        if (!Object.prototype.hasOwnProperty.call(dbState.userState, sessionEmail)) dbState.userState[sessionEmail] = {};
+        dbState.userState[sessionEmail].gp_eligibility_waitlist = JSON.stringify({ country: ewCountry, email: ewEmail, at: ewNowIso });
+      }
+      saveDbState();
+    }
+
+    sendJson(res, 200, { ok: true, waitlisted: true, already: ewAlready });
+    return;
+  }
+
   if (pathname === '/api/onboarding/save' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -43491,6 +43591,162 @@ Return ONLY valid JSON with no markdown formatting:
   // ══════ User-facing nudge endpoints ══════
 
   // ── List my nudges (unread first) ──
+  // ── Unified GP task inbox (Phase 6 G4) ────────────────────────────────────
+  // "Your outstanding actions" on the home page. READ-ONLY aggregation of the
+  // things that genuinely need THIS GP's action, each deep-linking to the
+  // existing resolver UI (nothing is re-implemented here):
+  //   1. AHPRA more-info / s80 items owned by the GP (upload / mark-requested
+  //      cards on ahpra.html — same rows /api/ahpra/more-info serves),
+  //      deep link /pages/ahpra.html?task=<id>.
+  //   2. Rejected documents needing re-upload (user_documents.status='rejected'),
+  //      deep link /pages/my-documents.html?reupload=<document_key>.
+  //   3. Other registration_tasks explicitly waiting on the GP
+  //      (status='waiting_on_gp'), deep link to the related stage page.
+  //   4. Active nudges that point at a stage (an action prompt, not pure info),
+  //      deep link to that stage page.
+  if (pathname === '/api/gp/outstanding' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, items: [] }); return; }
+    const oaEmail = getSessionEmail(session);
+    const oaUserId = getSessionSupabaseUserId(session) || (oaEmail ? await getSupabaseUserIdByEmail(oaEmail) : null);
+    if (!oaUserId) { sendJson(res, 200, { ok: true, items: [] }); return; }
+
+    // Stage key -> GP-facing page (js/journey-stages.js pages + documents hub).
+    const OA_STAGE_PAGE = {
+      career: 'career', placement: 'career',
+      myintealth: 'myinthealth', myinthealth: 'myinthealth', epic: 'myinthealth',
+      amc: 'amc', ahpra: 'ahpra', visa: 'visa',
+      pbs: 'pbs', medicare: 'pbs', commencement: 'commencement',
+      documents: 'my-documents', onboarding: 'index'
+    };
+    const oaStageLink = (stage) => {
+      const page = OA_STAGE_PAGE[String(stage || '').toLowerCase()] || 'index';
+      return '/pages/' + page + '.html';
+    };
+    const items = [];
+
+    // The GP's own registration case (all task sources hang off it).
+    let oaCaseId = null;
+    try {
+      const oaCaseRes = await supabaseDbRequest('registration_cases',
+        'select=id&user_id=eq.' + encodeURIComponent(oaUserId) + '&limit=1');
+      oaCaseId = (oaCaseRes.ok && Array.isArray(oaCaseRes.data) && oaCaseRes.data[0]) ? oaCaseRes.data[0].id : null;
+    } catch (e) { /* no case — doc + nudge sources still answer */ }
+
+    // 1 + 3. Registration tasks on the GP's case.
+    if (oaCaseId) {
+      try {
+        const oaTaskRes = await supabaseDbRequest('registration_tasks',
+          'select=id,title,task_type,status,priority,related_stage,related_document_key,metadata,created_at,ahpra_deadline,due_date' +
+          '&case_id=eq.' + encodeURIComponent(oaCaseId) +
+          '&status=in.(open,in_progress,waiting,waiting_on_gp)&order=created_at.asc&limit=200');
+        const oaTasks = (oaTaskRes.ok && Array.isArray(oaTaskRes.data)) ? oaTaskRes.data : [];
+        oaTasks.forEach(function (t) {
+          const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+          if (t.task_type === 'ahpra_action_item') {
+            // Same visibility rules as /api/ahpra/more-info: only released,
+            // GP-owned s80 items, and only while they still need the GP.
+            if (!m.s80 || m.owner !== 'gp' || m.review_status !== 'active') return;
+            const up = (m.upload && typeof m.upload === 'object') ? m.upload : null;
+            let needsGp = false;
+            let desc = '';
+            if (m.mode === 'request_institution') {
+              needsGp = !m.gp_marked_complete_at;
+              desc = 'Request this from ' + (m.institution || 'the issuing institution') + ', then mark it done on the AHPRA page.';
+            } else if (m.mode === 'upload') {
+              if (!up) { needsGp = true; desc = 'Upload this document on the AHPRA page.'; }
+              else if (up.status === 'rejected') { needsGp = true; desc = 'Not accepted' + (up.reject_reason ? ': ' + up.reject_reason : '') + ' — please re-upload.'; }
+            }
+            if (!needsGp) return;
+            items.push({
+              id: 'ahpra-' + t.id,
+              kind: 'ahpra_more_info',
+              title: t.title || 'AHPRA has requested more information',
+              description: String(desc || m.gp_instructions || '').slice(0, 200),
+              stage: 'ahpra',
+              deepLink: '/pages/ahpra.html?task=' + encodeURIComponent(t.id),
+              createdAt: t.created_at || null,
+              priority: 'high'
+            });
+            return;
+          }
+          // Anything else explicitly waiting on the GP (calls to rebook, stage
+          // tasks handed to the GP, …) — deep link to its stage page.
+          if (t.status !== 'waiting_on_gp' || m.s80) return;
+          items.push({
+            id: 'task-' + t.id,
+            kind: 'registration_task',
+            title: t.title || 'A task needs your attention',
+            description: '',
+            stage: t.related_stage || '',
+            deepLink: oaStageLink(t.related_stage),
+            createdAt: t.created_at || null,
+            priority: (t.priority === 'high' || t.priority === 'urgent') ? 'high' : 'normal'
+          });
+        });
+      } catch (e) { console.error('[GPOutstanding] tasks source failed:', e.message); }
+    }
+
+    // 2. Rejected documents needing re-upload.
+    try {
+      const oaDocRes = await supabaseDbRequest('user_documents',
+        'select=document_key,file_name,status,rejection_reason,updated_at' +
+        '&user_id=eq.' + encodeURIComponent(oaUserId) + '&status=eq.rejected&limit=100');
+      const oaDocs = (oaDocRes.ok && Array.isArray(oaDocRes.data)) ? oaDocRes.data : [];
+      const oaDocLabels = {};
+      Object.values(GP_DOCUMENT_META).forEach(function (list) {
+        (Array.isArray(list) ? list : []).forEach(function (d) { if (d && d.key) oaDocLabels[d.key] = d.label; });
+      });
+      const oaSeenDocKeys = new Set();
+      oaDocs.forEach(function (d) {
+        const key = String(d.document_key || '');
+        if (!key || oaSeenDocKeys.has(key)) return;
+        oaSeenDocKeys.add(key);
+        const label = oaDocLabels[key] || key.replace(/_/g, ' ');
+        items.push({
+          id: 'doc-' + key,
+          kind: 'document_reupload',
+          title: 'Re-upload your ' + label,
+          description: String(d.rejection_reason || 'This document was not accepted — please upload a corrected copy.').slice(0, 200),
+          stage: 'documents',
+          deepLink: '/pages/my-documents.html?reupload=' + encodeURIComponent(key),
+          createdAt: d.updated_at || null,
+          priority: 'high'
+        });
+      });
+    } catch (e) { console.error('[GPOutstanding] documents source failed:', e.message); }
+
+    // 4. Active nudges that point at a stage (action prompts, not pure info).
+    try {
+      const oaNudgeRes = await supabaseDbRequest('user_nudges',
+        'select=id,stage,title,message,status,created_at' +
+        '&user_id=eq.' + encodeURIComponent(oaUserId) + '&status=in.(pending,delivered,active)&limit=50');
+      const oaNudges = (oaNudgeRes.ok && Array.isArray(oaNudgeRes.data)) ? oaNudgeRes.data : [];
+      oaNudges.forEach(function (n) {
+        if (!n.stage) return; // no stage = plain message, not an actionable step
+        items.push({
+          id: 'nudge-' + n.id,
+          kind: 'nudge',
+          title: n.title || 'A message from your Registration Support Officer',
+          description: String(n.message || '').slice(0, 200),
+          stage: n.stage,
+          deepLink: oaStageLink(n.stage),
+          createdAt: n.created_at || null,
+          priority: 'normal'
+        });
+      });
+    } catch (e) { console.error('[GPOutstanding] nudges source failed:', e.message); }
+
+    // High priority first, newest first within each band. Bounded.
+    items.sort(function (a, b) {
+      if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+    sendJson(res, 200, { ok: true, items: items.slice(0, 50) });
+    return;
+  }
+
   if (pathname === '/api/user/nudges' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
