@@ -25122,7 +25122,8 @@ async function atsListPracticesDerived() {
         agreement_signed_pdf_key: '', intake_token: '', metadata: {},
         // Phase 3: name-only practices have no row, so no org_type column and
         // no manually uploaded contract — always plain 'practice' defaults.
-        org_type: 'practice',
+        // (Same for the Phase 6 parent-corporation link: link-less.)
+        org_type: 'practice', parent_corporation_id: null,
         agreement_manual_pdf_key: '', agreement_manual_uploaded_at: '', agreement_manual_uploaded_by: ''
       };
     }
@@ -25162,6 +25163,7 @@ async function atsListPracticesDerived() {
     e.intake_token = p.intake_token || '';
     e.metadata = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
     e.org_type = (p.org_type === 'corporation') ? 'corporation' : 'practice';
+    e.parent_corporation_id = p.parent_corporation_id || null;
     e.agreement_manual_pdf_key = p.agreement_manual_pdf_key || '';
     e.agreement_manual_uploaded_at = p.agreement_manual_uploaded_at || '';
     e.agreement_manual_uploaded_by = p.agreement_manual_uploaded_by || '';
@@ -25192,10 +25194,26 @@ async function atsResolvePractice(id) {
     agreement_signed_pdf_key: row.agreement_signed_pdf_key || '', intake_token: row.intake_token || '',
     metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
     org_type: (row.org_type === 'corporation') ? 'corporation' : 'practice',
+    parent_corporation_id: row.parent_corporation_id || null,
     agreement_manual_pdf_key: row.agreement_manual_pdf_key || '',
     agreement_manual_uploaded_at: row.agreement_manual_uploaded_at || '',
     agreement_manual_uploaded_by: row.agreement_manual_uploaded_by || ''
   };
+}
+
+// Phase 6 I2: validate a parent_corporation_id write (POST + PATCH share it).
+// Returns { ok:true, value } — value null means "clear the link" — or
+// { ok:false, message }. The parent must be a real practices-table row whose
+// org_type is 'corporation', and an org can never be its own parent (enforced
+// logically here rather than as a DB constraint — see the migration comment).
+async function atsValidateParentCorporation(rawValue, selfRowId) {
+  var v = (rawValue === undefined || rawValue === null) ? '' : String(rawValue).trim();
+  if (!v) return { ok: true, value: null };
+  if (selfRowId && String(selfRowId) === v) return { ok: false, message: 'An organisation cannot be its own parent.' };
+  var parentRow = await atsGetPracticeRow(v);
+  if (!parentRow) return { ok: false, message: 'Parent corporation not found.' };
+  if (parentRow.org_type !== 'corporation') return { ok: false, message: 'The selected parent is not a corporation.' };
+  return { ok: true, value: parentRow.id };
 }
 
 // ---- Jobs (career_roles) ---------------------------------------------------
@@ -51568,6 +51586,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (st === 'prospective') plCounts.prospective++;
       else if (st === 'active') plCounts.active++;
     });
+    // Phase 6 I2: corporation display names, keyed by row id, so member
+    // practices can carry "Part of <Corporation>" without extra lookups.
+    var plCorpNames = {};
+    derived.forEach(function (p) {
+      if (p.org_type === 'corporation' && p.id) plCorpNames[String(p.id)] = p.name || '';
+    });
     var plCards = derived.map(function (p) {
       var cand = 0;
       (p.jobs || []).forEach(function (j) { (appsByJobP[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; }); });
@@ -51582,6 +51606,8 @@ Return ONLY valid JSON with no markdown formatting:
         job_count: (p.jobs || []).length, candidate_count: cand,
         stage: p.stage || 'active', agreement_status: p.agreement_status || 'unsigned', source: p.source || '',
         org_type: p.org_type === 'corporation' ? 'corporation' : 'practice',
+        parent_corporation_id: p.parent_corporation_id || null,
+        parent_corporation_name: (p.parent_corporation_id && plCorpNames[String(p.parent_corporation_id)]) || '',
         has_contract: !!(plSignedKey || p.agreement_manual_pdf_key)
       };
     });
@@ -51600,12 +51626,23 @@ Return ONLY valid JSON with no markdown formatting:
       if (bodyP.org_type !== 'practice' && bodyP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
       pcOrgType = bodyP.org_type;
     }
+    // Phase 6 I2: optional parent-corporation link. Only stored when actually
+    // set (a null is never sent), so creates keep working on a DB where the
+    // parent_corporation_id migration hasn't been applied yet.
+    var pcParent = null;
+    if (bodyP.parent_corporation_id !== undefined && bodyP.parent_corporation_id !== null && String(bodyP.parent_corporation_id).trim() !== '') {
+      if (pcOrgType === 'corporation') { sendJson(res, 400, { ok: false, message: 'A corporation cannot have a parent corporation.' }); return; }
+      var pcParentCheck = await atsValidateParentCorporation(bodyP.parent_corporation_id, null);
+      if (!pcParentCheck.ok) { sendJson(res, 400, { ok: false, message: pcParentCheck.message }); return; }
+      pcParent = pcParentCheck.value;
+    }
     var pracRow = {
       name: String(bodyP.name).trim(), location_city: String(bodyP.city || ''), location_state: String(bodyP.state || ''),
       location_country: 'Australia', practice_type: String(bodyP.type || ''), contact_name: String(bodyP.contact || ''),
       contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
       source: 'internal_ats', is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
     };
+    if (pcParent) pracRow.parent_corporation_id = pcParent;
     var createdP = await atsInsertPracticeRow(pracRow);
     if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
     sendJson(res, 200, { ok: true, practice: createdP });
@@ -51644,6 +51681,33 @@ Return ONLY valid JSON with no markdown formatting:
       try { pgManualUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pgManualKey, 'agreement-manual.pdf')) || null; } catch (e) { pgManualUrl = null; }
     }
     var pgIntake = (pg.metadata && pg.metadata.intake) || null;
+    // Phase 6 I2: parent-corporation display name (member practices) + the
+    // member rollup (corporations). Both come from data already loaded or a
+    // single bounded call — no per-member fetches.
+    var pgParentName = '';
+    if (pg.parent_corporation_id) {
+      try {
+        var pgParentRow = await atsGetPracticeRow(pg.parent_corporation_id);
+        if (pgParentRow) pgParentName = pgParentRow.name || '';
+      } catch (e) { pgParentName = ''; }
+    }
+    var pgMembers = null, pgRollup = null;
+    if (pg.org_type === 'corporation') {
+      var pgAllOrgs = await atsListPracticesDerived();
+      pgMembers = pgAllOrgs.filter(function (m) {
+        return m.parent_corporation_id && String(m.parent_corporation_id) === String(pg.id);
+      }).map(function (m) {
+        return {
+          id: m.id, name: m.name, city: m.location_city || '', state: m.location_state || '',
+          stage: m.stage || 'active', agreement_status: m.agreement_status || 'unsigned',
+          job_count: (m.jobs || []).length
+        };
+      });
+      pgMembers.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
+      var pgGroupJobs = 0;
+      pgMembers.forEach(function (m) { pgGroupJobs += m.job_count; });
+      pgRollup = { member_count: pgMembers.length, total_jobs: pgGroupJobs };
+    }
     sendJson(res, 200, {
       ok: true,
       practice: {
@@ -51652,6 +51716,8 @@ Return ONLY valid JSON with no markdown formatting:
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
         stage: pg.stage || 'active', agreement_status: pgAgreementStatus,
         org_type: pg.org_type === 'corporation' ? 'corporation' : 'practice',
+        parent_corporation_id: pg.parent_corporation_id || null,
+        parent_corporation_name: pgParentName,
         website: pg.website || '', dpa: (typeof pg.dpa === 'boolean') ? pg.dpa : null,
         suburb: pg.suburb || '', nearest_city: pg.nearest_city || '',
         intro_text: pg.intro_text || '', intro_video_url: pg.intro_video_url || '',
@@ -51661,7 +51727,8 @@ Return ONLY valid JSON with no markdown formatting:
         agreement_manual_uploaded_by: pg.agreement_manual_uploaded_by || '',
         has_contract: !!(pgSignedKey || pgManualKey)
       },
-      jobs: pgJobCards, candidates: pgCands
+      jobs: pgJobCards, candidates: pgCands,
+      members: pgMembers, rollup: pgRollup
     });
     return;
   }
@@ -51682,8 +51749,37 @@ Return ONLY valid JSON with no markdown formatting:
       if (bodyPP.org_type !== 'practice' && bodyPP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }
       patchP.org_type = bodyPP.org_type;
     }
-    if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var parsedPP = atsParsePracticeId(ppgId);
+    // Phase 6 I2: parent-corporation link. '' / null clears; a non-empty value
+    // must point at a corporation row, and a corporation itself can never
+    // carry a parent (write-path enforcement — no DB constraint).
+    if (bodyPP.parent_corporation_id !== undefined) {
+      var ppParentCheck = await atsValidateParentCorporation(bodyPP.parent_corporation_id, parsedPP.rowId || null);
+      if (!ppParentCheck.ok) { sendJson(res, 400, { ok: false, message: ppParentCheck.message }); return; }
+      if (ppParentCheck.value) {
+        var ppEffectiveOrg = patchP.org_type;
+        if (!ppEffectiveOrg) {
+          var ppCurOrg = await atsResolvePractice(ppgId);
+          ppEffectiveOrg = (ppCurOrg && ppCurOrg.org_type === 'corporation') ? 'corporation' : 'practice';
+        }
+        if (ppEffectiveOrg === 'corporation') { sendJson(res, 400, { ok: false, message: 'A corporation cannot have a parent corporation.' }); return; }
+      }
+      patchP.parent_corporation_id = ppParentCheck.value;
+    } else if (patchP.org_type === 'corporation') {
+      // Re-typing an org to corporation drops any existing parent link. Only
+      // send the clear when the row actually has one, so plain org_type edits
+      // keep working on a DB where the parent-corporation migration hasn't
+      // been applied yet.
+      var ppCurForClear = null;
+      if (parsedPP.rowId) {
+        ppCurForClear = await atsGetPracticeRow(parsedPP.rowId);
+      } else {
+        var ppStoredForClear = await atsListPracticeRows();
+        ppCurForClear = ppStoredForClear.find(function (p) { return String(p.name || '').trim().toLowerCase() === parsedPP.name.toLowerCase(); }) || null;
+      }
+      if (ppCurForClear && ppCurForClear.parent_corporation_id) patchP.parent_corporation_id = null;
+    }
+    if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
     var updatedP = null;
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
