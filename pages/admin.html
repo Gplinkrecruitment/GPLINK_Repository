@@ -1292,6 +1292,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .site-stats-field label{font-size:11px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px}
 .site-stats-field input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;width:150px;font-family:inherit}
 .site-stats-live{font-size:13px;font-weight:700;padding:7px 0}
+.site-stats-actual{font-size:10px;color:var(--muted);line-height:1.4}
 .site-stats-src{display:inline-block;padding:1px 7px;border-radius:999px;font-size:9px;font-weight:800;text-transform:uppercase}
 .site-stats-src-live{background:#ecfdf5;color:#059669}
 .site-stats-src-override{background:#fff7ed;color:#b45309}
@@ -10787,10 +10788,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (f.readOnly) {
         html += '<div class="site-stats-live">' + esc(String(st.value)) + '</div>';
       } else {
-        var computed = (st.live !== null && st.live !== undefined) ? st.live : st.default;
+        // Placeholder = the server-computed effective value if the override
+        // were cleared (includes the gpsPlaced seed floor — never the raw
+        // near-zero live count).
+        var computed = (st.computed !== null && st.computed !== undefined) ? st.computed : st.default;
         html += '<input type="number" min="0" step="1" data-site-stat-input="' + esc(f.key) + '" '
           + 'value="' + (st.source === 'override' ? esc(String(st.override)) : '') + '" '
           + 'placeholder="' + esc(String(computed)) + '">';
+        if (f.key === 'gpsPlaced' && st.live !== null && st.live !== undefined) {
+          // Honest info line: the REAL recorded placements count, so the owner
+          // can see the truth and decide whether to set an override. The public
+          // site never shows below the seed default unless overridden.
+          html += '<div class="site-stats-actual">Actual recorded placements: ' + esc(String(st.live)) + '</div>';
+        }
       }
       html += '</div>';
     });

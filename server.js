@@ -17419,9 +17419,14 @@ function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; 
 // precedence, PER STAT:
 //   1. owner override — stored in runtime_kv key 'site_stats_overrides'
 //      (Supabase) / dbState.siteStatsOverrides (local JSON dev fallback);
+//      an explicit override ALWAYS wins, even when lower than the default;
 //   2. live-computed value where one exists — gpsPlaced derives from the real
 //      placements count (placements table, falling back to gp_applications at
-//      status placement_secured);
+//      status placement_secured) — but a live value only takes effect once it
+//      EXCEEDS the hardcoded SITE_STATS seed. The in-app placements table is
+//      new and starts near-empty; without this floor the public site would
+//      show "0 GPs placed" (or 3, or 12) instead of the long-standing 150.
+//      The seed is the floor; real growth takes over past it;
 //   3. the hardcoded SITE_STATS default.
 // jobsCount is the exception: it is ALWAYS live (getPublicJobsCount, with
 // SITE_STATS.jobsFallback only on data failure) and has no override — the
@@ -17494,17 +17499,18 @@ function __seedAtsPlacementsForTest(rows) { dbState.atsPlacements = Array.isArra
 
 // Real "GPs placed" count: placement-of-record rows first, then the
 // gp_applications placement_secured fallback (same pair the CEO placements
-// list + CSV export use). Returns null when there is no live signal (zero
-// rows / store unavailable) so the caller falls through to the default —
-// a brand-new empty DB must not put "0 GPs placed" on the marketing site.
+// list + CSV export use). Returns the ACTUAL recorded count — including 0 —
+// so the admin editor can honestly show "Actual recorded placements: N".
+// Returns null only when the count could not be read at all. The public
+// seed-floor (never show below SITE_STATS.gpsPlaced) is applied by
+// buildSiteStatsAdminView, not here.
 async function getGpsPlacedLiveCount() {
   try {
     let rows = await atsOffersStore.listAtsPlacements({ limit: 200 });
     if ((!rows || !rows.length) && isSupabaseDbConfigured()) {
       rows = await atsDerivePlacementsFromCareerState(200);
     }
-    const count = Array.isArray(rows) ? rows.length : 0;
-    return count > 0 ? count : null;
+    return Array.isArray(rows) ? rows.length : 0;
   } catch (err) {
     return null;
   }
@@ -17532,10 +17538,17 @@ async function buildSiteStatsAdminView() {
   for (const key of SITE_STATS_OVERRIDE_KEYS) {
     const hasOverride = Object.prototype.hasOwnProperty.call(overrides, key);
     const live = (liveValues[key] !== null && liveValues[key] !== undefined) ? liveValues[key] : null;
+    // Seed floor: a live-derived value only replaces the hardcoded seed once
+    // it genuinely EXCEEDS it. Never let a young/empty live table drag a
+    // public marketing number below its long-standing default. An explicit
+    // owner override still always wins, even if lower.
+    const liveWins = live !== null && live > SITE_STATS[key];
+    const computed = liveWins ? live : SITE_STATS[key];
     view[key] = {
-      value: hasOverride ? overrides[key] : (live !== null ? live : SITE_STATS[key]),
-      source: hasOverride ? 'override' : (live !== null ? 'live' : 'default'),
+      value: hasOverride ? overrides[key] : computed,
+      source: hasOverride ? 'override' : (liveWins ? 'live' : 'default'),
       live,
+      computed, // effective value if the override were cleared (editor placeholder)
       default: SITE_STATS[key],
       override: hasOverride ? overrides[key] : null
     };
@@ -27560,7 +27573,8 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === '/api/public/stats' && req.method === 'GET') {
     // Phase 6 E2 (audit B5): per-stat precedence owner override > live-derived
-    // (gpsPlaced ← placements) > SITE_STATS default; jobsCount always live.
+    // (gpsPlaced ← placements, only once it exceeds the SITE_STATS seed —
+    // never below the seed publicly) > SITE_STATS default; jobsCount always live.
     const publicStats = await buildPublicSiteStats();
     sendJson(res, 200, Object.assign({ ok: true }, publicStats));
     return;

@@ -1,5 +1,8 @@
 // Phase 6 E2 (audit B5): owner-editable public site stats.
-//   GET  /api/public/stats        — per-stat precedence override > live > default
+//   GET  /api/public/stats        — per-stat precedence override > live > default,
+//                                   with the gpsPlaced SEED FLOOR: the live
+//                                   placements count only shows publicly once
+//                                   it exceeds the hardcoded seed (150)
 //   GET  /api/admin/site-stats    — CEO-gated editor view (value + source)
 //   POST /api/admin/site-stats    — CEO-gated override save (replace semantics)
 //
@@ -123,12 +126,26 @@ describe('GET /api/public/stats — precedence', () => {
     });
   });
 
-  it('gpsPlaced derives from the real placements count when placements exist', async () => {
+  it('with 0 real placements and no override, gpsPlaced is the seed default — never 0', async () => {
+    testUtils.__seedAtsPlacementsForTest([]);
+    const res = await publicStats();
+    expect(res.body.gpsPlaced).toBe(150);
+  });
+
+  it('a small real placements count never drags gpsPlaced below the seed default', async () => {
     testUtils.__seedAtsPlacementsForTest([placementRow(1), placementRow(2), placementRow(3)]);
     const res = await publicStats();
-    expect(res.body.gpsPlaced).toBe(3);
+    expect(res.body.gpsPlaced).toBe(150); // seed floor: 3 real < 150 seed
     // Other stats untouched by the placements seed.
     expect(res.body.locations).toBe(830);
+  });
+
+  it('gpsPlaced surfaces the real placements count once it exceeds the seed', async () => {
+    const rows = [];
+    for (let i = 1; i <= 151; i++) rows.push(placementRow(i));
+    testUtils.__seedAtsPlacementsForTest(rows);
+    const res = await publicStats();
+    expect(res.body.gpsPlaced).toBe(151); // 151 real > 150 seed → live wins
   });
 
   it('owner overrides win over both live and default values', async () => {
@@ -138,10 +155,16 @@ describe('GET /api/public/stats — precedence', () => {
     expect(save.body.ok).toBe(true);
 
     const res = await publicStats();
-    expect(res.body.gpsPlaced).toBe(500);     // override beats live (2)
+    expect(res.body.gpsPlaced).toBe(500);     // override beats live (2) and seed (150)
     expect(res.body.locations).toBe(900);     // override beats default (830)
     expect(res.body.avgPlacementDays).toBe(22); // untouched → default
     expect(res.body.satisfaction).toBe(100);    // untouched → default
+  });
+
+  it('an explicit owner override wins even when LOWER than the seed default', async () => {
+    await asCeo('POST', '/api/admin/site-stats', { overrides: { gpsPlaced: 42 } });
+    const res = await publicStats();
+    expect(res.body.gpsPlaced).toBe(42); // owner said 42 → 42, floor does not apply to overrides
   });
 
   it('posting {} clears every override (reset to computed)', async () => {
@@ -151,7 +174,7 @@ describe('GET /api/public/stats — precedence', () => {
     expect(reset.status).toBe(200);
 
     const res = await publicStats();
-    expect(res.body.gpsPlaced).toBe(2);   // back to live placements count
+    expect(res.body.gpsPlaced).toBe(150); // back to computed: 2 real < 150 seed → seed
     expect(res.body.locations).toBe(830); // back to default
   });
 });
@@ -165,10 +188,20 @@ describe('GET /api/admin/site-stats — editor view', () => {
     expect(res.body.stats.jobsCount.source).toBe('live');
   });
 
-  it('reports source=live with the live count when placements exist', async () => {
+  it('still exposes the REAL placements count (live) while the seed floor holds the value', async () => {
     testUtils.__seedAtsPlacementsForTest([placementRow(1)]);
     const res = await asCeo('GET', '/api/admin/site-stats');
-    expect(res.body.stats.gpsPlaced).toMatchObject({ value: 1, source: 'live', live: 1, default: 150 });
+    // 1 real placement < 150 seed → public value stays at the seed, but the
+    // editor sees the honest live count ("Actual recorded placements: 1").
+    expect(res.body.stats.gpsPlaced).toMatchObject({ value: 150, source: 'default', live: 1, computed: 150, default: 150 });
+  });
+
+  it('reports source=live once the real count exceeds the seed', async () => {
+    const rows = [];
+    for (let i = 1; i <= 155; i++) rows.push(placementRow(i));
+    testUtils.__seedAtsPlacementsForTest(rows);
+    const res = await asCeo('GET', '/api/admin/site-stats');
+    expect(res.body.stats.gpsPlaced).toMatchObject({ value: 155, source: 'live', live: 155, computed: 155, default: 150 });
   });
 
   it('reports source=override with the override value after a save', async () => {
