@@ -319,7 +319,12 @@
           mimeType: prep.mimeType,
           documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
           expectedCountry: opts.expectedCountry || getSelectedCountryCode(),
-          profileName: opts.profileName || getProfileName()
+          profileName: opts.profileName || getProfileName(),
+          // F3: lets the server count scan failures per doc slot (authoritative
+          // 3-fail escalation) and escalate with the in-hand file at threshold.
+          docKey: opts.docKey || "",
+          country: opts.country || "",
+          fileName: (file && file.name) || ""
         })
       });
     }).then(readJsonResponse);
@@ -335,7 +340,10 @@
         body: JSON.stringify({
           imageBase64: prep.base64,
           mimeType: prep.mimeType,
-          documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType)
+          documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
+          docKey: opts.docKey || "",
+          country: opts.country || "",
+          fileName: (file && file.name) || ""
         })
       });
     }).then(readJsonResponse);
@@ -363,6 +371,12 @@
         return {
           ok: true,
           certified: false,
+          // F3: server-authoritative failure count (+ manualReview when the
+          // server already escalated this doc to a human reviewer at threshold).
+          scanFailCount: Number(qualData.scanFailCount || 0),
+          scanFailThreshold: Number(qualData.scanFailThreshold || 0),
+          manualReview: qualData.manualReview === true,
+          document: qualData.document || null,
           verification: {
             certified: false,
             nameFound: qualVerification.nameFound || null,
@@ -394,6 +408,10 @@
         return {
           ok: true,
           certified: !!certVerification.certified,
+          scanFailCount: Number(certData.scanFailCount || 0),
+          scanFailThreshold: Number(certData.scanFailThreshold || 0),
+          manualReview: certData.manualReview === true,
+          document: certData.document || null,
           verification: certVerification
         };
       });
@@ -618,6 +636,7 @@
         imageBase64 = base64;
         return verifyCertifiedDocument(file, {
           docKey: ctx.key,
+          country: getSelectedCountryCode(),
           documentType: ctx.title || "qualification document"
         });
       }).then(function (data) {
@@ -631,6 +650,12 @@
                 '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
                 '<h4>Scan Successful</h4>' +
                 '<p>Document and certification verified for <strong>' + esc(ctx.title) + '</strong></p>' +
+                '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
+            } else if (data.manualReview === true) {
+              resultEl.innerHTML =
+                '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
+                '<h4>Sent for review</h4>' +
+                '<p>We could not verify this automatically after several attempts, so our team will check <strong>' + esc(ctx.title) + '</strong> by hand within 24 hours.</p>' +
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
               var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
@@ -652,6 +677,10 @@
                 fileName: file.name,
                 certified: isCertified,
                 verification: v,
+                scanFailCount: Number(data.scanFailCount || 0),
+                scanFailThreshold: Number(data.scanFailThreshold || 0),
+                manualReview: data.manualReview === true,
+                document: data.document || null,
                 mimeType: file.type || "application/octet-stream",
                 fileSize: Number(file.size || 0),
                 fileDataUrl: base64ToDataUrl(imageBase64, file.type || "application/octet-stream")
@@ -675,6 +704,7 @@
         pdfBase64 = base64;
         return verifyCertifiedDocument(file, {
           docKey: ctx2.key,
+          country: getSelectedCountryCode(),
           documentType: ctx2.title || "qualification document"
         });
       }).then(function (data) {
@@ -688,6 +718,12 @@
                 '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
                 '<h4>Scan Successful</h4>' +
                 '<p>Document and certification verified for <strong>' + esc(ctx2.title) + '</strong></p>' +
+                '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
+            } else if (data.manualReview === true) {
+              resultEl2.innerHTML =
+                '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
+                '<h4>Sent for review</h4>' +
+                '<p>We could not verify this automatically after several attempts, so our team will check <strong>' + esc(ctx2.title) + '</strong> by hand within 24 hours.</p>' +
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
               var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
@@ -709,6 +745,10 @@
               fileName: file.name,
               certified: isCertified,
               verification: v,
+              scanFailCount: Number(data.scanFailCount || 0),
+              scanFailThreshold: Number(data.scanFailThreshold || 0),
+              manualReview: data.manualReview === true,
+              document: data.document || null,
               mimeType: file.type || "application/pdf",
               fileSize: Number(file.size || 0),
               fileDataUrl: base64ToDataUrl(pdfBase64, file.type || "application/pdf")

@@ -138,6 +138,7 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -244,6 +245,26 @@ const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-op
 // defaults to the shared model so it can be tuned independently later.
 const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || ANTHROPIC_MODEL).trim() || ANTHROPIC_MODEL;
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+// Anthropic Messages endpoint — env-overridable so tests can point new AI
+// call sites at a local emulator. Existing call sites keep their inline URL.
+const ANTHROPIC_MESSAGES_URL = process.env.ANTHROPIC_MESSAGES_URL || 'https://api.anthropic.com/v1/messages';
+// Careers CV genuine-document scans allowed per GP per rolling 24h.
+const CAREER_CV_SCAN_MAX_PER_DAY = Number(process.env.CAREER_CV_SCAN_MAX_PER_DAY || 5);
+// Careers profile gate (Task 3) — CV / cover-letter upload limits, shared by
+// the /api/career/profile/cv and /api/career/profile/cover-letter routes.
+const CAREER_PROFILE_DOCUMENT_MAX_BYTES = 3 * 1024 * 1024;
+const CAREER_PROFILE_SCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Shared allowed-upload set for BOTH the CV and cover-letter career endpoints —
+// deliberately identical. Legacy Word .doc (application/msword) is EXCLUDED: the
+// CV AI-check cannot read it (guaranteed rejection) and it would otherwise burn
+// a daily scan attempt, and image/gif is excluded too (never a real CV/letter).
+const CAREER_PROFILE_ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp'
+]);
+// Resend endpoint — env-overridable so tests can capture outbound email.
+const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
 // and COUNTRY_DOCS in js/onboarding.js.
@@ -359,6 +380,7 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
         email: r.email || '',
         phone: r.phone || '',
         active: (r.active === undefined || r.active === null) ? true : !!r.active,
+        on_leave: !!r.on_leave,
         calendly_event_url: r.calendly_event_url || ''
       };
     })
@@ -375,7 +397,12 @@ function mergeRsoRoster(dbRows, seedArray, opts) {
 // in which case we transparently use the seed array.
 async function loadRsoTeam(opts) {
   try {
-    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
+    var res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,on_leave,calendly_event_url&order=name.asc', { method: 'GET' });
+    if (!res || !res.ok) {
+      // Defensive: if the on_leave column has not been migrated yet, retry without it
+      // rather than silently falling back to the in-memory seed roster.
+      res = await supabaseDbRequest('rso_team', 'select=user_id,name,email,phone,active,calendly_event_url&order=name.asc', { method: 'GET' });
+    }
     var rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
     return mergeRsoRoster(rows, RSO_TEAM, opts);
   } catch (e) {
@@ -1077,6 +1104,10 @@ function buildRsoWritePayload(input = {}, opts = {}) {
   if (has('active')) out.active = !!input.active;
   else if (create) out.active = true;
 
+  // ON LEAVE (G2a) — column on rso_team; roster selection refuses on-leave targets.
+  if (has('on_leave') || has('onLeave')) out.on_leave = !!(has('on_leave') ? input.on_leave : input.onLeave);
+  else if (create) out.on_leave = false;
+
   // CALENDLY
   if (create || has('calendlyEventUrl') || has('calendly_event_url')) {
     const raw = input.calendlyEventUrl != null ? input.calendlyEventUrl : input.calendly_event_url;
@@ -1092,8 +1123,251 @@ function buildRsoWritePayload(input = {}, opts = {}) {
     out.user_id = userId;
   }
 
+  // MAILBOX (va_gmail) — NOT an rso_team column: it lives in va_gmail_accounts, so it is
+  // validated here but returned separately (vaGmail) for the endpoint to upsert.
+  // undefined = not supplied; '' = supplied blank (endpoints treat as no change).
+  // Only @mygplink.com.au inboxes can be impersonated for outbound sending (domain-wide
+  // delegation), so anything else is rejected up front instead of silently not working.
+  let vaGmail;
+  if (has('va_gmail') || has('vaGmail')) {
+    const rawMb = has('va_gmail') ? input.va_gmail : input.vaGmail;
+    const mb = String(rawMb == null ? '' : rawMb).trim().toLowerCase();
+    if (mb && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mb)) errors.push('Mailbox is not a valid email address.');
+    else if (mb && !/@mygplink\.com\.au$/.test(mb)) errors.push('Mailbox must be an @mygplink.com.au address.');
+    vaGmail = mb;
+  }
+
   out.updated_at = input.nowIso || new Date().toISOString();
-  return { valid: errors.length === 0, errors, payload: out };
+  return { valid: errors.length === 0, errors, payload: out, vaGmail };
+}
+
+// G2a: link an RSO to their Gmail mailbox (va_gmail_accounts row). Used by the
+// admin RSO create/update endpoints when a mailbox (va_gmail) is supplied.
+// - Refuses a mailbox already linked to a DIFFERENT team member.
+// - Updates the existing row in place when the RSO already has one (user_id is the
+//   stable link the sender-identity + Gmail label pipeline reads), else inserts.
+// - Best-effort starts a Gmail watch on the inbox so replies get processed.
+// Returns { ok, error?, unchanged? }.
+async function upsertRsoMailbox(rsoUserId, mailboxEmail, displayName) {
+  var email = String(mailboxEmail || '').trim().toLowerCase();
+  if (!rsoUserId || !email) return { ok: false, error: 'Missing RSO id or mailbox.' };
+  var taken = await supabaseDbRequest('va_gmail_accounts',
+    'select=user_id&email_address=eq.' + encodeURIComponent(email) + '&user_id=neq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+  if (taken.ok && Array.isArray(taken.data) && taken.data.length > 0) {
+    return { ok: false, error: 'That mailbox is already linked to another team member.' };
+  }
+  var existing = await supabaseDbRequest('va_gmail_accounts',
+    'select=id,email_address,display_name&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+  var row = (existing.ok && Array.isArray(existing.data) && existing.data[0]) ? existing.data[0] : null;
+  var write;
+  if (row) {
+    var sameEmail = String(row.email_address || '').trim().toLowerCase() === email;
+    var sameName = !displayName || String(row.display_name || '') === String(displayName);
+    if (sameEmail && sameName) return { ok: true, unchanged: true };
+    var patchBody = { email_address: email };
+    if (displayName) patchBody.display_name = String(displayName);
+    write = await supabaseDbRequest('va_gmail_accounts', 'user_id=eq.' + encodeURIComponent(rsoUserId), {
+      method: 'PATCH', body: patchBody, headers: { Prefer: 'return=representation' }
+    });
+  } else {
+    write = await supabaseDbRequest('va_gmail_accounts', '', {
+      method: 'POST',
+      body: { user_id: rsoUserId, email_address: email, display_name: String(displayName || email), watch_active: true },
+      headers: { Prefer: 'return=representation' }
+    });
+  }
+  if (!write.ok) {
+    // Most likely the va_gmail_accounts.user_id FK (auth.users): an RSO row created
+    // before the person has a real GP Link account cannot hold a mailbox link yet.
+    return { ok: false, error: 'Could not save the mailbox link. If this RSO has never signed in, they need a GP Link account first.' };
+  }
+  try { await setupGmailWatch(email); } catch (watchErr) {
+    console.error('[upsertRsoMailbox] Gmail watch setup failed (mailbox saved):', watchErr && watchErr.message);
+  }
+  return { ok: true };
+}
+
+// ── Gmail Label Management on VA assignment ──
+// Extracted verbatim from the single-case PUT /api/admin/case handler (G2a) so the
+// bulk-reassign endpoint runs the SAME per-case side-effects. Archives the old owner's
+// working label, copies message history, creates labels for the new owner, and backfills
+// existing GP threads. reassigningToArchive: new owner is GP Link Admin (hello@) — hand
+// off by archiving only (hello@ is never provisioned a watched mailbox).
+// Returns { emailTransferred, emailTransferError }:
+// null = no transfer attempted; true = succeeded; false = failed (see emailTransferError).
+async function transferCaseEmailOwnership(caseId, newAssignedVa, oldAssignedVa, reassigningToArchive) {
+  var emailTransferred = null;
+  var emailTransferError = null;
+  if (newAssignedVa) {
+    if (reassigningToArchive) {
+      // GP Link Admin (master archive / hello@) now owns the case. hello@ is never
+      // Gmail-watched and already mirrors every case email (silent copies on the hello@
+      // sub-label), so there is no VA mailbox to provision — just hand off cleanly by
+      // archiving the previous RSO's working label.
+      try {
+        if (oldAssignedVa && oldAssignedVa !== newAssignedVa) {
+          var oldVaArcRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
+          var oldVaArc = oldVaArcRes.ok && oldVaArcRes.data && oldVaArcRes.data[0] ? oldVaArcRes.data[0] : null;
+          if (oldVaArc) await archiveLabelForVA(oldVaArc.email_address, caseId);
+        }
+        // Ownership moved to GP Link Admin; the master archive already holds the history.
+        emailTransferred = true;
+      } catch (arcErr) {
+        console.error('[Gmail Labels] Handoff to GP Link Admin failed:', arcErr.message);
+        emailTransferred = false;
+        emailTransferError = String(arcErr && arcErr.message || arcErr).slice(0, 300);
+      }
+    } else try {
+        var labelCaseRes = await supabaseDbRequest('registration_cases',
+          'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
+        if (!labelCase) throw new Error('Case not found for label setup');
+
+        var gpProfileRes = await supabaseDbRequest('user_profiles',
+          'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+        var gpProfile = gpProfileRes.ok && gpProfileRes.data && gpProfileRes.data[0] ? gpProfileRes.data[0] : {};
+        var gpName = [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() || 'Unknown';
+
+        var vaAccRes = await supabaseDbRequest('va_gmail_accounts',
+          'select=email_address,display_name&user_id=eq.' + encodeURIComponent(newAssignedVa) + '&limit=1');
+        var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
+        if (!vaAcc) {
+          // RSO-driven reassignments are guarded upstream (resolveRsoReassignmentTarget),
+          // so this only fires for legacy direct assigned_va writes with no mailbox.
+          console.log('[Gmail Labels] No VA Gmail account registered for user', newAssignedVa, '— skipping label setup');
+          throw new Error('skip');
+        }
+
+        // Archive old VA's label if this is a reassignment
+        var historyMessages = [];
+        if (oldAssignedVa && oldAssignedVa !== newAssignedVa) {
+          var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
+            'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
+          var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
+          if (oldVaAcc && labelCase.gmail_label_id) {
+            await archiveLabelForVA(oldVaAcc.email_address, caseId);
+
+            // Copy email history to new VA
+            var oldGmail = await getGmailClient(oldVaAcc.email_address);
+            if (oldGmail) {
+              try {
+                var oldMsgs = await oldGmail.users.messages.list({
+                  userId: oldVaAcc.email_address, labelIds: [labelCase.gmail_label_id], maxResults: 100
+                });
+                var msgList = (oldMsgs.data && oldMsgs.data.messages) || [];
+                for (var mIdx = 0; mIdx < msgList.length; mIdx++) {
+                  var rawMsg = await oldGmail.users.messages.get({
+                    userId: oldVaAcc.email_address, id: msgList[mIdx].id, format: 'raw'
+                  });
+                  if (rawMsg.data && rawMsg.data.raw) {
+                    historyMessages.push(Buffer.from(rawMsg.data.raw, 'base64'));
+                  }
+                }
+              } catch (copyErr) {
+                console.error('[Gmail Labels] History fetch failed:', copyErr.message);
+              }
+            }
+
+            // Move hello@ sub-label to new VA's folder
+            if (labelCase.gmail_label_hello_id) {
+              var newHelloName = buildHelloLabelName(vaAcc.display_name, gpName, labelCase.practice_name || '');
+              await renameGmailLabel(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, newHelloName);
+            }
+          }
+        }
+
+        // Create labels for the new VA
+        var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
+        // Core label/mailbox transfer succeeded (backfill below is best-effort) (#12).
+        emailTransferred = true;
+
+        // Insert history messages into new VA's label (reassignment)
+        if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
+          for (var hi = 0; hi < historyMessages.length; hi++) {
+            await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
+          }
+          console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
+        }
+
+        // Backfill: search VA's inbox for existing emails matching this GP
+        // Only matches GP email directly, then labels all messages in those threads
+        // (so practice emails in the same conversation are included)
+        if (result.vaLabelId) {
+          try {
+            var gpEmailRes = await supabaseDbRequest('user_profiles',
+              'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
+            var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
+
+            if (gpEmail) {
+              var vaGmail = await getGmailClient(vaAcc.email_address);
+              if (vaGmail) {
+                // Search for emails directly involving the GP
+                var searchRes = await vaGmail.users.messages.list({
+                  userId: vaAcc.email_address, q: 'from:' + gpEmail + ' OR to:' + gpEmail, maxResults: 50
+                });
+                var gpMsgs = (searchRes.data && searchRes.data.messages) || [];
+
+                // Collect unique thread IDs from GP emails
+                var gpThreadIds = {};
+                for (var si = 0; si < gpMsgs.length; si++) {
+                  var msgMeta = await vaGmail.users.messages.get({
+                    userId: vaAcc.email_address, id: gpMsgs[si].id, format: 'metadata', metadataHeaders: ['From']
+                  });
+                  if (msgMeta.data && msgMeta.data.threadId) {
+                    gpThreadIds[msgMeta.data.threadId] = true;
+                  }
+                }
+
+                // Label all messages in those threads (includes practice replies in same thread)
+                var labeledCount = 0;
+                var threadKeys = Object.keys(gpThreadIds);
+                for (var ti = 0; ti < threadKeys.length; ti++) {
+                  try {
+                    var threadRes = await vaGmail.users.threads.get({
+                      userId: vaAcc.email_address, id: threadKeys[ti], format: 'minimal'
+                    });
+                    var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
+                    for (var tmi = 0; tmi < threadMsgs.length; tmi++) {
+                      await applyGmailLabel(vaAcc.email_address, threadMsgs[tmi].id, result.vaLabelId);
+                      labeledCount++;
+                      // Copy to hello@
+                      if (result.helloLabelId) {
+                        try {
+                          var rawM = await vaGmail.users.messages.get({
+                            userId: vaAcc.email_address, id: threadMsgs[tmi].id, format: 'raw'
+                          });
+                          if (rawM.data && rawM.data.raw) {
+                            await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
+                          }
+                        } catch (hErr) { /* skip */ }
+                      }
+                    }
+                  } catch (thErr) { /* skip thread errors */ }
+                }
+                if (labeledCount > 0) {
+                  console.log('[Gmail Labels] Backfilled', labeledCount, 'emails across', threadKeys.length, 'threads for', gpName);
+                }
+              }
+            }
+          } catch (backfillErr) {
+            console.error('[Gmail Labels] Backfill failed:', backfillErr.message);
+          }
+        }
+    } catch (err) {
+      console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
+      // 'skip' is the intentional no-mailbox sentinel (not a real transfer failure);
+      // every other throw is a genuine failure surfaced to the caller (#12).
+      if (err && err.message === 'skip') {
+        emailTransferred = false;
+        emailTransferError = 'No Gmail mailbox registered for the new owner; labels not transferred.';
+      } else {
+        emailTransferred = false;
+        emailTransferError = String(err && err.message || err).slice(0, 300);
+      }
+    }
+  }
+  return { emailTransferred: emailTransferred, emailTransferError: emailTransferError };
 }
 
 function getScheduledCallRegistrationTaskId(callRecord) {
@@ -2299,6 +2573,17 @@ async function resolveCaseSenderEmail(caseId, knownAssignedVa) {
   try {
     var rsoUserId = await resolveCaseRsoAssignee(caseId, knownAssignedVa);
     if (!rsoUserId) return fallback;
+    // The RSO's registered Gmail mailbox (va_gmail_accounts — what the Team UI saves as
+    // "Mailbox" and what the Gmail watch/label pipeline uses) is the source of truth for
+    // the From address, so replies land in the inbox that is actually watched. Roster
+    // email is the legacy fallback for RSOs with no registered mailbox.
+    try {
+      var mbRes = await supabaseDbRequest('va_gmail_accounts',
+        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+      var mbRow = (mbRes && mbRes.ok && Array.isArray(mbRes.data) && mbRes.data[0]) ? mbRes.data[0] : null;
+      var mbEmail = mbRow ? String(mbRow.email_address || '').trim().toLowerCase() : '';
+      if (mbEmail && /@mygplink\.com\.au$/.test(mbEmail)) return mbEmail;
+    } catch (mbErr) { /* fall through to roster email */ }
     var roster = await loadRsoTeam({ includeInactive: true });
     var rso = (roster || []).find(function (r) { return r.user_id === rsoUserId; });
     var email = (rso && rso.email) ? String(rso.email).trim().toLowerCase() : '';
@@ -5966,6 +6251,22 @@ function buildAccountCareerDocumentStoragePath(userId, key) {
   ].join('/');
 }
 
+// Careers profile gate (Task 3) — CV / cover-letter storage path. Unlike the
+// account-career path above (fixed 'current' suffix, one object ever), each
+// upload here gets its own timestamped object name so a rejected/replaced
+// upload never clobbers bytes still referenced by an in-flight signed URL;
+// the user_documents row (see saveCareerProfileDocument) is what actually
+// tracks "current" via its own upsert.
+function buildCareerProfileDocumentStoragePath(userId, key, fileName) {
+  return [
+    'account-career',
+    sanitizeStoragePathSegment(ACCOUNT_CAREER_DOCUMENT_COUNTRY, 20).toLowerCase(),
+    sanitizeStoragePathSegment(userId, 80),
+    sanitizeStoragePathSegment(key, 60),
+    `${Date.now()}-${sanitizeStoragePathSegment(fileName, 140)}`
+  ].join('/');
+}
+
 function sanitizeAccountCareerDocumentPayload(body) {
   const input = body && typeof body === 'object' ? body : {};
   const type = getAccountCareerDocumentType(input.type);
@@ -6094,6 +6395,9 @@ function mapPreparedDocumentRow(row, signedUrl = '') {
     // approval/rejection instead of staying on the locally-cached "under review").
     status: toStatusLabel(row.status, !!(row.storage_path || row.file_url)),
     rejection_reason: row.rejection_reason || '',
+    // Validity window (F3): null for docs without one. The GP card renders
+    // "Valid until / Expires in N days / Expired" from this.
+    expires_at: typeof row.expires_at === 'string' ? row.expires_at : null,
     ai_classification_confidence: row.ai_classification_confidence != null ? row.ai_classification_confidence : null,
     ai_classification_result: row.ai_classification_result || '',
     google_drive_file_id: row.google_drive_file_id || ''
@@ -6158,23 +6462,49 @@ async function savePreparedDocumentForUser(userId, _email, payload) {
   const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
   if (!uploaded) return null;
 
-  const result = await supabaseDbRequest(
+  // F3 expiry capture: an explicit expiry (GP-entered or AI-extracted) wins;
+  // otherwise renewal-sensitive doc types get the default validity window.
+  // A fresh upload always restarts the nudge window (expiry_nudged_at reset).
+  const saveBody = {
+    user_id: userId,
+    country_code: payload.country,
+    document_key: payload.key,
+    status: 'uploaded',
+    file_name: payload.fileName,
+    file_url: storagePath,
+    updated_at: payload.updatedAt
+  };
+  const explicitExpiry = sanitizeExpiryDateIso(payload.expiresAt);
+  const defaultExpiry = defaultDocumentExpiryIso(payload.key, payload.updatedAt);
+  if (explicitExpiry || defaultExpiry) {
+    saveBody.expires_at = explicitExpiry || defaultExpiry;
+    saveBody.expiry_nudged_at = null;
+  }
+
+  let result = await supabaseDbRequest(
     'user_documents',
     'on_conflict=user_id,document_key,country_code',
     {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: [{
-        user_id: userId,
-        country_code: payload.country,
-        document_key: payload.key,
-        status: 'uploaded',
-        file_name: payload.fileName,
-        file_url: storagePath,
-        updated_at: payload.updatedAt
-      }]
+      body: [saveBody]
     }
   );
+  // Deploy-order safety: if the F3 expiry migration hasn't been applied yet the
+  // new columns 400 the whole upsert — retry without them so uploads never break.
+  if ((!result.ok || !Array.isArray(result.data) || result.data.length === 0) && ('expires_at' in saveBody)) {
+    delete saveBody.expires_at;
+    delete saveBody.expiry_nudged_at;
+    result = await supabaseDbRequest(
+      'user_documents',
+      'on_conflict=user_id,document_key,country_code',
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: [saveBody]
+      }
+    );
+  }
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   const row = result.data[0];
   return mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(payload.country, payload.key));
@@ -6450,6 +6780,56 @@ async function saveAccountCareerDocumentForUser(userId, payload) {
   return mapAccountCareerDocumentRow(payload.type, result.data[0]);
 }
 
+// Careers profile gate (Task 3). Distinct document_keys from the onboarding
+// CV (cv_signed_dated): 'career_cv' (AI-checked) and 'career_cover_letter'
+// (shared with the existing Account-page cover letter slot — same key/country
+// tuple, so either upload path keeps the other in sync). Supabase-only, same
+// as saveAccountCareerDocumentForUser above — there is no dbState.userDocuments
+// local-JSON collection for user_documents.
+async function saveCareerProfileDocument(userId, key, payload) {
+  if (!userId || !payload || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildCareerProfileDocumentStoragePath(userId, key, payload.fileName);
+  const dataUrl = 'data:' + (payload.mimeType || 'application/octet-stream') + ';base64,' + payload.fileBase64;
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, dataUrl, payload.mimeType);
+  if (!uploaded) return null;
+
+  const updatedAt = new Date().toISOString();
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: ACCOUNT_CAREER_DOCUMENT_COUNTRY,
+        document_key: key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+        storage_path: storagePath,
+        mime_type: payload.mimeType,
+        file_size: payload.fileSize,
+        updated_at: updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function getCareerProfileDocument(userId, key) {
+  if (!userId || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest(
+    'user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) +
+      '&document_key=eq.' + encodeURIComponent(key) +
+      '&status=in.(uploaded,approved)&order=updated_at.desc&limit=1'
+  );
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
 function now() {
   return Date.now();
 }
@@ -6471,6 +6851,9 @@ function createEmptyState() {
     users: {},
     userProfiles: {},
     userState: {},
+    // Phase 6 F4: per-user session epochs + notification preferences (local mode)
+    sessionEpochs: {},
+    notificationPrefs: {},
     hybridAgentBridgeStore: null,
     // In-app ATS collections (dev / local-JSON mode). In prod these live in Supabase.
     atsPractices: [],
@@ -6719,7 +7102,12 @@ const CRON_SCHEDULES = {
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
-  'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 }
+  'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
+  'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
+  // Sunday 21:00 UTC = Monday ~7am AEST — the digest lands at the start of the
+  // owner's week. Weekly cadence (10080 min).
+  'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -6742,6 +7130,281 @@ async function recordCronRun(name, status, detail, ms) {
   } catch (cronErr) {
     console.error('[recordCronRun] heartbeat write failed (ignored):', cronErr && cronErr.message);
   }
+}
+
+// ── Weekly trend series (shared: GET /api/ceo/trends + the owner digest) ────
+// 12 Monday-anchored (UTC) weeks × 9 operational series. Extracted from the
+// /api/ceo/trends handler (Phase 6 H1) so the weekly owner-digest email reuses
+// EXACTLY the numbers the dashboard shows — never a second computation.
+function trendsWeekStartKey(dateStr) {
+  var d = new Date(dateStr);
+  var day = d.getUTCDay();
+  var diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+  var monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
+  return monday.toISOString().slice(0, 10);
+}
+
+async function computeWeeklyTrendSeries() {
+  var tDAY_MS = 86400000;
+  var tWEEK_MS = 7 * tDAY_MS;
+  var tNow = Date.now();
+  var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
+
+  var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
+    supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
+    supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
+    supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
+    // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
+    supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
+    supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
+    // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
+    supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
+  ]);
+
+  var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
+  var trTasks = (trTasksRes.ok && Array.isArray(trTasksRes.data)) ? trTasksRes.data : [];
+  var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
+  var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
+  var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
+  var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
+
+  var getWeekStart = trendsWeekStartKey;
+
+  var weeks = {};
+  var securedUserIdsByWeek = {}; // week_start -> Set(user_id) to dedupe placements (#42)
+  for (var wi = 0; wi < 12; wi++) {
+    var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
+    weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0, completions_done: 0 };
+    securedUserIdsByWeek[ws] = new Set();
+  }
+
+  for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
+  for (var wti = 0; wti < trTasks.length; wti++) {
+    if (trTasks[wti].created_at) { var wk2 = getWeekStart(trTasks[wti].created_at); if (weeks[wk2]) weeks[wk2].tasks_created++; }
+    if (trTasks[wti].completed_at) { var wk3 = getWeekStart(trTasks[wti].completed_at); if (weeks[wk3]) weeks[wk3].tasks_completed++; }
+  }
+  for (var wtki = 0; wtki < trTickets.length; wtki++) {
+    if (trTickets[wtki].created_at) { var wk4 = getWeekStart(trTickets[wtki].created_at); if (weeks[wk4]) weeks[wk4].tickets_opened++; }
+    if (trTickets[wtki].resolved_at) { var wk5 = getWeekStart(trTickets[wtki].resolved_at); if (weeks[wk5]) weeks[wk5].tickets_resolved++; }
+  }
+  for (var wai = 0; wai < trApps.length; wai++) {
+    if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
+    // Secured bucketed by updated_at (its only timestamp), counted once per GP per week (#18/#42/#43)
+    if (ceoMetrics.isSecuredStatus(trApps[wai].status) && trApps[wai].updated_at) {
+      var wk7 = getWeekStart(trApps[wai].updated_at);
+      if (weeks[wk7] && trApps[wai].user_id && !securedUserIdsByWeek[wk7].has(trApps[wai].user_id)) {
+        securedUserIdsByWeek[wk7].add(trApps[wai].user_id);
+        weeks[wk7].placements_secured++;
+      }
+    }
+  }
+  for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
+  // Real completions series so the 'Completed' KPI arrow reflects GPs completing, not placements (#16/#25)
+  for (var wcdi = 0; wcdi < trComplete.length; wcdi++) {
+    if (trComplete[wcdi].completed_at) { var wk9 = getWeekStart(trComplete[wcdi].completed_at); if (weeks[wk9]) weeks[wk9].completions_done++; }
+  }
+
+  return Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
+}
+
+// ── Weekly owner digest (Phase 6 H1 / audit B2) ─────────────────────────────
+// Every KPI in the app requires a login, so the owner never sees the numbers
+// unless they go looking. This composes the key OPERATIONAL metrics (money is
+// deliberately excluded — Xero owns revenue) + week-over-week movement into a
+// branded email to GP_OWNER_EMAIL. Idempotent per Monday-anchored week via
+// runtime_kv 'owner_digest_last_sent'; the manual "send now" button forces a
+// one-off send WITHOUT consuming the weekly slot (so the scheduled email still
+// arrives after a test send).
+var _ownerDigestLastSentLocal = null; // in-memory fallback when Supabase is not configured
+
+async function getOwnerDigestLastSent() {
+  if (isSupabaseDbConfigured()) {
+    try {
+      var odRes = await supabaseDbRequest('runtime_kv', 'key=eq.owner_digest_last_sent&select=value');
+      if (odRes.ok && Array.isArray(odRes.data) && odRes.data[0] && odRes.data[0].value) return odRes.data[0].value;
+      if (odRes.ok) return null; // no row yet — an empty result is authoritative
+    } catch (e) { /* fall through to local */ }
+  }
+  return _ownerDigestLastSentLocal;
+}
+
+async function setOwnerDigestLastSent(entry) {
+  _ownerDigestLastSentLocal = entry;
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: [{ key: 'owner_digest_last_sent', value: entry }]
+    });
+  } catch (e) {
+    console.error('[owner-digest] dedupe marker write failed (ignored):', e && e.message);
+  }
+}
+
+// Gathers the digest's numbers from the SAME builders the dashboard uses:
+// computeWeeklyTrendSeries (trends card), ceoMetrics.computeKpis (KPI strip)
+// and ceoMetrics.computePipeline (funnel) — reuse, never a re-derivation.
+async function buildOwnerDigestData() {
+  var odNowMs = Date.now();
+  var odTodayStr = new Date(odNowMs).toISOString().slice(0, 10);
+  var odFortnightAgo = new Date(odNowMs - 14 * 86400000).toISOString();
+
+  var weeks = await computeWeeklyTrendSeries();
+
+  var [odCasesRes, odTasksRes, odAppsRes, odIvRes] = await Promise.all([
+    supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,blocker_status,completed_at,last_gp_activity_at,updated_at,created_at&order=updated_at.desc&limit=5000'),
+    supabaseDbRequest('registration_tasks', 'select=id,case_id,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&limit=5000'),
+    supabaseDbRequest('gp_applications', 'select=user_id,status&limit=10000'),
+    supabaseDbRequest('career_interviews', 'select=created_at&status=neq.cancelled&created_at=gte.' + odFortnightAgo + '&limit=2000')
+  ]);
+  var odCases = (odCasesRes.ok && Array.isArray(odCasesRes.data)) ? odCasesRes.data : [];
+  var odTasks = (odTasksRes.ok && Array.isArray(odTasksRes.data)) ? odTasksRes.data : [];
+  var odApps = (odAppsRes.ok && Array.isArray(odAppsRes.data)) ? odAppsRes.data : [];
+  var odIvs = (odIvRes.ok && Array.isArray(odIvRes.data)) ? odIvRes.data : [];
+
+  var kpi = ceoMetrics.computeKpis({
+    cases: odCases, tasks: odTasks, apps: odApps,
+    period: 'current', nowMs: odNowMs, todayStr: odTodayStr
+  });
+  var odActiveCases = ceoMetrics.filterActiveCases(odCases, { nowMs: odNowMs });
+  var funnel = ceoMetrics.computePipeline(odActiveCases);
+
+  // Interviews booked (career_interviews created) this week vs last — the one
+  // digest series the trends endpoint doesn't carry.
+  var odThisWeekKey = trendsWeekStartKey(new Date(odNowMs).toISOString());
+  var odLastWeekKey = trendsWeekStartKey(new Date(odNowMs - 7 * 86400000).toISOString());
+  var ivThisWeek = 0, ivLastWeek = 0;
+  for (var odi = 0; odi < odIvs.length; odi++) {
+    if (!odIvs[odi].created_at) continue;
+    var ivWk = trendsWeekStartKey(odIvs[odi].created_at);
+    if (ivWk === odThisWeekKey) ivThisWeek++;
+    else if (ivWk === odLastWeekKey) ivLastWeek++;
+  }
+
+  return {
+    weeks: weeks,
+    thisWeek: weeks.length ? weeks[weeks.length - 1] : null,
+    lastWeek: weeks.length > 1 ? weeks[weeks.length - 2] : null,
+    kpi: kpi,
+    funnel: funnel,
+    interviews: { thisWeek: ivThisWeek, lastWeek: ivLastWeek },
+    weekKey: odThisWeekKey
+  };
+}
+
+function ownerDigestDeltaHtml(cur, prev) {
+  var d = (Number(cur) || 0) - (Number(prev) || 0);
+  if (d > 0) return '<span style="color:#059669;font-weight:700">&#9650; +' + d + '</span>';
+  if (d < 0) return '<span style="color:#dc2626;font-weight:700">&#9660; ' + d + '</span>';
+  return '<span style="color:#94a3b8">&#8212;</span>';
+}
+
+// { force } — force=true is the CEO-dashboard "Send me the digest now" button:
+// it always sends and does NOT record the weekly dedupe marker.
+async function sendOwnerDigestEmail(opts) {
+  var odForce = !!(opts && opts.force);
+  var odEsc = function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  var digest = await buildOwnerDigestData();
+  var weekKey = digest.weekKey;
+  if (!odForce) {
+    var odLast = await getOwnerDigestLastSent();
+    if (odLast && odLast.week_start === weekKey) {
+      return { ok: true, sent: false, skipped: true, week_start: weekKey };
+    }
+  }
+
+  var tw = digest.thisWeek || {};
+  var lw = digest.lastWeek || {};
+  var odRows = [
+    { label: 'New applications', cur: tw.applications_submitted, prev: lw.applications_submitted },
+    { label: 'Interviews booked', cur: digest.interviews.thisWeek, prev: digest.interviews.lastWeek },
+    { label: 'Placements secured', cur: tw.placements_secured, prev: lw.placements_secured },
+    { label: 'Registrations completed', cur: tw.completions_done, prev: lw.completions_done },
+    { label: 'Tasks completed', cur: tw.tasks_completed, prev: lw.tasks_completed },
+    { label: 'Stage transitions', cur: tw.stage_transitions, prev: lw.stage_transitions },
+    { label: 'New GPs joined', cur: tw.new_gps, prev: lw.new_gps },
+    { label: 'Tickets opened', cur: tw.tickets_opened, prev: lw.tickets_opened },
+    { label: 'Tickets resolved', cur: tw.tickets_resolved, prev: lw.tickets_resolved }
+  ];
+
+  var odCell = 'padding:8px 10px;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0';
+  var tableHtml = '<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px">'
+    + '<tr><th style="' + odCell + ';text-align:left;color:#64748b;font-size:12px;text-transform:uppercase">This week</th>'
+    + '<th style="' + odCell + ';text-align:right;color:#64748b;font-size:12px;text-transform:uppercase">Count</th>'
+    + '<th style="' + odCell + ';text-align:right;color:#64748b;font-size:12px;text-transform:uppercase">vs last week</th></tr>';
+  for (var odr = 0; odr < odRows.length; odr++) {
+    var r = odRows[odr];
+    tableHtml += '<tr><td style="' + odCell + '">' + odEsc(r.label) + '</td>'
+      + '<td style="' + odCell + ';text-align:right;font-weight:700;color:#0f172a">' + (Number(r.cur) || 0) + '</td>'
+      + '<td style="' + odCell + ';text-align:right">' + ownerDigestDeltaHtml(r.cur, r.prev) + '</td></tr>';
+  }
+  tableHtml += '</table>';
+
+  // Biggest movers: top 3 series by absolute week-over-week change.
+  var movers = odRows
+    .map(function (r) { return { label: r.label, delta: (Number(r.cur) || 0) - (Number(r.prev) || 0) }; })
+    .filter(function (m) { return m.delta !== 0; })
+    .sort(function (a, b) { return Math.abs(b.delta) - Math.abs(a.delta); })
+    .slice(0, 3);
+  var moversHtml = '';
+  if (movers.length) {
+    moversHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Biggest movers</p><ul style="margin:0 0 20px;padding-left:18px">';
+    for (var odm = 0; odm < movers.length; odm++) {
+      moversHtml += '<li style="font-size:14px;color:#334155;line-height:1.7">' + odEsc(movers[odm].label) + ': '
+        + (movers[odm].delta > 0 ? '+' : '') + movers[odm].delta + ' vs last week</li>';
+    }
+    moversHtml += '</ul>';
+  }
+
+  var kpi = digest.kpi || {};
+  var snapshotHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Where things stand</p>'
+    + '<p style="font-size:14px;color:#334155;line-height:1.8;margin:0 0 20px">'
+    + 'Active GPs: <strong>' + (Number(kpi.total_gps) || 0) + '</strong> &middot; '
+    + 'Placed: <strong>' + (Number(kpi.placed) || 0) + '</strong> &middot; '
+    + 'Open tasks: <strong>' + (Number(kpi.open_tasks) || 0) + '</strong> &middot; '
+    + 'Overdue: <strong>' + (Number(kpi.overdue_tasks) || 0) + '</strong> &middot; '
+    + 'Blocked: <strong>' + (Number(kpi.blocked_cases) || 0) + '</strong> &middot; '
+    + 'Completed (all-time): <strong>' + (Number(kpi.completed_gps) || 0) + '</strong></p>';
+
+  var funnelHtml = '';
+  if (Array.isArray(digest.funnel) && digest.funnel.length) {
+    funnelHtml = '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Registration funnel</p>'
+      + '<p style="font-size:14px;color:#334155;line-height:1.8;margin:0 0 20px">'
+      + digest.funnel.map(function (f) {
+          return odEsc(f.label) + ': <strong>' + (Number(f.count) || 0) + '</strong>'
+            + ((Number(f.blocked) || 0) > 0 ? ' <span style="color:#d97706">(' + f.blocked + ' blocked)</span>' : '');
+        }).join(' &middot; ')
+      + '</p>';
+  }
+
+  var odBodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 20px">'
+    + 'Here&rsquo;s how GP Link moved in the week of <strong>' + odEsc(weekKey) + '</strong>.</p>'
+    + tableHtml + moversHtml + snapshotHtml + funnelHtml;
+
+  var odSendRes = await sendEmail({
+    to: GP_OWNER_EMAIL,
+    subject: 'GP Link weekly digest — week of ' + weekKey,
+    html: buildCareerEmailHtml({
+      title: 'Your weekly GP Link digest',
+      bodyHtml: odBodyHtml,
+      ctaText: 'View full dashboard',
+      ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
+      footer: 'Operational metrics only — financials live in Xero. Sent automatically once a week; use the dashboard&rsquo;s &ldquo;Send me the digest now&rdquo; button for an on-demand copy.'
+    }),
+    category: 'transactional'
+  });
+
+  if (odSendRes && odSendRes.ok) {
+    if (!odForce) {
+      await setOwnerDigestLastSent({ week_start: weekKey, sent_at: new Date().toISOString() });
+    }
+    return { ok: true, sent: true, skipped: false, week_start: weekKey, forced: odForce };
+  }
+  return { ok: false, sent: false, skipped: false, week_start: weekKey, message: (odSendRes && odSendRes.error) || 'Email send failed.' };
 }
 
 // ── Migration ledger (C4) ────────────────────────────────────────────────────
@@ -7700,6 +8363,79 @@ async function markCandidateLeadUnsubscribed(email) {
   }
 }
 
+// ── Phase 6 F4 (audit G6): per-GP notification preferences ──────────────────
+// Channel toggles for NON-CRITICAL mail/messages only (onboarding nudges,
+// WhatsApp check-in niceties, future push niceties). These preferences must
+// NEVER gate transactional/critical mail — OTP, security notices, password
+// resets, document-expiry reminders, offers/interviews/placements all send
+// regardless. Enforcement therefore lives ONLY inside the non-critical
+// senders, never inside sendEmail() itself.
+// Stored in public.notification_preferences (Supabase) / dbState
+// .notificationPrefs (local JSON), keyed by lowercased email.
+const NOTIFICATION_PREF_KEYS = ['emailNudges', 'whatsapp', 'push'];
+const NOTIFICATION_PREF_COLUMNS = { emailNudges: 'email_nudges', whatsapp: 'whatsapp', push: 'push' };
+
+async function getNotificationPreferences(email) {
+  const key = String(email || '').trim().toLowerCase();
+  const prefs = { emailNudges: true, whatsapp: true, push: true };
+  if (!key) return prefs;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('notification_preferences',
+        'select=email_nudges,whatsapp,push&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+      if (row) {
+        if (row.email_nudges === false) prefs.emailNudges = false;
+        if (row.whatsapp === false) prefs.whatsapp = false;
+        if (row.push === false) prefs.push = false;
+      }
+      return prefs;
+    }
+    const map = dbState.notificationPrefs && typeof dbState.notificationPrefs === 'object' ? dbState.notificationPrefs : {};
+    const rec = map[key];
+    if (rec && typeof rec === 'object') {
+      NOTIFICATION_PREF_KEYS.forEach(function (k) { if (rec[k] === false) prefs[k] = false; });
+    }
+    return prefs;
+  } catch (err) {
+    // Fail-open: an unreadable pref store must never silence anything by
+    // accident. Defaults = everything on.
+    return prefs;
+  }
+}
+
+async function saveNotificationPreferences(email, patch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  const current = await getNotificationPreferences(key);
+  NOTIFICATION_PREF_KEYS.forEach(function (k) {
+    if (patch && typeof patch[k] === 'boolean') current[k] = patch[k];
+  });
+  if (isSupabaseDbConfigured()) {
+    const row = { email: key, updated_at: new Date().toISOString() };
+    NOTIFICATION_PREF_KEYS.forEach(function (k) { row[NOTIFICATION_PREF_COLUMNS[k]] = current[k]; });
+    const w = await supabaseDbRequest('notification_preferences', 'on_conflict=email', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [row]
+    });
+    if (!w.ok) return null;
+    return current;
+  }
+  if (!dbState.notificationPrefs || typeof dbState.notificationPrefs !== 'object') dbState.notificationPrefs = {};
+  dbState.notificationPrefs[key] = Object.assign({}, dbState.notificationPrefs[key], current, { updatedAt: new Date().toISOString() });
+  saveDbState();
+  return current;
+}
+
+// channel: 'emailNudges' | 'whatsapp' | 'push'. ONLY call this from
+// non-critical senders (nudges/niceties) — never from transactional paths.
+async function allowsNonCriticalNotification(email, channel) {
+  if (!email) return true;
+  const prefs = await getNotificationPreferences(email);
+  return prefs[channel] !== false;
+}
+
 // ── Phase 6 D1b: practice one-click response pages ──────────────────────────
 // Small branded interstitial/confirmation pages for /api/practice/respond.
 // Callers pass PRE-ESCAPED HTML in msg/bodyHtml where markup is intended.
@@ -7872,6 +8608,11 @@ async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   var to = String((row && row.email) || '').trim();
   if (!to) return { ok: false, error: 'No email on reminder row' };
+  // Phase 6 F4 (G6): nudges are non-critical — respect the GP's "email nudges"
+  // preference. Transactional mail is NOT routed through here and never checks.
+  if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) {
+    return { ok: false, skipped: true, optedOut: true, error: 'Recipient opted out of nudge emails' };
+  }
   var firstName = String((row && row.name) || '').split(' ')[0] || '';
   var copy = onboardingNudge.copyForStep(stepIndex, { name: firstName || 'there', stepsLeft: stepsLeft });
   var step = (row && row.last_step != null && row.last_step >= 0 && row.last_step < 5) ? row.last_step : 0;
@@ -8179,8 +8920,15 @@ function base64UrlDecode(input) {
 var _macFn = crypto['createHmac'].bind(crypto);
 function hmacSign(data) { return _macFn('sha512', SECRET).update(data).digest('hex'); }
 
-function createSignedSessionToken(userProfile, expiresAt) {
-  const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
+function createSignedSessionToken(userProfile, expiresAt, sessionEpoch) {
+  // Phase 6 F4 (security L2): tokens optionally carry the user's session epoch.
+  // Only embed a POSITIVE epoch — epoch 0 (the default for every user until
+  // they first trigger a revoke) is expressed by OMITTING the claim, so tokens
+  // for never-revoked users are byte-identical to pre-F4 tokens.
+  const epochNum = Math.floor(Number(sessionEpoch));
+  const claims = { userProfile, expiresAt };
+  if (Number.isFinite(epochNum) && epochNum > 0) claims.epoch = epochNum;
+  const payload = base64UrlEncode(JSON.stringify(claims));
   return `${payload}.${hmacSign(payload)}`;
 }
 
@@ -8205,10 +8953,141 @@ function parseSignedSessionToken(token) {
     if (!parsed.userProfile || typeof parsed.userProfile !== 'object') return null;
     if (typeof parsed.expiresAt !== 'number') return null;
     if (parsed.expiresAt <= now()) return null;
-    return { userProfile: parsed.userProfile, expiresAt: parsed.expiresAt };
+    // A token with no epoch claim (every pre-F4 session) parses as epoch 0.
+    const tokenEpoch = Math.floor(Number(parsed.epoch));
+    return {
+      userProfile: parsed.userProfile,
+      expiresAt: parsed.expiresAt,
+      epoch: Number.isFinite(tokenEpoch) && tokenEpoch > 0 ? tokenEpoch : 0
+    };
   } catch (err) {
     return null;
   }
+}
+
+// ── Phase 6 F4: per-user session epoch ("sign out of all devices") ──────────
+// Stored in public.user_session_epoch (Supabase) / dbState.sessionEpochs
+// (local JSON), keyed by lowercased email. A gp_session token is REJECTED only
+// when the user's KNOWN stored epoch is greater than the epoch embedded in the
+// token. Everything else fails open by design so deploying this can never
+// mass-log-out live users:
+//   • token has no epoch claim  → treated as epoch 0 (all pre-F4 sessions)
+//   • user has no stored row    → stored epoch 0 → 0 > 0 is false → valid
+//   • store unreadable / table missing (pre-migration) → treated as unknown → valid
+// Only an explicit revoke (sign-out-all, account deletion, password change,
+// email change) writes a stored epoch > 0, and only then do older tokens die.
+const SESSION_EPOCH_CACHE_TTL_MS = Number(process.env.SESSION_EPOCH_CACHE_TTL_MS || 60 * 1000);
+const _sessionEpochCache = new Map(); // email -> { epoch, fetchedAt }
+
+function cacheSessionEpoch(email, epoch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return;
+  const num = Math.floor(Number(epoch));
+  _sessionEpochCache.set(key, { epoch: Number.isFinite(num) && num > 0 ? num : 0, fetchedAt: Date.now() });
+}
+
+// Synchronous, cache-only check used inside getSession(). Returns true ONLY
+// when we positively know the stored epoch is newer than the token's. A cache
+// miss returns false (valid) — handleApi warms the cache per request, so API
+// calls are enforced; anything reached before a warm cache simply behaves like
+// pre-F4 (fail-open, never a surprise logout).
+function isSessionEpochRevokedSync(email, tokenEpoch) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return false;
+  const entry = _sessionEpochCache.get(key);
+  if (!entry) return false;
+  return entry.epoch > (Number(tokenEpoch) || 0);
+}
+
+async function getStoredSessionEpoch(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return 0;
+  const cached = _sessionEpochCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < SESSION_EPOCH_CACHE_TTL_MS) return cached.epoch;
+  let epoch = 0;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('user_session_epoch', 'select=epoch&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (!r.ok) {
+        // Pre-migration table / transient failure: keep any stale cached value
+        // (never let an error look like a revoke) and treat unknown as 0.
+        return cached ? cached.epoch : 0;
+      }
+      const row = Array.isArray(r.data) ? r.data[0] : null;
+      epoch = row && Number.isFinite(Number(row.epoch)) ? Math.floor(Number(row.epoch)) : 0;
+    } else {
+      const map = dbState.sessionEpochs && typeof dbState.sessionEpochs === 'object' ? dbState.sessionEpochs : {};
+      epoch = Number.isFinite(Number(map[key])) ? Math.floor(Number(map[key])) : 0;
+    }
+  } catch (err) {
+    return cached ? cached.epoch : 0;
+  }
+  cacheSessionEpoch(key, epoch);
+  return epoch;
+}
+
+// Bump the user's epoch → every previously-issued token (lower epoch) becomes
+// invalid at its next validation. Returns the new epoch, or null on failure
+// (callers must NOT claim sessions were revoked when this returns null).
+async function bumpSessionEpoch(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  // Fresh read (bypass cache) so concurrent bumps still move forward.
+  let current = 0;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('user_session_epoch', 'select=epoch&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (r.ok && Array.isArray(r.data) && r.data[0]) current = Math.floor(Number(r.data[0].epoch)) || 0;
+      const next = current + 1;
+      const w = await supabaseDbRequest('user_session_epoch', 'on_conflict=email', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [{ email: key, epoch: next, updated_at: new Date().toISOString() }]
+      });
+      if (!w.ok) return null;
+      cacheSessionEpoch(key, next);
+      return next;
+    }
+    if (!dbState.sessionEpochs || typeof dbState.sessionEpochs !== 'object') dbState.sessionEpochs = {};
+    current = Math.floor(Number(dbState.sessionEpochs[key])) || 0;
+    const nextLocal = current + 1;
+    dbState.sessionEpochs[key] = nextLocal;
+    saveDbState();
+    cacheSessionEpoch(key, nextLocal);
+    return nextLocal;
+  } catch (err) {
+    console.error('[session-epoch] bump failed for', key, err && err.message);
+    return null;
+  }
+}
+
+// Warm the epoch cache for the requesting user so the synchronous check in
+// getSession() is authoritative for this request. Cheap: one cookie parse +
+// at most one DB read per user per SESSION_EPOCH_CACHE_TTL_MS per instance.
+async function preloadSessionEpochForRequest(req) {
+  try {
+    const cookies = getCookies(req);
+    const token = cookies[COOKIE_NAME];
+    if (!token) return;
+    const signed = parseSignedSessionToken(token);
+    if (!signed) return;
+    const email = signed.userProfile && typeof signed.userProfile.email === 'string'
+      ? signed.userProfile.email.trim().toLowerCase() : '';
+    if (!email) return;
+    await getStoredSessionEpoch(email);
+  } catch (err) { /* fail-open by design */ }
+}
+
+// Issue a GP session embedding the user's CURRENT stored epoch, so a fresh
+// login after a revoke stays valid while older tokens are rejected.
+async function issueGpSession(res, userProfile) {
+  const email = userProfile && typeof userProfile.email === 'string'
+    ? userProfile.email.trim().toLowerCase() : '';
+  let epoch = 0;
+  if (email) {
+    try { epoch = await getStoredSessionEpoch(email); } catch (err) { epoch = 0; }
+  }
+  setSession(res, userProfile, epoch);
 }
 
 function hashPassword(password) {
@@ -9173,6 +10052,24 @@ async function checkRateLimitWindow(rateKey, maxCount, windowMs) {
   return true;
 }
 
+// Non-mutating read of a checkRateLimitWindow(...) counter, for reporting
+// "attempts remaining" to a client without spending an attempt. Mirrors
+// checkRateLimitWindow's storage exactly (runtime_kv in Supabase mode,
+// dbState.rateLimits locally) but never writes.
+async function peekRateLimitRemaining(rateKey, maxCount, windowMs) {
+  const ts = now();
+  if (isSupabaseDbConfigured()) {
+    const runtimeKey = `authratelimit:${rateKey}`;
+    const existing = await getRuntimeKv(runtimeKey);
+    const current = existing && existing.value && typeof existing.value === 'object' ? existing.value : null;
+    if (!current || ts - Number(current.windowStart || 0) > windowMs) return maxCount;
+    return Math.max(0, maxCount - Number(current.count || 0));
+  }
+  const current = dbState.rateLimits[rateKey];
+  if (!current || ts - current.windowStart > windowMs) return maxCount;
+  return Math.max(0, maxCount - current.count);
+}
+
 async function enforceAuthRateLimit(req, res, scope) {
   const key = `auth:${scope}:${getClientIp(req)}`;
   const allowed = await checkRateLimitWindow(key, AUTH_RATE_MAX_ATTEMPTS, AUTH_RATE_WINDOW_MS);
@@ -9285,9 +10182,9 @@ async function registerAdminLoginFailure(email) {
   }
 }
 
-function setSession(res, userProfile) {
+function setSession(res, userProfile, sessionEpoch) {
   const expiresAt = now() + SESSION_TTL_MS;
-  const token = createSignedSessionToken(userProfile, expiresAt);
+  const token = createSignedSessionToken(userProfile, expiresAt, sessionEpoch);
 
   const secureCookie = process.env.COOKIE_SECURE
     ? process.env.COOKIE_SECURE === 'true'
@@ -9572,6 +10469,134 @@ function verifyPracticeActionToken(token) {
   return { ok: true, applicationId, action };
 }
 
+// ── Phase 6 F4: verified email change ───────────────────────────────────────
+// Same purpose-token scheme: unforgeable, expiring, single-purpose. The token
+// is minted at request time and only ever emailed to the NEW address, so
+// possession proves control of the new inbox.
+const EMAIL_CHANGE_TOKEN_PURPOSE = 'email_change';
+const EMAIL_CHANGE_TOKEN_TTL_MS = Number(process.env.EMAIL_CHANGE_TOKEN_TTL_MS || 60 * 60 * 1000);
+
+// Is this address already attached to any account? Checks user_profiles (and
+// the auth system best-effort) in Supabase mode, dbState maps locally.
+async function isChangeEmailAddressTaken(candidateEmail) {
+  const key = String(candidateEmail || '').trim().toLowerCase();
+  if (!key) return true;
+  if (isSupabaseDbConfigured()) {
+    try {
+      const r = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(key) + '&limit=1');
+      if (r.ok && Array.isArray(r.data) && r.data.length > 0) return true;
+    } catch (err) { /* fall through to auth check */ }
+    try {
+      // Best-effort GoTrue lookup; shape varies by version so only a positive
+      // match counts. Failures do NOT block (user_profiles is the source of truth).
+      const a = await supabaseAuthAdminRequest('admin/users?email=' + encodeURIComponent(key));
+      const users = a.ok && a.data && Array.isArray(a.data.users) ? a.data.users : [];
+      if (users.some((u) => String((u && u.email) || '').trim().toLowerCase() === key)) return true;
+    } catch (err) { /* ignore */ }
+    return false;
+  }
+  return !!(dbState.users[key] || dbState.userProfiles[key]);
+}
+
+// Apply a VERIFIED email change. Order is deliberate: the auth-system email
+// (what the user signs in with) changes FIRST and any failure there aborts the
+// whole operation with nothing modified — so a partial failure can never lock
+// the user out. App-side rows then update best-effort (profile lookups also
+// fall back to user_id, so a missed row degrades gracefully, never locks out).
+// Finally every session for the OLD address is revoked via the epoch bump.
+async function applyVerifiedEmailChange({ userId, oldEmail, newEmail }) {
+  const oldKey = String(oldEmail || '').trim().toLowerCase();
+  const newKey = String(newEmail || '').trim().toLowerCase();
+  const warnings = [];
+  if (!oldKey || !newKey) return { ok: false, message: 'Invalid email change request.' };
+
+  if (isSupabaseDbConfigured()) {
+    const uid = String(userId || '').trim() || await getSupabaseUserIdByEmail(oldKey);
+    if (!uid) return { ok: false, message: 'Could not resolve your account. Nothing was changed.' };
+
+    // 1) Auth system first — abort entirely if this fails.
+    const authRes = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(uid), {
+      method: 'PUT',
+      body: { email: newKey, email_confirm: true }
+    });
+    if (!authRes.ok) {
+      console.error('[change-email] auth update failed:', authRes.status, JSON.stringify(authRes.data || {}).slice(0, 200));
+      return { ok: false, message: 'Could not update the sign-in system. Nothing was changed — your current email still works.' };
+    }
+
+    // 2) App-side rows (best-effort; profile reads fall back to user_id).
+    const emailPatches = [
+      ['user_profiles', 'user_id=eq.' + encodeURIComponent(uid)],
+      ['onboarding_reminders', 'user_id=eq.' + encodeURIComponent(uid)],
+      ['notification_preferences', 'email=eq.' + encodeURIComponent(oldKey)]
+    ];
+    for (const [table, filter] of emailPatches) {
+      try {
+        const pr = await supabaseDbRequest(table, filter, {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { email: newKey }
+        });
+        if (!pr.ok) warnings.push(table + ' not updated (' + pr.status + ')');
+      } catch (err) { warnings.push(table + ' not updated (' + (err && err.message) + ')'); }
+    }
+  } else {
+    // Local JSON mode: move the email-keyed records.
+    if (dbState.users[oldKey]) {
+      dbState.users[newKey] = { ...dbState.users[oldKey], email: newKey, updatedAt: new Date().toISOString() };
+      delete dbState.users[oldKey];
+    }
+    if (dbState.userProfiles[oldKey]) {
+      dbState.userProfiles[newKey] = { ...dbState.userProfiles[oldKey], email: newKey };
+      delete dbState.userProfiles[oldKey];
+    }
+    if (dbState.userState && dbState.userState[oldKey]) {
+      dbState.userState[newKey] = dbState.userState[oldKey];
+      delete dbState.userState[oldKey];
+    }
+    if (dbState.notificationPrefs && dbState.notificationPrefs[oldKey]) {
+      dbState.notificationPrefs[newKey] = dbState.notificationPrefs[oldKey];
+      delete dbState.notificationPrefs[oldKey];
+    }
+    saveDbState();
+  }
+
+  // 3) Kill every session issued for the old address (they embed the old
+  //    email, so bumping the old key's epoch invalidates all of them). OAuth
+  //    refresh tokens for the old address are revoked too — otherwise a device
+  //    holding one could mint a fresh session after the change (F4).
+  revokeAllRefreshTokensForEmail(oldKey);
+  const bumped = await bumpSessionEpoch(oldKey);
+  if (bumped == null) warnings.push('session revoke failed — old sessions may live until expiry');
+  return { ok: true, warnings };
+}
+
+// F4 hardening: an email-change confirm token is bound to the login address it
+// was issued for. Once the account's CURRENT auth email is no longer the
+// token's oldEmail (the token was already used, or a newer change moved the
+// email on), the token is dead — otherwise a stale A→B link sitting in inbox B
+// could be replayed within its 1h TTL to drag the login email back to B after
+// the owner had already moved it elsewhere (re-takeover chain). Returns true
+// when the token should be REJECTED.
+async function isEmailChangeTokenStale({ userId, oldEmail }) {
+  const key = String(oldEmail || '').trim().toLowerCase();
+  if (!key) return true;
+  const uid = String(userId || '').trim();
+  if (isSupabaseDbConfigured()) {
+    try {
+      // Auth system is the source of truth for the CURRENT login email.
+      const a = await supabaseAuthAdminRequest('admin/users?email=' + encodeURIComponent(key));
+      const users = a.ok && a.data && Array.isArray(a.data.users) ? a.data.users : [];
+      const match = users.find((u) => String((u && u.email) || '').trim().toLowerCase() === key);
+      if (match) return uid ? String(match.id || '') !== uid : false;
+    } catch (err) { /* GoTrue shape varies — fall through to the profile check */ }
+    try {
+      const pid = await getSupabaseUserIdByEmail(key);
+      if (pid) return uid ? String(pid) !== uid : false;
+    } catch (err) { /* fall through */ }
+    return true; // old email no longer attached to this account → token is dead
+  }
+  return !(dbState.users[key] || dbState.userProfiles[key]);
+}
+
 // TOTP first, then single-use backup code (consumed on success). Returns
 // { ok, method } and persists consumption + last_used_at.
 //
@@ -9617,7 +10642,15 @@ function getSession(req) {
   if (!token) return null;
 
   const signedSession = parseSignedSessionToken(token);
-  if (signedSession) return signedSession;
+  if (signedSession) {
+    // Phase 6 F4 session kill-switch: reject only when the KNOWN stored epoch
+    // outruns the token's. Unknown/uncached epoch → valid (fail-open, so the
+    // deploy itself can never log anyone out — see isSessionEpochRevokedSync).
+    const epochEmail = signedSession.userProfile && typeof signedSession.userProfile.email === 'string'
+      ? signedSession.userProfile.email.trim().toLowerCase() : '';
+    if (epochEmail && isSessionEpochRevokedSync(epochEmail, signedSession.epoch || 0)) return null;
+    return signedSession;
+  }
 
   // Backward compatibility: previously-issued server-side session tokens.
   const tokenHash = hashToken(token);
@@ -13528,6 +14561,64 @@ async function runSlaCheck(actor) {
   const checked = (staleCases.ok ? (staleCases.data || []).length : 0) + (overdueTasks.ok ? (overdueTasks.data || []).length : 0);
 
   return { checked, created };
+}
+
+// ── Stuck cases / SLA aging (Phase 6 G1) ─────────────────────────────────────
+// One aging computation shared by GET /api/admin/stuck-cases (the RSO "Stuck
+// cases" tab) and the daily /api/cron/sla-sweep snapshot. Reuses
+// ceoMetrics.caseAgeMs — the exact activity-age fallback chain the CEO
+// pipeline drilldown uses for days_in_stage — so the admin view always
+// matches the CEO-side numbers.
+const STUCK_CASE_BUCKETS = [
+  { key: 'b0_7', label: '0–7 days', min: 0, max: 7 },
+  { key: 'b8_14', label: '8–14 days', min: 8, max: 14 },
+  { key: 'b15_30', label: '15–30 days', min: 15, max: 30 },
+  { key: 'b31_plus', label: '30+ days', min: 31, max: null }
+];
+const STUCK_CASE_BUCKET_ITEM_CAP = 200; // bounded response — count stays exact
+
+async function computeStuckCaseBuckets(nowMs) {
+  const scNow = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const scCasesRes = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,substage,status,assigned_va,created_at,updated_at,last_gp_activity_at,blocker_status,practice_name&status=eq.active&limit=1000');
+  const scAll = (scCasesRes.ok && Array.isArray(scCasesRes.data)) ? scCasesRes.data : [];
+  // Same "active" definition as the CEO dashboard: withdrawn out, >6-months-dead out.
+  const scActive = ceoMetrics.filterActiveCases(scAll, { nowMs: scNow });
+  const scProfilesRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name');
+  const scProfiles = (scProfilesRes.ok && Array.isArray(scProfilesRes.data)) ? scProfilesRes.data : [];
+  const scProfileById = {};
+  for (const sp of scProfiles) { if (sp.user_id) scProfileById[sp.user_id] = sp; }
+  function scName(uid) {
+    const p = scProfileById[uid];
+    return p ? (((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || 'Unknown') : 'Unknown';
+  }
+  const buckets = STUCK_CASE_BUCKETS.map((b) => ({ key: b.key, label: b.label, min: b.min, max: b.max, count: 0, items: [] }));
+  for (const c of scActive) {
+    let days = Math.floor(ceoMetrics.caseAgeMs(c, scNow) / 86400000);
+    if (!Number.isFinite(days) || days < 0) days = 0;
+    let bucket = buckets[buckets.length - 1];
+    for (const b of buckets) { if (b.max === null || days <= b.max) { bucket = b; break; } }
+    bucket.count++;
+    bucket.items.push({
+      case_id: c.id,
+      user_id: c.user_id,
+      gp_name: scName(c.user_id),
+      gp_email: (scProfileById[c.user_id] || {}).email || '',
+      stage: c.stage || '',
+      substage: c.substage || '',
+      assigned_rso: c.assigned_va ? scName(c.assigned_va) : 'Unassigned',
+      assigned_rso_id: c.assigned_va || null,
+      days_stalled: days,
+      last_gp_activity_at: c.last_gp_activity_at || null,
+      blocker_status: c.blocker_status || null,
+      practice_name: c.practice_name || ''
+    });
+  }
+  for (const b of buckets) {
+    b.items.sort((a, z) => z.days_stalled - a.days_stalled);
+    if (b.items.length > STUCK_CASE_BUCKET_ITEM_CAP) b.items = b.items.slice(0, STUCK_CASE_BUCKET_ITEM_CAP);
+  }
+  return { total: scActive.length, buckets };
 }
 
 function generateQuestionnairePdf(questionnaire, gpProfile, visaCase) {
@@ -21684,16 +22775,256 @@ async function pushDocumentNotificationToUser(userId, notification) {
       ? stateResult.data[0].state
       : {};
     const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
-    updates.unshift({
+    const item = {
       type: notification.type || 'info',
       title: notification.title || 'Document update',
       detail: notification.detail || '',
       ts: new Date().toISOString()
-    });
+    };
+    // Optional in-app deep link (e.g. /pages/my-documents.html?reupload=<key>) —
+    // rendered by js/updates-sync.js so tapping the bell alert lands on the fix.
+    if (typeof notification.target === 'string' && notification.target.startsWith('/pages/')) {
+      item.target = notification.target.slice(0, 300);
+    }
+    updates.unshift(item);
     if (updates.length > 50) updates.length = 50;
     const nextState = { ...currentState, gp_link_updates: updates };
     await upsertSupabaseUserState(userId, nextState, new Date().toISOString());
   } catch (_) { /* non-critical */ }
+}
+
+// ── Phase 6 F3: document reliability (expiry + scan-failure authority) ─────
+// Doc types with a real validity window, in months. Used to (a) default
+// expires_at when a renewal-sensitive document is uploaded without an explicit
+// expiry, and (b) drive the renewal-nudge sweep in /api/cron/weekly-sweep.
+var DOC_EXPIRY_TYPES = {
+  certificate_good_standing: 3,   // regulators expect a CoGS issued within ~3 months
+  certificate_of_good_standing: 3,
+  criminal_history: 12,           // Fit2Work ICHC reference page — 12 months
+  criminal_history_check: 12,     // police checks / DBS — 12 months
+  police_check: 12
+};
+var DOC_EXPIRY_NUDGE_WINDOW_DAYS = 30;
+
+// Accepts 'YYYY-MM-DD' or a full ISO timestamp; returns a normalized ISO string
+// or '' when unparseable/absurd (guards against AI hallucinated or typo years).
+function sanitizeExpiryDateIso(value) {
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) raw += 'T00:00:00.000Z';
+  var d = new Date(raw);
+  if (isNaN(d.getTime())) return '';
+  var year = d.getUTCFullYear();
+  var now = new Date();
+  if (year < 2000 || year > now.getUTCFullYear() + 30) return '';
+  return d.toISOString();
+}
+
+function defaultDocumentExpiryIso(docKey, fromIso) {
+  var months = DOC_EXPIRY_TYPES[String(docKey || '')];
+  if (!months) return '';
+  var base = fromIso ? new Date(fromIso) : new Date();
+  if (isNaN(base.getTime())) base = new Date();
+  var d = new Date(base.getTime());
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString();
+}
+
+// Server-authoritative AI-scan failure counter. The old counter lived in
+// localStorage (my-documents.html CERT_SUPPORT_THRESHOLD), so it reset on a
+// device switch and the escalation was skipped when the cached file was gone.
+// Counts live in public.user_doc_scan_failures keyed by user + document key.
+var DOC_SCAN_FAIL_THRESHOLD = 3;
+
+function isDocScanFailureKey(key) {
+  var k = String(key || '');
+  if (!k) return false;
+  return PREPARED_DOCUMENT_KEYS.has(k) || INSTITUTION_DOCUMENT_KEYS.has(k) || k === 'criminal_history';
+}
+
+async function getDocScanFailureRow(userId, docKey) {
+  if (!isSupabaseDbConfigured() || !userId || !docKey) return null;
+  var r = await supabaseDbRequest('user_doc_scan_failures',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+// Increment the per-user/per-doc failure counter and persist the LAST failure
+// reason (so it survives the dismissable popup). Returns { count, escalate } —
+// escalate is true exactly once, when the counter crosses the threshold and the
+// current streak hasn't already been escalated.
+async function recordDocScanFailure(userId, docKey, countryCode, reason) {
+  if (!isSupabaseDbConfigured() || !userId || !isDocScanFailureKey(docKey)) return { count: 0, escalate: false };
+  var cleanReason = String(reason || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  var nowIso = new Date().toISOString();
+  try {
+    var existing = await getDocScanFailureRow(userId, docKey);
+    var nextCount = (existing ? Math.max(0, Number(existing.fail_count || 0)) : 0) + 1;
+    var body = {
+      user_id: userId,
+      document_key: String(docKey),
+      country_code: String(countryCode || (existing && existing.country_code) || ''),
+      fail_count: nextCount,
+      last_reason: cleanReason || (existing && existing.last_reason) || '',
+      last_failed_at: nowIso,
+      updated_at: nowIso
+    };
+    if (existing && existing.id != null) {
+      await supabaseDbRequest('user_doc_scan_failures', 'id=eq.' + encodeURIComponent(existing.id), { method: 'PATCH', body: body });
+    } else {
+      await supabaseDbRequest('user_doc_scan_failures', 'on_conflict=user_id,document_key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [body]
+      });
+    }
+    var alreadyEscalated = !!(existing && existing.escalated_at);
+    return { count: nextCount, escalate: nextCount >= DOC_SCAN_FAIL_THRESHOLD && !alreadyEscalated };
+  } catch (err) {
+    console.error('[DocScanFail] record error:', err.message);
+    return { count: 0, escalate: false };
+  }
+}
+
+// A successful scan/save wipes the streak (fresh document, fresh attempts).
+async function resetDocScanFailures(userId, docKey) {
+  if (!isSupabaseDbConfigured() || !userId || !docKey) return;
+  try {
+    await supabaseDbRequest('user_doc_scan_failures',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+      { method: 'PATCH', body: { fail_count: 0, last_reason: '', escalated_at: null, updated_at: new Date().toISOString() } });
+  } catch (err) { /* non-critical */ }
+}
+
+// Map of doc key -> { failCount, reason, ... } for the GP's documents page, so
+// the last AI-scan failure reason persists on the doc card after the popup.
+async function listDocScanFailuresForUser(userId) {
+  var out = {};
+  if (!isSupabaseDbConfigured() || !userId) return out;
+  try {
+    var r = await supabaseDbRequest('user_doc_scan_failures',
+      'select=document_key,fail_count,last_reason,last_failed_at,escalated_at&user_id=eq.' + encodeURIComponent(userId) + '&fail_count=gt.0&limit=100');
+    (r.ok && Array.isArray(r.data) ? r.data : []).forEach(function (row) {
+      if (!row || !row.document_key) return;
+      out[row.document_key] = {
+        failCount: Number(row.fail_count || 0),
+        reason: row.last_reason || '',
+        lastFailedAt: row.last_failed_at || null,
+        escalated: !!row.escalated_at,
+        threshold: DOC_SCAN_FAIL_THRESHOLD
+      };
+    });
+  } catch (err) { /* non-critical */ }
+  return out;
+}
+
+// Threshold hit at scan time: the scan endpoint HOLDS the file, so the server
+// itself performs the manual-review escalation (save as under_review + create
+// the Registration Support Officer review task + tell the GP) instead of
+// trusting the client's cached copy to still exist.
+// Resolve a GP's OWN document-country bucket ('uk'|'ie'|'nz') from their
+// profile, with NO hard default: user_profiles.registration_country first,
+// then user_state.gp_selected_country (the same resolution chain the rest of
+// the server uses). Returns '' when neither resolves so the caller picks its
+// own last-resort fallback.
+async function resolveGpProfileDocumentCountry(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return '';
+  try {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var raw = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0].registration_country : '';
+    var norm = normalizeDocumentCountry(raw || '');
+    if (norm) return norm;
+    var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : null;
+    return normalizeDocumentCountry((st && st.gp_selected_country) || '');
+  } catch (e) {
+    return '';
+  }
+}
+
+async function escalateDocScanFailureToReview(userId, opts) {
+  var docKey = String((opts && opts.docKey) || '');
+  if (!userId || !docKey || !opts.fileDataUrl) return null;
+  // Country: explicit scan country first, then the GP's OWN profile country —
+  // an IE/NZ GP whose scan call omits the country must NOT have their
+  // under-review doc mis-filed under 'uk' (country_code splits document rows).
+  // 'uk' only as a true last resort when the profile has no country either.
+  var country = normalizeDocumentCountry((opts && opts.country) || '');
+  if (!country) country = await resolveGpProfileDocumentCountry(userId);
+  if (!country) country = 'uk';
+  try {
+    var saved = await savePreparedDocumentForUser(userId, null, {
+      country: country,
+      key: docKey,
+      fileName: opts.fileName || (docKey + '-for-review'),
+      mimeType: opts.mimeType || 'application/pdf',
+      fileDataUrl: opts.fileDataUrl,
+      updatedAt: new Date().toISOString()
+    });
+    if (!saved) return null;
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&country_code=eq.' + encodeURIComponent(country),
+      { method: 'PATCH', body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() } });
+
+    var docLabel = getDocumentLabelForKey(docKey) || docKey;
+    try {
+      await createDocReviewTask(userId, docKey, docLabel, null, {
+        reason: String(opts.reason || 'Submitted for manual review after ' + DOC_SCAN_FAIL_THRESHOLD + ' failed AI scan attempts').slice(0, 1000),
+        identifiedAs: ''
+      }, isQualificationDocKey(docKey) ? 'ahpra' : undefined);
+    } catch (taskErr) {
+      console.error('[DocScanFail] escalation task error:', taskErr.message);
+    }
+    try {
+      await pushDocumentNotificationToUser(userId, {
+        type: 'info',
+        title: docLabel + ' under review',
+        detail: 'The automatic scan could not accept this document after ' + DOC_SCAN_FAIL_THRESHOLD + ' attempts, so our team will review it manually. This usually takes less than 24 hours.'
+      });
+    } catch (notifyErr) { /* non-critical */ }
+    try {
+      await supabaseDbRequest('user_doc_scan_failures',
+        'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+        { method: 'PATCH', body: { escalated_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+    } catch (flagErr) { /* non-critical */ }
+    return { ...saved, status: 'under_review' };
+  } catch (err) {
+    console.error('[DocScanFail] escalation error:', err.message);
+    return null;
+  }
+}
+
+// Shared post-AI-scan bookkeeping for the scan endpoints. On failure it
+// increments the server-side counter (and escalates at the threshold using the
+// in-hand file); the caller merges the returned fields into its JSON response.
+async function handleServerScanFailure(session, params) {
+  var result = { scanFailCount: 0, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD };
+  try {
+    var docKey = String(params.docKey || '');
+    if (!isDocScanFailureKey(docKey) || !isSupabaseDbConfigured()) return result;
+    var email = getSessionEmail(session);
+    var userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
+    if (!userId) return result;
+    var rec = await recordDocScanFailure(userId, docKey, params.country || '', params.reason || '');
+    result.scanFailCount = rec.count;
+    if (rec.escalate && params.fileDataUrl) {
+      var escDoc = await escalateDocScanFailureToReview(userId, {
+        docKey: docKey,
+        country: params.country || '',
+        fileName: params.fileName || '',
+        mimeType: params.mimeType || '',
+        fileDataUrl: params.fileDataUrl,
+        reason: params.reason || ''
+      });
+      if (escDoc) {
+        result.manualReview = true;
+        result.document = escDoc;
+      }
+    }
+  } catch (err) {
+    console.error('[DocScanFail] handler error:', err.message);
+  }
+  return result;
 }
 
 // ── Document Upload Pipeline ──────────────────────────────
@@ -21728,6 +23059,7 @@ function getDocumentLabelForKey(key) {
     certificate_good_standing: 'Certificate of Good Standing',
     certificate_of_good_standing: 'Certificate of Good Standing',
     criminal_history_check: 'Criminal History Check',
+    criminal_history: 'Criminal History Check',
     cv_signed_dated: 'CV (Signed and dated)',
     career_cover_letter: 'Cover Letter',
     confirmation_training: 'Confirmation of Training',
@@ -21804,6 +23136,52 @@ async function extractDocxTextWithMammoth(buffer) {
   } catch (err) {
     console.error('[DocumentPipeline] DOCX text extraction failed:', err.message);
     return '';
+  }
+}
+
+// Careers profile gate (Task 3) — AI genuine-CV check, run on every
+// /api/career/profile/cv upload before it is stored. Distinct from
+// classifyDocumentWithAI below (which checks a doc matches an EXPECTED type
+// against a fixed catalogue): this asks a single yes/no "is this a CV at
+// all" question and returns a plain-English reason either way.
+//
+// Returns { ok:false, reason } when the AI is unavailable/unconfigured/over
+// budget/erroring — the caller decides the fallback (accept unscanned rather
+// than block a GP on our outage). Otherwise returns
+// { ok:true, isCv:boolean, reason:string }.
+async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
+  if (!ANTHROPIC_API_KEY) return { ok: false, reason: 'ai_unconfigured' };
+  if (!(await checkAnthropicBudget())) return { ok: false, reason: 'ai_budget' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var blocks = [];
+  if (mime === 'application/pdf') {
+    blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+  } else if (/^image\/(png|jpe?g|webp)$/.test(mime)) {
+    blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+  } else if (mime.includes('wordprocessingml') || /\.docx$/i.test(String(fileName || ''))) {
+    var text = await extractDocxTextWithMammoth(buffer);
+    if (!text) return { ok: true, isCv: false, reason: 'We could not read this Word file — please export your CV as a PDF and try again.' };
+    blocks.push({ type: 'text', text: 'DOCUMENT TEXT (extracted from Word file):\n\n' + text.slice(0, 30000) });
+  } else {
+    return { ok: true, isCv: false, reason: 'Unsupported file type — please upload a PDF or Word document.' };
+  }
+  blocks.push({ type: 'text', text: 'Is the document above a genuine curriculum vitae / resume for a medical professional? A CV lists a person\'s career history, education and skills. Contracts, certificates, letters, forms and IDs are NOT CVs. Respond with ONLY valid JSON: {"isCv": true|false, "reason": "<short plain-English reason a non-technical person understands>"}' });
+
+  try {
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_SCAN_MODEL, max_tokens: 300, messages: [{ role: 'user', content: blocks }] })
+    });
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var textOut = (json && json.content && json.content[0] && json.content[0].text) || '';
+    var parsed = JSON.parse(textOut.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim());
+    return { ok: true, isCv: parsed.isCv === true, reason: String(parsed.reason || '') };
+  } catch (err) {
+    console.error('[career-cv-scan] AI scan failed:', err && err.message);
+    return { ok: false, reason: 'ai_error' };
   }
 }
 
@@ -22195,7 +23573,8 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
       await pushDocumentNotificationToUser(userId, {
         type: 'action',
         title: (expectedLabel || documentKey) + ' needs attention',
-        detail: reason
+        detail: reason + ' Please upload a corrected copy.',
+        target: '/pages/my-documents.html?reupload=' + encodeURIComponent(documentKey)
       });
     }
   } catch (err) {
@@ -23079,7 +24458,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
       if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
       // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
       if (plan.headers && typeof plan.headers === 'object') emailPayload.headers = plan.headers;
-      const res = await fetch('https://api.resend.com/emails', {
+      const res = await fetch(RESEND_API_URL, {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -23497,6 +24876,32 @@ async function sendStalledReminderEmail(userId, stage) {
   );
 }
 
+// Chase reminder transport (Phase 6 G1/R2). Prefer the case's Gmail mailbox so
+// the reminder lands in the SAME thread the practice/officer already has; fall
+// back to Resend when the Gmail client is unavailable (e.g. local/dev) so the
+// chase still goes out. Chases are TRANSACTIONAL (registration-critical):
+// always sent, never gated by notification prefs or the marketing
+// suppression list.
+async function sendChaseReminderEmail(opts) {
+  try {
+    const si = await resolveCaseSenderInfo(opts.caseId);
+    const g = await sendGmailEmail({
+      from: si.from,
+      fromName: si.fromName,
+      to: opts.to,
+      subject: opts.subject,
+      bodyHtml: opts.bodyHtml,
+      threadId: opts.threadId || undefined,
+      inReplyTo: opts.inReplyTo || undefined,
+      references: opts.references || undefined,
+      caseId: opts.caseId
+    });
+    if (g && g.ok) return { ok: true, via: 'gmail', threadId: g.threadId || opts.threadId || null };
+  } catch (e) { /* fall through to Resend */ }
+  const r = await sendEmail({ to: opts.to, subject: opts.subject, html: opts.bodyHtml, category: 'transactional' });
+  return { ok: !!(r && r.ok), via: 'resend' };
+}
+
 // 7. Document Approved
 async function sendDocumentApprovedEmail(userId, docLabel) {
   await sendGpNotificationEmail(userId,
@@ -23670,6 +25075,89 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div>
 <p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="${APP_BASE_URL}" style="color:#64748b">app.mygplink.com.au</a></p>
 </div></body></html>`;
+}
+
+// 3-sentence, highly-recommending summary of the GP's experience, written by
+// AI from the verified careers CV. Returns '' on ANY failure — the email
+// simply omits the recommendation block (submit-to-practice must never be
+// blocked on this being available).
+async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName }) {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return '';
+    var mime = String(mimeType || '').toLowerCase();
+    var blocks = [];
+    if (mime === 'application/pdf') blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } });
+    else if (/^image\//.test(mime)) blocks.push({ type: 'image', source: { type: 'base64', media_type: mime === 'image/jpg' ? 'image/jpeg' : mime, data: buffer.toString('base64') } });
+    else if (mime.includes('wordprocessingml')) {
+      var text = await extractDocxTextWithMammoth(buffer);
+      if (!text) return '';
+      blocks.push({ type: 'text', text: 'CV TEXT:\n\n' + text.slice(0, 30000) });
+    } else return '';
+    blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + String(gpName || '').trim() + '\'s experience and strengths, framed as a strong recommendation. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts. Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
+    var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 400, messages: [{ role: 'user', content: blocks }] })
+    });
+    if (!resp.ok) return '';
+    var json = await resp.json();
+    if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
+    var out = (json && json.content && json.content[0] && json.content[0].text || '').trim();
+    return out.length > 20 && out.length < 1200 ? out : '';
+  } catch (err) {
+    console.warn('[submit-to-practice] recommendation generation failed (email sends without it):', err && err.message);
+    return '';
+  }
+}
+
+// Body of the submit-to-practice introduction email (wrapped by
+// buildCareerEmailHtml). Email-safe inline styles; structure follows the
+// approved mockup (docs/mockups/career-cv-gate-practice-email.html, Section 2):
+// greeting -> "About Dr X" card (intro paragraph + fact chips) -> optional AI
+// recommendation -> attachment line -> big green Approve button + small
+// "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
+// ACTUALLY attached (not just requested) so the copy never claims an
+// attachment that isn't really there.
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter }) {
+  // No shared escapeHtml export exists in this file (every email builder
+  // defines its own inline one-liner — see e.g. the escHtml consts near
+  // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
+  // same established convention here rather than adding a new shared helper.
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var safeIntro = intro || {};
+  var displayName = /^dr\b/i.test(String(gpName || '')) ? gpName : 'Dr ' + gpName;
+  var factsHtml = (safeIntro.facts || []).map(function (f) {
+    return '<span style="display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0">' + esc(f.icon + ' ' + f.label) + '</span>';
+  }).join('');
+  var recHtml = recommendation ? (
+    '<div style="border-left:4px solid #2563eb;background:#eff4ff;border-radius:0 16px 16px 0;padding:16px 20px;margin:20px 0">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">⭐ Why we recommend ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#22376b;font-style:italic;margin:0">&ldquo;' + esc(recommendation) + '&rdquo;</p></div>'
+  ) : '';
+  // Attach-line copy must match reality: only claim an attachment that was
+  // actually fetched (hasCv/hasCoverLetter), never assume the request means
+  // the download succeeded — same "graceful, honest fallback" rule the old
+  // in-app branch followed.
+  var attachLine = hasCv
+    ? (hasCoverLetter ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+    : (hasCoverLetter ? 'Their cover letter is attached — we’ll follow up with their CV shortly.' : 'We’ll follow up with their CV shortly.');
+  // "Dear <practice> team," per the approved mockup; when we have no practice
+  // name, fall back to a plain "Dear team," (never "Dear team team,").
+  var greeting = practiceName ? ('Dear ' + esc(practiceName) + ' team,') : 'Dear team,';
+  return (
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + greeting + '</p>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">We&rsquo;re delighted to introduce <b>' + esc(displayName) + '</b> for your <b>' + esc(roleTitle || 'GP') + '</b> position.</p>' +
+    '<div style="border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px">About ' + esc(displayName) + '</div>' +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0">' + esc(safeIntro.paragraph) + '</p>' +
+    '<div style="margin-top:10px">' + factsHtml + '</div></div>' +
+    recHtml +
+    '<p style="font-size:13px;color:#64748b;margin:16px 0 4px">' + attachLine + '</p>' +
+    '<div style="text-align:center;margin:28px 0 6px">' +
+    '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
+    '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>'
+  );
 }
 
 // ============================================================================
@@ -25368,6 +26856,225 @@ async function insertScheduledCallRow(row) {
   return local;
 }
 
+// ---- Task 7: practice decision + availability (public token-authed) -------
+
+// Look up a gp_applications row by its practice_action_token (Task 6). Dual-mode.
+// A short/empty token never reaches the DB — mirrors the other public token
+// routes (practice-intake) so a near-miss token can never be distinguished
+// from an unknown one via timing/behaviour.
+async function findApplicationByActionToken(token) {
+  var t = String(token || '').trim();
+  if (!t || t.length < 10) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'select=*&practice_action_token=eq.' + encodeURIComponent(t) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.atsApplications || []).find(function (a) { return a.practice_action_token === t; }) || null;
+}
+
+// Dual-mode PATCH for the practice-decision fields on a gp_applications row.
+async function patchApplicationDecisionFields(id, patch) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+    });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(id); });
+  if (!a) return null;
+  Object.assign(a, patch);
+  saveDbState();
+  return a;
+}
+
+// Dual-mode career_roles.title lookup, reusing getCareerRoleRowById in prod
+// (avoids duplicating the REST call) with a local dbState.atsJobs fallback.
+async function careerRoleTitleForApplication(careerRoleId) {
+  if (!careerRoleId) return '';
+  if (isSupabaseDbConfigured()) {
+    var role = await getCareerRoleRowById(careerRoleId);
+    return (role && role.title) || '';
+  }
+  var localRole = (dbState.atsJobs || []).find(function (j) { return String(j.id) === String(careerRoleId); });
+  return (localRole && localRole.title) || '';
+}
+
+// Find (or create) the interview row for an application — mirrors the
+// self-serve GET /api/career/interview/slots creation code exactly (same
+// buildInterviewRow inputs, same correlation_token requirement) EXCEPT it
+// never overrides practice_availability_status away from buildInterviewRow's
+// default of 'requested': the practice is expected to actually supply times
+// via POST .../availability, so it must not be pre-defaulted the way the
+// GP self-serve path defaults it.
+async function ensureInterviewRowForApplication(appId, ctx, actorLabel) {
+  var existingRef = await findInterviewForApplication(appId);
+  if (existingRef) return existingRef;
+  if (!ctx) return null;
+  var newRow = interviewMeetings.buildInterviewRow({
+    caseId: ctx.caseId,
+    userId: ctx.userId,
+    applicationId: appId,
+    careerRoleId: ctx.careerRoleId,
+    practiceName: ctx.practiceName,
+    createdBy: actorLabel || 'practice_decision',
+    nowIso: new Date().toISOString()
+  });
+  // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default
+  // (see /api/ats/interview/request above) — every insert needs a fresh one.
+  newRow.correlation_token = generateCorrelationToken();
+  return await insertScheduledCallRow(newRow);
+}
+
+// Shared "the practice wants this candidate" business event, used by BOTH the
+// CEO drawer's POST /api/ats/application/accept AND the public practice-decision
+// approve branch. It reveals the practice identity (gp_applications
+// {revealed:true, practice_submission_status:'client_approved'}) and drops an
+// in-app offer record so /api/career/my-offer + the GP booking surface
+// (canRevealPracticeIdentity → slots/book) actually unmask. It deliberately
+// does NOT advance the kanban stage or send any GP email — each caller owns
+// those, because the two flows land on different stages ('offer' vs
+// 'interview') and send different GP emails.
+//
+// Idempotent + safe:
+//  - a DECIDED offer (GP already accepted/declined) is authoritative and never
+//    stomped;
+//  - an application already revealed (or its pre-migration proxy
+//    practice_submission_status='client_approved') WITH an offer on file is a
+//    no-op ('already');
+//  - a live 'sent' offer (real terms sent by a consultant) is kept as-is;
+//  - fail-loud when the `revealed` column is missing (migration 20260705100000
+//    not applied): we refuse to reveal/record rather than congratulate a GP
+//    while my-offer would still serve the masked practice.
+//
+// Returns { status: 'ok' | 'already' | 'migration_required' | 'error', offer }.
+async function revealApplicationAndEnsureOffer(appId, ctx, opts) {
+  var options = opts || {};
+  var existingOffer = null;
+  try { existingOffer = await atsOffersStore.getAtsOfferByApplication(String(appId)); }
+  catch (e) { existingOffer = null; }
+
+  // No-stomp: a DECIDED offer (the doctor already accepted or declined) must
+  // never be overwritten back to 'sent'.
+  if (existingOffer && (existingOffer.status === 'accepted' || existingOffer.status === 'declined')) {
+    return { status: 'already', offer: existingOffer };
+  }
+  // Idempotent: acceptance already recorded — revealed, or its pre-migration
+  // proxy practice_submission_status='client_approved' — with an offer on file.
+  var app = ctx && ctx.app;
+  var alreadyApproved = app && (app.revealed === true
+    || String(app.practice_submission_status || '') === 'client_approved');
+  if (alreadyApproved && existingOffer) {
+    return { status: 'already', offer: existingOffer };
+  }
+
+  // PATCH gp_applications {revealed:true, practice_submission_status:'client_approved'}.
+  var patchBody = { revealed: true, practice_submission_status: 'client_approved' };
+  if (isSupabaseDbConfigured()) {
+    if (_gpApplicationsRevealedMissing) {
+      console.error('[reveal-offer] gp_applications.revealed column missing — run migration 20260705100000. Refusing to reveal (the GP would be congratulated while still seeing a masked practice).');
+      return { status: 'migration_required' };
+    }
+    var pRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patchBody
+    });
+    if (!pRes.ok && isMissingColumnInsertError(pRes, 'revealed')) {
+      _gpApplicationsRevealedMissing = true;
+      console.error('[reveal-offer] gp_applications.revealed column missing — run migration 20260705100000. Refusing to reveal.');
+      return { status: 'migration_required' };
+    }
+    if (!pRes.ok && isMissingColumnInsertError(pRes, 'practice_submission_status')) {
+      // The bonus column being absent is tolerable — the reveal is what matters.
+      delete patchBody.practice_submission_status;
+      pRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patchBody
+      });
+    }
+    if (!pRes.ok) {
+      console.error('[reveal-offer] could not persist the reveal for application', appId, ':', pRes && pRes.data);
+      return { status: 'error' };
+    }
+  } else {
+    var localApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(appId); });
+    if (!localApp) return { status: 'error' };
+    Object.assign(localApp, patchBody);
+    saveDbState();
+  }
+
+  // Role/practice context for the offer record (the offer needs practice_id +
+  // the intake's billing split, both of which live on the career_roles row).
+  var role = null;
+  if (ctx && ctx.careerRoleId) {
+    role = isSupabaseDbConfigured()
+      ? await getCareerRoleRowById(ctx.careerRoleId)
+      : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(ctx.careerRoleId); }) || null);
+  }
+  var jobTitle = (role && role.title) || (ctx && ctx.app && ctx.app.job_title) || '';
+  var practiceName = (ctx && ctx.practiceName) || (role && role.practice_name) || '';
+  var intake = (role && role.source_payload && role.source_payload.intake) || {};
+
+  // A live 'sent' offer already on file (a consultant sent real terms before
+  // this event) is kept — never overwritten by the synthetic invite record.
+  var offer = existingOffer;
+  if (!existingOffer || existingOffer.status !== 'sent') {
+    offer = await atsOffersStore.saveAtsOffer({
+      application_id: String(appId),
+      user_id: (ctx && ctx.userId) || null,
+      career_role_id: (ctx && ctx.careerRoleId) || null,
+      practice_id: (role && role.practice_id) || null,
+      job_title: jobTitle,
+      practice_name: practiceName,
+      billing_split: sanitizeUserString(String(intake.percentage_split || ''), 120),
+      status: 'sent',
+      sent_by: options.sentBy || '',
+      sent_at: atsNowIso(),
+      notes: options.notes || 'Practice accepted — interview invitation'
+    });
+    if (!offer) return { status: 'error' };
+  }
+  return { status: 'ok', offer: offer };
+}
+
+// findInterviewForApplication (Supabase branch) only selects id,status for
+// cheap idempotency checks — resolve the FULL row when callers need other
+// columns (practice_availability_status/windows, status='booked', etc).
+async function resolveFullInterviewRow(ref) {
+  if (!ref) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(ref.id) + '&limit=1');
+    return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
+  }
+  return ref; // local-mode rows are never column-filtered — already the full row.
+}
+
+// Validates a practice's proposed interview-availability windows (the shape
+// the scheduler consumes — lib/interview-scheduler.js `overrides`): 1..10
+// entries, real calendar dates from today through +60 days, integer minute
+// bounds with 0 <= fromMin < toMin <= 1560 (26:00 — allows past-midnight).
+// Returns null when valid, else a plain user-facing message.
+function validatePracticeAvailabilityWindows(windows) {
+  if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
+    return 'windows must contain between 1 and 10 entries.';
+  }
+  // Bounds are UTC-based (toISOString() is always UTC), so around midnight a
+  // practice's local "today" can differ from this UTC day by one — acceptable
+  // for a 0..60-day availability horizon, called out here so it isn't mistaken
+  // for a bug later.
+  var todayYmd = new Date().toISOString().slice(0, 10);
+  var maxYmd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  for (var i = 0; i < windows.length; i++) {
+    var w = windows[i];
+    if (!w || typeof w !== 'object') return 'each window must be an object.';
+    var d = String(w.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
+    var parsed = new Date(d + 'T00:00:00Z');
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
+    if (d < todayYmd || d > maxYmd) return 'each window date must be between today and 60 days from now.';
+    if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
+    if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
+  }
+  return null;
+}
+
 // Best-effort practice email send.  A missing transport, empty address, or any
 // thrown error must never block the interview-request endpoint from responding.
 async function sendPracticeAvailabilityEmail(opts) {
@@ -25739,6 +27446,11 @@ function atsJobEditorPayload(job) {
 
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // Phase 6 F4 (security L2): warm the session-epoch cache for this user so
+  // the synchronous revocation check inside getSession() is authoritative for
+  // every route below. No-op without a gp_session cookie; fail-open on error.
+  await preloadSessionEpochForRequest(req);
 
   if (pathname === '/api/health' && req.method === 'GET') {
     sendJson(res, 200, {
@@ -26746,6 +28458,24 @@ async function handleApi(req, res, pathname) {
   // Sequence per lib/onboarding-nudge.js: 1h, 24h, 3d, then weekly to day 31.
   // Reset on return: fresh activity re-anchors the clock and clears steps_sent.
   // Stops on completion (silent), unsubscribe, or exhaustion.
+  // ── Weekly owner digest (Phase 6 H1 / audit B2) ──
+  // GET (Vercel cron invokes with GET), cron-secret-gated; the /api dispatcher
+  // records the heartbeat because 'owner-digest' is in CRON_SCHEDULES.
+  if (req.method === 'GET' && pathname === '/api/cron/owner-digest') {
+    var odCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var odCronAuth = req.headers['authorization'] || '';
+    if (!odCronSecret || odCronAuth !== 'Bearer ' + odCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var odCronResult = await sendOwnerDigestEmail({ force: false });
+    try {
+      res.gpCronDetail = odCronResult.skipped
+        ? ('skipped — already sent for week ' + odCronResult.week_start)
+        : (odCronResult.sent ? ('sent for week ' + odCronResult.week_start) : ('send failed: ' + (odCronResult.message || 'unknown')));
+    } catch (e) {}
+    sendJson(res, odCronResult.ok ? 200 : 500, odCronResult);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/onboarding-nudge') {
     var onbSecret = String(process.env.CRON_SECRET || '').trim();
     var onbAuth = req.headers['authorization'] || '';
@@ -26823,6 +28553,11 @@ async function handleApi(req, res, pathname) {
               last_sent_at: new Date().toISOString()
             });
             onbSent++;
+          } else if (onbSendRes && onbSendRes.optedOut) {
+            // GP turned nudge emails off in account preferences — a silent,
+            // expected skip (not an error). Leave steps_sent untouched so the
+            // sequence resumes from here if they ever opt back in.
+            onbSkipped++;
           } else {
             console.error('[OnbNudge] send failed for ' + onbG.email + ':', (onbSendRes && onbSendRes.error) || 'unknown');
             onbSkipped++;
@@ -27046,12 +28781,347 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // ── F3: document expiry renewal nudges ─────────────────────────────
+      // Docs with a validity window that expire within DOC_EXPIRY_NUDGE_WINDOW_DAYS
+      // (or already expired) and not yet nudged for this window. expiry_nudged_at
+      // is the dedup flag; it resets whenever a fresh file/expiry is saved, so
+      // each renewal cycle nudges exactly once.
+      var wsExpiryNudged = 0;
+      try {
+        var wsWindowEnd = new Date(Date.now() + DOC_EXPIRY_NUDGE_WINDOW_DAYS * 86400000).toISOString();
+        var wsExpiringRes = await supabaseDbRequest('user_documents',
+          'select=id,user_id,document_key,country_code,expires_at,status' +
+          '&expires_at=not.is.null&expires_at=lte.' + encodeURIComponent(wsWindowEnd) +
+          '&expiry_nudged_at=is.null&status=neq.rejected&limit=200');
+        var wsExpiring = (wsExpiringRes.ok && Array.isArray(wsExpiringRes.data)) ? wsExpiringRes.data : [];
+        for (var wsDoc of wsExpiring) {
+          if (!wsDoc || !wsDoc.user_id || !wsDoc.expires_at) continue;
+          if (wsAdminIds.has(wsDoc.user_id)) continue;
+          var wsDocLabel = getDocumentLabelForKey(wsDoc.document_key) || String(wsDoc.document_key || '').replace(/_/g, ' ');
+          var wsExpDate = new Date(wsDoc.expires_at);
+          var wsExpDateStr = isNaN(wsExpDate.getTime()) ? '' : wsExpDate.toISOString().slice(0, 10);
+          var wsExpired = wsExpDate.getTime() <= Date.now();
+          var wsNudgeTitle = wsExpired
+            ? ('Your ' + wsDocLabel + ' has expired')
+            : ('Your ' + wsDocLabel + ' expires soon');
+          var wsNudgeMsg = wsExpired
+            ? ('Your ' + wsDocLabel + ' expired on ' + wsExpDateStr + '. Please upload a renewed copy from My Documents so your registration is not held up.')
+            : ('Your ' + wsDocLabel + ' expires on ' + wsExpDateStr + '. Please arrange a renewal and upload the new copy from My Documents.');
+          var wsDocTarget = '/pages/my-documents.html?reupload=' + encodeURIComponent(wsDoc.document_key || '');
+
+          // In-app bell alert with a deep link to the exact card.
+          await pushDocumentNotificationToUser(wsDoc.user_id, {
+            type: 'action', title: wsNudgeTitle, detail: wsNudgeMsg, target: wsDocTarget
+          });
+          // Nudge row -> shows in the "Your outstanding actions" panel (stage 'documents').
+          await supabaseDbRequest('user_nudges', '', {
+            method: 'POST',
+            body: [{
+              user_id: wsDoc.user_id,
+              stage: 'documents',
+              title: wsNudgeTitle,
+              message: wsNudgeMsg,
+              delivered_channels: ['in_app'],
+              status: 'pending',
+              created_by: 'system:doc-expiry'
+            }]
+          });
+          // Best-effort renewal email.
+          try {
+            var wsProfRes = await supabaseDbRequest('user_profiles', 'select=email,first_name&user_id=eq.' + encodeURIComponent(wsDoc.user_id) + '&limit=1');
+            var wsProf = (wsProfRes.ok && Array.isArray(wsProfRes.data) && wsProfRes.data[0]) ? wsProfRes.data[0] : null;
+            if (wsProf && wsProf.email && isEmailConfigured()) {
+              await sendEmail({
+                to: wsProf.email,
+                subject: 'GP Link — ' + wsNudgeTitle,
+                // Registration-critical reminder: an expired document stalls
+                // the GP's registration, so this must ALWAYS reach them — even
+                // if they unsubscribed from marketing mail. 'transactional'
+                // bypasses the email_suppression gate (only 'marketing'
+                // consults it).
+                category: 'transactional',
+                html: buildCareerEmailHtml({
+                  title: wsNudgeTitle,
+                  body: (wsProf.first_name ? 'Hi ' + wsProf.first_name + ', ' : '') + wsNudgeMsg,
+                  ctaText: 'Upload renewal',
+                  ctaUrl: APP_BASE_URL + wsDocTarget,
+                  footer: 'This reminder was sent because a document on your GP Link file is reaching the end of its validity period.'
+                })
+              }).catch(function () { return null; });
+            }
+          } catch (wsMailErr) { /* non-critical */ }
+          // Dedup flag — one nudge per doc per validity window.
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(wsDoc.id), {
+            method: 'PATCH', body: { expiry_nudged_at: new Date().toISOString() }
+          });
+          wsExpiryNudged++;
+        }
+      } catch (wsExpErr) {
+        console.error('[WeeklySweep/Cron] expiry nudge pass failed:', wsExpErr.message);
+      }
+
       invalidateAdminDashboardCache();
-      console.log('[WeeklySweep/Cron] Scanned ' + wsCases.length + ', created ' + wsCreated + ', escalated ' + wsEscalated);
-      sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated });
+      console.log('[WeeklySweep/Cron] Scanned ' + wsCases.length + ', created ' + wsCreated + ', escalated ' + wsEscalated + ', expiry-nudged ' + wsExpiryNudged);
+      sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated, expiryNudged: wsExpiryNudged });
     } catch (wsErr) {
       console.error('[Cron] Weekly sweep failed:', wsErr);
       await respondServerError(res, wsErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // Cron: daily SLA sweep (Phase 6 G1/R1) — the /api/admin/sla/check logic was
+  // orphaned (manual POST only, no schedule, no UI). This runs the same
+  // runSlaCheck on a schedule and stores a bucketed stuck-case snapshot in
+  // runtime_kv ('sla_sweep_last_results') so the admin "Stuck cases" tab can
+  // show when the sweep last ran. Heartbeat is recorded automatically by the
+  // /api dispatcher (CRON_SCHEDULES['sla-sweep']).
+  if (req.method === 'GET' && pathname === '/api/cron/sla-sweep') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', checked: 0, created: 0 }); return; }
+    try {
+      var slaResult = await runSlaCheck('system:sla-sweep');
+      var slaBucketSummary = null;
+      try {
+        var slaStuck = await computeStuckCaseBuckets(Date.now());
+        slaBucketSummary = slaStuck.buckets.map(function (b) { return { key: b.key, label: b.label, count: b.count }; });
+        await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: [{ key: 'sla_sweep_last_results', value: { at: new Date().toISOString(), checked: slaResult.checked, created: slaResult.created, total: slaStuck.total, buckets: slaBucketSummary } }]
+        });
+      } catch (slaBkErr) { console.error('[sla-sweep] bucket snapshot failed (ignored):', slaBkErr && slaBkErr.message); }
+      try { res.gpCronDetail = 'checked ' + slaResult.checked + ', created ' + slaResult.created; } catch (e) {}
+      sendJson(res, 200, { ok: true, checked: slaResult.checked, created: slaResult.created, buckets: slaBucketSummary });
+    } catch (slaErr) {
+      console.error('[Cron] SLA sweep failed:', slaErr);
+      await respondServerError(res, slaErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // Cron: chase non-responders (Phase 6 G1/R2) — nothing chased these before:
+  //   A) practices sitting on an SPPA-00 (sppa_state sent_to_practice /
+  //      corrections_requested) — reminder email to the practice + RSO note/task;
+  //   B) AHPRA officers who never replied to our last outbound message on an
+  //      open ahpra_correspondence card — threaded follow-up to the officer + RSO task;
+  //   C) GP progress stalls in stages the weekly sweep does NOT cover
+  //      (career/ahpra/visa/pbs — the sweep only chases myintealth/amc).
+  // Reminders are TRANSACTIONAL (registration-critical): always sent, never
+  // gated by notification prefs or the marketing suppression list. Each
+  // category chases at most once per its window (dedup flags/task lookups)
+  // and each run is capped per category (CHASE_MAX_PER_RUN). Heartbeat via
+  // CRON_SCHEDULES['chase-nonresponders'].
+  if (req.method === 'GET' && pathname === '/api/cron/chase-nonresponders') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', practice: 0, officer: 0, gp: 0 }); return; }
+    try {
+      var chDayMs = 86400000;
+      var chNowMs = Date.now();
+      var chNowIso = new Date(chNowMs).toISOString();
+      var chEnvInt = function (key, dflt) { var v = parseInt(process.env[key] || '', 10); return (Number.isFinite(v) && v > 0) ? v : dflt; };
+      // Per-category windows (env-overridable): a party is chased once it has
+      // been silent ≥ window days, then at most once per window thereafter.
+      var chPracticeDays = chEnvInt('CHASE_PRACTICE_SPPA_DAYS', 4);
+      var chOfficerDays = chEnvInt('CHASE_AHPRA_OFFICER_DAYS', 6);
+      var chStallDays = chEnvInt('CHASE_GP_STALL_DAYS', 14);
+      var chCap = chEnvInt('CHASE_MAX_PER_RUN', 15); // per category per run
+      var chChased = { practice: 0, officer: 0, gp: 0 };
+      var chErrors = [];
+
+      var chParseMeta = function (t) {
+        var m = t && t.metadata;
+        if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = {}; } }
+        return (m && typeof m === 'object') ? m : {};
+      };
+      var chWithinWindow = function (iso, windowDays) {
+        if (!iso) return false;
+        var t = new Date(iso).getTime();
+        return Number.isFinite(t) && (chNowMs - t) < windowDays * chDayMs;
+      };
+      // RSO visibility: one open chase task per case per category (re-chases
+      // add case-event notes instead of piling up duplicate tasks).
+      var chEnsureRsoTask = async function (caseId, sourceTrigger, title, description, relatedStage) {
+        var existing = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.chase&source_trigger=eq.' + encodeURIComponent(sourceTrigger) +
+          '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&limit=1');
+        if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) return existing.data[0];
+        return _createRegTask(caseId, {
+          task_type: 'chase', title: title, description: description, priority: 'high',
+          source_trigger: sourceTrigger, related_stage: relatedStage || null, _actor: 'system:chase'
+        });
+      };
+
+      // ── A) Practices sitting on an SPPA-00 ─────────────────────────────
+      try {
+        var chSppaRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,status,title,metadata,gmail_thread_id,updated_at' +
+          '&related_document_key=eq.sppa_00&status=in.(open,in_progress,waiting,waiting_on_practice,waiting_on_external)&limit=300');
+        var chSppaTasks = (chSppaRes.ok && Array.isArray(chSppaRes.data)) ? chSppaRes.data : [];
+        for (var chS = 0; chS < chSppaTasks.length && chChased.practice < chCap; chS++) {
+          var spTask = chSppaTasks[chS];
+          var spMeta = chParseMeta(spTask);
+          if (spMeta.sppa_state !== 'sent_to_practice' && spMeta.sppa_state !== 'corrections_requested') continue;
+          var spEmail = String(spMeta.sent_to_practice_email || '').trim();
+          if (!spEmail) continue;
+          // Dedup anchor: last chase if any, else the most recent action that
+          // put the ball back in the practice's court (corrections asked >
+          // original send), so a practice just asked for corrections isn't
+          // chased prematurely.
+          var spAnchor = spMeta.practice_chase_last_at || spMeta.corrections_requested_at || spMeta.sent_to_practice_at || spTask.updated_at;
+          if (chWithinWindow(spAnchor, chPracticeDays)) continue;
+          var spGpName = 'the candidate';
+          try {
+            var spCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(spTask.case_id) + '&limit=1');
+            var spCase = (spCaseRes.ok && Array.isArray(spCaseRes.data) && spCaseRes.data[0]) ? spCaseRes.data[0] : null;
+            if (spCase && spCase.user_id) {
+              var spProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(spCase.user_id) + '&limit=1');
+              var spProf = (spProfRes.ok && Array.isArray(spProfRes.data) && spProfRes.data[0]) ? spProfRes.data[0] : null;
+              var spFullName = spProf ? ((spProf.first_name || '') + ' ' + (spProf.last_name || '')).trim() : '';
+              if (spFullName) spGpName = 'Dr ' + spFullName;
+            }
+          } catch (e) { /* name is cosmetic */ }
+          var spSend = await sendChaseReminderEmail({
+            caseId: spTask.case_id,
+            to: spEmail,
+            threadId: spTask.gmail_thread_id || undefined,
+            subject: 'Reminder: Supervised Practice Plan (SPPA-00) for ' + spGpName,
+            bodyHtml: '<p>Hello,</p>' +
+              '<p>Just a friendly reminder — we are still waiting on the completed and signed Supervised Practice Plan Agreement (SPPA-00) for ' + spGpName + '.</p>' +
+              '<p>When it is ready, please reply to our earlier email with the signed document attached. If anything is unclear, or you need a fresh copy of the form, just reply to this email and we will help straight away.</p>' +
+              '<p>Kind regards,<br>GP Link Registration Team</p>'
+          });
+          if (!spSend.ok) { chErrors.push('practice:' + spTask.id); continue; }
+          spMeta.practice_chase_last_at = chNowIso;
+          spMeta.practice_chase_count = (Number(spMeta.practice_chase_count) || 0) + 1;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(spTask.id),
+            { method: 'PATCH', body: { metadata: spMeta, updated_at: chNowIso } });
+          await _logCaseEvent(spTask.case_id, spTask.id, 'note', 'Automatic reminder sent — practice has not returned the SPPA-00', spEmail, 'system:chase');
+          await chEnsureRsoTask(spTask.case_id, 'practice_sppa_chase',
+            'Practice has not returned the SPPA-00',
+            'Automatic reminder #' + spMeta.practice_chase_count + ' emailed to ' + spEmail + '. Consider phoning the practice if this keeps stalling.',
+            'placement');
+          chChased.practice++;
+        }
+      } catch (chAErr) { chErrors.push('practice_pass:' + String(chAErr && chAErr.message)); }
+
+      // ── B) AHPRA officers who have not replied ─────────────────────────
+      try {
+        var chAhRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,status,title,metadata,gmail_thread_id,updated_at' +
+          '&task_type=eq.ahpra_correspondence&status=in.(open,in_progress,waiting,waiting_on_external,escalated)&limit=200');
+        var chAhTasks = (chAhRes.ok && Array.isArray(chAhRes.data)) ? chAhRes.data : [];
+        var chAhCaseIds = [];
+        for (var chAc = 0; chAc < chAhTasks.length; chAc++) {
+          if (chAhTasks[chAc].case_id && chAhCaseIds.indexOf(chAhTasks[chAc].case_id) < 0) chAhCaseIds.push(chAhTasks[chAc].case_id);
+        }
+        var chAhCaseById = {};
+        if (chAhCaseIds.length > 0) {
+          var chAhCasesRes = await supabaseDbRequest('registration_cases',
+            'select=id,user_id,ahpra_officer_email,ahpra_officer_name&id=in.(' + chAhCaseIds.map(encodeURIComponent).join(',') + ')');
+          var chAhCases = (chAhCasesRes.ok && Array.isArray(chAhCasesRes.data)) ? chAhCasesRes.data : [];
+          for (var chAcc = 0; chAcc < chAhCases.length; chAcc++) chAhCaseById[chAhCases[chAcc].id] = chAhCases[chAcc];
+        }
+        for (var chA = 0; chA < chAhTasks.length && chChased.officer < chCap; chA++) {
+          var ahTask = chAhTasks[chA];
+          var ahCase = chAhCaseById[ahTask.case_id];
+          var ahOfficerEmail = ahCase ? String(ahCase.ahpra_officer_email || '').trim() : '';
+          if (!ahOfficerEmail) continue;
+          var ahMeta = chParseMeta(ahTask);
+          if (chWithinWindow(ahMeta.officer_chase_last_at, chOfficerDays)) continue;
+          // Only chase when WE spoke last: the latest message on the card must
+          // be outbound and ≥ window days old. If the officer replied last the
+          // ball is with the RSO, not the officer — nothing to chase.
+          var ahMsgRes = await supabaseDbRequest('task_messages',
+            'select=direction,created_at,subject,rfc822_message_id,rfc822_references,gmail_thread_id&task_id=eq.' + encodeURIComponent(ahTask.id) +
+            '&order=created_at.desc&limit=1');
+          var ahLast = (ahMsgRes.ok && Array.isArray(ahMsgRes.data) && ahMsgRes.data[0]) ? ahMsgRes.data[0] : null;
+          if (!ahLast || ahLast.direction !== 'outbound') continue;
+          if (chWithinWindow(ahLast.created_at, chOfficerDays)) continue;
+          var ahSubject = ahLast.subject
+            ? (/^re:/i.test(ahLast.subject) ? ahLast.subject : 'Re: ' + ahLast.subject)
+            : 'Following up on our recent correspondence';
+          var ahOfficerName = (ahCase && ahCase.ahpra_officer_name) ? String(ahCase.ahpra_officer_name).trim() : '';
+          var ahSend = await sendChaseReminderEmail({
+            caseId: ahTask.case_id,
+            to: ahOfficerEmail,
+            threadId: ahTask.gmail_thread_id || ahLast.gmail_thread_id || undefined,
+            inReplyTo: ahLast.rfc822_message_id || undefined,
+            references: ahLast.rfc822_references || ahLast.rfc822_message_id || undefined,
+            subject: ahSubject,
+            bodyHtml: '<p>Dear ' + (ahOfficerName || 'Officer') + ',</p>' +
+              '<p>We are following up on our earlier email regarding this application. Could you please let us know whether any further information is required, or when we can expect an update?</p>' +
+              '<p>Thank you for your time.</p>' +
+              '<p>Kind regards,<br>GP Link Registration Team</p>'
+          });
+          if (!ahSend.ok) { chErrors.push('officer:' + ahTask.id); continue; }
+          ahMeta.officer_chase_last_at = chNowIso;
+          ahMeta.officer_chase_count = (Number(ahMeta.officer_chase_count) || 0) + 1;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(ahTask.id),
+            { method: 'PATCH', body: { metadata: ahMeta, updated_at: chNowIso } });
+          await _logCaseEvent(ahTask.case_id, ahTask.id, 'note', 'Automatic follow-up sent — AHPRA officer has not replied', ahOfficerEmail, 'system:chase');
+          await chEnsureRsoTask(ahTask.case_id, 'ahpra_officer_chase',
+            'AHPRA officer has not replied',
+            'Automatic follow-up #' + ahMeta.officer_chase_count + ' emailed to ' + ahOfficerEmail + '. Consider calling AHPRA if there is still no response.',
+            'ahpra');
+          chChased.officer++;
+        }
+      } catch (chBErr) { chErrors.push('officer_pass:' + String(chBErr && chBErr.message)); }
+
+      // ── C) GP progress stalls in stages the weekly sweep does not cover ──
+      // weekly-sweep chases myintealth/amc with its own weekly_checkin dedup;
+      // this pass extends the ≥N-day stall chase to career/ahpra/visa/pbs
+      // with no overlap.
+      try {
+        var chStallCutoffIso = new Date(chNowMs - chStallDays * chDayMs).toISOString();
+        var chStallRes = await supabaseDbRequest('registration_cases',
+          'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
+          '&stage=in.(career,ahpra,visa,pbs)&status=eq.active' +
+          '&created_at=lte.' + encodeURIComponent(chStallCutoffIso) + '&limit=300');
+        var chStallCases = (chStallRes.ok && Array.isArray(chStallRes.data)) ? chStallRes.data : [];
+        var chAdminIds = await getAdminUserIdSet();
+        for (var chG = 0; chG < chStallCases.length && chChased.gp < chCap; chG++) {
+          var stCase = chStallCases[chG];
+          if (stCase.user_id && chAdminIds.has(stCase.user_id)) continue; // staff, never chase
+          var stLastActivity = stCase.last_gp_activity_at || stCase.created_at;
+          if (!stLastActivity || stLastActivity > chStallCutoffIso) continue;
+          // Dedup: one chase per window — the chase task's created_at is the flag.
+          var stExisting = await supabaseDbRequest('registration_tasks',
+            'select=id&case_id=eq.' + encodeURIComponent(stCase.id) +
+            '&task_type=eq.chase&source_trigger=eq.stall_chase&created_at=gte.' + encodeURIComponent(chStallCutoffIso) + '&limit=1');
+          if (stExisting.ok && Array.isArray(stExisting.data) && stExisting.data.length > 0) continue;
+          await _createRegTask(stCase.id, {
+            task_type: 'chase',
+            title: 'GP stalled ≥' + chStallDays + ' days on ' + stCase.stage,
+            description: 'No GP activity for ≥' + chStallDays + ' days on the ' + stCase.stage + ' stage. An automatic nudge email was sent — follow up via WhatsApp if it stays quiet.',
+            priority: 'high',
+            source_trigger: 'stall_chase',
+            related_stage: stCase.stage,
+            related_substage: stCase.substage || null,
+            _actor: 'system:chase'
+          });
+          // Transactional nudge — registration-critical, never pref-gated.
+          try { await sendStalledReminderEmail(stCase.user_id, stCase.stage); }
+          catch (stMailErr) { chErrors.push('gp_mail:' + stCase.id); }
+          chChased.gp++;
+        }
+      } catch (chCErr) { chErrors.push('gp_pass:' + String(chCErr && chCErr.message)); }
+
+      try {
+        res.gpCronDetail = 'practice ' + chChased.practice + ', officer ' + chChased.officer + ', gp ' + chChased.gp +
+          (chErrors.length ? (', errors ' + chErrors.length) : '');
+      } catch (e) {}
+      console.log('[chase-nonresponders] chased=' + JSON.stringify(chChased) + (chErrors.length ? (' errors=' + JSON.stringify(chErrors.slice(0, 10))) : ''));
+      sendJson(res, 200, {
+        ok: true,
+        practice: chChased.practice, officer: chChased.officer, gp: chChased.gp,
+        cap: chCap,
+        windows: { practice_days: chPracticeDays, officer_days: chOfficerDays, gp_stall_days: chStallDays },
+        errors: chErrors.slice(0, 20)
+      });
+    } catch (chErr) {
+      console.error('[Cron] chase-nonresponders failed:', chErr);
+      await respondServerError(res, chErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -27600,7 +29670,7 @@ async function handleApi(req, res, pathname) {
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
-        setSession(res, profile);
+        await issueGpSession(res, profile);
         sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
 
         return;
@@ -27622,7 +29692,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(email);
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
@@ -27650,7 +29720,7 @@ async function handleApi(req, res, pathname) {
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
-        setSession(res, profile);
+        await issueGpSession(res, profile);
         sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
         return;
       }
@@ -27665,7 +29735,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(email);
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
@@ -27687,7 +29757,7 @@ async function handleApi(req, res, pathname) {
       const profile = getSessionProfileFromUser(entry.email);
       const access = createOAuthAccessToken(profile);
       const newRefreshToken = createOAuthRefreshToken(entry.email);
-      setSession(res, profile);
+      await issueGpSession(res, profile);
       sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: newRefreshToken, profile });
       return;
     }
@@ -27810,7 +29880,7 @@ async function handleApi(req, res, pathname) {
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
     await ensureSupabaseUserProfile(loginUser);
     const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrap = await resolveAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -27892,7 +29962,7 @@ async function handleApi(req, res, pathname) {
       upsertLocalUserFromSupabaseUser(loginUser);
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
-      setSession(res, sessionProfile);
+      await issueGpSession(res, sessionProfile);
       // Send welcome email on first login (confirmed_at exists but last_sign_in was null before this login)
       const supaUserId = sessionProfile.supabaseUserId;
       if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
@@ -27933,7 +30003,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const sessionProfile = getSessionProfileFromUser(email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrapResult = resolveFastAuthBootstrap(email, { sessionProfile });
     sendJson(res, 200, {
       ok: true,
@@ -27968,8 +30038,293 @@ async function handleApi(req, res, pathname) {
     const hasPlacement = await userHasActivePlacement(userId);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
     if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    // Phase 6 F4: invalidate every other device's session too (the dialog
+    // promises "signs you out" — make that true everywhere, not just here).
+    // Refresh tokens are revoked as well: otherwise a device holding one could
+    // mint a fresh session (with the new epoch) right after deletion.
+    if (email) {
+      revokeAllRefreshTokensForEmail(email);
+      await bumpSessionEpoch(email);
+    }
     clearSession(res, req);
     sendJson(res, 200, { ok: true, purgeAfter, message: 'Your account has been closed. You can reinstate it within 90 days by signing in again.' });
+    return;
+  }
+
+  // ── Phase 6 F4 (security L2): sign out of ALL devices ──────────────────────
+  // Bumps the user's session epoch so every previously-issued gp_session token
+  // (which carries a lower epoch, or none = 0) fails validation from now on.
+  // The current device is signed out too — "sign out everywhere" is the whole
+  // point, and it keeps the UX unambiguous.
+  if (pathname === '/api/account/sign-out-all' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
+    // Kill EVERY credential, not just session cookies: an OAuth refresh token
+    // held by another device could otherwise mint a brand-new session (with
+    // the new epoch) seconds after "sign out of all devices" — defeating the
+    // kill-switch. Mirrors the password-change flow.
+    revokeAllRefreshTokensForEmail(email);
+    const newEpoch = await bumpSessionEpoch(email);
+    if (newEpoch == null) {
+      sendJson(res, 502, { ok: false, message: 'Could not sign out of all devices right now. Please try again.' });
+      return;
+    }
+    clearSession(res, req);
+    sendJson(res, 200, { ok: true, message: 'Signed out on all devices. Please sign in again.' });
+    return;
+  }
+
+  // ── Phase 6 F4 (audit G6): notification preferences ────────────────────────
+  if (pathname === '/api/account/notification-preferences' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    const preferences = await getNotificationPreferences(email);
+    sendJson(res, 200, { ok: true, preferences });
+    return;
+  }
+
+  if (pathname === '/api/account/notification-preferences' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    let npBody;
+    try { npBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const patch = {};
+    let sawAny = false;
+    NOTIFICATION_PREF_KEYS.forEach(function (k) {
+      if (npBody && typeof npBody[k] === 'boolean') { patch[k] = npBody[k]; sawAny = true; }
+    });
+    if (!sawAny) { sendJson(res, 400, { ok: false, message: 'Provide at least one of emailNudges, whatsapp, push as true/false.' }); return; }
+    const preferences = await saveNotificationPreferences(email, patch);
+    if (!preferences) { sendJson(res, 502, { ok: false, message: 'Could not save preferences right now.' }); return; }
+    sendJson(res, 200, { ok: true, preferences });
+    return;
+  }
+
+  // ── Phase 6 F4 (GDPR): "Download my data" — the GP's own data as JSON ──────
+  // Metadata only for files (never bytes/URLs), own rows only, bounded limits.
+  if (pathname === '/api/account/export' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    const pick = (row, keys) => {
+      const out = {};
+      keys.forEach((k) => { if (row && row[k] !== undefined && row[k] !== null) out[k] = row[k]; });
+      return out;
+    };
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      account: { email },
+      profile: null,
+      registration: { case: null, tasks: [] },
+      documents: [],
+      applications: [],
+      interviews: [],
+      nudges: [],
+      notificationPreferences: await getNotificationPreferences(email),
+      state: []
+    };
+    try {
+      if (isSupabaseDbConfigured()) {
+        const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+        const profRow = await getSupabaseUserProfile(email, userId).catch(() => null);
+        if (profRow) {
+          const mapped = mapSupabaseProfileRowToApiProfile(profRow, email);
+          // Strip inline file bytes (base64 data URLs) — metadata only.
+          delete mapped.profilePhotoDataUrl;
+          delete mapped.idCopyDataUrl;
+          exportPayload.profile = mapped;
+        }
+        if (userId) {
+          const uid = encodeURIComponent(userId);
+          const caseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + uid + '&limit=1');
+          const caseRow = caseRes.ok && Array.isArray(caseRes.data) ? caseRes.data[0] : null;
+          if (caseRow) {
+            exportPayload.registration.case = pick(caseRow, ['stage', 'substage', 'status', 'created_at', 'updated_at']);
+            const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseRow.id) + '&limit=500');
+            exportPayload.registration.tasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [])
+              .map((t) => pick(t, ['title', 'task_type', 'status', 'related_stage', 'due_date', 'created_at', 'updated_at', 'completed_at']));
+          }
+          const docsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + uid + '&limit=500');
+          exportPayload.documents = (docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [])
+            .map((d) => pick(d, ['document_key', 'country_code', 'status', 'file_name', 'expires_at', 'created_at', 'updated_at']));
+          const appsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + uid + '&limit=200');
+          exportPayload.applications = (appsRes.ok && Array.isArray(appsRes.data) ? appsRes.data : [])
+            .map((a) => pick(a, ['job_title', 'practice_name', 'status', 'ats_stage', 'offer_status', 'created_at', 'updated_at']));
+          const intRes = await supabaseDbRequest('career_interviews', 'select=*&user_id=eq.' + uid + '&limit=100');
+          exportPayload.interviews = (intRes.ok && Array.isArray(intRes.data) ? intRes.data : [])
+            .map((i) => pick(i, ['practice_name', 'status', 'scheduled_at', 'created_at', 'updated_at']));
+          const nudgeRes = await supabaseDbRequest('user_nudges', 'select=*&user_id=eq.' + uid + '&limit=200');
+          exportPayload.nudges = (nudgeRes.ok && Array.isArray(nudgeRes.data) ? nudgeRes.data : [])
+            .map((n) => pick(n, ['stage', 'substage', 'title', 'message', 'status', 'created_at']));
+          const stateRes = await supabaseDbRequest('user_state', 'select=state,updated_at&user_id=eq.' + uid + '&limit=20');
+          exportPayload.state = (stateRes.ok && Array.isArray(stateRes.data) ? stateRes.data : [])
+            .map((s) => ({ state: s.state, updated_at: s.updated_at }));
+        }
+      } else {
+        const user = dbState.users[email] || {};
+        const stored = dbState.userProfiles[email] || {};
+        exportPayload.profile = {
+          firstName: stored.firstName || user.firstName || '',
+          lastName: stored.lastName || user.lastName || '',
+          email,
+          phone: stored.phone || '',
+          registrationNumber: stored.registrationNumber || '',
+          specialistCountry: user.registrationCountry || stored.specialistCountry || '',
+          cvFileName: stored.cvFileName || '',
+          updatedAt: stored.updatedAt || null
+        };
+        const stWrap = (dbState.userState && dbState.userState[email]) || null;
+        if (stWrap) exportPayload.state = [{ state: stWrap.state || stWrap, updated_at: stWrap.updatedAt || null }];
+      }
+    } catch (expErr) {
+      console.error('[account-export] failed for', email, expErr && expErr.message);
+      sendJson(res, 500, { ok: false, message: 'Could not build your export right now. Please try again.' });
+      return;
+    }
+    const exportName = 'gp-link-data-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    sendJson(res, 200, exportPayload, {
+      'Content-Disposition': 'attachment; filename="' + exportName + '"',
+      'Cache-Control': 'no-store'
+    });
+    return;
+  }
+
+  // ── Phase 6 F4: verified self-serve email change ────────────────────────────
+  // Step 1: request. Validates + checks availability, then emails a signed,
+  // short-lived confirm link to the NEW address. NOTHING changes yet.
+  if (pathname === '/api/account/change-email' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+    if (!(await checkRateLimitWindow('email-change:' + getClientIp(req), 5, 15 * 60 * 1000))) {
+      sendJson(res, 429, { ok: false, message: 'Too many attempts. Please wait a few minutes and try again.' });
+      return;
+    }
+    let ceBody;
+    try { ceBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const newEmail = String((ceBody && ceBody.newEmail) || '').trim().toLowerCase();
+    if (!isValidEmail(newEmail)) { sendJson(res, 400, { ok: false, message: 'Please enter a valid email address.' }); return; }
+    if (newEmail === email) { sendJson(res, 400, { ok: false, message: 'That is already your email address.' }); return; }
+    if (await isChangeEmailAddressTaken(newEmail)) {
+      sendJson(res, 409, { ok: false, message: 'That email address is already in use on another GP Link account.' });
+      return;
+    }
+    if (!isEmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Email sending is not configured right now.' }); return; }
+    const userId = getSessionSupabaseUserId(session)
+      || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : '') || '';
+    const ceToken = createSignedPurposeToken(EMAIL_CHANGE_TOKEN_PURPOSE,
+      { userId: String(userId || ''), oldEmail: email, newEmail }, EMAIL_CHANGE_TOKEN_TTL_MS);
+    const confirmUrl = APP_BASE_URL + '/api/account/change-email/confirm?token=' + encodeURIComponent(ceToken);
+    const sendRes = await sendEmail({
+      to: newEmail,
+      subject: 'Confirm your new GP Link email address',
+      html: buildCareerEmailHtml({
+        title: 'Confirm your new email address',
+        body: 'A request was made to change the GP Link login email for ' + email + ' to this address. '
+          + 'If that was you, confirm below within 1 hour. If not, you can safely ignore this email — nothing will change.',
+        ctaText: 'Confirm email change',
+        ctaUrl: confirmUrl,
+        footer: 'This link expires in 1 hour and can only be used once.'
+      }),
+      text: 'Confirm your new GP Link email address: ' + confirmUrl + ' (expires in 1 hour)'
+    });
+    if (!sendRes || !sendRes.ok) {
+      sendJson(res, 502, { ok: false, message: 'Could not send the verification email right now. Please try again.' });
+      return;
+    }
+    console.log('[change-email] verification sent for', email, '->', newEmail);
+    sendJson(res, 200, { ok: true, message: 'Check the inbox of ' + newEmail + ' and click the confirmation link to finish.' });
+    return;
+  }
+
+  // Step 2a: GET confirm link → scanner-proof interstitial. The real change
+  // happens only on the POST below (email scanners follow GETs, never POSTs).
+  if (pathname === '/api/account/change-email/confirm' && req.method === 'GET') {
+    const ceParsed = parseSignedPurposeToken(String(url.searchParams.get('token') || ''), EMAIL_CHANGE_TOKEN_PURPOSE);
+    if (!ceParsed || !isValidEmail(String(ceParsed.newEmail || ''))) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('This link has expired', 'This email-change link is no longer valid. You can request a new one from your Account page.'));
+      return;
+    }
+    const ceEsc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(practiceRespondPage(
+      'Confirm your new email',
+      'Change the GP Link login email from <b>' + ceEsc(ceParsed.oldEmail) + '</b> to <b>' + ceEsc(ceParsed.newEmail) + '</b>? You will be signed out everywhere and will sign in with the new address.',
+      '<form method="post" action="/api/account/change-email/confirm?token=' + encodeURIComponent(String(url.searchParams.get('token') || '')) + '" style="margin-top:18px">'
+      + '<button type="submit" style="background:#4f8df9;color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer">Confirm email change</button>'
+      + '</form>'
+    ));
+    return;
+  }
+
+  // Step 2b: POST confirm → verify token, update auth email FIRST (abort on
+  // failure so nothing half-updates), then app-side rows, revoke all sessions
+  // for the old address, and notify the OLD inbox (security).
+  if (pathname === '/api/account/change-email/confirm' && req.method === 'POST') {
+    let ceToken = String(url.searchParams.get('token') || '');
+    if (!ceToken) {
+      try { const b = await readJsonBody(req); ceToken = String((b && b.token) || ''); } catch (e) { /* fall through */ }
+    }
+    const wantsHtml = /text\/html/.test(String(req.headers.accept || ''))
+      || /application\/x-www-form-urlencoded/.test(String(req.headers['content-type'] || ''));
+    const ceRespond = (status, title, msg) => {
+      if (wantsHtml) {
+        res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(practiceRespondPage(title, msg));
+      } else {
+        sendJson(res, status, { ok: status < 400, message: msg });
+      }
+    };
+    const ceParsed = parseSignedPurposeToken(ceToken, EMAIL_CHANGE_TOKEN_PURPOSE);
+    const oldEmail = ceParsed ? String(ceParsed.oldEmail || '').trim().toLowerCase() : '';
+    const newEmail = ceParsed ? String(ceParsed.newEmail || '').trim().toLowerCase() : '';
+    if (!ceParsed || !isValidEmail(oldEmail) || !isValidEmail(newEmail)) {
+      ceRespond(410, 'This link has expired', 'This email-change link is no longer valid. You can request a new one from your Account page.');
+      return;
+    }
+    // Single-use enforcement: once the account's login email is no longer the
+    // one this token was issued for, the link is dead — a stale link cannot be
+    // replayed to drag the email back to an old address.
+    if (await isEmailChangeTokenStale({ userId: String(ceParsed.userId || ''), oldEmail })) {
+      ceRespond(409, 'This link is no longer valid', 'The login email for this account has already changed since this link was sent. Nothing was changed. If you still want to update your email, request a new link from your Account page.');
+      return;
+    }
+    if (await isChangeEmailAddressTaken(newEmail)) {
+      ceRespond(409, 'Email already in use', 'That email address is now in use on another GP Link account. Nothing was changed.');
+      return;
+    }
+    const appliedResult = await applyVerifiedEmailChange({ userId: String(ceParsed.userId || ''), oldEmail, newEmail });
+    if (!appliedResult.ok) {
+      ceRespond(502, 'Could not change your email', appliedResult.message || 'Something went wrong and nothing was changed. Please try again.');
+      return;
+    }
+    // Security notice to the OLD address (transactional — always sends).
+    try {
+      await sendEmail({
+        to: oldEmail,
+        subject: 'Your GP Link login email was changed',
+        html: buildCareerEmailHtml({
+          title: 'Your login email was changed',
+          body: 'The login email for your GP Link account was just changed from ' + oldEmail + ' to ' + newEmail
+            + '. All devices have been signed out. If you did NOT do this, contact us immediately at hello@mygplink.com.au.',
+          footer: 'This is a security notification about your GP Link account.'
+        }),
+        text: 'Your GP Link login email was changed from ' + oldEmail + ' to ' + newEmail + '. If this was not you, contact hello@mygplink.com.au immediately.'
+      });
+    } catch (noticeErr) {
+      console.error('[change-email] old-address notice failed:', noticeErr && noticeErr.message);
+    }
+    console.log('[change-email] applied', oldEmail, '->', newEmail, appliedResult.warnings && appliedResult.warnings.length ? ('warnings: ' + appliedResult.warnings.join('; ')) : '');
+    ceRespond(200, 'Email updated', 'Your login email is now ' + newEmail + '. You have been signed out everywhere — please sign in again with the new address.');
     return;
   }
 
@@ -27984,7 +30339,7 @@ async function handleApi(req, res, pathname) {
     if (!st) { sendJson(res, 404, { ok: false, message: 'Account not found.' }); return; }
     if (st.account_status === 'archived') { await reinstateUserAccount(st.user_id); }
     const sessionProfile = getSessionProfileFromSupabaseUser({ id: st.user_id, email: st.email }, st.email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     sendJson(res, 200, { ok: true, redirectTo: '/pages/index.html', message: 'Welcome back — your account has been reinstated.' });
     return;
   }
@@ -28128,7 +30483,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
-    setSession(res, sessionProfile);
+    await issueGpSession(res, sessionProfile);
     const bootstrapResult = resolveFastAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -28230,7 +30585,7 @@ async function handleApi(req, res, pathname) {
     }
 
     saveDbState();
-    setSession(res, userProfile);
+    await issueGpSession(res, userProfile);
 
     const bootstrap = await resolveAuthBootstrap(userProfile.email, { sessionProfile: userProfile });
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index', bootstrap });
@@ -28587,6 +30942,41 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Practice decision + availability (Task 7, public token-authed) ───────
+  // Reached from the submit-to-practice introduction email's decision buttons
+  // / pages/practice-decision.html — no session, no account. Token is
+  // gp_applications.practice_action_token (Task 6, stable across resubmits).
+  // Every 404 here is uniform ({ok:false, code:'not_found'}) regardless of
+  // whether the token is missing, malformed, or simply unknown — never
+  // reveal whether it "almost" matched a real application.
+  if (pathname === '/api/practice/application/decision-context' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    const token = String(url.searchParams.get('token') || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    // Read-only: resolve labels + interview state, but never create anything.
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const interviewRow = await resolveFullInterviewRow(await findInterviewForApplication(appRow.id));
+    const decision = appRow.practice_decision === 'approved' ? 'approved'
+      : (appRow.practice_decision === 'turned_down' ? 'turned_down' : null);
+
+    sendJson(res, 200, {
+      ok: true,
+      gpName: (ctx && ctx.gpName) || '',
+      roleTitle: roleTitle || '',
+      practiceName: (ctx && ctx.practiceName) || '',
+      decision: decision,
+      availabilitySubmitted: !!(interviewRow && interviewRow.practice_availability_status === 'received'),
+      interviewBooked: !!(interviewRow && interviewRow.status === 'booked')
+    });
+    return;
+  }
+
   // ── Phase 6 D1b: practice one-click response (token-authed, no session) ──
   // GET renders a confirm page ONLY (email-security link scanners auto-fetch
   // GET links — a raw GET must never change state, same model as the
@@ -28905,6 +31295,267 @@ async function handleApi(req, res, pathname) {
       },
       jobs: psJobsOut
     });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/decision' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    const action = String((body && body.action) || '').trim();
+    if (action !== 'approve' && action !== 'turn_down') {
+      sendJson(res, 400, { ok: false, message: 'action must be "approve" or "turn_down".' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Escape every practice-/candidate-supplied value before it lands in a
+    // notification email's HTML body (same inline helper convention the
+    // submission-email builder uses). The `reason` field is fully attacker-
+    // controlled from the public turn-down form, and gpName/practiceName/
+    // roleTitle are DB-sourced but still untrusted for HTML.
+    const esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+
+    if (action === 'approve') {
+      // Idempotent: a repeat click on an already-approved link must not
+      // create a second interview row or re-send the notification emails.
+      if (appRow.practice_decision === 'approved') {
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
+      // Stale-link guard: this token can still resolve to a valid application
+      // long after the pipeline moved on through a DIFFERENT path (the GP
+      // accepted their offer, or the team manually secured the placement) —
+      // even on the very FIRST click of this link. Without this guard the
+      // approve handler would drag status/ats_stage backward to 'interview'
+      // and email an already-placed GP that the practice "would like to
+      // interview" them.
+      let staleCheckOffer = null;
+      try { staleCheckOffer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); }
+      catch (e) { staleCheckOffer = null; }
+      const offerAlreadyDecided = !!(staleCheckOffer && (staleCheckOffer.status === 'accepted' || staleCheckOffer.status === 'declined'));
+      if (isCareerPlacementSecuredStatus(appRow.status) || offerAlreadyDecided) {
+        // The practice DID click approve — record that fact if it was never
+        // captured — but nothing that would move the pipeline backward.
+        if (appRow.practice_decision !== 'approved') {
+          await patchApplicationDecisionFields(appRow.id, {
+            practice_decision: 'approved',
+            practice_decision_at: nowIso,
+            updated_at: nowIso
+          }).catch(function () {});
+        }
+        sendJson(res, 200, { ok: true, decision: 'approved', already: true });
+        return;
+      }
+
+      const ctx = await atsGetApplicationContext(appRow.id);
+
+      // The practice approving IS their acceptance of this candidate — reveal
+      // the practice identity + drop an in-app offer (shared core with the CEO
+      // /api/ats/application/accept flow) so the GP can actually reach the
+      // booking surface (canRevealPracticeIdentity gates the interview
+      // slots/book endpoints + /api/career/my-offer). Without this the whole
+      // flow dead-ends after approval. Idempotent: never duplicates the offer.
+      const reveal = await revealApplicationAndEnsureOffer(appRow.id, ctx, {
+        sentBy: 'practice_decision',
+        notes: 'Practice approved — interview invitation'
+      });
+      if (reveal.status === 'migration_required' || reveal.status === 'error') {
+        sendJson(res, 502, { ok: false, message: 'Could not update the application.' });
+        return;
+      }
+
+      const patched = await patchApplicationDecisionFields(appRow.id, {
+        practice_decision: 'approved',
+        practice_decision_at: nowIso,
+        status: 'interview',
+        updated_at: nowIso
+      });
+      if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+      // Forward-only (mirrors the accept-flow's use of planAtsStageReconciliation):
+      // a card that already advanced past 'interview' via another path (e.g. an
+      // offer was sent while this link sat unread) must never be pulled back.
+      const stageTarget = atsPracticeUtil.planAtsStageReconciliation(appRow.ats_stage || '', 'interview');
+      if (stageTarget) {
+        await atsUpdateApplicationStageRow(appRow.id, stageTarget, undefined, 'practice_approve');
+      }
+      await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+
+      const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+      const practiceName = (ctx && ctx.practiceName) || '';
+      const gpEmail = (ctx && ctx.gpEmail) || '';
+      const gpName = (ctx && ctx.gpName) || 'the candidate';
+
+      // Notifications are best-effort — a Resend outage must never turn an
+      // otherwise-successful approve into a failed request for the practice.
+      // We keep THIS "times coming soon" email (rather than the accept flow's
+      // "secure your interview now" congrats) because at approve-time the
+      // practice has not yet supplied availability — the GP is nudged to book
+      // by the separate notify fired once they do (POST .../availability).
+      if (gpEmail) {
+        sendEmail({
+          to: gpEmail,
+          subject: practiceName + ' would like to interview you!',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: esc(practiceName) + ' would like to interview you!',
+            body: 'Great news — ' + esc(practiceName) + ' has approved your application for ' + esc(roleTitle) + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
+            ctaText: 'View my application',
+            ctaUrl: APP_BASE_URL + '/pages/career.html#applications'
+          })
+        }).catch(function (err) { console.warn('[practice-decision] GP approval email failed:', err && err.message); });
+      }
+
+      sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Practice approved ' + gpName + ' — awaiting their interview times',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Practice approved a candidate',
+          body: esc(practiceName) + ' approved ' + esc(gpName) + ' for ' + esc(roleTitle) + '. Awaiting the practice\'s interview availability.'
+        })
+      }).catch(function (err) { console.warn('[practice-decision] ops notify email failed:', err && err.message); });
+
+      sendJson(res, 200, { ok: true, decision: 'approved' });
+      return;
+    }
+
+    // action === 'turn_down'. No ATS stage exists for a rejection
+    // (ATS_STAGES has no 'rejected'/'not_proceeding' lane reachable from
+    // here) — status/ats_stage are deliberately left untouched, and the team
+    // follows up with the GP personally instead of an automated decline
+    // email (kinder, and avoids a robotic rejection landing unannounced).
+    const reason = String((body && body.reason) || '').trim().slice(0, 500);
+    const ctx = await atsGetApplicationContext(appRow.id);
+    const patched = await patchApplicationDecisionFields(appRow.id, {
+      practice_decision: 'turned_down',
+      practice_decision_at: nowIso,
+      practice_decision_reason: reason || null,
+      updated_at: nowIso
+    });
+    if (!patched) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+    const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
+    const gpName = (ctx && ctx.gpName) || 'the candidate';
+    const practiceName = (ctx && ctx.practiceName) || '';
+
+    sendEmail({
+      to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+      subject: 'Practice turned down ' + gpName + ' for ' + roleTitle,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      html: buildCareerEmailHtml({
+        title: 'Practice turned down a candidate',
+        body: esc(practiceName) + ' turned down ' + esc(gpName) + ' for ' + esc(roleTitle) + (reason ? ('. Reason given: ' + esc(reason)) : '.') + ' The team will follow up with the GP personally.'
+      })
+    }).catch(function (err) { console.warn('[practice-decision] turn-down ops email failed:', err && err.message); });
+
+    sendJson(res, 200, { ok: true, decision: 'turned_down' });
+    return;
+  }
+
+  if (pathname === '/api/practice/application/availability' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-decision-ip:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const token = String((body && body.token) || '').trim();
+    const appRow = await findApplicationByActionToken(token);
+    if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    if (appRow.practice_decision !== 'approved') {
+      sendJson(res, 409, { ok: false, code: 'not_approved' });
+      return;
+    }
+
+    const windows = body && body.windows;
+    const validationError = validatePracticeAvailabilityWindows(windows);
+    if (validationError) { sendJson(res, 400, { ok: false, message: validationError }); return; }
+
+    const ctx = await atsGetApplicationContext(appRow.id);
+    // Must exist after approve, but re-create defensively (mirrors the
+    // approve handler's own creation code) if a prior insert never landed.
+    const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+    if (!interviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
+
+    const nowIso = new Date().toISOString();
+    // Store ONLY the canonical scheduler shape — never persist extra keys that
+    // rode in on the public request body (they would land verbatim in
+    // scheduled_calls and could confuse the slot builder downstream).
+    const canonicalWindows = windows.map(function (w) {
+      return { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+    });
+    const patch = {
+      practice_availability_windows: canonicalWindows,
+      practice_availability_status: 'received',
+      practice_availability_received_at: nowIso,
+      updated_at: nowIso
+    };
+    if (isSupabaseDbConfigured()) {
+      const availWriteRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(interviewRef.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      });
+      // The whole point of this endpoint is to persist the practice's times —
+      // if that write failed, tell the practice so they retry, and do NOT fire
+      // the GP "your slots are ready" notify off an unsaved availability.
+      if (!availWriteRes || !availWriteRes.ok) {
+        sendJson(res, 502, { ok: false, message: 'Something went wrong saving your times — please try again.' });
+        return;
+      }
+    } else {
+      Object.assign(interviewRef, patch);
+      saveDbState();
+    }
+
+    // Notify the GP — best-effort, mirrors ingestPracticeAvailabilityReply's
+    // step-4 notify block (WhatsApp + email "your interview times are ready").
+    (async () => {
+      try {
+        const gpUserId = ctx && ctx.userId;
+        if (!gpUserId || !isSupabaseDbConfigured()) return;
+        const pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+        const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+        if (!pRow) return;
+        const firstName = pRow.first_name || 'there';
+        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
+          const dtPhone = normalizePhone(pRow.phone);
+          if (dtPhone) {
+            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
+              signal: AbortSignal.timeout(10000)
+            }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
+          }
+        }
+        if (pRow.email && isEmailConfigured()) {
+          sendEmail({
+            to: pRow.email,
+            subject: 'Your interview slots are ready',
+            text: notifyMsg,
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+          }).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
+        }
+      } catch (notifyErr) {
+        console.warn('[practice-decision] availability notify error (ignored):', notifyErr && notifyErr.message);
+      }
+    })();
+
+    sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
   }
 
@@ -30020,13 +32671,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Check CV is uploaded
-    const cvResult = await supabaseDbRequest(
-      'user_documents',
-      `select=id&user_id=eq.${encodeURIComponent(userId)}&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=1`
-    );
-    if (!cvResult.ok || !Array.isArray(cvResult.data) || cvResult.data.length === 0) {
-      sendJson(res, 403, { ok: false, message: 'Please upload your CV before applying.', requiresCv: true });
+    // Careers profile gate: applying requires the AI-verified careers CV
+    // (document_key 'career_cv'), NOT registration-file documents.
+    const careerCvRow = await getCareerProfileDocument(userId, 'career_cv');
+    if (!careerCvRow) {
+      sendJson(res, 403, { ok: false, message: 'Please add your CV to your careers profile before applying.', requiresCv: true });
       return;
     }
 
@@ -30524,6 +33173,191 @@ async function handleApi(req, res, pathname) {
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
       }).catch(() => {});
     }
+    return;
+  }
+
+  // ── Careers profile gate (Task 3) ───────────────────────────────────────
+  // A GP-facing CV (document_key 'career_cv', AI-checked on upload — distinct
+  // from the onboarding 'cv_signed_dated') plus an optional cover letter
+  // (document_key 'career_cover_letter', shared with the existing Account-page
+  // slot). Consumed by the careers apply-gate (Task 4/5) and the
+  // submit-to-practice email rebuild (Task 6). Auth mirrors /api/career/apply
+  // above verbatim (session -> email -> Supabase user id).
+
+  if (pathname === '/api/career/profile/status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const [cvRow, coverLetterRow, scanRemaining, priorAppsResult] = await Promise.all([
+      getCareerProfileDocument(userId, 'career_cv'),
+      getCareerProfileDocument(userId, 'career_cover_letter'),
+      peekRateLimitRemaining('career-cv-scan:' + userId, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS),
+      // Same already-placed check /api/career/apply uses — server truth so a
+      // stale client-side gpCache entry (up to 10 min fresh, no network) can
+      // never show the non-dismissible gate to a GP who is already placed.
+      supabaseDbRequest('gp_applications', `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`)
+    ]);
+    const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
+    const hasSecuredPlacement = priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status));
+
+    sendJson(res, 200, {
+      ok: true,
+      cv: cvRow ? { fileName: cvRow.file_name, updatedAt: cvRow.updated_at } : null,
+      coverLetter: coverLetterRow ? { fileName: coverLetterRow.file_name, updatedAt: coverLetterRow.updated_at } : null,
+      scanRemaining,
+      gateRequired: !cvRow && !hasSecuredPlacement,
+      placed: hasSecuredPlacement
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cv' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const cvFileName = sanitizeUserString(body && body.fileName, 240) || 'cv.pdf';
+    const cvFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const cvMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const cvFileSize = Number(body && body.fileSize) || 0;
+
+    if (!cvFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
+    if (cvFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    let cvBuffer;
+    try { cvBuffer = Buffer.from(cvFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (cvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep your CV under 3 MB.' });
+      return;
+    }
+
+    // Reject unsupported types (e.g. legacy .doc) BEFORE spending a daily scan
+    // attempt — the AI check can't read them, so letting them through would
+    // waste one of the GP's limited scans on a guaranteed rejection and could
+    // lock them out of the (non-dismissible) apply gate for 24h. When the
+    // browser sends no/opaque mime we fall back to the filename extension.
+    const cvKnownMime = cvMimeType && cvMimeType !== 'application/octet-stream';
+    const cvTypeAllowed = cvKnownMime
+      ? CAREER_PROFILE_ALLOWED_MIME_TYPES.has(cvMimeType)
+      : /\.(pdf|docx|png|jpe?g|webp)$/i.test(cvFileName);
+    if (!cvTypeAllowed) {
+      sendJson(res, 422, { ok: false, verified: false, reason: 'That file type isn\'t supported — please save your CV as a PDF or Word (.docx) file and try again.' });
+      return;
+    }
+
+    const cvRateKey = 'career-cv-scan:' + userId;
+    const cvAllowed = await checkRateLimitWindow(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+    if (!cvAllowed) {
+      sendJson(res, 429, { ok: false, code: 'rate_limited', message: "You've reached today's CV check limit — please try again tomorrow." });
+      return;
+    }
+
+    const cvScan = await verifyCareerCvWithAI(cvBuffer, cvMimeType, cvFileName);
+    if (cvScan.ok && cvScan.isCv === false) {
+      const attemptsRemaining = await peekRateLimitRemaining(cvRateKey, CAREER_CV_SCAN_MAX_PER_DAY, CAREER_PROFILE_SCAN_WINDOW_MS);
+      sendJson(res, 422, { ok: false, verified: false, reason: cvScan.reason, attemptsRemaining });
+      return;
+    }
+    if (!cvScan.ok) {
+      // AI down/unconfigured/over budget — never block a GP's upload on our
+      // outage; accept it unscanned and log so ops can see it happened.
+      console.warn('[career-cv-scan] scan unavailable, accepting unscanned:', cvScan.reason);
+    }
+
+    const cvSaved = await saveCareerProfileDocument(userId, 'career_cv', {
+      fileName: cvFileName,
+      fileBase64: cvFileBase64,
+      mimeType: cvMimeType || 'application/octet-stream',
+      fileSize: cvFileSize || cvBuffer.length
+    });
+    if (!cvSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your CV — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, verified: true, fileName: cvFileName });
+    return;
+  }
+
+  if (pathname === '/api/career/profile/cover-letter' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const clFileName = sanitizeUserString(body && body.fileName, 240) || 'cover-letter.pdf';
+    const clFileBase64 = typeof (body && body.fileBase64) === 'string' ? body.fileBase64.trim() : '';
+    const clMimeType = String((body && body.mimeType) || '').trim().toLowerCase();
+    const clFileSize = Number(body && body.fileSize) || 0;
+
+    if (!clFileBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    // Fast pre-check on client-declared size (not authoritative)
+    if (clFileSize > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+
+    let clBuffer;
+    try { clBuffer = Buffer.from(clFileBase64, 'base64'); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid file data.' });
+      return;
+    }
+
+    // Authoritative check: enforce 3MB limit on decoded buffer length
+    if (clBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'File is too large — please keep this file under 3 MB.' });
+      return;
+    }
+
+    if (clMimeType && !CAREER_PROFILE_ALLOWED_MIME_TYPES.has(clMimeType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported file type — please upload a PDF, Word document, or image.' });
+      return;
+    }
+
+    const clSaved = await saveCareerProfileDocument(userId, 'career_cover_letter', {
+      fileName: clFileName,
+      fileBase64: clFileBase64,
+      mimeType: clMimeType || 'application/octet-stream',
+      fileSize: clFileSize || clBuffer.length
+    });
+    if (!clSaved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save your cover letter — please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, fileName: clFileName });
     return;
   }
 
@@ -32392,6 +35226,13 @@ async function handleApi(req, res, pathname) {
     currentState.gp_registration_return_overrides = JSON.stringify(steps);
     currentState.updatedAt = new Date().toISOString();
     await upsertSupabaseUserState(userId, currentState, currentState.updatedAt);
+    // Targeted stage-rollback / re-open is an admin action on a GP's registration —
+    // audit it (non-destructive alternative to admin_reset_gp).
+    await logAdminAction(req, admin, 'admin_stage_rollback', {
+      targetType: 'gp',
+      targetId: email,
+      detail: { steps: steps }
+    });
     sendJson(res, 200, { ok: true, email, steps });
     return;
   }
@@ -32783,142 +35624,161 @@ async function handleApi(req, res, pathname) {
     const inAppRoleLabel = (inAppRole && inAppRole.title) || 'General Practitioner';
     const inAppPracticeLabel = (inAppPractice && inAppPractice.name) || (inAppRole && inAppRole.practice_name) || 'the practice';
 
-    // Country (user_profiles.registration_country → user_state.gp_selected_country,
-    // the same fallback _resolveGpCountry uses) + qualification summary from the
-    // onboarding answers (same source the candidate drawer shows).
+    // Country (user_profiles.registration_country → user_state.gp_onboarding.country,
+    // read by the candidate-intro builder below) + onboarding state, same
+    // source the candidate drawer shows.
     let inAppStateVal = {};
     try {
       const inAppStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
       inAppStateVal = inAppStateRes.ok && Array.isArray(inAppStateRes.data) && inAppStateRes.data[0] && inAppStateRes.data[0].state
         ? inAppStateRes.data[0].state : {};
     } catch (stateErr) { inAppStateVal = {}; }
-    const inAppCountryNames = { uk: 'United Kingdom', gb: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia' };
-    const inAppCountryRaw = String(inAppProfile.registration_country || inAppStateVal.gp_selected_country || '').trim();
-    const inAppCountryLabel = inAppCountryRaw ? (inAppCountryNames[inAppCountryRaw.toLowerCase()] || inAppCountryRaw) : '';
-    let inAppSpecialty = '';
-    try {
-      inAppSpecialty = atsSpecialtyFromOnboarding(_parseStateVal(inAppStateVal.gp_onboarding) || {});
-    } catch (spErr) { inAppSpecialty = ''; }
 
-    // The GP's CV (user_documents key cv_signed_dated) — same storage-path
-    // download the doc pipeline uses (processDocumentUpload). If there's no CV
-    // row or the file can't be fetched, the email still goes out without the
-    // attachment and says the CV will follow.
+    // The GP's CV attachment. Source order (bug fix, plan 2026-07-06): the
+    // AI-verified careers CV (document_key 'career_cv', Task 3) FIRST — it can
+    // only ever be a genuine CV because it was AI-checked at upload — with a
+    // legacy fallback to the registration-file 'cv_signed_dated' document
+    // ONLY when status is 'uploaded' or 'approved'. Before this fix the
+    // legacy query had no status filter at all, so a REJECTED cv_signed_dated
+    // row (e.g. a contract mistakenly filed under that key) could be the
+    // most-recently updated row and still get emailed out as the candidate's
+    // "CV". Approved docs (reviewed and accepted by admin/RSO) are good docs
+    // and must not be excluded. If there's no CV row or the file can't be
+    // fetched, the email still goes out without the attachment and says the
+    // CV will follow.
+    let inAppCvRow = null;
+    let inAppCvBuffer = null;
     let inAppCvAttachment = null;
     try {
-      const inAppCvRes = await supabaseDbRequest('user_documents',
-        `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1`);
-      const inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      inAppCvRow = await getCareerProfileDocument(appRow.user_id, 'career_cv');
+      if (!inAppCvRow) {
+        const inAppCvRes = await supabaseDbRequest('user_documents',
+          `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&document_key=eq.cv_signed_dated&status=in.(uploaded,approved)&order=updated_at.desc&limit=1`);
+        inAppCvRow = inAppCvRes.ok && Array.isArray(inAppCvRes.data) && inAppCvRes.data[0] ? inAppCvRes.data[0] : null;
+      }
       const inAppCvPath = inAppCvRow ? String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim() : '';
       if (inAppCvPath && !/^https?:/i.test(inAppCvPath)) {
         const inAppCvDl = await supabaseStorageDownloadObject(inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppCvPath);
         if (inAppCvDl && inAppCvDl.buffer && inAppCvDl.buffer.length) {
+          inAppCvBuffer = inAppCvDl.buffer;
           inAppCvAttachment = {
             filename: inAppCvRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-CV.pdf'),
-            content: inAppCvDl.buffer.toString('base64'),
+            content: inAppCvBuffer.toString('base64'),
             contentType: inAppCvRow.mime_type || inAppCvDl.mimeType || 'application/pdf'
           };
         }
       }
-    } catch (cvErr) { inAppCvAttachment = null; }
+    } catch (cvErr) { inAppCvRow = null; inAppCvBuffer = null; inAppCvAttachment = null; }
 
-    // D1a: cached AI handover summary → a practice-appropriate "Candidate
-    // overview" section. ONLY overview + key_history are shared — concerns and
-    // action_items are internal, RSO-facing notes and must never reach a
-    // practice. Read the cached value only (no generation here); any failure
-    // just skips the section — the introduction email itself must still send.
-    let inAppAiOverview = '';
-    let inAppAiHistory = '';
+    // Optional cover letter (career_cover_letter) — same AI-free profile-doc
+    // pipeline as the CV. Never sourced from registration-file documents.
+    let inAppClAttachment = null;
     try {
-      const inAppAiRes = await supabaseDbRequest('registration_cases',
-        `select=ai_handover_summary&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
-      const inAppAiRow = inAppAiRes.ok && Array.isArray(inAppAiRes.data) && inAppAiRes.data[0] ? inAppAiRes.data[0] : null;
-      const inAppAi = inAppAiRow && inAppAiRow.ai_handover_summary && typeof inAppAiRow.ai_handover_summary === 'object'
-        ? inAppAiRow.ai_handover_summary : null;
-      if (inAppAi) {
-        inAppAiOverview = String(inAppAi.overview || '').trim();
-        inAppAiHistory = String(inAppAi.key_history || '').trim();
+      const inAppClRow = await getCareerProfileDocument(appRow.user_id, 'career_cover_letter');
+      const inAppClPath = inAppClRow ? String(inAppClRow.storage_path || inAppClRow.file_url || '').trim() : '';
+      if (inAppClPath && !/^https?:/i.test(inAppClPath)) {
+        const inAppClDl = await supabaseStorageDownloadObject(inAppClRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, inAppClPath);
+        if (inAppClDl && inAppClDl.buffer && inAppClDl.buffer.length) {
+          inAppClAttachment = {
+            filename: inAppClRow.file_name || (inAppGpName.replace(/\s+/g, '-') + '-Cover-Letter.pdf'),
+            content: inAppClDl.buffer.toString('base64'),
+            contentType: inAppClRow.mime_type || inAppClDl.mimeType || 'application/pdf'
+          };
+        }
       }
-    } catch (aiErr) { inAppAiOverview = ''; inAppAiHistory = ''; }
+    } catch (clErr) { inAppClAttachment = null; }
+    const inAppAttachments = [inAppCvAttachment, inAppClAttachment].filter(Boolean);
+
+    // Stable action token — reused across resubmits (an already-submitted
+    // application 409s above, but a token generated once must never rotate
+    // under an approve/turn-down link already sent to a practice inbox).
+    let inAppActionToken = appRow.practice_action_token;
+    if (!inAppActionToken) inAppActionToken = crypto.randomBytes(24).toString('base64url');
+    const inAppApproveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=approve';
+    const inAppTurnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=turn_down';
+
+    // Profile-driven candidate intro (Task 2) — same onboarding read the old
+    // copy used (_parseStateVal(inAppStateVal.gp_onboarding)), now feeding the
+    // shared pure builder instead of hand-rolled sentences.
+    const inAppOb = _parseStateVal(inAppStateVal.gp_onboarding);
+    const inAppIntro = careerIntro.buildCandidateIntro({
+      gpName: inAppGpName,
+      countryCode: inAppProfile.registration_country || inAppOb.country,
+      accountStatus: inAppProfile.account_status || inAppStateVal.account_status,
+      specialty: atsSpecialtyFromOnboarding(inAppOb),
+      targetDate: inAppProfile.target_arrival_date || inAppOb.targetDate,
+      practiceName: inAppPracticeLabel,
+      roleTitle: inAppRoleLabel
+    });
+    const inAppDisplayName = /^dr\b/i.test(inAppGpName) ? inAppGpName : 'Dr ' + inAppGpName;
+
+    // AI 3-sentence recommendation, generated from the actual verified CV
+    // bytes — only attempted when a CV was actually downloaded above. Returns
+    // '' on ANY failure (AI down/unconfigured/over budget) — the email still
+    // sends, it simply omits the recommendation block.
+    const inAppRecommendation = inAppCvBuffer
+      ? ((await generateCandidateRecommendation({
+          buffer: inAppCvBuffer,
+          mimeType: (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf',
+          fileName: inAppCvRow && inAppCvRow.file_name,
+          gpName: inAppGpName
+        })) || '')
+      : '';
+
+    const introSubject = 'Candidate introduction: ' + inAppDisplayName + ' — ' + inAppRoleLabel;
+    // buildCareerEmailHtml drops `title` straight into an <h1> with no
+    // escaping of its own (every other call site in this file only ever
+    // passes a static string, e.g. 'Offer accepted' at ~24109) — so unlike
+    // the plain-text `subject` above, the HTML title must be escaped here
+    // since it now carries the GP's name and the role title.
+    const introTitleEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const introTitleHtml = 'Candidate introduction: ' + introTitleEsc(inAppDisplayName) + ' — ' + introTitleEsc(inAppRoleLabel);
+    const inAppHasCv = !!inAppCvAttachment;
+    const inAppHasCl = !!inAppClAttachment;
+    const introBodyHtml = buildCandidateSubmissionEmailHtml({
+      gpName: inAppGpName,
+      roleTitle: inAppRoleLabel,
+      practiceName: inAppPracticeLabel,
+      intro: inAppIntro,
+      recommendation: inAppRecommendation,
+      approveUrl: inAppApproveUrl,
+      turnDownUrl: inAppTurnDownUrl,
+      hasCv: inAppHasCv,
+      hasCoverLetter: inAppHasCl
+    });
+    // Plain-text fallback mirrors the HTML structure (greeting, intro
+    // paragraph, optional recommendation, attach line, plain-URL decision
+    // links) — every other sendEmail call site in this file provides one.
+    const inAppAttachLine = inAppHasCv
+      ? (inAppHasCl ? 'Their CV and cover letter are attached.' : 'Their CV is attached.')
+      : (inAppHasCl ? 'Their cover letter is attached — we\'ll follow up with their CV shortly.' : 'We\'ll follow up with their CV shortly.');
+    const introText = [
+      'Dear ' + (inAppPracticeLabel || 'team') + ',',
+      '',
+      'We\'re delighted to introduce ' + inAppDisplayName + ' for your ' + inAppRoleLabel + ' position.',
+      '',
+      inAppIntro.paragraph
+    ]
+      .concat(inAppRecommendation ? ['', 'Why we recommend ' + inAppDisplayName + ':', inAppRecommendation] : [])
+      .concat(['', inAppAttachLine])
+      .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
+      .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
+      .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
+      .join('\n');
 
     // Compose + send the introduction. From/branding matches the other
     // ATS practice-facing emails (interview confirmations): the registration
     // hub mailbox as 'GP Link', via the shared sendEmail helper.
-    const escIntro = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const introFacts = [];
-    if (inAppCountryLabel) introFacts.push('Registration country: ' + inAppCountryLabel);
-    if (inAppSpecialty) introFacts.push('Qualification: ' + inAppSpecialty);
-    const introCvLine = inAppCvAttachment
-      ? 'We\'ve attached ' + inAppGpName + '\'s CV to this email for your review.'
-      : 'We\'ll follow up with the candidate\'s CV shortly.';
-    const introSubject = 'Candidate introduction: ' + inAppGpName + ' — ' + inAppRoleLabel;
-    const introGreeting = 'Hi ' + (inAppContactName || 'there') + ',';
-    const introLead = 'We\'d like to introduce ' + inAppGpName + ' for the ' + inAppRoleLabel + ' role at ' + inAppPracticeLabel + '.';
-    const introClose = 'If you\'d like to arrange an interview or have any questions, just reply to this email and we\'ll take care of the rest.';
-    // D1b: one-click response links. Signed, expiring, purpose-tagged tokens
-    // (makePracticeActionToken); a raw GET of these links only renders a
-    // confirm page — the state change needs the confirmed POST, so email
-    // scanners that auto-fetch links can never accept/decline a candidate.
-    // The reply-by-email fallback (introClose) stays.
-    let introActionsHtml = '';
-    let introActionsText = [];
-    try {
-      const introActionUrl = (action) => APP_BASE_URL + '/api/practice/respond?token='
-        + encodeURIComponent(makePracticeActionToken({ applicationId, action }));
-      const introAcceptUrl = introActionUrl('accept');
-      const introInterviewUrl = introActionUrl('request_interview');
-      const introDeclineUrl = introActionUrl('decline');
-      const introBtn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;margin:0 8px 8px 0;padding:11px 18px;border-radius:8px;background:' + bg + ';color:#ffffff;text-decoration:none;font-weight:600">' + escIntro(label) + '</a>';
-      introActionsHtml = '<br><br><strong>Respond in one click</strong><br><br>'
-        + introBtn(introAcceptUrl, 'Accept this candidate', '#16a34a')
-        + introBtn(introInterviewUrl, 'Request an interview', '#2563eb')
-        + introBtn(introDeclineUrl, 'Not the right fit', '#64748b');
-      introActionsText = ['', 'Respond in one click:',
-        'Accept this candidate: ' + introAcceptUrl,
-        'Request an interview: ' + introInterviewUrl,
-        'Not the right fit: ' + introDeclineUrl];
-    } catch (linkErr) {
-      // Links are additive — the introduction email must still send without them.
-      console.error('[admin career applications] practice one-click links skipped:', linkErr && linkErr.message);
-      introActionsHtml = '';
-      introActionsText = [];
-    }
-    // Candidate overview (D1a): overview + key history only — see the guard
-    // above where concerns/action_items are deliberately never read out.
-    const introOverviewHtml = inAppAiOverview
-      ? '<br><br><strong>Candidate overview</strong><br>' + escIntro(inAppAiOverview)
-        + (inAppAiHistory ? '<br><br><strong>Key history</strong><br>' + escIntro(inAppAiHistory) : '')
-      : '';
-    const introOverviewText = inAppAiOverview
-      ? ['', 'Candidate overview:', inAppAiOverview].concat(inAppAiHistory ? ['', 'Key history:', inAppAiHistory] : [])
-      : [];
-    const introBodyHtml =
-      escIntro(introGreeting) + '<br><br>' +
-      'We\'d like to introduce <strong>' + escIntro(inAppGpName) + '</strong> for the <strong>' + escIntro(inAppRoleLabel) + '</strong> role at ' + escIntro(inAppPracticeLabel) + '.' +
-      (introFacts.length ? '<br><br>' + introFacts.map((f) => '&bull; ' + escIntro(f)).join('<br>') : '') +
-      introOverviewHtml +
-      '<br><br>' + escIntro(introCvLine) +
-      introActionsHtml +
-      '<br><br>' + escIntro(introClose);
-    const introText = [introGreeting, '', introLead]
-      .concat(introFacts.length ? [''].concat(introFacts.map((f) => '- ' + f)) : [])
-      .concat(introOverviewText)
-      .concat(['', introCvLine])
-      .concat(introActionsText)
-      .concat(['', introClose, '', 'Kind regards,', 'GP Link Recruitment Team'])
-      .join('\n');
-
     const introSendResult = await sendEmail({
       to: inAppContactEmail,
       subject: introSubject,
       html: buildCareerEmailHtml({
-        title: 'Candidate introduction',
-        body: introBodyHtml,
-        footer: 'Sent by the GP Link recruitment team on behalf of ' + escIntro(inAppGpName) + '.'
+        title: introTitleHtml,
+        bodyHtml: introBodyHtml
       }),
       text: introText,
       from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
-      attachments: inAppCvAttachment ? [inAppCvAttachment] : undefined
+      attachments: inAppAttachments.length ? inAppAttachments : undefined
     });
     if (!introSendResult || !introSendResult.ok) {
       console.error('[admin career applications] in-app submit-to-practice email failed:', introSendResult && introSendResult.error);
@@ -32936,6 +35796,8 @@ async function handleApi(req, res, pathname) {
       practice_contact_email: inAppContactEmail,
       submitted_to_practice_at: inAppNowIso,
       submitted_to_practice_by: admin.email || '',
+      practice_action_token: inAppActionToken,
+      ai_recommendation: inAppRecommendation || null,
       updated_at: inAppNowIso
     };
     const inAppPatchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
@@ -33072,6 +35934,18 @@ async function handleApi(req, res, pathname) {
     const includeInactiveParam = String(rsoQp.get('include_inactive') || '').trim().toLowerCase();
     const includeInactive = includeInactiveParam === '1' || includeInactiveParam === 'true';
     const rsos = includeInactive ? await loadRsoTeam({ includeInactive: true }) : await loadRsoTeam();
+    // G2a: attach each RSO's registered Gmail mailbox (va_gmail) so the Team UI can
+    // show + edit it. Fail-soft: mailboxes stay '' when the lookup is unavailable.
+    try {
+      const mbListRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address', { method: 'GET' });
+      const mbByUser = {};
+      if (mbListRes.ok && Array.isArray(mbListRes.data)) {
+        mbListRes.data.forEach(function (m) { if (m && m.user_id && !mbByUser[m.user_id]) mbByUser[m.user_id] = String(m.email_address || ''); });
+      }
+      rsos.forEach(function (r) { r.va_gmail = mbByUser[r.user_id] || ''; });
+    } catch (mbErr) {
+      rsos.forEach(function (r) { if (r.va_gmail === undefined) r.va_gmail = ''; });
+    }
     sendJson(res, 200, { ok: true, rsos: rsos });
     return;
   }
@@ -33132,12 +36006,14 @@ async function handleApi(req, res, pathname) {
     }
 
     // Reject duplicates by email (exact, on the already-lowercased value) or user_id.
-    // PostgREST or=() members use dot syntax (column.operator.value); both values are safe
-    // to interpolate (user_id is a validated UUID, email passed the validator above).
-    const dupQuery = 'select=user_id,email&or=(email.eq.' + encodeURIComponent(built.payload.email) +
-      ',user_id.eq.' + encodeURIComponent(resolvedUserId) + ')&limit=1';
-    const dupCheck = await supabaseDbRequest('rso_team', dupQuery, { method: 'GET' });
-    if (dupCheck.ok && Array.isArray(dupCheck.data) && dupCheck.data.length > 0) {
+    // Two eq-filter lookups (not a PostgREST or=()) — same result, and both values are
+    // safe to interpolate (user_id is a validated UUID, email passed the validator above).
+    const dupByEmail = await supabaseDbRequest('rso_team',
+      'select=user_id&email=eq.' + encodeURIComponent(built.payload.email) + '&limit=1', { method: 'GET' });
+    const dupById = await supabaseDbRequest('rso_team',
+      'select=user_id&user_id=eq.' + encodeURIComponent(resolvedUserId) + '&limit=1', { method: 'GET' });
+    if ((dupByEmail.ok && Array.isArray(dupByEmail.data) && dupByEmail.data.length > 0)
+      || (dupById.ok && Array.isArray(dupById.data) && dupById.data.length > 0)) {
       sendJson(res, 409, { ok: false, message: 'An RSO with this email already exists.' });
       return;
     }
@@ -33153,7 +36029,18 @@ async function handleApi(req, res, pathname) {
     }
     const insertedRow = Array.isArray(ins.data) ? ins.data[0] : ins.data;
     const normalized = insertedRow ? (mergeRsoRoster([insertedRow], RSO_TEAM, { includeInactive: true })[0] || insertedRow) : built.payload;
-    sendJson(res, 201, { ok: true, rso: normalized, linkedAccount: linkedAccount, generatedUserId: generatedUserId });
+    // G2a: link the RSO's Gmail mailbox (va_gmail_accounts) when supplied. The RSO row is
+    // already created — a mailbox failure is reported, not rolled back, so the admin can
+    // retry the mailbox from Edit without re-adding the person.
+    let mailboxLinked = null;
+    let mailboxError = null;
+    if (built.vaGmail) {
+      const mbResult = await upsertRsoMailbox(resolvedUserId, built.vaGmail, built.payload.name);
+      mailboxLinked = !!mbResult.ok;
+      if (!mbResult.ok) mailboxError = mbResult.error || 'Mailbox link failed.';
+    }
+    normalized.va_gmail = (mailboxLinked ? built.vaGmail : '') || '';
+    sendJson(res, 201, { ok: true, rso: normalized, linkedAccount: linkedAccount, generatedUserId: generatedUserId, mailboxLinked: mailboxLinked, mailboxError: mailboxError });
     return;
   }
 
@@ -33178,7 +36065,9 @@ async function handleApi(req, res, pathname) {
     body = body && typeof body === 'object' ? body : {};
     const built = buildRsoWritePayload(body, { mode: 'update' });
     const updatableKeys = Object.keys(built.payload).filter(k => k !== 'updated_at');
-    if (updatableKeys.length === 0) {
+    // A non-empty mailbox (va_gmail) counts as an update even with no rso_team columns —
+    // it writes to va_gmail_accounts below.
+    if (updatableKeys.length === 0 && !built.vaGmail) {
       sendJson(res, 400, { ok: false, message: 'No fields to update.' });
       return;
     }
@@ -33213,7 +36102,156 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const normalizedUpdated = mergeRsoRoster([updatedRow], RSO_TEAM, { includeInactive: true })[0] || updatedRow;
-    sendJson(res, 200, { ok: true, rso: normalizedUpdated });
+    // G2a: update the RSO's Gmail mailbox link (va_gmail_accounts) when supplied.
+    let mailboxLinked = null;
+    let mailboxError = null;
+    if (built.vaGmail) {
+      const mbResult = await upsertRsoMailbox(rsoUserId, built.vaGmail, normalizedUpdated.name || undefined);
+      mailboxLinked = !!mbResult.ok;
+      if (!mbResult.ok) mailboxError = mbResult.error || 'Mailbox link failed.';
+    }
+    // Reflect the current mailbox in the response so the UI can re-render without refetch.
+    try {
+      const curMbRes = await supabaseDbRequest('va_gmail_accounts',
+        'select=email_address&user_id=eq.' + encodeURIComponent(rsoUserId) + '&limit=1', { method: 'GET' });
+      normalizedUpdated.va_gmail = (curMbRes.ok && Array.isArray(curMbRes.data) && curMbRes.data[0]) ? String(curMbRes.data[0].email_address || '') : '';
+    } catch (curMbErr) { normalizedUpdated.va_gmail = ''; }
+    sendJson(res, 200, { ok: true, rso: normalizedUpdated, mailboxLinked: mailboxLinked, mailboxError: mailboxError });
+    return;
+  }
+
+  // POST /api/admin/rso/bulk-reassign — move ALL active cases from one RSO to another
+  // in a single action (G2a / R4). Super-admin only. Body:
+  //   { fromRsoId|fromEmail, toRsoId|toEmail, dryRun? }
+  // dryRun:true returns the count of cases that WOULD move (for the UI confirm step)
+  // without needing a target. The real run loops the same per-case side-effects as the
+  // single-case reassign: registration_cases patch (assigned_va + assigned_rso in
+  // lock-step), timeline event, DoubleTick chat ownership, and the Gmail label transfer
+  // via transferCaseEmailOwnership — the latter under a time budget so a huge caseload
+  // cannot hang the request (DB ownership always moves; label moves report as skipped).
+  if (req.method === 'POST' && pathname === '/api/admin/rso/bulk-reassign') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      sendJson(res, 503, { ok: false, message: 'Database not configured.' });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    body = body && typeof body === 'object' ? body : {};
+    const bulkDryRun = !!body.dryRun;
+    const bulkRoster = await loadRsoTeam({ includeInactive: true });
+    const findRosterRso = function (idOrEmail) {
+      const key = String(idOrEmail == null ? '' : idOrEmail).trim();
+      if (!key) return null;
+      const keyLower = key.toLowerCase();
+      return bulkRoster.find(function (r) {
+        return String(r.user_id) === key || String(r.email || '').toLowerCase() === keyLower;
+      }) || null;
+    };
+    const fromRso = findRosterRso(body.fromRsoId || body.fromEmail);
+    if (!fromRso) {
+      sendJson(res, 400, { ok: false, message: 'Source RSO not found on the roster.' });
+      return;
+    }
+    // Collect the source RSO's ACTIVE cases. assigned_va (mailbox owner) and assigned_rso
+    // (CEO attribution) are written in lock-step, but legacy rows can carry only one —
+    // check both columns and de-duplicate. Two eq-filter queries (PostgREST-safe values:
+    // user_id comes off the loaded roster).
+    const bulkSeen = {};
+    const bulkCases = [];
+    const caseCols = ['assigned_va', 'assigned_rso'];
+    for (let ci = 0; ci < caseCols.length; ci++) {
+      const colRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,assigned_va&status=eq.active&' + caseCols[ci] + '=eq.' + encodeURIComponent(fromRso.user_id) + '&limit=500', { method: 'GET' });
+      const colRows = (colRes.ok && Array.isArray(colRes.data)) ? colRes.data : [];
+      for (let ri = 0; ri < colRows.length; ri++) {
+        const row = colRows[ri];
+        if (row && row.id && !bulkSeen[row.id]) { bulkSeen[row.id] = true; bulkCases.push(row); }
+      }
+    }
+    if (bulkDryRun) {
+      sendJson(res, 200, {
+        ok: true, dryRun: true, total: bulkCases.length,
+        from: { user_id: fromRso.user_id, name: fromRso.name, email: fromRso.email }
+      });
+      return;
+    }
+    const toRso = findRosterRso(body.toRsoId || body.toEmail);
+    if (!toRso) {
+      sendJson(res, 400, { ok: false, message: 'Target RSO not found on the roster.' });
+      return;
+    }
+    if (String(toRso.user_id) === String(fromRso.user_id)) {
+      sendJson(res, 400, { ok: false, message: 'Source and target RSO are the same.' });
+      return;
+    }
+    // Same target validation as the single-case reassign: active, not on leave, and
+    // holding a registered mailbox (or the master-archive handoff account).
+    const bulkMailRes = await supabaseDbRequest('va_gmail_accounts', 'select=user_id,email_address,display_name', { method: 'GET' });
+    const bulkMailRows = (bulkMailRes.ok && Array.isArray(bulkMailRes.data)) ? bulkMailRes.data : [];
+    const bulkResolved = ceoMetrics.resolveRsoReassignmentTarget(bulkRoster, bulkMailRows, toRso.user_id, MASTER_ARCHIVE_EMAIL);
+    if (!bulkResolved.ok) {
+      sendJson(res, 400, { ok: false, message: bulkResolved.error });
+      return;
+    }
+    // Bound the operation: DB moves are cheap but the Gmail label transfer is not.
+    const BULK_CASE_CAP = 200;
+    const BULK_EMAIL_BUDGET_MS = 45000;
+    const bulkBatch = bulkCases.slice(0, BULK_CASE_CAP);
+    const bulkStartedAt = Date.now();
+    let bulkMoved = 0;
+    let bulkMoveFailed = 0;
+    let bulkEmailFailed = 0;
+    let bulkEmailSkipped = 0;
+    for (let bi = 0; bi < bulkBatch.length; bi++) {
+      const bCase = bulkBatch[bi];
+      const bNowIso = new Date().toISOString();
+      const bPatch = { assigned_va: toRso.user_id, assigned_rso: toRso.user_id, last_va_action_at: bNowIso };
+      const bRes = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(bCase.id), { method: 'PATCH', body: bPatch });
+      if (!bRes.ok) { bulkMoveFailed++; continue; }
+      bulkMoved++;
+      // Timeline event (same shape as the single-case reassign's audit entry).
+      try {
+        await _logCaseEvent(bCase.id, null, 'status_change',
+          'Case reassigned (bulk): ' + (fromRso.name || fromRso.email) + ' → ' + (toRso.name || toRso.email),
+          JSON.stringify(bPatch), adminCtx.email);
+      } catch (evErr) { console.error('[bulk-reassign] timeline log failed for case', bCase.id, ':', evErr && evErr.message); }
+      // DoubleTick chat ownership follows the case owner (best-effort, like the single path).
+      try {
+        const bGpPhone = await getGpWhatsAppPhone(bCase.user_id);
+        if (bGpPhone) await syncCaseChatAssignment({ gpPhone: bGpPhone, assignedVaUserId: toRso.user_id });
+      } catch (dtErr) { console.error('[bulk-reassign] DoubleTick sync failed for case', bCase.id, ':', dtErr && dtErr.message); }
+      // Gmail label transfer — the SAME helper the single-case path uses. Time-boxed:
+      // once the budget is spent, remaining cases still move in the DB but their label
+      // transfer is reported as skipped (re-running the tool is safe / idempotent-ish).
+      if (Date.now() - bulkStartedAt > BULK_EMAIL_BUDGET_MS) {
+        bulkEmailSkipped++;
+        continue;
+      }
+      try {
+        const bTransfer = await transferCaseEmailOwnership(
+          bCase.id, toRso.user_id, bCase.assigned_va || fromRso.user_id, !!bulkResolved.isArchive);
+        if (bTransfer.emailTransferred === false) bulkEmailFailed++;
+      } catch (btErr) {
+        console.error('[bulk-reassign] label transfer failed for case', bCase.id, ':', btErr && btErr.message);
+        bulkEmailFailed++;
+      }
+    }
+    sendJson(res, 200, {
+      ok: true,
+      moved: bulkMoved,
+      total: bulkCases.length,
+      moveFailed: bulkMoveFailed,
+      remaining: bulkCases.length > BULK_CASE_CAP ? bulkCases.length - BULK_CASE_CAP : 0,
+      emailTransfersFailed: bulkEmailFailed,
+      emailTransfersSkipped: bulkEmailSkipped,
+      from: { user_id: fromRso.user_id, name: fromRso.name },
+      to: { user_id: toRso.user_id, name: toRso.name }
+    });
     return;
   }
 
@@ -33567,6 +36605,7 @@ async function handleApi(req, res, pathname) {
     // Mark no-show (only from booked status)
     const requestedAction = String(body && (body.action || body.status) || '').trim();
     let autoCloseTask = false; // set when a 2nd GP-driven failure should close the task
+    let deferredFollowUp = null; // complete-action follow-up task, created only AFTER the disposition PATCH persists
 
     if (requestedAction === 'no_show') {
       if (call.status !== 'booked') {
@@ -33578,6 +36617,42 @@ async function handleApi(req, res, pathname) {
       const resultCall = await handleScheduledCallFailure(call, 'no_show', { adminNote: body && body.admin_notes });
       sendJson(res, 200, { ok: true, call: resultCall });
       return;
+    }
+
+    // Complete with a structured outcome: disposition (required, from the fixed list)
+    // + a required outcome note. Allowed from booked (RSO closing out the call) or
+    // completed (logging the outcome on a call the auto-complete cron already closed).
+    if (requestedAction === 'complete' || requestedAction === 'completed') {
+      if (!['booked', 'completed'].includes(call.status)) {
+        sendJson(res, 409, { ok: false, message: 'Can only log an outcome for calls with status booked or completed.' });
+        return;
+      }
+      const CALL_DISPOSITIONS = ['resolved', 'needs_followup', 'escalate', 'no_answer', 'rescheduled'];
+      const disposition = String(body && body.disposition || '').trim().toLowerCase();
+      if (!CALL_DISPOSITIONS.includes(disposition)) {
+        sendJson(res, 400, { ok: false, message: 'A disposition is required: ' + CALL_DISPOSITIONS.join(', ') + '.' });
+        return;
+      }
+      const outcomeNote = String(body && body.outcome_note || '').trim();
+      if (!outcomeNote) {
+        sendJson(res, 400, { ok: false, message: 'An outcome note is required when completing a call.' });
+        return;
+      }
+      const completeNowIso = new Date().toISOString();
+      patch.status = 'completed';
+      patch.completed_at = call.completed_at || completeNowIso;
+      patch.call_disposition = disposition;
+      patch.outcome_note = outcomeNote.slice(0, 2000);
+      // Keep the Zoom-summary pipeline intact: same transition the auto-complete
+      // cron applies — only kick a pending fetch when none was ever requested.
+      patch.summary_status = (call.summary_status === 'not_requested' || !call.summary_status) ? 'pending' : call.summary_status;
+
+      // Needs follow-up / escalate → raise a follow-up task on the case (existing task
+      // path). Deferred until AFTER the disposition PATCH persists — no side-effects
+      // may run when the disposition itself failed to save.
+      if (disposition === 'needs_followup' || disposition === 'escalate') {
+        deferredFollowUp = { disposition: disposition, outcomeNote: outcomeNote };
+      }
     }
 
     // Cancel (from invited, booked, or no_show — admins can close out a missed call)
@@ -33641,6 +36716,40 @@ async function handleApi(req, res, pathname) {
       body: patch,
       headers: { Prefer: 'return=representation' }
     });
+
+    // The row PATCH is the source of truth: if it failed, report the failure honestly
+    // and run NO side-effects (no follow-up task, no linked-task sync) — otherwise we
+    // would create tasks for a disposition that was never persisted.
+    if (!updateRes.ok) {
+      console.error('[calls patch] scheduled_calls update failed:', updateRes.status, JSON.stringify(updateRes.data || null).slice(0, 300));
+      sendJson(res, 500, { ok: false, message: 'Failed to save the call update — the database write did not succeed. Nothing was changed; please try again.' });
+      return;
+    }
+
+    // Complete-action follow-up task (needs_followup/escalate) — only now that the
+    // disposition is persisted.
+    if (deferredFollowUp) {
+      try {
+        const fuProfRes = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(call.user_id) + '&select=first_name,last_name,email', { method: 'GET' });
+        const fuGp = (fuProfRes.ok && Array.isArray(fuProfRes.data) && fuProfRes.data[0]) ? fuProfRes.data[0] : {};
+        const fuName = ((String(fuGp.first_name || '').trim() + ' ' + String(fuGp.last_name || '').trim()).trim()) || fuGp.email || 'the GP';
+        const fuStage = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[call.stage] || (call.stage || '');
+        // task_type 'chase' (not 'followup'): chase is the type the live call-failure
+        // path already inserts, so it is proven against the LIVE task_type constraint.
+        await _createRegTask(call.case_id, {
+          task_type: 'chase',
+          title: (deferredFollowUp.disposition === 'escalate' ? 'Escalated from call — ' : 'Call follow-up — ') + fuName + (fuStage ? ' (' + fuStage + ')' : ''),
+          description: 'Call outcome logged as "' + deferredFollowUp.disposition + '" by ' + (admin.email || 'admin') + ': ' + deferredFollowUp.outcomeNote.slice(0, 800),
+          status: 'open',
+          priority: deferredFollowUp.disposition === 'escalate' ? 'urgent' : 'high',
+          source_trigger: 'call_disposition',
+          related_stage: call.stage,
+          _actor: admin.email || 'admin'
+        });
+      } catch (fuErr) {
+        console.error('[calls complete] follow-up task error:', fuErr && fuErr.message);
+      }
+    }
 
     // Sync task status. Normally a call status maps to a task status; on the 2nd
     // GP-driven failure (autoCloseTask) the task is cancelled instead of kept open.
@@ -34164,6 +37273,27 @@ async function handleApi(req, res, pathname) {
             body: profileUpdate
           });
         }
+        // Optional "How did you hear about us?" (Phase 6 H2) — whitelisted keys
+        // only; skipping the question never blocks onboarding (no value = no
+        // write). Sent as a SEPARATE best-effort PATCH so a DB that doesn't
+        // have the lead_source columns yet can never sink the main profile
+        // update above.
+        var obLeadSource = ceoMetrics.sanitizeLeadSource(body.leadSource);
+        if (obLeadSource) {
+          var obLeadPatch = { lead_source: obLeadSource };
+          var obLeadDetail = (typeof body.leadSourceDetail === 'string') ? body.leadSourceDetail.trim().slice(0, 200) : '';
+          if (obLeadDetail) obLeadPatch.lead_source_detail = obLeadDetail;
+          try {
+            var obLeadRes = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: obLeadPatch
+            });
+            if (!obLeadRes.ok) console.error('[Onboarding] lead_source write failed (ignored):', obLeadRes.status);
+          } catch (obLeadErr) {
+            console.error('[Onboarding] lead_source write failed (ignored):', obLeadErr.message);
+          }
+        }
       }
     } else {
       const dbState = loadDbState();
@@ -34180,6 +37310,12 @@ async function handleApi(req, res, pathname) {
       if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
       if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
       if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
+      var obLeadSourceLocal = ceoMetrics.sanitizeLeadSource(body.leadSource);
+      if (obLeadSourceLocal) {
+        dbState.userProfiles[email].lead_source = obLeadSourceLocal;
+        var obLeadDetailLocal = (typeof body.leadSourceDetail === 'string') ? body.leadSourceDetail.trim().slice(0, 200) : '';
+        if (obLeadDetailLocal) dbState.userProfiles[email].lead_source_detail = obLeadDetailLocal;
+      }
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
       saveDbState(dbState);
     }
@@ -34288,9 +37424,30 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // F3 server-side fail counting: same pass rule the client applies (verified +
+    // a name match). Only counts when the client identifies the doc slot (docKey).
+    let qualScanMeta = {};
+    const qualDocKey = sanitizeUserString(body.docKey, 120);
+    if (qualDocKey && result.verification) {
+      const vq = result.verification;
+      const qNameOk = vq.nameMatch === 'exact' || vq.nameMatch === 'fuzzy';
+      if (!(vq.verified === true && qNameOk)) {
+        const qRaw = stripBase64DataUrlPrefix(imageBase64);
+        qualScanMeta = await handleServerScanFailure(session, {
+          docKey: qualDocKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: qRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + qRaw) : '',
+          reason: Array.isArray(vq.issues) && vq.issues.length ? vq.issues.join(' ') : 'The document details could not be verified against your account.'
+        });
+      }
+    }
+
     sendJson(res, 200, {
       ok: true,
       verification: result.verification,
+      ...qualScanMeta,
       spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount },
       unlimitedRetries: AI_VERIFY_UNLIMITED_EMAILS.has((verifyEmail || '').toLowerCase())
     });
@@ -34437,9 +37594,28 @@ Check this document for certification markings.`;
         return;
       }
 
+      // F3 server-side fail counting + at-threshold escalation (the server holds
+      // the file here, so the manual-review handoff can't be lost with the cache).
+      let certScanMeta = {};
+      const certDocKey = sanitizeUserString(body.docKey, 120);
+      if (certDocKey && certVerification.certified !== true) {
+        const cRaw = stripBase64DataUrlPrefix(imageBase64);
+        certScanMeta = await handleServerScanFailure(session, {
+          docKey: certDocKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: cRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + cRaw) : '',
+          reason: Array.isArray(certVerification.issues) && certVerification.issues.length
+            ? certVerification.issues.join(' ')
+            : 'The document does not appear to be properly certified.'
+        });
+      }
+
       sendJson(res, 200, {
         ok: true,
         verification: certVerification,
+        ...certScanMeta,
         spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount }
       });
     } catch (fetchErr) {
@@ -34578,22 +37754,32 @@ Return ONLY valid JSON, no markdown:
       // row ticks and reconcileGpDrive mirrors the page to the GP's Google Drive folder.
       const saved = await persistIchc('approved');
       if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
+      await resetDocScanFailures(saved.userId, 'criminal_history');
       sendJson(res, 200, { ok:true, verified:true, referenceNumber: extractedRef, applicantName: (verification.applicantName || null), document: saved.document });
       return;
     }
 
-    // Not verified.
-    if (finalAttempt) {
+    // Not verified — count the failure SERVER-SIDE (F3). No fileDataUrl is passed:
+    // the ICHC flow escalates through its own under_review persist path below.
+    const ichcIssues = (verification && Array.isArray(verification.issues) && verification.issues.length)
+      ? verification.issues
+      : ['This does not look like a Fit2Work ICHC reference page, or the reference number could not be read.'];
+    const ichcScanMeta = await handleServerScanFailure(session, {
+      docKey: 'criminal_history',
+      country: country,
+      reason: ichcIssues.join(' ')
+    });
+    // Server count is authoritative; the client's finalAttempt flag (from its
+    // local counter) is still honoured so an offline-counted 3rd try escalates too.
+    if (finalAttempt || ichcScanMeta.scanFailCount >= DOC_SCAN_FAIL_THRESHOLD) {
       const saved = await persistIchc('under_review');
       if (!saved) { sendJson(res, 502, { ok:false, message:'We could not save your document. Please try again.' }); return; }
       await ensureDocReviewOnUpload(saved.userId, 'criminal_history', 'Fit2Work ICHC Reference Page', 'ahpra').catch((e)=>console.error('[AI ICHC] review task error', e.message));
-      sendJson(res, 200, { ok:true, verified:false, manualReview:true, document: saved.document });
+      await resetDocScanFailures(saved.userId, 'criminal_history');
+      sendJson(res, 200, { ok:true, verified:false, manualReview:true, document: saved.document, scanFailCount: ichcScanMeta.scanFailCount, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD });
       return;
     }
-    const issues = (verification && Array.isArray(verification.issues) && verification.issues.length)
-      ? verification.issues
-      : ['This does not look like a Fit2Work ICHC reference page, or the reference number could not be read.'];
-    sendJson(res, 200, { ok:true, verified:false, issues });
+    sendJson(res, 200, { ok:true, verified:false, issues: ichcIssues, scanFailCount: ichcScanMeta.scanFailCount, scanFailThreshold: DOC_SCAN_FAIL_THRESHOLD });
     return;
   }
 
@@ -34671,7 +37857,7 @@ IMPORTANT:
 - If the expected document is "CV (Signed and dated)", return "matches": true only when the file is clearly a CV/resume and it appears signed and dated. If it is a CV missing a visible signature or date, return "matches": false and explain that it appears to be an unsigned or undated CV.
 
 Return ONLY valid JSON with no markdown formatting:
-{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"}`;
+{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation", "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
 
     const classifyUserPrompt = `The user is trying to upload a document for: ${expectedLabel}
 
@@ -34732,7 +37918,22 @@ Classify this document.`;
         return;
       }
 
-      sendJson(res, 200, { ok: true, classification: classifyResult });
+      // F3 server-side fail counting + at-threshold escalation for the
+      // non-certification prepared docs (CV, letters, ...).
+      let classifyScanMeta = {};
+      if (classifyResult.matches !== true) {
+        const clRaw = stripBase64DataUrlPrefix(fileBase64);
+        classifyScanMeta = await handleServerScanFailure(session, {
+          docKey: expectedKey,
+          country: normalizeDocumentCountry(sanitizeUserString(body.country, 8) || ''),
+          fileName: sanitizeUserString(body.fileName, 200),
+          mimeType: isPdf ? 'application/pdf' : (mimeType || 'image/jpeg'),
+          fileDataUrl: clRaw ? ('data:' + (isPdf ? 'application/pdf' : (mimeType || 'image/jpeg')) + ';base64,' + clRaw) : '',
+          reason: (classifyResult.identifiedAs ? 'This appears to be ' + classifyResult.identifiedAs + ', not ' + expectedLabel + '. ' : '') + (classifyResult.reason || '')
+        });
+      }
+
+      sendJson(res, 200, { ok: true, classification: classifyResult, ...classifyScanMeta });
     } catch (fetchErr) {
       console.error('[AI Classify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
@@ -35660,6 +38861,7 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
       revokeAllRefreshTokensForEmail(email);
+      await bumpSessionEpoch(email); // F4: password change signs out every device
       clearSession(res, req);
       sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
       return;
@@ -35680,6 +38882,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
     saveDbState();
     revokeAllRefreshTokensForEmail(email);
+    await bumpSessionEpoch(email); // F4: password change signs out every device
     clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
     return;
@@ -35865,6 +39068,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
     saveDbState();
     revokeAllRefreshTokensForEmail(email);
+    await bumpSessionEpoch(email); // F4: password reset signs out every device
     clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password reset successful.' });
     return;
@@ -35920,7 +39124,7 @@ Return ONLY valid JSON with no markdown formatting:
 
       // Set GP session with impersonation marker
       gpProfile._impersonatedBy = admin.email;
-      setSession(res, gpProfile);
+      await issueGpSession(res, gpProfile);
 
       console.log('[admin-impersonate] %s (%s) impersonating GP %s <%s>',
         admin.email, admin.role, targetUserId, gpProfile.email);
@@ -36886,7 +40090,42 @@ Return ONLY valid JSON with no markdown formatting:
       const offerDocs = await getOfferDocumentsForUser(userId, country);
       Object.keys(offerDocs).forEach((key) => { if (!docs.docs[key]) docs.docs[key] = offerDocs[key]; });
     } catch (offerDocsErr) { /* non-fatal — prepared docs still answer */ }
-    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
+    // F3: persisted AI-scan failures (doc key -> { failCount, reason, ... }) so
+    // the card can still show WHY the last scan failed after the popup is gone.
+    let scanFailures = {};
+    try { scanFailures = await listDocScanFailuresForUser(userId); } catch (e) { /* non-fatal */ }
+    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null, scanFailures });
+    return;
+  }
+
+  // F3: GP sets/confirms the expiry date on an expiry-relevant document
+  // ("Valid until" on the My Documents card). Ownership enforced via session.
+  if (pathname === '/api/prepared-documents/expiry' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const expCountry = normalizeDocumentCountry(body && body.country || '');
+    const expKey = sanitizeUserString(body && body.key, 120);
+    const expiresAt = sanitizeExpiryDateIso(body && body.expiresAt);
+    if (!expCountry || !expKey) { sendJson(res, 400, { ok: false, message: 'country and key are required.' }); return; }
+    if (!expiresAt) { sendJson(res, 400, { ok: false, message: 'Please provide a valid expiry date.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id.' }); return; }
+    const existingRow = await getPreparedDocumentRow(userId, expCountry, expKey);
+    if (!existingRow) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+    const patchRes = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingRow.id), {
+      method: 'PATCH',
+      body: { expires_at: expiresAt, expiry_nudged_at: null, updated_at: new Date().toISOString() }
+    });
+    if (!patchRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to save the expiry date.' }); return; }
+    sendJson(res, 200, { ok: true, expiresAt });
     return;
   }
 
@@ -37299,6 +40538,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Invalid prepared document payload.' });
       return;
     }
+    // F3: optional expiry captured at upload (AI-extracted or GP-entered).
+    if (body && body.expiresAt) payload.expiresAt = sanitizeExpiryDateIso(body.expiresAt);
 
     // Validate file security
     if (payload.fileDataUrl) {
@@ -37355,6 +40596,10 @@ Return ONLY valid JSON with no markdown formatting:
         console.error('[PreparedDocuments] manual-review notify error:', notifyErr.message);
       }
 
+      // The doc is now with a human reviewer — clear the scan-failure streak so
+      // a later re-scan (e.g. after a reviewer rejection) starts fresh.
+      await resetDocScanFailures(userId, payload.key);
+
       sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
       return;
     }
@@ -37368,6 +40613,9 @@ Return ONLY valid JSON with no markdown formatting:
     // (closing this task) or reopens it idempotently.
     var preparedReviewStage = isQualificationDocKey(payload.key) ? 'ahpra' : undefined;
     await ensureDocReviewOnUpload(userId, payload.key, docLabel, preparedReviewStage);
+
+    // Successful (scan-passed) upload — wipe the server-side scan-failure streak.
+    await resetDocScanFailures(userId, payload.key);
 
     sendJson(res, 200, { ok: true, document: { ...saved, status: 'under_review' } });
 
@@ -38182,6 +41430,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Exclude admin/VA users from GP cases list
     const adminUserIds = await getAdminUserIdSet();
     var HIDDEN_CASE_EMAILS = new Set(['khaleedmahmoud1211@gmail.com', 'hazel@mygplink.com.au', 'hello@mygplink.com.au']);
+    // RSO roster: resolve assigned RSO name/email per case so the admin GP list
+    // can filter by RSO / "my caseload" client-side. days_in_stage uses the same
+    // ceoMetrics.caseAgeMs aging as the CEO pipeline drilldown so numbers agree.
+    const listRosterRows = await loadRsoTeam({ includeInactive: true });
+    const listRsoById = {};
+    for (var lri = 0; lri < listRosterRows.length; lri++) { listRsoById[listRosterRows[lri].user_id] = listRosterRows[lri]; }
+    const listNowMs = Date.now();
     const enriched = [];
     for (var ci = 0; ci < cases.length; ci++) {
       var c = cases[ci];
@@ -38191,10 +41446,16 @@ Return ONLY valid JSON with no markdown formatting:
       if (HIDDEN_CASE_EMAILS.has(caseEmailLc)) continue;
       if (caseEmailLc && (isAdminEmail(caseEmailLc) || MONITORED_VA_EMAILS.includes(caseEmailLc))) continue;
       var tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      var listRsoKey = c.assigned_rso || c.assigned_va || null;
+      var listRso = listRsoKey ? listRsoById[listRsoKey] : null;
       enriched.push(Object.assign({}, c, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
+        assigned_rso_id: listRsoKey,
+        assigned_rso_name: listRso ? (listRso.name || '') : (listRsoKey ? 'Unknown' : ''),
+        assigned_rso_email: listRso ? String(listRso.email || '').toLowerCase() : '',
+        days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, listNowMs) / ceoMetrics.DAY_MS)),
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
       }));
     }
@@ -38617,6 +41878,15 @@ Return ONLY valid JSON with no markdown formatting:
     //    workload/owner numbers don't drift from admin reassignments.
     if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va
         && !Object.prototype.hasOwnProperty.call(patch, 'assigned_rso')) {
+      // On-leave guard (G2a): the admin-page path writes assigned_va directly and skips
+      // resolveRsoReassignmentTarget above — refuse handing a case to an on-leave RSO
+      // here too so both dashboards behave the same.
+      var vaRosterRows = await loadRsoTeam({ includeInactive: true });
+      var vaTargetRso = (vaRosterRows || []).find(function (rr) { return String(rr.user_id) === String(patch.assigned_va); });
+      if (vaTargetRso && vaTargetRso.on_leave === true) {
+        sendJson(res, 400, { ok: false, message: 'Target RSO "' + (vaTargetRso.name || vaTargetRso.email) + '" is on leave. Clear the on-leave flag first, or pick another RSO.' });
+        return;
+      }
       patch.assigned_rso = patch.assigned_va;
     }
 
@@ -38653,177 +41923,11 @@ Return ONLY valid JSON with no markdown formatting:
     // Capture whether the Gmail label transfer succeeded so the caller learns the
     // truth instead of the try/catch silently swallowing failures (#12).
     // null = no transfer attempted; true = succeeded; false = failed (see emailTransferError).
-    var emailTransferred = null;
-    var emailTransferError = null;
-    if (patch.assigned_va) {
-      if (reassigningToArchive) {
-        // GP Link Admin (master archive / hello@) now owns the case. hello@ is never
-        // Gmail-watched and already mirrors every case email (silent copies on the hello@
-        // sub-label), so there is no VA mailbox to provision — just hand off cleanly by
-        // archiving the previous RSO's working label.
-        try {
-          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
-            var oldVaArcRes = await supabaseDbRequest('va_gmail_accounts',
-              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
-            var oldVaArc = oldVaArcRes.ok && oldVaArcRes.data && oldVaArcRes.data[0] ? oldVaArcRes.data[0] : null;
-            if (oldVaArc) await archiveLabelForVA(oldVaArc.email_address, caseId);
-          }
-          // Ownership moved to GP Link Admin; the master archive already holds the history.
-          emailTransferred = true;
-        } catch (arcErr) {
-          console.error('[Gmail Labels] Handoff to GP Link Admin failed:', arcErr.message);
-          emailTransferred = false;
-          emailTransferError = String(arcErr && arcErr.message || arcErr).slice(0, 300);
-        }
-      } else try {
-          var labelCaseRes = await supabaseDbRequest('registration_cases',
-            'select=user_id,practice_name,practice_contact,gmail_label_id,gmail_label_hello_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-          var labelCase = labelCaseRes.ok && labelCaseRes.data && labelCaseRes.data[0] ? labelCaseRes.data[0] : null;
-          if (!labelCase) throw new Error('Case not found for label setup');
-
-          var gpProfileRes = await supabaseDbRequest('user_profiles',
-            'select=first_name,last_name&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
-          var gpProfile = gpProfileRes.ok && gpProfileRes.data && gpProfileRes.data[0] ? gpProfileRes.data[0] : {};
-          var gpName = [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() || 'Unknown';
-
-          var vaAccRes = await supabaseDbRequest('va_gmail_accounts',
-            'select=email_address,display_name&user_id=eq.' + encodeURIComponent(patch.assigned_va) + '&limit=1');
-          var vaAcc = vaAccRes.ok && vaAccRes.data && vaAccRes.data[0] ? vaAccRes.data[0] : null;
-          if (!vaAcc) {
-            // RSO-driven reassignments are guarded upstream (resolveRsoReassignmentTarget),
-            // so this only fires for legacy direct assigned_va writes with no mailbox.
-            console.log('[Gmail Labels] No VA Gmail account registered for user', patch.assigned_va, '— skipping label setup');
-            throw new Error('skip');
-          }
-
-          // Archive old VA's label if this is a reassignment
-          var historyMessages = [];
-          if (oldAssignedVa && oldAssignedVa !== patch.assigned_va) {
-            var oldVaRes = await supabaseDbRequest('va_gmail_accounts',
-              'select=email_address&user_id=eq.' + encodeURIComponent(oldAssignedVa) + '&limit=1');
-            var oldVaAcc = oldVaRes.ok && oldVaRes.data && oldVaRes.data[0] ? oldVaRes.data[0] : null;
-            if (oldVaAcc && labelCase.gmail_label_id) {
-              await archiveLabelForVA(oldVaAcc.email_address, caseId);
-
-              // Copy email history to new VA
-              var oldGmail = await getGmailClient(oldVaAcc.email_address);
-              if (oldGmail) {
-                try {
-                  var oldMsgs = await oldGmail.users.messages.list({
-                    userId: oldVaAcc.email_address, labelIds: [labelCase.gmail_label_id], maxResults: 100
-                  });
-                  var msgList = (oldMsgs.data && oldMsgs.data.messages) || [];
-                  for (var mIdx = 0; mIdx < msgList.length; mIdx++) {
-                    var rawMsg = await oldGmail.users.messages.get({
-                      userId: oldVaAcc.email_address, id: msgList[mIdx].id, format: 'raw'
-                    });
-                    if (rawMsg.data && rawMsg.data.raw) {
-                      historyMessages.push(Buffer.from(rawMsg.data.raw, 'base64'));
-                    }
-                  }
-                } catch (copyErr) {
-                  console.error('[Gmail Labels] History fetch failed:', copyErr.message);
-                }
-              }
-
-              // Move hello@ sub-label to new VA's folder
-              if (labelCase.gmail_label_hello_id) {
-                var newHelloName = buildHelloLabelName(vaAcc.display_name, gpName, labelCase.practice_name || '');
-                await renameGmailLabel(MASTER_ARCHIVE_EMAIL, labelCase.gmail_label_hello_id, newHelloName);
-              }
-            }
-          }
-
-          // Create labels for the new VA
-          var result = await createLabelsForCase(caseId, vaAcc.email_address, vaAcc.display_name, gpName, labelCase.practice_name || '');
-          // Core label/mailbox transfer succeeded (backfill below is best-effort) (#12).
-          emailTransferred = true;
-
-          // Insert history messages into new VA's label (reassignment)
-          if (historyMessages && historyMessages.length > 0 && result.vaLabelId) {
-            for (var hi = 0; hi < historyMessages.length; hi++) {
-              await insertSilentCopy(vaAcc.email_address, result.vaLabelId, historyMessages[hi]);
-            }
-            console.log('[Gmail Labels] Copied', historyMessages.length, 'history messages to new VA');
-          }
-
-          // Backfill: search VA's inbox for existing emails matching this GP
-          // Only matches GP email directly, then labels all messages in those threads
-          // (so practice emails in the same conversation are included)
-          if (result.vaLabelId) {
-            try {
-              var gpEmailRes = await supabaseDbRequest('user_profiles',
-                'select=email&user_id=eq.' + encodeURIComponent(labelCase.user_id) + '&limit=1');
-              var gpEmail = gpEmailRes.ok && gpEmailRes.data && gpEmailRes.data[0] ? gpEmailRes.data[0].email : '';
-
-              if (gpEmail) {
-                var vaGmail = await getGmailClient(vaAcc.email_address);
-                if (vaGmail) {
-                  // Search for emails directly involving the GP
-                  var searchRes = await vaGmail.users.messages.list({
-                    userId: vaAcc.email_address, q: 'from:' + gpEmail + ' OR to:' + gpEmail, maxResults: 50
-                  });
-                  var gpMsgs = (searchRes.data && searchRes.data.messages) || [];
-
-                  // Collect unique thread IDs from GP emails
-                  var gpThreadIds = {};
-                  for (var si = 0; si < gpMsgs.length; si++) {
-                    var msgMeta = await vaGmail.users.messages.get({
-                      userId: vaAcc.email_address, id: gpMsgs[si].id, format: 'metadata', metadataHeaders: ['From']
-                    });
-                    if (msgMeta.data && msgMeta.data.threadId) {
-                      gpThreadIds[msgMeta.data.threadId] = true;
-                    }
-                  }
-
-                  // Label all messages in those threads (includes practice replies in same thread)
-                  var labeledCount = 0;
-                  var threadKeys = Object.keys(gpThreadIds);
-                  for (var ti = 0; ti < threadKeys.length; ti++) {
-                    try {
-                      var threadRes = await vaGmail.users.threads.get({
-                        userId: vaAcc.email_address, id: threadKeys[ti], format: 'minimal'
-                      });
-                      var threadMsgs = (threadRes.data && threadRes.data.messages) || [];
-                      for (var tmi = 0; tmi < threadMsgs.length; tmi++) {
-                        await applyGmailLabel(vaAcc.email_address, threadMsgs[tmi].id, result.vaLabelId);
-                        labeledCount++;
-                        // Copy to hello@
-                        if (result.helloLabelId) {
-                          try {
-                            var rawM = await vaGmail.users.messages.get({
-                              userId: vaAcc.email_address, id: threadMsgs[tmi].id, format: 'raw'
-                            });
-                            if (rawM.data && rawM.data.raw) {
-                              await insertSilentCopy(MASTER_ARCHIVE_EMAIL, result.helloLabelId, Buffer.from(rawM.data.raw, 'base64'));
-                            }
-                          } catch (hErr) { /* skip */ }
-                        }
-                      }
-                    } catch (thErr) { /* skip thread errors */ }
-                  }
-                  if (labeledCount > 0) {
-                    console.log('[Gmail Labels] Backfilled', labeledCount, 'emails across', threadKeys.length, 'threads for', gpName);
-                  }
-                }
-              }
-            } catch (backfillErr) {
-              console.error('[Gmail Labels] Backfill failed:', backfillErr.message);
-            }
-          }
-      } catch (err) {
-        console.error('[Gmail Labels] Label creation on assignment failed:', err.message);
-        // 'skip' is the intentional no-mailbox sentinel (not a real transfer failure);
-        // every other throw is a genuine failure surfaced to the caller (#12).
-        if (err && err.message === 'skip') {
-          emailTransferred = false;
-          emailTransferError = 'No Gmail mailbox registered for the new owner; labels not transferred.';
-        } else {
-          emailTransferred = false;
-          emailTransferError = String(err && err.message || err).slice(0, 300);
-        }
-      }
-    }
+    // The heavy lifting lives in transferCaseEmailOwnership (extracted for G2a so the
+    // bulk-reassign endpoint runs the exact same per-case side-effects).
+    var _emailTransfer = await transferCaseEmailOwnership(caseId, patch.assigned_va || null, oldAssignedVa, reassigningToArchive);
+    var emailTransferred = _emailTransfer.emailTransferred;
+    var emailTransferError = _emailTransfer.emailTransferError;
 
     // ── Gmail Label Rename on practice_name change ──
     if (patch.practice_name) {
@@ -40737,12 +43841,42 @@ Return ONLY valid JSON with no markdown formatting:
 
     const [casesRes, tasksRes, ticketsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=500'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=1000'),
       supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
     ]);
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
     const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
     const openTickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
+
+    // RSO roster: names/emails for per-case assignment + the per-RSO caseload rollup.
+    // Same loader + lib rollup the CEO "RSO Workload" card uses so the numbers match.
+    const dashRosterRows = await loadRsoTeam({ includeInactive: true });
+    const dashRsoNameById = {};
+    const dashRsoEmailById = {};
+    for (const rr of dashRosterRows) {
+      dashRsoNameById[rr.user_id] = rr.name || '';
+      dashRsoEmailById[rr.user_id] = String(rr.email || '').toLowerCase();
+    }
+    const dashNowMs = Date.now();
+    const dashTodayStr = new Date(dashNowMs).toISOString().slice(0, 10);
+    // Feed the SAME active-case set the CEO card feeds computeRsoWorkload
+    // (excludes withdrawn + >6-month-stale) so the admin caseload strip
+    // numbers match the CEO "RSO Workload" card exactly.
+    const dashActiveCases = ceoMetrics.filterActiveCases(cases, { nowMs: dashNowMs });
+    const dashRsoWorkload = ceoMetrics.computeRsoWorkload(
+      dashActiveCases, tasks,
+      dashRosterRows.map(function (rr) { return { rso_id: rr.user_id, rso_name: rr.name }; }),
+      dashTodayStr
+    ).map(function (w) {
+      return {
+        rso_id: w.rso_id,
+        rso_name: w.rso_name,
+        rso_email: w.rso_id === '__unassigned__' ? '' : (dashRsoEmailById[w.rso_id] || ''),
+        case_count: w.case_count,
+        open_tasks: w.open_tasks,
+        overdue_tasks: w.overdue_tasks
+      };
+    });
 
     const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
@@ -40876,6 +44010,7 @@ Return ONLY valid JSON with no markdown formatting:
           visibleMyintealthId = null;
         }
       }
+      var dashAssignedRsoId = c.assigned_rso || c.assigned_va || null;
       users.push({
         case_id: c.id,
         user_id: c.user_id,
@@ -40886,6 +44021,10 @@ Return ONLY valid JSON with no markdown formatting:
         country: countryCode,
         stage: c.stage,
         substage: c.substage,
+        assigned_rso_id: dashAssignedRsoId,
+        assigned_rso: dashAssignedRsoId ? (dashRsoNameById[dashAssignedRsoId] || 'Unknown') : 'Unassigned',
+        assigned_rso_email: dashAssignedRsoId ? (dashRsoEmailById[dashAssignedRsoId] || '') : '',
+        days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, dashNowMs) / ceoMetrics.DAY_MS)),
         status: c.status,
         blocker_status: c.blocker_status,
         created_at: c.created_at,
@@ -40986,6 +44125,7 @@ Return ONLY valid JSON with no markdown formatting:
         open_tickets: enrichedTickets.length
       },
       users: users,
+      rso_workload: dashRsoWorkload,
       todays_tasks: enrichedTasks,
       open_tickets: enrichedTickets,
       whatsapp_number: HAZEL_WHATSAPP_NUMBER
@@ -41305,7 +44445,9 @@ Return ONLY valid JSON with no markdown formatting:
     const gpPhone = pRow.phone_number || pRow.phone || '';
     const gpEmail = pRow.email || '';
     const gpFirstName = pRow.first_name || firstName || '';
-    if (gpPhone && DOUBLETICK_API_KEY) {
+    // Phase 6 F4 (G6): WhatsApp nudges are non-critical niceties — respect the
+    // GP's WhatsApp preference. The in-app nudge row is still created below.
+    if (gpPhone && DOUBLETICK_API_KEY && (await allowsNonCriticalNotification(gpEmail, 'whatsapp'))) {
       dtResult = await sendDoubleTickNudge(gpPhone, stage, substage, gpFirstName, message).catch(() => null);
       if (dtResult && dtResult.ok) channels.push('whatsapp');
     }
@@ -43356,7 +46498,8 @@ Return ONLY valid JSON with no markdown formatting:
     await pushDocumentNotificationToUser(userId, {
       type: 'action',
       title: docLabel + ' needs attention',
-      detail: reason + ' Please re-upload from My Documents.'
+      detail: reason + ' Please re-upload from My Documents.',
+      target: '/pages/my-documents.html?reupload=' + encodeURIComponent(docKey || '')
     });
 
     sendJson(res, 200, { ok: true, message: 'Document rejected.' });
@@ -43864,6 +47007,14 @@ Return ONLY valid JSON with no markdown formatting:
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
           'Re-upload Document', rfReuploadUrl, '');
+        // F3: matching in-app alert (bell) with the same re-upload deep link, so
+        // the rejection isn't email-only.
+        await pushDocumentNotificationToUser(rfUserId, {
+          type: 'action',
+          title: rfDocLabel + ' needs attention',
+          detail: (rfNote ? rfNote + ' ' : '') + 'Please re-upload from My Documents.',
+          target: '/pages/my-documents.html' + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '')
+        });
       }
     }
 
@@ -47014,6 +50165,33 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Admin: Stuck cases / SLA view (Phase 6 G1/R1) ──
+  // Bucketed days-in-stage aging for the RSO dashboard "Stuck cases" tab —
+  // same computation the CEO pipeline drilldown uses, so the numbers match.
+  if (pathname === '/api/admin/stuck-cases' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const stuckCtx = requireAdminSession(req, res);
+    if (!stuckCtx) return;
+    try {
+      const stuckResult = await computeStuckCaseBuckets(Date.now());
+      let stuckLastSweep = null;
+      try {
+        const stuckKv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.sla_sweep_last_results&limit=1');
+        stuckLastSweep = (stuckKv.ok && Array.isArray(stuckKv.data) && stuckKv.data[0]) ? stuckKv.data[0].value : null;
+      } catch (e) { /* snapshot is optional */ }
+      sendJson(res, 200, {
+        ok: true,
+        generated_at: new Date().toISOString(),
+        total: stuckResult.total,
+        buckets: stuckResult.buckets,
+        last_sweep: stuckLastSweep
+      });
+    } catch (stuckErr) {
+      await respondServerError(res, stuckErr, { route: pathname, method: req.method, safeMessage: 'Could not load stuck cases.' });
+    }
+    return;
+  }
+
   // ── Admin: Update registration case (extended with sponsor/agent fields) ──
   if (pathname === '/api/admin/ops/case' && req.method === 'PUT') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -47539,6 +50717,18 @@ Return ONLY valid JSON with no markdown formatting:
       if (r.notify_requested && !r.launch_notified_at) { await sendPepLaunchBroadcast(r); notifiedCount++; }
     }
     sendJson(res, 200, { ok: true, released: releasedCount, notified: notifiedCount });
+    return;
+  }
+
+  // POST /api/ceo/owner-digest/send — "Send me the digest now" (super-admin
+  // only). Forces a one-off send for testing; deliberately does NOT consume
+  // the weekly dedupe slot, so the scheduled Sunday email still goes out.
+  if (pathname === '/api/ceo/owner-digest/send' && req.method === 'POST') {
+    const ceoCtxDigest = requireCeoSession(req, res);
+    if (!ceoCtxDigest) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const digestSendResult = await sendOwnerDigestEmail({ force: true });
+    sendJson(res, digestSendResult.ok ? 200 : 500, digestSendResult);
     return;
   }
 
@@ -48113,74 +51303,84 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
+    // Series computation shared with the weekly owner digest (Phase 6 H1) —
+    // see computeWeeklyTrendSeries() so the email and the dashboard always agree.
+    var weekList = await computeWeeklyTrendSeries();
+    sendJson(res, 200, { ok: true, weeks: weekList });
+    return;
+  }
 
-    var tDAY_MS = 86400000;
-    var tWEEK_MS = 7 * tDAY_MS;
-    var tNow = Date.now();
-    var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
+  // GET /api/ceo/conversion-funnel — cross-system business funnel + time-to-
+  // placement (Phase 6 H2). Counts/durations only, NO revenue (Xero owns money).
+  // Every fetch is bounded; the math lives in lib/ceo-metrics.js so it is
+  // unit-testable and never re-derived elsewhere.
+  if (pathname === '/api/ceo/conversion-funnel' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var cfCtx = requireCeoSession(req, res);
+    if (!cfCtx) return;
+    var cfPeriodRaw = url.searchParams.get('period') || 'all';
+    var cfPeriod = ['current', '7d', '14d', '30d', 'all'].indexOf(cfPeriodRaw) !== -1 ? cfPeriodRaw : 'all';
 
-    var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
-      supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
-      supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
-      supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
-      // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
-      supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
-      supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
-      // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
-      supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
+    var [cfEnqRes, cfPracRes, cfRolesRes, cfAppsRes, cfIvRes, cfCasesRes, cfPlaceRes, cfProfRes] = await Promise.all([
+      supabaseDbRequest('site_enquiries', 'select=id,kind,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('practices', 'select=id,source,agreement_status,agreement_signed_at,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('career_roles', 'select=id,is_active,approval_status,published_at,created_at&is_active=eq.true&limit=5000'),
+      supabaseDbRequest('gp_applications', 'select=id,user_id,status,applied_at,updated_at&order=applied_at.desc&limit=10000'),
+      supabaseDbRequest('career_interviews', 'select=id,status,created_at&status=neq.cancelled&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('registration_cases', 'select=id,user_id,created_at&order=created_at.desc&limit=5000'),
+      // placements is additive DDL — tolerate the table not existing (res.ok=false -> []).
+      supabaseDbRequest('placements', 'select=id,user_id,status,placed_at,created_at&order=placed_at.desc&limit=5000'),
+      supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&limit=10000')
     ]);
 
-    var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
-    var trTasks = (trTasksRes.ok && Array.isArray(trTasksRes.data)) ? trTasksRes.data : [];
-    var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
-    var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
-    var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
-    var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
+    var cfFunnel = ceoMetrics.computeConversionFunnel({
+      enquiries: (cfEnqRes.ok && Array.isArray(cfEnqRes.data)) ? cfEnqRes.data : [],
+      practices: (cfPracRes.ok && Array.isArray(cfPracRes.data)) ? cfPracRes.data : [],
+      roles: (cfRolesRes.ok && Array.isArray(cfRolesRes.data)) ? cfRolesRes.data : [],
+      apps: (cfAppsRes.ok && Array.isArray(cfAppsRes.data)) ? cfAppsRes.data : [],
+      interviews: (cfIvRes.ok && Array.isArray(cfIvRes.data)) ? cfIvRes.data : [],
+      cases: (cfCasesRes.ok && Array.isArray(cfCasesRes.data)) ? cfCasesRes.data : [],
+      placements: (cfPlaceRes.ok && Array.isArray(cfPlaceRes.data)) ? cfPlaceRes.data : [],
+      profiles: (cfProfRes.ok && Array.isArray(cfProfRes.data)) ? cfProfRes.data : []
+    }, cfPeriod, Date.now());
 
-    function getWeekStart(dateStr) {
-      var d = new Date(dateStr);
-      var day = d.getUTCDay();
-      var diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-      var monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
-      return monday.toISOString().slice(0, 10);
-    }
+    sendJson(res, 200, {
+      ok: true,
+      period: cfPeriod,
+      practice_funnel: cfFunnel.practice_funnel,
+      gp_funnel: cfFunnel.gp_funnel,
+      time_to_placement: cfFunnel.time_to_placement
+    });
+    return;
+  }
 
-    var weeks = {};
-    var securedUserIdsByWeek = {}; // week_start -> Set(user_id) to dedupe placements (#42)
-    for (var wi = 0; wi < 12; wi++) {
-      var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
-      weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0, completions_done: 0 };
-      securedUserIdsByWeek[ws] = new Set();
-    }
+  // GET /api/ceo/source-attribution — "How GPs found us" breakdown (Phase 6 H2).
+  // GP signups by lead_source over a period, incl. 'unknown' for skipped answers.
+  if (pathname === '/api/ceo/source-attribution' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var saCtx = requireCeoSession(req, res);
+    if (!saCtx) return;
+    var saPeriodRaw = url.searchParams.get('period') || 'all';
+    var saPeriod = ['current', '7d', '14d', '30d', 'all'].indexOf(saPeriodRaw) !== -1 ? saPeriodRaw : 'all';
 
-    for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
-    for (var wti = 0; wti < trTasks.length; wti++) {
-      if (trTasks[wti].created_at) { var wk2 = getWeekStart(trTasks[wti].created_at); if (weeks[wk2]) weeks[wk2].tasks_created++; }
-      if (trTasks[wti].completed_at) { var wk3 = getWeekStart(trTasks[wti].completed_at); if (weeks[wk3]) weeks[wk3].tasks_completed++; }
-    }
-    for (var wtki = 0; wtki < trTickets.length; wtki++) {
-      if (trTickets[wtki].created_at) { var wk4 = getWeekStart(trTickets[wtki].created_at); if (weeks[wk4]) weeks[wk4].tickets_opened++; }
-      if (trTickets[wtki].resolved_at) { var wk5 = getWeekStart(trTickets[wtki].resolved_at); if (weeks[wk5]) weeks[wk5].tickets_resolved++; }
-    }
-    for (var wai = 0; wai < trApps.length; wai++) {
-      if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
-      // Secured bucketed by updated_at (its only timestamp), counted once per GP per week (#18/#42/#43)
-      if (ceoMetrics.isSecuredStatus(trApps[wai].status) && trApps[wai].updated_at) {
-        var wk7 = getWeekStart(trApps[wai].updated_at);
-        if (weeks[wk7] && trApps[wai].user_id && !securedUserIdsByWeek[wk7].has(trApps[wai].user_id)) {
-          securedUserIdsByWeek[wk7].add(trApps[wai].user_id);
-          weeks[wk7].placements_secured++;
-        }
-      }
-    }
-    for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
-    // Real completions series so the 'Completed' KPI arrow reflects GPs completing, not placements (#16/#25)
-    for (var wcdi = 0; wcdi < trComplete.length; wcdi++) {
-      if (trComplete[wcdi].completed_at) { var wk9 = getWeekStart(trComplete[wcdi].completed_at); if (weeks[wk9]) weeks[wk9].completions_done++; }
-    }
+    var [saCasesRes, saProfRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=id,user_id,created_at&order=created_at.desc&limit=5000'),
+      supabaseDbRequest('user_profiles', 'select=user_id,lead_source,lead_source_detail,onboarding_completed_at,created_at&limit=10000')
+    ]);
 
-    var weekList = Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
-    sendJson(res, 200, { ok: true, weeks: weekList });
+    var saBreakdown = ceoMetrics.computeSourceAttribution(
+      (saCasesRes.ok && Array.isArray(saCasesRes.data)) ? saCasesRes.data : [],
+      (saProfRes.ok && Array.isArray(saProfRes.data)) ? saProfRes.data : [],
+      saPeriod, Date.now()
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      period: saPeriod,
+      total: saBreakdown.total,
+      sources: saBreakdown.sources,
+      details: saBreakdown.details
+    });
     return;
   }
 
@@ -49705,98 +52905,26 @@ Return ONLY valid JSON with no markdown formatting:
     var acCtx = await atsGetApplicationContext(acAppId);
     if (!acCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
-    // No-stomp guard: a DECIDED offer (the doctor already accepted or
-    // declined) must never be overwritten back to 'sent' by a repeat click.
-    var acExistingOffer = await atsOffersStore.getAtsOfferByApplication(acAppId);
-    if (acExistingOffer && (acExistingOffer.status === 'accepted' || acExistingOffer.status === 'declined')) {
-      sendJson(res, 200, { ok: true, already: true });
+    // Reveal + record the in-app offer via the shared "practice wants this
+    // candidate" core (also used by the public practice-decision approve
+    // branch). It fail-louds on the missing `revealed` column (migration
+    // 20260705100000): we must NOT congratulate the GP while my-offer would
+    // still serve the masked practice.
+    var acReveal = await revealApplicationAndEnsureOffer(acAppId, acCtx, {
+      sentBy: ctxAC.email || '',
+      notes: 'Practice accepted — interview invitation'
+    });
+    if (acReveal.status === 'already') { sendJson(res, 200, { ok: true, already: true }); return; }
+    if (acReveal.status === 'migration_required') {
+      sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
       return;
     }
-    // Idempotent: acceptance already recorded — revealed, or its
-    // pre-migration proxy practice_submission_status='client_approved' —
-    // with an offer on file → no-op repeat click.
-    var acAlreadyApproved = acCtx.app && (acCtx.app.revealed === true
-      || String(acCtx.app.practice_submission_status || '') === 'client_approved');
-    if (acAlreadyApproved && acExistingOffer) {
-      sendJson(res, 200, { ok: true, already: true });
+    if (acReveal.status !== 'ok') {
+      sendJson(res, 502, { ok: false, message: 'Could not record the acceptance — nothing was changed. Please try again.' });
       return;
     }
 
-    // PATCH gp_applications {revealed:true, practice_submission_status:'client_approved'}.
-    // FAIL LOUD when the reveal itself cannot persist: `revealed` ships in
-    // migration 20260705100000, and if that column is missing we must NOT
-    // record an offer or congratulate the GP — the congrats email names the
-    // real practice while /api/career/my-offer would still serve the masked
-    // identity. Same fail-loud rule as the practice-intake/sign 503 above.
-    // practice_submission_status (older, stable column) may persist or not —
-    // it's a bonus signal, never a substitute for the persisted reveal.
-    var acPatchBody = { revealed: true, practice_submission_status: 'client_approved' };
-    if (isSupabaseDbConfigured()) {
-      if (_gpApplicationsRevealedMissing) {
-        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
-        return;
-      }
-      var acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
-        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
-      });
-      if (!acRes.ok && isMissingColumnInsertError(acRes, 'revealed')) {
-        _gpApplicationsRevealedMissing = true;
-        console.error('[ats accept] gp_applications.revealed column missing — run migration 20260705100000. Refusing to record the acceptance (the GP would be congratulated while still seeing a masked practice).');
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
-        return;
-      }
-      if (!acRes.ok && isMissingColumnInsertError(acRes, 'practice_submission_status')) {
-        // The bonus column being absent is tolerable — the reveal is what matters.
-        delete acPatchBody.practice_submission_status;
-        acRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acAppId), {
-          method: 'PATCH', headers: { Prefer: 'return=representation' }, body: acPatchBody
-        });
-      }
-      if (!acRes.ok) {
-        console.error('[ats accept] could not persist the acceptance for application', acAppId, ':', acRes && acRes.data);
-        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'Could not record the acceptance — nothing was changed. Check the database (migration 20260705100000) and try again.' });
-        return;
-      }
-    } else {
-      var acLocalApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(acAppId); });
-      if (!acLocalApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
-      Object.assign(acLocalApp, acPatchBody);
-      saveDbState();
-    }
-
-    // Role/practice context for the offer record (ctx alone only carries the
-    // denormalised practiceName — the offer needs practice_id + the intake's
-    // billing split too, both of which live on the career_roles row).
-    var acRole = null;
-    if (acCtx.careerRoleId) {
-      acRole = isSupabaseDbConfigured()
-        ? await getCareerRoleRowById(acCtx.careerRoleId)
-        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(acCtx.careerRoleId); }) || null);
-    }
-    var acJobTitle = (acRole && acRole.title) || (acCtx.app && acCtx.app.job_title) || '';
-    var acPracticeName = acCtx.practiceName || (acRole && acRole.practice_name) || '';
-    var acIntake = (acRole && acRole.source_payload && acRole.source_payload.intake) || {};
-
-    // A live 'sent' offer already on file (e.g. the consultant sent a manual
-    // offer with real terms before clicking accept) is kept as-is — never
-    // overwritten by this synthetic interview-invitation record.
-    if (!acExistingOffer || acExistingOffer.status !== 'sent') {
-      var acSaved = await atsOffersStore.saveAtsOffer({
-        application_id: acAppId,
-        user_id: acCtx.userId || null,
-        career_role_id: acCtx.careerRoleId || null,
-        practice_id: (acRole && acRole.practice_id) || null,
-        job_title: acJobTitle,
-        practice_name: acPracticeName,
-        billing_split: sanitizeUserString(String(acIntake.percentage_split || ''), 120),
-        status: 'sent',
-        sent_by: ctxAC.email || '',
-        sent_at: atsNowIso(),
-        notes: 'Practice accepted — interview invitation'
-      });
-      if (!acSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
-    }
+    var acPracticeName = acCtx.practiceName || (acReveal.offer && acReveal.offer.practice_name) || '';
 
     // Kanban → 'offer' via the same forward-only rule as POST /api/ats/offer:
     // a later stage is never yanked backwards and terminal lanes
@@ -51250,6 +54378,10 @@ async function handleRequest(req, res) {
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
+    // Task 8: public decision landing page reached from the submit-to-practice
+    // email's Approve / Turn down buttons — token-authed in the URL, no
+    // session. Same exemption shape as practice-intake.html above.
+    pathname === '/pages/practice-decision.html' ||
     // D2: read-only practice status page — token-authed by the ?token= its
     // own fetch sends to /api/practice/status (same public model as intake).
     pathname === '/pages/practice-status.html' ||
@@ -51953,6 +55085,7 @@ module.exports.mergeRsoRoster = mergeRsoRoster;
 module.exports.findRsoPhoneInRoster = findRsoPhoneInRoster;
 module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
+module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   makePracticeActionToken,
   verifyPracticeActionToken,
@@ -52057,6 +55190,9 @@ module.exports.__testUtils = {
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
-  enumerateIncompleteOnboardingGps
+  enumerateIncompleteOnboardingGps,
+  buildCandidateSubmissionEmailHtml,
+  generateCandidateRecommendation,
+  buildCandidateIntro: careerIntro.buildCandidateIntro
 };
 // cache-bust 1778597236

@@ -44,12 +44,17 @@
     if (!title) return null;
     const detail = typeof item.detail === "string" ? item.detail.trim() : "";
     const ts = typeof item.ts === "string" ? item.ts : new Date().toISOString();
-    return {
+    const out = {
       type: normalizeType(item.type),
       title,
       detail,
       ts
     };
+    // Server-provided deep link (e.g. a rejected doc's re-upload card) — only
+    // same-app /pages/ paths survive sanitization.
+    if (typeof item.target === "string" && item.target.indexOf("/pages/") === 0) out.target = item.target;
+    if (typeof item.nudgeId === "string" && item.nudgeId) out.nudgeId = item.nudgeId;
+    return out;
   }
 
   function sanitizeUpdates(list) {
@@ -143,7 +148,11 @@
         title: item.title,
         kind: item.type === "action" ? "action" : "update",
         unread: readState[id] !== true,
-        target: item.type === "action" && item.nudgeId
+        // A per-item deep link (e.g. the rejected doc's re-upload card) beats
+        // the generic messages-tab fallbacks.
+        target: (typeof item.target === "string" && item.target.indexOf("/pages/") === 0)
+          ? item.target
+          : item.type === "action" && item.nudgeId
           ? "/pages/messages#chat-" + encodeURIComponent(item.nudgeId)
           : item.type === "action" ? "/pages/messages#tab-action"
           : "/pages/messages#tab-updates",

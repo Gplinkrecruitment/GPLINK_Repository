@@ -68,6 +68,8 @@
       whoMoving: "",
       childrenCount: 1,
       childrenAges: [],
+      leadSource: "",        // optional "How did you hear about us?" — never blocks progression
+      leadSourceDetail: "",
       idVerification: null,
       completedAt: null,
     };
@@ -1066,6 +1068,35 @@
     hideError("cityError");
     saveState();
   });
+
+  // ── How did you hear about us? (OPTIONAL — never blocks progression) ──
+  const leadSourceEl = document.getElementById("leadSource");
+  const leadSourceDetailEl = document.getElementById("leadSourceDetail");
+  const LEAD_SOURCE_DETAIL_KEYS = ["other", "colleague_referral"];
+  function updateLeadSourceUI() {
+    if (!leadSourceEl) return;
+    leadSourceEl.value = state.leadSource || "";
+    if (leadSourceDetailEl) {
+      const showDetail = LEAD_SOURCE_DETAIL_KEYS.includes(state.leadSource);
+      leadSourceDetailEl.style.display = showDetail ? "block" : "none";
+      leadSourceDetailEl.value = state.leadSourceDetail || "";
+    }
+  }
+  if (leadSourceEl) {
+    leadSourceEl.addEventListener("change", () => {
+      state.leadSource = leadSourceEl.value;
+      if (!LEAD_SOURCE_DETAIL_KEYS.includes(state.leadSource)) state.leadSourceDetail = "";
+      updateLeadSourceUI();
+      saveState();
+    });
+  }
+  if (leadSourceDetailEl) {
+    leadSourceDetailEl.addEventListener("change", () => {
+      state.leadSourceDetail = leadSourceDetailEl.value.slice(0, 200);
+      saveState();
+    });
+  }
+  updateLeadSourceUI();
 
   // ── Who is moving ──────────────────────────
   const whoCards = document.querySelectorAll("#whoMovingGrid .option-card");

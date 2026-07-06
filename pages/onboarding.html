@@ -1263,6 +1263,19 @@ if (window.parent && window.parent !== window) {
                 </div>
               </div>
             </div>
+            <div>
+              <label class="field-label" for="leadSource">How did you hear about us? <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+              <select id="leadSource">
+                <option value="" selected>Prefer not to say</option>
+                <option value="google">Google search</option>
+                <option value="facebook_instagram">Facebook or Instagram</option>
+                <option value="colleague_referral">Referral from a colleague</option>
+                <option value="medical_college_event">Medical college or event</option>
+                <option value="other">Other</option>
+              </select>
+              <input type="text" id="leadSourceDetail" maxlength="200" placeholder="Tell us more — e.g. who referred you (optional)" style="display:none;margin-top:8px;" />
+              <div class="field-hint">This helps us understand where to reach more GPs. You can skip it.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1378,6 +1391,6 @@ if (window.parent && window.parent !== window) {
   </div>
 
   <script src="../js/qualification-camera.js?v=20260614a"></script>
-  <script src="../js/onboarding.js?v=20260707a"></script>
+  <script src="../js/onboarding.js?v=20260707b"></script>
 </body>
 </html>

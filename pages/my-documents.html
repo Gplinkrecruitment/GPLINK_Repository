@@ -8,10 +8,10 @@
   <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
-  <script src="../js/updates-sync.js?v=20260706a" defer></script>
+  <script src="../js/updates-sync.js?v=20260707a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260620b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260707a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -775,6 +775,30 @@
       margin: 8px 0 0;
     }
     .doc-reject-note strong { font-weight: 700; }
+
+    /* F3: document validity window badges + expiry entry */
+    .doc-expiry-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 8px;
+      padding: 6px 10px;
+      margin: 8px 0 0;
+    }
+    .doc-expiry-badge.ok { color: #047857; background: #ecfdf5; border: 1px solid #d1fae5; }
+    .doc-expiry-badge.soon { color: #b45309; background: #fffbeb; border: 1px solid #fde68a; }
+    .doc-expiry-badge.expired { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+    .doc-expiry-edit { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .doc-expiry-edit label { font-size: 11px; font-weight: 700; color: var(--gp-muted, #64748b); }
+    .doc-expiry-edit input[type="date"] {
+      border: 1px solid #d7e0ee;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      background: #fff;
+      color: inherit;
+    }
+    .doc-expiry-edit .btn { padding: 6px 12px; font-size: 12px; }
 
     .cert-scan-btn svg {
       stroke-linecap: round;
@@ -1970,6 +1994,8 @@
       // the card stays stuck on the locally-cached "under review".
       if (typeof payload.status === "string" && payload.status) next.status = payload.status;
       if (typeof payload.rejection_reason === "string") next.rejection_reason = payload.rejection_reason;
+      // F3: validity window ("Valid until / Expires in N days / Expired" badge).
+      if (typeof payload.expires_at === "string" || payload.expires_at === null) next.expires_at = payload.expires_at;
       if (next.fileName || next.downloadUrl || next.storagePath) next.uploaded = true;
       return next;
     }
@@ -1995,6 +2021,9 @@
       });
       const data = await response.json().catch(function() { return {}; });
       if (!response.ok || !data.ok) throw new Error(data.message || "prepared_documents_load_failed");
+      // F3: server-persisted AI scan failures (doc key -> { reason, failCount, ... })
+      // so the last failure reason survives the dismissable popup and device switches.
+      window.__gpDocScanFailures = (data.scanFailures && typeof data.scanFailures === "object") ? data.scanFailures : {};
       return data.docs && typeof data.docs === "object" ? data.docs : {};
     }
 
@@ -2011,7 +2040,8 @@
           fileSize: payload.fileSize,
           fileDataUrl: payload.fileDataUrl,
           forceReview: !!payload.forceReview,
-          reviewReason: payload.reviewReason || ""
+          reviewReason: payload.reviewReason || "",
+          expiresAt: payload.expiresAt || ""
         })
       });
       const data = await response.json().catch(function() { return {}; });
@@ -2099,6 +2129,64 @@
       if (status === "action_required") return "Action required";
       if (status === "cert_attention") return "Needs attention";
       return "Pending";
+    }
+
+    /* -- F3: expiry badges + persistent scan-failure notes -- */
+    // Doc types with a validity window (client mirror of the server's DOC_EXPIRY_TYPES).
+    var EXPIRY_DOC_KEYS = {
+      certificate_good_standing: true,
+      certificate_of_good_standing: true,
+      criminal_history: true,
+      criminal_history_check: true,
+      police_check: true
+    };
+
+    function expiryInfoHtml(key, itemState) {
+      var st = itemState && typeof itemState === "object" ? itemState : {};
+      // A real stored file (name/url), not just a "requested" marker — the expiry
+      // endpoint needs a server-side document row to attach the date to.
+      var hasFile = !!(st.fileName || st.downloadUrl);
+      var expiresAt = st.expires_at ? new Date(st.expires_at) : null;
+      if (expiresAt && isNaN(expiresAt.getTime())) expiresAt = null;
+      var html = "";
+      if (expiresAt) {
+        var days = Math.ceil((expiresAt.getTime() - Date.now()) / 86400000);
+        var dateStr = expiresAt.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+        if (days < 0) {
+          html += '<div class="doc-expiry-badge expired">Expired ' + dateStr + ' &mdash; please upload a renewal</div>';
+        } else if (days <= 30) {
+          html += '<div class="doc-expiry-badge soon">Expires in ' + days + ' day' + (days === 1 ? '' : 's') + ' (' + dateStr + ')</div>';
+        } else {
+          html += '<div class="doc-expiry-badge ok">Valid until ' + dateStr + '</div>';
+        }
+      }
+      // Only expiry-relevant docs with a file get the enter/confirm control.
+      if (hasFile && EXPIRY_DOC_KEYS[key] && st.status !== "scanning") {
+        var inputVal = expiresAt ? expiresAt.toISOString().slice(0, 10) : "";
+        html += '<div class="doc-expiry-edit"><label>Expiry date</label>' +
+          '<input type="date" data-expiry-input="' + key + '" value="' + inputVal + '" />' +
+          '<button class="btn btn-soft" type="button" data-expiry-save="' + key + '">' + (expiresAt ? 'Update' : 'Save') + '</button></div>';
+      }
+      return html;
+    }
+
+    // The last AI-scan failure reason, persisted server-side, so a GP who
+    // dismissed the popup (or switched device) still sees why it failed.
+    function scanFailureNoteHtml(key, itemState) {
+      var fails = (window.__gpDocScanFailures && window.__gpDocScanFailures[key]) || null;
+      if (!fails || !fails.reason) return "";
+      var status = itemState && itemState.status;
+      // An active file/review supersedes the old failure note.
+      if (status === "rejected" || status === "under_review" || status === "certified" ||
+          status === "accepted" || status === "approved" || status === "uploaded" ||
+          status === "requested" || status === "scanning") return "";
+      var threshold = Number(fails.threshold || 3);
+      var left = Math.max(0, threshold - Number(fails.failCount || 0));
+      return '<p class="doc-reject-note"><strong>Last scan failed.</strong> ' + escapeHtml(fails.reason) +
+        (left > 0
+          ? ' <span style="color:var(--gp-muted);">You have ' + left + ' attempt' + (left === 1 ? '' : 's') + ' left before our team checks it by hand.</span>'
+          : '') +
+        '</p>';
     }
 
     /* -- Help popover -- */
@@ -2233,7 +2321,7 @@
         if (itemState.status === "pending" && item.key !== 'criminal_history') {
           markBtnHtml = '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>';
         }
-        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + item.title + '</span><span class="pill ' + instSClass + '">' + instSLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + markBtnHtml + '</div>' + refNumHtml;
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + item.title + '</span><span class="pill ' + instSClass + '">' + instSLabel + '</span></div>' + helpLink + scanFailureNoteHtml(item.key, itemState) + '<div class="doc-card-actions">' + markBtnHtml + '</div>' + refNumHtml + expiryInfoHtml(item.key, itemState);
         ahpraGrid.appendChild(card);
       });
 
@@ -2283,7 +2371,7 @@
         var card = document.createElement("div");
         card.className = "doc-card";
         card.setAttribute("data-doc-card", doc.key);
-        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + rejectionHtml + '<div class="doc-card-actions">' + uploadHtml + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + rejectionHtml + scanFailureNoteHtml(doc.key, itemState) + '<div class="doc-card-actions">' + uploadHtml + '</div>' + expiryInfoHtml(doc.key, itemState);
         youGrid.appendChild(card);
       });
 
@@ -2506,8 +2594,37 @@
         if (counts[key]) delete counts[key];
       }
 
-      function handleCertFailure(key, state, country, title, msg, storedFile) {
-        var fails = incCertFailCount(key);
+      function handleCertFailure(key, state, country, title, msg, storedFile, scanMeta) {
+        // The SERVER count is authoritative (it survives device switches and a
+        // cleared cache); the localStorage counter stays as an offline fallback.
+        var localFails = incCertFailCount(key);
+        var serverFails = scanMeta && Number(scanMeta.scanFailCount) > 0 ? Number(scanMeta.scanFailCount) : 0;
+        var fails = Math.max(localFails, serverFails);
+        if (serverFails > localFails) getCertFailCounts()[key] = serverFails;
+
+        // Remember the failure reason locally so the card note shows immediately
+        // (the server also persists it for future visits).
+        try {
+          window.__gpDocScanFailures = window.__gpDocScanFailures || {};
+          window.__gpDocScanFailures[key] = { reason: stripHtmlToText(msg), failCount: fails, threshold: CERT_SUPPORT_THRESHOLD };
+        } catch (e) {}
+
+        // Server already escalated to manual review with the scanned file in hand.
+        if (scanMeta && scanMeta.manualReview) {
+          resetCertFailCount(key);
+          try { delete window.__gpDocScanFailures[key]; } catch (e) {}
+          state.docs[key] = applyStoredFile({
+            uploaded: true,
+            fileName: (scanMeta.document && scanMeta.document.fileName) || (storedFile && storedFile.fileName) || "",
+            status: "under_review",
+            manualReview: true,
+            manualReviewSubmittedAt: new Date().toISOString()
+          }, scanMeta.document || { fileName: (storedFile && storedFile.fileName) || "" });
+          persistDocsState(state, true);
+          renderAll(country, state);
+          showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + title + "</strong> for manual review. Our team will check it within 24 hours.");
+          return;
+        }
         if (fails >= CERT_SUPPORT_THRESHOLD && storedFile && storedFile.fileDataUrl) {
           submitDocForManualReview(key, state, country, storedFile, title, stripHtmlToText(msg));
           return;
@@ -2590,6 +2707,7 @@
         }, storedFile);
         storePendingDocFile(key, storedFile);
         resetCertFailCount(key);
+        try { if (window.__gpDocScanFailures) delete window.__gpDocScanFailures[key]; } catch (e) {}
         persistDocsState(state, true);
         renderAll(country, state);
         showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + docTitle + "</strong> for manual review. Our team will check it within 24 hours.");
@@ -2683,7 +2801,35 @@
         return reason;
       }
 
-      function handlePreparedDocClassificationFailure(key, state, country, fileName, docTitle, message, title) {
+      function handlePreparedDocClassificationFailure(key, state, country, fileName, docTitle, message, title, scanMeta) {
+        // F3: persist the failure reason on the card — only when the server
+        // actually counted a scan failure (technical errors don't burn attempts).
+        try {
+          if (scanMeta && Number(scanMeta.scanFailCount) > 0) {
+            window.__gpDocScanFailures = window.__gpDocScanFailures || {};
+            window.__gpDocScanFailures[key] = {
+              reason: stripHtmlToText(message || ("This file does not appear to be the correct document for " + docTitle + ".")),
+              failCount: Number(scanMeta.scanFailCount),
+              threshold: Number(scanMeta.scanFailThreshold) || CERT_SUPPORT_THRESHOLD
+            };
+          }
+        } catch (e) {}
+        // Server hit the 3-fail threshold and already routed the file to a human
+        // reviewer — reflect that instead of deleting the upload.
+        if (scanMeta && scanMeta.manualReview) {
+          try { delete window.__gpDocScanFailures[key]; } catch (e) {}
+          state.docs[key] = applyStoredFile({
+            uploaded: true,
+            fileName: (scanMeta.document && scanMeta.document.fileName) || fileName || "",
+            status: "under_review",
+            manualReview: true,
+            manualReviewSubmittedAt: new Date().toISOString()
+          }, scanMeta.document || { fileName: fileName || "" });
+          persistDocsState(state, true);
+          renderAll(country, state);
+          showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + docTitle + "</strong> for manual review. Our team will check it within 24 hours.");
+          return;
+        }
         delete state.docs[key];
         deletePreparedDocumentFile(country, key);
         persistDocsState(state, true);
@@ -2715,14 +2861,21 @@
                 fileBase64: prep.base64,
                 mimeType: prep.mimeType,
                 expectedKey: key,
-                expectedLabel: docTitle
+                expectedLabel: docTitle,
+                country: country,
+                fileName: file.name
               })
             });
           }).then(function(res) {
             return window.gpReadJsonResponse ? window.gpReadJsonResponse(res) : res.json();
           }).then(function(data) {
             if (data.ok && data.classification && data.classification.matches) {
+              // F3: if the AI read a printed expiry date off the document, save it.
+              if (data.classification.expiryDate && /^\d{4}-\d{2}-\d{2}/.test(String(data.classification.expiryDate))) {
+                storedFile.expiresAt = String(data.classification.expiryDate);
+              }
               savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+                try { if (window.__gpDocScanFailures) delete window.__gpDocScanFailures[key]; } catch (e) {}
                 state.docs[key] = applyStoredFile({
                   uploaded: true,
                   fileName: file.name,
@@ -2753,7 +2906,7 @@
               );
               return;
             }
-            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, buildClassificationFailureMessage(docTitle, data));
+            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, buildClassificationFailureMessage(docTitle, data), null, data);
           }).catch(function(err) {
             var message = err && err.message ? err.message : "Could not verify this document. Please try again.";
             handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, message, "Scan Failed");
@@ -2789,6 +2942,7 @@
 
           window.gpVerifyCertifiedDocument(file, {
             docKey: key,
+            country: country,
             documentType: docTitle || "qualification document"
           }).then(function(data) {
             if (data.ok && data.verification) {
@@ -2797,6 +2951,7 @@
               if (isCertified) {
                 savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
                   resetCertFailCount(key);
+                  try { if (window.__gpDocScanFailures) delete window.__gpDocScanFailures[key]; } catch (e) {}
                   state.docs[key] = applyStoredFile({
                     uploaded: true,
                     fileName: file.name,
@@ -2822,7 +2977,7 @@
               } else {
                 var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { docKey: key, documentTitle: docTitle, mode: "certification" }), storedFile);
+                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { docKey: key, documentTitle: docTitle, mode: "certification" }), storedFile, data);
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };
@@ -2888,8 +3043,16 @@
         runIchcVerification(file, state, country);
       });
 
-      function handleIchcFailure(ichcState, ichcCountry, issuesHtml) {
-        var fails = incCertFailCount('criminal_history');
+      function handleIchcFailure(ichcState, ichcCountry, issuesHtml, scanMeta) {
+        // Server count is authoritative (F3); local counter is the offline fallback.
+        var localFails = incCertFailCount('criminal_history');
+        var serverFails = scanMeta && Number(scanMeta.scanFailCount) > 0 ? Number(scanMeta.scanFailCount) : 0;
+        var fails = Math.max(localFails, serverFails);
+        if (serverFails > localFails) getCertFailCounts()['criminal_history'] = serverFails;
+        try {
+          window.__gpDocScanFailures = window.__gpDocScanFailures || {};
+          window.__gpDocScanFailures['criminal_history'] = { reason: stripHtmlToText(issuesHtml), failCount: fails, threshold: CERT_SUPPORT_THRESHOLD };
+        } catch (e) {}
         var remaining = CERT_SUPPORT_THRESHOLD - fails;
         var extra = remaining > 0
           ? '<br><span style="color:#64748b;font-size:12px;">You have ' + remaining + ' attempt' + (remaining === 1 ? '' : 's') + ' left. After that we\'ll save it for our team to check by hand.</span>'
@@ -2932,6 +3095,7 @@
             }
             if (data && data.ok && data.verified && data.referenceNumber) {
               resetCertFailCount('criminal_history');
+              try { if (window.__gpDocScanFailures) delete window.__gpDocScanFailures['criminal_history']; } catch (e) {}
               ichcState.docs.criminal_history = applyStoredFile({
                 uploaded: true, fileName: (data.document && data.document.fileName) || file.name,
                 status: "accepted", referenceNumber: data.referenceNumber
@@ -2954,6 +3118,7 @@
             }
             if (data && data.manualReview) {
               resetCertFailCount('criminal_history');
+              try { if (window.__gpDocScanFailures) delete window.__gpDocScanFailures['criminal_history']; } catch (e) {}
               ichcState.docs.criminal_history = applyStoredFile({ uploaded: true, fileName: (data.document && data.document.fileName) || file.name, status: "under_review" }, { downloadUrl: (data.document && data.document.downloadUrl) || '' });
               ichcState.docs.criminal_history.url = (data.document && data.document.downloadUrl) || '';
               persistDocsState(ichcState, true);
@@ -2962,7 +3127,7 @@
               return;
             }
             var issues = (data && data.issues && data.issues.length) ? data.issues : [(data && data.message) || "We couldn't verify this document."];
-            handleIchcFailure(ichcState, ichcCountry, issues.map(function (s) { return getFriendlyScanMessageHtml(s, { documentTitle: 'Fit2Work ICHC reference page', mode: 'classification' }); }).join('<br>'));
+            handleIchcFailure(ichcState, ichcCountry, issues.map(function (s) { return getFriendlyScanMessageHtml(s, { documentTitle: 'Fit2Work ICHC reference page', mode: 'classification' }); }).join('<br>'), data);
           }).catch(function () {
             handleIchcFailure(ichcState, ichcCountry, "Could not connect to the verification service. Please try again.");
           });
@@ -2974,6 +3139,40 @@
       panelsWrap.addEventListener("click", function(event) {
         var target = event.target;
         if (!(target instanceof HTMLElement)) return;
+
+        /* F3: save/confirm a document's expiry date */
+        var expBtn = target.closest("[data-expiry-save]");
+        if (expBtn) {
+          var expKey = expBtn.getAttribute("data-expiry-save");
+          var expInput = panelsWrap.querySelector('input[data-expiry-input="' + expKey + '"]');
+          var expVal = expInput && expInput.value;
+          if (!expVal) {
+            showCertResultPopup(false, "Missing date", "Please choose the expiry date printed on the document, then press Save.");
+            return;
+          }
+          expBtn.disabled = true;
+          fetch("/api/prepared-documents/expiry", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ country: country, key: expKey, expiresAt: expVal })
+          }).then(function(r) { return r.json().catch(function() { return {}; }); }).then(function(resp) {
+            expBtn.disabled = false;
+            if (!resp || !resp.ok) {
+              showCertResultPopup(false, "Couldn't save", (resp && resp.message) || "We could not save that expiry date. Please try again.");
+              return;
+            }
+            if (state.docs[expKey]) {
+              state.docs[expKey].expires_at = resp.expiresAt;
+              persistDocsState(state, true);
+            }
+            renderAll(country, state);
+          }).catch(function() {
+            expBtn.disabled = false;
+            showCertResultPopup(false, "Couldn't save", "We could not save that expiry date. Please try again.");
+          });
+          return;
+        }
 
         /* Show me how click */
         var helpBtn = target.closest("[data-help-idx]");
@@ -3028,7 +3227,7 @@
                   ? result.verification.issues.join("<br>")
                   : "The document does not appear to be properly certified.";
                 state.docs[scanKey] = { uploaded: false, fileName: result.fileName || "" };
-                handleCertFailure(scanKey, state, country, scanDoc.title, issues, storedFile);
+                handleCertFailure(scanKey, state, country, scanDoc.title, issues, storedFile, result);
               }
             });
           }

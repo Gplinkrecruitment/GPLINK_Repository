@@ -7,10 +7,10 @@
   <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
-  <script src="../js/updates-sync.js?v=20260706a" defer></script>
+  <script src="../js/updates-sync.js?v=20260707a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260620b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260707a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <title>GP Link - My Account</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -359,6 +359,12 @@
     }
 
     /* ─── SIGN OUT + DELETE ─── */
+    .pref-rows { display:flex; flex-direction:column; gap:12px; }
+    .pref-row { display:flex; align-items:flex-start; gap:12px; cursor:pointer; }
+    .pref-row input[type="checkbox"] { margin-top:3px; width:17px; height:17px; accent-color:#2563eb; flex:none; cursor:pointer; }
+    .pref-label { display:flex; flex-direction:column; gap:2px; }
+    .pref-label b { font-size:13.5px; font-weight:600; }
+    .pref-label small { font-size:12px; color:var(--muted); line-height:1.4; }
     .signout-section { display:flex; justify-content:center; margin:4px 0 8px; }
     .signout-btn {
       font:inherit; font-size:14px; font-weight:700; color:#334155;
@@ -693,6 +699,48 @@
               </div>
             </div>
           </div>
+          <div class="security-box" style="margin-top:12px;">
+            <button class="security-toggle" id="changeEmailToggleBtn" type="button" aria-expanded="false">
+              <span>Change email</span>
+              <span class="security-toggle-icon" id="changeEmailToggleIcon">+</span>
+            </button>
+            <div class="security-content" id="changeEmailContent">
+              <p class="security-copy" style="margin-bottom:10px;">We'll send a confirmation link to your new address. Nothing changes until you click it. After the change you'll be signed out everywhere and sign in with the new email.</p>
+              <div class="security-row">
+                <input id="newEmailInput" type="email" maxlength="120" autocomplete="off" placeholder="New email address" />
+              </div>
+              <div class="security-actions">
+                <button class="btn primary" id="changeEmailBtn" type="button">Send verification</button>
+                <p class="security-status" id="changeEmailStatus"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-header">
+            <svg class="section-ic" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <div class="section-header-left">
+              <h3 class="section-title">Notifications</h3>
+              <p class="section-subtitle">Choose which reminders you'd like from us.</p>
+            </div>
+          </div>
+          <div class="pref-rows" id="notificationPrefRows">
+            <label class="pref-row">
+              <input type="checkbox" id="prefEmailNudges" data-pref-key="emailNudges" checked />
+              <span class="pref-label"><b>Email reminders &amp; nudges</b><small>Check-ins if you pause part-way through onboarding or a step.</small></span>
+            </label>
+            <label class="pref-row">
+              <input type="checkbox" id="prefWhatsapp" data-pref-key="whatsapp" checked />
+              <span class="pref-label"><b>WhatsApp messages</b><small>Friendly WhatsApp check-ins from the GP Link team.</small></span>
+            </label>
+            <label class="pref-row">
+              <input type="checkbox" id="prefPush" data-pref-key="push" checked />
+              <span class="pref-label"><b>Push notifications</b><small>Optional device notifications (where supported).</small></span>
+            </label>
+          </div>
+          <p class="security-copy" style="margin-top:10px;">Important messages about your registration, documents, offers, interviews and account security are always sent.</p>
+          <p class="security-status" id="notificationPrefStatus"></p>
         </section>
 
         <section class="section-card">
@@ -724,10 +772,13 @@
           </div>
         </section>
 
-        <div class="signout-section">
+        <div class="signout-section" style="gap:10px; flex-wrap:wrap;">
           <button class="signout-btn" id="accountSignOutBtn" type="button">Sign Out</button>
+          <button class="signout-btn" id="signOutAllBtn" type="button">Sign out of all devices</button>
         </div>
-        <div class="delete-line">
+        <p class="security-status" id="signOutAllStatus" style="text-align:center;"></p>
+        <div class="delete-line" style="gap:14px;">
+          <button type="button" class="delete-link" id="downloadDataBtn" style="color:var(--muted);">Download my data</button>
           <button type="button" class="delete-link" id="deleteAccountTrigger">Delete account</button>
         </div>
       </div>
@@ -1703,8 +1754,132 @@
       });
     });
 
+    /* ─── NOTIFICATIONS, EMAIL CHANGE, SIGN-OUT-ALL, DATA EXPORT (F4) ─── */
+    var prefStatusEl = document.getElementById("notificationPrefStatus");
+    var prefInputs = Array.prototype.slice.call(document.querySelectorAll("[data-pref-key]"));
+
+    function setPrefStatus(message, isError) {
+      if (!prefStatusEl) return;
+      prefStatusEl.textContent = message || "";
+      prefStatusEl.className = "security-status" + (isError ? " error" : "");
+    }
+
+    async function loadNotificationPrefs() {
+      try {
+        var response = await fetch("/api/account/notification-preferences", { credentials: "same-origin" });
+        var data = await response.json();
+        if (!response.ok || !data.ok || !data.preferences) return;
+        prefInputs.forEach(function(input) {
+          var key = input.getAttribute("data-pref-key");
+          input.checked = data.preferences[key] !== false;
+        });
+      } catch (err) {}
+    }
+
+    async function saveNotificationPref(input) {
+      var key = input.getAttribute("data-pref-key");
+      var payload = {};
+      payload[key] = !!input.checked;
+      setPrefStatus("Saving...", false);
+      try {
+        var response = await fetch("/api/account/notification-preferences", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        var data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't save.");
+        setPrefStatus("Preferences saved.", false);
+      } catch (err) {
+        input.checked = !input.checked;
+        setPrefStatus(err.message || "Couldn't save. Check connection.", true);
+      }
+    }
+
+    prefInputs.forEach(function(input) {
+      input.addEventListener("change", function() { saveNotificationPref(input); });
+    });
+
+    var changeEmailToggleBtnEl = document.getElementById("changeEmailToggleBtn");
+    var changeEmailToggleIconEl = document.getElementById("changeEmailToggleIcon");
+    var changeEmailContentEl = document.getElementById("changeEmailContent");
+    var changeEmailBtnEl = document.getElementById("changeEmailBtn");
+    var newEmailInputEl = document.getElementById("newEmailInput");
+    var changeEmailStatusEl = document.getElementById("changeEmailStatus");
+
+    function setChangeEmailStatus(message, isError) {
+      if (!changeEmailStatusEl) return;
+      changeEmailStatusEl.textContent = message || "";
+      changeEmailStatusEl.className = "security-status" + (isError ? " error" : "");
+    }
+
+    if (changeEmailToggleBtnEl && changeEmailContentEl && changeEmailToggleIconEl) {
+      changeEmailToggleBtnEl.addEventListener("click", function() {
+        var expanded = changeEmailToggleBtnEl.getAttribute("aria-expanded") === "true";
+        changeEmailToggleBtnEl.setAttribute("aria-expanded", expanded ? "false" : "true");
+        changeEmailToggleIconEl.textContent = expanded ? "+" : "-";
+        changeEmailContentEl.classList.toggle("is-open", !expanded);
+      });
+    }
+
+    if (changeEmailBtnEl) {
+      changeEmailBtnEl.addEventListener("click", async function() {
+        var newEmail = newEmailInputEl ? newEmailInputEl.value.trim() : "";
+        if (!newEmail || newEmail.indexOf("@") === -1) { setChangeEmailStatus("Enter a valid email address.", true); return; }
+        changeEmailBtnEl.disabled = true;
+        setChangeEmailStatus("Sending verification...", false);
+        try {
+          var response = await fetch("/api/account/change-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ newEmail: newEmail })
+          });
+          var data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't send verification.");
+          setChangeEmailStatus("Check the inbox of " + newEmail + " — click the link to confirm the change.", false);
+          if (newEmailInputEl) newEmailInputEl.value = "";
+        } catch (err) {
+          setChangeEmailStatus(err.message || "Couldn't send. Check connection.", true);
+        } finally {
+          changeEmailBtnEl.disabled = false;
+        }
+      });
+    }
+
+    var signOutAllBtnEl = document.getElementById("signOutAllBtn");
+    var signOutAllStatusEl = document.getElementById("signOutAllStatus");
+    if (signOutAllBtnEl) {
+      signOutAllBtnEl.addEventListener("click", async function() {
+        if (!window.confirm("Sign out of GP Link on ALL devices, including this one?")) return;
+        signOutAllBtnEl.disabled = true;
+        signOutAllBtnEl.textContent = "Signing out everywhere...";
+        try {
+          var response = await fetch("/api/account/sign-out-all", { method: "POST", credentials: "same-origin" });
+          var data = await response.json().catch(function() { return null; });
+          if (!response.ok || !data || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't sign out everywhere.");
+          if (window.gpLinkStateSync && window.gpLinkStateSync.shutdown) window.gpLinkStateSync.shutdown();
+          window.location.href = "/logout";
+        } catch (err) {
+          if (signOutAllStatusEl) { signOutAllStatusEl.textContent = err.message || "Couldn't sign out everywhere."; signOutAllStatusEl.className = "security-status error"; }
+          signOutAllBtnEl.disabled = false;
+          signOutAllBtnEl.textContent = "Sign out of all devices";
+        }
+      });
+    }
+
+    var downloadDataBtnEl = document.getElementById("downloadDataBtn");
+    if (downloadDataBtnEl) {
+      downloadDataBtnEl.addEventListener("click", function() {
+        // Content-Disposition: attachment → the browser downloads without navigating away.
+        window.location.href = "/api/account/export";
+      });
+    }
+
     /* ─── INIT ─── */
     (async function init() {
+      loadNotificationPrefs();
       var cachedProfile = readCachedProfileFromSession();
       if (cachedProfile) {
         applyProfileToForm(cachedProfile);

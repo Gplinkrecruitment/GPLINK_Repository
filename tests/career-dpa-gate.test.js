@@ -44,8 +44,10 @@ const db = {
     { user_id: AU_TRAINED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
-    { id: 'doc-cv-overseas', user_id: OVERSEAS_GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' },
-    { id: 'doc-cv-au', user_id: AU_TRAINED_GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' }
+    // Task 4: /api/career/apply's CV gate now requires the verified careers
+    // CV (document_key 'career_cv'), not a registration-file document.
+    { id: 'doc-cv-overseas', user_id: OVERSEAS_GP.userId, document_key: 'career_cv', status: 'uploaded' },
+    { id: 'doc-cv-au', user_id: AU_TRAINED_GP.userId, document_key: 'career_cv', status: 'uploaded' }
   ],
   user_roles: [],
   career_roles: [

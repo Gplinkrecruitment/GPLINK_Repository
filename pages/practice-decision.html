@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Candidate decision — GP Link</title>
+<link rel="stylesheet" href="/css/gp-tokens.css?v=20260707a">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--gp-canvas);
+    color:var(--gp-text);
+    font-family:var(--gp-font-body);
+    font-size:var(--gp-fs-base);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .pd-shell{max-width:520px;margin:0 auto;min-height:100vh;background:var(--gp-surface);}
+  @media (min-width:600px){
+    body{padding:32px 16px 56px;}
+    .pd-shell{min-height:0;border-radius:var(--gp-r-xl);overflow:hidden;box-shadow:var(--gp-shadow-lg);}
+  }
+
+  .pd-brand{
+    background:linear-gradient(135deg,var(--gp-blue-ink),var(--gp-blue));
+    color:#fff;
+    padding:22px 22px 20px;
+    display:flex;flex-direction:column;gap:3px;
+  }
+  .pd-brand{font-family:var(--gp-font-display);font-weight:700;font-size:20px;}
+  .pd-brand span{
+    font-family:var(--gp-font-body);font-weight:600;font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;opacity:.78;
+  }
+
+  main.pd-shell > section, main.pd-shell > #pdLoading{padding:26px 22px 32px;}
+
+  h1{
+    font-family:var(--gp-font-display);font-size:var(--gp-fs-xl);
+    font-weight:700;color:var(--gp-ink);line-height:1.28;margin:0 0 10px;
+  }
+  p{margin:0 0 14px;color:var(--gp-muted);font-size:14.5px;}
+  p b{color:var(--gp-text);}
+
+  #pdLoading{
+    display:flex;align-items:center;gap:12px;color:var(--gp-muted);
+    font-size:14.5px;padding-top:60px;padding-bottom:60px;justify-content:center;
+  }
+  .pd-spinner{
+    width:20px;height:20px;flex:none;border-radius:50%;
+    border:2.5px solid var(--gp-blue-border);border-top-color:var(--gp-blue);
+    animation:pdSpin 0.9s linear infinite;
+  }
+  @keyframes pdSpin{to{transform:rotate(360deg);}}
+
+  .pd-btn{
+    display:inline-block;width:100%;text-align:center;
+    font-family:var(--gp-font-body);font-size:15px;font-weight:700;
+    padding:14px 18px;border-radius:var(--gp-r-md);border:none;cursor:pointer;
+    transition:opacity .15s ease;
+  }
+  .pd-btn:disabled{opacity:.6;cursor:not-allowed;}
+  .pd-btn-green{background:var(--gp-green);color:#fff;box-shadow:0 8px 22px rgba(22,163,74,.28);}
+  .pd-btn-grey{background:#e7ebf3;color:var(--gp-ink);}
+  .pd-btn-ghost{
+    background:#fff;color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border);
+    font-weight:600;font-size:14px;padding:11px 16px;
+  }
+
+  .pd-link{
+    display:inline-block;margin-top:14px;color:var(--gp-muted);
+    font-size:13.5px;text-decoration:underline;cursor:pointer;
+  }
+
+  .pd-msg{
+    margin-top:12px;font-size:13.5px;padding:10px 12px;border-radius:var(--gp-r-sm);
+    background:var(--gp-blue-soft);color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border);
+  }
+  .pd-msg-error{background:var(--gp-red-soft);color:var(--gp-red-ink);border-color:var(--gp-red-border);}
+
+  textarea#pdReason{
+    width:100%;font:inherit;font-size:14.5px;color:var(--gp-ink);
+    border:1px solid var(--gp-border-strong);border-radius:var(--gp-r-md);
+    padding:11px 12px;resize:vertical;min-height:88px;margin-bottom:16px;background:#fff;
+  }
+  textarea#pdReason:focus, .pd-window-row input:focus, .pd-window-row select:focus{
+    outline:2px solid var(--gp-blue);outline-offset:1px;border-color:var(--gp-blue);
+  }
+
+  #pdWindowRows{margin-bottom:6px;}
+  .pd-window-row{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;
+    padding:14px;border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);
+    background:var(--gp-surface-sunken);margin-bottom:12px;
+  }
+  .pd-window-num{
+    flex-basis:100%;font-size:12px;font-weight:700;color:var(--gp-blue-ink);
+    letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px;
+  }
+  .pd-field{display:flex;flex-direction:column;gap:5px;flex:1;min-width:112px;}
+  .pd-field label{font-size:12px;font-weight:650;color:var(--gp-muted);}
+  .pd-field input[type="date"],
+  .pd-field select{
+    font:inherit;font-size:14px;padding:9px 10px;color:var(--gp-ink);
+    border:1px solid var(--gp-border-strong);border-radius:var(--gp-r-sm);background:#fff;
+  }
+
+  .pd-actions-row{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+
+  .pd-done{text-align:center;padding-top:36px;padding-bottom:44px;}
+  .pd-done-ico{
+    width:56px;height:56px;margin:0 auto 16px;border-radius:50%;
+    background:var(--gp-green-soft);border:1px solid var(--gp-green-border);
+    display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--gp-green);
+  }
+  .pd-done h1{margin-bottom:6px;}
+  .pd-done p{color:var(--gp-muted);}
+
+  .pd-help-line{
+    font-size:13px;color:var(--gp-muted);text-align:center;margin-top:18px;
+    padding-top:16px;border-top:1px solid var(--gp-border);
+  }
+  .pd-help-line a{color:var(--gp-blue-ink);}
+</style>
+</head>
+<body>
+  <main class="pd-shell">
+    <header class="pd-brand">GP Link<span>Candidate decision</span></header>
+
+    <section id="pdLoading"><div class="pd-spinner" aria-hidden="true"></div> Loading…</section>
+
+    <section id="pdError" hidden aria-live="polite">
+      <h1>This link isn't working</h1>
+      <p id="pdErrorLede"></p>
+      <p class="pd-help-line">Need help? Email <a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a> and we'll sort it out.</p>
+    </section>
+
+    <section id="pdApprove" hidden>
+      <h1>Approve <span data-pd="gpName"></span>?</h1>
+      <p>For your <b data-pd="roleTitle"></b> position. Approving lets you choose interview times right away.</p>
+      <button id="pdApproveBtn" class="pd-btn pd-btn-green">Approve &amp; choose interview times</button>
+      <p id="pdApproveMsg" class="pd-msg" hidden aria-live="polite"></p>
+    </section>
+
+    <section id="pdAvailability" hidden>
+      <h1>When suits you for an interview?</h1>
+      <p>Add a few times that work for your practice — <span data-pd="gpName"></span> will confirm one. Times are in your local timezone.</p>
+      <div id="pdWindowRows"></div>
+      <div class="pd-actions-row">
+        <button id="pdAddWindow" class="pd-btn pd-btn-ghost" type="button">+ Add another time</button>
+        <button id="pdSubmitWindows" class="pd-btn pd-btn-green" type="button">Send interview times</button>
+      </div>
+      <p id="pdAvailMsg" class="pd-msg" hidden aria-live="polite"></p>
+    </section>
+
+    <section id="pdTurnDown" hidden>
+      <h1>Turn down <span data-pd="gpName"></span>?</h1>
+      <textarea id="pdReason" maxlength="500" placeholder="Optional — a short reason helps us find you a better fit"></textarea>
+      <button id="pdTurnDownBtn" class="pd-btn pd-btn-grey">Confirm — turn down this candidate</button>
+      <p id="pdTurnDownMsg" class="pd-msg" hidden aria-live="polite"></p>
+      <a href="#" id="pdKeep" class="pd-link">Actually, I'd like to approve instead</a>
+    </section>
+
+    <section id="pdDone" class="pd-done" hidden aria-live="polite">
+      <div class="pd-done-ico">✓</div>
+      <p id="pdDoneText"></p>
+    </section>
+  </main>
+
+<script>
+(function () {
+  'use strict';
+
+  var qs = new URLSearchParams(location.search);
+  var token = (qs.get('token') || '').trim();
+  var initialAction = (qs.get('action') || '').trim();
+
+  var el = {
+    loading: document.getElementById('pdLoading'),
+    error: document.getElementById('pdError'),
+    errorLede: document.getElementById('pdErrorLede'),
+    approve: document.getElementById('pdApprove'),
+    availability: document.getElementById('pdAvailability'),
+    turnDown: document.getElementById('pdTurnDown'),
+    done: document.getElementById('pdDone'),
+    doneText: document.getElementById('pdDoneText'),
+    approveBtn: document.getElementById('pdApproveBtn'),
+    approveMsg: document.getElementById('pdApproveMsg'),
+    windowRows: document.getElementById('pdWindowRows'),
+    addWindowBtn: document.getElementById('pdAddWindow'),
+    submitWindowsBtn: document.getElementById('pdSubmitWindows'),
+    availMsg: document.getElementById('pdAvailMsg'),
+    reason: document.getElementById('pdReason'),
+    turnDownBtn: document.getElementById('pdTurnDownBtn'),
+    turnDownMsg: document.getElementById('pdTurnDownMsg'),
+    keepLink: document.getElementById('pdKeep')
+  };
+
+  var gpNameEls = document.querySelectorAll('[data-pd="gpName"]');
+  var roleTitleEls = document.querySelectorAll('[data-pd="roleTitle"]');
+
+  var SECTIONS = [el.loading, el.error, el.approve, el.availability, el.turnDown, el.done];
+  var ctx = null;
+  var rowCount = 0;
+  var availabilityInitialized = false;
+
+  function show(section) {
+    SECTIONS.forEach(function (s) { s.hidden = (s !== section); });
+  }
+
+  function setAllText(nodeList, text) {
+    nodeList.forEach(function (n) { n.textContent = text; });
+  }
+
+  function retryMessage() {
+    return "Something went wrong — please try again, or email hello@mygplink.com.au if it keeps happening.";
+  }
+
+  function showError(kind) {
+    var text = "We couldn't load this page. Please check your connection and try again.";
+    if (kind === 'invalid') {
+      text = "This decision link has expired or is no longer valid — it may have already been used, or the link was copied incorrectly.";
+    } else if (kind === 'busy') {
+      text = "Too many attempts — please wait a few minutes and try again.";
+    }
+    el.errorLede.textContent = text;
+    show(el.error);
+  }
+
+  function showMsg(node, text, isError) {
+    if (!text) { node.hidden = true; node.textContent = ''; return; }
+    node.textContent = text;
+    node.hidden = false;
+    node.classList.toggle('pd-msg-error', !!isError);
+  }
+
+  function setBusy(btn, busy) {
+    if (busy) {
+      if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Please wait…';
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function parseJsonResponse(r) {
+    return r.json().catch(function () { return null; }).then(function (data) {
+      return { status: r.status, data: data };
+    });
+  }
+
+  // ---- time helpers (minutes-from-midnight, 06:00-22:00, 30-min steps) ----
+  function fmtMinutes(min) {
+    var h24 = Math.floor(min / 60);
+    var m = min % 60;
+    var period = h24 < 12 ? 'AM' : 'PM';
+    var h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    var mm = m === 0 ? '00' : (m < 10 ? '0' + m : String(m));
+    return h12 + ':' + mm + ' ' + period;
+  }
+
+  function localYmd(d) {
+    var offsetMs = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10);
+  }
+
+  function buildTimeOptions(selectEl) {
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select time';
+    selectEl.appendChild(placeholder);
+    for (var min = 360; min <= 1320; min += 30) {
+      var opt = document.createElement('option');
+      opt.value = String(min);
+      opt.textContent = fmtMinutes(min);
+      selectEl.appendChild(opt);
+    }
+  }
+
+  function addWindowRow() {
+    if (rowCount >= 10) return;
+    rowCount++;
+    var idx = rowCount;
+
+    var row = document.createElement('div');
+    row.className = 'pd-window-row';
+
+    var numEl = document.createElement('div');
+    numEl.className = 'pd-window-num';
+    numEl.textContent = 'Time ' + idx;
+    row.appendChild(numEl);
+
+    var dateField = document.createElement('label');
+    dateField.className = 'pd-field';
+    var dateLabel = document.createElement('span');
+    dateLabel.textContent = 'Date';
+    var dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.className = 'pd-w-date';
+    dateInput.min = localYmd(new Date());
+    dateInput.max = localYmd(new Date(Date.now() + 60 * 24 * 60 * 60 * 1000));
+    dateField.appendChild(dateLabel);
+    dateField.appendChild(dateInput);
+    row.appendChild(dateField);
+
+    var fromField = document.createElement('label');
+    fromField.className = 'pd-field';
+    var fromLabel = document.createElement('span');
+    fromLabel.textContent = 'From';
+    var fromSelect = document.createElement('select');
+    fromSelect.className = 'pd-w-from';
+    buildTimeOptions(fromSelect);
+    fromField.appendChild(fromLabel);
+    fromField.appendChild(fromSelect);
+    row.appendChild(fromField);
+
+    var toField = document.createElement('label');
+    toField.className = 'pd-field';
+    var toLabel = document.createElement('span');
+    toLabel.textContent = 'To';
+    var toSelect = document.createElement('select');
+    toSelect.className = 'pd-w-to';
+    buildTimeOptions(toSelect);
+    toField.appendChild(toLabel);
+    toField.appendChild(toSelect);
+    row.appendChild(toField);
+
+    el.windowRows.appendChild(row);
+
+    if (rowCount >= 10) {
+      el.addWindowBtn.disabled = true;
+      el.addWindowBtn.textContent = 'Maximum 10 times added';
+    }
+  }
+
+  function collectWindows() {
+    var rows = el.windowRows.querySelectorAll('.pd-window-row');
+    var windows = [];
+    var errorMsg = '';
+    rows.forEach(function (row, i) {
+      if (errorMsg) return;
+      var dateInput = row.querySelector('.pd-w-date');
+      var fromSel = row.querySelector('.pd-w-from');
+      var toSel = row.querySelector('.pd-w-to');
+      var date = dateInput.value;
+      var fromVal = fromSel.value;
+      var toVal = toSel.value;
+      var isEmpty = !date && !fromVal && !toVal;
+      if (isEmpty) return;
+
+      var label = 'Time ' + (i + 1);
+      if (!date) { errorMsg = 'Please pick a date for ' + label + '.'; return; }
+      if (!fromVal || !toVal) { errorMsg = 'Please choose a start and end time for ' + label + '.'; return; }
+      var fromMin = parseInt(fromVal, 10);
+      var toMin = parseInt(toVal, 10);
+      if (!(toMin > fromMin)) { errorMsg = 'The end time must be after the start time for ' + label + '.'; return; }
+      windows.push({ date: date, fromMin: fromMin, toMin: toMin });
+    });
+    if (errorMsg) return { error: errorMsg };
+    if (windows.length === 0) return { error: 'Please add at least one time that works for your practice.' };
+    return { windows: windows };
+  }
+
+  // ---- state transitions ----
+  function enterApprove() { show(el.approve); }
+
+  function enterAvailability() {
+    if (!availabilityInitialized) {
+      addWindowRow();
+      addWindowRow();
+      availabilityInitialized = true;
+    }
+    show(el.availability);
+  }
+
+  function enterTurnDown() { show(el.turnDown); }
+
+  function showDone(text) {
+    el.doneText.textContent = text;
+    show(el.done);
+  }
+
+  function route() {
+    if (!ctx) { showError('retry'); return; }
+    if (ctx.decision === 'turned_down') {
+      showDone("You've turned down this candidate — thanks for letting us know.");
+      return;
+    }
+    if (ctx.interviewBooked) {
+      showDone('Interview booked — check your calendar invitation.');
+      return;
+    }
+    if (ctx.decision === 'approved' && !ctx.availabilitySubmitted) {
+      enterAvailability();
+      return;
+    }
+    if (ctx.availabilitySubmitted) {
+      showDone('Times received — ' + (ctx.gpName || 'the candidate') + ' will confirm shortly.');
+      return;
+    }
+    if (initialAction === 'turn_down') {
+      enterTurnDown();
+      return;
+    }
+    enterApprove();
+  }
+
+  function loadContext() {
+    if (!token) { showError('invalid'); return; }
+    show(el.loading);
+    fetch('/api/practice/application/decision-context?token=' + encodeURIComponent(token), { credentials: 'omit' })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        if (res.status === 404) { showError('invalid'); return; }
+        if (res.status === 429) { showError('busy'); return; }
+        if (!(res.status === 200 && res.data && res.data.ok)) { showError('retry'); return; }
+        ctx = res.data;
+        setAllText(gpNameEls, ctx.gpName || 'the candidate');
+        setAllText(roleTitleEls, ctx.roleTitle || 'this role');
+        route();
+      })
+      .catch(function () { showError('retry'); });
+  }
+
+  // ---- button handlers ----
+  el.approveBtn.addEventListener('click', function () {
+    showMsg(el.approveMsg, '', false);
+    setBusy(el.approveBtn, true);
+    fetch('/api/practice/application/decision', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, action: 'approve' })
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        setBusy(el.approveBtn, false);
+        if (res.status === 200 && res.data && res.data.ok) { enterAvailability(); return; }
+        if (res.status === 429) { showMsg(el.approveMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 404) { showError('invalid'); return; }
+        showMsg(el.approveMsg, retryMessage(), true);
+      })
+      .catch(function () {
+        setBusy(el.approveBtn, false);
+        showMsg(el.approveMsg, retryMessage(), true);
+      });
+  });
+
+  el.addWindowBtn.addEventListener('click', function () { addWindowRow(); });
+
+  el.submitWindowsBtn.addEventListener('click', function () {
+    var result = collectWindows();
+    if (result.error) { showMsg(el.availMsg, result.error, true); return; }
+    showMsg(el.availMsg, '', false);
+    setBusy(el.submitWindowsBtn, true);
+    fetch('/api/practice/application/availability', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, windows: result.windows })
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        setBusy(el.submitWindowsBtn, false);
+        if (res.status === 200 && res.data && res.data.ok) {
+          showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times — you'll get a calendar invitation automatically.");
+          return;
+        }
+        if (res.status === 429) { showMsg(el.availMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 404) { showError('invalid'); return; }
+        if (res.status === 409) { showMsg(el.availMsg, "This application isn't approved yet — please refresh the page and try again.", true); return; }
+        if (res.status === 400 && res.data && res.data.message) { showMsg(el.availMsg, res.data.message, true); return; }
+        showMsg(el.availMsg, retryMessage(), true);
+      })
+      .catch(function () {
+        setBusy(el.submitWindowsBtn, false);
+        showMsg(el.availMsg, retryMessage(), true);
+      });
+  });
+
+  el.turnDownBtn.addEventListener('click', function () {
+    showMsg(el.turnDownMsg, '', false);
+    setBusy(el.turnDownBtn, true);
+    var reason = (el.reason.value || '').trim().slice(0, 500);
+    fetch('/api/practice/application/decision', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, action: 'turn_down', reason: reason })
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        setBusy(el.turnDownBtn, false);
+        if (res.status === 200 && res.data && res.data.ok) {
+          showDone("You've turned down this candidate — thanks for letting us know.");
+          return;
+        }
+        if (res.status === 429) { showMsg(el.turnDownMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 404) { showError('invalid'); return; }
+        showMsg(el.turnDownMsg, retryMessage(), true);
+      })
+      .catch(function () {
+        setBusy(el.turnDownBtn, false);
+        showMsg(el.turnDownMsg, retryMessage(), true);
+      });
+  });
+
+  el.keepLink.addEventListener('click', function (e) {
+    e.preventDefault();
+    enterApprove();
+  });
+
+  loadContext();
+})();
+</script>
+</body>
+</html>

@@ -47,7 +47,9 @@ const db = {
     { user_id: APPLY_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
-    { id: 'doc-cv-apply', user_id: APPLY_GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' }
+    // Task 4: /api/career/apply's CV gate now requires the verified careers
+    // CV (document_key 'career_cv'), not a registration-file document.
+    { id: 'doc-cv-apply', user_id: APPLY_GP.userId, document_key: 'career_cv', status: 'uploaded' }
   ],
   registration_cases: [
     { id: 'case-apply', user_id: APPLY_GP.userId, status: 'active', assigned_rso: null, assigned_va: null }
@@ -313,7 +315,7 @@ describe('POST /api/career/apply — ops signal (GAP A3)', () => {
     const GP2 = { userId: 'u-apply-gp2', email: 'apply2@gplink-test.local' };
     db.user_profiles.push({ user_id: GP2.userId, email: GP2.email, first_name: 'Ben', last_name: 'Second', registration_country: 'australia' });
     db.user_state.push({ user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW });
-    db.user_documents.push({ id: 'doc-cv-apply2', user_id: GP2.userId, document_key: 'cv_signed_dated', status: 'uploaded' });
+    db.user_documents.push({ id: 'doc-cv-apply2', user_id: GP2.userId, document_key: 'career_cv', status: 'uploaded' });
     db.registration_cases.push({ id: 'case-apply2', user_id: GP2.userId, status: 'active' });
 
     throwOnResend = true;
