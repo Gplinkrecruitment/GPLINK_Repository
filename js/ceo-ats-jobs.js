@@ -14,6 +14,7 @@
 
   /* -------------------- stage definitions -------------------- */
   var STAGES = [
+    { key: 'shortlisted', label: 'Shortlist',           color: '#7c3aed' },
     { key: 'applied',   label: 'Applied',               color: 'var(--ats-blue)' },
     { key: 'submitted', label: 'Submitted to Practice',  color: 'var(--ats-purple)' },
     { key: 'reviewing', label: 'Practice Reviewing',     color: 'var(--ats-amber)' },

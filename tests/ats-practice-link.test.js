@@ -322,8 +322,8 @@ describe('GET /api/ceo/pipeline-summary — live hiring funnel counts', () => {
     expect(res.body.ats).toBeTruthy();
 
     // Expected counts derived from the emulator table at this point in the run.
-    const known = ['applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
-    const expected = { applied: 0, submitted: 0, reviewing: 0, interview: 0, offer: 0, hired: 0, not_proceeding: 0 };
+    const known = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
+    const expected = { shortlisted: 0, applied: 0, submitted: 0, reviewing: 0, interview: 0, offer: 0, hired: 0, not_proceeding: 0 };
     db.gp_applications.forEach((a) => {
       let k = String(a.ats_stage || '').trim().toLowerCase();
       if (!known.includes(k)) k = 'applied'; // empty/unknown → insert default
