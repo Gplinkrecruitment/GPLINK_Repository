@@ -6718,7 +6718,8 @@ const CRON_SCHEDULES = {
   'check-model-updates': { schedule: '0 5 * * 1', cadenceMinutes: 10080 },
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
-  'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 }
+  'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -26839,6 +26840,125 @@ async function handleApi(req, res, pathname) {
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       await respondServerError(res, onbErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // ── Hourly: AI-matching lifecycle — reminders + expiry (Task 5 of the
+  // 2026-07-06 AI matching plan). Three independently-bounded passes so a
+  // slow one can't starve the others of a clean partial result:
+  //  (a) reminder — 'shortlisted' rows that were actually matched
+  //      (matched_at set), have no reminder yet, and expire within 24h ->
+  //      sendMatchEmail(row, {reminder:true}) (Task 4's urgency variant,
+  //      which builds its own "⏳ 24 hours left…" subject) then stamp
+  //      match_reminder_sent_at so a rerun never double-sends.
+  //  (b) expiry — 'shortlisted' rows whose 5-day window has passed ->
+  //      not_proceeding + match_outcome='expired' + a stage-event row
+  //      (mirrors the match_extend branch's atsRecordStageEvent call), then
+  //      ONE summary ops email listing every GP swept this run (never sent
+  //      when nothing expired).
+  //  (c) lock seam — Task 8's evaluateCareerLocks(); guarded no-op today.
+  // Each row is try/catch-isolated: one bad send or PATCH must not stop the
+  // rest of the batch from being processed.
+  if (req.method === 'GET' && pathname === '/api/cron/match-lifecycle') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    var mlHandlerStart = Date.now();
+    var ML_CRON_TIME_BUDGET_MS = 45000;
+    var mlReminded = 0, mlExpiredCount = 0, mlErrors = [], mlTimedOut = false;
+    try {
+      var mlNowIso = new Date().toISOString();
+      var mlReminderWindowIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      // (a) Reminder pass: bounded to 200 rows, most-urgent (soonest to
+      // expire) first, so a big backlog still handles the closest deadlines
+      // within the time budget.
+      var mlRemRes = await supabaseDbRequest('gp_applications',
+        'select=id,user_id,career_role_id,match_reasons,match_expires_at' +
+        '&ats_stage=eq.shortlisted&matched_at=not.is.null&match_reminder_sent_at=is.null' +
+        '&match_expires_at=gte.' + encodeURIComponent(mlNowIso) +
+        '&match_expires_at=lte.' + encodeURIComponent(mlReminderWindowIso) +
+        '&order=match_expires_at.asc&limit=200');
+      var mlRemRows = (mlRemRes.ok && Array.isArray(mlRemRes.data)) ? mlRemRes.data : [];
+
+      for (var mri = 0; mri < mlRemRows.length; mri++) {
+        if (Date.now() - mlHandlerStart > ML_CRON_TIME_BUDGET_MS) { mlTimedOut = true; break; }
+        var mlRemRow = mlRemRows[mri];
+        try {
+          var mlSendRes = await sendMatchEmail(mlRemRow, { reminder: true });
+          if (mlSendRes && mlSendRes.ok) {
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mlRemRow.id), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' },
+              body: { match_reminder_sent_at: new Date().toISOString() }
+            });
+            mlReminded++;
+          } else {
+            mlErrors.push({ id: mlRemRow.id, stage: 'reminder', error: (mlSendRes && mlSendRes.error) || 'send_failed' });
+          }
+        } catch (mlRemErr) {
+          mlErrors.push({ id: mlRemRow.id, stage: 'reminder', error: mlRemErr && mlRemErr.message });
+        }
+      }
+
+      // (b) Expiry pass: same bound/ordering rationale as (a). Skipped
+      // entirely once the budget from pass (a) is already spent so the
+      // response still returns promptly with a partial, honest result.
+      var mlExpiredList = [];
+      if (!mlTimedOut) {
+        var mlExpRes = await supabaseDbRequest('gp_applications',
+          'select=id,user_id,job_title' +
+          '&ats_stage=eq.shortlisted&matched_at=not.is.null&match_expires_at=lt.' + encodeURIComponent(mlNowIso) +
+          '&order=match_expires_at.asc&limit=200');
+        var mlExpRows = (mlExpRes.ok && Array.isArray(mlExpRes.data)) ? mlExpRes.data : [];
+
+        for (var mei = 0; mei < mlExpRows.length; mei++) {
+          if (Date.now() - mlHandlerStart > ML_CRON_TIME_BUDGET_MS) { mlTimedOut = true; break; }
+          var mlExpRow = mlExpRows[mei];
+          try {
+            var mlExpNowIso = new Date().toISOString();
+            var mlExpUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mlExpRow.id), {
+              method: 'PATCH', headers: { Prefer: 'return=representation' },
+              body: { ats_stage: 'not_proceeding', match_outcome: 'expired', ats_stage_updated_at: mlExpNowIso, updated_at: mlExpNowIso }
+            });
+            var mlExpUpdatedRow = (mlExpUpd.ok && Array.isArray(mlExpUpd.data) && mlExpUpd.data[0]) ? mlExpUpd.data[0] : null;
+            if (!mlExpUpdatedRow) { mlErrors.push({ id: mlExpRow.id, stage: 'expiry', error: 'update_failed' }); continue; }
+            await atsRecordStageEvent(mlExpRow.id, 'shortlisted', 'not_proceeding', 'system');
+            mlExpiredCount++;
+            var mlGpCtx = await getGpEmailContext(mlExpRow.user_id).catch(function () { return null; });
+            var mlGpName = (mlGpCtx && mlGpCtx.name) || (mlGpCtx && mlGpCtx.email) || mlExpRow.user_id;
+            mlExpiredList.push({ gpName: mlGpName, jobTitle: mlExpRow.job_title || 'a role' });
+          } catch (mlExpErr) {
+            mlErrors.push({ id: mlExpRow.id, stage: 'expiry', error: mlExpErr && mlExpErr.message });
+          }
+        }
+      }
+
+      if (mlExpiredList.length > 0) {
+        invalidateAdminDashboardCache();
+        if (isEmailConfigured()) {
+          var mlSummaryLines = mlExpiredList.map(function (e) { return '- ' + e.gpName + ' → ' + e.jobTitle; }).join('\n');
+          try {
+            await sendEmail({
+              to: GP_OWNER_EMAIL,
+              subject: mlExpiredList.length + ' match' + (mlExpiredList.length === 1 ? '' : 'es') + ' expired — no GP response',
+              text: 'The following matched GPs did not respond within the 5-day window and have been returned to the team:\n\n' + mlSummaryLines,
+              from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
+            });
+          } catch (mlSummaryErr) {
+            mlErrors.push({ stage: 'summary_email', error: mlSummaryErr && mlSummaryErr.message });
+          }
+        }
+      }
+
+      // (c) Lock seam — Task 8 provides evaluateCareerLocks(); guarded
+      // no-op until then so this cron ships ahead of that task.
+      if (typeof evaluateCareerLocks === 'function') {
+        try { await evaluateCareerLocks(mlHandlerStart + ML_CRON_TIME_BUDGET_MS); } catch (mlLockErr) { mlErrors.push({ stage: 'lock', error: mlLockErr && mlLockErr.message }); }
+      }
+
+      sendJson(res, 200, { ok: true, reminded: mlReminded, expired: mlExpiredCount, errors: mlErrors, timedOut: mlTimedOut });
+    } catch (mlErr) {
+      console.error('[Cron] match-lifecycle failed:', mlErr);
+      await respondServerError(res, mlErr, { route: pathname, method: req.method });
     }
     return;
   }
