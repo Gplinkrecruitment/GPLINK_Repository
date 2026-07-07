@@ -34,7 +34,9 @@ const db = {
     { user_id: OTHER.userId, email: OTHER.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' }
   ],
   registration_cases: [
-    { id: 'case-out-1', user_id: GP.userId, status: 'active' },
+    // GP 1 has been assigned an AHPRA officer (columns are the live source of
+    // truth in prod — registration_cases has no metadata column there).
+    { id: 'case-out-1', user_id: GP.userId, status: 'active', ahpra_officer_name: 'Alexandra Chen', ahpra_officer_email: null },
     { id: 'case-out-2', user_id: OTHER.userId, status: 'active' }
   ],
   registration_tasks: [
@@ -316,5 +318,44 @@ describe('index.html outstanding-actions panel markers', () => {
 
   it('never says bare "RSO"', () => {
     expect(/\bRSO\b/.test(indexHtml)).toBe(false);
+  });
+});
+
+// ── AHPRA officer lock ──────────────────────────────────────────────────────
+// Once an AHPRA officer is assigned to the GP's application (or the officer's
+// document requests have been released), the AHPRA page must lock to the
+// Status view — the screen that shows the registration status and the
+// documents AHPRA asked for. /api/ahpra/more-info is the page's data source,
+// so it carries the officer_assigned flag.
+describe('GET /api/ahpra/more-info — officer_assigned flag', () => {
+  it('is auth-gated', async () => {
+    const r = await httpReq('GET', '/api/ahpra/more-info');
+    expect([401, 403]).toContain(r.status);
+  });
+
+  it('reports officer_assigned=true when the case has an AHPRA officer', async () => {
+    const r = await httpReq('GET', '/api/ahpra/more-info', { cookie: userCookie(GP.email, GP.userId) });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.officer_assigned).toBe(true);
+    // The released s80 items still come back for the Status view.
+    expect(r.body.items.some((i) => i.id === 't-ahpra-1')).toBe(true);
+  });
+
+  it('reports officer_assigned=false when no officer is on the case', async () => {
+    const r = await httpReq('GET', '/api/ahpra/more-info', { cookie: userCookie(OTHER.email, OTHER.userId) });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.officer_assigned).toBe(false);
+  });
+});
+
+describe('ahpra.html officer-lock markers', () => {
+  const ahpraHtml = fs.readFileSync(path.join(ROOT, 'pages', 'ahpra.html'), 'utf8');
+
+  it('checks the server flag at boot and forces progress to the Status step', () => {
+    expect(ahpraHtml).toContain('checkAhpraOfficerLock');      // boot-time server check
+    expect(ahpraHtml).toContain('officer_assigned');           // reads the endpoint flag
+    expect(ahpraHtml).toContain('enforceOfficerLockProgress'); // pins stage to awaiting_outcome
   });
 });

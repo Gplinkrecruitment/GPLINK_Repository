@@ -3430,15 +3430,52 @@
 
     function loadProgress() {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) { const f = defaultProgress(); saveProgress(f, true); return f; }
+      if (!raw) { const f = defaultProgress(); saveProgress(f, true); return enforceOfficerLockProgress(f); }
       try {
         const parsed = JSON.parse(raw);
         const migrated = migrateProgress(parsed);
-        if (!migrated || !isValidProgress(migrated)) { const f = defaultProgress(); saveProgress(f, true); return f; }
+        if (!migrated || !isValidProgress(migrated)) { const f = defaultProgress(); saveProgress(f, true); return enforceOfficerLockProgress(f); }
         const normalized = normalizeProgress(migrated);
         if (JSON.stringify(parsed) !== JSON.stringify(normalized)) saveProgress(normalized, true);
-        return normalized;
-      } catch (e) { const f = defaultProgress(); saveProgress(f, true); return f; }
+        return enforceOfficerLockProgress(normalized);
+      } catch (e) { const f = defaultProgress(); saveProgress(f, true); return enforceOfficerLockProgress(f); }
+    }
+
+    // ── AHPRA OFFICER LOCK ───────────────────────────────────────
+    // Once the GP's application is with AHPRA — an officer has been assigned,
+    // or the officer's document requests (s80) have been released to the GP —
+    // the first two wizard steps are history, not something the GP should
+    // redo. The whole stage locks to the Status view: registration status
+    // plus the documents AHPRA asked for and the team released. Server truth
+    // comes from /api/ahpra/more-info (officer columns on the case + released
+    // items), checked once at boot. The forced progress persists through
+    // state-sync, so the home stepper and every other device agree.
+    var ahpraOfficerLocked = false;
+    var OFFICER_LOCK_TOAST = "Your application is with AHPRA — our team manages this step now.";
+    function enforceOfficerLockProgress(progress) {
+      if (!ahpraOfficerLocked || !progress || !progress.completed) return progress;
+      if (!progress.completed.create_account || !progress.completed.account_establishment) {
+        progress.completed.create_account = true;
+        progress.completed.account_establishment = true;
+        if (!progress.completed.awaiting_outcome) progress.stage = "awaiting_outcome";
+        saveProgress(progress, true);
+      }
+      return progress;
+    }
+    async function checkAhpraOfficerLock() {
+      var data;
+      try {
+        var r = await fetch("/api/ahpra/more-info", { credentials: "same-origin" });
+        data = await r.json();
+      } catch (e) { return; }
+      if (!data || !data.ok) return;
+      var locked = data.officer_assigned === true || (Array.isArray(data.items) && data.items.length > 0);
+      if (!locked || ahpraOfficerLocked) return;
+      ahpraOfficerLocked = true;
+      // A locked GP never needs the intro wizard — skip it and land on Status.
+      try { localStorage.setItem(getIntroDismissedKey(), "1"); } catch (e) {}
+      if (introEl && introEl.style.display !== "none") dismissIntro();
+      initPage();
     }
 
     function stageStatus(progress, key) {
@@ -4114,6 +4151,7 @@
     }
 
     function undoToStage(progress, key) {
+      if (ahpraOfficerLocked) { showToast(OFFICER_LOCK_TOAST); return; }
       const idx = STAGES.indexOf(key);
       if (idx === -1) return;
       for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
@@ -4126,6 +4164,7 @@
     }
 
     function rewindToPreviousStep(progress, key) {
+      if (ahpraOfficerLocked) { showToast(OFFICER_LOCK_TOAST); return; }
       const tabIdx = TAB_STAGES.indexOf(key);
       if (tabIdx <= 0) return;
       const previous = TAB_STAGES[tabIdx - 1];
@@ -4140,6 +4179,7 @@
     }
 
     function resetProgressToStage(progress, key) {
+      if (ahpraOfficerLocked && key !== "awaiting_outcome") { showToast(OFFICER_LOCK_TOAST); return; }
       const stageIdx = STAGES.indexOf(key);
       if (stageIdx === -1) return;
       for (let i = stageIdx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
@@ -4761,7 +4801,10 @@
         const isDone = status === "done";
         const isActive = currentTabKey === key;
         const isLocked = status === "locked";
-        const isSelectable = !isLocked && (!isMobileView || isDone || isActive);
+        // Officer lock: earlier steps are read-only history once AHPRA holds
+        // the application — only the Status tab stays selectable.
+        const officerLockedTab = ahpraOfficerLocked && key !== "awaiting_outcome";
+        const isSelectable = !officerLockedTab && !isLocked && (!isMobileView || isDone || isActive);
 
         const btn = document.createElement("button");
         btn.type = "button";
@@ -4783,7 +4826,7 @@
             resetProgressToStage(progress, key);
           });
         } else {
-          btn.addEventListener("click", () => showToast("Complete the previous step first."));
+          btn.addEventListener("click", () => showToast(officerLockedTab ? OFFICER_LOCK_TOAST : "Complete the previous step first."));
         }
 
         stepTabsEl.appendChild(btn);
@@ -5927,7 +5970,9 @@
         return;
       }
       removeIntroHideStyle();
-      const routeTab = pickTabFromRoute(initialProgress);
+      // Officer lock: the URL can no longer steer a locked GP back to the
+      // earlier steps — always land on the Status view.
+      const routeTab = ahpraOfficerLocked ? null : pickTabFromRoute(initialProgress);
       currentTabKey = routeTab || activeTabStage(initialProgress);
       if (!routeTab) syncRouteForStage(initialProgress.stage, true);
       renderPage(initialProgress);
@@ -6007,6 +6052,7 @@
     // Run immediately, then re-check after state sync hydrates
     initPage();
     focusDeepLinkedDoc();
+    checkAhpraOfficerLock();
     window.addEventListener("gp-state-hydrated", function() { initPage(); });
     window.addEventListener("gp-data-ready", function() { initPage(); });
 
@@ -6015,7 +6061,7 @@
         if (!hasCareerSecuredLocal() && !(await checkCareerSecuredFromServer())) { showPlacementGate(); return; }
         hidePlacementGate();
         const progress = loadProgress();
-        const tabFromRoute = pickTabFromRoute(progress);
+        const tabFromRoute = ahpraOfficerLocked ? null : pickTabFromRoute(progress);
         currentTabKey = tabFromRoute || activeTabStage(progress);
         renderPage(progress);
       });

@@ -41230,14 +41230,19 @@ Return ONLY valid JSON with no markdown formatting:
 
   // ── AHPRA s80: GP sees their released items ──
   if (pathname === '/api/ahpra/more-info' && req.method === 'GET') {
-    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, items: [], deadline: null, officer_assigned: false }); return; }
     const session = requireSession(req, res); if (!session) return;
     const s80Email = getSessionEmail(session);
     const s80UserId = getSessionSupabaseUserId(session) || (s80Email ? await getSupabaseUserIdByEmail(s80Email) : null);
-    if (!s80UserId) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
-    const s80CaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
-    const s80CaseId = (s80CaseRes.ok && Array.isArray(s80CaseRes.data) && s80CaseRes.data[0]) ? s80CaseRes.data[0].id : null;
-    if (!s80CaseId) { sendJson(res, 200, { ok: true, items: [], deadline: null }); return; }
+    if (!s80UserId) { sendJson(res, 200, { ok: true, items: [], deadline: null, officer_assigned: false }); return; }
+    // Officer columns are the live source of truth for "application is with
+    // AHPRA" (registration_cases has no metadata column in prod). The AHPRA
+    // page locks itself to the Status view off this flag.
+    const s80CaseRes = await supabaseDbRequest('registration_cases', 'select=id,ahpra_officer_name,ahpra_officer_email&user_id=eq.' + encodeURIComponent(s80UserId) + '&limit=1');
+    const s80Case = (s80CaseRes.ok && Array.isArray(s80CaseRes.data) && s80CaseRes.data[0]) ? s80CaseRes.data[0] : null;
+    const s80CaseId = s80Case ? s80Case.id : null;
+    const s80OfficerAssigned = !!(s80Case && (String(s80Case.ahpra_officer_name || '').trim() || String(s80Case.ahpra_officer_email || '').trim()));
+    if (!s80CaseId) { sendJson(res, 200, { ok: true, items: [], deadline: null, officer_assigned: false }); return; }
     const s80Rows = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(s80CaseId) + '&task_type=eq.ahpra_action_item&order=created_at.asc&limit=200');
     const s80Tasks = (s80Rows.ok && Array.isArray(s80Rows.data)) ? s80Rows.data : [];
     let s80Deadline = null, s80Reference = null;
@@ -41279,7 +41284,7 @@ Return ONLY valid JSON with no markdown formatting:
         due_date: t.ahpra_deadline || t.due_date || null
       });
     });
-    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items });
+    sendJson(res, 200, { ok: true, reference: s80Reference, deadline: s80Deadline, items: s80Items, officer_assigned: s80OfficerAssigned });
     return;
   }
 
