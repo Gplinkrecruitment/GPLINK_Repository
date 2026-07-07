@@ -88,7 +88,7 @@
     button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
+    html, body { margin: 0; min-height: 100%; overflow-x: hidden; }
     html {
       background: var(--bg);
       background-color: var(--bg);
@@ -5058,6 +5058,11 @@
       align-items: center;
       justify-content: center;
       padding: 16px;
+      /* keep the card above the app-shell bottom nav (embedded) or the iPhone
+         home indicator (standalone). Later declarations parse-drop on old
+         browsers, falling back to the plain 16px above. */
+      padding-bottom: calc(16px + var(--gp-shell-bottom-clearance, 0px));
+      padding-bottom: calc(16px + max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
       z-index: 80;
     }
 
@@ -5069,6 +5074,7 @@
       width: min(560px, 100%);
       max-height: calc(100vh - 32px); /* fallback: browsers without dvh drop that line entirely */
       max-height: calc(100dvh - 32px);
+      max-height: calc(100dvh - 32px - max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
       overflow: auto;
       background: var(--gp-surface);
       border-radius: var(--gp-r-xl);
@@ -5483,9 +5489,22 @@
       to { transform: rotate(360deg); }
     }
 
+    /* Sticky footer inside the scrollable card: the CTA (the only way past
+       this non-dismissible modal) stays visible while the content above it
+       scrolls. Negative margins cancel .career-gate-body's padding so the
+       footer spans edge-to-edge with a solid background. */
+    .career-gate-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      margin: 22px -28px -28px;
+      padding: 12px 28px 16px;
+      background: var(--gp-surface);
+      border-top: 1px solid var(--gp-border);
+    }
+
     .career-gate-cta {
       width: 100%;
-      margin-top: 22px;
       padding: 14px;
       border-radius: var(--gp-r-md);
       border: none;
@@ -5871,10 +5890,22 @@
 
       .modal {
         padding: 10px;
+        padding-bottom: calc(10px + var(--gp-shell-bottom-clearance, 0px));
+        padding-bottom: calc(10px + max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
       }
 
       .modal-card {
         padding: 16px;
+        max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
+        max-height: calc(100dvh - 20px - max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
+      }
+
+      /* re-assert after the .modal-card override above (same specificity,
+         later source order would otherwise win) — the gate card's gradient
+         header must reach the card edges */
+      .career-gate-card {
+        padding: 0;
       }
     }
 
@@ -7675,9 +7706,10 @@
 
     /* Full-bleed masthead on phones (inside the app shell) */
     @media (max-width: 640px) {
+      /* full-bleed look without negative margins: the parent has no side
+         padding at this width, so -16px margins overhung the viewport and
+         made the whole page pannable left-right */
       .at-mast {
-        margin-left: -16px;
-        margin-right: -16px;
         border-radius: 0;
         padding-left: 16px;
         padding-right: 16px;
@@ -7998,8 +8030,10 @@
             </label>
           </div>
         </div>
-        <button class="career-gate-cta" id="careerGateCta" disabled>Upload your CV to continue</button>
-        <div class="career-gate-foot">Your documents are only shared with practices when we introduce you to a role.</div>
+        <div class="career-gate-footer">
+          <button class="career-gate-cta" id="careerGateCta" disabled>Upload your CV to continue</button>
+          <div class="career-gate-foot">Your documents are only shared with practices when we introduce you to a role.</div>
+        </div>
       </div>
     </div>
   </div>

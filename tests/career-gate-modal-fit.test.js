@@ -49,3 +49,43 @@ describe('careers gate modal fits every viewport', () => {
     expect(html).toMatch(/\.career-gate-scanline\[hidden\]\s*\{\s*display:\s*none/);
   });
 });
+
+// Round 2 — owner's iPhone screenshot 2026-07-07 11:47pm (embedded in the app
+// shell): CTA hidden behind the bottom nav, blue header inset from the card
+// edges, and the whole page pannable left-right.
+describe('careers gate modal — mobile shell fixes', () => {
+  it('CTA lives in a sticky footer so it is always visible', () => {
+    // markup: the CTA + foot note are wrapped in the sticky footer
+    expect(html).toMatch(/career-gate-footer">\s*<button class="career-gate-cta"/);
+    const footer = cssBlock('.career-gate-footer');
+    expect(footer).toMatch(/position:\s*sticky/);
+    expect(footer).toMatch(/bottom:\s*0/);
+    // solid background, otherwise scrolled content shows through behind it
+    expect(footer).toMatch(/background:/);
+  });
+
+  it('gate card keeps padding 0 on mobile (blue header reaches the card edges)', () => {
+    // The mobile media query re-pads .modal-card AFTER .career-gate-card's
+    // padding: 0 (same specificity, later source order wins) — so the LAST
+    // .career-gate-card declaration in the file must restore padding: 0.
+    const blocks = [...html.matchAll(/\.career-gate-card\s*\{[^}]*\}/g)].map((m) => m[0]);
+    expect(blocks.length).toBeGreaterThan(1);
+    expect(blocks[blocks.length - 1]).toMatch(/padding:\s*0/);
+  });
+
+  it('modal clears the app-shell bottom nav', () => {
+    expect(cssBlock('.modal')).toContain('--gp-shell-bottom-clearance');
+    expect(cssBlock('.modal-card')).toContain('--gp-shell-bottom-clearance');
+  });
+
+  it('masthead full-bleed no longer overhangs the viewport (no left-right pan)', () => {
+    // margin: 0 -16px assumed a 16px-padded parent; the parent has none at
+    // <=640px, so the mast poked 16px past both screen edges.
+    expect(html).not.toMatch(/\.at-mast\s*\{[^}]*margin-left:\s*-/);
+    expect(html).not.toMatch(/\.at-mast\s*\{[^}]*margin-right:\s*-/);
+  });
+
+  it('page locks horizontal overflow at the root', () => {
+    expect(html).toMatch(/html,\s*body\s*\{[^}]*overflow-x:\s*hidden/);
+  });
+});
