@@ -358,60 +358,6 @@
       .ops-detail-inner{max-width:100%}
       .ops-action-row{flex-direction:column}
     }
-    .agent-stack{display:grid;gap:12px}
-    .agent-hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:16px;padding:18px;border:1px solid rgba(255,255,255,.08)}
-    .agent-hero h2{font-size:22px;font-weight:850;letter-spacing:-.03em;margin-bottom:4px}
-    .agent-hero p{font-size:13px;color:rgba(255,255,255,.72);line-height:1.5}
-    .agent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-    .agent-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-    .agent-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
-    .agent-card.dark{background:#0f172a;color:#fff;border-color:#1e293b}
-    .agent-card h3{font-size:13px;font-weight:850;margin-bottom:10px}
-    .agent-meta{font-size:11px;color:var(--muted);line-height:1.6}
-    .agent-card.dark .agent-meta{color:rgba(255,255,255,.72)}
-    .agent-toolbar{display:flex;gap:8px;flex-wrap:wrap}
-    .agent-provider-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
-    .agent-provider-name{font-size:14px;font-weight:800}
-    .agent-status{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
-    .agent-status.ok{background:#ecfdf5;color:#166534}
-    .agent-status.warn{background:#fff7ed;color:#c2410c}
-    .agent-status.err{background:#fef2f2;color:#b91c1c}
-    .agent-form{display:grid;gap:10px}
-    .agent-form textarea,.agent-form select{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:13px;font-family:inherit;background:#fff}
-    .agent-form textarea:focus,.agent-form select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.08)}
-    .agent-form textarea{min-height:124px;resize:vertical}
-    .agent-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-    .agent-pill{padding:4px 8px;border-radius:8px;background:#f1f5f9;color:#334155;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
-    .agent-run-card{padding:10px 12px;border-radius:14px;border:1px solid var(--line);background:#fff;cursor:pointer;transition:all .12s;margin-bottom:6px}
-    .agent-run-card:hover{border-color:#bfdbfe;background:#fafbff}
-    .agent-run-card.selected{border-color:#93c5fd;background:#eff6ff}
-    .agent-run-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .agent-run-title{font-size:12px;font-weight:800;color:var(--text);line-height:1.45}
-    .agent-run-sub{font-size:11px;color:var(--muted);margin-top:4px}
-    .agent-pre{margin-top:10px;background:#020617;color:#dbeafe;border-radius:12px;padding:10px;max-height:240px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;border:1px solid #1e293b}
-    .agent-stat-value{font-size:22px;font-weight:900;letter-spacing:-.03em}
-    .agent-inline-list{display:grid;gap:8px}
-    .agent-inline-item{padding:10px 0;border-bottom:1px solid #eef2f7}
-    .agent-inline-item:last-child{border-bottom:0}
-    .agent-inline-item strong{display:block;font-size:12px;margin-bottom:3px}
-    .agent-warning-list{display:grid;gap:8px}
-    .agent-warning{padding:10px 12px;border-radius:12px;border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;font-size:12px;line-height:1.5}
-    .agent-kv{display:grid;gap:8px}
-    .agent-kv-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #eef2f7}
-    .agent-kv-row:last-child{border-bottom:0}
-    .agent-kv-key{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
-    .agent-kv-value{font-size:12px;color:var(--text);text-align:right;line-height:1.5}
-    .agent-card.dark .agent-kv-key{color:rgba(255,255,255,.68)}
-    .agent-card.dark .agent-kv-value{color:#fff}
-    .agent-role-list{display:grid;gap:8px;margin-top:10px}
-    .agent-role-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(148,163,184,.18)}
-    .agent-role-name{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,.72)}
-    .agent-role-route{font-size:12px;line-height:1.5;text-align:right}
-    .agent-progress-list{display:grid;gap:8px}
-    .agent-progress-item{padding:9px 10px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;font-size:12px;line-height:1.45}
-    @media(max-width:900px){
-      .agent-grid,.agent-grid-3{grid-template-columns:1fr}
-    }
     /* ══ VA Dashboard rebuild — Today, Tickets, Quals, WhatsApp, Nudges ══ */
     .today-wrap{padding:16px;overflow-y:auto;max-height:calc(100vh - 48px)}
     .today-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
@@ -806,42 +752,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .pd-editor ul{margin:4px 0 4px 20px}
     .pd-editor li{margin:2px 0}
     .pd-meta{font-size:12px;color:#636e72;margin-bottom:8px}
-    .mc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
-    .medical-centres-wrap{overflow-y:auto;max-height:calc(100vh - 48px)}
-.mc-card{padding:14px 16px;border-radius:var(--radius,8px);border:1px solid var(--line,#e5e7eb);cursor:pointer;transition:all .12s;background:#fff}
-    .mc-card:hover{border-color:#bfdbfe;box-shadow:0 2px 8px rgba(0,0,0,.06)}
-    .mc-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-    .mc-card-name{font-weight:700;font-size:14px;color:var(--text)}
-.mc-practice-link{color:var(--blue,#2563eb);text-decoration:none}
-.mc-practice-link:hover{text-decoration:underline}
-.mc-card-multi{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center;min-height:140px}
-.mc-card-multi .mc-card-header{justify-content:center}
-.mc-card-multi .mc-card-name{font-size:16px}
-.mc-explore-btn{margin-top:12px;padding:8px 20px;border:none;border-radius:6px;background:var(--blue,#2563eb);color:#fff;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .15s}
-.mc-explore-btn:hover{background:#1d4ed8}
-.mc-explore-dot{width:8px;height:8px;border-radius:50%;background:#fff;animation:mc-pulse 1.5s ease-in-out infinite}
-@keyframes mc-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
-    .mc-card-row{font-size:12px;color:var(--muted,#6b7280);margin-top:3px}
-    .mc-label{font-weight:600;color:var(--text);margin-right:4px}
-    .mc-detail-header{padding:16px;border-bottom:1px solid var(--line,#e5e7eb)}
-    .mc-detail-back{border:none;background:none;font-size:13px;font-weight:600;color:var(--blue,#2563eb);cursor:pointer;padding:0;margin-bottom:8px}
-    .mc-detail-back:hover{text-decoration:underline}
-    .mc-subnav{display:flex;gap:0;border-bottom:1px solid var(--line,#e5e7eb);padding:0 16px}
-    .mc-subnav-btn{padding:8px 16px;border:none;background:none;font-size:13px;font-weight:600;color:var(--muted,#6b7280);cursor:pointer;border-bottom:2px solid transparent}
-    .mc-subnav-btn.active{color:var(--blue,#2563eb);border-bottom-color:var(--blue,#2563eb)}
-    .mc-subnav-btn:hover{color:var(--text)}
-    .mc-apps-table{width:100%;border-collapse:collapse;font-size:13px}
-    .mc-apps-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--muted,#6b7280);border-bottom:1px solid var(--line,#e5e7eb);font-size:11px;text-transform:uppercase}
-    .mc-apps-table td{padding:8px 12px;border-bottom:1px solid var(--line,#e5e7eb)}
-    .mc-apps-table .gp-link{color:var(--blue,#2563eb);text-decoration:none;font-weight:600;cursor:pointer}
-    .mc-apps-table .gp-link:hover{text-decoration:underline}
-    .mc-status-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151}
-    .mc-status-pill.applied{background:#dbeafe;color:#1d4ed8}
-    .mc-status-pill.interview_scheduled{background:#fef3c7;color:#92400e}
-    .mc-status-pill.offer,.mc-status-pill.offered{background:#d1fae5;color:#065f46}
-    .mc-status-pill.placement_secured{background:#c7d2fe;color:#3730a3}
-.mc-list-filter{padding:6px 10px;border:1px solid var(--line,#e5e7eb);border-radius:6px;font-size:12px;font-weight:500;background:#fff;color:var(--text);cursor:pointer}
-.mc-list-filter:focus{outline:none;border-color:var(--blue,#2563eb)}
 
 /* ── Priority Lanes ── */
 .lane-label{display:flex;align-items:center;gap:6px;padding:6px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
@@ -1095,14 +1005,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   .support-table thead,.support-table tbody,.support-table tr{min-width:600px}
   .support-table th,.support-table td{padding:8px 6px;font-size:11px}
 
-  /* ── Medical Centres ── */
-  .mc-grid{grid-template-columns:1fr}
-  .medical-centres-wrap{padding:10px 12px}
-  .mc-subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
-  .mc-subnav::-webkit-scrollbar{display:none}
-  .mc-subnav-btn{white-space:nowrap;flex:0 0 auto;padding:8px 12px;font-size:12px}
-  .mc-apps-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .mc-apps-table thead,.mc-apps-table tbody,.mc-apps-table tr{min-width:500px}
 
   /* ── Tickets ── */
   .tickets-wrap{padding:10px 12px}
@@ -1120,10 +1022,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   .applications-stat .stat-num{font-size:16px}
   .applications-grid{grid-template-columns:1fr}
 
-  /* ── Agent ── */
-  .agent-grid,.agent-grid-3{grid-template-columns:1fr}
-  .agent-hero h2{font-size:18px}
-  .agent-form textarea{min-height:100px}
 
 
   /* ── Email Triage ── */
@@ -1365,7 +1263,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <button class="sa-tools-item" data-sa-tool="process-gmail">Process Gmail Now</button>
           <button class="sa-tools-item" data-sa-tool="cleanup-tasks">Cleanup Duplicate Tasks</button>
           <button class="sa-tools-item" data-sa-tool="ops-queue">Ops Queue</button>
-          <button class="sa-tools-item" data-sa-tool="weekly-sweep">Weekly Sweep</button>
           <button class="sa-tools-item" data-sa-tool="reset-gp">Reset GP</button>
         </div>
       </div>
@@ -1380,7 +1277,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab active" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="hubInbox">Inbox</div>
-    <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="interviews" id="interviewsTab" style="display:none">Interviews</div>
     <div class="view-tab" data-view="stuck">Stuck cases</div>
     <div class="view-tab" data-view="support">Support</div>
@@ -1401,7 +1297,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   </div>
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div id="hubInboxPanel" style="display:none"></div>
-  <div class="medical-centres-wrap" id="medicalCentresPanel" style="display:none"></div>
   <div class="support-wrap" id="supportPanel" style="display:none"></div>
   <div class="tools-wrap" id="toolsPanel" style="display:none">
     <div class="tools-subnav" id="toolsSubnav"></div>
@@ -1411,8 +1306,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div id="opsTableBody" class="ops-grouped-container"></div>
       </div>
     </div>
-    <div class="tools-sub-pane" id="toolsSweep" style="display:none"></div>
-    <div class="tools-sub-pane" id="toolsAgent" style="display:none"></div>
   </div>
 
   <!-- SPPA Review Panel -->
@@ -1959,137 +1852,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function daysAgo(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
   function isSameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
-  function agentStatusClass(status){status=String(status||"").toLowerCase();if(status==="completed"||status==="connected"||status==="ready")return"ok";if(status==="running"||status==="starting"||status==="launching"||status==="cancelling")return"warn";return"err";}
-  function prettyRole(role){return String(role||"").replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());}
-  function agentConnectCommands(){return Object.assign({openai:"codex login",anthropic:"claude auth login",localBridge:"/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js"},S.agent.connectCommands||{});}
-  function agentBridgeActive(){return !!(S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="local"&&S.agent.bridge.baseUrl);}
-  async function fetchJson(url,opts){const r=await fetch(url,opts);const d=await r.json().catch(()=>({}));return{r,d};}
-  function applyAgentStatusPayload(d,mode,baseUrl){
-    S.agent.providers=d.providers||null;
-    S.agent.policy=d.dashboard&&d.dashboard.policy?d.dashboard.policy:null;
-    S.agent.runs=d.dashboard&&Array.isArray(d.dashboard.runs)?d.dashboard.runs:[];
-    S.agent.workers=d.dashboard&&Array.isArray(d.dashboard.workers)?d.dashboard.workers:[];
-    S.agent.primaryWorkerId=d.dashboard&&d.dashboard.primaryWorkerId?d.dashboard.primaryWorkerId:"";
-    S.agent.activeRunId=d.dashboard&&d.dashboard.activeRunId?d.dashboard.activeRunId:"";
-    S.agent.connectCommands=Object.assign(agentConnectCommands(),d.connectCommands||{});
-    S.agent.warnings=d.dashboard&&Array.isArray(d.dashboard.warnings)?d.dashboard.warnings:[];
-    S.agent.security=d.dashboard&&d.dashboard.security?d.dashboard.security:null;
-    S.agent.providerStatusRefreshedAt=d.dashboard&&d.dashboard.providerStatusRefreshedAt?d.dashboard.providerStatusRefreshedAt:"";
-    S.agent.error="";
-    const bridgePayload=d.bridge&&typeof d.bridge==="object"?d.bridge:null;
-    if(mode==="local"){
-      S.agent.bridge.connected=true;
-      S.agent.bridge.mode="local";
-      S.agent.bridge.baseUrl=baseUrl||"";
-      S.agent.bridge.status=bridgePayload||null;
-      S.agent.bridge.error="";
-    }else if(bridgePayload&&bridgePayload.connected){
-      S.agent.bridge.connected=true;
-      S.agent.bridge.mode=bridgePayload.mode||"relay";
-      S.agent.bridge.baseUrl=bridgePayload.baseUrl||bridgePayload.relayUrl||"";
-      S.agent.bridge.status=bridgePayload;
-      S.agent.bridge.error="";
-    }else{
-      S.agent.bridge.connected=false;
-      S.agent.bridge.mode="remote";
-      S.agent.bridge.baseUrl="";
-      S.agent.bridge.status=bridgePayload||null;
-    }
-    if(!S.agent.selectedRunId||!S.agent.runs.find(run=>run.runId===S.agent.selectedRunId)){
-      S.agent.selectedRunId=S.agent.activeRunId||(S.agent.runs[0]&&S.agent.runs[0].runId)||null;
-    }
-  }
-  async function tryLocalAgentBridge(path,opts){
-    const candidates=Array.isArray(S.agent.bridge.candidates)?S.agent.bridge.candidates:[];
-    let lastError="";
-    for(const baseUrl of candidates){
-      try{
-        const init=Object.assign({mode:"cors",credentials:"omit"},opts||{});
-        const res=await fetchJson(baseUrl+path,init);
-        if(res.r.ok&&res.d&&res.d.ok){
-          S.agent.bridge.connected=true;
-          S.agent.bridge.mode="local";
-          S.agent.bridge.baseUrl=baseUrl;
-          S.agent.bridge.status=res.d.bridge||{connected:true,mode:"local-bridge",baseUrl};
-          S.agent.bridge.error="";
-          return{baseUrl,...res};
-        }
-        lastError=res.d&&res.d.message?res.d.message:("Bridge request failed ("+res.r.status+")");
-      }catch(err){
-        lastError=err&&err.message?err.message:"Local bridge unavailable.";
-      }
-    }
-    S.agent.bridge.connected=false;
-    S.agent.bridge.error=lastError||"Local bridge unavailable.";
-    return null;
-  }
-  async function agentApi(path,init){
-    if(agentBridgeActive()){
-      const opts=Object.assign({mode:"cors",credentials:"omit"},init||{});
-      return fetchJson(S.agent.bridge.baseUrl+path,opts);
-    }
-    const opts=Object.assign({credentials:"same-origin"},init||{});
-    return fetchJson(path,opts);
-  }
-
-  /* ══ Auth ══ */
-  async function loadSession(){
-    try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
-    if(!d.authenticated){window.location.href="/pages/admin-signin";return false;}
-    const profile=d.profile||d.session||{};
-    const adminRole=profile.adminRole||profile.role||"";
-    S.viewer=Object.assign({},profile,{role:adminRole,roleLabel:adminRole==="super_admin"?"Super Admin":"Admin"});
-    S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
-  }
-  function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
-  function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
-
-  /* ══ Data Loading ══ */
-  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
-  async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
-  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
-  async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
-  async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
-  async function loadAgentStatus(force){
-    if(!isSA())return;
-    if(S.agent.loading&&!force)return;
-    S.agent.loading=true;
-    S.agent.connectCommands=agentConnectCommands();
-    try{
-      const params=new URLSearchParams();
-      if(S.agent.draftTask)params.set("task",S.agent.draftTask);
-      params.set("profile",S.agent.profile);
-      params.set("collaborationMode",S.agent.collaborationMode);
-      params.set("complexity",S.agent.complexity);
-      if(force)params.set("refresh","true");
-      const taskParam=params.toString()?("?"+params.toString()):"";
-      const local=await tryLocalAgentBridge("/api/admin/agent-control/status"+taskParam);
-      if(local&&local.d&&local.d.ok){
-        applyAgentStatusPayload(local.d,"local",local.baseUrl);
-      }else{
-        const remote=await fetchJson("/api/admin/agent-control/status"+taskParam,{credentials:"same-origin"});
-        if(remote.d&&remote.d.ok){
-          applyAgentStatusPayload(remote.d,"remote","");
-        }else{
-          const localMsg=S.agent.bridge.error?(" Local bridge: "+S.agent.bridge.error):"";
-          S.agent.error=(remote.d&&remote.d.message?remote.d.message:"Unable to load agent status.")+localMsg;
-        }
-      }
-    }catch(err){
-      const localMsg=S.agent.bridge.error?(" Local bridge: "+S.agent.bridge.error):"";
-      S.agent.error=(err&&err.message?err.message:"Unable to load agent status.")+localMsg;
-    }
-    S.agent.loading=false;
-    if(S.view==="agent")renderAll();
-  }
-  async function loadAgentRun(runId){
-    if(!isSA()||!runId)return;
-    try{
-      const res=await agentApi("/api/admin/agent-control/run?id="+encodeURIComponent(runId),{method:"GET"});
-      if(res.d&&res.d.ok&&res.d.run)S.agent.currentRun=res.d.run;
-    }catch{}
-    if(S.view==="agent")renderDetail();
-  }
   const ADMIN_LOAD_TIMEOUT_MS=12000;
   function runAdminLoadJob(label,fn){
     return new Promise(function(resolve){
@@ -2132,7 +1894,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       gps:"detail",
       inbox:"inboxPanel",
       hubInbox:"hubInboxPanel",
-      medicalcentres:"medicalCentresPanel",
       support:"supportPanel",
       guide:"guidePanel",
       interviews:"interviewsPanel",
@@ -2151,7 +1912,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();return;}
     if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();return;}
     if(S.view==="hubInbox"){vaShowPanel("hubInbox");HubInbox.show();return;}
-    if(S.view==="medicalcentres"){vaShowPanel("medicalcentres");renderMedicalCentresPanel();return;}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
     if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
     if(S.view==="interviews"){var ivTabEl=document.getElementById("interviewsTab");if(ivTabEl)ivTabEl.style.display="";vaShowPanel("interviews");renderInterviewsPanel();return;}
@@ -2179,7 +1939,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ["incomingQuestions",loadIncomingQuestions],
       ["vaAccounts",loadVaAccounts]
     ];
-    if(isSA())jobs.push(["agentStatus",function(){return loadAgentStatus(force);}]);
     try{
       await Promise.all(jobs.map(function(job){return runAdminLoadJob(job[0],job[1]);}));
       /* When silent (auto-refresh), skip destructive re-render if user is interacting */
@@ -2188,7 +1947,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
          which would destroy expanded rows, scroll positions, and cause visible flicker */
       if(silent){renderTopBar();renderFilters();return;}
       renderAdminView();
-      if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
     }catch(err){
       showAdminRenderError(err);
     }finally{
@@ -2196,231 +1954,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
-  async function loadMedicalCentres(status){
-    if(S.mc.loading)return;
-    if(status)S.mc.listView=status;
-    S.mc.selectedCentre=null;
-    S.mc.loading=true;
-    renderMedicalCentresPanel();
-    try{
-      var apiUrl="/api/admin/medical-centres";
-      if(S.mc.listView==="filled")apiUrl+="?status=filled";
-      else if(S.mc.listView==="list")apiUrl+="?status=all";
-      var r=await fetch(apiUrl,{credentials:"same-origin"});
-      var d=await r.json().catch(()=>({}));
-      if(d.ok&&Array.isArray(d.centres)){
-        S.mc.centres=d.centres;
-        if(S.mc.listView==="list")S.mc.allData=d.centres;
-      }
-    }catch{}
-    S.mc.loading=false;
-    renderMedicalCentresPanel();
-  }
-  async function loadMedicalCentreApplications(centreId){
-    try{
-      const r=await fetch("/api/admin/medical-centres/"+encodeURIComponent(centreId)+"/applications",{credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      return d.ok&&Array.isArray(d.applications)?d.applications:[];
-    }catch{return[];}
-  }
-  function renderMedicalCentresPanel(){
-    const el=document.getElementById("medicalCentresPanel");if(!el)return;
-    if(S.mc.selectedCentre){renderMedicalCentreDetail();return;}
-    var lv=S.mc.listView;
-    var subnavHtml='<div style="padding:16px 16px 0"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2>'
-      +'<div class="mc-subnav" style="padding:0;margin-bottom:12px">'
-      +'<button class="mc-subnav-btn '+(lv==="open"?"active":"")+'" data-mc-list="open">Open</button>'
-      +'<button class="mc-subnav-btn '+(lv==="filled"?"active":"")+'" data-mc-list="filled">Filled</button>'
-      +'<button class="mc-subnav-btn '+(lv==="list"?"active":"")+'" data-mc-list="list">List</button>'
-      +'</div></div>';
-    if(lv==="list"){renderMedicalCentresList(el,subnavHtml);return;}
-    var isFilled=lv==="filled";
-    if(S.mc.loading){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">Loading medical centres\u2026</div>';return;}
-    if(!S.mc.centres.length){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">No '+(isFilled?'filled':'open')+' positions found.</div>';return;}
-    var h=subnavHtml+'<div style="padding:0 16px 16px"><div class="mc-grid">';
-    for(var i=0;i<S.mc.centres.length;i++){
-      var c=S.mc.centres[i];
-      h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
-        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+safeUrl(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
-        +(c.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(c.contact_name)+'</div>':'')
-        +(c.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(c.contact_email)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_email)+'</a></div>':'')
-        +(c.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(c.contact_phone)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_phone)+'</a></div>':'')
-        +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+(isFilled?' filled':' open')+' position'+(c.open_positions!==1?'s':'')+'</div>'
-        +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View '+(isFilled?'Filled':'Openings')+'</button>'
-        +'</div>';
-    }
-    h+='</div></div>';
-    el.innerHTML=h;
-  }
-  var MC_MAJOR_CITIES={"sydney":["parramatta","penrith","blacktown","campbelltown","liverpool","bankstown","hurstville","hornsby","chatswood","manly","bondi","cronulla","sutherland","ryde","burwood","strathfield","auburn","fairfield","cabramatta","castle hill","baulkham hills","epping","macquarie park","mascot","randwick","maroubra","coogee","newtown","marrickville","canterbury","lakemba","kogarah","rockdale","miranda","caringbah","dee why","brookvale","mona vale","wahroonga","turramurra","gordon","pymble","lindfield","killara","artarmon","lane cove","gladesville","drummoyne","five dock","concord","homebush","rhodes","olympic park","zetland","waterloo","redfern","surry hills","darlinghurst","potts point","woolloomooloo","chippendale","ultimo","glebe","balmain","rozelle","leichhardt","petersham","ashfield","croydon","enfield","strathfield south","greenacre","punchbowl","wiley park","belmore","campsie","kingsgrove","beverly hills","narwee","padstow","revesby","panania","milperra","condell park","bass hill","yagoona","birrong","regents park","granville","merrylands","guildford","smithfield","wetherill park","cecil hills","prestons","hoxton park","narellan","oran park","gregory hills","leppington","edmondson park","casula","moorebank","wattle grove","holsworthy","engadine","heathcote","waterfall"],
-  "melbourne":["geelong","ballarat","bendigo","frankston","dandenong","werribee","melton","sunbury","craigieburn","epping","south morang","mill park","thomastown","preston","northcote","brunswick","coburg","essendon","moonee ponds","footscray","sunshine","st albans","deer park","caroline springs","point cook","tarneit","hoppers crossing","altona","williamstown","port melbourne","south melbourne","albert park","st kilda","brighton","sandringham","mentone","cheltenham","moorabbin","bentleigh","glen eira","caulfield","malvern","toorak","hawthorn","camberwell","box hill","doncaster","templestowe","eltham","greensborough","heidelberg","ivanhoe","kew","richmond","abbotsford","collingwood","fitzroy","carlton","parkville","north melbourne","west melbourne","southbank","docklands","cranbourne","pakenham","berwick","narre warren","officer","clyde","hallam","keysborough","springvale","noble park","mulgrave","glen waverley","mount waverley","burwood","ashwood","chadstone","oakleigh","clayton","monash","rowville","ferntree gully","boronia","bayswater","ringwood","croydon","lilydale","mooroolbark","chirnside park"],
-  "brisbane":["ipswich","logan","redland","caboolture","moreton bay","springfield","redcliffe","strathpine","chermside","nundah","toowong","indooroopilly","kenmore","chapel hill","the gap","ashgrove","bardon","paddington","milton","south brisbane","woolloongabba","coorparoo","greenslopes","mount gravatt","sunnybank","eight mile plains","carindale","wynnum","manly","cleveland","victoria point","north lakes","mango hill","burpengary","morayfield","narangba","petrie","brendale","albany creek","bridgeman downs","ferny hills","mitchelton","everton park","stafford","kedron","wavell heights","banyo","nudgee","hendra","ascot","hamilton","bulimba","morningside","balmoral","hawthorne","cannon hill","murarrie","tingalpa"],
-  "perth":["fremantle","rockingham","mandurah","joondalup","wanneroo","armadale","midland","ellenbrook","cockburn","canning","stirling","bayswater","belmont","victoria park","south perth","como","applecross","melville","palmyra","east fremantle","claremont","nedlands","subiaco","leederville","mt lawley","maylands","morley","bayswater","bassendean","midvale","helena valley","kalamunda","mundaring","high wycombe","forrestfield","kelmscott","gosnells","thornlie","cannington","bentley","riverton","willetton","bull creek","murdoch","kardinya","bibra lake","success","atwell","point cook","harrisdale","piara waters","southern river","canning vale","scarborough","innaloo","osborne park","balcatta","yokine","dianella","mirrabooka","nollamara","westminster","girrawheen","warwick","greenwood","kingsley","woodvale","padbury","hillarys","sorrento","kallaroo"],
-  "adelaide":["salisbury","elizabeth","gawler","mount barker","victor harbor","murray bridge","glenelg","port adelaide","modbury","tea tree gully","golden grove","paradise","campbelltown","norwood","unley","mitcham","blackwood","marion","morphett vale","reynella","mclaren vale","christies beach","noarlunga","seaford","aldinga","hallett cove","brighton","glenelg","henley beach","west beach","fulham","lockleys","thebarton","torrensville","mile end","prospect","walkerville","north adelaide","medindie","gilberton","kent town","rose park","dulwich","toorak gardens","burnside","glen osmond","beaumont","magill","rostrevor","athelstone","dernancourt","holden hill","modbury","wynn vale","para hills","ingle farm","pooraka","mawson lakes","parafield","green fields"],
-  "gold coast":["surfers paradise","broadbeach","burleigh heads","coolangatta","southport","nerang","robina","varsity lakes","coomera","pimpama","ormeau","helensvale","oxenford","pacific pines","mudgeeraba","palm beach","currumbin","tugun","tweed heads","banora point"],
-  "newcastle":["maitland","cessnock","lake macquarie","charlestown","belmont","swansea","toronto","morisset","raymond terrace","nelson bay","singleton"],
-  "wollongong":["shellharbour","kiama","nowra","dapto","figtree","corrimal","bulli","thirroul","helensburgh","fairy meadow"],
-  "canberra":["queanbeyan","tuggeranong","belconnen","gungahlin","woden","weston creek","molonglo"],
-  "hobart":["glenorchy","clarence","kingston","bridgewater","brighton","new norfolk","sorell"],
-  "darwin":["palmerston","casuarina","alice springs"],
-  "cairns":["port douglas","smithfield","mareeba","atherton","innisfail"],
-  "townsville":["thuringowa","aitkenvale","kirwan","mundingburra"]};
-  function mcNearestMajorCity(city,state){
-    if(!city&&!state)return'';
-    var c=(city||'').toLowerCase().trim();
-    var s=(state||'').toLowerCase().trim();
-    for(var major in MC_MAJOR_CITIES){if(c===major)return major.charAt(0).toUpperCase()+major.slice(1);if(MC_MAJOR_CITIES[major].indexOf(c)>=0)return major.charAt(0).toUpperCase()+major.slice(1);}
-    if(/nsw|new south wales/.test(s))return'Sydney';if(/vic|victoria/.test(s))return'Melbourne';if(/qld|queensland/.test(s))return'Brisbane';if(/wa|western australia/.test(s))return'Perth';if(/sa|south australia/.test(s))return'Adelaide';if(/tas|tasmania/.test(s))return'Hobart';if(/nt|northern territory/.test(s))return'Darwin';if(/act/.test(s))return'Canberra';
-    return city||state||'';
-  }
-  function mcDaysOpen(publishedAt){
-    if(!publishedAt)return null;
-    var diff=Date.now()-new Date(publishedAt).getTime();
-    return Math.max(0,Math.floor(diff/86400000));
-  }
-  function renderMedicalCentresList(el,subnavHtml){
-    if(S.mc.loading){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">Loading\u2026</div>';return;}
-    var allJobs=[];
-    var centres=S.mc.allData.length?S.mc.allData:S.mc.centres;
-    for(var i=0;i<centres.length;i++){
-      var c=centres[i];
-      for(var j=0;j<c.job_openings.length;j++){
-        var jo=c.job_openings[j];
-        allJobs.push({practice:c.practice_name,client:c.client_name,website:c.website||jo.website,status:jo.status,title:jo.title,location:jo.location,city:mcNearestMajorCity(jo.location?jo.location.split(',')[0].trim():'',jo.location&&jo.location.split(',')[1]?jo.location.split(',')[1].trim():''),billing:jo.billing_type||c.billing_type,days:mcDaysOpen(jo.published_at),contact_name:jo.contact_name||c.contact_name,contact_email:jo.contact_email||c.contact_email,contact_phone:jo.contact_phone||c.contact_phone,id:c.id});
-      }
-    }
-    // Collect unique values for filters
-    var billings={},cities={};
-    for(var k=0;k<allJobs.length;k++){if(allJobs[k].billing)billings[allJobs[k].billing]=1;if(allJobs[k].city)cities[allJobs[k].city]=1;}
-    var f=S.mc.listFilters;
-    // Apply filters
-    var filtered=allJobs.filter(function(j){
-      if(f.status==='open'&&j.status!=='open')return false;
-      if(f.status==='filled'&&j.status!=='filled')return false;
-      if(f.billing&&j.billing!==f.billing)return false;
-      if(f.location&&j.city!==f.location)return false;
-      return true;
-    });
-    var h=subnavHtml+'<div style="padding:0 16px 16px">'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
-      +'<select class="mc-list-filter" data-mc-filter="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All Status</option><option value="open"'+(f.status==='open'?' selected':'')+'>Open</option><option value="filled"'+(f.status==='filled'?' selected':'')+'>Filled</option></select>'
-      +'<select class="mc-list-filter" data-mc-filter="billing"><option value="">All Billing</option>';
-    for(var b in billings)h+='<option value="'+esc(b)+'"'+(f.billing===b?' selected':'')+'>'+esc(b)+'</option>';
-    h+='</select><select class="mc-list-filter" data-mc-filter="location"><option value="">All Locations</option>';
-    var sortedCities=Object.keys(cities).sort();
-    for(var ci=0;ci<sortedCities.length;ci++)h+='<option value="'+esc(sortedCities[ci])+'"'+(f.location===sortedCities[ci]?' selected':'')+'>'+esc(sortedCities[ci])+'</option>';
-    h+='</select><span style="font-size:12px;color:var(--muted);align-self:center">'+filtered.length+' of '+allJobs.length+' positions</span></div>';
-    if(!filtered.length){h+='<div class="empty">No positions match filters.</div>';el.innerHTML=h+'</div>';return;}
-    h+='<table class="mc-apps-table"><thead><tr><th>Practice</th><th>Position</th><th>Status</th><th>Location</th><th>Nearest City</th><th>Billing</th><th>Days Open</th><th>Contact</th></tr></thead><tbody>';
-    filtered.sort(function(a,b){return(b.days||0)-(a.days||0);});
-    for(var m=0;m<filtered.length;m++){
-      var row=filtered[m];
-      var daysLabel=row.days!==null?(row.days+'d'):'—';
-      var daysClass=row.days!==null&&row.days>90?'overdue':(row.days!==null&&row.days>30?'urgent':'');
-      h+='<tr>'
-        +'<td>'+(row.website?'<a href="'+safeUrl(row.website)+'" target="_blank" class="mc-practice-link">'+esc(row.practice)+'</a>':esc(row.practice))+'</td>'
-        +'<td>'+esc(row.title)+'</td>'
-        +'<td><span class="mc-status-pill '+(row.status==='open'?'applied':'placement_secured')+'">'+esc(row.status)+'</span></td>'
-        +'<td>'+esc(row.location)+'</td>'
-        +'<td>'+esc(row.city)+'</td>'
-        +'<td>'+esc(row.billing)+'</td>'
-        +'<td><span class="task-badge '+daysClass+'">'+daysLabel+'</span></td>'
-        +'<td>'+(row.contact_name?esc(row.contact_name):'')+(row.contact_email?'<br><a href="mailto:'+esc(row.contact_email)+'" class="mc-practice-link" style="font-size:11px">'+esc(row.contact_email)+'</a>':'')+(row.contact_phone?'<br><a href="tel:'+esc(row.contact_phone)+'" class="mc-practice-link" style="font-size:11px">'+esc(row.contact_phone)+'</a>':'')+'</td>'
-        +'</tr>';
-    }
-    h+='</tbody></table></div>';
-    el.innerHTML=h;
-  }
-  async function renderMedicalCentreDetail(){
-    const el=document.getElementById("medicalCentresPanel");if(!el)return;
-    const c=S.mc.selectedCentre;if(!c){renderMedicalCentresPanel();return;}
-    const benefits=[];
-    if(c.benefit_1)benefits.push(esc(c.benefit_1));
-    if(c.benefit_2)benefits.push(esc(c.benefit_2));
-    if(c.benefit_3)benefits.push(esc(c.benefit_3));
-    var h='<div class="mc-detail-header">'
-      +'<button class="mc-detail-back" data-mc-back>&larr; Back to Medical Centres</button>'
-      +'<h2 style="margin:0 0 8px;font-size:18px">'+(c.website?'<a href="'+safeUrl(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</h2>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:13px;max-width:600px">'
-      +(c.client_name&&c.client_name!==c.practice_name?'<div><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
-      +(c.location?'<div><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
-      +(c.address?'<div><span class="mc-label">Address</span> '+esc(c.address)+'</div>':'')
-      +(c.work_type?'<div><span class="mc-label">Work Type</span> '+esc(c.work_type)+'</div>':'')
-      +(c.billing_type?'<div><span class="mc-label">Billing</span> '+esc(c.billing_type)+'</div>':'')
-      +(benefits.length?'<div style="grid-column:1/-1"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
-      +'<div><span class="mc-label">Open Positions</span> '+c.open_positions+'</div>'
-      +'</div></div>';
-    h+='<div class="mc-subnav">'
-      +'<button class="mc-subnav-btn '+(S.mc.subView==="overview"?"active":"")+'" data-mc-sub="overview">Overview</button>'
-      +'<button class="mc-subnav-btn '+(S.mc.subView==="applications"?"active":"")+'" data-mc-sub="applications">Applications</button>'
-      +'</div>';
-    if(S.mc.subView==="overview"){
-      h+='<div style="padding:16px">';
-      if(!c.job_openings||!c.job_openings.length){
-        h+='<div class="empty">No job openings found.</div>';
-      }else{
-        h+='<div class="mc-grid">';
-        for(var j=0;j<c.job_openings.length;j++){
-          var jo=c.job_openings[j];
-          var joBenefits=[];
-          if(jo.benefit_1)joBenefits.push(esc(jo.benefit_1));
-          if(jo.benefit_2)joBenefits.push(esc(jo.benefit_2));
-          if(jo.benefit_3)joBenefits.push(esc(jo.benefit_3));
-          var hiredHtml='';
-          if(jo.hired_gps&&jo.hired_gps.length){
-            hiredHtml='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line,#e5e7eb)"><div class="mc-label" style="margin-bottom:4px">Hired GPs</div>';
-            for(var g=0;g<jo.hired_gps.length;g++){
-              var gp=jo.hired_gps[g];
-              hiredHtml+='<div style="font-size:12px;margin-top:2px"><a class="gp-link" data-mc-gp-id="'+esc(gp.user_id)+'">'+esc(gp.gp_name)+'</a> <span class="mc-status-pill placement_secured">'+esc((gp.status||'').replace(/_/g,' '))+'</span></div>';
-            }
-            hiredHtml+='</div>';
-          }
-          h+='<div class="mc-card">'
-            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+safeUrl(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'placement_secured')+'">'+esc(jo.status)+'</span></div>'
-            +(jo.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(jo.contact_name)+'</div>':'')
-            +(jo.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(jo.contact_email)+'" class="mc-practice-link">'+esc(jo.contact_email)+'</a></div>':'')
-            +(jo.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(jo.contact_phone)+'" class="mc-practice-link">'+esc(jo.contact_phone)+'</a></div>':'')
-            +(jo.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(jo.location)+'</div>':'')
-            +(jo.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(jo.address)+'</div>':'')
-            +(jo.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(jo.work_type)+'</div>':'')
-            +(jo.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(jo.billing_type)+'</div>':'')
-            +(joBenefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+joBenefits.join(' &middot; ')+'</div>':'')
-            +(jo.description?'<div class="mc-card-row" style="margin-top:6px;color:var(--text);line-height:1.4">'+esc(jo.description).substring(0,200)+(jo.description.length>200?'\u2026':'')+'</div>':'')
-            +hiredHtml
-            +'</div>';
-        }
-        h+='</div>';
-      }
-      h+='</div>';
-    }else if(S.mc.subView==="applications"){
-      h+='<div style="padding:16px" id="mcAppsContent"><div class="empty">Loading applications\u2026</div></div>';
-    }
-    el.innerHTML=h;
-    if(S.mc.subView==="applications"){
-      var apps=await loadMedicalCentreApplications(c.id);
-      var appsEl=document.getElementById("mcAppsContent");
-      if(!appsEl)return;
-      if(!apps.length){
-        appsEl.innerHTML='<div class="empty">No applications for this medical centre yet.</div>';
-        return;
-      }
-      var ah='<table class="mc-apps-table"><thead><tr><th>GP Name</th><th>Job Opening</th><th>Status</th><th>Date Applied</th></tr></thead><tbody>';
-      for(var k=0;k<apps.length;k++){
-        var a=apps[k];
-        var dateStr=a.applied_at?new Date(a.applied_at).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}):'\u2014';
-        var statusClass=esc((a.status||'').replace(/\s+/g,'_'));
-        ah+='<tr>'
-          +'<td><a class="gp-link" data-mc-gp-id="'+esc(a.user_id)+'">'+esc(a.gp_name||'Unknown')+'</a></td>'
-          +'<td>'+esc(a.job_title)+'</td>'
-          +'<td><span class="mc-status-pill '+statusClass+'">'+esc((a.status||'applied').replace(/_/g,' '))+'</span></td>'
-          +'<td>'+dateStr+'</td>'
-          +'</tr>';
-      }
-      ah+='</tbody></table>';
-      appsEl.innerHTML=ah;
-    }
-  }
-
   /* ══ Data Helpers ══ */
   const gps=()=>S.dashboard&&Array.isArray(S.dashboard.candidates)?S.dashboard.candidates:[];
   const tix=()=>S.dashboard&&Array.isArray(S.dashboard.tickets)?S.dashboard.tickets:[];
@@ -2553,18 +2086,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       `<span class="chip"><b>${c.all}</b> GPs</span>`,
       c.urgent?`<span class="chip urgent"><b>${c.urgent}</b> Urgent</span>`:"",
       c.overdue?`<span class="chip"><b>${c.overdue}</b> Overdue</span>`:"",
-      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`,
-      isSA()?`<span class="chip"><b>${S.agent.activeRunId?1:0}</b> Agent Runs Live</span>`:""
+      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`
     ].filter(Boolean).join("");
     const em=S.viewer?S.viewer.email:"",rl=S.viewer?S.viewer.roleLabel||"Admin":"Admin";
     document.getElementById("topMeta").textContent=em?rl+" \u2022 "+em:rl;
   }
 
   function renderFilters(){
-    if(S.view==="agent"){
-      document.getElementById("filterBar").innerHTML=`<div style="padding:4px 0;font-size:11px;color:var(--muted);font-weight:700">${S.agent.activeRunId?"One run at a time is enabled for safety.":"Start a new mixed Codex + Claude run from the detail panel."}</div>`;
-      return;
-    }
     const c=counts();
     const filters=[
       {k:"all",l:"All",c:c.all},{k:"urgent",l:"Urgent",c:c.urgent},{k:"overdue",l:"Overdue",c:c.overdue},
@@ -2696,7 +2224,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderCaseList(){
     const el=document.getElementById("caseList");
     if(S.view==="queue"){renderQueueList();return;}
-    if(S.view==="agent"){renderAgentRunList();return;}
     /* Preserve scroll position across re-renders */
     const prevScroll=el.scrollTop;
     const list=filteredCases();
@@ -3996,7 +3523,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderDetail(){
     const el=document.getElementById("detailContent");if(!el)return;
     const prevScroll=el.parentElement?el.parentElement.scrollTop||el.scrollTop:el.scrollTop;
-    if(S.view==="agent"){renderAgentDetail();return;}
     if(S.view==="gps"){
       let c=S.cases.find(x=>x.id===S.selectedCaseId);
       if(!c)c=S.cases.find(x=>x.user_id===S.selectedCaseId);
@@ -4028,7 +3554,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <div class="pb-avatar">${esc(ini(gpName))}</div>
           <div class="pb-info">
             <div class="pb-name">${esc(gpName)}</div>
-            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
+            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 '+esc(practiceName):''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
             <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span></div>
           </div>
           <div class="pb-pills">
@@ -4167,381 +3693,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div>${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}<div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
       <span class="task-tag stage">${esc(t.related_stage||"")}</span>
     </div>`;
-  }
-
-  function renderAgentRunList(){
-    const el=document.getElementById("caseList");
-    if(!isSA()){el.innerHTML=`<div class="empty">Super admin access is required.</div>`;return;}
-    const runs=Array.isArray(S.agent.runs)?S.agent.runs:[];
-    if(!runs.length){el.innerHTML=`<div class="empty">No agent runs yet. Start the first run from the control panel.</div>`;return;}
-    el.innerHTML=runs.map(run=>`<div class="agent-run-card ${S.agent.selectedRunId===run.runId?"selected":""}" data-agent-run-id="${esc(run.runId)}">
-      <div class="agent-run-top">
-        <span class="agent-status ${agentStatusClass(run.status)}">${esc(run.status||"unknown")}</span>
-        <span class="task-tag stage">${esc(run.taskComplexity||"standard")}</span>
-      </div>
-      <div class="agent-run-title">${esc(shortTask(run.task||run.runId,88))}</div>
-      <div class="agent-run-sub">${esc(run.profile||"balanced")} \u2022 ${esc(run.collaborationMode||"paired")} \u2022 ${esc(fmtDT(run.startedAt))}</div>
-    </div>`).join("");
-  }
-
-  function providerCard(key,label,data){
-    const available=!!(data&&data.available);
-    const statusText=available?"Connected":"Needs attention";
-    const binaryName=data&&data.binaryPath?String(data.binaryPath).split("/").pop():"not found";
-    const browserUse=data&&data.browserUse?data.browserUse:null;
-    return `<div class="agent-card">
-      <div class="agent-provider-head">
-        <div>
-          <div class="agent-provider-name">${esc(label)}</div>
-          <div class="agent-meta">${esc(data&&data.authSummary?data.authSummary:(data&&data.reason?data.reason:"Status unavailable"))}</div>
-        </div>
-        <span class="agent-status ${agentStatusClass(available?"connected":"failed")}">${esc(statusText)}</span>
-      </div>
-      <div class="agent-kv">
-        <div class="agent-kv-row">
-          <div class="agent-kv-key">CLI</div>
-          <div class="agent-kv-value">${esc(binaryName)}</div>
-        </div>
-        <div class="agent-kv-row">
-          <div class="agent-kv-key">Auth</div>
-          <div class="agent-kv-value">${esc(data&&data.authSummary?data.authSummary:(data&&data.reason?data.reason:"Unknown"))}</div>
-        </div>
-        ${key==="anthropic"?`<div class="agent-kv-row">
-          <div class="agent-kv-key">browser-use MCP</div>
-          <div class="agent-kv-value">${browserUse?esc(browserUse.available?"Connected":"Unavailable")+"<br><span style=\"color:var(--muted)\">"+esc(browserUse.status||browserUse.target||"")+"</span>":"Not detected"}</div>
-        </div>`:""}
-      </div>
-      <div class="agent-toolbar">
-        <button class="btn sm" data-agent-connect="${esc(key)}">${available?"Reconnect Help":"Connect Help"}</button>
-      </div>
-    </div>`;
-  }
-
-  function bridgeCard(){
-    const bridge=S.agent.bridge||{};
-    const connected=!!bridge.connected;
-    const relay=bridge.status&&bridge.status.mode==="relay";
-    const workerName=bridge.status&&bridge.status.workerName?bridge.status.workerName:"";
-    const mode=connected?(relay?"Secure Relay Ready":"Local Bridge Ready"):"Local Bridge Offline";
-    const detail=connected
-      ?(relay?((workerName?workerName+" • ":"")+"Synced to the live dashboard via "+(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"secure relay")):(bridge.baseUrl||"Localhost bridge connected"))
-      :(bridge.error||"Start the local bridge on this Mac so the live dashboard can use your local CLIs.");
-    const targetLabel=connected?(relay?"This Mac via secure relay":"This Mac"):"Remote server only";
-    const urlLabel=relay?(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"Relay connected"):((bridge.baseUrl)||((bridge.candidates&&bridge.candidates[0])||"http://127.0.0.1:4317"));
-    const syncLabel=relay
-      ?(bridge.status&&bridge.status.lastSeenAt?fmtDT(bridge.status.lastSeenAt):"Awaiting first relay sync")
-      :(bridge.status&&bridge.status.relay&&bridge.status.relay.lastSyncAt?fmtDT(bridge.status.relay.lastSyncAt):"Direct localhost mode");
-    return `<div class="agent-card">
-      <div class="agent-provider-head">
-        <div>
-          <div class="agent-provider-name">Local Bridge</div>
-          <div class="agent-meta">${esc(detail)}</div>
-        </div>
-        <span class="agent-status ${agentStatusClass(connected?"connected":"failed")}">${esc(mode)}</span>
-      </div>
-      <div class="agent-kv">
-        <div class="agent-kv-row">
-          <div class="agent-kv-key">Execution target</div>
-          <div class="agent-kv-value">${esc(targetLabel)}</div>
-        </div>
-        <div class="agent-kv-row">
-          <div class="agent-kv-key">Bridge URL</div>
-          <div class="agent-kv-value">${esc(urlLabel)}</div>
-        </div>
-        <div class="agent-kv-row">
-          <div class="agent-kv-key">Last sync</div>
-          <div class="agent-kv-value">${esc(syncLabel)}</div>
-        </div>
-      </div>
-      <div class="agent-toolbar">
-        <button class="btn sm" data-agent-connect="localBridge">${connected?"Restart Help":"Start Bridge"}</button>
-      </div>
-    </div>`;
-  }
-
-  function workerHostsCard(){
-    const workers=Array.isArray(S.agent.workers)?S.agent.workers:[];
-    if(!workers.length){
-      return `<div class="agent-card">
-        <h3>Registered Workers</h3>
-        <div class="agent-meta">No remote worker has been registered yet. Use Register Worker to create a persistent agent host command for another device.</div>
-        <div class="agent-toolbar" style="margin-top:12px">
-          <button class="btn sm" data-agent-register-worker>Register Worker</button>
-        </div>
-      </div>`;
-    }
-    return `<div class="agent-card">
-      <h3>Registered Workers</h3>
-      <div class="agent-meta">Choose which device the dashboard should target. The selected primary worker receives queued runs and sync requests.</div>
-      <div class="agent-progress-list">${workers.map(worker=>{
-        const state=worker.connected?"Connected":"Offline";
-        const device=(worker.meta&&worker.meta.hostname)||(worker.bridgeInfo&&worker.bridgeInfo.host)||worker.name||worker.id;
-        const platform=worker.meta&&worker.meta.platform?worker.meta.platform:"";
-        return `<div class="agent-progress-item">
-          <strong>${esc(worker.name||worker.id)}</strong>${worker.primary?` <span class="task-tag stage">Primary</span>`:""}<br>
-          ${esc(state)} • ${esc(device)}${platform?` • ${esc(platform)}`:""}<br>
-          Last seen ${esc(worker.lastSeenAt?fmtDT(worker.lastSeenAt):"never")} • ${esc(String(worker.availableProviderCount||0))} providers ready
-          <div class="agent-toolbar" style="margin-top:8px">
-            ${!worker.primary?`<button class="btn sm" data-agent-worker-select="${esc(worker.id)}">Use This</button>`:""}
-            <button class="btn sm" data-agent-worker-revoke="${esc(worker.id)}">Remove</button>
-          </div>
-        </div>`;
-      }).join("")}</div>
-      <div class="agent-toolbar" style="margin-top:12px">
-        <button class="btn sm" data-agent-register-worker>Register Worker</button>
-      </div>
-    </div>`;
-  }
-
-  function renderAgentDetail(){
-    const el=document.getElementById("detailContent");
-    if(!isSA()){el.innerHTML=`<div class="detail-empty">Super admin access is required for Agent Control.</div>`;return;}
-    const providers=S.agent.providers||{};
-    const openai=providers.openai||null;
-    const anthropic=providers.anthropic||null;
-    const run=S.agent.currentRun&&S.agent.currentRun.runId===S.agent.selectedRunId?S.agent.currentRun:(S.agent.runs||[]).find(r=>r.runId===S.agent.selectedRunId)||null;
-    const policy=S.agent.policy||null;
-    const warnings=Array.isArray(S.agent.warnings)?S.agent.warnings:[];
-    const security=S.agent.security||null;
-    const completed=run&&Array.isArray(run.completedSubtasks)?run.completedSubtasks:[];
-    let h=`<div class="agent-stack">
-      <div class="agent-hero">
-        <h2>Hybrid Agent Control</h2>
-        <p>Launch, monitor and steer the mixed Codex + Claude worker from the super admin portal. Provider auth stays local and subscription-backed, one run is allowed at a time for safety, and the child process receives a reduced environment rather than the full app secret set.</p>
-      </div>
-      ${S.agent.error?`<div class="agent-warning">${esc(S.agent.error)}</div>`:""}
-      ${warnings.length?`<div class="agent-card"><h3>Launch Warnings</h3><div class="agent-warning-list">${warnings.map(item=>`<div class="agent-warning">${esc(item)}</div>`).join("")}</div></div>`:""}
-      <div class="agent-grid-3">
-        ${bridgeCard()}
-        ${providerCard("openai","Codex / OpenAI",openai)}
-        ${providerCard("anthropic","Claude / Anthropic",anthropic)}
-      </div>
-      <div class="agent-grid">
-        ${workerHostsCard()}
-        <div class="agent-card dark">
-          <h3>Model Policy</h3>
-          ${policy?`<div class="agent-meta">Complexity resolved as <strong style="color:#fff">${esc(policy.taskComplexity)}</strong>. Profile <strong style="color:#fff">${esc(policy.profile||S.agent.profile)}</strong> with <strong style="color:#fff">${esc(policy.collaborationMode||S.agent.collaborationMode)}</strong> collaboration.</div>
-          <div class="agent-pills">
-            <span class="agent-pill">Resolved Codex: ${esc(policy.selected&&policy.selected.openaiPrimary||"")}</span>
-            <span class="agent-pill">Resolved Review: ${esc(policy.selected&&policy.selected.openaiReview||"")}</span>
-            <span class="agent-pill">Resolved Claude: ${esc(policy.selected&&policy.selected.anthropicPrimary||"")}</span>
-            <span class="agent-pill">Forced mode: ${esc(policy.complexityMode||"auto")}</span>
-            ${policy.capabilities&&policy.capabilities.browserUseRecommended?`<span class="agent-pill">Claude browser-use recommended</span>`:""}
-          </div>
-          <div class="agent-role-list">${(policy.roleAssignments||[]).map(item=>`<div class="agent-role-row"><div><div class="agent-role-name">${esc(prettyRole(item.role))}</div></div><div class="agent-role-route">${esc(item.providerLabel||item.provider||"")}\u00a0/\u00a0${esc(item.model||"")}</div></div>`).join("")}</div>
-          <div class="agent-inline-list" style="margin-top:10px">${(policy.notes||[]).map(note=>`<div class="agent-inline-item">${esc(note)}</div>`).join("")}</div>`:`<div class="agent-meta">Policy will appear after the provider status loads.</div>`}
-        </div>
-      </div>
-      <div class="agent-grid">
-        <div class="agent-card">
-          <h3>Launch New Run</h3>
-          <div class="agent-form">
-            <textarea id="agentTaskInput" placeholder="Describe what the mixed agent should do...">${esc(S.agent.draftTask||"")}</textarea>
-            <div class="agent-grid-3">
-              <select id="agentProfileSelect">
-                ${["balanced","codex-heavy","claude-heavy"].map(v=>`<option value="${v}" ${S.agent.profile===v?"selected":""}>${v}</option>`).join("")}
-              </select>
-              <select id="agentCollabSelect">
-                ${["paired","routed","single"].map(v=>`<option value="${v}" ${S.agent.collaborationMode===v?"selected":""}>${v}</option>`).join("")}
-              </select>
-              <select id="agentComplexitySelect">
-                ${["auto","simple","standard","complex"].map(v=>`<option value="${v}" ${S.agent.complexity===v?"selected":""}>${v}</option>`).join("")}
-              </select>
-            </div>
-            <div class="agent-toolbar">
-              <button class="btn primary" data-agent-start ${S.agent.activeRunId?"disabled":""}>${S.agent.activeRunId?"Run In Progress":"Start Run"}</button>
-              <button class="btn" data-agent-refresh>Status Refresh</button>
-              <button class="btn" data-agent-refresh-providers>Sync Connections</button>
-              ${S.agent.activeRunId?`<button class="btn red" data-agent-cancel="${esc(S.agent.activeRunId)}">Cancel Active Run</button>`:""}
-            </div>
-            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")} \u2022 Control mode: ${esc(agentBridgeActive()?"local bridge":((S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="relay")?"secure relay":"remote server"))}</div>
-          </div>
-        </div>
-        <div class="agent-card"><h3>Launch Notes</h3><div class="agent-meta">Runs are sent to the selected primary worker when a remote worker is connected. If no worker is connected, the dashboard falls back to the server-local provider check.</div></div>
-      </div>`;
-
-    h+=`<div class="agent-grid">
-      <div class="agent-card">
-        <h3>Security Posture</h3>
-        ${security?`<div class="agent-kv">
-          <div class="agent-kv-row"><div class="agent-kv-key">Access</div><div class="agent-kv-value">${security.superAdminOnly?"Super admin only":"Admin"}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Origin checks</div><div class="agent-kv-value">${security.sameOriginRequired?"Required":"Disabled"}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Run isolation</div><div class="agent-kv-value">${security.singleActiveRun?"One active run at a time":"Multiple runs allowed"}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Provider auth</div><div class="agent-kv-value">${security.subscriptionCliOnly?"Local subscription CLIs only":"Mixed auth"}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Child env</div><div class="agent-kv-value">${security.secretsPassedToChild?"Full app env":"Reduced env without app secrets"}</div></div>
-        </div>`:`<div class="agent-meta">Security details will load with provider state.</div>`}
-      </div>
-      <div class="agent-card">
-        <h3>Tier Defaults</h3>
-        ${policy?`<div class="agent-kv">
-          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI complex</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.complex||"\u2014")}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI standard</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.standard||"\u2014")}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI simple</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.simple||"\u2014")}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Claude complex</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.complex||"\u2014")}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Claude standard</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.standard||"\u2014")}</div></div>
-          <div class="agent-kv-row"><div class="agent-kv-key">Claude simple</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.simple||"\u2014")}</div></div>
-        </div>`:`<div class="agent-meta">Tier defaults will appear after the policy loads.</div>`}
-      </div>
-    </div>`;
-
-    if(run){
-      h+=`<div class="agent-grid">
-        <div class="agent-card">
-          <h3>Current / Selected Run</h3>
-          <div class="agent-meta">Run ID: <strong>${esc(run.runId)}</strong></div>
-          <div class="agent-pills">
-            <span class="agent-pill">${esc(run.status||"unknown")}</span>
-            <span class="agent-pill">${esc(run.phase||"\u2014")}</span>
-            <span class="agent-pill">${esc(run.profile||"balanced")}</span>
-            <span class="agent-pill">${esc(run.taskComplexity||"standard")}</span>
-          </div>
-          <div class="agent-inline-list" style="margin-top:10px">
-            <div class="agent-inline-item"><strong>Task</strong>${esc(run.task||"\u2014")}</div>
-            <div class="agent-inline-item"><strong>Requested by</strong>${esc(run.requestedBy||"\u2014")}</div>
-            <div class="agent-inline-item"><strong>Started</strong>${esc(fmtDT(run.startedAt))}</div>
-            <div class="agent-inline-item"><strong>Finished</strong>${esc(fmtDT(run.finishedAt))}</div>
-            <div class="agent-inline-item"><strong>Current work</strong>${run.currentSubtask?esc(run.currentSubtask.title+" • "+(run.currentSubtask.provider||"")+" / "+(run.currentSubtask.model||"")):"Waiting / complete"}</div>
-            <div class="agent-inline-item"><strong>Completed subtasks</strong>${esc(String(completed.length))}</div>
-            ${run.planSummary?`<div class="agent-inline-item"><strong>Plan summary</strong>${esc(run.planSummary)}</div>`:""}
-            <div class="agent-inline-item"><strong>Output</strong>${esc(run.outputDir||"\u2014")}${run.reportPath?`<br>${esc(run.reportPath)}`:""}</div>
-          </div>
-        </div>
-        <div class="agent-card">
-          <h3>Runtime Output</h3>
-          <div class="agent-meta">Latest stdout from the orchestrator process.</div>
-          <div class="agent-pre">${esc((run.stdoutTail||"No log output yet.").trim()||"No log output yet.")}</div>
-          ${run.stderrTail&&run.stderrTail.trim()?`<div class="agent-meta" style="margin-top:10px;color:var(--red)">stderr</div><div class="agent-pre">${esc(run.stderrTail.trim())}</div>`:""}
-        </div>
-      </div>`;
-      if(completed.length||run.reportPreview){
-        h+=`<div class="agent-grid">
-          <div class="agent-card">
-            <h3>Completed Steps</h3>
-            ${completed.length?`<div class="agent-progress-list">${completed.map(item=>`<div class="agent-progress-item"><strong>${esc(prettyRole(item.agent||"step"))}</strong><br>${esc(item.id||"\u2014")} \u2022 ${esc((item.provider||"")+" / "+(item.model||""))}</div>`).join("")}</div>`:`<div class="agent-meta">No completed subtask records yet.</div>`}
-          </div>
-          <div class="agent-card">
-            <h3>Report Preview</h3>
-            <div class="agent-meta">Latest content from the generated report.</div>
-            <div class="agent-pre">${esc((run.reportPreview||"No report generated yet.").trim()||"No report generated yet.")}</div>
-          </div>
-        </div>`;
-      }
-    }else{
-      h+=`<div class="agent-card"><h3>No Selected Run</h3><div class="agent-meta">Choose a run from the left, or start a new one.</div></div>`;
-    }
-
-    h+=`</div>`;
-    el.innerHTML=h;
-  }
-
-  async function refreshAgentStatus(force){
-    await loadAgentStatus(!!force);
-    if(S.agent.selectedRunId)await loadAgentRun(S.agent.selectedRunId);
-  }
-
-  async function startAgentRun(){
-    const taskEl=document.getElementById("agentTaskInput");
-    const profileEl=document.getElementById("agentProfileSelect");
-    const collabEl=document.getElementById("agentCollabSelect");
-    const complexityEl=document.getElementById("agentComplexitySelect");
-    const task=taskEl?taskEl.value.trim():"";
-    if(task.length<12){alert("Please give the agent a more specific task.");return;}
-    S.agent.draftTask=task;
-    S.agent.profile=profileEl?profileEl.value:S.agent.profile;
-    S.agent.collaborationMode=collabEl?collabEl.value:S.agent.collaborationMode;
-    S.agent.complexity=complexityEl?complexityEl.value:S.agent.complexity;
-    try{
-      const res=await agentApi("/api/admin/agent-control/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:S.agent.draftTask,profile:S.agent.profile,collaborationMode:S.agent.collaborationMode,complexity:S.agent.complexity})});
-      const d=res.d||{};
-      if(!res.r.ok||!d.ok){alert(d.message||"Failed to start run.");return;}
-      S.agent.activeRunId=d.run&&d.run.runId?d.run.runId:"";
-      S.agent.selectedRunId=S.agent.activeRunId||S.agent.selectedRunId;
-      S.agent.warnings=d.warning?[d.warning]:S.agent.warnings;
-      await refreshAgentStatus(true);
-    }catch(err){alert(err&&err.message?err.message:"Failed to start run.");}
-  }
-
-  async function cancelAgentRun(runId){
-    if(!runId)return;
-    if(!window.confirm("Cancel the active agent run?"))return;
-    try{
-      const res=await agentApi("/api/admin/agent-control/run/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId})});
-      const d=res.d||{};
-      if(!res.r.ok||!d.ok){alert(d.message||"Unable to cancel the run.");return;}
-      await refreshAgentStatus(true);
-    }catch(err){alert(err&&err.message?err.message:"Unable to cancel the run.");}
-  }
-
-  async function refreshAgentProviders(){
-    try{
-      if(agentBridgeActive()){
-        const local=await tryLocalAgentBridge("/api/admin/agent-control/providers/refresh",{method:"POST"});
-        if(!local||!local.d||!local.d.ok){alert(local&&local.d&&local.d.message?local.d.message:"Failed to refresh provider status.");return;}
-      }else{
-        const remote=await fetchJson("/api/admin/agent-control/providers/refresh",{method:"POST",credentials:"same-origin"});
-        if(!remote.r.ok||!remote.d||!remote.d.ok){alert(remote.d&&remote.d.message?remote.d.message:"Failed to refresh provider status.");return;}
-      }
-      await refreshAgentStatus(true);
-    }catch(err){alert(err&&err.message?err.message:"Failed to refresh provider status.");}
-  }
-
-  async function selectAgentWorker(workerId){
-    if(!workerId)return;
-    try{
-      const res=await fetchJson("/api/admin/agent-control/workers/select",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({workerId})});
-      const d=res.d||{};
-      if(!res.r.ok||!d.ok){alert(d.message||"Unable to select worker.");return;}
-      await refreshAgentStatus(true);
-    }catch(err){alert(err&&err.message?err.message:"Unable to select worker.");}
-  }
-
-  async function revokeAgentWorker(workerId){
-    if(!workerId)return;
-    if(!window.confirm("Remove this registered worker? The remote machine will need a new registration command to reconnect."))return;
-    try{
-      const res=await fetchJson("/api/admin/agent-control/workers/revoke",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({workerId})});
-      const d=res.d||{};
-      if(!res.r.ok||!d.ok){alert(d.message||"Unable to remove worker.");return;}
-      await refreshAgentStatus(true);
-    }catch(err){alert(err&&err.message?err.message:"Unable to remove worker.");}
-  }
-
-  async function showAgentConnectHelp(provider){
-    const cmds=agentConnectCommands();
-    const cmd=cmds&&cmds[provider]?cmds[provider]:"";
-    const title=provider==="openai"?"Connect Codex / ChatGPT":provider==="anthropic"?"Connect Claude":"Start Local Bridge";
-    document.getElementById("modalTitle").textContent=title;
-    document.getElementById("modalOverlay").classList.add("open");
-    if(provider==="localBridge"){
-      document.getElementById("modalBody").innerHTML=`<div class="agent-meta">Registering a persistent worker and generating its startup command...</div>`;
-      let relayCmd=cmd||"/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js";
-      let helperText="This creates a persistent worker record. You can start it again later with the same command until you remove or rotate that worker.";
-      try{
-        const tokenRes=await fetchJson("/api/admin/agent-control/workers/register",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({})});
-        if(tokenRes.r.ok&&tokenRes.d&&tokenRes.d.ok){
-          relayCmd=tokenRes.d.command||relayCmd;
-          S.agent.connectCommands=Object.assign(agentConnectCommands(),{localBridge:relayCmd});
-          S.agent.workers=Array.isArray(tokenRes.d.workers)?tokenRes.d.workers:S.agent.workers;
-          S.agent.primaryWorkerId=tokenRes.d.primaryWorkerId||S.agent.primaryWorkerId;
-          helperText=tokenRes.d.workerName?`Registered worker ${tokenRes.d.workerName}. Run this command on the device that should host Codex and Claude.`:helperText;
-          if(S.view==="agent")renderDetail();
-        }
-      }catch{}
-      document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Run this from the repo root on the device that should host your Codex and Claude CLIs. Keep it running in a background service or always-on terminal while you use the live dashboard from any device.</p>
-        <div class="agent-pre">${esc(relayCmd)}</div>
-        <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px">${esc(helperText)}</p>
-        <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
-          <button class="btn" data-close-modal>Close</button>
-        </div>`;
-      return;
-    }
-    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:</p>
-      <div class="agent-pre">${esc(cmd||"Command unavailable")}</div>
-      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
-        <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
-        <button class="btn" data-close-modal>Close</button>
-      </div>`;
   }
 
   function renderAll(){renderTopBar();renderFilters();renderCaseList();renderDetail();}
@@ -6765,8 +5916,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }else if(view==="gps"){
         if(!S.va.dashboard)await loadVaDashboard();
         renderCaseList();renderDetail();
-      }else if(view==="medicalcentres"){
-        await loadMedicalCentres();
       }else if(view==="support"){
         await loadSupportItems();
         renderSupportPanel();
@@ -6797,64 +5946,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(field==="fStage"||field==="fRso"||field==="fCountry"||field==="fAge"){S[field]=sel.value||"";if(field==="fRso"&&sel.value)S.fMine=false;renderFilters();renderCaseList();}
     });
     document.getElementById("caseList").addEventListener("click",e=>{
-      const agentRun=e.target.closest("[data-agent-run-id]");
-      if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderCaseList();renderDetail();loadAgentRun(S.agent.selectedRunId);return;}
       const card=e.target.closest("[data-case-id]");
       if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};S._scrollToUrgency=true;renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
-    });
-    var _mcPanel=document.getElementById("medicalCentresPanel");
-    if(_mcPanel)_mcPanel.addEventListener("click",async function(e){
-      var listBtn=e.target.closest("[data-mc-list]");
-      if(listBtn){
-        var lv2=listBtn.getAttribute("data-mc-list");
-        if(lv2!==S.mc.listView)loadMedicalCentres(lv2);
-        return;
-      }
-      var card=e.target.closest("[data-mc-id]");
-      if(card){
-        var id=card.getAttribute("data-mc-id");
-        S.mc.selectedCentre=S.mc.centres.find(function(c){return c.id===id;})||null;
-        S.mc.subView="overview";
-        renderMedicalCentresPanel();
-        return;
-      }
-      var back=e.target.closest("[data-mc-back]");
-      if(back){
-        S.mc.selectedCentre=null;
-        renderMedicalCentresPanel();
-        return;
-      }
-      var subBtn=e.target.closest("[data-mc-sub]");
-      if(subBtn){
-        S.mc.subView=subBtn.getAttribute("data-mc-sub");
-        renderMedicalCentreDetail();
-        return;
-      }
-      var gpLink=e.target.closest("[data-mc-gp-id]");
-      if(gpLink){
-        e.preventDefault();
-        var userId=gpLink.getAttribute("data-mc-gp-id");
-        // Navigate to GP profile within the same page
-        var matchCase=S.cases.find(function(c){return c.user_id===userId;});
-        if(matchCase){
-          S.view="gps";S.selectedCaseId=matchCase.id;
-          document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});
-          vaShowPanel("gps");renderCaseList();renderDetail();
-        } else {
-          window.open("/pages/admin?gp="+encodeURIComponent(userId),"_blank");
-        }
-        return;
-      }
-    });
-    var _mcPanel2=document.getElementById("medicalCentresPanel");
-    if(_mcPanel2)_mcPanel2.addEventListener("change",function(e){
-      var filterEl=e.target.closest("[data-mc-filter]");
-      if(filterEl){
-        S.mc.listFilters[filterEl.getAttribute("data-mc-filter")]=filterEl.value;
-        renderMedicalCentresPanel();
-      }
     });
     document.getElementById("detailContent").addEventListener("change",async e=>{
       /* AHPRA s80: change who-does-it / how in the review tray */
@@ -6969,29 +6064,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(dd){
           document.querySelectorAll(".st-dropdown.open").forEach(d=>{if(d!==dd)d.classList.remove("open");});
           dd.classList.toggle("open");
-        }
-        return;
-      }
-      /* Navigate to practice in Medical Centres tab */
-      if(e.target.closest("[data-navigate-practice]")){
-        e.preventDefault();
-        const name=e.target.closest("[data-navigate-practice]").getAttribute("data-navigate-practice");
-        if(name){
-          // Fetch all centres directly, pre-select the match, then switch view
-          S.mc.loading=true;
-          try{
-            var _r=await fetch("/api/admin/medical-centres?status=all",{credentials:"same-origin"});
-            var _d=await _r.json().catch(()=>({}));
-            if(_d.ok&&Array.isArray(_d.centres)){S.mc.centres=_d.centres;S.mc.allData=_d.centres;S.mc.listView="list";}
-          }catch{}
-          S.mc.loading=false;
-          S.mc.selectedCentre=S.mc.centres.find(c=>(c.practice_name||"").toLowerCase()===name.toLowerCase())||null;
-          S.mc.subView="overview";
-          // Switch to Medical Centres view
-          S.view="medicalcentres";
-          document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="medicalcentres"));
-          vaShowPanel("medicalcentres");
-          renderMedicalCentresPanel();
         }
         return;
       }
@@ -7143,14 +6215,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         await updateTaskStatus(taskId,waitStatus);
         return;
       }
-      const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
-      const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
-      const agRefreshProviders=e.target.closest("[data-agent-refresh-providers]");if(agRefreshProviders){refreshAgentProviders();return;}
-      const agCancel=e.target.closest("[data-agent-cancel]");if(agCancel){cancelAgentRun(agCancel.getAttribute("data-agent-cancel"));return;}
-      const agRegisterWorker=e.target.closest("[data-agent-register-worker]");if(agRegisterWorker){showAgentConnectHelp("localBridge");return;}
-      const agWorkerSelect=e.target.closest("[data-agent-worker-select]");if(agWorkerSelect){selectAgentWorker(agWorkerSelect.getAttribute("data-agent-worker-select"));return;}
-      const agWorkerRevoke=e.target.closest("[data-agent-worker-revoke]");if(agWorkerRevoke){revokeAgentWorker(agWorkerRevoke.getAttribute("data-agent-worker-revoke"));return;}
-      const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
       if(e.target.closest("[data-pb-toggle]")){
         const panel=document.getElementById("pbExpandPanel");
         if(panel){
@@ -7433,15 +6497,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
     document.getElementById("modalOverlay").addEventListener("click",async e=>{
-      const copyBtn=e.target.closest("[data-copy-connect]");
-      if(copyBtn){
-        const provider=copyBtn.getAttribute("data-copy-connect");
-        const cmd=S.agent.connectCommands&&S.agent.connectCommands[provider]?S.agent.connectCommands[provider]:"";
-        if(cmd&&navigator.clipboard&&navigator.clipboard.writeText){
-          try{await navigator.clipboard.writeText(cmd);}catch{}
-        }
-        return;
-      }
       if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();
     });
     document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("pdfEditorOverlay").classList.contains("open")){closePdfEditor();return;}if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
@@ -8033,9 +7088,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       };
       reader.readAsDataURL(file);
     });
-    document.getElementById("detailContent").addEventListener("input",e=>{
-      if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}
-    });
     document.getElementById("detailContent").addEventListener("change",e=>{
       if(!e.target)return;
       /* File upload inside GP Profile task detail panels */
@@ -8048,10 +7100,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         fileInput.value='';
         return;
       }
-      if(e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";refreshAgentStatus(false);return;}
-      if(e.target.id==="agentProfileSelect"){S.agent.profile=e.target.value||"balanced";refreshAgentStatus(false);return;}
-      if(e.target.id==="agentCollabSelect"){S.agent.collaborationMode=e.target.value||"paired";refreshAgentStatus(false);return;}
-      if(e.target.id==="agentComplexitySelect"){S.agent.complexity=e.target.value||"auto";refreshAgentStatus(false);return;}
     });
     var _saBtn=document.getElementById("saToolsBtn");
     if(_saBtn)_saBtn.addEventListener("click",function(e){e.stopPropagation();toggleSaTools();});
@@ -8065,7 +7113,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else if(tool==="process-gmail"){btn.textContent="Processing\u2026";btn.disabled=true;try{var r=await fetch("/api/admin/process-gmail",{method:"POST",credentials:"same-origin"});var d=await r.json().catch(function(){return{};});alert(d.ok?"Gmail processed: "+(d.results||[]).map(function(x){return x.email+" "+(x.ok?"OK":"FAIL: "+x.error);}).join(", "):"Failed: "+(d.message||"unknown error"));}catch(e){alert("Failed: "+e.message);}btn.textContent="Process Gmail Now";btn.disabled=false;}
       else if(tool==="cleanup-tasks"){btn.textContent="Cleaning\u2026";btn.disabled=true;try{var r3=await fetch("/api/admin/cleanup-tasks",{method:"POST",credentials:"same-origin"});var d3=await r3.json().catch(function(){return{};});alert(d3.ok?"Cancelled "+d3.cancelled+" duplicate/hollow tasks":"Failed: "+(d3.message||"unknown"));}catch(e3){alert("Failed: "+e3.message);}btn.textContent="Cleanup Duplicate Tasks";btn.disabled=false;if(typeof loadOpsQueue==="function")loadOpsQueue();}
       else if(tool==="ops-queue"){S.view="tools";S.toolsSubView="ops";if(typeof setActiveViewTab==="function")setActiveViewTab("tools");vaShowPanel("tools");renderToolsPanel();}
-      else if(tool==="weekly-sweep"){try{var sr=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});var sd=await sr.json().catch(function(){return{};});alert(sr.ok&&sd.ok!==false?("Sweep done: "+(sd.created||0)+" tasks created, "+(sd.escalated||0)+" escalated (scanned "+(sd.scanned||0)+")"):"Failed: "+(sd.message||("HTTP "+sr.status)));}catch{alert("Sweep failed.");}}
       else if(tool==="reset-gp"){var resetGpEmail=prompt("Enter GP email to reset to AHPRA stage:");if(!resetGpEmail)return;if(!confirm("This will cancel all tasks, delete messages/documents, and reset "+resetGpEmail+" to AHPRA stage. Continue?"))return;btn.textContent="Resetting\u2026";btn.disabled=true;try{var rg=await fetch("/api/admin/reset-gp",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:resetGpEmail})});var rgd=await rg.json().catch(function(){return{};});alert(rgd.ok?"Reset complete. Cancelled "+rgd.cancelled+" tasks, created "+rgd.created+" new tasks.":"Failed: "+(rgd.message||"unknown"));}catch(rge){alert("Failed: "+rge.message);}btn.textContent="Reset GP";btn.disabled=false;if(typeof loadOpsQueue==="function")loadOpsQueue();}
     });
   }
@@ -8502,7 +7549,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","stuckPanel":"stuck"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","supportPanel":"support","toolsPanel":"tools","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","stuckPanel":"stuck"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -9004,7 +8051,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   });
 
   function vaHidePanels(){
-    ["inboxPanel","medicalCentresPanel","supportPanel","toolsPanel"].forEach(function(id){
+    ["inboxPanel","supportPanel","toolsPanel"].forEach(function(id){
       var el=document.getElementById(id);if(el)el.style.display="none";
     });
     document.getElementById("mainLayout").style.display="grid";
@@ -9139,38 +8186,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function renderToolsPanel(){
     const el=document.getElementById("toolsPanel");if(!el)return;
-    const subnav=document.getElementById("toolsSubnav");if(!subnav)return;
-    const saOnly=typeof isSA==="function"&&isSA();
-    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"}];
-    if(saOnly)items.push({key:"agent",label:"Agent"});
-    if(S.toolsSubView==="agent"&&!saOnly)S.toolsSubView="ops";
-    subnav.innerHTML=items.map(i=>`<button class="tools-subnav-btn ${S.toolsSubView===i.key?"active":""}" data-tools-sub="${esc(i.key)}">${esc(i.label)}</button>`).join("");
-    document.getElementById("toolsOps").style.display=(S.toolsSubView==="ops"?"block":"none");
-    document.getElementById("toolsSweep").style.display=(S.toolsSubView==="sweep"?"block":"none");
-    document.getElementById("toolsAgent").style.display=(S.toolsSubView==="agent"?"block":"none");
-    if(S.toolsSubView==="ops"&&typeof loadOpsQueue==="function")loadOpsQueue();
-    else if(S.toolsSubView==="sweep")renderToolsSweepPane();
-    else if(S.toolsSubView==="agent")renderToolsAgentPane();
-  }
-  function renderToolsSweepPane(){
-    const el=document.getElementById("toolsSweep");if(!el)return;
-    const last=S.va.lastSweepResult;
-    const lastHtml=last
-      ? `<div class="todo-card" style="margin-top:12px"><div class="todo-title">Last run</div><div class="todo-detail">Scanned ${esc(String(last.scanned||0))} — created ${esc(String(last.created||0))} new tasks · Ran at ${esc(new Date(last.at).toLocaleTimeString())}</div></div>`
-      : '<div class="empty" style="margin-top:12px">No sweep run yet this session.</div>';
-    el.innerHTML=`<h2 style="margin:0 0 6px">Weekly Check-in Sweep</h2>
-      <p style="color:var(--muted,#9aa3b2);margin:0 0 12px">Creates check-in tasks for GPs stalled 14+ days in MyIntealth or AMC without an existing check-in task in the last 7 days.</p>
-      <button class="btn primary" data-tools-sweep-run>Run Sweep Now</button>${lastHtml}`;
-  }
-  function renderToolsAgentPane(){
-    const el=document.getElementById("toolsAgent");if(!el)return;
-    el.innerHTML=`<div style="display:grid;grid-template-columns:320px 1fr;gap:16px;min-height:400px">
-      <div id="toolsAgentRunList" style="border-right:1px solid var(--border,#2a2f3a);padding-right:16px;overflow-y:auto"></div>
-      <div id="toolsAgentDetail" style="overflow-y:auto"></div>
-    </div>`;
-    if(typeof refreshAgentStatus==="function")refreshAgentStatus(true);
-    if(typeof renderAgentRunList==="function")renderAgentRunList();
-    if(typeof renderAgentDetail==="function")renderAgentDetail();
+    const subnav=document.getElementById("toolsSubnav");if(subnav)subnav.innerHTML="";
+    S.toolsSubView="ops";
+    const opsEl=document.getElementById("toolsOps");if(opsEl)opsEl.style.display="block";
+    if(typeof loadOpsQueue==="function")loadOpsQueue();
   }
 
   /* ══ Task 12: SPPA-00 task card rendering ══ */
@@ -9826,21 +8845,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch{toast("Network error","red");}
   }
 
-  async function runWeeklyCheckinSweep(){
-    try{
-      const r=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d&&d.ok){
-        S.va.lastSweepResult={scanned:d.scanned||0,created:d.created||0,at:new Date().toISOString()};
-        toast("Weekly sweep: "+(d.created||0)+" new check-in tasks (scanned "+(d.scanned||0)+")");
-      }else toast("Sweep failed","red");
-      await loadVaDashboard();
-      if(S.view==="inbox")renderInboxPanel();
-      if(S.view==="tools"&&S.toolsSubView==="sweep")renderToolsSweepPane();
-    }catch{toast("Network error","red");}
-  }
-
-
   /* Delegated click handlers for interviews panel */
   document.addEventListener("click",async e=>{
     const ivPanel=document.getElementById("interviewsPanel");
@@ -9940,8 +8944,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const subBtn=e.target.closest("[data-tools-sub]");
     if(subBtn){e.preventDefault();e.stopPropagation();S.toolsSubView=subBtn.getAttribute("data-tools-sub");renderToolsPanel();return;}
 
-    const sweepRun=e.target.closest("[data-tools-sweep-run]");
-    if(sweepRun){e.preventDefault();e.stopPropagation();runWeeklyCheckinSweep();return;}
 
     const refresh=e.target.closest("[data-va-refresh]");
     if(refresh){e.preventDefault();e.stopPropagation();await Promise.all([loadVaDashboard(),loadIncomingQuestions()]);if(S.view==="inbox")renderInboxPanel();return;}
@@ -9969,21 +8971,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(blocker&&!e.target.closest("[data-view-todo-case]")){e.preventDefault();e.stopPropagation();S.selectedCaseId=blocker.getAttribute("data-blocker-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
   },true);
 
-  /* Delegated click handlers for Agent sub-view (SA only) */
-  document.addEventListener("click",async e=>{
-    const root=document.getElementById("toolsAgentDetail");
-    if(!root||!root.contains(e.target))return;
-    const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
-    const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
-    const agCancel=e.target.closest("[data-agent-cancel]");if(agCancel){cancelAgentRun(agCancel.getAttribute("data-agent-cancel"));return;}
-    const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
-  },true);
-  document.addEventListener("click",async e=>{
-    const root=document.getElementById("toolsAgentRunList");
-    if(!root||!root.contains(e.target))return;
-    const agentRun=e.target.closest("[data-agent-run-id]");
-    if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderToolsAgentPane();loadAgentRun(S.agent.selectedRunId);return;}
-  },true);
 
   /* Init-time auto-load for the default "inbox" view */
   (function hookInitialLoad(){
@@ -10022,15 +9009,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(ovTab)ovTab.style.display="";
       var rsoOvTab=document.getElementById("ceoRsoOversightTab");
       if(rsoOvTab)rsoOvTab.style.display="";
-      var mcTab=document.getElementById("medicalCentresTab");
-      if(mcTab)mcTab.style.display="";
     }
     /* Unified-nav deep link: /pages/admin?view=<tab> opens that work-list on load
        (used by the CEO Command Centre menu items). Defaults to Ops Queue when absent. */
     try{
       var viewParam=new URLSearchParams(location.search).get("view");
-      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls"];
-      if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !(viewParam==="medicalcentres"&&!isSA())){
+      var _allowedViews=["tools","gps","support","guide","scheduled_calls"];
+      if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0){
         S.view=viewParam;
       }
     }catch(e){}
