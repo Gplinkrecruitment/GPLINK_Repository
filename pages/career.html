@@ -11240,8 +11240,15 @@
         savedTabBadgeEl.textContent = String(careerState.savedJobs.length);
       }
       if (offersTabBadgeEl) {
-        offersTabBadgeEl.hidden = careerState.applications.length === 0;
-        offersTabBadgeEl.textContent = String(careerState.applications.length);
+        // The "Offers" badge counts genuine OFFERS only — not every application.
+        // Applying puts you Under Review; that is not an offer, so it must not
+        // light up the Offers tab. offerPending is the same server-decided flag
+        // the panel uses to group its "Offers" section (a placement you've
+        // already secured is past the offer stage and no longer pending).
+        const offerCount = careerState.applications
+          .filter((application) => application && application.offerPending === true).length;
+        offersTabBadgeEl.hidden = offerCount === 0;
+        offersTabBadgeEl.textContent = String(offerCount);
       }
       if (careerFiltersEl) {
         careerFiltersEl.style.display = careerState.activeView === "browse" ? "" : "none";
@@ -11509,19 +11516,23 @@
           { label: "Next step", value: getApplicationStatusMeta(app.status).isPlacementSecured ? "Relocation handover" : "GP Link screening" }
         ]
       }));
-      if (remote.length > 0) {
-        // Merge: keep remote as source of truth, add any local-only apps
-        const remoteIds = new Set(remote.map((a) => a.roleId));
-        const localOnly = careerState.applications
-          .filter((a) => a && a.roleId && !remoteIds.has(a.roleId))
-          .map((application) => normalizeCareerApplication(application));
-        careerState.applications = [...remote, ...localOnly];
-        if (remote.some((application) => application.isPlacementSecured)) {
-          careerState.activeView = "secured";
-        }
-        persistCareerState();
-        if (shouldRender) renderPage();
+      // The server is the source of truth for applications, so reconcile to
+      // it UNCONDITIONALLY — including when it authoritatively returns an empty
+      // list. The top guard already proved payload.ok + applications is an
+      // array, so an empty `remote` here means "this GP has no applications",
+      // not "unknown". Previously this only ran when remote.length > 0, so an
+      // application cleared server-side (Reset GP, data cleanup, the Zoho→in-app
+      // migration) lingered forever as a ghost "offer" in the browser's
+      // localStorage — the doctor saw an Under-Review card for a role the system
+      // no longer had any record of. Applications are never written to
+      // careerState locally (apply persists server-side, then we refetch), so
+      // there is no un-synced local-only application to preserve here.
+      careerState.applications = remote;
+      if (remote.some((application) => application.isPlacementSecured)) {
+        careerState.activeView = "secured";
       }
+      persistCareerState();
+      if (shouldRender) renderPage();
     }
 
     async function loadRemoteApplications(options = {}) {
