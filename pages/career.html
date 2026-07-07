@@ -11931,6 +11931,11 @@
       const isWithdrawn = actionStatusKey === "withdrawn";
       const isOfferDeclined = actionStatusKey === "offer_declined";
       const isFinalising = actionStatusKey === "finalising_placement";
+      // The profile has been sent to the practice ("submitted") or the practice
+      // is actively reviewing it ("reviewing") — both mean it HAS reached the
+      // practice, so the copy must not say "before it reaches the practice".
+      const isSubmittedToPractice = actionStatusKey === "submitted";
+      const isPracticeReviewing = actionStatusKey === "reviewing";
 
       let ribbon = "";
       if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
@@ -11939,6 +11944,7 @@
       else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
       else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
+      else if (isSubmittedToPractice) ribbon = '<span class="at-rstatus at-rstatus--applied">SUBMITTED</span>';
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
       let metaLine = "";
@@ -11956,6 +11962,10 @@
         metaLine = "The practice would like to move forward \u2014 review your offer and schedule the interview.";
       } else if (isInterview) {
         metaLine = "Interview scheduled \u2014 your Registration Support Officer will join you, so you're never in the room alone.";
+      } else if (isSubmittedToPractice) {
+        metaLine = "Your profile has been submitted to the practice \u2014 we'll let you know the moment they respond.";
+      } else if (isPracticeReviewing) {
+        metaLine = "The practice is reviewing your profile now \u2014 we'll update you as soon as they respond.";
       } else {
         metaLine = "Your Registration Support Officer is reviewing your application before it reaches the practice.";
       }

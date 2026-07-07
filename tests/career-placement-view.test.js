@@ -13,9 +13,14 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CAREER_PATH = path.join(__dirname, '..', 'pages', 'career.html');
+const SERVER_PATH = path.join(__dirname, '..', 'server.js');
 
 let careerHtml;
-beforeAll(() => { careerHtml = fs.readFileSync(CAREER_PATH, 'utf8'); });
+let serverJs;
+beforeAll(() => {
+  careerHtml = fs.readFileSync(CAREER_PATH, 'utf8');
+  serverJs = fs.readFileSync(SERVER_PATH, 'utf8');
+});
 
 describe('career placement view — only shown to an actually-placed GP', () => {
   it('the anti-flash head script keys off isPlacementSecured only', () => {
@@ -60,5 +65,37 @@ describe('career placement view — only shown to an actually-placed GP', () => 
     expect(careerHtml).toMatch(
       /careerState\.activeView === "secured" && !hasSecuredPlacement\(\) && !isLockedToSecured/
     );
+  });
+});
+
+describe('career application card — submitted-to-practice stage reads correctly', () => {
+  it('an in-app-originated application presents from its stage, not as Zoho', () => {
+    // Zoho is decommissioned: a legacy zoho_application_id must not force the
+    // generic status when the GP applied in-app (origin gp_applied/admin_applied)
+    // — that app is managed by the in-app ATS pipeline. A pure Zoho-synced app
+    // with no in-app origin still stays raw.
+    const fn = serverJs.slice(
+      serverJs.indexOf('function isInternalCareerApplication'),
+      serverJs.indexOf('function buildInternalCareerStatusPresentation')
+    );
+    expect(fn).toContain("origin === 'gp_applied' || origin === 'admin_applied'");
+    // The origin check comes BEFORE the zoho_application_id disqualifier.
+    expect(fn.indexOf('appRow.origin')).toBeLessThan(fn.indexOf('appRow.zoho_application_id'));
+  });
+
+  it('server maps the submitted stage to "Sent to the practice"', () => {
+    expect(serverJs).toMatch(/stage === 'submitted'[\s\S]*?statusLabel: 'Sent to the practice'/);
+  });
+
+  it('the GP card copy reflects "submitted to practice", not "before it reaches"', () => {
+    // The bug: a profile already sent to the practice still read "reviewing
+    // your application before it reaches the practice". Submitted + reviewing
+    // stages now get honest copy.
+    expect(careerHtml).toContain('actionStatusKey === "submitted"');
+    expect(careerHtml).toContain('actionStatusKey === "reviewing"');
+    expect(careerHtml).toContain("Your profile has been submitted to the practice");
+    expect(careerHtml).toContain("The practice is reviewing your profile now");
+    // The pre-submission fallback copy is preserved for the truly-applied stage.
+    expect(careerHtml).toContain("reviewing your application before it reaches the practice");
   });
 });

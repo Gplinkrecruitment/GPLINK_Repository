@@ -15706,6 +15706,16 @@ function isCareerPlacementSecuredStatus(value) {
 // labels (career.html's own status map) completely untouched.
 function isInternalCareerApplication(appRow, roleRow) {
   if (roleRow && String(roleRow.provider || '') === 'internal_ats') return true;
+  // Zoho Recruit is decommissioned. An application the GP created through the
+  // in-app career flow (origin 'gp_applied') or that staff created in-app
+  // ('admin_applied') is managed by the in-app ATS pipeline and must present
+  // from its ats_stage (submitted → "Sent to the practice", etc.) — even when
+  // the row still carries a legacy zoho_application_id, which happens for roles
+  // originally imported from Zoho (e.g. SOP Medical Centre). Without this a
+  // submitted-to-practice in-app application fell back to the generic "reviewing
+  // before it reaches the practice" copy, wrong once the profile has been sent.
+  const origin = String((appRow && appRow.origin) || '').trim();
+  if (origin === 'gp_applied' || origin === 'admin_applied') return true;
   if (appRow && String(appRow.zoho_application_id || '').trim()) return false;
   return String((appRow && appRow.provider_role_id) || '').trim().startsWith('ats_');
 }
