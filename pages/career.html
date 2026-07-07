@@ -11,28 +11,21 @@
   <title>My Practice - GP Link</title>
   <script>
     (function () {
-      // Anti-flash pre-lock: only default to the placement ("secured") view when the
-      // cached state shows a real, concrete placement. GPs without a placement fall
-      // through to the job-browse view instead of a placement placeholder. The JS
-      // below reconciles this attribute against the authoritative lock state once the
-      // live career data has loaded.
+      // Anti-flash pre-lock: default to the placement ("secured") view ONLY when
+      // the cached state's last server sync marked an application isPlacementSecured
+      // — the same authoritative flag shouldLockCareerToSecuredView() uses in JS.
+      // Keying off looser signals (a placement object, or a non-"confidential"
+      // practice name) false-positived a non-placed GP — someone merely at the
+      // review/interview stage — straight onto the "Placement Secured" page on a
+      // cold load. GPs without a real placement fall through to the job-browse
+      // view. The JS below reconciles this attribute against the live server data.
       var initialView = "";
       try {
         var rawCareerState = localStorage.getItem("gp_career_state");
         var careerState = rawCareerState ? JSON.parse(rawCareerState) : null;
         var applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
-        var hasConcretePlacement = false;
-        applications.forEach(function (application) {
-          if (!application || typeof application !== "object") return false;
-          var placement = application.placement && typeof application.placement === "object" ? application.placement : null;
-          if (placement && Object.keys(placement).length) {
-            hasConcretePlacement = true;
-            return;
-          }
-          var practiceName = String(application.practiceName || "").trim();
-          if (practiceName && !/confidential/i.test(practiceName)) {
-            hasConcretePlacement = true;
-          }
+        var hasConcretePlacement = applications.some(function (application) {
+          return application && typeof application === "object" && application.isPlacementSecured === true;
         });
         if (hasConcretePlacement) initialView = "secured";
       } catch (err) {
@@ -11530,6 +11523,15 @@
       careerState.applications = remote;
       if (remote.some((application) => application.isPlacementSecured)) {
         careerState.activeView = "secured";
+      } else if (careerState.activeView === "secured" && !shouldLockCareerToSecuredView()) {
+        // The server authoritatively reports NO secured placement for this GP,
+        // but a stale localStorage state left the page stuck on the "Placement
+        // Secured" view — e.g. the GP is only at the review/interview stage, or
+        // a test placement was reverted. A non-placed GP must never see the
+        // placement page (with its "finalising the details" note and interview
+        // card). Downgrade to their real stage view and persist it, so the
+        // cached view is correct on the next cold load too, not just this one.
+        careerState.activeView = careerState.applications.length ? "applications" : "browse";
       }
       persistCareerState();
       if (shouldRender) renderPage();
