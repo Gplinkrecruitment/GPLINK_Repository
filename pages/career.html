@@ -5226,7 +5226,14 @@
       overscroll-behavior: none;
     }
 
+    /* Sticky header: stays pinned at the top of the scrollable card while the
+       CV/cover-letter content scrolls beneath it (mirrors .career-gate-footer).
+       Solid gradient background hides content passing behind it. z-index above
+       the footer (2) and content so nothing bleeds over the pinned bar. */
     .career-gate-top {
+      position: sticky;
+      top: 0;
+      z-index: 3;
       background: linear-gradient(135deg, var(--gp-blue-ink), var(--gp-blue));
       padding: 26px 28px 22px;
       color: #fff;

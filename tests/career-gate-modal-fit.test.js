@@ -109,3 +109,16 @@ describe('careers gate modal — background scroll lock', () => {
     expect(cssBlock('.modal-card')).toMatch(/overscroll-behavior:\s*contain/);
   });
 });
+
+// Round 4 — owner request 2026-07-08: make the blue "One quick step / Complete
+// your profile" header sticky too, pinned to the top of the card while the
+// content scrolls (mirrors the sticky footer).
+describe('careers gate modal — sticky header', () => {
+  it('blue header sticks to the top of the scrollable card', () => {
+    const top = cssBlock('.career-gate-top');
+    expect(top).toMatch(/position:\s*sticky/);
+    expect(top).toMatch(/top:\s*0/);
+    // a solid background so scrolled content does not show through behind it
+    expect(top).toMatch(/background:/);
+  });
+});
