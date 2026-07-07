@@ -34000,7 +34000,23 @@ async function handleApi(req, res, pathname) {
       supabaseDbRequest('gp_applications', `select=id,status&user_id=eq.${encodeURIComponent(userId)}&limit=500`)
     ]);
     const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
-    const hasSecuredPlacement = priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status));
+    let hasSecuredPlacement = priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status));
+    // Placement by association: a GP tied to a practice on their registration
+    // case (admin-curated practice_name) is placed too, even without an
+    // ATS-secured application — same rule /api/career/applications uses to show
+    // them the practice view. Without this, the non-dismissible CV-gate would
+    // open over their practice page (and its scroll-lock would strand it).
+    if (!hasSecuredPlacement) {
+      try {
+        const psCaseRes = await supabaseDbRequest(
+          'registration_cases',
+          'select=practice_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&order=created_at.desc&limit=1'
+        );
+        const psCase = (psCaseRes.ok && Array.isArray(psCaseRes.data) && psCaseRes.data[0]) ? psCaseRes.data[0] : null;
+        const psPractice = psCase ? String(psCase.practice_name || '').trim() : '';
+        if (psPractice && !/confidential/i.test(psPractice)) hasSecuredPlacement = true;
+      } catch (psErr) { /* fail open on the placement check — CV gate still governed by cvRow */ }
+    }
 
     sendJson(res, 200, {
       ok: true,

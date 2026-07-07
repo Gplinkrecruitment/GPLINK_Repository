@@ -847,114 +847,21 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           Add to Calendar
         </a>
-        <a class="action-tile" href="#prepQuestions" id="prepQuestionsTile">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-          Prep Questions
-        </a>
       </div>
     </div>
 
-    <!-- WHO YOU'RE MEETING — now above strategy -->
+    <!-- YOUR NOTES — the practice/people briefing shown here before ("who
+         you're meeting", strategy, "what they're looking for", etc.) was
+         hardcoded placeholder content, identical for every GP and not tied to
+         the real practice. It has been removed. Only genuinely true details
+         remain: your interview time, the practice, the Zoom link, and your own
+         notes. -->
     <hr class="divider">
-
-    <div class="section gp-reveal gp-reveal-1">
-      <div class="section-label">Who you're meeting</div>
-      <div class="person-row">
-        <div class="person-avatar avatar-blue">KI</div>
-        <div>
-          <div class="person-header">
-            <div class="person-name">Khaleed Ibanez</div>
-            <span class="person-tag tag-blue">GP Link</span>
-          </div>
-          <div class="person-role">CEO, GP Link</div>
-          <div class="person-traits">
-            <span class="trait">Your advocate</span>
-            <span class="trait">Will introduce you</span>
-            <span class="trait">Approachable</span>
-          </div>
-        </div>
-      </div>
-      <div class="person-row">
-        <div class="person-avatar avatar-indigo">RT</div>
-        <div>
-          <div class="person-header">
-            <div class="person-name">Dr. Rachel Thompson</div>
-            <span class="person-tag tag-slate">Practice</span>
-          </div>
-          <div class="person-role">Practice Principal · 15+ years</div>
-          <div class="person-traits">
-            <span class="trait">Values long-term GPs</span>
-            <span class="trait">Straightforward</span>
-            <span class="trait">Time-efficient</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- STRATEGY -->
-    <hr class="divider">
-
-    <div class="glass-section gp-reveal gp-reveal-2">
-      <div class="strategy-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
-        Strategy
-      </div>
-      <div class="strategy-title">How to Succeed in This Interview</div>
-
-      <div class="strategy-item"><div class="strategy-dot"></div><div><div class="strategy-text">This is a GP-owned clinic — they value long-term commitment over short locum stints</div><div class="strategy-reason">Emphasise your permanent relocation plans</div></div></div>
-      <div class="strategy-item"><div class="strategy-dot"></div><div><div class="strategy-text">High private billing practice — they'll assess communication skills and patient rapport</div><div class="strategy-reason">Share examples of patient relationship building</div></div></div>
-      <div class="strategy-item"><div class="strategy-dot"></div><div><div class="strategy-text">They've struggled with GP retention — expect questions about your stability</div><div class="strategy-reason">Mention housing research, school plans, partner situation</div></div></div>
-      <div class="strategy-item"><div class="strategy-dot"></div><div><div class="strategy-text">They prefer GPs open to women's health and chronic disease management</div><div class="strategy-reason">Highlight relevant clinical interests and experience</div></div></div>
-
-      <!-- Personal notes -->
+    <div class="glass-section gp-reveal gp-reveal-1">
       <div class="notes-area">
         <div class="notes-label">Your Notes</div>
-        <textarea class="notes-input" id="personalNotes" placeholder="Jot down your own talking points..."></textarea>
+        <textarea class="notes-input" id="personalNotes" placeholder="Jot down your own talking points for the interview..."></textarea>
       </div>
-    </div>
-
-    <!-- WHAT THEY'RE LOOKING FOR -->
-    <hr class="divider">
-    <div class="section gp-reveal gp-reveal-3">
-      <div class="section-title">What This Practice Is Looking For</div>
-      <div class="bullet-item"><div class="bullet-icon bullet-blue"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg></div><div><strong>2+ year commitment</strong> — they won't consider short-term GPs</div></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-blue"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg></div><div><strong>Private billing confidence</strong> — 70% private, 30% bulk</div></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-blue"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg></div><div><strong>Chronic disease + women's health</strong> — core patient demographic</div></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-blue"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg></div><div><strong>Flexibility on sessions</strong> — mix of half and full days preferred</div></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div><div><strong style="color:var(--red);">Red flag:</strong> GPs who appear unsettled or mention multiple relocation options</div></div>
-    </div>
-
-    <!-- WHAT YOU SHOULD EMPHASISE -->
-    <hr class="divider">
-    <div class="section gp-reveal gp-reveal-3">
-      <div class="section-title">What You Should Emphasise</div>
-      <div class="bullet-item"><div class="bullet-icon bullet-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><span>Your long-term move to Australia — this is permanent, not a trial</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><span>Comfort with private billing and building patient relationships</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><span>Patient communication skills — give a specific example</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><span>Flexibility with sessions and willingness to build up over time</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div><span>Family is relocating too — housing research done, schools identified</span></div>
-    </div>
-
-    <!-- MISTAKES TO AVOID -->
-    <hr class="divider">
-    <div class="section gp-reveal gp-reveal-4">
-      <div class="section-title">Mistakes to Avoid</div>
-      <div class="bullet-item"><div class="bullet-icon bullet-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div><span>Don't ask about leaving early or reduced hours upfront</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div><span>Don't sound unsure about relocating — be definitive</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div><span>Don't lead with money — discuss earnings after rapport is built</span></div>
-      <div class="bullet-item"><div class="bullet-icon bullet-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div><span>Don't compare to other offers or practices — focus on this one</span></div>
-    </div>
-
-    <!-- QUESTIONS — tap to copy -->
-    <hr class="divider">
-    <div class="section gp-reveal gp-reveal-4" id="prepQuestions">
-      <div class="section-title">Questions to Ask</div>
-      <div class="section-intro">Tap any question to copy it.</div>
-      <div class="question-item">What does a fully booked GP's day look like here?</div>
-      <div class="question-item">How quickly do new GPs typically build up their patient base?</div>
-      <div class="question-item">What support is provided during the first 3 months?</div>
-      <div class="question-item">What would success look like in the first 6 months?</div>
-      <div class="question-item">Is there scope for special interest clinics down the line?</div>
     </div>
 
     <!-- GUIDANCE OFFICER -->

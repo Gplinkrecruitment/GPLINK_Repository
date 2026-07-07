@@ -194,4 +194,54 @@ describe('pages/career.html — provisional placement rendering hooks', () => {
     // An honest "details being finalised" note element exists.
     expect(careerHtml).toContain('securedProvisionalNote');
   });
+
+  it('hides the upcoming-interview card and clears the CV-gate scroll lock on the placement view', () => {
+    const render = careerHtml.slice(careerHtml.indexOf('function renderSecuredPlacement'));
+    const body = render.slice(0, render.indexOf('function setView'));
+    // Placed GPs never see an "upcoming interview" card.
+    expect(body).toMatch(/securedInterviewCardEl\.hidden\s*=\s*true/);
+    // The CV-gate scroll lock (.career-gate-open → overflow:hidden) is released so
+    // the placement page always scrolls, even if the gate opened during a race.
+    expect(body).toContain('closeCareerGateModal()');
+    // loadSecuredInterview must NOT be invoked from the placement render anymore.
+    expect(body).not.toMatch(/^\s*loadSecuredInterview\(\);/m);
+  });
+});
+
+describe('GET /api/career/profile/status — placement by association', () => {
+  it('does NOT require the CV gate for a GP tied to a practice on their case', async () => {
+    const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.gateRequired).toBe(false);
+    expect(res.body.placed).toBe(true);
+  });
+
+  it('still requires the CV gate for a GP with no practice and no CV', async () => {
+    const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie(BROWSE.email, BROWSE.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.gateRequired).toBe(true);
+    expect(res.body.placed).toBe(false);
+  });
+});
+
+describe('pages/interview-prep.html — fabricated prep content removed (owner request 2026-07-08)', () => {
+  const prepHtml = fs.readFileSync(path.join(ROOT, 'pages', 'interview-prep.html'), 'utf8');
+
+  it('no longer ships the hardcoded placeholder briefing', () => {
+    expect(prepHtml).not.toContain('Khaleed Ibanez');
+    expect(prepHtml).not.toContain('Rachel Thompson');
+    expect(prepHtml).not.toContain('How to Succeed in This Interview');
+    expect(prepHtml).not.toContain('What This Practice Is Looking For');
+    expect(prepHtml).not.toContain('What You Should Emphasise');
+    expect(prepHtml).not.toContain('Mistakes to Avoid');
+    expect(prepHtml).not.toContain('Questions to Ask');
+  });
+
+  it('keeps the genuinely-true elements (practice, Zoom link, notes)', () => {
+    expect(prepHtml).toContain('id="heroPracticeName"');
+    expect(prepHtml).toContain('id="joinZoomTile"');
+    expect(prepHtml).toContain('id="personalNotes"');
+  });
 });

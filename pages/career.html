@@ -12083,7 +12083,16 @@
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
-      loadSecuredInterview();
+      // A placed GP has already completed the interviews that secured their
+      // placement — never show an "upcoming interview" card on the practice
+      // view (owner request). Keep the card hidden here.
+      if (securedInterviewCardEl) securedInterviewCardEl.hidden = true;
+      // The CV-gate popup is only for GPs still job-hunting; a placed GP must
+      // never be behind it. Its open state adds .career-gate-open (overflow:hidden)
+      // to html+body, so if it ever opened during a race before placement was
+      // known, the practice page would be stuck unscrollable. Clearing it here
+      // guarantees the placement page always scrolls.
+      if (typeof closeCareerGateModal === "function") closeCareerGateModal();
       const placement = resolveSecuredPlacement();
       // Provisional placement: real practice, package not yet loaded. Mark the
       // page so CSS hides the demo-dependent sections, and show an honest note
