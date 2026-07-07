@@ -295,6 +295,78 @@
     });
   }
 
+  // ── Redesigned panel (v9): pure/small rendering helpers ──
+  // These read the same underlying storage buildAlertItems() already reads
+  // (getGpLinkUpdates / parseSupportCases) to surface the `.detail` text that
+  // buildAlertItems() itself does not pass through — buildAlertItems() and its
+  // output shape are left untouched, this only adds a display-time lookup.
+  let panelFilter = "all"; // "all" | "action" | "update" | "support"
+
+  const KIND_ICON_SVG = {
+    action: '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    update: '<path d="M20 6 9 17l-5-5"/>',
+    support: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>'
+  };
+
+  function kindLabel(kind) {
+    if (kind === "action") return "Action";
+    if (kind === "support") return "Reply";
+    return "Update";
+  }
+
+  function timeAgo(ts) {
+    if (typeof ts !== "string" || !ts) return "";
+    const then = new Date(ts).getTime();
+    if (!Number.isFinite(then)) return "";
+    const diffMs = Date.now() - then;
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hrs ago`;
+    const days = Math.floor(hours / 24);
+    if (days <= 14) return `${days} days ago`;
+    return new Date(then).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function alertItemUpdateDetail(id) {
+    const match = getGpLinkUpdates().find((u) => alertIdForUpdate(u) === id);
+    return match && typeof match.detail === "string" ? match.detail : "";
+  }
+
+  function alertItemSupportDetail(id) {
+    const cases = parseSupportCases();
+    for (let i = 0; i < cases.length; i++) {
+      const c = cases[i];
+      if (!c || typeof c !== "object") continue;
+      const thread = Array.isArray(c.thread) ? c.thread : [];
+      const gpReplies = thread.filter((entry) => entry && entry.from === "gp");
+      if (!gpReplies.length) continue;
+      const latest = gpReplies[gpReplies.length - 1];
+      const ts = typeof latest.ts === "string" ? latest.ts : (typeof c.updatedAt === "string" ? c.updatedAt : new Date().toISOString());
+      if (alertIdForSupport(c.id, ts) === id) {
+        return typeof latest.text === "string" ? latest.text : "";
+      }
+    }
+    return "";
+  }
+
+  function alertItemDetail(item) {
+    if (!item || typeof item.id !== "string") return "";
+    if (item.id.indexOf("update:") === 0) return alertItemUpdateDetail(item.id);
+    if (item.id.indexOf("support:") === 0) return alertItemSupportDetail(item.id);
+    return "";
+  }
+
+  // Marks every passed alert item read via the existing per-item markRead
+  // mechanics (same as a single item click) — used by "Mark all read".
+  function markAllAlertsRead(items) {
+    (items || []).forEach((item) => {
+      markRead(item.id);
+      if (item.kind === "support" && item.caseId) updateCaseUnread(item.caseId, false);
+    });
+  }
+
   function ensurePanelStyles() {
     if (document.getElementById(PANEL_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -327,76 +399,200 @@
       #${PANEL_ID} .head {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 10px;
-        padding: 14px 16px;
-        border-bottom: 1px solid #e7eefc;
+        padding: 16px 16px 12px;
       }
       #${PANEL_ID} .head h4 {
         margin: 0;
-        font-size: 15px;
-        font-weight: 800;
+        font-family: "Source Serif 4", Georgia, serif;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -.01em;
         color: #0f172a;
       }
-      #${PANEL_ID} .head button {
+      #${PANEL_ID} .head .new-chip {
+        font-size: 10px;
+        font-weight: 800;
+        color: #2563eb;
+        background: rgba(37, 99, 235, .08);
+        border: 1px solid rgba(37, 99, 235, .12);
+        border-radius: 7px;
+        padding: 2px 8px;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+      }
+      #${PANEL_ID} .head .mark-all {
+        margin-left: auto;
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #64748b;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+      }
+      #${PANEL_ID} .head .mark-all:hover { color: #2563eb; }
+      #${PANEL_ID} .head button[data-alert-close] {
         border: 1px solid #dbe7fb;
         background: #fff;
         color: #334155;
         border-radius: 999px;
-        width: 30px;
-        height: 30px;
-        font-size: 16px;
+        width: 28px;
+        height: 28px;
+        font-size: 15px;
         font-weight: 700;
         cursor: pointer;
+        display: grid;
+        place-items: center;
+        flex: none;
+        margin-left: 0;
+      }
+      #${PANEL_ID} .filters {
+        display: flex;
+        gap: 6px;
+        padding: 0 16px 12px;
+        border-bottom: 1px solid #eef2f9;
+      }
+      #${PANEL_ID} .fchip {
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 5px 12px;
+        border: 1px solid #e3e9f4;
+        color: #64748b;
+        background: #fff;
+        cursor: pointer;
+      }
+      #${PANEL_ID} .fchip.on {
+        background: #0f172a;
+        border-color: #0f172a;
+        color: #fff;
+      }
+      #${PANEL_ID} .grp {
+        font-size: 10px;
+        letter-spacing: .11em;
+        text-transform: uppercase;
+        font-weight: 800;
+        color: #94a3b8;
+        padding: 12px 12px 6px;
       }
       #${PANEL_ID} .list {
-        padding: 10px;
-        max-height: calc(82vh - 62px);
+        padding: 4px 10px 6px;
+        max-height: calc(82vh - 110px);
         overflow: auto;
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
       #${PANEL_ID} .empty {
         border: 1px dashed #dbe7fb;
         border-radius: 14px;
         padding: 16px;
+        margin: 6px 2px;
         font-size: 13px;
         color: #64748b;
         text-align: center;
       }
-      #${PANEL_ID} .item {
-        border: 1px solid #e7eefc;
-        border-radius: 14px;
-        background: #fff;
-        padding: 10px 12px;
+      #${PANEL_ID} .aitem {
         display: grid;
-        grid-template-columns: 8px 1fr auto;
-        align-items: center;
-        gap: 10px;
+        grid-template-columns: 36px 1fr auto;
+        gap: 11px;
+        align-items: start;
+        width: 100%;
+        border: 1px solid transparent;
+        border-radius: 14px;
+        padding: 10px 10px 11px;
+        background: transparent;
+        text-align: left;
         cursor: pointer;
+        font: inherit;
       }
-      #${PANEL_ID} .item:hover { border-color: #cfe0fd; background: #f8fbff; }
-      #${PANEL_ID} .item.read { opacity: .72; }
-      #${PANEL_ID} .bar { width: 8px; height: 28px; border-radius: 999px; }
-      #${PANEL_ID} .item.action .bar { background: #d97706; }
-      #${PANEL_ID} .item.update .bar { background: #2563eb; }
-      #${PANEL_ID} .item.support .bar { background: #16a34a; }
-      #${PANEL_ID} .title {
+      #${PANEL_ID} .aitem:hover { border-color: #cfe0fd; }
+      #${PANEL_ID} .aitem.unread { background: #f8fbff; border-color: #e0ebfd; }
+      #${PANEL_ID} .aitem.read { opacity: .78; }
+      #${PANEL_ID} .aitem .ic {
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      #${PANEL_ID} .aitem .ic svg {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #${PANEL_ID} .aitem.k-action .ic { background: #fdf3e1; border: 1px solid #f4ddb0; }
+      #${PANEL_ID} .aitem.k-action .ic svg { stroke: #d97706; }
+      #${PANEL_ID} .aitem.k-update .ic { background: #eff4ff; border: 1px solid #d6e2fb; }
+      #${PANEL_ID} .aitem.k-update .ic svg { stroke: #2563eb; }
+      #${PANEL_ID} .aitem.k-support .ic { background: #eafaf0; border: 1px solid #c5ecd4; }
+      #${PANEL_ID} .aitem.k-support .ic svg { stroke: #16a34a; }
+      #${PANEL_ID} .aitem .body { min-width: 0; }
+      #${PANEL_ID} .aitem .ttl {
         font-size: 13px;
         font-weight: 700;
         color: #0f172a;
+        line-height: 1.35;
       }
-      #${PANEL_ID} .tag {
+      #${PANEL_ID} .aitem .bd {
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.5;
+        margin-top: 2px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      #${PANEL_ID} .aitem .meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        flex-wrap: wrap;
+      }
+      #${PANEL_ID} .aitem .kind {
         font-size: 10px;
         font-weight: 800;
-        border-radius: 999px;
-        padding: 4px 8px;
-        letter-spacing: .02em;
         text-transform: uppercase;
+        letter-spacing: .05em;
       }
-      #${PANEL_ID} .item.action .tag { color: #92400e; background: #fdf3e1; border: 1px solid #f4ddb0; }
-      #${PANEL_ID} .item.update .tag { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
-      #${PANEL_ID} .item.support .tag { color: #166534; background: #eafaf0; border: 1px solid #c5ecd4; }
+      #${PANEL_ID} .aitem.k-action .kind { color: #92400e; }
+      #${PANEL_ID} .aitem.k-update .kind { color: #1d4ed8; }
+      #${PANEL_ID} .aitem.k-support .kind { color: #166534; }
+      #${PANEL_ID} .aitem .time { font-size: 10.5px; color: #94a3b8; font-weight: 600; }
+      #${PANEL_ID} .aitem .go {
+        font-size: 11.5px;
+        font-weight: 800;
+        color: #2563eb;
+        margin-top: 7px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      #${PANEL_ID} .aitem .go::after { content: '\\2192'; }
+      #${PANEL_ID} .aitem .udot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #2563eb;
+        margin-top: 5px;
+        justify-self: end;
+      }
+      #${PANEL_ID} .see-all {
+        display: block;
+        text-align: center;
+        padding: 12px;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #2563eb;
+        text-decoration: none;
+        border-top: 1px solid #e8edf5;
+      }
       @media (max-width: 767px) {
         #${PANEL_ID} {
           top: 8px;
@@ -404,7 +600,7 @@
           max-height: 88vh;
           border-radius: 16px;
         }
-        #${PANEL_ID} .list { max-height: calc(88vh - 62px); }
+        #${PANEL_ID} .list { max-height: calc(88vh - 110px); }
       }
     `;
     document.head.appendChild(style);
@@ -420,11 +616,35 @@
     root.innerHTML = `
       <div class="head">
         <h4>Team Alerts</h4>
+        <span class="new-chip" id="${PANEL_ID}-newchip" hidden></span>
+        <button type="button" class="mark-all" data-mark-all>Mark all read</button>
         <button type="button" data-alert-close aria-label="Close alerts">&times;</button>
       </div>
+      <div class="filters">
+        <button type="button" class="fchip on" data-filter="all">All</button>
+        <button type="button" class="fchip" data-filter="action">Actions</button>
+        <button type="button" class="fchip" data-filter="update">Updates</button>
+        <button type="button" class="fchip" data-filter="support">Replies</button>
+      </div>
       <div class="list" id="${PANEL_ID}-list"></div>
-      <a href="/pages/messages" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
+      <a href="/pages/messages" class="see-all">See all updates</a>
     `;
+
+    root.querySelectorAll(".fchip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        panelFilter = chip.getAttribute("data-filter") || "all";
+        renderPanel();
+      });
+    });
+
+    const markAllBtn = root.querySelector("[data-mark-all]");
+    if (markAllBtn) {
+      markAllBtn.addEventListener("click", () => {
+        markAllAlertsRead(buildAlertItems());
+        renderPanel();
+      });
+    }
+
     var seeAllLink = root.querySelector(".see-all");
     if (seeAllLink) {
       seeAllLink.addEventListener("click", function (e) {
@@ -438,17 +658,58 @@
     return root;
   }
 
-  function itemTag(kind) {
-    if (kind === "action") return "ACT";
-    if (kind === "support") return "RESP";
-    return "UPD";
+  function buildAlertItemEl(item) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = `aitem k-${item.kind} ${item.unread ? "unread" : "read"}`;
+    const detail = alertItemDetail(item);
+    const time = timeAgo(item.ts);
+    const showGo = typeof item.target === "string" && item.target.indexOf("/pages/") === 0;
+    const icon = KIND_ICON_SVG[item.kind] || KIND_ICON_SVG.update;
+    el.innerHTML = `
+      <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span>
+      <span class="body">
+        <span class="ttl">${escHtml(item.title)}</span>
+        ${detail ? `<span class="bd">${escHtml(detail)}</span>` : ""}
+        <span class="meta">
+          <span class="kind">${escHtml(kindLabel(item.kind))}</span>
+          ${time ? `<span class="time">${escHtml(time)}</span>` : ""}
+        </span>
+        ${showGo ? `<span class="go">View</span>` : ""}
+      </span>
+      <span class="udot"${item.unread ? "" : ' style="visibility:hidden"'} aria-hidden="true"></span>
+    `;
+    el.addEventListener("click", () => {
+      markRead(item.id);
+      if (item.kind === "support" && item.caseId) updateCaseUnread(item.caseId, false);
+      refreshInboxBadges();
+      closePanel();
+      if (item.target && item.target.startsWith("/pages/")) {
+        if (window.gpShellNavigate) window.gpShellNavigate(item.target);
+        else window.location.href = item.target;
+      }
+    });
+    return el;
   }
 
   function renderPanel() {
     const root = ensurePanelRoot();
     const listEl = document.getElementById(`${PANEL_ID}-list`);
+    const newChipEl = document.getElementById(`${PANEL_ID}-newchip`);
     const items = buildAlertItems();
+
+    root.querySelectorAll(".fchip").forEach((chip) => {
+      chip.classList.toggle("on", chip.getAttribute("data-filter") === panelFilter);
+    });
+
+    const unreadCount = items.filter((item) => item.unread).length;
+    if (newChipEl) {
+      newChipEl.hidden = unreadCount === 0;
+      newChipEl.textContent = unreadCount + " new";
+    }
+
     listEl.innerHTML = "";
+
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -458,27 +719,29 @@
       return;
     }
 
-    items.forEach((item) => {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = `item ${item.kind}${item.unread ? "" : " read"}`;
-      el.innerHTML = `
-        <span class="bar" aria-hidden="true"></span>
-        <span class="title">${escHtml(item.title)}</span>
-        <span class="tag">${escHtml(itemTag(item.kind))}</span>
-      `;
-      el.addEventListener("click", () => {
-        markRead(item.id);
-        if (item.kind === "support" && item.caseId) updateCaseUnread(item.caseId, false);
-        refreshInboxBadges();
-        closePanel();
-        if (item.target && item.target.startsWith("/pages/")) {
-          if (window.gpShellNavigate) window.gpShellNavigate(item.target);
-          else window.location.href = item.target;
-        }
-      });
-      listEl.appendChild(el);
-    });
+    const filtered = panelFilter === "all" ? items : items.filter((item) => item.kind === panelFilter);
+
+    if (!filtered.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Nothing here yet";
+      listEl.appendChild(empty);
+      refreshInboxBadges();
+      return;
+    }
+
+    function renderGroup(label, groupItems) {
+      if (!groupItems.length) return;
+      const grp = document.createElement("div");
+      grp.className = "grp";
+      grp.textContent = label;
+      listEl.appendChild(grp);
+      groupItems.forEach((item) => listEl.appendChild(buildAlertItemEl(item)));
+    }
+
+    renderGroup("New", filtered.filter((item) => item.unread));
+    renderGroup("Earlier", filtered.filter((item) => !item.unread));
+
     refreshInboxBadges();
   }
 

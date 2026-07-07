@@ -1,0 +1,185 @@
+<style>
+  .gpm { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+  .phone { width:375px; max-width:100%; margin:0 auto; background:#0b1322; border-radius:38px; padding:10px; box-shadow:0 18px 50px -18px rgba(11,19,34,.55); }
+  .screen { border-radius:30px; overflow:hidden; position:relative; min-height:760px; display:flex; flex-direction:column; background:#f1f5f9; color:#0f172a; }
+  .status { display:flex; justify-content:space-between; padding:14px 22px 0; font-size:12px; font-weight:600; color:#334155; }
+  .scrollarea { flex:1; padding:14px 16px 96px; overflow:hidden; }
+
+  .gcard { background:#fff; border:1px solid #e2e8f0; border-radius:22px; box-shadow:0 12px 40px rgba(15,23,42,.08); padding:26px 22px; text-align:center; margin-bottom:14px; }
+  .gbadge { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#92400e; background:#fdf3e1; border-radius:999px; padding:7px 14px; margin-bottom:16px; }
+  .gbadge::before { content:''; width:8px; height:8px; border-radius:50%; background:#d97706; }
+  .gcard h1 { font-size:21px; line-height:1.25; font-weight:700; letter-spacing:-.01em; margin:0 0 13px; }
+  .gcard p { font-size:14px; line-height:1.6; color:#64748b; margin:0 0 12px; }
+  .gcard p:last-child { margin-bottom:0; }
+  .gcard p strong { color:#0f172a; font-weight:600; }
+
+  /* dropdown accordion */
+  .acc { background:#fff; border:1px solid #e2e8f0; border-radius:18px; overflow:hidden; margin-bottom:14px; box-shadow:0 2px 10px -4px rgba(15,23,42,.08); }
+  .acc-head { display:flex; align-items:center; gap:12px; padding:16px 18px; cursor:pointer; }
+  .acc-head .ic { flex:none; width:38px; height:38px; border-radius:12px; background:#fdf3e1; border:1px solid #f4ddb0; display:grid; place-items:center; }
+  .acc-head .ic svg { width:17px; height:17px; stroke:#d97706; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .acc-head .tt { font-size:14px; font-weight:700; color:#0f172a; }
+  .acc-head .tb { font-size:12px; color:#64748b; margin-top:1px; }
+  .acc-head .tb b { color:#d97706; font-weight:700; }
+  .acc-head .chev { margin-left:auto; flex:none; width:26px; height:26px; border-radius:999px; border:1px solid #e2e8f0; display:grid; place-items:center; color:#64748b; font-size:12px; transition:transform .2s; }
+  .acc.open .chev { transform:rotate(180deg); }
+  .acc-body { border-top:1px solid #eef2f9; padding:14px 16px 16px; }
+  .nudge { font-size:11px; font-weight:700; color:#2563eb; background:#eff6ff; border-radius:999px; padding:3px 10px; display:inline-block; animation:gpnudge 1.8s ease-in-out infinite; }
+  @keyframes gpnudge { 0%,100% {transform:translateY(0)} 50% {transform:translateY(-2px)} }
+
+  .gint { text-align:left; border:1px solid #e2e8f0; border-radius:14px; padding:13px 14px; margin-bottom:10px; background:#f8fafc; }
+  .gint:last-child { margin-bottom:0; }
+  .gint .top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:2px; }
+  .gint .pn { font-size:13.5px; font-weight:600; color:#0f172a; }
+  .gint .dt { font-size:11px; color:#94a3b8; white-space:nowrap; }
+  .gint .loc { font-size:12px; color:#64748b; margin-bottom:9px; }
+  .gfld { border:1px solid #e2e8f0; border-radius:12px; background:#fff; padding:11px 13px; font-size:12.5px; color:#94a3b8; line-height:1.5; }
+  .gfld.filled { color:#0f172a; }
+  .done-chip { font-size:10.5px; font-weight:700; color:#166534; background:#dcfce7; border:1px solid #bbf7d0; border-radius:999px; padding:2px 9px; }
+
+  /* timeline (from v10, kept) */
+  .steps-card { background:#fff; border:1px solid #e2e8f0; border-radius:18px; padding:18px 18px 14px; margin-bottom:14px; box-shadow:0 2px 10px -4px rgba(15,23,42,.08); text-align:left; }
+  .steps-card .lbl { font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#64748b; margin-bottom:10px; }
+  .steps { display:grid; position:relative; margin-left:2px; }
+  .steps::before { content:''; position:absolute; top:12px; bottom:12px; left:9px; width:2px; background:linear-gradient(180deg, rgba(37,99,235,.25), rgba(37,99,235,.08)); }
+  .step { display:grid; grid-template-columns:26px 1fr; gap:10px; align-items:start; padding:7px 0; }
+  .step .dotn { width:20px; height:20px; border-radius:50%; background:#2563eb; color:#fff; display:grid; place-items:center; font-size:10px; font-weight:800; z-index:1; box-shadow:0 4px 12px -4px rgba(37,99,235,.4); }
+  .step .dotn.grey { background:#94a3b8; box-shadow:none; }
+  .step .tt { font-size:12.5px; font-weight:700; color:#0f172a; line-height:1.35; }
+  .step .tb { font-size:11.5px; color:#64748b; line-height:1.5; }
+
+  /* sticky CTA */
+  .sticky-cta { position:absolute; left:0; right:0; bottom:0; background:rgba(255,255,255,.96); backdrop-filter:blur(8px); border-top:1px solid #e2e8f0; padding:12px 16px calc(14px + 6px); z-index:5; }
+  .gbtn { width:100%; border:none; font-size:15px; font-weight:600; color:#fff; background:#2563eb; border-radius:14px; padding:14px 20px; display:block; text-align:center; text-decoration:none; box-shadow:0 8px 20px -8px rgba(37,99,235,.5); }
+  .gsub { font-size:11.5px; color:#94a3b8; margin:8px 0 0; text-align:center; }
+
+  .capt { text-align:center; font-size:12px; color:#64748b; margin-top:12px; }
+</style>
+
+<div class="gpm">
+<h2>v12 — dropdown interviews, timeline kept, sticky "Book a call"</h2>
+<p class="subtitle">Same PEP-gate design language. Left: how the page lands — interviews collapsed into a dropdown that invites the tap, timeline visible, and the <b>Book a call</b> button pinned to the bottom of the screen (it stays there while scrolling). Right: the dropdown open with the reason fields.</p>
+
+<div class="split" style="align-items:flex-start; margin-top:22px">
+
+  <div class="mockup">
+    <div class="mockup-header">📱 As it lands — dropdown closed, CTA pinned</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:26px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="scrollarea">
+
+            <div class="gcard">
+              <span class="gbadge">Applications paused</span>
+              <h1>Let's talk before your next interview</h1>
+              <p>You've interviewed with <strong>three practices</strong> without moving forward. Each interview takes real time from a practice that was ready to welcome you.</p>
+              <p><strong>To reopen your career page:</strong> tell us what wasn't right, then book a short call with the team.</p>
+            </div>
+
+            <div class="acc">
+              <div class="acc-head">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M3 10h18"/></svg></span>
+                <span>
+                  <span class="tt">Your last three interviews</span>
+                  <div class="tb"><b>0 of 3 answered</b> — tap to tell us what wasn't right</div>
+                </span>
+                <span class="chev">▾</span>
+              </div>
+            </div>
+            <div style="text-align:center; margin:-6px 0 12px"><span class="nudge">↑ Start here</span></div>
+
+            <div class="steps-card">
+              <div class="lbl">What happens next</div>
+              <div class="steps">
+                <div class="step"><span class="dotn">1</span><span><span class="tt">Answer three quick questions</span><br><span class="tb">One line per practice — what wasn't right.</span></span></div>
+                <div class="step"><span class="dotn">2</span><span><span class="tt">Book a call with the team</span><br><span class="tb">A short, honest chat about what you're really looking for.</span></span></div>
+                <div class="step"><span class="dotn grey">3</span><span><span class="tt">Your career page reopens</span><br><span class="tb">With matches that fit what we've learned.</span></span></div>
+              </div>
+            </div>
+
+          </div>
+          <div class="sticky-cta">
+            <a class="gbtn" href="#">Book a call</a>
+            <p class="gsub">Applications stay paused until this conversation happens.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">📱 Dropdown open — answering in place, CTA still pinned</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:26px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="scrollarea">
+
+            <div class="acc open">
+              <div class="acc-head">
+                <span class="ic"><svg viewBox="0 0 24 24"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M3 10h18"/></svg></span>
+                <span>
+                  <span class="tt">Your last three interviews</span>
+                  <div class="tb"><b>1 of 3 answered</b> — keep going</div>
+                </span>
+                <span class="chev">▾</span>
+              </div>
+              <div class="acc-body">
+
+                <div class="gint">
+                  <div class="top"><span class="pn">Coral Coast Family Practice</span><span class="done-chip">✓ Answered</span></div>
+                  <div class="loc">Bundaberg, QLD · 12 May</div>
+                  <div class="gfld filled">The billing split discussed in the interview was different from the listing…</div>
+                </div>
+
+                <div class="gint">
+                  <div class="top"><span class="pn">Riverbend Medical Centre</span><span class="dt">2 Jun</span></div>
+                  <div class="loc">Toowoomba, QLD</div>
+                  <div class="gfld">What wasn't the right fit?</div>
+                </div>
+
+                <div class="gint">
+                  <div class="top"><span class="pn">Harbourview Health</span><span class="dt">24 Jun</span></div>
+                  <div class="loc">Gladstone, QLD</div>
+                  <div class="gfld">What wasn't the right fit?</div>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="steps-card">
+              <div class="lbl">What happens next</div>
+              <div class="steps">
+                <div class="step"><span class="dotn">1</span><span><span class="tt">Answer three quick questions</span><br><span class="tb">One line per practice — what wasn't right.</span></span></div>
+                <div class="step"><span class="dotn">2</span><span><span class="tt">Book a call with the team</span><br><span class="tb">A short, honest chat about what you're really looking for.</span></span></div>
+                <div class="step"><span class="dotn grey">3</span><span><span class="tt">Your career page reopens</span><br><span class="tb">With matches that fit what we've learned.</span></span></div>
+              </div>
+            </div>
+
+          </div>
+          <div class="sticky-cta">
+            <a class="gbtn" href="#">Book a call</a>
+            <p class="gsub">Applications stay paused until this conversation happens.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:26px">
+  <h3>Is the lock page right now?</h3>
+  <div class="options">
+    <div class="option" data-choice="approve-v12" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Yes — design complete</h3><p>Dropdown interviews with progress nudge, timeline kept, sticky Book-a-call. On to the full spec.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-v12" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal what to adjust.</p></div>
+    </div>
+  </div>
+</div>
+</div>

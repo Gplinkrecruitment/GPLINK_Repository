@@ -7421,6 +7421,227 @@
     }
     .at-empty small { font-size: 13px; }
 
+    /* ── AI Matching (Task 4): pinned "Your team matches" section + the
+       position-filled notice/alternatives. Same token system as the rest of
+       this page (var(--gp-*, fallback)) — no invented visual language, the
+       ONE deliberate standout is the .shiny animated Accept button. ── */
+    .at-match-section { margin-bottom: 14px; }
+    .at-match-sechead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 2px 2px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--gp-blue-ink, #173da6);
+    }
+    .at-match-count {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--gp-blue, #2563eb);
+      border-radius: 999px;
+      padding: 2px 9px;
+    }
+    .at-match-pin {
+      position: relative;
+      border-radius: var(--gp-r-lg, 18px);
+      background: var(--gp-surface, #fff);
+      border: 2px solid var(--gp-blue, #2563eb);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, .12), 0 14px 34px -14px rgba(37, 99, 235, .45);
+      overflow: hidden;
+      margin-bottom: 14px;
+      transition: box-shadow .3s ease;
+    }
+    .at-match-pin--amber {
+      border-color: var(--gp-amber, #d97706);
+      box-shadow: 0 0 0 4px rgba(217, 119, 6, .12), 0 14px 34px -14px rgba(217, 119, 6, .4);
+    }
+    .at-match-pin--highlight { box-shadow: 0 0 0 6px rgba(37, 99, 235, .3), 0 18px 40px -14px rgba(37, 99, 235, .55); }
+    .at-match-ribbon {
+      background: linear-gradient(135deg, #2e6bf0 0%, #1d4ed8 100%);
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 8px 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .at-match-ribbon--amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .at-match-cd {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10.5px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: rgba(255, 255, 255, .2);
+      color: #fff;
+      white-space: nowrap;
+    }
+    .at-match-cd--warn { background: #d97706; animation: atMatchPulse 1.4s infinite; }
+    @keyframes atMatchPulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+    .at-match-photo { position: relative; height: 108px; overflow: hidden; }
+    .at-match-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .at-match-cap {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 18px 13px 8px;
+      background: linear-gradient(transparent, rgba(11, 19, 34, .82));
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .at-match-inner { padding: 13px 15px 15px; }
+    .at-match-pn {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--gp-ink, #0f172a);
+    }
+    .at-match-jt { font-size: 12.5px; font-weight: 600; color: var(--gp-ink, #1f2b43); margin: 1px 0; }
+    .at-match-jm { font-size: 11.5px; color: var(--gp-muted, #64748b); margin-bottom: 8px; }
+    .at-match-weblink { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--gp-blue, #2563eb); text-decoration: none; margin-left: 8px; }
+    .at-match-why { background: var(--gp-blue-soft, #eff4ff); border: 1px solid var(--gp-blue-border, #d6e2fb); border-radius: 12px; padding: 9px 11px 4px; margin-bottom: 9px; }
+    .at-match-why ul { list-style: none; margin: 0; padding: 0; }
+    .at-match-why li { display: flex; gap: 8px; align-items: flex-start; font-size: 11.5px; color: var(--gp-blue-ink, #173da6); line-height: 1.42; margin-bottom: 6px; }
+    .at-match-tick {
+      flex: none; width: 16px; height: 16px; border-radius: 50%;
+      background: linear-gradient(180deg, #4f8bff, #2563eb);
+      color: #fff; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9.5px; font-weight: 800;
+    }
+    .at-match-more { background: none; border: 0; padding: 0 0 6px 24px; font-size: 11px; font-weight: 700; color: var(--gp-blue, #2563eb); cursor: pointer; }
+    .at-match-stat {
+      display: inline-block;
+      font-size: 11px;
+      color: var(--gp-green-ink, #166534);
+      font-weight: 600;
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: 999px;
+      padding: 4px 11px;
+      margin-bottom: 10px;
+    }
+    .at-match-chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--gp-blue-ink, #173da6);
+      background: var(--gp-blue-soft, #eff4ff);
+      border: 1px solid var(--gp-blue-border, #d6e2fb);
+      border-radius: 999px;
+      padding: 4px 11px;
+      text-decoration: none;
+      margin-bottom: 9px;
+    }
+    .at-match-accept {
+      display: block; width: 100%; text-align: center; border: 0; cursor: pointer;
+      font-size: 13.5px; font-weight: 700; color: #fff; padding: 11px; border-radius: 12px;
+    }
+    .at-match-pass { text-align: center; font-size: 11px; color: var(--gp-faint, #94a3b8); padding-top: 8px; }
+    .at-match-pass a { color: var(--gp-muted, #64748b); }
+
+    /* The one deliberate standout — glossy animated shine (copied from the
+       approved mockups matching-email-popup-v3.html / matching-multi-timer-v5.html). */
+    .shiny {
+      position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #4f8bff 0%, #2563eb 45%, #1d4ed8 100%);
+      box-shadow: 0 12px 28px -8px rgba(37, 99, 235, .75), inset 0 1.5px 0 rgba(255, 255, 255, .5), inset 0 -2px 6px rgba(13, 38, 110, .45);
+    }
+    .shiny::after {
+      content: ''; position: absolute; top: -10%; bottom: -10%; left: -70%; width: 44%;
+      background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, .55) 50%, transparent 100%);
+      transform: skewX(-22deg);
+      animation: atMatchShine 3s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { .shiny::after { animation: none; } }
+    @keyframes atMatchShine { 0% { left: -70%; } 55% { left: 135%; } 100% { left: 135%; } }
+
+    /* Position-filled notice + "Picked for you next" alternatives */
+    .at-match-filled {
+      position: relative;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: var(--gp-r-lg, 16px);
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    .at-match-filled-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .at-match-filled-tag {
+      font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: #fff; background: var(--gp-red, #dc2626); border-radius: 999px; padding: 3px 10px;
+    }
+    .at-match-filled-dismiss {
+      background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1;
+      color: var(--gp-faint, #94a3b8); padding: 2px 6px;
+    }
+    .at-match-filled-pn {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 16px; font-weight: 700; color: var(--gp-ink, #0f172a); margin-bottom: 4px;
+    }
+    .at-match-filled-copy, .at-match-filled-fallback { font-size: 12.5px; color: var(--gp-muted, #64748b); line-height: 1.5; margin: 0; }
+    .at-match-filled-alts { margin-top: 10px; }
+    .at-match-filled-alts-t { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gp-blue-ink, #173da6); margin-bottom: 8px; }
+    .at-match-alt-card { border: 1px solid var(--gp-border, #e3e9f4); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+    .at-match-alt-title { font-weight: 700; font-size: 13px; color: var(--gp-ink, #0f172a); }
+    .at-match-alt-meta { font-size: 11.5px; color: var(--gp-muted, #64748b); margin-top: 2px; }
+    .at-match-alt-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .at-match-alt-tag {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--gp-blue-ink, #173da6); background: var(--gp-blue-soft, #eff4ff);
+      border: 1px solid var(--gp-blue-border, #d6e2fb); border-radius: 999px; padding: 3px 9px;
+    }
+
+    /* Accept confirm sheet */
+    .at-match-confirm-overlay {
+      position: fixed; inset: 0; z-index: 9998;
+      background: rgba(15, 23, 42, .45);
+      display: flex; align-items: flex-end; justify-content: center;
+      padding: 0;
+    }
+    .at-match-confirm-card {
+      width: 100%; max-width: 480px;
+      background: var(--gp-surface, #fff);
+      border-radius: 20px 20px 0 0;
+      padding: 22px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -12px 40px -12px rgba(15, 23, 42, .3);
+    }
+    .at-match-confirm-card h3 {
+      font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif);
+      font-size: 19px; margin: 0 0 10px; color: var(--gp-ink, #0f172a);
+    }
+    .at-match-confirm-card p { font-size: 13.5px; color: var(--gp-ink, #1f2b43); line-height: 1.5; margin: 0 0 10px; }
+    .at-match-confirm-cap { color: var(--gp-muted, #64748b) !important; font-size: 12.5px !important; }
+    .at-match-confirm-meter { margin: 12px 0 18px; }
+    .at-match-confirm-meter-bar { height: 6px; border-radius: 999px; background: var(--gp-border, #e3e9f4); overflow: hidden; }
+    .at-match-confirm-meter-fill { height: 100%; background: var(--gp-blue, #2563eb); border-radius: inherit; }
+    .at-match-confirm-meter-label { font-size: 12px; color: var(--gp-muted, #64748b); margin-top: 6px; }
+    .at-match-confirm-actions { display: flex; gap: 10px; }
+    .at-match-confirm-cancel {
+      flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--gp-border, #e3e9f4);
+      background: var(--gp-surface, #fff); color: var(--gp-muted, #64748b); font-weight: 700; font-size: 13.5px; cursor: pointer;
+    }
+    .at-match-confirm-actions .at-match-accept { flex: 1.4; }
+
+    html.dark-mode .at-match-pin,
+    html.dark-mode .at-match-filled,
+    html.dark-mode .at-match-alt-card,
+    html.dark-mode .at-match-confirm-card { background: #151e2e; border-color: #26324a; }
+    html.dark-mode .at-match-pn,
+    html.dark-mode .at-match-filled-pn,
+    html.dark-mode .at-match-alt-title,
+    html.dark-mode .at-match-confirm-card h3 { color: #e8eefb; }
+    html.dark-mode .at-match-jt,
+    html.dark-mode .at-match-confirm-card p { color: #cbd5e1; }
+    html.dark-mode .at-match-why { background: rgba(37, 99, 235, .14); border-color: rgba(96, 148, 255, .28); }
+
     /* Saved-tab alerts toggle, restyled quietly */
     .at-alerts-toggle {
       display: flex;
@@ -7530,6 +7751,8 @@
       </section>
 
       <section class="view-panel is-active" data-view-panel="browse">
+        <div id="positionFilledSection"></div>
+        <div id="teamMatchesSection" class="at-match-section" hidden></div>
         <div class="at-list" id="recommendedRoles"></div>
         <div class="at-empty-host" id="rolesEmptyState"></div>
       </section>
@@ -11225,6 +11448,317 @@
       return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg></div><b>No roles match those filters</b><small>Widen your billing or location \u2014 or ask your Registration Support Officer for a private shortlist.</small></div>`;
     }
 
+    // ── AI Matching (Task 4): pinned "Your team matches" section + position-
+    // filled notices + the accept confirm sheet. Matches are fetched fresh
+    // from the server (never cached in localStorage — they're time-sensitive:
+    // expiry/seen/outcome can change server-side any moment), cached in this
+    // module-level state so a filter/search re-render doesn't re-fetch.
+    let teamMatchesState = { matches: [], positionFilled: [], gp: {}, loaded: false };
+    let matchConfirmState = { applicationId: null };
+    const MATCH_ALERT_SEEN_KEY = "gp_link_match_alert_seen_ids";
+
+    function loadSeenMatchAlertIds() {
+      try {
+        const raw = localStorage.getItem(MATCH_ALERT_SEEN_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+      } catch (e) { return new Set(); }
+    }
+    function persistSeenMatchAlertIds(set) {
+      try { localStorage.setItem(MATCH_ALERT_SEEN_KEY, JSON.stringify(Array.from(set))); } catch (e) {}
+    }
+    const seenMatchAlertIds = loadSeenMatchAlertIds();
+
+    // Pushes a Team Alert the FIRST time this browser ever becomes aware of a
+    // given match (tracked in localStorage, not just this page load, so a
+    // reload never re-fires the same alert). Guards for updates-sync.js being
+    // absent (e.g. this page loaded outside the app shell).
+    function pushMatchTeamAlert(match) {
+      try {
+        if (typeof window.saveGpLinkUpdates !== "function") return;
+        const existing = typeof window.getGpLinkUpdates === "function" ? window.getGpLinkUpdates() : (Array.isArray(window.gpLinkUpdates) ? window.gpLinkUpdates : []);
+        const cityLabel = match.locationCity || "a new location";
+        const item = {
+          type: "success",
+          title: `You were matched to a position — ${cityLabel}`,
+          detail: "Matched by your team based on your preferences and experience.",
+          ts: Date.now()
+        };
+        window.saveGpLinkUpdates([item].concat(Array.isArray(existing) ? existing : []));
+      } catch (e) {}
+    }
+
+    function formatMatchCountdown(expiresAtIso) {
+      if (!expiresAtIso) return { label: "", amber: false, expired: true };
+      const ms = new Date(expiresAtIso).getTime() - Date.now();
+      if (!isFinite(ms) || ms <= 0) return { label: "", amber: false, expired: true };
+      const totalHours = Math.floor(ms / (60 * 60 * 1000));
+      const days = Math.floor(totalHours / 24);
+      const hours = totalHours % 24;
+      const amber = totalHours < 24;
+      const label = days > 0 ? `⏳ ${days}d ${hours}h left` : `⏳ ${hours}h left`;
+      return { label, amber, expired: false };
+    }
+
+    // http(s)-only URL gate for practice-supplied links (website / intro
+    // video / area photo) — anything else (javascript:, data:, relative
+    // paths, garbage) renders NOTHING. Same rule as the popup's safeUrl and
+    // the email builder's _matchSafeUrl: never let a stored URL become a
+    // script-scheme href in the GP's session.
+    function matchSafeUrl(value) {
+      const v = String(value || "").trim();
+      return /^https?:\/\//i.test(v) ? v : "";
+    }
+
+    function buildMatchCardHtml(match) {
+      const countdown = formatMatchCountdown(match.expiresAt);
+      const website = matchSafeUrl(match.website);
+      const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
+      const introVideoUrl = matchSafeUrl(match.introVideoUrl);
+      const headerImageUrl = matchSafeUrl(match.headerImageUrl);
+      const locationLine = [match.locationCity, match.locationState].filter(Boolean).join(", ");
+      const metaBits = [locationLine, match.dpa ? "DPA approved" : ""].filter(Boolean);
+      const reasons = Array.isArray(match.reasons) ? match.reasons : [];
+      const shownReasons = reasons.slice(0, 2);
+      const moreCount = reasons.length - shownReasons.length;
+      const photoHtml = headerImageUrl
+        ? `<div class="at-match-photo"><img src="${escapeHtml(headerImageUrl)}" alt="" loading="lazy"><div class="at-match-cap">📍 ${escapeHtml(locationLine || match.practiceName || "")}</div></div>`
+        : "";
+      const websiteHtml = website
+        ? `<a class="at-match-weblink" href="${escapeHtml(website)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">🌐 ${escapeHtml(websiteLabel)}</a>`
+        : "";
+      const videoHtml = introVideoUrl
+        ? `<a class="at-match-chip" href="${escapeHtml(introVideoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">▶ Meet the practice · video</a>`
+        : "";
+      return `<article class="at-match-pin${countdown.amber ? " at-match-pin--amber" : ""}" data-match-id="${escapeHtml(match.applicationId)}">
+        <div class="at-match-ribbon${countdown.amber ? " at-match-ribbon--amber" : ""}">
+          <span>Matched to you</span>
+          ${countdown.expired ? "" : `<span class="at-match-cd${countdown.amber ? " at-match-cd--warn" : ""}">${escapeHtml(countdown.label)}</span>`}
+        </div>
+        ${photoHtml}
+        <div class="at-match-inner">
+          <div class="at-match-pn">${escapeHtml(match.practiceName || "")}</div>
+          <div class="at-match-jt">${escapeHtml(match.jobTitle || "")}</div>
+          <div class="at-match-jm">${escapeHtml(metaBits.join(" · "))}${websiteHtml}</div>
+          ${shownReasons.length ? `<div class="at-match-why">
+            <ul>${shownReasons.map((r) => `<li><span class="at-match-tick">✓</span>${escapeHtml(r)}</li>`).join("")}</ul>
+            ${moreCount > 0 ? `<button type="button" class="at-match-more" data-match-more="${escapeHtml(match.applicationId)}">+ ${moreCount} more reason${moreCount === 1 ? "" : "s"} ›</button>` : ""}
+          </div>` : ""}
+          <div class="at-match-stat">98% of GPs we match are accepted by the practice.</div>
+          ${videoHtml}
+          <button type="button" class="at-match-accept shiny" data-match-accept="${escapeHtml(match.applicationId)}">${countdown.amber ? "Accept before it expires" : "Accept this match"}</button>
+          <div class="at-match-pass">Not the right fit? <a href="#" data-match-decline="${escapeHtml(match.applicationId)}">Let your team know</a></div>
+        </div>
+      </article>`;
+    }
+
+    function buildPositionFilledHtml(entry) {
+      const locationLine = [entry.locationCity, entry.locationState].filter(Boolean).join(", ");
+      const alternatives = Array.isArray(entry.alternatives) ? entry.alternatives : [];
+      return `<div class="at-match-filled" data-filled-id="${escapeHtml(entry.applicationId)}">
+        <div class="at-match-filled-top">
+          <span class="at-match-filled-tag">Position filled</span>
+          <button type="button" class="at-match-filled-dismiss" data-filled-dismiss="${escapeHtml(entry.applicationId)}" aria-label="Dismiss">&times;</button>
+        </div>
+        <div class="at-match-filled-pn">${escapeHtml(entry.practiceName || "That position")}</div>
+        <p class="at-match-filled-copy">This changes nothing about how practices see you — timing favoured another candidate.${locationLine ? " (" + escapeHtml(locationLine) + ")" : ""}</p>
+        ${alternatives.length ? `<div class="at-match-filled-alts">
+          <div class="at-match-filled-alts-t">✦ Picked for you next</div>
+          ${alternatives.map((alt) => `<div class="at-match-alt-card">
+            <div class="at-match-alt-title">${escapeHtml(alt.jobTitle || alt.title || "")}</div>
+            <div class="at-match-alt-meta">${escapeHtml([alt.locationCity, alt.locationState].filter(Boolean).join(", "))}</div>
+            ${Array.isArray(alt.tags) && alt.tags.length ? `<div class="at-match-alt-tags">${alt.tags.map((t) => `<span class="at-match-alt-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+          </div>`).join("")}
+        </div>` : `<p class="at-match-filled-fallback">Reply to your team and they'll match you personally.</p>`}
+      </div>`;
+    }
+
+    function renderTeamMatches() {
+      const section = document.getElementById("teamMatchesSection");
+      const filledSection = document.getElementById("positionFilledSection");
+      if (section) {
+        const matches = teamMatchesState.matches || [];
+        if (!matches.length) {
+          section.innerHTML = "";
+          section.hidden = true;
+        } else {
+          section.hidden = false;
+          section.innerHTML = `<div class="at-match-sechead"><span>✦ Your team matches</span><span class="at-match-count">${matches.length}</span></div>` +
+            matches.map((m) => buildMatchCardHtml(m)).join("");
+        }
+      }
+      if (filledSection) {
+        const filled = teamMatchesState.positionFilled || [];
+        filledSection.innerHTML = filled.map((f) => buildPositionFilledHtml(f)).join("");
+      }
+    }
+
+    async function loadTeamMatches() {
+      try {
+        const res = await fetch("/api/career/matches", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data || data.ok !== true) return;
+        // AI Matching (Task 8): a career-locked GP is redirected to the lock
+        // page — server-enforced too (every mutating endpoint 423s), this is
+        // just the friendly client-side bounce so they never see a dead page.
+        if (data.locked === true) {
+          window.location.replace("/pages/career-paused");
+          return;
+        }
+        const matches = Array.isArray(data.matches) ? data.matches : [];
+        let sawNew = false;
+        matches.forEach((m) => {
+          const id = String(m.applicationId);
+          if (!seenMatchAlertIds.has(id)) {
+            pushMatchTeamAlert(m);
+            seenMatchAlertIds.add(id);
+            sawNew = true;
+          }
+        });
+        if (sawNew) persistSeenMatchAlertIds(seenMatchAlertIds);
+        teamMatchesState = {
+          matches,
+          positionFilled: Array.isArray(data.positionFilled) ? data.positionFilled : [],
+          gp: data.gp || {},
+          loaded: true
+        };
+      } catch (e) { /* leave prior state — never blocks the rest of the page */ }
+    }
+
+    function showMatchExpiredNotice() {
+      showToast("This match has expired — the role may still be open; your team has been told you're interested.");
+    }
+
+    function closeMatchConfirmSheet() {
+      const el = document.getElementById("matchConfirmSheet");
+      if (el) el.remove();
+      matchConfirmState = { applicationId: null };
+    }
+
+    async function openMatchConfirmSheet(applicationId) {
+      if (document.getElementById("matchConfirmSheet")) return; // never stack a second sheet
+      const match = teamMatchesState.matches.find((m) => String(m.applicationId) === String(applicationId));
+      if (!match) return;
+      matchConfirmState.applicationId = applicationId;
+      let usage = { used: 0, limit: 3, resetsAt: "" };
+      try {
+        const res = await fetch("/api/career/interview-usage", { credentials: "same-origin" });
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data && data.ok) usage = { used: data.used || 0, limit: data.limit || 3, resetsAt: data.resetsAt || "" };
+        }
+      } catch (e) {}
+      const resetsLabel = usage.resetsAt ? new Date(usage.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
+      const pct = Math.max(0, Math.min(100, (usage.used / (usage.limit || 3)) * 100));
+      const overlay = document.createElement("div");
+      overlay.id = "matchConfirmSheet";
+      overlay.className = "at-match-confirm-overlay";
+      overlay.innerHTML = `
+        <div class="at-match-confirm-card">
+          <h3>Confirm — accept this match?</h3>
+          <p>We'll confirm your interest with <b>${escapeHtml(match.practiceName || "the practice")}</b>. Once they confirm their availability, you'll choose an interview time.</p>
+          <p class="at-match-confirm-cap">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
+          <div class="at-match-confirm-meter">
+            <div class="at-match-confirm-meter-bar"><div class="at-match-confirm-meter-fill" style="width:${pct}%"></div></div>
+            <div class="at-match-confirm-meter-label">${usage.used} of ${usage.limit} interviews used${resetsLabel ? " — resets " + escapeHtml(resetsLabel) : ""}</div>
+          </div>
+          <div class="at-match-confirm-actions">
+            <button type="button" class="at-match-confirm-cancel" data-match-confirm-cancel>Cancel</button>
+            <button type="button" class="at-match-accept shiny" data-match-confirm-accept>Accept</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    async function submitMatchAccept(applicationId) {
+      try {
+        const res = await fetch("/api/career/match/respond", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ applicationId, action: "accept" })
+        });
+        const data = await res.json().catch(() => null);
+        if (res.status === 410) {
+          showMatchExpiredNotice();
+          await loadTeamMatches();
+          renderPage();
+          return;
+        }
+        if (!res.ok || !data || !data.ok) {
+          showToast((data && data.message) || "Could not accept this match — please try again.");
+          return;
+        }
+        showToast("Match accepted — we've let the practice know.");
+        await Promise.all([loadRemoteApplications({ render: false }), loadTeamMatches()]);
+        renderPage();
+      } catch (e) {
+        showToast("Network error — please try again.");
+      }
+    }
+
+    async function submitMatchDecline(applicationId, reason) {
+      try {
+        const res = await fetch("/api/career/match/respond", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ applicationId, action: "decline", reason: reason || "" })
+        });
+        if (res.status === 410) showMatchExpiredNotice();
+        else showToast("Got it — we've let your team know.");
+        await loadTeamMatches();
+        renderPage();
+      } catch (e) {
+        showToast("Network error — please try again.");
+      }
+    }
+
+    function highlightMatchCard(matchId) {
+      const card = document.querySelector(`[data-match-id="${window.CSS && CSS.escape ? CSS.escape(matchId) : matchId}"]`);
+      if (!card) return false;
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("at-match-pin--highlight");
+      setTimeout(() => card.classList.remove("at-match-pin--highlight"), 2600);
+      return true;
+    }
+
+    // ?match=<id> deep link (the email's Accept button, after the sign-in
+    // bounce). If the card is live, just scroll to + highlight it — the GP
+    // still completes the confirm sheet in-app (spec §7: every accept path
+    // goes through the confirm sheet, "one tap" just means getting here fast).
+    // If the card is NOT present, ask the status probe why — NEVER post an
+    // accept from here (review fix: an accept only ever leaves the explicit
+    // confirm-sheet flow). The still-interested probe never changes the
+    // application; on a genuinely expired match it fires the "GP clicked
+    // expired match — still interested" ops note, which is what keeps the
+    // expired notice's "your team has been told" line honest.
+    function handleMatchDeepLink() {
+      let matchId = "";
+      try { matchId = new URL(window.location.href).searchParams.get("match") || ""; } catch (e) {}
+      if (!matchId) return;
+      if (highlightMatchCard(matchId)) return;
+      fetch("/api/career/match/still-interested", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: matchId })
+      }).then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (res.status === 404 || res.status === 409) {
+          showToast("This match has already been responded to.");
+          return;
+        }
+        if (!res.ok || !data || !data.ok) return;
+        if (data.state === "expired") { showMatchExpiredNotice(); return; }
+        if (data.state === "live") {
+          // Live on the server but not rendered — this page's match list is
+          // stale (e.g. matched moments ago). Refresh and retry the scroll once.
+          loadTeamMatches().then(() => { renderPage(); highlightMatchCard(matchId); });
+          return;
+        }
+        showToast("This match has already been responded to.");
+      }).catch(() => {});
+    }
+
     function renderRoles() {
       const roles = getFilteredRoles();
       recommendedRolesEl.innerHTML = "";
@@ -11529,6 +12063,7 @@
       }
       renderSearchFilterControls();
       renderHeroShortcuts();
+      renderTeamMatches();
       renderRoles();
       renderApplications();
       renderSavedJobs();
@@ -11645,6 +12180,64 @@
     }
 
     document.addEventListener("click", (event) => {
+      const matchAcceptBtn = event.target.closest("[data-match-accept]");
+      if (matchAcceptBtn) {
+        openMatchConfirmSheet(matchAcceptBtn.getAttribute("data-match-accept"));
+        return;
+      }
+
+      const matchMoreBtn = event.target.closest("[data-match-more]");
+      if (matchMoreBtn) {
+        const moreId = matchMoreBtn.getAttribute("data-match-more");
+        const moreMatch = teamMatchesState.matches.find((m) => String(m.applicationId) === String(moreId));
+        if (moreMatch) {
+          const card = matchMoreBtn.closest(".at-match-pin");
+          const whyList = card && card.querySelector(".at-match-why ul");
+          if (whyList) {
+            whyList.innerHTML = (moreMatch.reasons || []).map((r) => `<li><span class="at-match-tick">✓</span>${escapeHtml(r)}</li>`).join("");
+          }
+          matchMoreBtn.remove();
+        }
+        return;
+      }
+
+      const matchDeclineLink = event.target.closest("[data-match-decline]");
+      if (matchDeclineLink) {
+        event.preventDefault();
+        const declineId = matchDeclineLink.getAttribute("data-match-decline");
+        const reasonInput = window.prompt("What's not the right fit about this role? (optional)");
+        if (reasonInput === null) return; // cancelled — do nothing
+        submitMatchDecline(declineId, reasonInput.trim());
+        return;
+      }
+
+      const matchConfirmCancelBtn = event.target.closest("[data-match-confirm-cancel]");
+      if (matchConfirmCancelBtn) {
+        closeMatchConfirmSheet();
+        return;
+      }
+
+      const matchConfirmAcceptBtn = event.target.closest("[data-match-confirm-accept]");
+      if (matchConfirmAcceptBtn) {
+        const confirmedId = matchConfirmState.applicationId;
+        closeMatchConfirmSheet();
+        if (confirmedId) submitMatchAccept(confirmedId);
+        return;
+      }
+
+      const filledDismissBtn = event.target.closest("[data-filled-dismiss]");
+      if (filledDismissBtn) {
+        const filledId = filledDismissBtn.getAttribute("data-filled-dismiss");
+        const node = filledDismissBtn.closest("[data-filled-id]");
+        if (node) node.remove();
+        fetch("/api/career/match/dismiss-filled", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ applicationId: filledId })
+        }).then(() => loadTeamMatches()).catch(() => {});
+        return;
+      }
+
       if (
         practiceLifestyleState.activeHousingPopupId &&
         !event.target.closest(".practice-lifestyle-map-popup") &&
@@ -12038,12 +12631,14 @@
       if (handleRequestedRoleRedirect()) return;
       await loadRemoteRoles({ render: false });
       await loadRemoteApplications({ render: false });
+      await loadTeamMatches();
       syncCareerViewFromLocation();
       renderPage();
       ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
+      handleMatchDeepLink();
     })();
   </script>
 </body>

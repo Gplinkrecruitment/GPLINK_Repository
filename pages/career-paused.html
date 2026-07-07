@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Applications Paused - GP Link</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --green: #16a34a;
+      --green-soft: #dcfce7;
+      --amber: #d97706;
+      --amber-ink: #92400e;
+      --amber-soft: #fdf3e1;
+      --amber-border: #f4ddb0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --dim: #94a3b8;
+      --border: #e2e8f0;
+      --card: #ffffff;
+      --bg: #f1f5f9;
+    }
+
+    html, body {
+      min-height: 100%;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    .gate {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      justify-content: center;
+      padding: 28px 20px 150px;
+    }
+
+    .card-wrap { width: 100%; max-width: 440px; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+      padding: 30px 24px;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--amber-ink);
+      background: var(--amber-soft);
+      border-radius: 999px;
+      padding: 7px 14px;
+      margin-bottom: 18px;
+    }
+    .badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+
+    h1 {
+      font-size: 23px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-bottom: 14px;
+    }
+
+    .card p {
+      font-size: 14.5px;
+      line-height: 1.6;
+      color: var(--muted);
+      margin-bottom: 12px;
+      text-align: left;
+    }
+    .card p:last-of-type { margin-bottom: 0; }
+    .card p strong { color: var(--text); font-weight: 600; }
+
+    /* Interviews dropdown */
+    .acc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08);
+    }
+    .acc-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+    }
+    .acc-head .ic {
+      flex: none; width: 38px; height: 38px; border-radius: 12px;
+      background: var(--amber-soft); border: 1px solid var(--amber-border);
+      display: grid; place-items: center;
+    }
+    .acc-head .ic svg { width: 17px; height: 17px; stroke: var(--amber); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .acc-head .tt { font-size: 14px; font-weight: 700; color: var(--text); }
+    .acc-head .tb { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .acc-head .tb b { color: var(--amber); font-weight: 700; }
+    .acc-head .chev { margin-left: auto; flex: none; width: 26px; height: 26px; border-radius: 999px; border: 1px solid var(--border); display: grid; place-items: center; color: var(--muted); font-size: 12px; transition: transform 0.2s; }
+    .acc.open .chev { transform: rotate(180deg); }
+    .acc-body { border-top: 1px solid #eef2f9; padding: 14px 16px 16px; }
+
+    .nudge-wrap { text-align: center; margin: -6px 0 12px; }
+    .nudge {
+      font-size: 11px; font-weight: 700; color: var(--primary);
+      background: #eff6ff; border-radius: 999px; padding: 3px 10px; display: inline-block;
+      animation: gpnudge 1.8s ease-in-out infinite;
+    }
+    @keyframes gpnudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+    .gint { text-align: left; border: 1px solid var(--border); border-radius: 14px; padding: 13px 14px; margin-bottom: 10px; background: #f8fafc; }
+    .gint:last-child { margin-bottom: 0; }
+    .gint .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+    .gint .pn { font-size: 13.5px; font-weight: 600; color: var(--text); }
+    .gint .dt { font-size: 11px; color: var(--dim); white-space: nowrap; }
+    .gint .loc { font-size: 12px; color: var(--muted); margin-bottom: 9px; }
+    .gfld {
+      width: 100%; border: 1px solid var(--border); border-radius: 12px; background: #fff;
+      padding: 11px 13px; font-size: 12.5px; color: var(--text); line-height: 1.5;
+      font-family: inherit; resize: vertical; min-height: 44px;
+    }
+    .gfld::placeholder { color: var(--dim); }
+    .done-chip { font-size: 10.5px; font-weight: 700; color: #166534; background: var(--green-soft); border: 1px solid #bbf7d0; border-radius: 999px; padding: 2px 9px; }
+
+    /* Timeline */
+    .steps-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px 18px 14px; margin-bottom: 14px; box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08); text-align: left; }
+    .steps-card .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+    .steps { display: grid; position: relative; margin-left: 2px; }
+    .steps::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 9px; width: 2px; background: linear-gradient(180deg, rgba(37, 99, 235, 0.25), rgba(37, 99, 235, 0.08)); }
+    .step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 7px 0; }
+    .step .dotn { width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 800; z-index: 1; box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4); }
+    .step .dotn.grey { background: var(--dim); box-shadow: none; }
+    .step .tt { font-size: 12.5px; font-weight: 700; color: var(--text); line-height: 1.35; }
+    .step .tb { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+    .signout { margin-top: 6px; text-align: center; font-size: 13px; }
+    .signout a { color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; }
+    .signout a:hover { color: var(--text); border-bottom-color: var(--muted); }
+
+    /* Sticky bottom CTA */
+    .sticky-cta {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid var(--border);
+      padding: 12px 20px calc(14px + env(safe-area-inset-bottom));
+      z-index: 20;
+    }
+    .gbtn {
+      display: block; width: 100%; max-width: 440px; margin: 0 auto;
+      appearance: none; border: none; cursor: pointer; font-family: inherit;
+      font-size: 15px; font-weight: 600; color: #fff; background: var(--primary);
+      border-radius: 14px; padding: 14px 20px; text-align: center; text-decoration: none;
+      box-shadow: 0 8px 20px -8px rgba(37, 99, 235, 0.5);
+      transition: background 0.18s ease, transform 0.08s ease, opacity 0.18s ease;
+    }
+    .gbtn:hover { background: var(--primary-dark); }
+    .gbtn:active { transform: scale(0.985); }
+    .gbtn:disabled { opacity: 0.7; cursor: default; }
+    .gsub { max-width: 440px; margin: 8px auto 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+
+    @media (max-width: 380px) {
+      .card { padding: 26px 18px; }
+      h1 { font-size: 20px; }
+    }
+  </style>
+  <script src="/js/auth-guard.js?v=20260706a"></script>
+</head>
+<body>
+  <div class="gate">
+    <main class="card-wrap" role="main">
+
+      <div class="card">
+        <span class="badge">Applications paused</span>
+        <h1>Let's talk before your next interview</h1>
+        <p>You've interviewed with <strong>three practices</strong> without moving forward. Each interview takes real time from a practice that was ready to welcome you.</p>
+        <p><strong>To reopen your career page:</strong> tell us what wasn't right, then book a short call with the team.</p>
+      </div>
+
+      <div class="acc" id="strikesAcc">
+        <button type="button" class="acc-head" id="strikesAccHead" aria-expanded="false">
+          <span class="ic">
+            <svg viewBox="0 0 24 24"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M3 10h18"/></svg>
+          </span>
+          <span>
+            <span class="tt">Your last three interviews</span>
+            <div class="tb" id="strikesProgress"><b>0 of 3 answered</b> — tap to tell us what wasn't right</div>
+          </span>
+          <span class="chev">&#9662;</span>
+        </button>
+        <div class="acc-body" id="strikesBody" style="display:none"></div>
+      </div>
+      <div class="nudge-wrap" id="nudgeWrap">
+        <span class="nudge">↑ Start here</span>
+      </div>
+
+      <div class="steps-card">
+        <div class="lbl">What happens next</div>
+        <div class="steps">
+          <div class="step">
+            <span class="dotn" id="stepDot1">1</span>
+            <span><span class="tt">Answer three quick questions</span><br><span class="tb">One line per practice — what wasn't right.</span></span>
+          </div>
+          <div class="step">
+            <span class="dotn grey" id="stepDot2">2</span>
+            <span><span class="tt">Book a call with the team</span><br><span class="tb">A short, honest chat about what you're really looking for.</span></span>
+          </div>
+          <div class="step">
+            <span class="dotn grey" id="stepDot3">3</span>
+            <span><span class="tt">Your career page reopens</span><br><span class="tb">With matches that fit what we've learned.</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="signout">
+        <a href="#" id="signoutLink">Sign out</a>
+      </div>
+
+    </main>
+  </div>
+
+  <div class="sticky-cta">
+    <button type="button" class="gbtn" id="bookCallBtn">Book a call</button>
+    <p class="gsub">Applications stay paused until this conversation happens.</p>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var strikesAcc = document.getElementById("strikesAcc");
+      var strikesAccHead = document.getElementById("strikesAccHead");
+      var strikesBody = document.getElementById("strikesBody");
+      var strikesProgress = document.getElementById("strikesProgress");
+      var nudgeWrap = document.getElementById("nudgeWrap");
+      var bookCallBtn = document.getElementById("bookCallBtn");
+      var stepDot1 = document.getElementById("stepDot1");
+      var stepDot2 = document.getElementById("stepDot2");
+
+      var lockData = { strikes: [], reasons: {}, answersSubmittedAt: null };
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      function formatStrikeDate(iso) {
+        if (!iso) return "";
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      }
+
+      function answeredCount() {
+        return lockData.strikes.filter(function (s) {
+          var r = lockData.reasons[s.applicationId];
+          return !!(r && String(r).trim());
+        }).length;
+      }
+
+      function updateProgress() {
+        var n = answeredCount();
+        var total = lockData.strikes.length || 3;
+        var trailer = n === 0 ? "tap to tell us what wasn't right" : (n >= total ? "thanks — now book your call" : "keep going");
+        strikesProgress.innerHTML = "<b>" + n + " of " + total + " answered</b> — " + trailer;
+        // Steps timeline: step 1 turns blue once at least one answer is in,
+        // step 2 (book a call) turns blue once all three are answered.
+        if (stepDot1) stepDot1.classList.toggle("grey", n === 0);
+        if (stepDot2) stepDot2.classList.toggle("grey", n < total);
+      }
+
+      function renderStrikeRow(strike) {
+        var reason = lockData.reasons[strike.applicationId] || "";
+        var answered = !!String(reason).trim();
+        var dateLabel = formatStrikeDate(strike.interviewedAt);
+        // Matches the mockup exactly: the date shows ONCE — as the small
+        // right-aligned badge while unanswered, folded into the location
+        // line once answered (the badge slot is used by the ✓ Answered chip).
+        var locLine = answered
+          ? [strike.location || "", dateLabel].filter(Boolean).join(" · ")
+          : (strike.location || "");
+        return (
+          '<div class="gint" data-app-id="' + escapeHtml(strike.applicationId) + '">' +
+            '<div class="top"><span class="pn">' + escapeHtml(strike.practiceName || "Unknown practice") + "</span>" +
+              (answered ? '<span class="done-chip">✓ Answered</span>' : '<span class="dt">' + escapeHtml(dateLabel) + "</span>") +
+            "</div>" +
+            (locLine ? '<div class="loc">' + escapeHtml(locLine) + "</div>" : "") +
+            '<textarea class="gfld' + (answered ? " filled" : "") + '" data-app-id="' + escapeHtml(strike.applicationId) + '" placeholder="What wasn\'t the right fit?" rows="2">' + escapeHtml(reason) + "</textarea>" +
+          "</div>"
+        );
+      }
+
+      function renderStrikes() {
+        strikesBody.innerHTML = lockData.strikes.map(renderStrikeRow).join("");
+        updateProgress();
+      }
+
+      function setAccordionOpen(open) {
+        strikesAcc.classList.toggle("open", open);
+        strikesAccHead.setAttribute("aria-expanded", open ? "true" : "false");
+        strikesBody.style.display = open ? "" : "none";
+        nudgeWrap.style.display = open ? "none" : "";
+      }
+
+      strikesAccHead.addEventListener("click", function () {
+        setAccordionOpen(!strikesAcc.classList.contains("open"));
+      });
+
+      function saveAnswer(applicationId, text) {
+        var answers = {};
+        answers[applicationId] = text;
+        fetch("/api/career/lock/answers", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answers: answers })
+        })
+          .then(function (res) { return res.json().catch(function () { return null; }); })
+          .then(function (data) {
+            if (data && data.ok) {
+              lockData.reasons = data.reasons || lockData.reasons;
+              lockData.answersSubmittedAt = data.answersSubmittedAt || lockData.answersSubmittedAt;
+              renderStrikes();
+            }
+          })
+          .catch(function () { /* best-effort autosave — the field keeps its typed value either way */ });
+      }
+
+      strikesBody.addEventListener("blur", function (e) {
+        var el = e.target && e.target.closest ? e.target.closest("textarea.gfld") : null;
+        if (!el) return;
+        saveAnswer(el.getAttribute("data-app-id"), el.value);
+      }, true);
+
+      bookCallBtn.addEventListener("click", function () {
+        bookCallBtn.disabled = true;
+        var originalText = bookCallBtn.textContent;
+        bookCallBtn.textContent = "Opening…";
+        fetch("/api/career/lock/booking-url", { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return null; }); })
+          .then(function (data) {
+            bookCallBtn.disabled = false;
+            bookCallBtn.textContent = originalText;
+            if (data && data.ok && data.url) {
+              window.open(data.url, "_blank", "noopener");
+            }
+          })
+          .catch(function () {
+            bookCallBtn.disabled = false;
+            bookCallBtn.textContent = originalText;
+          });
+      });
+
+      document.getElementById("signoutLink").addEventListener("click", function (e) {
+        e.preventDefault();
+        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+          .catch(function () {})
+          .then(function () {
+            window.location.replace("/pages/signin");
+          });
+      });
+
+      // Boot: only a career-locked GP may see this page's content — anyone
+      // else (never locked, or already released) is sent back to the real
+      // career page immediately.
+      fetch("/api/career/matches", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return null; }); })
+        .then(function (data) {
+          if (!data || data.ok !== true || data.locked !== true) {
+            window.location.replace("/pages/career");
+            return;
+          }
+          lockData.strikes = Array.isArray(data.strikes) ? data.strikes : [];
+          lockData.reasons = (data.reasons && typeof data.reasons === "object") ? data.reasons : {};
+          lockData.answersSubmittedAt = data.answersSubmittedAt || null;
+          renderStrikes();
+        })
+        .catch(function () {
+          // Network failure — stay put rather than bouncing a genuinely
+          // locked GP away on a flaky connection; the fields simply stay empty.
+        });
+    })();
+  </script>
+</body>
+</html>

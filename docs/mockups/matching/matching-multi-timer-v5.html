@@ -1,0 +1,232 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
+  .gpm-wrap { font-family: "DM Sans", -apple-system, "Segoe UI", sans-serif; }
+  .gpm-serif { font-family: "Source Serif 4", Georgia, serif; }
+
+  .shiny { position:relative; overflow:hidden; display:block; text-align:center; color:#fff !important; font-weight:700; text-decoration:none;
+    background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);
+    box-shadow:0 12px 28px -8px rgba(37,99,235,.75), inset 0 1.5px 0 rgba(255,255,255,.5), inset 0 -2px 6px rgba(13,38,110,.45); }
+  .shiny::after { content:''; position:absolute; top:-10%; bottom:-10%; left:-70%; width:44%;
+    background:linear-gradient(115deg, transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);
+    transform:skewX(-22deg); animation:gpshine 3s ease-in-out infinite; }
+  @keyframes gpshine { 0% {left:-70%} 55% {left:135%} 100% {left:135%} }
+
+  .phone { width:375px; max-width:100%; margin:0 auto; background:#0b1322; border-radius:38px; padding:10px; box-shadow:0 18px 50px -18px rgba(11,19,34,.55); }
+  .phone-screen { border-radius:30px; overflow:hidden; position:relative; min-height:760px; display:flex; flex-direction:column; background:#f4f6fb; color:#0f172a; }
+  .phone-status { display:flex; justify-content:space-between; padding:14px 22px 0; font-size:12px; font-weight:600; color:#334155; }
+
+  .mp-head { padding:16px 18px 8px; }
+  .mp-head h4 { font-family:"Source Serif 4",Georgia,serif; font-size:22px; margin:0 0 2px; }
+  .mp-head p { margin:0; font-size:12.5px; color:#64748b; }
+  .mp-scroll { flex:1; padding:4px 14px 12px; overflow:hidden; }
+
+  .match-sec { display:flex; justify-content:space-between; align-items:center; margin:6px 2px 9px; }
+  .match-sec .t { font-size:12px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:#173da6; }
+  .match-sec .n { font-size:11px; font-weight:700; color:#fff; background:#2563eb; border-radius:999px; padding:2px 9px; }
+
+  .match-pin { border-radius:18px; background:#fff; border:2px solid #2563eb; box-shadow:0 0 0 4px rgba(37,99,235,.12), 0 14px 34px -14px rgba(37,99,235,.45); overflow:hidden; margin-bottom:13px; }
+  .match-ribbon { background:linear-gradient(135deg,#2e6bf0 0%,#1d4ed8 100%); color:#fff; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:7px 12px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .cd { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; border-radius:999px; padding:3px 10px; text-transform:none; letter-spacing:0; white-space:nowrap; }
+  .cd-ok { background:rgba(255,255,255,.2); color:#fff; }
+  .cd-warn { background:#d97706; color:#fff; animation:gppulse 1.4s infinite; }
+  @keyframes gppulse { 0%,100% {opacity:1} 50% {opacity:.55} }
+
+  .mp-photo { position:relative; height:84px; overflow:hidden; }
+  .mp-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .mp-photo .cap { position:absolute; left:0; right:0; bottom:0; padding:15px 12px 6px; background:linear-gradient(transparent, rgba(11,19,34,.78)); color:#fff; font-size:10.5px; font-weight:600; }
+  .mp-inner { padding:11px 13px 13px; }
+  .mp-inner .pn { font-family:"Source Serif 4",Georgia,serif; font-size:15.5px; font-weight:700; }
+  .mp-inner .jt { font-size:12px; font-weight:600; color:#1f2b43; margin:1px 0; }
+  .mp-inner .jm { font-size:11px; color:#64748b; margin-bottom:7px; }
+  .mp-why { background:#eff4ff; border:1px solid #d6e2fb; border-radius:11px; padding:8px 10px 3px; margin-bottom:8px; }
+  .mp-why ul { margin:0; padding:0; }
+  .mp-why li { display:flex; gap:8px; align-items:flex-start; font-size:11px; color:#173da6; line-height:1.4; margin-bottom:5px; list-style:none; }
+  .tick { flex:none; width:15px; height:15px; border-radius:50%; background:linear-gradient(180deg,#4f8bff,#2563eb); color:#fff; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; margin-top:1px; }
+  .mp-why .more { font-size:10.5px; font-weight:700; color:#2563eb; padding:1px 0 5px 23px; }
+  .mp-accept { font-size:13px; padding:11px; border-radius:12px; }
+  .mp-pass { text-align:center; font-size:10.5px; color:#94a3b8; padding-top:7px; }
+  .mp-pass a { color:#64748b; }
+
+  .opp-card { border-radius:16px; background:#fff; border:1px solid #e3e9f4; padding:12px 14px; margin-bottom:10px; opacity:.75; }
+  .opp-card .t { font-weight:700; font-size:13px; }
+  .opp-card .m { font-size:11px; color:#64748b; margin-top:2px; }
+
+  .mp-nav { display:flex; border-top:1px solid #e3e9f4; background:#fff; padding:9px 6px 12px; }
+  .mp-nav div { flex:1; text-align:center; font-size:10px; color:#94a3b8; font-weight:600; }
+  .mp-nav .ic { font-size:17px; display:block; margin-bottom:2px; }
+  .mp-nav .on { color:#2563eb; position:relative; }
+  .mp-nav .on .bub { position:absolute; top:-4px; right:18%; min-width:14px; height:14px; background:#dc2626; border-radius:999px; color:#fff; font-size:9px; font-weight:800; line-height:14px; }
+
+  /* right column — timer treatments */
+  .treat { border:1px solid #e3e9f4; border-radius:14px; background:#fff; padding:16px 18px; margin-bottom:14px; }
+  .treat .lbl { font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:#64748b; margin-bottom:10px; }
+  .pop-snippet { background:linear-gradient(160deg,#0b1322 0%,#14203a 100%); border-radius:14px; padding:16px; color:#fff; }
+  .pop-cd { display:flex; align-items:center; justify-content:center; gap:8px; background:rgba(217,119,6,.18); border:1px solid rgba(251,191,36,.4); color:#fcd34d; border-radius:11px; padding:9px 12px; font-size:12.5px; font-weight:700; margin-bottom:11px; }
+  .pop-cd .u { font-family:"Source Serif 4",Georgia,serif; font-size:16px; color:#fff; }
+  .pop-accept2 { font-size:14px; padding:13px; border-radius:13px; }
+  .pop-later2 { display:block; text-align:center; color:rgba(226,233,246,.65); font-size:12px; text-decoration:none; padding:10px 0 0; }
+
+  .em-snippet { border:1px solid #e3e9f4; border-radius:12px; overflow:hidden; }
+  .em-snippet .bar { background:linear-gradient(135deg,#2e6bf0,#1d4ed8); color:#fff; font-size:12px; font-weight:700; padding:8px 14px; }
+  .em-snippet .bd { padding:14px 16px; font-size:13.5px; color:#1f2b43; line-height:1.55; }
+  .em-cd { display:flex; align-items:center; gap:12px; background:#fdf3e1; border:1px solid #f4ddb0; border-radius:12px; padding:12px 14px; margin-top:10px; }
+  .em-cd .big { font-family:"Source Serif 4",Georgia,serif; font-size:26px; font-weight:700; color:#92400e; line-height:1; white-space:nowrap; }
+  .em-cd .tx { font-size:12.5px; color:#92400e; line-height:1.45; }
+
+  .exp-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .exp-table td { padding:7px 8px; border-top:1px solid #eef2f9; color:#334155; vertical-align:top; }
+  .exp-table td:first-child { font-weight:700; color:#0f172a; white-space:nowrap; }
+
+  .flow-strip { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin:6px 0 2px; font-size:13px; color:#475569; }
+  .flow-strip b { background:#eff4ff; border:1px solid #d6e2fb; color:#173da6; border-radius:999px; padding:5px 13px; font-weight:600; white-space:nowrap; }
+  .flow-strip .arr { color:#94a3b8; }
+</style>
+
+<div class="gpm-wrap">
+<h2>v5 — multiple matches + the 5-day window</h2>
+<p class="subtitle">Left: My Practice when the GP has <b>two live matches</b> — a "Your team matches" section stacks a full card per match, each with its own countdown. Right: how the 5-day urgency shows up in the popup and the email, and what happens when time runs out.</p>
+
+<div class="flow-strip">
+  <b>Match sent — 5-day clock starts</b><span class="arr">→</span>
+  <b>Blue countdown chip (days 1–4)</b><span class="arr">→</span>
+  <b>Amber pulsing chip + reminder (final 24h)</b><span class="arr">→</span>
+  <b>Expiry: card greys out, team notified</b>
+</div>
+
+<div class="split" style="align-items:flex-start; margin-top:22px">
+
+  <div class="mockup">
+    <div class="mockup-header">📱 My Practice — two matches, each on its own clock</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:26px 12px">
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="phone-status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="mp-head">
+            <h4 class="gpm-serif">My Practice</h4>
+            <p>Browse roles and track your applications</p>
+          </div>
+          <div class="mp-scroll">
+
+            <div class="match-sec">
+              <span class="t">✦ Your team matches</span>
+              <span class="n">2</span>
+            </div>
+
+            <div class="match-pin">
+              <div class="match-ribbon">
+                <span>Matched to you</span>
+                <span class="cd cd-ok">⏳ 4 days 22 hrs left</span>
+              </div>
+              <div class="mp-photo">
+                <img src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=750&q=60" alt="Bargara Beach">
+                <div class="cap">📍 Bargara Beach — 15 min from the practice</div>
+              </div>
+              <div class="mp-inner">
+                <div class="pn">Coral Coast Family Practice</div>
+                <div class="jt">General Practitioner — Mixed Billing</div>
+                <div class="jm">Bundaberg, QLD · DPA approved · 🌐 website</div>
+                <div class="mp-why">
+                  <ul>
+                    <li><span class="tick">✓</span>Coastal Queensland — your preferred location</li>
+                    <li><span class="tick">✓</span>70% billings — above the split you wanted</li>
+                  </ul>
+                  <div class="more">+ 2 more reasons ›</div>
+                </div>
+                <a class="shiny mp-accept" href="#">Accept this match</a>
+                <div class="mp-pass">Not the right fit? <a href="#">Let your team know</a></div>
+              </div>
+            </div>
+
+            <div class="match-pin" style="border-color:#d97706; box-shadow:0 0 0 4px rgba(217,119,6,.12), 0 14px 34px -14px rgba(217,119,6,.4)">
+              <div class="match-ribbon" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+                <span>Matched to you</span>
+                <span class="cd cd-warn">⏳ 22 hrs left to respond</span>
+              </div>
+              <div class="mp-inner">
+                <div class="pn">Riverbend Medical Centre</div>
+                <div class="jt">General Practitioner — Bulk Billing</div>
+                <div class="jm">Toowoomba, QLD · DPA approved · 🌐 website</div>
+                <div class="mp-why">
+                  <ul>
+                    <li><span class="tick">✓</span>Large family patient base — your strength</li>
+                    <li><span class="tick">✓</span>Regional QLD — supports your visa pathway</li>
+                  </ul>
+                  <div class="more">+ 3 more reasons ›</div>
+                </div>
+                <a class="shiny mp-accept" href="#" style="background:linear-gradient(180deg,#fbbf24 0%,#f59e0b 45%,#d97706 100%); box-shadow:0 12px 28px -8px rgba(217,119,6,.7), inset 0 1.5px 0 rgba(255,255,255,.5)">Accept before it expires</a>
+                <div class="mp-pass">Not the right fit? <a href="#">Let your team know</a></div>
+              </div>
+            </div>
+
+            <div class="opp-card">
+              <div class="t">GP — Private Billing, Coastal Clinic</div>
+              <div class="m">Gladstone, QLD · 65% billings</div>
+            </div>
+
+          </div>
+          <div class="mp-nav">
+            <div><span class="ic">🏠</span>Home</div>
+            <div><span class="ic">🗂️</span>Journey</div>
+            <div class="on"><span class="bub">2</span><span class="ic">💼</span>My Practice</div>
+            <div><span class="ic">👤</span>Account</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">⏳ The 5-day window — popup, email &amp; expiry rules</div>
+    <div class="mockup-body">
+
+      <div class="treat">
+        <div class="lbl">In the popup — under the job card</div>
+        <div class="pop-snippet">
+          <div class="pop-cd">⏳ This match is reserved for you for <span class="u">5 days</span></div>
+          <a class="shiny pop-accept2" href="#">Accept this match</a>
+          <a class="pop-later2" href="#">I'll look at this later</a>
+        </div>
+      </div>
+
+      <div class="treat">
+        <div class="lbl">In the email — after the 98% callout</div>
+        <div class="em-snippet">
+          <div class="bar">GP Link · You've been personally matched</div>
+          <div class="bd">
+            Accept the match and we'll confirm your interest with the practice…
+            <div class="em-cd">
+              <div class="big">5 days</div>
+              <div class="tx"><b>This match is reserved for you until Friday 11 July.</b> After that we may offer the position to another GP, so don't sit on it.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="treat">
+        <div class="lbl">Countdown behaviour &amp; expiry</div>
+        <table class="exp-table">
+          <tr><td>Days 1–4</td><td>Blue ⏳ chip counts down live on the card, popup and email deep-link page.</td></tr>
+          <tr><td>Final 24h</td><td>Chip turns amber and pulses, card border goes amber, button reads "Accept before it expires". One reminder email + one push-style bell alert go out.</td></tr>
+          <tr><td>Expired</td><td>Card disappears from My Practice. In your ATS the GP drops out of Shortlist into "Expired — no response" so the team can re-match the job, extend the window by another 5 days, or call the GP.</td></tr>
+          <tr><td>Multiple matches</td><td>Each match runs its own independent 5-day clock. Cards stack newest-first under "✦ Your team matches (n)"; the nav badge shows the count. The popup takeover only ever shows the newest match — earlier ones stay as pinned cards.</td></tr>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:26px">
+  <h3>Happy with multi-match + the 5-day window?</h3>
+  <div class="options">
+    <div class="option" data-choice="approve-v5" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Yes — lock it in</h3><p>Stacked match cards, per-match 5-day countdown, amber final-24h state, expiry back to the team.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-v5" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal — e.g. different window length, no amber state, or a different expiry rule.</p></div>
+    </div>
+  </div>
+</div>
+</div>

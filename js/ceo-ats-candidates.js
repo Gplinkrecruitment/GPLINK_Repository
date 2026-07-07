@@ -35,6 +35,7 @@
 
   // ATS pipeline-stage labels + colours for the job-application rows.
   var ATS_STAGE = {
+    shortlisted: { l: 'Shortlisted', c: '#7c3aed' },
     applied: { l: 'Applied', c: 'var(--ats-blue)' },
     submitted: { l: 'Submitted', c: 'var(--ats-blue)' },
     reviewing: { l: 'Reviewing', c: 'var(--ats-purple)' },
@@ -47,6 +48,7 @@
 
   // Selectable ATS pipeline stages for the per-application <select> (value, label).
   var ATS_STAGE_OPTS = [
+    ['shortlisted', 'Shortlisted'],
     ['applied', 'Applied'], ['submitted', 'Submitted'], ['reviewing', 'Reviewing'],
     ['interview', 'Interview'], ['offer', 'Offer'], ['hired', 'Hired'], ['not_proceeding', 'Not proceeding']
   ];
@@ -55,9 +57,68 @@
     return s ? String(s) : '—';
   }
 
+  // AI Matching (Task 7 review fix, spec §9): late-withdrawal reason capture
+  // on THIS surface too — the candidate drawer's per-application stage
+  // <select> can move a card to not_proceeding just like the Jobs board, and
+  // without the same prompt Task 8's strike data would systematically miss
+  // withdrawals made from here. Same reason values, same PATCH `reason`
+  // field, same "submitted or later" trigger as js/ceo-ats-jobs.js.
+  var WITHDRAW_REASONS = [
+    { value: 'gp_withdrew', label: 'GP withdrew after submission' },
+    { value: 'practice_passed', label: 'Practice passed on the candidate' },
+    { value: 'unresponsive', label: 'Candidate went unresponsive' },
+    { value: 'other', label: 'Other' }
+  ];
+  function stageNeedsWithdrawReason(fromStageKey) {
+    var order = ATS_STAGE_OPTS.map(function (o) { return o[0]; });
+    var fromIdx = order.indexOf(fromStageKey);
+    var submittedIdx = order.indexOf('submitted');
+    // 'not_proceeding' itself is last in ATS_STAGE_OPTS but a no-op move
+    // (already there) never reaches this check via the change handler.
+    return fromIdx !== -1 && fromStageKey !== 'not_proceeding' && fromIdx >= submittedIdx;
+  }
+  // onProceed(reason) fires only on the confirm button (reason may be ''
+  // when skipped); Cancel/close calls onCancel — the caller reverts the
+  // select and never PATCHes.
+  function openWithdrawReasonPrompt(onProceed, onCancel) {
+    ATS.setOverlay(
+      '<div class="ats-modal-wrap open" id="ats-withdraw-wrap">' +
+        '<div class="ats-modal" style="max-width:420px">' +
+          '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="ats-withdraw-close">×</button></div>' +
+          '<div class="ats-modal-body">' +
+            '<label>Reason (optional — helps track patterns)</label>' +
+            '<select id="ats-withdraw-reason"><option value="">— No reason (skip) —</option>' +
+              WITHDRAW_REASONS.map(function (r) { return '<option value="' + r.value + '">' + ATS.esc(r.label) + '</option>'; }).join('') +
+            '</select>' +
+          '</div>' +
+          '<div class="ats-modal-foot">' +
+            '<button class="ats-btn ats-btn-ghost" id="ats-withdraw-cancel">Cancel</button>' +
+            '<button class="ats-btn ats-btn-primary" id="ats-withdraw-save">Move to Not Proceeding</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>');
+    var root = document.getElementById('atsOverlayRoot');
+    if (!root) { if (onCancel) onCancel(); return; }
+    function close() { ATS.setOverlay(''); }
+    function cancel() { close(); if (onCancel) onCancel(); }
+    var closeBtn = root.querySelector('#ats-withdraw-close');
+    var cancelBtn = root.querySelector('#ats-withdraw-cancel');
+    var wrap = root.querySelector('#ats-withdraw-wrap');
+    if (closeBtn) closeBtn.addEventListener('click', cancel);
+    if (cancelBtn) cancelBtn.addEventListener('click', cancel);
+    if (wrap) wrap.addEventListener('click', function (e) { if (e.target === wrap) cancel(); });
+    var save = root.querySelector('#ats-withdraw-save');
+    if (save) save.addEventListener('click', function () {
+      var reason = (root.querySelector('#ats-withdraw-reason') || {}).value || '';
+      close();
+      onProceed(reason);
+    });
+  }
+
   // Total-pipeline funnel: colour per bucket key (labels come from the endpoint).
   var BUCKET_COLOR = {
     unassociated: 'var(--ats-dim)',
+    shortlisted: '#7c3aed',
     applied: 'var(--ats-blue)',
     submitted: 'var(--ats-purple)',
     reviewing: 'var(--ats-amber)',
@@ -317,6 +378,15 @@
     var regPill = c.blocked
       ? '<span class="ats-pill red">' + ATS.esc(c.reg_stage_label || '') + ' · blocked ' + (c.blocked_days || 0) + 'd</span>'
       : '<span class="ats-pill blue">' + ATS.esc(c.reg_stage_label || '') + '</span>';
+    // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
+    // 24h, still within its 7-day display window (spec §9). Team-only signal.
+    var velocityChip = c.high_velocity
+      ? ' <span class="ats-pill amber" title="5 or more applications in the last 24 hours">High application velocity</span>'
+      : '';
+    // AI Matching (Task 8): "CAREER LOCKED" chip — 3-strike career lock.
+    var careerLockChip = c.career_locked
+      ? ' <span class="ats-pill red" title="Career page paused after 3 strikes">CAREER LOCKED</span>'
+      : '';
     var ob = c.onboarding_completed
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
@@ -325,7 +395,7 @@
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
       '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
-      '<div>' + regPill + '</div>' +
+      '<div>' + regPill + velocityChip + careerLockChip + '</div>' +
       ATS.intentChip(c.intent_score, c.intent_band) +
       '<div>' + ob + '</div>' +
       '<div class="ats-doc-chips">' +
@@ -342,7 +412,7 @@
     var el = panel();
     if (!el) return;
     el.innerHTML = ATS.loadingHtml('Loading candidate…');
-    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
+    function render(d) {
       var host = panel();
       if (!host) return;
       if (!d || !d.ok || !d.candidate) {
@@ -357,6 +427,13 @@
       host.innerHTML = detailHtml(d.candidate);
       wireDetailEvents(host, d.candidate);
       if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
+      if (d && d.ok && d.candidate) { render(d); return; }
+      // Some deep-links (the Matching tab's results only carry the GP's
+      // user_id, not their registration_cases.id) pass a user_id here instead
+      // of a case_id — retry once treating it as a user_id before giving up.
+      ATS.api('/api/ceo/candidate?user_id=' + encodeURIComponent(caseId)).then(render);
     });
   };
 
@@ -388,6 +465,9 @@
           '<div class="ats-card ats-intent-card">' + intentCardInner(c) + '</div>' +
         '</div>' +
         '<div>' +
+          // AI Matching (Task 8): only rendered when this GP has ever been
+          // career-locked (c.career_lock is null otherwise) — no empty card.
+          (c.career_lock ? '<div class="ats-card" style="margin-bottom:16px">' + strikesCardInner(c) + '</div>' : '') +
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + onboardingCardInner(c) + '</div>' +
@@ -457,7 +537,10 @@
     var apps = c.apps || [];
     var appsHtml = apps.length ? apps.map(function (a) {
       var meta = atsStageMeta(a.ats_stage);
-      var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '">' +
+      // data-stage-was: the stage at render time — the withdraw-reason prompt
+      // (Task 7) needs the FROM stage to know a not_proceeding move is a
+      // post-submission withdrawal, and Cancel needs it to revert the select.
+      var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '" data-stage-was="' + ATS.escAttr(a.ats_stage || '') + '">' +
         ATS_STAGE_OPTS.map(function (o) {
           return '<option value="' + o[0] + '"' + (a.ats_stage === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
         }).join('') + '</select>';
@@ -591,16 +674,47 @@
     if (!window.confirm('Record this placement as secured? This finalises the doctor\'s placement (the same as them accepting in-app) and notifies them. Continue?')) return;
     var confirmBtn = box.querySelector('.ats-placement-confirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Recording…'; }
-    ATS.api('/api/ats/placement', { method: 'POST', body: { applicationId: String(appId), commencementDate: commencementDate } }).then(function (res) {
-      if (res && res.ok) {
-        ATS.toast('Placement secured — the doctor has been notified.');
-        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id);
-      } else {
-        ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
-        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
-      }
-    });
+
+    // AI Matching (Task 6): a placement fills the job — same redirect confirm
+    // as marking a card Hired on the kanban. The count of OTHER live
+    // applications on this job comes from the job's pipeline; redirect_others
+    // is only added when the dialog was actually shown (OK → true, Cancel →
+    // false: the placement still proceeds, just without the fan-out). Skipped
+    // entirely (no dialog, no flag) when nobody else is live on the job or
+    // the pipeline can't be read.
+    var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+    function submitPlacement(redirectOthers) {
+      var body = { applicationId: String(appId), commencementDate: commencementDate };
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+      ATS.api('/api/ats/placement', { method: 'POST', body: body }).then(function (res) {
+        if (res && res.ok) {
+          var redirectedNote = (typeof res.redirected === 'number' && res.redirected > 0)
+            ? ' · ' + res.redirected + ' other GP(s) redirected' : '';
+          ATS.toast('Placement secured — the doctor has been notified.' + redirectedNote);
+          if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+          window.atsOpenCandidate(c.case_id);
+        } else {
+          ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
+          if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
+        }
+      });
+    }
+
+    var app = appFromCurrent(appId);
+    var jobId = app && app.job_id;
+    if (!jobId) { submitPlacement(); return; }
+    ATS.api('/api/ats/job/pipeline?id=' + encodeURIComponent(jobId)).then(function (d) {
+      var n = 0;
+      var cols = (d && d.ok && Array.isArray(d.columns)) ? d.columns : [];
+      cols.forEach(function (col) {
+        if (REDIRECT_LIVE_STAGES.indexOf(col.key) === -1) return;
+        (col.cards || []).forEach(function (card) {
+          if (String(card.id) !== String(appId)) n++;
+        });
+      });
+      if (n <= 0) { submitPlacement(); return; }
+      submitPlacement(window.confirm(n + ' other GPs are still active on this job — send them the redirect email?'));
+    }).catch(function () { submitPlacement(); });
   }
 
   function acceptApplicationLineHtml(a) {
@@ -619,6 +733,34 @@
         window.atsOpenCandidate(c.case_id);
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not record the practice\'s acceptance.');
+      }
+    });
+  }
+
+  // AI Matching (Task 8): one-click Release (waitlist-release pattern) — the
+  // GP becomes matchable again immediately (atsBuildGpMatchInputs reads the
+  // real career_lock.released_at on its next pool build).
+  function releaseCareerLock(c) {
+    if (!window.confirm('Release ' + (c.name || 'this GP') + '’s career page? They’ll be matchable and able to apply again immediately.')) return;
+    ATS.api('/api/ats/career-lock/release', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Career page released — matchable again.');
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not release the career page.');
+      }
+    });
+  }
+
+  // Optional, independent of Release — recomputes intent fresh (no halving),
+  // same math as the CEO's own "Recompute intent" action.
+  function restoreCareerLockIntent(c) {
+    ATS.api('/api/ats/career-lock/restore-intent', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Intent score restored to ' + res.intent_score + '.');
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not restore the intent score.');
       }
     });
   }
@@ -872,7 +1014,12 @@
             ATS.toast('Interview booked for ' + gpLabel);
             if (caseId) window.atsOpenCandidate(caseId);
           } else {
-            ATS.toast((r && (r.error || r.message)) || 'Could not book the interview.');
+            // AI Matching (Task 7): prefer the human message over a raw error
+            // code — interview_cap's 409 carries both an `error` code AND a
+            // friendly `message` ("This GP has used all 3 interviews this
+            // month (resets …)"); showing `error` first would toast the bare
+            // code string instead.
+            ATS.toast((r && (r.message || r.error)) || 'Could not book the interview.');
             btn.disabled = false;
             btn.innerHTML = ATS.esc(gpLabel) + '<span class="ats-slot-note">(your local time)</span>';
           }
@@ -1101,6 +1248,54 @@
       '<div class="ats-handover-box">' + inner + '</div>';
   }
 
+  // AI Matching (Task 8): "Interviews & strikes" panel (mockup v11) — only
+  // ever rendered when c.career_lock is present (this GP has been locked at
+  // least once). Chips CAREER LOCKED / STRIKES n/3, one row per strike
+  // (practice · location · date · DID NOT PROCEED + the GP's own reason, or
+  // "Not provided yet"), the pre→post intent line, answers status, and the
+  // Release / Restore-intent actions.
+  function strikesCardInner(c) {
+    var lock = c.career_lock || {};
+    var strikes = lock.strikes || [];
+    var lockedChip = lock.locked
+      ? '<span class="ats-pill red">CAREER LOCKED</span>'
+      : '<span class="ats-pill muted">Released</span>';
+    var strikeChip = '<span class="ats-pill amber">STRIKES ' + strikes.length + '/3</span>';
+
+    var rows = strikes.length ? strikes.map(function (s) {
+      var when = s.interviewedAt ? new Date(s.interviewedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+      var metaBits = [s.practiceName || 'Unknown practice', s.location || '', when].filter(Boolean);
+      var reasonHtml = s.reason
+        ? '<div style="font-size:12.5px;color:var(--ats-text,#0f172a);margin-top:6px">' + ATS.esc(s.reason) + '</div>'
+        : '<div style="font-size:12.5px;color:var(--ats-dim,#94a3b8);font-style:italic;margin-top:6px">Not provided yet</div>';
+      return '<div style="border:1px solid var(--ats-border,#e2e8f0);border-radius:10px;padding:10px 12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+          '<span style="font-size:13px;font-weight:600">' + ATS.esc(metaBits.join(' · ')) + '</span>' +
+          '<span class="ats-pill red" style="font-size:10px;white-space:nowrap">DID NOT PROCEED</span>' +
+        '</div>' + reasonHtml +
+      '</div>';
+    }).join('') : '<div class="ats-empty">No strikes recorded.</div>';
+
+    var intentLine = (lock.pre_lock_intent_score != null)
+      ? '<div style="font-size:13px;margin:10px 0"><b>' + ATS.esc(String(lock.pre_lock_intent_score)) + ' → ' + ATS.esc(String((c.intent && c.intent.score != null) ? c.intent.score : '—')) + '</b> <span style="color:var(--ats-dim,#64748b)">(−50% on lock)</span></div>'
+      : '';
+
+    var answersLine = '<div style="font-size:12px;color:var(--ats-dim,#64748b);margin-bottom:4px">' +
+      (lock.answers_submitted_at ? '✓ All three answers submitted' : 'Answers not yet complete') +
+      '</div>';
+    var callLine = '<div style="font-size:12px;color:var(--ats-dim,#64748b);margin-bottom:10px">' +
+      (lock.call_booked_at ? '✓ Call booked' : 'Call not yet booked') +
+      '</div>';
+
+    var actions = '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">' +
+      (lock.locked ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-lock-release">Release career page</button>' : '') +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-lock-restore-intent">Restore intent score</button>' +
+    '</div>';
+
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-red)"></span> Interviews &amp; strikes ' + lockedChip + ' ' + strikeChip + '</div>' +
+      rows + intentLine + answersLine + callLine + actions;
+  }
+
   function wireDetailEvents(host, c) {
     var back = host.querySelector('#ats-cand-back');
     if (back) back.addEventListener('click', function () { window.loadCandidatesTab(); });
@@ -1142,6 +1337,9 @@
       if (plConfirmBtn) { confirmPlacement(plConfirmBtn.getAttribute('data-app-id'), c); return; }
       var plCancelBtn = e.target.closest('.ats-placement-cancel');
       if (plCancelBtn) { closePlacementForm(plCancelBtn.getAttribute('data-app-id'), c); return; }
+      // AI Matching (Task 8): career-lock release / restore-intent.
+      if (e.target.closest('#ats-lock-release')) { releaseCareerLock(c); return; }
+      if (e.target.closest('#ats-lock-restore-intent')) { restoreCareerLockIntent(c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
@@ -1152,19 +1350,36 @@
       })(pickEls[pi]);
     }
     // delegated change: a per-application stage <select> moves the GP along the pipeline.
+    function commitAppStageMove(sel, appId, newStage, reason) {
+      sel.disabled = true;
+      var body = { stage: newStage };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
+        else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
+      });
+    }
     host.addEventListener('change', function (e) {
       var sel = e.target.closest ? e.target.closest('.ats-app-stage') : null;
       if (!sel) return;
       var appId = sel.getAttribute('data-app-id');
       if (!appId) return;
       var newStage = sel.value;
-      sel.disabled = true;
-      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: { stage: newStage } }).then(function (res) {
-        if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
-        else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
-        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
-      });
+      var stageWas = sel.getAttribute('data-stage-was') || '';
+      // AI Matching (Task 7 review fix): moving to not_proceeding from
+      // submitted or later prompts for the withdraw reason (same flow as the
+      // Jobs board); Cancel reverts the select and never PATCHes.
+      if (newStage === 'not_proceeding' && stageNeedsWithdrawReason(stageWas)) {
+        openWithdrawReasonPrompt(function (reason) {
+          commitAppStageMove(sel, appId, newStage, reason);
+        }, function () {
+          sel.value = stageWas;
+        });
+        return;
+      }
+      commitAppStageMove(sel, appId, newStage, null);
     });
   }
 

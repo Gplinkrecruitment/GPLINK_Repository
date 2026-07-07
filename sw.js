@@ -29,7 +29,7 @@
     "/js/auth-guard.js?v=20260607a",
     "/js/state-sync.js?v=20260607a",
     "/js/bypass-config.js?v=20260610a",
-    "/js/updates-sync.js?v=20260527a",
+    "/js/updates-sync.js?v=20260707b",
     "/js/qualification-scan.js?v=20260527a",
     "/js/qualification-camera.js?v=20260527a",
     "/js/account-dropdown.js?v=20260527a",

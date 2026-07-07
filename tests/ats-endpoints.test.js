@@ -124,7 +124,7 @@ describe('ATS pipeline', () => {
     expect(r.status).toBe(200);
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.columns.length).toBe(7); // 6 stages + not_proceeding
+    expect(b.columns.length).toBe(8); // 7 stages (incl. shortlisted) + not_proceeding
     const applied = b.columns.find((c) => c.key === 'applied');
     expect(applied.cards.some((c) => c.name === 'Dr Aisha Khan')).toBe(true);
   });
@@ -218,16 +218,16 @@ describe('Candidates + intent', () => {
 });
 
 describe('pipeline summary + movement', () => {
-  const BUCKET_ORDER = ['unassociated', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
+  const BUCKET_ORDER = ['unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
   const getSummary = async () => parse((await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() })).raw);
   const getBucket = async (key) => parse((await req('GET', '/api/ceo/candidates?ats_bucket=' + key, { host: SUPER_HOST, cookie: superCookie() })).raw);
 
-  it('partitions the candidate universe into 8 ordered buckets that sum to total', async () => {
+  it('partitions the candidate universe into 9 ordered buckets that sum to total', async () => {
     const r = await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() });
     expect(r.status).toBe(200);
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.buckets.length).toBe(8);
+    expect(b.buckets.length).toBe(9);
     expect(b.buckets.map((x) => x.key)).toEqual(BUCKET_ORDER);
     expect(typeof b.total).toBe('number');
     // Key invariant: the buckets partition the candidate universe.

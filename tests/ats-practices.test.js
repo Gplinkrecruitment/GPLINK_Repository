@@ -136,7 +136,7 @@ describe('bestAtsStage', () => {
 describe('pipeline buckets', () => {
   it('PIPELINE_BUCKETS lists the 8 buckets in order, each with a label', () => {
     expect(M.PIPELINE_BUCKETS).toEqual([
-      'unassociated', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'
+      'unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'
     ]);
     M.PIPELINE_BUCKETS.forEach((key) => {
       expect(typeof M.PIPELINE_BUCKET_LABELS[key], key).toBe('string');
@@ -170,9 +170,10 @@ describe('ats-practices API surface', () => {
     });
   });
   it('exports the shared constants', () => {
-    expect(M.ATS_STAGES).toEqual(['applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired']);
+    expect(M.ATS_STAGES).toEqual(['shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired']);
     expect(M.ATS_REJECT_STAGE).toBe('not_proceeding');
     expect(M.ATS_STAGE_LABELS).toEqual({
+      shortlisted: 'Shortlist',
       applied: 'Applied',
       submitted: 'Submitted to Practice',
       reviewing: 'Practice Reviewing',

@@ -351,9 +351,9 @@ describe('static UI pins', () => {
     expect(js).toContain("c.offer_status === 'declined'");
   });
 
-  it('ceo-dashboard.html bumps the changed script cache-busters to 20260707b', () => {
+  it('ceo-dashboard.html bumps the changed script cache-busters', () => {
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('ceo-ats-candidates.js?v=20260707d');
-    expect(html).toContain('ceo-ats-jobs.js?v=20260707b');
+    expect(html).toContain('ceo-ats-candidates.js?v=20260707i');
+    expect(html).toContain('ceo-ats-jobs.js?v=20260707f');
   });
 });

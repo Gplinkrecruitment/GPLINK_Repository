@@ -1185,6 +1185,21 @@
     </div>
   </div>
 
+  <!-- Deliberate-apply confirm sheet (AI Matching Task 7 — anti-time-waster
+       control, spec §9): shown before every self-apply so applying is never a
+       drive-by click. -->
+  <div class="at-sheet-overlay" id="applyConfirmOverlay" hidden>
+    <div class="at-sheet">
+      <h2>Apply for this role?</h2>
+      <p>You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
+      <div class="at-sheet-time" id="applyConfirmMeter"></div>
+      <div class="at-sheet-actions">
+        <button class="at-sheet-secondary" id="applyConfirmCancelBtn" type="button">Not yet</button>
+        <button class="at-sheet-primary" id="applyConfirmBtn" type="button">Apply</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 (function () {
   "use strict";
@@ -2093,6 +2108,12 @@
   const declineConfirmBtnEl = document.getElementById("declineConfirmBtn");
   const declineCancelBtnEl = document.getElementById("declineCancelBtn");
 
+  /* ── Deliberate-apply confirm sheet (Task 7) ── */
+  const applyConfirmOverlayEl = document.getElementById("applyConfirmOverlay");
+  const applyConfirmMeterEl = document.getElementById("applyConfirmMeter");
+  const applyConfirmBtnEl = document.getElementById("applyConfirmBtn");
+  const applyConfirmCancelBtnEl = document.getElementById("applyConfirmCancelBtn");
+
   function openBookConfirm(slot) {
     offerPendingSlot = slot;
     bookTimeLabelEl.textContent = slotDayHeading(slot) + " at " + slotTimeLabel(slot);
@@ -2133,6 +2154,16 @@
         showToast("That time was just taken — please pick another.");
         offerSelectedSlotUtc = null;
         loadOfferSlots();
+        return;
+      }
+      if (res.status === 409 && data && data.error === "interview_cap") {
+        // AI Matching (Task 7): interview cap (3/calendar month, spec §9) —
+        // friendly blocked message with the reset date, not a generic error.
+        closeBookConfirm();
+        const resetsLabel = data.resetsAt
+          ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+          : "";
+        showToast("You've used all 3 interviews this month" + (resetsLabel ? " — resets " + resetsLabel : "") + ". Talk to your Registration Support Officer if this one's urgent.");
         return;
       }
       if (res.status === 403 && data && data.error === "not_available") {
@@ -2455,10 +2486,24 @@
     if (data && data.ok) {
       // Confirmation moment: applied state + "Application received" banner.
       markAppliedLocally();
-      showToast(opts.afterCvUpload
-        ? "CV uploaded & application sent ✓ Your Registration Support Officer will be in touch shortly"
-        : "Application sent ✓ Your Registration Support Officer will be in touch shortly");
+      showToast(data.matched
+        // AI Matching (Task 7): self-apply-as-accept — this GP was already
+        // team-matched on this exact role; applying just accepted that match.
+        ? "Matched! Your team has been notified you're moving forward."
+        : (opts.afterCvUpload
+          ? "CV uploaded & application sent ✓ Your Registration Support Officer will be in touch shortly"
+          : "Application sent ✓ Your Registration Support Officer will be in touch shortly"));
       return "success";
+    }
+    if (data && data.expired) {
+      // AI Matching (Task 7): self-applying to a job you were already team-
+      // matched on, but the match window has passed and the lifecycle cron
+      // hasn't swept it yet — the same graceful "still open" notice the
+      // career page's match-respond flow shows, not a hard error.
+      applyState = "idle";
+      paintApply();
+      showToast(data.message || "This match has expired — the role may still be open; your team has been told you're interested.");
+      return "expired";
     }
     if (data && data.requiresCv) {
       // Missing signed CV → the in-page CV upload modal.
@@ -2484,6 +2529,13 @@
       paintApply();
       showToast("You don't currently qualify for this role — ask your Registration Support Officer about your options.");
       return "not_qualified";
+    }
+    if (data && data.error === "active_cap") {
+      // AI Matching (Task 7): active-application cap (3 in play at once).
+      applyState = "idle";
+      paintApply();
+      showToast(data.message || "You have 3 active applications — focus on those first, or withdraw one.");
+      return "active_cap";
     }
     if (status === 429) {
       // Gentle rate-limit toast; the button stays usable for later.
@@ -2511,7 +2563,59 @@
     return "error";
   }
 
-  async function applyForRole() {
+  /* ── Deliberate-apply confirm sheet (AI Matching Task 7) ── */
+  function closeApplyConfirm() {
+    applyConfirmOverlayEl.hidden = true;
+  }
+
+  function openApplyConfirm() {
+    applyConfirmMeterEl.textContent = "";
+    applyConfirmBtnEl.disabled = false;
+    applyConfirmBtnEl.textContent = "Apply";
+    applyConfirmOverlayEl.hidden = false;
+    // Best-effort meter — graceful if the fetch fails: the cap note above
+    // still shows, just without the "N of 3 used" line.
+    fetch("/api/career/interview-usage", { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null)
+      .then((data) => {
+        if (!data || !data.ok) return;
+        const resetsLabel = data.resetsAt
+          ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+          : "";
+        applyConfirmMeterEl.textContent = data.used + " of " + (data.limit || 3) + " interviews used" + (resetsLabel ? " — resets " + resetsLabel : "");
+      });
+  }
+
+  async function submitApply() {
+    if (!currentRole) { closeApplyConfirm(); return; }
+    applyConfirmBtnEl.disabled = true;
+    applyConfirmBtnEl.textContent = "Applying…";
+    applyState = "applying";
+    paintApply();
+    try {
+      const res = await fetch("/api/career/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ roleId: currentRole.id })
+      });
+      const data = await res.json().catch(() => null);
+      closeApplyConfirm();
+      applyConfirmBtnEl.disabled = false;
+      applyConfirmBtnEl.textContent = "Apply";
+      handleApplyOutcome(res.status, data, {});
+    } catch {
+      closeApplyConfirm();
+      applyConfirmBtnEl.disabled = false;
+      applyConfirmBtnEl.textContent = "Apply";
+      applyState = "idle";
+      paintApply();
+      showToast("Network error. Please try again.");
+    }
+  }
+
+  function applyForRole() {
     if (!currentRole) return;
     if (isOfferMode()) {
       // The bar is a scroll affordance in offer mode — booking happens inline.
@@ -2526,26 +2630,16 @@
       return;
     }
     if (applyState !== "idle") return;
-    applyState = "applying";
-    paintApply();
-    try {
-      const res = await fetch("/api/career/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ roleId: currentRole.id })
-      });
-      const data = await res.json().catch(() => null);
-      handleApplyOutcome(res.status, data, {});
-    } catch {
-      applyState = "idle";
-      paintApply();
-      showToast("Network error. Please try again.");
-    }
+    // AI Matching (Task 7): every self-apply is a deliberate action — show
+    // the confirm sheet (cap note + interview-usage meter) before POSTing.
+    openApplyConfirm();
   }
 
   /* ── Event listeners ── */
   applyBtnEl.addEventListener("click", applyForRole);
+  applyConfirmCancelBtnEl.addEventListener("click", closeApplyConfirm);
+  applyConfirmOverlayEl.addEventListener("click", (event) => { if (event.target === applyConfirmOverlayEl) closeApplyConfirm(); });
+  applyConfirmBtnEl.addEventListener("click", submitApply);
 
   saveBtnEl.addEventListener("click", () => {
     if (!currentRole) return;
@@ -2787,8 +2881,28 @@
     });
   }
 
+  // AI Matching (Task 8): light lock check — a career-locked GP shouldn't be
+  // able to reach a job detail page (deep link, back button, stale tab)
+  // either. Server-side enforcement (423s on apply/roles/etc.) is the real
+  // gate; this is just the friendly bounce so the page never renders content
+  // for them. Returns true if it redirected (caller should stop).
+  async function checkCareerLock() {
+    try {
+      const res = await fetch("/api/career/matches", { credentials: "same-origin" });
+      if (!res.ok) return false;
+      const data = await res.json().catch(function () { return null; });
+      if (data && data.locked === true) {
+        window.location.replace("/pages/career-paused");
+        return true;
+      }
+    } catch (e) { /* stay on the page if the check fails */ }
+    return false;
+  }
+
   /* ── Init ── */
   async function init() {
+    if (await checkCareerLock()) return;
+
     const roleId = getRoleIdFromUrl();
     pageRoleId = roleId;
     if (!roleId) {

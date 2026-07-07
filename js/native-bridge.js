@@ -140,7 +140,7 @@
               "/js/nav-shell-bridge.js?v=20260608a",
               "/js/auth-guard.js?v=20260607a",
               "/js/state-sync.js?v=20260607a",
-              "/js/updates-sync.js?v=20260516a",
+              "/js/updates-sync.js?v=20260516b",
               "/js/account-dropdown.js?v=20260516a"
             ]
           });

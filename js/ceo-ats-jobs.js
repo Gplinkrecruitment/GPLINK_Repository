@@ -14,6 +14,7 @@
 
   /* -------------------- stage definitions -------------------- */
   var STAGES = [
+    { key: 'shortlisted', label: 'Shortlist',           color: '#7c3aed' },
     { key: 'applied',   label: 'Applied',               color: 'var(--ats-blue)' },
     { key: 'submitted', label: 'Submitted to Practice',  color: 'var(--ats-purple)' },
     { key: 'reviewing', label: 'Practice Reviewing',     color: 'var(--ats-amber)' },
@@ -383,6 +384,30 @@
     '</div>';
   }
 
+  // AI Matching (Task 3): status sub-label for a Shortlist-column card that
+  // was actually matched (matched_at set) — never shown on a manually-dragged
+  // Shortlist card with no match_* data. amber (<24h) uses the same visual
+  // language as the offer-declined flag above.
+  function matchStatusHtml(c) {
+    if (!c || c.ats_stage !== 'shortlisted' || !c.matched_at) return '';
+    var extendBtn = '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats-extend="' + A.escAttr(c.id) + '" style="margin-top:5px;padding:2px 9px;font-size:10.5px">Extend 5 days</button>';
+    if (c.match_outcome === 'expired') {
+      return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn;
+    }
+    if (c.match_seen_at) {
+      return '<div class="ats-match-status">seen — awaiting response</div>';
+    }
+    if (c.match_expires_at) {
+      var msLeft = new Date(c.match_expires_at).getTime() - Date.now();
+      if (msLeft <= 0) return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn; // not yet swept by the lifecycle cron
+      var hoursLeft = Math.floor(msLeft / 3600000);
+      var d = Math.floor(hoursLeft / 24);
+      var h = hoursLeft % 24;
+      return '<div class="ats-match-status' + (hoursLeft < 24 ? ' ats-match-amber' : '') + '">⏳ ' + d + 'd ' + h + 'h left</div>';
+    }
+    return '';
+  }
+
   function cardHtml(c) {
     var notes = c.ats_notes || '';
     var snippet = notes ? '📝 ' + (notes.length > 22 ? notes.slice(0, 22) + '…' : notes) : 'No notes yet';
@@ -396,7 +421,7 @@
         '<div class="ats-avatar" style="background:' + A.avatarColor(c.name) + '">' + A.esc(A.initials(c.name)) + '</div>' +
         '<div><div class="cc-name">' + A.esc(c.name || '—') + '</div><div class="cc-sub">' + A.countryLabel(c.country) + '</div></div>' +
       '</div>' +
-      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark +
+      '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark + matchStatusHtml(c) +
     '</div>';
   }
 
@@ -415,6 +440,23 @@
       cards[k].addEventListener('dragend', onDragEnd);
       cards[k].addEventListener('click', onCardClick);
     }
+    // "Extend 5 days" (expired Shortlist cards) — stopPropagation so the click
+    // doesn't also bubble into the card's onCardClick (which opens the drawer).
+    var extendBtns = board.querySelectorAll('[data-ats-extend]');
+    for (var x = 0; x < extendBtns.length; x++) {
+      extendBtns[x].addEventListener('click', onExtendClick);
+    }
+  }
+
+  function onExtendClick(e) {
+    e.stopPropagation();
+    var id = this.getAttribute('data-ats-extend');
+    if (!id) return;
+    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: { match_extend: true } }).then(function (d) {
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not extend the match window'); return; }
+      A.toast('Match window extended 5 days');
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+    });
   }
 
   /* -------------------- drag & drop -------------------- */
@@ -463,18 +505,119 @@
     if (target) { target.cards = target.cards || []; target.cards.push(found.card); }
   }
 
+  // AI Matching (Task 6): live-stage keys eligible for the hired/closed
+  // redirect fan-out — mirrors server.js redirectOthersForJob's own stage
+  // list exactly (never 'offer', 'hired', or the reject stage).
+  var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
+
+  // Count of cards currently sitting in a redirect-eligible stage, from the
+  // board data already loaded for this job — excludes `excludeId` (the card
+  // being moved to Hired) when given; pass nothing for a whole-job close.
+  function countOtherLiveCards(excludeId) {
+    var cols = (boardData && boardData.columns) || [];
+    var n = 0;
+    for (var i = 0; i < cols.length; i++) {
+      if (REDIRECT_LIVE_STAGES.indexOf(cols[i].key) === -1) continue;
+      var cards = cols[i].cards || [];
+      for (var j = 0; j < cards.length; j++) {
+        if (excludeId != null && String(cards[j].id) === String(excludeId)) continue;
+        n++;
+      }
+    }
+    return n;
+  }
+
+  // EXACT confirm copy (brief): "<N> other GPs are still active on this job
+  // — send them the redirect email?" Returns the redirect_others value to
+  // send with the PATCH — true (OK), false (Cancel — the hire/close still
+  // proceeds, just without the fan-out) — or undefined to skip the dialog
+  // entirely when there's no one else on the job to redirect.
+  function confirmRedirectOthers(excludeId) {
+    var n = countOtherLiveCards(excludeId);
+    if (n <= 0) return undefined;
+    return window.confirm(n + ' other GPs are still active on this job — send them the redirect email?');
+  }
+
+  function redirectedSuffix(d) {
+    return (d && typeof d.redirected === 'number' && d.redirected > 0) ? (' · ' + d.redirected + ' GP(s) redirected') : '';
+  }
+
+  // AI Matching (Task 7, spec §9): late-withdrawal reason capture. Moving a
+  // card to `not_proceeding` FROM `submitted` or later prompts staff for an
+  // optional reason — "GP withdrew after submission" is the specific value
+  // Task 8's career-lock work reads as a strike source (stored verbatim on
+  // the stage event by the server as `reason`).
+  var STAGE_RANK = {};
+  STAGES.forEach(function (s, i) { STAGE_RANK[s.key] = i; });
+  function stageNeedsWithdrawReason(fromStageKey) {
+    if (!Object.prototype.hasOwnProperty.call(STAGE_RANK, fromStageKey)) return false;
+    return STAGE_RANK[fromStageKey] >= STAGE_RANK.submitted;
+  }
+  var WITHDRAW_REASONS = [
+    { value: 'gp_withdrew', label: 'GP withdrew after submission' },
+    { value: 'practice_passed', label: 'Practice passed on the candidate' },
+    { value: 'unresponsive', label: 'Candidate went unresponsive' },
+    { value: 'other', label: 'Other' }
+  ];
+  function withdrawReasonModalHtml() {
+    var opts = '<option value="">— No reason (skip) —</option>' + WITHDRAW_REASONS.map(function (r) {
+      return '<option value="' + r.value + '">' + A.esc(r.label) + '</option>';
+    }).join('');
+    return '<div class="ats-modal-wrap" id="atsWithdrawModal">' +
+      '<div class="ats-modal" style="max-width:420px">' +
+        '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="atsWithdrawClose">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<label>Reason (optional — helps track patterns)</label>' +
+          '<select id="atsWithdrawReasonSelect">' + opts + '</select>' +
+        '</div>' +
+        '<div class="ats-modal-foot">' +
+          '<button class="ats-btn ats-btn-ghost" id="atsWithdrawCancel">Cancel</button>' +
+          '<button class="ats-btn ats-btn-primary" id="atsWithdrawSave">Move to Not Proceeding</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+  // onProceed(reason) fires only on "Move to Not Proceeding" (reason may be
+  // '' when skipped); Cancel/close abandons the move entirely — the caller
+  // never PATCHes in that case.
+  function openWithdrawReasonPrompt(onProceed) {
+    A.setOverlay(withdrawReasonModalHtml());
+    function close() { A.setOverlay(''); }
+    on('atsWithdrawClose', 'click', close);
+    on('atsWithdrawCancel', 'click', close);
+    on('atsWithdrawSave', 'click', function () {
+      var reason = val('atsWithdrawReasonSelect') || '';
+      close();
+      onProceed(reason);
+    });
+  }
+
   // PATCH the application's stage, then move the card in the board + update counts.
   function moveCard(id, stage) {
     var found = findCard(id);
     if (!found) return;
     if (found.col.key === stage) return; // already there
     var name = found.card.name || 'Candidate';
-    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
+    if (stage === 'not_proceeding' && stageNeedsWithdrawReason(found.col.key)) {
+      openWithdrawReasonPrompt(function (reason) { moveCardCommit(id, stage, name, reason); });
+      return;
+    }
+    moveCardCommit(id, stage, name, null);
+  }
+
+  function moveCardCommit(id, stage, name, reason) {
+    var body = { stage: stage };
+    if (reason) body.reason = reason;
+    if (stage === 'hired') {
+      var redirectOthers = confirmRedirectOthers(id);
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+    A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(id, stage);
       renderBoard();
       renderBoardMeta();
-      A.toast(name + ' → ' + stageLabel(stage));
+      A.toast(name + ' → ' + stageLabel(stage) + redirectedSuffix(d));
     });
   }
 
@@ -550,11 +693,29 @@
   function onDrawerStageChange() {
     var stage = val('atsJobDrawerStage');
     if (!drawerCardId || !stage) return;
-    A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
+    var found = findCard(drawerCardId);
+    if (stage === 'not_proceeding' && found && stageNeedsWithdrawReason(found.col.key)) {
+      var pendingCardId = drawerCardId;
+      openWithdrawReasonPrompt(function (reason) { onDrawerStageChangeCommit(pendingCardId, stage, reason); });
+      return;
+    }
+    onDrawerStageChangeCommit(drawerCardId, stage, null);
+  }
+
+  function onDrawerStageChangeCommit(drawerCardId, stage, reason) {
+    var found = findCard(drawerCardId);
+    var body = { stage: stage };
+    if (reason) body.reason = reason;
+    if (stage === 'hired' && (!found || found.col.key !== 'hired')) {
+      var redirectOthers = confirmRedirectOthers(drawerCardId);
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+    A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(drawerCardId, stage);
       renderBoard();
       renderBoardMeta();
+      if (d && d.redirected) A.toast(d.redirected + ' GP(s) redirected');
     });
   }
 
@@ -907,6 +1068,15 @@
     if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
 
+    // AI Matching (Task 6): closing/filling a job from here is the same
+    // redirect trigger as marking a candidate Hired — same confirm copy,
+    // same opt-in flag. `o.job_status` is the job's status BEFORE this save,
+    // so this only fires on a REAL flip into filled/closed.
+    if ((body.job_status === 'filled' || body.job_status === 'closed') && o.job_status !== body.job_status) {
+      var redirectOthers = confirmRedirectOthers();
+      if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
+    }
+
     // Guard against a double-submit while the PATCH round-trips.
     var saveBtn = el('atsJsSave');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
@@ -922,7 +1092,7 @@
       var newMasked = (d.editor && d.editor.masked_title) || '';
       settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
-      A.toast(newMasked ? 'Saved · ' + newMasked : 'Job settings saved');
+      A.toast((newMasked ? 'Saved · ' + newMasked : 'Job settings saved') + redirectedSuffix(d));
       atsOpenJobBoard(currentBoardJobId); // re-open the board with fresh data
     }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }

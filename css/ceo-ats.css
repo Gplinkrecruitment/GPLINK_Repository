@@ -345,3 +345,41 @@
   .mtg-row { flex-direction:column; }
   .mtg-row-right { flex-wrap:wrap; }
 }
+
+/* ============================================================================
+ * AI Matching (Task 3) — kanban Shortlist-card status line + the Matching tab.
+ * ========================================================================== */
+.ats-match-status { font-size:10.5px; font-weight:600; color:var(--ats-dim); margin-top:6px; }
+.ats-match-status.ats-match-amber { color:var(--ats-amber); }
+.ats-match-status.ats-match-expired { color:var(--ats-red); }
+
+.ats-match-direction { display:flex; gap:8px; margin-bottom:16px; }
+.ats-match-direction button { flex:1; }
+.ats-match-direction button.active { background:linear-gradient(135deg,var(--ats-blue),#4f8ef0); border-color:transparent; color:#fff; }
+
+.ats-match-picker { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.ats-match-picker select, .ats-match-picker input[type="text"] { flex:1; min-width:180px; max-width:320px; background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:8px; padding:9px 12px; color:var(--ats-text); font:inherit; font-size:13px; }
+.ats-match-picker select { max-width:420px; }
+.ats-match-picker input[type="text"]::placeholder { color:var(--ats-dim); }
+
+.ats-match-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+.ats-match-toolbar label { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ats-muted); cursor:pointer; }
+.ats-match-excluded { font-size:12px; color:var(--ats-dim); }
+
+.ats-match-list { display:grid; gap:10px; }
+.ats-match-row { display:flex; align-items:flex-start; gap:12px; background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:var(--ats-radius-lg); padding:14px 16px; }
+.ats-match-row input[type="checkbox"] { margin-top:4px; width:15px; height:15px; flex-shrink:0; }
+.ats-match-score { flex-shrink:0; width:44px; height:44px; border-radius:10px; display:grid; place-items:center; font-family:var(--ats-mono); font-weight:700; font-size:15px; }
+.ats-match-score.hot { background:var(--ats-red-dim); color:var(--ats-red); }
+.ats-match-score.warm { background:var(--ats-amber-dim); color:var(--ats-amber); }
+.ats-match-score.cold { background:rgba(255,255,255,0.06); color:var(--ats-muted); }
+.ats-match-body { flex:1; min-width:0; }
+.ats-match-name { font-size:14px; font-weight:600; }
+.ats-match-name a { color:inherit; text-decoration:none; }
+.ats-match-name a:hover { text-decoration:underline; }
+.ats-match-sub { font-size:12px; color:var(--ats-dim); margin-top:1px; }
+.ats-match-reasons { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:3px; }
+.ats-match-reasons li { font-size:12.5px; color:var(--ats-muted); padding-left:14px; position:relative; }
+.ats-match-reasons li::before { content:'✓'; position:absolute; left:0; color:var(--ats-green); font-size:11px; }
+.ats-match-chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.ats-match-actions { flex-shrink:0; align-self:center; }
