@@ -5067,6 +5067,7 @@
 
     .modal-card {
       width: min(560px, 100%);
+      max-height: calc(100vh - 32px); /* fallback: browsers without dvh drop that line entirely */
       max-height: calc(100dvh - 32px);
       overflow: auto;
       background: var(--gp-surface);
@@ -5196,7 +5197,11 @@
       padding: 0;
       display: block;
       gap: 0;
-      overflow: hidden;
+      /* overflow-y must stay scrollable: the gate content is taller than most
+         viewports and the CTA at the bottom is the only way past this
+         non-dismissible modal. border-radius still clips the gradient header. */
+      overflow-x: hidden;
+      overflow-y: auto;
     }
 
     .career-gate-modal.is-open {
@@ -5430,6 +5435,13 @@
       border-radius: var(--gp-r-md);
       font-size: 13px;
       font-weight: 600;
+    }
+
+    /* display: flex above beats the browser's built-in [hidden] rule, so
+       without this all three scan states render at once (incl. an empty
+       error box) and permanently pad the modal's height. */
+    .career-gate-scanline[hidden] {
+      display: none;
     }
 
     .career-gate-scan-checking {
