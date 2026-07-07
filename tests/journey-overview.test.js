@@ -153,6 +153,8 @@ describe('pages/index.html — 7-stage journey surface', () => {
     // …and a dead session bounces to sign-in instead of claiming stale data.
     expect(indexHtml).toContain('r.status === 401');
     expect(indexHtml).toContain('"/pages/signin"');
+    // The banner states its technical reason so screenshots are diagnosable.
+    expect(indexHtml).toContain('id="dataErrorDetail"');
   });
 
   it('never uses the bare "RSO" abbreviation in GP-visible copy', () => {

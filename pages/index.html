@@ -927,7 +927,9 @@
 
     <!-- Honest failure state for the dashboard data refresh -->
     <div class="data-error-banner" id="dataErrorBanner" hidden>
-      <span>We couldn't refresh your latest progress. What you see below may be out of date.</span>
+      <span>We couldn't refresh your latest progress. What you see below may be out of date.
+        <em id="dataErrorDetail" style="display:block;font-style:normal;font-weight:500;opacity:.75;font-size:11.5px;"></em>
+      </span>
       <button type="button" id="dataErrorRetry">Retry</button>
     </div>
 
@@ -2003,6 +2005,13 @@
             return;
           }
           banner.hidden = false;
+          // Say WHY so a screenshot is diagnosable instead of a guessing game.
+          const detail = document.getElementById("dataErrorDetail");
+          if (detail) {
+            detail.textContent = "Technical detail: " +
+              (err && err.message ? err.message : "network request failed") +
+              " — re-checking every 30 seconds.";
+          }
           // Keep watching so the banner clears itself once the connection recovers.
           if (!dataErrorRecheckTimer) {
             dataErrorRecheckTimer = setInterval(() => checkServerState(2), 30000);

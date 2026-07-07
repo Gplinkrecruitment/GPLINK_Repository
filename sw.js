@@ -2,12 +2,16 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260707a";
+  var VERSION = "20260708a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
   var CACHE_NAMES = [STATIC_CACHE, PAGE_CACHE, RUNTIME_CACHE];
-  var PAGE_TIMEOUT_MS = 1200;
+  // Give the network a fair window before falling back to a cached page:
+  // Vercel serverless cold starts routinely exceed 1.2s, and a too-eager
+  // fallback silently pins users to a previous deploy's page (seen 2026-07-07:
+  // owner kept getting the pre-fix dashboard out of PAGE_CACHE).
+  var PAGE_TIMEOUT_MS = 4000;
 
   var CORE_URLS = [
     "/pages/app-shell.html",
