@@ -1,0 +1,197 @@
+// Placement-by-association (owner request 2026-07-08).
+//
+// A GP whose registration case has been explicitly tied to a practice
+// (admin-curated registration_cases.practice_name) is PLACED, even when no
+// ATS-secured gp_applications row exists yet. /api/career/applications must
+// surface a PROVISIONAL secured placement built from the case so the career
+// page ("My Practice") shows their practice instead of the job-browse / CV-gate
+// flow. GPs with no practice on their case are unaffected (still job-seeking).
+//
+// Reuses the in-memory PostgREST emulator pattern from gp-outstanding.test.js so
+// the REAL server answers.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import http from 'http';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+const RUN_ID = crypto.randomBytes(4).toString('hex');
+const DB_FILE = path.join('/tmp', `gplink-placement-assoc-${RUN_ID}.json`);
+let server, port, sbServer, sbPort;
+
+// GP placed-by-association: practice on the case, no secured application.
+const ASSOC = { userId: 'u-assoc-1', email: 'assoc-gp@gplink-test.local' };
+// Control GP: no practice on the case → still job-seeking.
+const BROWSE = { userId: 'u-browse-1', email: 'browse-gp@gplink-test.local' };
+const NOW = new Date().toISOString();
+
+const db = {
+  user_profiles: [
+    { user_id: ASSOC.userId, email: ASSOC.email, first_name: 'Assoc', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: BROWSE.userId, email: BROWSE.email, first_name: 'Browse', last_name: 'Doctor', registration_country: 'uk' }
+  ],
+  registration_cases: [
+    // Admin has tied this GP to a concrete practice → placed.
+    { id: 'case-assoc', user_id: ASSOC.userId, status: 'active', stage: 'myintealth',
+      practice_name: 'SOP Medical Centre', practice_contact: 'sop-contact@practice.test', created_at: NOW },
+    // No practice on this GP's case → job-seeking.
+    { id: 'case-browse', user_id: BROWSE.userId, status: 'active', stage: 'career',
+      practice_name: '', practice_contact: '', created_at: NOW }
+  ],
+  gp_applications: [],
+  user_state: [],
+  runtime_kv: []
+};
+function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
+function buildMatcher(searchParams) {
+  const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
+  const filters = [];
+  for (const [key, raw] of searchParams.entries()) {
+    if (reserved.has(key)) continue;
+    const dot = raw.indexOf('.');
+    const op = dot > 0 ? raw.slice(0, dot) : '';
+    if (!FILTER_OPS.includes(op)) continue;
+    filters.push({ col: key, op, val: raw.slice(dot + 1) });
+  }
+  return (row) => filters.every(({ col, op, val }) => {
+    const cell = row ? row[col] : undefined;
+    if (op === 'eq') return String(cell) === val;
+    if (op === 'neq') return String(cell) !== val;
+    if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
+    if (op === 'in') {
+      return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
+        .map((s) => s.trim().replace(/^"/, '').replace(/"$/, '')).includes(String(cell));
+    }
+    return true;
+  });
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null')); } catch { resolve(null); } });
+  });
+}
+function startSupabaseEmulator() {
+  return new Promise((resolve) => {
+    sbServer = http.createServer(async (req, res) => {
+      const u = new URL(req.url, 'http://sb.local');
+      const send = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+      const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+      if (!m) { send(404, { message: 'not found' }); return; }
+      const rows = tableOf(decodeURIComponent(m[1]));
+      const matches = buildMatcher(u.searchParams);
+      if (req.method === 'GET') {
+        let out = rows.filter(matches);
+        const limit = parseInt(u.searchParams.get('limit') || '', 10);
+        if (Number.isFinite(limit)) out = out.slice(0, limit);
+        send(200, out); return;
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+        const saved = incoming.map((r) => { const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r }; rows.push(row); return row; });
+        send(201, saved); return;
+      }
+      if (req.method === 'PATCH') {
+        const patch = await readBody(req);
+        const matched = rows.filter(matches);
+        matched.forEach((row) => Object.assign(row, patch || {}));
+        send(200, matched); return;
+      }
+      send(405, { message: 'method not allowed' });
+    });
+    sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+  });
+}
+function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+function userCookie(email, supabaseUserId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+}
+function httpReq(method, p, { cookie } = {}) {
+  return new Promise((resolve, reject) => {
+    const headers = {};
+    if (cookie) headers.Cookie = cookie;
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+      const c = []; res.on('data', (x) => c.push(x));
+      res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed, raw }); });
+    });
+    r.on('error', reject); r.end();
+  });
+}
+
+let realFetch;
+beforeAll(async () => {
+  await startSupabaseEmulator();
+  process.env.AGENT_SKIP_DOTENV = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AUTH_DISABLED = 'false';
+  process.env.AUTH_SECRET = 'placement-assoc-secret-' + RUN_ID;
+  process.env.REQUIRE_SUPABASE_DB = 'false';
+  process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  process.env.ENFORCE_SAME_ORIGIN = 'false';
+  process.env.DB_FILE_PATH = DB_FILE;
+  process.env.RESEND_API_KEY = 'test-resend-key';
+  realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => {
+    const u = String(url && url.url ? url.url : url);
+    if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  };
+  const { createServer } = await import('../server.js');
+  server = createServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+});
+afterAll(async () => {
+  if (realFetch) globalThis.fetch = realFetch;
+  if (server) await new Promise((r) => server.close(r));
+  if (sbServer) await new Promise((r) => sbServer.close(r));
+  try { fs.unlinkSync(DB_FILE); } catch {}
+});
+
+describe('GET /api/career/applications — placement by association', () => {
+  it('surfaces a provisional secured placement for a GP tied to a practice on their case', async () => {
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const placed = res.body.applications.find((a) => a.placement && a.placement.provisional === true);
+    expect(placed).toBeTruthy();
+    // The client treats this as a secured placement (locks to the practice view).
+    expect(placed.role.practiceName).toBe('SOP Medical Centre');
+    expect(placed.placement.practiceName).toBe('SOP Medical Centre');
+    // Status must be one the client maps to isPlacementSecured.
+    expect(['secured', 'placement_secured', 'placed', 'hired']).toContain(String(placed.status));
+    // The real practice name is exposed (revealed) so the view isn't masked.
+    expect(placed.role.revealed).toBe(true);
+  });
+
+  it('does NOT inject a placement for a GP with no practice on their case', async () => {
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(BROWSE.email, BROWSE.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const anyProvisional = res.body.applications.some((a) => a.placement && a.placement.provisional === true);
+    expect(anyProvisional).toBe(false);
+  });
+});
+
+describe('pages/career.html — provisional placement rendering hooks', () => {
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
+
+  it('renders a real-but-provisional placement honestly (no demo fallback)', () => {
+    // A provisional flag on the placement payload gates the honest render path.
+    expect(careerHtml).toContain('provisional');
+    // The page marks the provisional state so CSS can hide demo-data sections.
+    expect(careerHtml).toContain('data-career-placement-provisional');
+    // An honest "details being finalised" note element exists.
+    expect(careerHtml).toContain('securedProvisionalNote');
+  });
+});

@@ -751,6 +751,29 @@
       display: grid !important;
     }
 
+    /* Provisional placement (placed by association, full package not yet in the
+       system): show the practice + an honest note, and hide every section that
+       would otherwise fall back to demo salary / contact / lifestyle data. */
+    html[data-career-placement-provisional] .placement-countdown,
+    html[data-career-placement-provisional] .placement-quick-stats,
+    html[data-career-placement-provisional] .placement-income-float,
+    html[data-career-placement-provisional] .placement-practice-contact-card,
+    html[data-career-placement-provisional] .placement-checklist,
+    html[data-career-placement-provisional] #areaGuideLink,
+    html[data-career-placement-provisional] .placement-contract-card {
+      display: none !important;
+    }
+    .placement-provisional-note {
+      margin: 0;
+      padding: 16px 18px;
+      border-radius: var(--gp-r-md, 14px);
+      background: var(--gp-blue-soft, #eff4ff);
+      border: 1px solid var(--gp-blue-border, #c7d7fe);
+      color: var(--gp-blue-ink, #1d4ed8);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
     .search-launch-btn {
       display: inline-flex;
       align-items: center;
@@ -7869,6 +7892,11 @@
             </div>
           </article>
 
+          <!-- Provisional placement note: shown when the GP is tied to a practice
+               (placed by association) but the full placement package isn't in the
+               system yet. Honest copy — never demo salary/contact data. -->
+          <p class="placement-provisional-note" id="securedProvisionalNote" hidden></p>
+
           <!-- G2: Upcoming interview card (secured view). Hidden until an
                upcoming booked interview is fetched from /api/career/my-interviews.
                All ids prefixed securedInterview*. -->
@@ -8256,6 +8284,29 @@
         label: "Continue Step 3",
         href: "myinthealth"
       }
+    };
+
+    // Honest fallback for a PROVISIONAL placement — the GP is tied to a real
+    // practice, but the full package (salary, start date, contract, lifestyle)
+    // isn't in the system yet. Every value here is a neutral placeholder or
+    // empty so resolveSecuredPlacement never substitutes the SECURED_PLACEMENT
+    // demo data (Murrumbidgee / $10k relocation / 70% split) for missing fields.
+    // The demo-dependent sections are also CSS-hidden in provisional mode.
+    const PROVISIONAL_PLACEMENT = {
+      practiceName: "Your practice",
+      roleTitle: "General Practitioner",
+      location: "",
+      statusLabel: "Placement secured",
+      startDateIso: "",
+      countdownCopy: "",
+      quickStats: [],
+      story: { title: "", text: "", chips: [], imageUrl: "", mapQuery: "", mapHint: "" },
+      practiceContact: { name: "", initials: "", role: "", meta: "", phone: "", email: "", whatsapp: "" },
+      contractUrl: "",
+      compensation: { range: "To be confirmed", unit: "", note: "", facts: [] },
+      checklist: [],
+      statusSteps: [],
+      nextStep: { text: "", label: "", href: "" }
     };
 
     const PRACTICE_LIFESTYLE_PROPERTY_IMAGES = Object.freeze([
@@ -8996,6 +9047,7 @@
     const securedLoadingStateEl = document.getElementById("securedLoadingState");
     const securedLoadingTitleEl = document.getElementById("securedLoadingTitle");
     const securedLoadingCopyEl = document.getElementById("securedLoadingCopy");
+    const securedProvisionalNoteEl = document.getElementById("securedProvisionalNote");
     const toastEl = document.getElementById("careerToast");
     let currentChecklistOpenKey = "";
     let currentPracticeLifestyleKey = "";
@@ -10928,65 +10980,72 @@
         ? placementPayload.nextStep
         : {};
 
+      // Provisional placements (placed by association, package not yet in the
+      // system) use honest empty/placeholder fallbacks instead of the
+      // SECURED_PLACEMENT demo data, so a missing field never fabricates a fake
+      // practice / salary / relocation figure.
+      const FB = placementPayload.provisional === true ? PROVISIONAL_PLACEMENT : SECURED_PLACEMENT;
+
       return {
+        provisional: placementPayload.provisional === true,
         practiceName: placementPayload.practiceName
           || ((placementApp && placementApp.practiceName && !isConfidentialText(placementApp.practiceName)) ? placementApp.practiceName : "")
           || ((placementRole && placementRole.practiceName && !isConfidentialText(placementRole.practiceName)) ? placementRole.practiceName : "")
-          || SECURED_PLACEMENT.practiceName,
-        roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || SECURED_PLACEMENT.roleTitle,
-        location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || SECURED_PLACEMENT.location,
-        statusLabel: placementPayload.statusLabel || SECURED_PLACEMENT.statusLabel,
-        startDateIso: placementPayload.startDateIso || SECURED_PLACEMENT.startDateIso,
-        countdownCopy: placementPayload.countdownCopy || SECURED_PLACEMENT.countdownCopy,
+          || FB.practiceName,
+        roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || FB.roleTitle,
+        location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || FB.location,
+        statusLabel: placementPayload.statusLabel || FB.statusLabel,
+        startDateIso: placementPayload.startDateIso || FB.startDateIso,
+        countdownCopy: placementPayload.countdownCopy || FB.countdownCopy,
         quickStats: normalizeSecuredQuickStats(
           Array.isArray(placementPayload.quickStats) && placementPayload.quickStats.length
             ? placementPayload.quickStats
-            : SECURED_PLACEMENT.quickStats
+            : FB.quickStats
         ),
         story: {
-          title: storyPayload.title || SECURED_PLACEMENT.story.title,
-          text: storyPayload.text || SECURED_PLACEMENT.story.text,
+          title: storyPayload.title || FB.story.title,
+          text: storyPayload.text || FB.story.text,
           chips: Array.isArray(storyPayload.chips) && storyPayload.chips.length
             ? storyPayload.chips
-            : SECURED_PLACEMENT.story.chips,
-          imageUrl: storyPayload.imageUrl || (placementRole && placementRole.heroImageUrl) || SECURED_PLACEMENT.story.imageUrl,
-          mapQuery: storyPayload.mapQuery || (placementRole && (placementRole.mapQuery || placementRole.location)) || SECURED_PLACEMENT.story.mapQuery,
-          mapHint: storyPayload.mapHint || SECURED_PLACEMENT.story.mapHint
+            : FB.story.chips,
+          imageUrl: storyPayload.imageUrl || (placementRole && placementRole.heroImageUrl) || FB.story.imageUrl,
+          mapQuery: storyPayload.mapQuery || (placementRole && (placementRole.mapQuery || placementRole.location)) || FB.story.mapQuery,
+          mapHint: storyPayload.mapHint || FB.story.mapHint
         },
         lifestyle: resolvePracticeLifestyleData(
           placementPayload,
           storyPayload,
-          placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || SECURED_PLACEMENT.location
+          placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || FB.location
         ),
         practiceContact: {
-          name: practiceContactPayload.name || SECURED_PLACEMENT.practiceContact.name,
-          initials: practiceContactPayload.initials || SECURED_PLACEMENT.practiceContact.initials,
-          role: practiceContactPayload.role || SECURED_PLACEMENT.practiceContact.role,
-          meta: practiceContactPayload.meta || SECURED_PLACEMENT.practiceContact.meta,
-          phone: practiceContactPayload.phone || SECURED_PLACEMENT.practiceContact.phone,
-          email: practiceContactPayload.email || SECURED_PLACEMENT.practiceContact.email,
-          whatsapp: practiceContactPayload.whatsapp || SECURED_PLACEMENT.practiceContact.whatsapp
+          name: practiceContactPayload.name || FB.practiceContact.name,
+          initials: practiceContactPayload.initials || FB.practiceContact.initials,
+          role: practiceContactPayload.role || FB.practiceContact.role,
+          meta: practiceContactPayload.meta || FB.practiceContact.meta,
+          phone: practiceContactPayload.phone || FB.practiceContact.phone,
+          email: practiceContactPayload.email || FB.practiceContact.email,
+          whatsapp: practiceContactPayload.whatsapp || FB.practiceContact.whatsapp
         },
-        contractUrl: placementPayload.contractUrl || SECURED_PLACEMENT.contractUrl || "",
+        contractUrl: placementPayload.contractUrl || FB.contractUrl || "",
         contractFileName: placementPayload.contractFileName || "",
         compensation: {
-          range: compensationPayload.range || SECURED_PLACEMENT.compensation.range,
-          unit: compensationPayload.unit || SECURED_PLACEMENT.compensation.unit,
-          note: compensationPayload.note || SECURED_PLACEMENT.compensation.note,
+          range: compensationPayload.range || FB.compensation.range,
+          unit: compensationPayload.unit || FB.compensation.unit,
+          note: compensationPayload.note || FB.compensation.note,
           facts: Array.isArray(compensationPayload.facts) && compensationPayload.facts.length
             ? compensationPayload.facts
-            : SECURED_PLACEMENT.compensation.facts
+            : FB.compensation.facts
         },
         checklist: Array.isArray(placementPayload.checklist) && placementPayload.checklist.length
           ? placementPayload.checklist
-          : SECURED_PLACEMENT.checklist,
+          : FB.checklist,
         statusSteps: Array.isArray(placementPayload.statusSteps) && placementPayload.statusSteps.length
           ? placementPayload.statusSteps
-          : SECURED_PLACEMENT.statusSteps,
+          : FB.statusSteps,
         nextStep: {
-          text: nextStepPayload.text || SECURED_PLACEMENT.nextStep.text,
-          label: nextStepPayload.label || SECURED_PLACEMENT.nextStep.label,
-          href: nextStepPayload.href || SECURED_PLACEMENT.nextStep.href
+          text: nextStepPayload.text || FB.nextStep.text,
+          label: nextStepPayload.label || FB.nextStep.label,
+          href: nextStepPayload.href || FB.nextStep.href
         }
       };
     }
@@ -12015,6 +12074,24 @@
       if (securedUiState !== "ready") return;
       loadSecuredInterview();
       const placement = resolveSecuredPlacement();
+      // Provisional placement: real practice, package not yet loaded. Mark the
+      // page so CSS hides the demo-dependent sections, and show an honest note
+      // instead of fabricated salary / contact / countdown data.
+      const isProvisionalPlacement = placement.provisional === true;
+      if (isProvisionalPlacement) {
+        document.documentElement.setAttribute("data-career-placement-provisional", "1");
+      } else {
+        document.documentElement.removeAttribute("data-career-placement-provisional");
+      }
+      if (securedProvisionalNoteEl) {
+        if (isProvisionalPlacement) {
+          securedProvisionalNoteEl.textContent = "Your placement at " + placement.practiceName
+            + " is confirmed. Your GP Link team is finalising the details — your start date, package and practice contact will appear here as soon as they're ready.";
+          securedProvisionalNoteEl.hidden = false;
+        } else {
+          securedProvisionalNoteEl.hidden = true;
+        }
+      }
       const startDateLabel = formatMonthYearLabel(placement.startDateIso);
       const daysUntilStart = getDaysUntil(placement.startDateIso);
 

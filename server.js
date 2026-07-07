@@ -34653,6 +34653,75 @@ async function handleApi(req, res, pathname) {
       enriched.push(entryPayload);
     }
 
+    // ── Placement by association ────────────────────────────────────────────
+    // A GP whose registration case has been explicitly tied to a practice
+    // (admin-curated registration_cases.practice_name — only ever set by the
+    // CEO/admin case-update action, never by a mere application) is PLACED,
+    // even when no ATS-secured gp_applications row exists yet. Surface a
+    // provisional secured placement so the career page shows their practice
+    // instead of the job-browse / CV-gate flow. Skipped entirely once a real
+    // secured application exists (that carries the full, real placement data).
+    const alreadyPlaced = enriched.some((e) => e && isCareerPlacementSecuredStatus(e.status));
+    if (!alreadyPlaced) {
+      try {
+        const assocCaseRes = await supabaseDbRequest(
+          'registration_cases',
+          'select=practice_name,practice_contact,created_at&user_id=eq.' + encodeURIComponent(userId) +
+          '&status=eq.active&order=created_at.desc&limit=1'
+        );
+        const assocCase = (assocCaseRes.ok && Array.isArray(assocCaseRes.data) && assocCaseRes.data[0]) ? assocCaseRes.data[0] : null;
+        const assocPractice = assocCase ? String(assocCase.practice_name || '').trim() : '';
+        if (assocPractice && !/confidential/i.test(assocPractice)) {
+          // Enrich with the practices row when we can resolve it (real location /
+          // contact); fall back to the case's own practice_contact otherwise.
+          let assocLocation = '';
+          let assocContactEmail = String((assocCase && assocCase.practice_contact) || '').trim();
+          let assocContactName = '';
+          try {
+            const prRes = await supabaseDbRequest(
+              'practices',
+              'select=location_city,location_state,location_country,suburb,contact_email,contact_name&name=eq.' +
+              encodeURIComponent(assocPractice) + '&limit=1'
+            );
+            const pr = (prRes.ok && Array.isArray(prRes.data) && prRes.data[0]) ? prRes.data[0] : null;
+            if (pr) {
+              assocLocation = [pr.suburb || pr.location_city || '', pr.location_state || '']
+                .map((s) => String(s || '').trim()).filter(Boolean).join(', ')
+                || String(pr.location_country || '').trim();
+              if (!assocContactEmail) assocContactEmail = String(pr.contact_email || '').trim();
+              assocContactName = String(pr.contact_name || '').trim();
+            }
+          } catch (prErr) { /* practices lookup is best-effort */ }
+
+          enriched.push({
+            id: 'placement-by-association',
+            status: 'secured', // maps to isPlacementSecured on the client
+            offerPending: false,
+            appliedAt: (assocCase && assocCase.created_at) || new Date().toISOString(),
+            role: {
+              id: 'placement-by-association',
+              practiceName: assocPractice,
+              revealed: true,
+              location: assocLocation,
+              billing: ''
+            },
+            // provisional: real practice, but the full placement package (salary,
+            // start date, contract) isn't in the system yet — the client renders
+            // an honest "being finalised" view and never fabricates demo data.
+            placement: {
+              provisional: true,
+              practiceName: assocPractice,
+              location: assocLocation,
+              statusLabel: 'Placement secured',
+              practiceContact: { email: assocContactEmail, name: assocContactName }
+            },
+            statusLabel: 'Placement secured',
+            statusTone: 'secured'
+          });
+        }
+      } catch (assocErr) { /* never break the applications list */ }
+    }
+
     sendJson(res, 200, { ok: true, applications: enriched }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
