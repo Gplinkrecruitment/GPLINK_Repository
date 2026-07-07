@@ -12095,6 +12095,13 @@
       // known, the practice page would be stuck unscrollable. Clearing it here
       // guarantees the placement page always scrolls.
       if (typeof closeCareerGateModal === "function") closeCareerGateModal();
+      // Belt-and-suspenders: the practice page must ALWAYS scroll vertically.
+      // An inline overflow-y beats any leaked overflow:hidden lock class from
+      // any source (the horizontal lock from career-mode-secured is left alone).
+      try {
+        document.documentElement.style.overflowY = "auto";
+        document.body.style.overflowY = "auto";
+      } catch (e) { /* never block the render */ }
       const placement = resolveSecuredPlacement();
       // Provisional placement: real practice, package not yet loaded. Mark the
       // page so CSS hides the demo-dependent sections, and show an honest note
