@@ -20,15 +20,23 @@ describe('CEO standalone page UI', () => {
     expect(ceo).toMatch(/class="ceo-topnav"/);
   });
 
-  it('unified menu: Medical Centres + Technical are in-page tabs; ops areas live under RSO Oversight; Guide opens in a new tab', () => {
-    // The CEO Command Centre is one workspace. Medical Centres and Technical are
-    // now in-page dark tabs (not bouncing links into the light admin page), and
-    // the operational work-lists (GPs, Support, Calls) live under RSO Oversight,
-    // so their standalone bouncing links are removed.
+  it('unified menu: RSO + Technical are their own master tabs, Medical Centres is deleted, Guide stays; ops live under RSO', () => {
+    // The CEO Command Centre is one workspace. RSO oversight and Technical are now
+    // their own top-level master tabs (data-mtab) with dedicated panels, not
+    // sub-tabs of a standalone top-nav. The redundant Medical Centres tab was
+    // deleted because the Practices master tab already covers medical centres.
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=tools"/);   // Ops Queue removed
-    // Medical Centres + Technical are in-page tabs now.
-    expect(ceo).toMatch(/data-tab="medical"/);
-    expect(ceo).toMatch(/data-tab="technical"/);
+    // RSO + Technical are top-level master tabs with their own panels.
+    expect(ceo).toMatch(/data-mtab="rso"/);
+    expect(ceo).toMatch(/data-mtab="technical"/);
+    expect(ceo).toMatch(/id="panel-rso"/);
+    expect(ceo).toMatch(/id="panel-technical"/);
+    // Medical Centres is fully removed (nav item, panel div, and loader all gone).
+    expect(ceo).not.toMatch(/data-tab="medical"/);
+    expect(ceo).not.toMatch(/id="mcContent"/);
+    expect(ceo).not.toMatch(/loadMedicalCentres/);
+    // The Guide help link still opens in a new tab.
+    expect(ceo).toMatch(/href="\/pages\/admin\?view=guide"[^>]*target="_blank"/);
     // The operational areas no longer bounce out to the light admin page.
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=gps"/);
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=support"/);
@@ -40,6 +48,26 @@ describe('CEO standalone page UI', () => {
     expect(admin).toMatch(/id="ceoRsoOversightTab"[^>]*href="\/pages\/ceo-dashboard\?tab=rsos"/);
     // The confusing self-referential "CEO Command Centre ->" nav item is gone.
     expect(admin).not.toMatch(/CEO Command Centre &#x2197;/);
+  });
+
+  it('master-tab order is Overview, RSO, Candidates, Matching, Jobs, Practices, Meetings, Technical', () => {
+    // The first (and only) run of literal data-mtab="..." attributes is the nav bar;
+    // assert their left-to-right order. The "registration" tab is labelled Overview.
+    const order = ['registration', 'rso', 'candidates', 'matching', 'jobs', 'practices', 'meetings', 'technical'];
+    for (let i = 0; i < order.length - 1; i++) {
+      const a = ceo.indexOf('data-mtab="' + order[i] + '"');
+      const b = ceo.indexOf('data-mtab="' + order[i + 1] + '"');
+      expect(a, order[i] + ' tab present').toBeGreaterThan(-1);
+      expect(b, order[i + 1] + ' tab present').toBeGreaterThan(-1);
+      expect(a, order[i] + ' before ' + order[i + 1]).toBeLessThan(b);
+    }
+    // The Registration/Overview tab is now labelled "Overview".
+    expect(ceo).toMatch(/data-mtab="registration">[\s\S]{0,600}?Overview/);
+    // The shared master-tab switcher knows about the two new panels.
+    const shared = fs.readFileSync(path.join(root, 'js/ceo-ats-shared.js'), 'utf8');
+    const line = shared.split('\n').find((l) => l.includes('var MASTER_PANELS ='));
+    expect(line).toMatch(/'rso'/);
+    expect(line).toMatch(/'technical'/);
   });
 
   it('makes KPI tiles clickable via data-drilldown', () => {

@@ -957,28 +957,7 @@
     .rso-gp-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
     .rso-gp-row .name { font-weight: 600; flex: 1; }
 
-    /* ═══ MEDICAL CENTRES (company-wide tab, read-only) ═══ */
-    .ceo-mc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-    .ceo-mc-toggle { display: inline-flex; gap: 4px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); padding: 3px; }
-    .ceo-mc-toggle-btn { padding: 6px 14px; font-size: 12px; font-weight: 600; color: var(--text-muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; transition: color 0.15s, background 0.15s; }
-    .ceo-mc-toggle-btn:hover { color: var(--text); }
-    .ceo-mc-toggle-btn.active { color: #fff; background: var(--blue); }
-    .ceo-mc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-    .ceo-mc-card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-lg); padding: 18px; transition: border-color 0.15s, transform 0.15s; }
-    .ceo-mc-card:hover { border-color: var(--panel-border-hover); transform: translateY(-1px); }
-    .ceo-mc-name { font-size: 15px; font-weight: 700; }
-    .ceo-mc-name a { color: var(--blue); text-decoration: none; }
-    .ceo-mc-name a:hover { text-decoration: underline; }
-    .ceo-mc-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-    .ceo-mc-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
-    .ceo-mc-contact { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; word-break: break-word; }
-    .ceo-mc-contact-name { font-weight: 600; color: var(--text); }
-    .ceo-mc-contact a { color: var(--text-muted); text-decoration: none; }
-    .ceo-mc-contact a:hover { color: var(--text); text-decoration: underline; }
-    .ceo-mc-stats { display: flex; gap: 18px; margin-top: 14px; }
-    .ceo-mc-stat { display: flex; flex-direction: column; }
-    .ceo-mc-stat-value { font-size: 20px; font-weight: 700; font-family: var(--mono); }
-    .ceo-mc-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+    /* Medical Centres styles removed — tab deleted (covered by Practices). */
 
     /* ═══ TECHNICAL (read-only integrations + health) ═══ */
     .ceo-tech-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
@@ -1384,15 +1363,23 @@
       </div>
     </header>
 
-    <!-- MASTER TABS (ATS restructure) -->
+    <!-- MASTER TABS (ATS restructure) — order: Overview, RSO, Candidates, Matching, Jobs, Practices, Meetings, Technical -->
     <nav class="ats-master-tabs" id="masterTabs">
       <button class="ats-master-tab active" data-mtab="registration">
-        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        Registration
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        Overview
+      </button>
+      <button class="ats-master-tab" data-mtab="rso">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M9 12l2 2 4-4"/></svg>
+        RSO
       </button>
       <button class="ats-master-tab" data-mtab="candidates">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         Candidates <span class="ats-count-chip" id="masterCandCount"></span>
+      </button>
+      <button class="ats-master-tab" data-mtab="matching">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Matching
       </button>
       <button class="ats-master-tab" data-mtab="jobs">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
@@ -1402,23 +1389,20 @@
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
         Practices <span class="ats-count-chip" id="masterPracCount"></span>
       </button>
-      <button class="ats-master-tab" data-mtab="matching">
-        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        Matching
-      </button>
       <button class="ats-master-tab" data-mtab="meetings">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 2v4M16 2v4M2 10h20"/><circle cx="12" cy="15" r="2"/></svg>
         Meetings
       </button>
+      <button class="ats-master-tab" data-mtab="technical">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+        Technical
+      </button>
     </nav>
 
     <div class="master-panel" id="panel-registration">
-    <!-- STANDALONE TOP NAV -->
+    <!-- STANDALONE TOP NAV — RSO / Medical / Technical are now their own master
+         tabs; only the Guide help link remains here on the Overview view. -->
     <nav class="ceo-topnav" id="ceoTopNav">
-      <div class="nav-item active" data-tab="overview">Overview</div>
-      <div class="nav-item" data-tab="rsos">RSO Oversight</div>
-      <div class="nav-item" data-tab="medical">Medical Centres</div>
-      <div class="nav-item" data-tab="technical">Technical</div>
       <a class="nav-item" href="/pages/admin?view=guide" target="_blank" rel="noopener">Guide</a>
     </nav>
 
@@ -1439,10 +1423,12 @@
         <div class="loading-text">Authenticating &amp; loading dashboard...</div>
       </div>
     </div>
-    <div class="content" id="rsoContent" style="display:none"></div>
-    <div class="content" id="mcContent" style="display:none"></div>
-    <div class="content" id="techContent" style="display:none"></div>
     </div><!-- /#panel-registration -->
+
+    <!-- RSO OVERSIGHT (own master tab) — rendered by loadRsoOversight() -->
+    <div class="master-panel" id="panel-rso" style="display:none">
+      <div class="content" id="rsoContent"></div>
+    </div>
 
     <!-- ATS MASTER PANELS (rendered by /js/ceo-ats-*.js) -->
     <div class="master-panel ats-scope" id="panel-candidates" style="display:none"></div>
@@ -1450,6 +1436,11 @@
     <div class="master-panel ats-scope" id="panel-practices" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-matching" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-meetings" style="display:none"></div>
+
+    <!-- TECHNICAL (own master tab, far right) — rendered by loadTechnical() -->
+    <div class="master-panel" id="panel-technical" style="display:none">
+      <div class="content" id="techContent"></div>
+    </div>
   </div>
 
   <!-- ATS drawer + modals (rendered by /js/ceo-ats-*.js) -->
@@ -1599,11 +1590,15 @@
        just makes the page honest about what they can use. */
     function applyConsultantMode() {
       document.body.classList.add('gp-consultant');
-      // Hide the Registration master tab + its panel (its data is never loaded).
-      var regTab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="registration"]');
-      if (regTab) regTab.style.display = 'none';
-      var regPanel = document.getElementById('panel-registration');
-      if (regPanel) regPanel.style.display = 'none';
+      // Hide the executive-only master tabs + their panels (Overview/Registration,
+      // RSO oversight, Technical) — their data is never loaded for consultants and
+      // the server 403s every underlying endpoint.
+      ['registration', 'rso', 'technical'].forEach(function (mt) {
+        var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="' + mt + '"]');
+        if (tab) tab.style.display = 'none';
+        var panel = document.getElementById('panel-' + mt);
+        if (panel) panel.style.display = 'none';
+      });
       // Registration-only header widgets are meaningless without the CEO feed.
       var escBadge = document.getElementById('headerEscBadge');
       if (escBadge) escBadge.style.display = 'none';
@@ -3035,33 +3030,24 @@
       refreshDashboard();
     });
 
-    /* ── Standalone top-nav tabs ── */
-    // Panel registry: maps a tab key to the id of the content panel it shows, and
-    // (optionally) to the loader to call when the tab is opened. New tabs are added
-    // here so the dispatcher scales without new branches. Loaders/panels added in
-    // later tasks may not exist yet (techContent/loadTechnical arrive in 5.2), so
-    // every lookup is guarded — a missing panel is a no-op and TAB_LOADERS.technical
-    // stays undefined until defined.
-    var TAB_PANELS = { overview: 'mainContent', rsos: 'rsoContent', medical: 'mcContent', technical: 'techContent' };
-    var TAB_LOADERS = { rsos: loadRsoOversight, medical: loadMedicalCentres, technical: typeof loadTechnical === 'function' ? loadTechnical : undefined };
-    var currentTab = 'overview';
-    document.getElementById('ceoTopNav').addEventListener('click', function(e) {
-      var item = e.target.closest('.nav-item[data-tab]');
-      if (!item) return;
-      var tab = item.getAttribute('data-tab');
-      if (tab === currentTab) return;
-      currentTab = tab;
-      var items = document.querySelectorAll('#ceoTopNav .nav-item');
-      for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', items[i].getAttribute('data-tab') === tab);
-      Object.keys(TAB_PANELS).forEach(function(k) { var el = document.getElementById(TAB_PANELS[k]); if (el) el.style.display = (k === tab) ? '' : 'none'; });
-      if (TAB_LOADERS[tab]) TAB_LOADERS[tab]();
-    });
-    /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO Oversight tab on load
-       (used by the unified-nav "RSO Oversight" link from the admin work-list page). */
+    /* ── RSO + Technical master-tab loaders ──
+       RSO Oversight and Technical are now their own top-level master tabs (see
+       #masterTabs), not sub-tabs of a standalone top-nav. The shared master-tab
+       switcher (js/ceo-ats-shared.js) calls window.load<Name>Tab when a tab opens,
+       so bridge those names onto the existing loaders. loadRsoOversight and
+       loadTechnical are hoisted declarations defined later in this script. */
+    window.loadRsoTab = function () { loadRsoOversight(); };
+    window.loadTechnicalTab = function () { if (typeof loadTechnical === 'function') loadTechnical(); };
+
+    /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO master tab on load
+       (used by the "RSO Oversight" link from the admin work-list page). The shared
+       switcher may still be initialising, so retry briefly until ATS is ready. */
     try {
       if (new URLSearchParams(location.search).get('tab') === 'rsos') {
-        var _rsoTab = document.querySelector('#ceoTopNav .nav-item[data-tab="rsos"]');
-        if (_rsoTab) _rsoTab.click();
+        (function openRso(tries) {
+          if (window.ATS && typeof window.ATS.showMaster === 'function') { window.ATS.showMaster('rso'); return; }
+          if (tries > 0) setTimeout(function () { openRso(tries - 1); }, 50);
+        })(40);
       }
     } catch (e) {}
     /* Deep-link: /pages/ceo-dashboard?case=<id> opens that candidate on load
@@ -3393,84 +3379,9 @@
       });
     }
 
-    /* ═══ MEDICAL CENTRES (company-wide standalone tab, read-only) ═══ */
-    // Cache results per status so re-clicking the tab (or toggling Open/Filled)
-    // doesn't refetch. Keyed by 'open'|'filled'. Read-only — no add/edit.
-    var mcCache = {};
-    var mcStatus = 'open';
-    function loadMedicalCentres() {
-      // Re-clicking the tab should not refetch if we already have data for the
-      // current status — just re-render from cache.
-      if (mcCache[mcStatus]) { renderMedicalCentres(mcCache[mcStatus], mcStatus); return; }
-      var c = document.getElementById('mcContent');
-      if (!c) return;
-      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading medical centres...</div></div>';
-      apiFetch('/api/admin/medical-centres?status=' + encodeURIComponent(mcStatus)).then(function(d) {
-        if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed to load medical centres: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
-        var centres = Array.isArray(d.centres) ? d.centres : [];
-        mcCache[mcStatus] = centres;
-        renderMedicalCentres(centres, mcStatus);
-      }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
-    }
-
-    // Open/Filled toggle: switch the active status and (re)load. Wired via the
-    // delegated #mcContent click handler below so re-rendering keeps it live.
-    function setMedicalCentresStatus(status) {
-      if (status !== 'open' && status !== 'filled') return;
-      if (status === mcStatus && mcCache[mcStatus]) return;
-      mcStatus = status;
-      loadMedicalCentres();
-    }
-
-    function renderMedicalCentres(centres, status) {
-      var c = document.getElementById('mcContent');
-      if (!c) return;
-      var head = '<div class="ceo-mc-head">'
-        + '<h2 style="font-size:16px;font-weight:700">Medical Centres</h2>'
-        + '<div class="ceo-mc-toggle">'
-        + '<button class="ceo-mc-toggle-btn' + (status === 'open' ? ' active' : '') + '" data-mc-status="open">Open</button>'
-        + '<button class="ceo-mc-toggle-btn' + (status === 'filled' ? ' active' : '') + '" data-mc-status="filled">Filled</button>'
-        + '</div></div>';
-      if (!centres.length) { c.innerHTML = head + '<div class="drilldown-empty">No medical centres found.</div>'; return; }
-      var html = head + '<div class="ceo-mc-grid">';
-      for (var i = 0; i < centres.length; i++) {
-        var m = centres[i];
-        var name = m.practice_name || m.client_name || 'Unknown Practice';
-        html += '<div class="ceo-mc-card">';
-        if (m.website) {
-          html += '<div class="ceo-mc-name"><a href="' + esc(m.website) + '" target="_blank" rel="noopener">' + esc(name) + '</a></div>';
-        } else {
-          html += '<div class="ceo-mc-name">' + esc(name) + '</div>';
-        }
-        if (m.location) html += '<div class="ceo-mc-sub">' + esc(m.location) + '</div>';
-        var meta = [];
-        if (m.work_type) meta.push(esc(m.work_type));
-        if (m.billing_type) meta.push(esc(m.billing_type));
-        if (meta.length) html += '<div class="ceo-mc-meta">' + meta.join(' &middot; ') + '</div>';
-        if (m.contact_name || m.contact_email || m.contact_phone) {
-          html += '<div class="ceo-mc-contact">';
-          if (m.contact_name) html += '<div class="ceo-mc-contact-name">' + esc(m.contact_name) + '</div>';
-          if (m.contact_email) html += '<div><a href="mailto:' + esc(m.contact_email) + '">' + esc(m.contact_email) + '</a></div>';
-          if (m.contact_phone) html += '<div><a href="tel:' + esc(m.contact_phone) + '">' + esc(m.contact_phone) + '</a></div>';
-          html += '</div>';
-        }
-        html += '<div class="ceo-mc-stats"><div class="ceo-mc-stat"><span class="ceo-mc-stat-value">' + (m.open_positions || 0) + '</span><span class="ceo-mc-stat-label">' + (status === 'filled' ? 'Positions' : 'Open Positions') + '</span></div></div>';
-        html += '</div>';
-      }
-      html += '</div>';
-      c.innerHTML = html;
-    }
-
-    // Delegated click handler for the Open/Filled toggle inside #mcContent.
-    (function() {
-      var mc = document.getElementById('mcContent');
-      if (!mc) return;
-      mc.addEventListener('click', function(e) {
-        var btn = e.target.closest('.ceo-mc-toggle-btn[data-mc-status]');
-        if (!btn) return;
-        setMedicalCentresStatus(btn.getAttribute('data-mc-status'));
-      });
-    })();
+    /* Medical Centres tab removed — the Practices master tab already covers medical
+       centres, so the redundant read-only company-wide view was deleted (loader,
+       renderer, status toggle, delegated handler, panel div, and CSS all gone). */
 
     /* ── Trends card: series toggle + "Send me the digest now" ── */
     (function () {
@@ -3650,7 +3561,7 @@
     function renderTechnical(integrations) {
       var c = document.getElementById('techContent');
       if (!c) return;
-      var html = '<div class="ceo-mc-head"><h2 style="font-size:16px;font-weight:700">Technical</h2></div>';
+      var html = '<div style="margin-bottom:14px"><h2 style="font-size:16px;font-weight:700">Technical</h2></div>';
       html += '<div class="ceo-tech-cards" style="margin-bottom:14px"><div class="ceo-tech-card" id="gmailWatchCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading Gmail watch status…</div></div></div>';
       if (!integrations.length) {
         html += '<div class="drilldown-empty">No integrations reported.</div>';
@@ -7302,7 +7213,7 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
-  <script src="/js/ceo-ats-shared.js?v=20260707a"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260708a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260707i"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260707f"></script>
   <script src="/js/ceo-ats-practices.js?v=20260707a"></script>

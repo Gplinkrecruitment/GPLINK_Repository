@@ -102,7 +102,10 @@
   };
 
   // -------------------- master-tab switcher --------------------
-  var MASTER_PANELS = ['registration', 'candidates', 'jobs', 'practices', 'matching', 'meetings'];
+  // 'registration' renders the Overview view; 'rso' + 'technical' are executive-only
+  // tabs whose loaders (window.loadRsoTab / window.loadTechnicalTab) are bridged onto
+  // the CEO dashboard's loadRsoOversight() / loadTechnical() inside ceo-dashboard.html.
+  var MASTER_PANELS = ['registration', 'rso', 'candidates', 'jobs', 'practices', 'matching', 'meetings', 'technical'];
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
   function setActiveTab(name, skipLoad) {
