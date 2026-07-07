@@ -2003,6 +2003,11 @@
       flex-direction: column;
       gap: 12px;
     }
+    /* display:flex above overrides the browser's [hidden]{display:none}, so the
+       card showed even when its `hidden` attribute was set (that's why a placed
+       GP kept seeing an EMPTY "upcoming interview" card and JS hidden=true did
+       nothing). Make `hidden` actually hide it. */
+    .placement-interview-card[hidden] { display: none !important; }
     .placement-interview-head {
       display: flex;
       align-items: center;

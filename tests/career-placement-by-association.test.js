@@ -206,6 +206,12 @@ describe('pages/career.html — provisional placement rendering hooks', () => {
     // loadSecuredInterview must NOT be invoked from the placement render anymore.
     expect(body).not.toMatch(/^\s*loadSecuredInterview\(\);/m);
   });
+
+  it('makes the interview card [hidden] attribute actually hide it (display:flex would override it)', () => {
+    // Without this rule .placement-interview-card{display:flex} beats the UA
+    // [hidden]{display:none}, so hidden=true is ignored and an EMPTY card shows.
+    expect(careerHtml).toMatch(/\.placement-interview-card\[hidden\]\s*\{\s*display:\s*none\s*!important/);
+  });
 });
 
 describe('GET /api/career/profile/status — placement by association', () => {
