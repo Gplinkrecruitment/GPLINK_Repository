@@ -1009,43 +1009,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .timeline-meta{font-size:10px;color:var(--muted,#9aa3b2);margin-top:4px;opacity:.7}
 .timeline-attach{font-size:10px;color:var(--blue);margin-top:2px}
 
-.tech-subnav{display:flex;gap:4px;padding:12px 16px;border-bottom:1px solid #e5e7eb;}
-.tech-subnav-btn{padding:6px 16px;border-radius:6px;border:1px solid #d1d5db;background:#fff;font-size:0.8rem;cursor:pointer;color:#374151;}
-.tech-subnav-btn.active{background:#2563eb;color:#fff;border-color:#2563eb;}
-.tech-subnav-btn:hover:not(.active){background:#f3f4f6;}
-.tech-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:16px;}
-.tech-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;position:relative;}
-.tech-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-.tech-card-name{font-weight:600;font-size:0.95rem;}
-.tech-status{padding:3px 10px;border-radius:12px;font-size:0.7rem;font-weight:600;text-transform:uppercase;}
-.tech-status.connected{background:#dcfce7;color:#16a34a;}
-.tech-status.configured{background:#dbeafe;color:#2563eb;}
-.tech-status.disconnected{background:#fee2e2;color:#dc2626;}
-.tech-status.degraded{background:#fef3c7;color:#b45309;}
-.tech-detail{font-size:0.8rem;color:#6b7280;margin:3px 0;}
-.tech-detail b{color:#374151;}
-.tech-reconnect{margin-top:10px;padding:5px 14px;border-radius:6px;border:1px solid #2563eb;background:transparent;color:#2563eb;font-size:0.75rem;cursor:pointer;}
-.tech-reconnect:hover{background:#2563eb;color:#fff;}
-.tech-bug-list{padding:16px;}
-.tech-bug-row{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:8px;}
-.tech-bug-header{display:flex;justify-content:space-between;align-items:center;}
-.tech-bug-title{font-weight:600;font-size:0.85rem;}
-.tech-bug-meta{font-size:0.75rem;color:#6b7280;margin-top:4px;}
-.tech-bug-desc{font-size:0.8rem;color:#4b5563;margin-top:8px;display:none;}
-.tech-bug-row.expanded .tech-bug-desc{display:block;}
-.tech-bug-actions{display:flex;gap:6px;margin-top:8px;}
-.tech-bug-actions .btn{font-size:0.7rem;padding:3px 10px;}
-.tech-severity{padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700;text-transform:uppercase;}
-.tech-severity.critical{background:#fee2e2;color:#dc2626;}
-.tech-severity.high{background:#fef3c7;color:#b45309;}
-.tech-severity.medium{background:#dbeafe;color:#2563eb;}
-.tech-severity.low{background:#f3f4f6;color:#6b7280;}
-.tech-filter-bar{display:flex;gap:6px;padding:12px 16px;align-items:center;}
-.tech-filter-btn{padding:4px 12px;border-radius:6px;border:1px solid #d1d5db;background:#fff;font-size:0.75rem;cursor:pointer;}
-.tech-filter-btn.active{background:#2563eb;color:#fff;border-color:#2563eb;}
-.tech-summary-strip{display:flex;gap:12px;padding:8px 16px;font-size:0.8rem;color:#6b7280;}
-.tech-summary-strip b{color:#374151;}
-
 /* ══ Mobile Responsive ══ */
 @media(max-width:600px){
   /* ── Top bar ── */
@@ -1162,13 +1125,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   .agent-hero h2{font-size:18px}
   .agent-form textarea{min-height:100px}
 
-  /* ── Tech Hub ── */
-  .tech-subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap;gap:4px}
-  .tech-subnav::-webkit-scrollbar{display:none}
-  .tech-subnav-btn{white-space:nowrap;flex:0 0 auto}
-  .tech-cards{grid-template-columns:1fr;padding:10px 12px}
-  .tech-filter-bar{flex-wrap:wrap;padding:8px 12px}
-  .tech-bug-list{padding:10px 12px}
 
   /* ── Email Triage ── */
   .et-ctx-grid{grid-template-columns:1fr}
@@ -1263,43 +1219,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .calls-status-badge.completed{background:#f0fdf4;color:#16a34a}
 .calls-status-badge.cancelled{background:#f8fafc;color:#94a3b8}
 .calls-status-badge.no_show{background:#fef2f2;color:#dc2626}
-/* Website enquiries (Task 13) */
-.site-enq-nav-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;vertical-align:middle}
-.site-enq-panel{padding:16px 20px;max-width:1000px;margin:0 auto}
-.site-enq-panel h2{font-size:18px;font-weight:800;margin:0 0 12px}
-.site-enq-filters{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-.site-enq-row{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:8px}
-.site-enq-row-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.site-enq-when{font-size:11px;color:var(--muted);white-space:nowrap}
-.site-enq-kind{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase}
-.site-enq-kind-practice{background:#eff6ff;color:#2563eb}
-.site-enq-kind-gp{background:#f0fdf4;color:#16a34a}
-.site-enq-kind-general{background:#f8fafc;color:#64748b}
-.site-enq-name{font-size:13px;font-weight:700}
-.site-enq-contact{font-size:11px;color:var(--muted)}
-.site-enq-meta{font-size:11px;color:var(--muted)}
-.site-enq-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase}
-.site-enq-status-new{background:#eff6ff;color:#2563eb}
-.site-enq-status-contacted{background:#ecfdf5;color:#059669}
-.site-enq-status-closed{background:#f8fafc;color:#94a3b8}
-.site-enq-status-converted{background:#f5f3ff;color:#7c3aed}
-/* Website stats editor (Phase 6 E2, audit B5) */
-.site-stats-card{border:1px solid var(--line);border-radius:10px;background:#fff;padding:14px 16px;margin-bottom:16px}
-.site-stats-card h3{font-size:14px;font-weight:800;margin:0 0 4px}
-.site-stats-note{font-size:11px;color:var(--muted);margin:0 0 12px;line-height:1.5}
-.site-stats-grid{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}
-.site-stats-field{display:flex;flex-direction:column;gap:4px;min-width:150px}
-.site-stats-field label{font-size:11px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px}
-.site-stats-field input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;width:150px;font-family:inherit}
-.site-stats-live{font-size:13px;font-weight:700;padding:7px 0}
-.site-stats-actual{font-size:10px;color:var(--muted);line-height:1.4}
-.site-stats-src{display:inline-block;padding:1px 7px;border-radius:999px;font-size:9px;font-weight:800;text-transform:uppercase}
-.site-stats-src-live{background:#ecfdf5;color:#059669}
-.site-stats-src-override{background:#fff7ed;color:#b45309}
-.site-stats-src-default{background:#f8fafc;color:#94a3b8}
-.site-stats-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.site-enq-message{font-size:12px;color:var(--text);margin-top:8px;line-height:1.5;white-space:pre-wrap}
-.site-enq-actions{display:flex;gap:6px;margin-left:auto}
 /* Call history pane */
 .call-history-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}
 .call-history-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -1467,8 +1386,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="scheduled_calls">Calls</div>
-    <div class="view-tab" data-view="website">Website<span id="websiteEnqBadge" class="site-enq-nav-badge" style="display:none"></span></div>
-    <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
@@ -1551,25 +1468,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <h3 id="modalTitle"></h3>
       <div id="modalBody"></div>
     </div>
-  </div><div id="technicalPanel" style="display:none">
-  <div class="tech-subnav">
-    <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
-    <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
-    <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
-    <button class="tech-subnav-btn" data-tech-view="background-jobs">Background Jobs</button>
-    <button class="tech-subnav-btn" data-tech-view="archived-accounts">Archived Accounts</button>
   </div>
-  <div id="techIntegrationsPanel"></div>
-  <div id="techSystemBugsPanel" style="display:none"></div>
-  <div id="techUserBugsPanel" style="display:none"></div>
-  <div id="techCronPanel" style="display:none"></div>
-  <div id="techArchivedAccountsPanel" style="display:none"></div>
-</div>
 <div id="guidePanel" style="display:none"></div>
 <div id="interviewsPanel" style="display:none"></div>
 <div id="scheduledCallsPanel" style="display:none"></div>
 <div id="stuckPanel" style="display:none"></div>
-<div id="siteEnquiriesPanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
@@ -1640,7 +1543,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
-    siteEnq:{items:[],loading:false,filter:"",expandedIds:{}},
     siteStats:{data:null,forbidden:false},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
@@ -2234,9 +2136,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       support:"supportPanel",
       guide:"guidePanel",
       interviews:"interviewsPanel",
-      scheduled_calls:"scheduledCallsPanel",
-      website:"siteEnquiriesPanel",
-      technical:"technicalPanel"
+      scheduled_calls:"scheduledCallsPanel"
     };
     var key=normalizeAdminView(S.view);
     var el=document.getElementById(targets[key])||document.getElementById("toolsPanel")||document.getElementById("detail");
@@ -2257,8 +2157,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="interviews"){var ivTabEl=document.getElementById("interviewsTab");if(ivTabEl)ivTabEl.style.display="";vaShowPanel("interviews");renderInterviewsPanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
     if(S.view==="stuck"){vaShowPanel("stuck");renderStuckPanel();return;}
-    if(S.view==="website"){vaShowPanel("website");renderSiteEnquiriesPanel();return;}
-    if(S.view==="technical"){vaShowPanel("technical");loadTechnicalPanel();return;}
     S.view="tools";
     setActiveViewTab("tools");
     vaShowPanel("tools");
@@ -6874,8 +6772,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderSupportPanel();
       }else if(view==="tools"){
         renderToolsPanel();
-      }else if(view==="technical"){
-        loadTechnicalPanel();
       }else if(view==="guide"){
         if(!S.guide.folders)await loadGuideData();
         renderGuidePanel();
@@ -6885,8 +6781,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderScheduledCallsPanel();
       }else if(view==="stuck"){
         renderStuckPanel();
-      }else if(view==="website"){
-        renderSiteEnquiriesPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{
@@ -8608,7 +8502,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","technicalPanel":"technical","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","siteEnquiriesPanel":"website","stuckPanel":"stuck"};
+    const panels={"inboxPanel":"inbox","hubInboxPanel":"hubInbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","guidePanel":"guide","interviewsPanel":"interviews","scheduledCallsPanel":"scheduled_calls","stuckPanel":"stuck"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
@@ -10130,15 +10024,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(rsoOvTab)rsoOvTab.style.display="";
       var mcTab=document.getElementById("medicalCentresTab");
       if(mcTab)mcTab.style.display="";
-      var techTab=document.getElementById("technicalTab");
-      if(techTab)techTab.style.display="";
     }
     /* Unified-nav deep link: /pages/admin?view=<tab> opens that work-list on load
        (used by the CEO Command Centre menu items). Defaults to Ops Queue when absent. */
     try{
       var viewParam=new URLSearchParams(location.search).get("view");
-      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls","website","technical"];
-      if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !((viewParam==="medicalcentres"||viewParam==="technical")&&!isSA())){
+      var _allowedViews=["tools","gps","medicalcentres","support","guide","scheduled_calls"];
+      if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0 && !(viewParam==="medicalcentres"&&!isSA())){
         S.view=viewParam;
       }
     }catch(e){}
@@ -10148,403 +10040,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
   });
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll(false,true);});
-
-  // ── Technical Hub ──
-  var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null,ubStatus:'open',ubSource:'all'};
-
-  document.getElementById("technicalPanel").addEventListener("click",function(e){
-    var subBtn=e.target.closest("[data-tech-view]");
-    if(subBtn){
-      var tv=subBtn.getAttribute("data-tech-view");
-      techState.view=tv;
-      document.querySelectorAll(".tech-subnav-btn").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tech-view")===tv);});
-      document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
-      document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
-      document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
-      document.getElementById("techCronPanel").style.display=(tv==="background-jobs"?"block":"none");
-      document.getElementById("techArchivedAccountsPanel").style.display=(tv==="archived-accounts"?"block":"none");
-      if(tv==="integrations")loadIntegrations();
-      else if(tv==="system-bugs")loadSystemBugs();
-      else if(tv==="user-bugs")loadUserBugs();
-      else if(tv==="background-jobs")loadCronHealth();
-      else if(tv==="archived-accounts")archivedAccountsLoad();
-      return;
-    }
-    // Archived account reinstate
-    var reinstateBtn=e.target.closest("[data-archived-reinstate]");
-    if(reinstateBtn){
-      archivedAccountsReinstate(reinstateBtn.getAttribute("data-archived-reinstate"),reinstateBtn);
-      return;
-    }
-    // Schema-migrations baseline (audit C4)
-    var migBaselineBtn=e.target.closest("[data-migrations-baseline]");
-    if(migBaselineBtn){
-      migrationsMarkBaseline(migBaselineBtn);
-      return;
-    }
-    // Bug row expand
-    var bugRow=e.target.closest(".tech-bug-row");
-    if(bugRow&&!e.target.closest(".btn")){bugRow.classList.toggle("expanded");}
-    // Bug actions
-    var ackBtn=e.target.closest("[data-bug-action]");
-    if(ackBtn){
-      var bugId=ackBtn.getAttribute("data-bug-id");
-      var action=ackBtn.getAttribute("data-bug-action");
-      var endpoint=ackBtn.getAttribute("data-bug-type")==="client"?"/api/ceo/technical/client-errors/":"/api/ceo/technical/system-bugs/";
-      fetch(endpoint+encodeURIComponent(bugId),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:action})}).then(function(r){return r.json();}).then(function(d){
-        if(d.ok){toast(action+" successfully","green");if(ackBtn.getAttribute("data-bug-type")==="client")loadUserBugs();else loadSystemBugs();}else{toast("Failed: "+(d.message||""),"red");}
-      }).catch(function(){toast("Network error","red");});
-      return;
-    }
-    // Reconnect
-    var reconBtn=e.target.closest("[data-reconnect]");
-    if(reconBtn){
-      var key=reconBtn.getAttribute("data-reconnect");
-      reconBtn.textContent="Reconnecting...";
-      reconBtn.disabled=true;
-      fetch("/api/ceo/integrations/"+encodeURIComponent(key)+"/reconnect",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json();}).then(function(d){
-        if(d.ok){
-          toast("Reconnected successfully","green");
-          setTimeout(loadIntegrations,2000);
-        }else if(d.action==="oauth_required"&&d.oauthUrl){
-          toast("Redirecting to re-authorize...","blue");
-          window.location.href=d.oauthUrl;
-          return;
-        }else{
-          var failedMb=(Array.isArray(d.results)?d.results.filter(function(x){return !x.success;}):[]);
-          var failMsg=failedMb.length?("Reconnect failed: "+failedMb.map(function(x){return x.email+" ("+(x.error||"error")+")";}).join(", ")):(d.message||"Reconnect failed");
-          toast(failMsg,"red");
-        }
-        reconBtn.textContent="Reconnect";reconBtn.disabled=false;
-      }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
-      return;
-    }
-    // Filter buttons
-    var filterBtn=e.target.closest(".tech-filter-btn");
-    if(filterBtn){
-      // Toggle 'active' within the button's own filter bar only, so the status
-      // row and the source row (User Bugs) keep independent selections.
-      var bar=filterBtn.closest(".tech-filter-bar");
-      var panel=filterBtn.closest("#techSystemBugsPanel,#techUserBugsPanel");
-      (bar||panel||document).querySelectorAll(".tech-filter-btn").forEach(function(b){b.classList.toggle("active",b===filterBtn);});
-      if(filterBtn.closest("#techSystemBugsPanel")){loadSystemBugs(filterBtn.getAttribute("data-filter"));return;}
-      if(filterBtn.hasAttribute("data-filter-source"))techState.ubSource=filterBtn.getAttribute("data-filter-source");
-      else techState.ubStatus=filterBtn.getAttribute("data-filter");
-      loadUserBugs(techState.ubStatus,techState.ubSource);
-      return;
-    }
-  });
-
-  function loadTechnicalPanel(){
-    if(techState.view==="integrations")loadIntegrations();
-    else if(techState.view==="system-bugs")loadSystemBugs();
-    else if(techState.view==="background-jobs")loadCronHealth();
-    else if(techState.view==="archived-accounts")archivedAccountsLoad();
-    else loadUserBugs();
-  }
-
-  // ── Background jobs (cron heartbeat health — audit S4) ──────────────
-  async function loadCronHealth(){
-    var el=document.getElementById("techCronPanel");
-    if(!el)return;
-    el.innerHTML='<div style="padding:24px;color:#999;">Loading background jobs...</div>';
-    try{
-      var r=await fetch("/api/admin/cron-health",{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
-      var d=await r.json();
-      if(!d.ok||!Array.isArray(d.crons)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load background jobs: '+esc(d.message||'Unknown error')+'</div>';return;}
-      var overdueCount=0,errorCount=0;
-      d.crons.forEach(function(c){if(c.overdue)overdueCount++;else if(c.last_status==='error')errorCount++;});
-      var html='<div class="tech-summary-strip"><b>'+d.crons.length+'</b> scheduled jobs &nbsp; <b>'+overdueCount+'</b> overdue &nbsp; <b>'+errorCount+'</b> failing</div>';
-      html+='<div class="tech-card" style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">';
-      html+='<thead><tr style="text-align:left;color:#6b7280;"><th style="padding:6px 10px;">Job</th><th style="padding:6px 10px;">Schedule</th><th style="padding:6px 10px;">Last run</th><th style="padding:6px 10px;">Took</th><th style="padding:6px 10px;">Status</th><th style="padding:6px 10px;">Detail</th></tr></thead><tbody>';
-      for(var i=0;i<d.crons.length;i++){
-        var c=d.crons[i];
-        var chipClass='connected',chipLabel='OK';
-        if(c.overdue){chipClass='disconnected';chipLabel=c.last_run_at?'OVERDUE':'NEVER RUN';}
-        else if(c.last_status==='error'){chipClass='disconnected';chipLabel='ERROR';}
-        html+='<tr style="border-top:1px solid #f3f4f6;">';
-        html+='<td style="padding:6px 10px;font-weight:600;white-space:nowrap;">'+esc(c.name)+'</td>';
-        html+='<td style="padding:6px 10px;color:#6b7280;font-family:monospace;white-space:nowrap;">'+esc(c.schedule)+'</td>';
-        html+='<td style="padding:6px 10px;white-space:nowrap;">'+(c.last_run_at?esc(fmtD(c.last_run_at)):'&mdash;')+'</td>';
-        html+='<td style="padding:6px 10px;color:#6b7280;white-space:nowrap;">'+(c.last_ms!=null?esc(String(c.last_ms))+' ms':'&mdash;')+'</td>';
-        html+='<td style="padding:6px 10px;"><span class="tech-status '+chipClass+'">'+chipLabel+'</span></td>';
-        html+='<td style="padding:6px 10px;color:#6b7280;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.last_detail||'')+'</td>';
-        html+='</tr>';
-      }
-      html+='</tbody></table></div>';
-      html+='<div id="techMigrationsCard" class="tech-card" style="margin-top:12px;padding:12px 14px;font-size:0.8rem;color:#6b7280;">Checking schema migrations...</div>';
-      el.innerHTML=html;
-      loadMigrationStatus();
-    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
-  }
-
-  // ── Schema migrations ledger (audit C4) ──────────────────────────────
-  async function loadMigrationStatus(){
-    var card=document.getElementById("techMigrationsCard");
-    if(!card)return;
-    try{
-      var r=await fetch("/api/admin/migration-status",{credentials:"same-origin"});
-      var d=await r.json().catch(function(){return null;});
-      if(!r.ok||!d||!d.ok){card.innerHTML='Schema migrations: failed to load ('+esc((d&&d.message)||('HTTP '+r.status))+')';return;}
-      var unappliedCount=Array.isArray(d.unapplied)?d.unapplied.length:0;
-      var html='<div style="font-weight:600;color:#111827;margin-bottom:4px;">Schema migrations</div>';
-      html+='<div><b>'+esc(String(d.total_files))+'</b> migration files &nbsp; <b>'+unappliedCount+'</b> not recorded as applied</div>';
-      if(d.ledger_table_missing){
-        html+='<div style="margin-top:6px;color:#b45309;">Ledger table missing &mdash; apply migration 20260706180000_schema_migrations.sql, then record the baseline here.</div>';
-      }else if(unappliedCount){
-        html+='<div style="margin-top:6px;max-height:120px;overflow:auto;font-family:monospace;font-size:0.72rem;">'+d.unapplied.map(esc).join('<br>')+'</div>';
-        html+='<button class="tech-reconnect" data-migrations-baseline="1" style="margin-top:8px;">Mark all current as applied (baseline)</button>';
-      }else{
-        html+='<div style="margin-top:6px;color:#15803d;">Ledger up to date.</div>';
-      }
-      card.innerHTML=html;
-    }catch(err){card.innerHTML='Schema migrations: '+esc(err.message);}
-  }
-  async function migrationsMarkBaseline(btn){
-    if(!confirm("Record every migration file currently in the repo as applied? One-time baseline — only do this if the live schema is known to be current."))return;
-    btn.disabled=true;btn.textContent="Recording...";
-    try{
-      var r=await fetch("/api/admin/migration-status/mark-all-applied",{method:"POST",credentials:"same-origin"});
-      var d=await r.json().catch(function(){return null;});
-      if(!r.ok||!d||!d.ok){alert("Failed: "+((d&&d.message)||("HTTP "+r.status)));btn.disabled=false;btn.textContent="Mark all current as applied (baseline)";return;}
-      loadMigrationStatus();
-    }catch(err){alert("Failed: "+err.message);btn.disabled=false;btn.textContent="Mark all current as applied (baseline)";}
-  }
-
-  // ── Archived Accounts (soft-deleted) ──────────────────────
-  async function archivedAccountsLoad(){
-    var el=document.getElementById("techArchivedAccountsPanel");
-    if(!el)return;
-    el.innerHTML='<div style="padding:24px;color:#999;">Loading archived accounts...</div>';
-    try{
-      var r=await fetch("/api/admin/accounts/archived",{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
-      var d=await r.json();
-      if(!d.ok||!Array.isArray(d.accounts)){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load archived accounts: '+esc(d.message||'Unknown error')+'</div>';return;}
-      archivedAccountsRender(d.accounts);
-    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
-  }
-
-  function archivedAccountsRender(accounts){
-    var el=document.getElementById("techArchivedAccountsPanel");
-    if(!el)return;
-    if(!accounts.length){
-      el.innerHTML='<div style="padding:24px;color:#6b7280;font-size:0.85rem;">No archived accounts.</div>';
-      return;
-    }
-    var html='<div class="tech-cards">';
-    for(var i=0;i<accounts.length;i++){
-      var a=accounts[i];
-      var name=a.name||a.email||'Unknown';
-      html+='<div class="tech-card" data-archived-row="'+escAttr(a.userId)+'">';
-      html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(name)+'</span>';
-      if(a.hasActivePlacement)html+='<span class="tech-status degraded">Active placement</span>';
-      html+='</div>';
-      html+='<div class="tech-detail"><b>Email:</b> '+esc(a.email||'—')+'</div>';
-      html+='<div class="tech-detail"><b>Archived:</b> '+esc(fmtD(a.archivedAt))+'</div>';
-      html+='<div class="tech-detail"><b>Purges:</b> '+esc(fmtD(a.purgeAfter))+'</div>';
-      html+='<button class="tech-reconnect" data-archived-reinstate="'+escAttr(a.userId)+'">Reinstate</button>';
-      html+='</div>';
-    }
-    html+='</div>';
-    el.innerHTML=html;
-  }
-
-  async function archivedAccountsReinstate(userId,btn){
-    if(!userId)return;
-    if(btn){btn.textContent="Reinstating...";btn.disabled=true;}
-    try{
-      var r=await fetch("/api/admin/accounts/reinstate",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:userId})});
-      var d=await r.json();
-      if(d.ok){
-        toast("Account reinstated","green");
-        var row=document.querySelector('[data-archived-row="'+(window.CSS&&CSS.escape?CSS.escape(userId):userId)+'"]');
-        if(row&&row.parentNode){
-          row.parentNode.removeChild(row);
-          var panel=document.getElementById("techArchivedAccountsPanel");
-          if(panel&&!panel.querySelector("[data-archived-row]")){archivedAccountsRender([]);}
-        }else{
-          archivedAccountsLoad();
-        }
-      }else{
-        toast("Reinstate failed: "+(d.message||""),"red");
-        if(btn){btn.textContent="Reinstate";btn.disabled=false;}
-      }
-    }catch(err){
-      toast("Network error","red");
-      if(btn){btn.textContent="Reinstate";btn.disabled=false;}
-    }
-  }
-
-  async function loadIntegrations(){
-    var el=document.getElementById("techIntegrationsPanel");
-    el.innerHTML='<div style="padding:24px;color:#999;">Loading integrations...</div>';
-    try{
-      var r=await fetch("/api/ceo/integrations",{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
-      var d=await r.json();
-      if(!d.ok||!d.integrations){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load integrations: '+(d.message||'Unknown error')+'</div>';return;}
-      var html='<div class="tech-cards">';
-      for(var i=0;i<d.integrations.length;i++){
-        var int=d.integrations[i];
-        html+='<div class="tech-card">';
-        var statusLabel=int.status==='degraded'?'Needs Attention':int.status==='configured'?'Configured':int.status;
-        html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(int.name)+'</span><span class="tech-status '+esc(int.status)+'">'+esc(statusLabel)+'</span></div>';
-        var det=int.details||{};
-        var keys=Object.keys(det);
-        for(var k=0;k<keys.length;k++){
-          var val=det[keys[k]];
-          var label=keys[k].replace(/_/g,' ');
-          if(val===null||val===undefined){
-            html+='<div class="tech-detail"><b>'+esc(label)+':</b> —</div>';
-            continue;
-          }
-          if(Array.isArray(val)){
-            // Render each array element as its own sub-row. Objects (e.g. Gmail
-            // mailboxes: {email,status,watch_expiry,client_error,...}) get a
-            // structured sub-row; scalars (e.g. monitored_emails strings) render plainly.
-            html+='<div class="tech-detail"><b>'+esc(label)+':</b></div>';
-            if(val.length===0){
-              html+='<div class="tech-detail" style="padding-left:12px;color:#999;">—</div>';
-            }else{
-              for(var ai=0;ai<val.length;ai++){
-                var item=val[ai];
-                if(item!==null&&typeof item==="object"){
-                  var primary=item.email||item.name||item.label||'';
-                  var st=item.status!==undefined&&item.status!==null?String(item.status):'';
-                  var err=item.client_error!==undefined&&item.client_error!==null?String(item.client_error):'';
-                  var sub='<div class="tech-detail" style="padding-left:12px;">';
-                  if(primary)sub+='<b>'+esc(String(primary))+'</b>';
-                  if(st)sub+=(primary?' — ':'')+'<span class="tech-status '+esc(st)+'">'+esc(st)+'</span>';
-                  if(err)sub+='<div style="color:#dc2626;font-size:0.78rem;">'+esc(err)+'</div>';
-                  if(!primary&&!st&&!err){
-                    // Unknown object shape: fall back to key:value lines.
-                    var ikeys=Object.keys(item);
-                    for(var iki=0;iki<ikeys.length;iki++){var iv=item[ikeys[iki]];sub+='<div style="font-size:0.78rem;">'+esc(ikeys[iki].replace(/_/g,' '))+': '+esc(iv===null||iv===undefined?'—':String(iv))+'</div>';}
-                  }
-                  sub+='</div>';
-                  html+=sub;
-                }else{
-                  html+='<div class="tech-detail" style="padding-left:12px;">'+esc(String(item))+'</div>';
-                }
-              }
-            }
-            continue;
-          }
-          if(typeof val==="object"){
-            // Plain object: render key:value lines.
-            html+='<div class="tech-detail"><b>'+esc(label)+':</b></div>';
-            var okeys=Object.keys(val);
-            for(var oki=0;oki<okeys.length;oki++){
-              var ov=val[okeys[oki]];
-              html+='<div class="tech-detail" style="padding-left:12px;font-size:0.82rem;"><b>'+esc(okeys[oki].replace(/_/g,' '))+':</b> '+esc(ov===null||ov===undefined?'—':String(ov))+'</div>';
-            }
-            continue;
-          }
-          if(typeof val==="boolean")val=val?'Yes':'No';
-          html+='<div class="tech-detail"><b>'+esc(label)+':</b> '+esc(String(val))+'</div>';
-        }
-        if(int.can_reconnect){
-          html+='<button class="tech-reconnect" data-reconnect="'+esc(int.key)+'">Reconnect</button>';
-        }
-        html+='</div>';
-      }
-      html+='</div>';
-      el.innerHTML=html;
-    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
-  }
-
-  async function loadSystemBugs(status){
-    status=status||'open';
-    var el=document.getElementById("techSystemBugsPanel");
-    el.innerHTML='<div style="padding:24px;color:#999;">Loading system bugs...</div>';
-    try{
-      var r=await fetch("/api/ceo/technical/system-bugs?status="+encodeURIComponent(status),{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
-      var d=await r.json();
-      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
-      var s=d.summary||{};
-      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.acknowledged+'</b> acknowledged &nbsp; <b>'+(s.critical||0)+'</b> critical &nbsp; <b>'+(s.high||0)+'</b> high</div>';
-      html+='<div class="tech-filter-bar">';
-      var filters=['open','acknowledged','fixed','dismissed','all'];
-      for(var fi=0;fi<filters.length;fi++){
-        html+='<button class="tech-filter-btn'+(filters[fi]===status?' active':'')+'" data-filter="'+filters[fi]+'">'+filters[fi].charAt(0).toUpperCase()+filters[fi].slice(1)+'</button>';
-      }
-      html+='</div>';
-      html+='<div class="tech-bug-list">';
-      var bugs=d.bugs||[];
-      if(bugs.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No bugs found. The AI scanner runs daily at 2am UTC.</div>';}
-      for(var bi=0;bi<bugs.length;bi++){
-        var b=bugs[bi];
-        html+='<div class="tech-bug-row">';
-        html+='<div class="tech-bug-header"><span class="tech-bug-title"><span class="tech-severity '+esc(b.severity)+'">'+esc(b.severity)+'</span> '+esc(b.title)+'</span><span style="font-size:0.7rem;color:#999;">'+esc(b.file_path)+(b.line_number?':'+b.line_number:'')+'</span></div>';
-        html+='<div class="tech-bug-meta">'+esc(b.category)+' · '+esc(b.scan_type)+' scan · '+fmtD(b.created_at)+'</div>';
-        html+='<div class="tech-bug-desc"><p>'+esc(b.description||'')+'</p>';
-        if(b.suggestion)html+='<p style="color:#2563eb;"><b>Suggestion:</b> '+esc(b.suggestion)+'</p>';
-        if(b.status==='open'){
-          html+='<div class="tech-bug-actions"><button class="btn" data-bug-action="acknowledged" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Acknowledge</button><button class="btn green" data-bug-action="fixed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Mark Fixed</button><button class="btn" data-bug-action="dismissed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Dismiss</button></div>';
-        }else if(b.status==='acknowledged'){
-          html+='<div class="tech-bug-actions"><button class="btn green" data-bug-action="fixed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Mark Fixed</button><button class="btn" data-bug-action="dismissed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Dismiss</button></div>';
-        }
-        html+='</div>';
-        html+='</div>';
-      }
-      html+='</div>';
-      el.innerHTML=html;
-    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
-  }
-
-  async function loadUserBugs(status,source){
-    status=status||techState.ubStatus||'open';
-    source=source||techState.ubSource||'all';
-    techState.ubStatus=status;techState.ubSource=source;
-    var el=document.getElementById("techUserBugsPanel");
-    el.innerHTML='<div style="padding:24px;color:#999;">Loading user bugs...</div>';
-    try{
-      var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status)+"&source="+encodeURIComponent(source),{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
-      var d=await r.json();
-      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
-      var s=d.summary||{};
-      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open ('+(s.open_client||0)+' client / '+(s.open_server||0)+' server) &nbsp; <b>'+s.investigating+'</b> investigating &nbsp; <b>'+(s.total_occurrences_24h||0)+'</b> occurrences (24h)</div>';
-      html+='<div class="tech-filter-bar">';
-      var filters=['open','investigating','resolved','ignored','all'];
-      for(var fi=0;fi<filters.length;fi++){
-        html+='<button class="tech-filter-btn'+(filters[fi]===status?' active':'')+'" data-filter="'+filters[fi]+'">'+filters[fi].charAt(0).toUpperCase()+filters[fi].slice(1)+'</button>';
-      }
-      html+='</div>';
-      html+='<div class="tech-filter-bar">';
-      var sources=[['all','All sources'],['client','Client'],['server','Server']];
-      for(var si=0;si<sources.length;si++){
-        html+='<button class="tech-filter-btn'+(sources[si][0]===source?' active':'')+'" data-filter-source="'+sources[si][0]+'">'+sources[si][1]+'</button>';
-      }
-      html+='</div>';
-      html+='<div class="tech-bug-list">';
-      var errors=d.errors||[];
-      if(errors.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No errors captured for this filter. Client errors report automatically from all pages; server errors are captured by the API itself.</div>';}
-      for(var ei=0;ei<errors.length;ei++){
-        var e=errors[ei];
-        var srcChip=e.source==='server'?'<span class="tech-status configured" style="margin-right:6px;">server</span>':'';
-        html+='<div class="tech-bug-row">';
-        html+='<div class="tech-bug-header"><span class="tech-bug-title">'+srcChip+esc(e.error_message||'Unknown error')+'</span><span style="font-size:0.7rem;color:#999;">'+esc(e.occurrence_count||1)+'x</span></div>';
-        html+='<div class="tech-bug-meta">'+esc(e.page_url||'unknown page')+' · first: '+fmtD(e.first_seen_at)+' · last: '+fmtD(e.last_seen_at)+(e.user_email?' · '+esc(e.user_email):'')+'</div>';
-        html+='<div class="tech-bug-desc">';
-        if(e.error_stack)html+='<pre style="font-size:0.7rem;overflow-x:auto;background:#f9fafb;padding:8px;border-radius:6px;max-height:120px;">'+esc(e.error_stack)+'</pre>';
-        if(e.user_context)html+='<p><b>User said:</b> '+esc(e.user_context)+'</p>';
-        html+='<p style="font-size:0.75rem;color:#999;">Browser: '+esc(e.user_agent||e.browser_info||'unknown')+'</p>';
-        if(e.status==='open'){
-          html+='<div class="tech-bug-actions"><button class="btn" data-bug-action="investigating" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Investigate</button><button class="btn green" data-bug-action="resolved" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Resolve</button><button class="btn" data-bug-action="ignored" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Ignore</button></div>';
-        }else if(e.status==='investigating'){
-          html+='<div class="tech-bug-actions"><button class="btn green" data-bug-action="resolved" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Resolve</button><button class="btn" data-bug-action="ignored" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Ignore</button></div>';
-        }
-        html+='</div>';
-        html+='</div>';
-      }
-      html+='</div>';
-      el.innerHTML=html;
-    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
-  }
 
   // Expose functions used by inline onclick handlers (IIFE escape)
   window.setupGmailWatch = setupGmailWatch;
@@ -11178,305 +10673,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       panel.innerHTML = '<div class="calls-panel"><h2>Scheduled Calls</h2><div class="empty">Error loading calls: ' + esc(e.message) + '</div></div>';
     }
   }
-
-  // ── Website enquiries (Task 13) ─────────────────────────────────
-  // Marketing-site leads captured by POST /api/public/enquiry (site_enquiries
-  // table / dbState.siteEnquiries fallback). Loaded once per tab-open into
-  // S.siteEnq.items, then filtered/rendered client-side (no re-fetch per pill).
-  var SITE_ENQ_KIND_LABEL = { practice: 'Practice', gp: 'GP', general: 'General' };
-  var SITE_ENQ_STATUS_LABEL = { new: 'New', contacted: 'Contacted', closed: 'Closed', converted: 'Converted' };
-  var SITE_ENQ_MESSAGE_TRUNCATE = 160;
-
-  // ── Website stats editor (Phase 6 E2, audit B5) ──────────────────
-  // Owner-editable numbers shown on the public marketing site. The server
-  // reports, per stat, the effective value + where it came from
-  // (override > live-computed > default). CEO-session-gated: non-super
-  // admins get 403 on the endpoint and the card simply doesn't render.
-  var SITE_STATS_FIELDS = [
-    { key: 'jobsCount', label: 'Jobs live', readOnly: true },
-    { key: 'gpsPlaced', label: 'GPs placed' },
-    { key: 'locations', label: 'Locations served' },
-    { key: 'avgPlacementDays', label: 'Avg days to placement' },
-    { key: 'satisfaction', label: 'Satisfaction %' }
-  ];
-
-  async function loadSiteStats() {
-    try {
-      var r = await fetch('/api/admin/site-stats', { credentials: 'same-origin' });
-      if (r.status === 401 || r.status === 403) { S.siteStats.data = null; S.siteStats.forbidden = true; return; }
-      var d = await r.json();
-      S.siteStats.data = (d && d.ok && d.stats) ? d.stats : null;
-      S.siteStats.forbidden = false;
-    } catch (e) {
-      S.siteStats.data = null;
-    }
-  }
-
-  function siteStatsSrcBadge(source) {
-    var label = source === 'override' ? 'Overridden' : (source === 'live' ? 'Live' : 'Default');
-    return '<span class="site-stats-src site-stats-src-' + esc(source) + '">' + esc(label) + '</span>';
-  }
-
-  function renderSiteStatsCardHtml() {
-    var d = S.siteStats && S.siteStats.data;
-    if (!d) return '';
-    var html = '<div class="site-stats-card">';
-    html += '<h3>Website stats</h3>';
-    html += '<div class="site-stats-note">These numbers appear on the public marketing site (mygplink.com.au). '
-      + '"Live" values are computed from real data and update automatically. Type a number to override one; '
-      + 'leave a field blank to use the live/default value. Please keep them honest — visitors see these.</div>';
-    html += '<div class="site-stats-grid">';
-    SITE_STATS_FIELDS.forEach(function(f) {
-      var st = d[f.key];
-      if (!st) return;
-      html += '<div class="site-stats-field">';
-      html += '<label>' + esc(f.label) + ' ' + siteStatsSrcBadge(st.source) + '</label>';
-      if (f.readOnly) {
-        html += '<div class="site-stats-live">' + esc(String(st.value)) + '</div>';
-      } else {
-        // Placeholder = the server-computed effective value if the override
-        // were cleared (includes the gpsPlaced seed floor — never the raw
-        // near-zero live count).
-        var computed = (st.computed !== null && st.computed !== undefined) ? st.computed : st.default;
-        html += '<input type="number" min="0" step="1" data-site-stat-input="' + esc(f.key) + '" '
-          + 'value="' + (st.source === 'override' ? esc(String(st.override)) : '') + '" '
-          + 'placeholder="' + esc(String(computed)) + '">';
-        if (f.key === 'gpsPlaced' && st.live !== null && st.live !== undefined) {
-          // Honest info line: the REAL recorded placements count, so the owner
-          // can see the truth and decide whether to set an override. The public
-          // site never shows below the seed default unless overridden.
-          html += '<div class="site-stats-actual">Actual recorded placements: ' + esc(String(st.live)) + '</div>';
-        }
-      }
-      html += '</div>';
-    });
-    html += '</div>';
-    html += '<div class="site-stats-actions">';
-    html += '<button class="btn sm" data-site-stats-save>Save overrides</button>';
-    html += '<button class="btn sm ghost" data-site-stats-reset>Reset all to computed</button>';
-    html += '</div></div>';
-    return html;
-  }
-
-  function updateWebsiteEnqBadge() {
-    var badge = document.getElementById('websiteEnqBadge');
-    if (!badge) return;
-    var newCount = (S.siteEnq.items || []).filter(function(en) { return en.status === 'new'; }).length;
-    if (newCount > 0) { badge.textContent = String(newCount); badge.style.display = ''; }
-    else badge.style.display = 'none';
-  }
-
-  async function loadSiteEnquiries() {
-    S.siteEnq.loading = true;
-    S.siteEnq.loadError = false;
-    try {
-      var r = await fetch('/api/admin/site-enquiries', { credentials: 'same-origin' });
-      var d = await r.json();
-      if (d && d.ok && Array.isArray(d.enquiries)) {
-        S.siteEnq.items = d.enquiries;
-      } else {
-        S.siteEnq.items = [];
-        S.siteEnq.loadError = true;
-      }
-    } catch (e) {
-      S.siteEnq.items = [];
-      S.siteEnq.loadError = true;
-    }
-    S.siteEnq.loading = false;
-  }
-
-  async function renderSiteEnquiriesPanel() {
-    var panel = document.getElementById('siteEnquiriesPanel');
-    if (!panel) return;
-    panel.innerHTML = '<div class="site-enq-panel"><h2>Website enquiries</h2><div style="color:var(--muted);font-size:13px">Loading...</div></div>';
-    await Promise.all([loadSiteEnquiries(), loadSiteStats()]);
-    updateWebsiteEnqBadge();
-    renderSiteEnquiriesPanelBody();
-  }
-
-  function siteEnqKindBadge(kind) {
-    var label = SITE_ENQ_KIND_LABEL[kind] || kind || 'Unknown';
-    var cls = (kind === 'practice' || kind === 'gp' || kind === 'general') ? kind : 'general';
-    return '<span class="site-enq-kind site-enq-kind-' + cls + '">' + esc(label) + '</span>';
-  }
-
-  function renderSiteEnquiriesPanelBody() {
-    var panel = document.getElementById('siteEnquiriesPanel');
-    if (!panel) return;
-    var items = S.siteEnq.items || [];
-    var filter = S.siteEnq.filter || '';
-    var filtered = filter ? items.filter(function(en) { return en.status === filter; }) : items;
-
-    var html = '<div class="site-enq-panel"><h2>Website enquiries</h2>';
-    html += renderSiteStatsCardHtml();
-    html += '<div class="site-enq-filters">';
-    [['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['converted', 'Converted'], ['closed', 'Closed']].forEach(function(p) {
-      html += '<button class="hub-filt ' + (filter === p[0] ? 'active' : '') + '" data-site-enq-filter="' + esc(p[0]) + '">' + esc(p[1]) + '</button>';
-    });
-    // Phase 6 E1 (audit B3): CSV download of all enquiries (super-admin only —
-    // the export endpoint is CEO-session gated).
-    html += '<a class="hub-filt" href="/api/admin/export?entity=enquiries&format=csv" style="margin-left:auto;text-decoration:none">Export CSV</a>';
-    html += '</div>';
-
-    if (S.siteEnq.loadError) {
-      html += '<div class="empty">Could not load website enquiries. Try again.</div>';
-    } else if (!filtered.length) {
-      html += '<div class="empty">' + (filter ? 'No ' + esc((SITE_ENQ_STATUS_LABEL[filter] || filter).toLowerCase()) + ' enquiries.' : 'No website enquiries yet.') + '</div>';
-    } else {
-      filtered.forEach(function(en) {
-        var expanded = !!S.siteEnq.expandedIds[en.id];
-        var msg = en.message || '';
-        var isLong = msg.length > SITE_ENQ_MESSAGE_TRUNCATE;
-        var shown = (expanded || !isLong) ? msg : (msg.slice(0, SITE_ENQ_MESSAGE_TRUNCATE) + '…');
-        html += '<div class="site-enq-row" data-site-enq-id="' + esc(en.id) + '">';
-        html += '<div class="site-enq-row-top">';
-        html += '<span class="site-enq-when">' + esc(iqTimeAgo(en.created_at)) + '</span>';
-        html += siteEnqKindBadge(en.kind);
-        html += '<span class="site-enq-name">' + esc(en.name || '') + '</span>';
-        html += '<span class="site-enq-contact">' + esc(en.email || '') + (en.phone ? ' · ' + esc(en.phone) : '') + '</span>';
-        if (en.practice_name) html += '<span class="site-enq-meta">' + esc(en.practice_name) + '</span>';
-        if (en.state) html += '<span class="site-enq-meta">' + esc(en.state) + '</span>';
-        html += '<span class="site-enq-status site-enq-status-' + esc(en.status || '') + '">' + esc(SITE_ENQ_STATUS_LABEL[en.status] || en.status) + '</span>';
-        html += '<span class="site-enq-actions">';
-        if (en.status === 'new') html += '<button class="btn sm" data-site-enq-action="contacted" data-site-enq-id="' + esc(en.id) + '">Mark contacted</button>';
-        // Phase 6 E2: one-click enquiry → practice conversion (creates the
-        // practice row + sends the intake email; idempotent server-side).
-        if (en.status === 'new' || en.status === 'contacted') html += '<button class="btn sm" data-site-enq-convert="' + esc(en.id) + '">Create practice &amp; send intake</button>';
-        if (en.status !== 'closed' && en.status !== 'converted') html += '<button class="btn sm ghost" data-site-enq-action="closed" data-site-enq-id="' + esc(en.id) + '">Close</button>';
-        html += '</span>';
-        html += '</div>';
-        if (msg) {
-          html += '<div class="site-enq-message">' + esc(shown);
-          if (isLong) html += ' <a href="#" data-site-enq-toggle="' + esc(en.id) + '">' + (expanded ? 'Show less' : 'Show more') + '</a>';
-          html += '</div>';
-        }
-        html += '</div>';
-      });
-    }
-    html += '</div>';
-    panel.innerHTML = html;
-  }
-
-  // Delegated click handling for the Website enquiries panel: filter pills,
-  // message expand/collapse, and the two status-workflow action buttons.
-  document.addEventListener('click', async function(e) {
-    var filterBtn = e.target.closest('[data-site-enq-filter]');
-    if (filterBtn) {
-      S.siteEnq.filter = filterBtn.getAttribute('data-site-enq-filter');
-      renderSiteEnquiriesPanelBody();
-      return;
-    }
-    var toggleBtn = e.target.closest('[data-site-enq-toggle]');
-    if (toggleBtn) {
-      e.preventDefault();
-      var toggleId = toggleBtn.getAttribute('data-site-enq-toggle');
-      S.siteEnq.expandedIds[toggleId] = !S.siteEnq.expandedIds[toggleId];
-      renderSiteEnquiriesPanelBody();
-      return;
-    }
-    // Phase 6 E2: website stats editor save / reset.
-    var statsSaveBtn = e.target.closest('[data-site-stats-save]');
-    var statsResetBtn = e.target.closest('[data-site-stats-reset]');
-    if (statsSaveBtn || statsResetBtn) {
-      var statsBtn = statsSaveBtn || statsResetBtn;
-      var overrides = {};
-      if (statsSaveBtn) {
-        var invalid = null;
-        document.querySelectorAll('[data-site-stat-input]').forEach(function(inp) {
-          var key = inp.getAttribute('data-site-stat-input');
-          var raw = String(inp.value || '').trim();
-          if (!raw) return; // blank = use computed
-          var num = Number(raw);
-          if (!isFinite(num) || num < 0) { invalid = key; return; }
-          overrides[key] = num;
-        });
-        if (invalid) { toast('Enter a valid non-negative number', 'red'); return; }
-      }
-      if (statsResetBtn && !window.confirm('Clear every override and show the live/default values on the public site?')) return;
-      statsBtn.disabled = true;
-      try {
-        var sr = await fetch('/api/admin/site-stats', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ overrides: overrides })
-        });
-        var sd = await sr.json();
-        if (sd && sd.ok && sd.stats) {
-          S.siteStats.data = sd.stats;
-          renderSiteEnquiriesPanelBody();
-          toast(statsResetBtn ? 'Website stats reset to computed values' : 'Website stats saved', 'green');
-        } else {
-          statsBtn.disabled = false;
-          toast((sd && sd.error) || 'Could not save website stats', 'red');
-        }
-      } catch (err) {
-        statsBtn.disabled = false;
-        toast('Could not save website stats', 'red');
-      }
-      return;
-    }
-
-    // Phase 6 E2: one-click enquiry → practice conversion.
-    var convertBtn = e.target.closest('[data-site-enq-convert]');
-    if (convertBtn) {
-      var convId = convertBtn.getAttribute('data-site-enq-convert');
-      if (!window.confirm('Create a practice from this enquiry and email them the intake link?')) return;
-      convertBtn.disabled = true;
-      try {
-        var cr = await fetch('/api/admin/enquiry/convert', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enquiryId: convId })
-        });
-        var cd = await cr.json();
-        if (cd && cd.ok) {
-          var convRow = (S.siteEnq.items || []).find(function(en) { return en.id === convId; });
-          if (convRow) convRow.status = 'converted';
-          updateWebsiteEnqBadge();
-          renderSiteEnquiriesPanelBody();
-          toast(cd.alreadyConverted ? 'Already converted — practice exists'
-            : (cd.email_sent ? 'Practice created & intake email sent' : 'Practice created (intake email not sent — check email settings)'), 'green');
-        } else {
-          convertBtn.disabled = false;
-          toast((cd && cd.error) || 'Could not convert enquiry', 'red');
-        }
-      } catch (err) {
-        convertBtn.disabled = false;
-        toast('Could not convert enquiry', 'red');
-      }
-      return;
-    }
-
-    var actionBtn = e.target.closest('[data-site-enq-action]');
-    if (actionBtn) {
-      var enqId = actionBtn.getAttribute('data-site-enq-id');
-      var newStatus = actionBtn.getAttribute('data-site-enq-action');
-      actionBtn.disabled = true;
-      try {
-        var r = await fetch('/api/admin/site-enquiries/update', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: enqId, status: newStatus })
-        });
-        var d = await r.json();
-        if (d && d.ok) {
-          var row = (S.siteEnq.items || []).find(function(en) { return en.id === enqId; });
-          if (row) row.status = newStatus;
-          updateWebsiteEnqBadge();
-          renderSiteEnquiriesPanelBody();
-        } else {
-          actionBtn.disabled = false;
-          toast('Could not update enquiry', 'red');
-        }
-      } catch (err) {
-        actionBtn.disabled = false;
-        toast('Could not update enquiry', 'red');
-      }
-    }
-  });
 
   // ── Call History Sub-Tab (Task 15) ────────────────────────────
   function renderGpCallHistoryPane(c) {

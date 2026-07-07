@@ -18345,7 +18345,10 @@ function parseCareerRolePublicId(publicId) {
 // Separate from mapCareerRoleRowToClient/career.html's richer, AI-enriched shape —
 // the public marketing site only ever sees the raw whitelisted columns below and
 // must never see source_payload or any other GP-Link-internal metadata.
-const SITE_STATS = { locations: 830, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100, jobsFallback: 1470 };
+// The marketing-site headline numbers are STATIC: fixed, owner-set figures
+// served verbatim by GET /api/public/stats. There is no live computation and
+// no admin editor — the website tab that used to edit these was removed.
+const SITE_STATS = { jobsCount: 240, locations: 230, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100 };
 // practice_name is NEVER whitelisted here — the marketing site (no session,
 // no reveal gate) must only ever see the masked title/display_label. See
 // canRevealPracticeIdentity() below for the session-gated in-app equivalent.
@@ -18358,7 +18361,6 @@ const PUBLIC_JOB_FIELDS = [
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
 const PUBLIC_JOBS_COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-let _publicJobsCountCache = null; // { value, at }
 let _publicJobsRowsCache = null; // { rows, at }
 
 function mapCareerRoleRowToPublicJob(row) {
@@ -18476,39 +18478,10 @@ function buildPublicJobsResponse(rows, searchParams) {
   return { ok: true, total, limit, offset, jobs: paged };
 }
 
-// Live count of active career_roles for /api/public/stats.jobsCount. Queries
-// directly (rather than via listCareerRoleRows) so it can distinguish a real
-// "zero active roles" result (data.length === 0) from a failed/unconfigured
-// read (null) — listCareerRoleRows collapses both cases to [].
-async function getActiveCareerRoleCountForStats() {
-  if (!isSupabaseDbConfigured()) return null;
-  const result = await supabaseDbRequest('career_roles', 'select=id&is_active=eq.true');
-  if (!result.ok || !Array.isArray(result.data)) return null;
-  return result.data.length;
-}
-
-async function getPublicJobsCount() {
-  const now = Date.now();
-  // Reuse the rows cache (below) when it's fresh — same underlying data, one
-  // fewer Supabase round trip. Falls through to the dedicated count query
-  // (and its own fallback semantics) whenever the rows cache is cold/stale,
-  // so a rows-cache miss never changes what a stats-only caller sees.
-  if (_publicJobsRowsCache && (now - _publicJobsRowsCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
-    return _publicJobsRowsCache.rows.length;
-  }
-  if (_publicJobsCountCache && (now - _publicJobsCountCache.at) < PUBLIC_JOBS_COUNT_CACHE_TTL_MS) {
-    return _publicJobsCountCache.value;
-  }
-  const liveCount = await getActiveCareerRoleCountForStats();
-  if (liveCount === null) return SITE_STATS.jobsFallback; // data failure — don't cache, retry live next call
-  _publicJobsCountCache = { value: liveCount, at: now };
-  return liveCount;
-}
-
 // Live (uncached) read of all active career_roles rows for the public jobs
 // listing. Queries directly (rather than via listCareerRoleRows) so it can
 // distinguish a real "zero active roles" result ([]) from a failed/
-// unconfigured read (null) — mirrors getActiveCareerRoleCountForStats above.
+// unconfigured read (null).
 async function getActivePublicJobRowsLive() {
   if (!isSupabaseDbConfigured()) return null;
   const result = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc');
@@ -18520,8 +18493,7 @@ async function getActivePublicJobRowsLive() {
   return result.data.filter((row) => !row.approval_status || row.approval_status === 'approved');
 }
 
-// Cached read for GET /api/public/jobs — same 5-min-TTL style as
-// getPublicJobsCount()/_publicJobsCountCache above, so an anonymous, no-auth
+// Cached read for GET /api/public/jobs — 5-min TTL so an anonymous, no-auth
 // endpoint can't be hammered into issuing a full career_roles select on every
 // request. `fetcher` defaults to the real live read and is only ever
 // overridden by tests (to exercise the caching/TTL/fallback logic without a
@@ -18550,160 +18522,6 @@ async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
 // an injected `fetcher` instead of a live Supabase connection.
 function __getPublicJobsRowsCacheForTest() { return _publicJobsRowsCache; }
 function __setPublicJobsRowsCacheForTest(entry) { _publicJobsRowsCache = entry; }
-
-// ── Phase 6 E2 (audit B5): owner-editable public site stats ────────────────
-// The marketing-site stats were hardcoded in SITE_STATS. Effective value
-// precedence, PER STAT:
-//   1. owner override — stored in runtime_kv key 'site_stats_overrides'
-//      (Supabase) / dbState.siteStatsOverrides (local JSON dev fallback);
-//      an explicit override ALWAYS wins, even when lower than the default;
-//   2. live-computed value where one exists — gpsPlaced derives from the real
-//      placements count (placements table, falling back to gp_applications at
-//      status placement_secured) — but a live value only takes effect once it
-//      EXCEEDS the hardcoded SITE_STATS seed. The in-app placements table is
-//      new and starts near-empty; without this floor the public site would
-//      show "0 GPs placed" (or 3, or 12) instead of the long-standing 150.
-//      The seed is the floor; real growth takes over past it;
-//   3. the hardcoded SITE_STATS default.
-// jobsCount is the exception: it is ALWAYS live (getPublicJobsCount, with
-// SITE_STATS.jobsFallback only on data failure) and has no override — the
-// live board is the truth for how many jobs are on the live board.
-const SITE_STATS_OVERRIDES_KV_KEY = 'site_stats_overrides';
-const SITE_STATS_OVERRIDE_KEYS = ['locations', 'avgPlacementDays', 'gpsPlaced', 'satisfaction'];
-const SITE_STATS_OVERRIDE_MAX = 1000000;
-
-// Coerces a stored/posted overrides object down to whitelisted keys with
-// clean non-negative integers. Anything else is dropped, never thrown on —
-// a corrupted KV row must not take the public stats endpoint down.
-function sanitizeStoredSiteStatsOverrides(raw) {
-  const source = raw && typeof raw === 'object' ? raw : {};
-  const out = {};
-  for (const key of SITE_STATS_OVERRIDE_KEYS) {
-    const num = Number(source[key]);
-    if (Number.isFinite(num) && num >= 0 && num <= SITE_STATS_OVERRIDE_MAX) out[key] = Math.round(num);
-  }
-  return out;
-}
-
-// Pure validation for POST /api/admin/site-stats (same exported-pure-function
-// convention as validateSiteEnquiryPayload). The posted overrides REPLACE the
-// stored set: omitted / null / '' fields mean "no override — use computed",
-// so "reset to computed" is simply posting {}. Returns { ok, overrides|error }.
-function validateSiteStatsOverridesPayload(body) {
-  const raw = (body && typeof body === 'object')
-    ? ((body.overrides && typeof body.overrides === 'object') ? body.overrides : body)
-    : {};
-  const overrides = {};
-  for (const key of SITE_STATS_OVERRIDE_KEYS) {
-    if (!(key in raw)) continue;
-    const value = raw[key];
-    if (value === null || value === undefined || value === '') continue; // cleared → computed
-    const num = Number(value);
-    if (!Number.isFinite(num) || num < 0) {
-      return { ok: false, error: key + ' must be a non-negative number.' };
-    }
-    if (num > SITE_STATS_OVERRIDE_MAX) {
-      return { ok: false, error: key + ' is too large.' };
-    }
-    if (key === 'satisfaction' && num > 100) {
-      return { ok: false, error: 'satisfaction must be between 0 and 100.' };
-    }
-    overrides[key] = Math.round(num);
-  }
-  return { ok: true, overrides };
-}
-
-async function getSiteStatsOverrides() {
-  if (isSupabaseDbConfigured()) {
-    const record = await getRuntimeKv(SITE_STATS_OVERRIDES_KV_KEY).catch(() => null);
-    return sanitizeStoredSiteStatsOverrides(record && record.value);
-  }
-  return sanitizeStoredSiteStatsOverrides(dbState.siteStatsOverrides);
-}
-
-async function setSiteStatsOverrides(overrides) {
-  const clean = sanitizeStoredSiteStatsOverrides(overrides);
-  if (isSupabaseDbConfigured()) {
-    return setRuntimeKv(SITE_STATS_OVERRIDES_KV_KEY, clean, null);
-  }
-  dbState.siteStatsOverrides = clean;
-  saveDbState();
-  return true;
-}
-
-function __resetSiteStatsOverridesForTest() { dbState.siteStatsOverrides = {}; saveDbState(); }
-function __seedAtsPlacementsForTest(rows) { dbState.atsPlacements = Array.isArray(rows) ? rows.slice() : []; saveDbState(); }
-
-// Real "GPs placed" count: placement-of-record rows first, then the
-// gp_applications placement_secured fallback (same pair the CEO placements
-// list + CSV export use). Returns the ACTUAL recorded count — including 0 —
-// so the admin editor can honestly show "Actual recorded placements: N".
-// Returns null only when the count could not be read at all. The public
-// seed-floor (never show below SITE_STATS.gpsPlaced) is applied by
-// buildSiteStatsAdminView, not here.
-async function getGpsPlacedLiveCount() {
-  try {
-    let rows = await atsOffersStore.listAtsPlacements({ limit: 200 });
-    if ((!rows || !rows.length) && isSupabaseDbConfigured()) {
-      rows = await atsDerivePlacementsFromCareerState(200);
-    }
-    return Array.isArray(rows) ? rows.length : 0;
-  } catch (err) {
-    return null;
-  }
-}
-
-// Admin editor view: every stat with its effective value, where it came from
-// ('override' | 'live' | 'default') and the underlying live/default/override
-// values, so the UI can honestly show what the public site is displaying.
-async function buildSiteStatsAdminView() {
-  const [jobsCount, overrides, gpsPlacedLive] = await Promise.all([
-    getPublicJobsCount(),
-    getSiteStatsOverrides(),
-    getGpsPlacedLiveCount()
-  ]);
-  const liveValues = { gpsPlaced: gpsPlacedLive };
-  const view = {
-    jobsCount: {
-      value: jobsCount,
-      source: 'live',
-      live: jobsCount,
-      default: SITE_STATS.jobsFallback,
-      override: null
-    }
-  };
-  for (const key of SITE_STATS_OVERRIDE_KEYS) {
-    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, key);
-    const live = (liveValues[key] !== null && liveValues[key] !== undefined) ? liveValues[key] : null;
-    // Seed floor: a live-derived value only replaces the hardcoded seed once
-    // it genuinely EXCEEDS it. Never let a young/empty live table drag a
-    // public marketing number below its long-standing default. An explicit
-    // owner override still always wins, even if lower.
-    const liveWins = live !== null && live > SITE_STATS[key];
-    const computed = liveWins ? live : SITE_STATS[key];
-    view[key] = {
-      value: hasOverride ? overrides[key] : computed,
-      source: hasOverride ? 'override' : (liveWins ? 'live' : 'default'),
-      live,
-      computed, // effective value if the override were cleared (editor placeholder)
-      default: SITE_STATS[key],
-      override: hasOverride ? overrides[key] : null
-    };
-  }
-  return view;
-}
-
-// Flat shape for GET /api/public/stats — exactly the effective values.
-async function buildPublicSiteStats() {
-  const view = await buildSiteStatsAdminView();
-  return {
-    jobsCount: view.jobsCount.value,
-    locations: view.locations.value,
-    avgPlacementDays: view.avgPlacementDays.value,
-    gpsPlaced: view.gpsPlaced.value,
-    satisfaction: view.satisfaction.value
-  };
-}
 
 // ── Phase 6 E2: job SEO — schema.org JobPosting JSON-LD + meta injection ───
 // LEAK SAFETY: everything below builds ONLY from the already-sanitized public
@@ -18881,13 +18699,6 @@ async function buildSitemapXmlBody() {
 // (local JSON-db dev fallback); consumed by the admin Website tab (task 13).
 const SITE_ENQUIRY_KINDS = ['practice', 'gp', 'general'];
 const SITE_ENQUIRY_STATUSES = ['new', 'contacted', 'closed'];
-// 'converted' is set ONLY by POST /api/admin/enquiry/convert (which creates
-// the practice + sends the intake email) — never by the manual status-update
-// endpoint, so an enquiry can't be hand-marked converted without a practice.
-// List filtering accepts it; SITE_ENQUIRY_STATUSES stays the manual set.
-// Live prod CHECK verified 2026-07-06 before widening (migration
-// 20260706200000): status IN ('new','contacted','closed').
-const SITE_ENQUIRY_LIST_STATUSES = SITE_ENQUIRY_STATUSES.concat(['converted']);
 const SITE_ENQUIRY_MESSAGE_MAX = 4000;
 const SITE_ENQUIRY_FIELD_CAPS = { name: 200, email: 200, practice_name: 200, state: 200, phone: 40 };
 
@@ -18993,9 +18804,10 @@ function __seedSiteEnquiriesForTest(rows) {
   saveDbState();
 }
 
-// Admin list — consumed by GET /api/admin/site-enquiries (task 13). Same
+// Enquiry list — consumed by the CEO CSV export (exportRowsForEnquiries). Same
 // dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
-// in local-JSON-db dev/test mode. Always returns newest-first.
+// in local-JSON-db dev/test mode. Always returns newest-first. (The in-admin
+// "Website" tab that used to render this list was removed.)
 async function listSiteEnquiryRows(status) {
   if (isSupabaseDbConfigured()) {
     let query = 'select=*&order=created_at.desc';
@@ -19006,77 +18818,6 @@ async function listSiteEnquiryRows(status) {
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries.slice() : [];
   const filtered = status ? rows.filter((r) => r.status === status) : rows;
   return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-}
-
-// Admin status update — consumed by POST /api/admin/site-enquiries/update
-// (task 13). Returns { ok, notFound } so the route can distinguish a missing
-// row (404) from a genuine write failure (500).
-async function updateSiteEnquiryStatus(id, status) {
-  if (isSupabaseDbConfigured()) {
-    const existing = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id) + '&select=id', { method: 'GET' });
-    if (!existing.ok || !Array.isArray(existing.data) || existing.data.length === 0) {
-      return { ok: false, notFound: true };
-    }
-    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status }
-    });
-    return { ok: !!r.ok, notFound: false };
-  }
-  dbState.siteEnquiries = dbState.siteEnquiries || [];
-  const row = dbState.siteEnquiries.find((r) => r.id === id);
-  if (!row) return { ok: false, notFound: true };
-  row.status = status;
-  saveDbState();
-  return { ok: true, notFound: false };
-}
-
-// ── Phase 6 E2: enquiry → practice conversion helpers ───────────────────────
-async function getSiteEnquiryRowById(id) {
-  const key = String(id || '').trim();
-  if (!key) return null;
-  if (isSupabaseDbConfigured()) {
-    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(key) + '&select=*&limit=1', { method: 'GET' });
-    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
-  }
-  return (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).find((r) => String(r.id) === key) || null;
-}
-
-// Marks an enquiry converted and stashes the created practice id in metadata
-// (metadata.converted_practice_id is ALSO the idempotency key for the convert
-// endpoint). If the status CHECK hasn't been widened to include 'converted'
-// yet (migration 20260706200000 unapplied), the status PATCH fails — retry
-// with the metadata alone so idempotency still holds and no duplicate
-// practice can ever be created by a second click.
-async function markSiteEnquiryConverted(id, practiceId) {
-  const nowIso = new Date().toISOString();
-  if (isSupabaseDbConfigured()) {
-    const existing = await getSiteEnquiryRowById(id);
-    if (!existing) return { ok: false, statusSet: false };
-    const metadata = Object.assign(
-      {},
-      (existing.metadata && typeof existing.metadata === 'object') ? existing.metadata : {},
-      { converted_practice_id: String(practiceId || ''), converted_at: nowIso }
-    );
-    const full = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(String(id)), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'converted', metadata }
-    });
-    if (full.ok) return { ok: true, statusSet: true };
-    console.error('[enquiry-convert] status=converted rejected (migration 20260706200000 unapplied?) — recording metadata only');
-    const metaOnly = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(String(id)), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { metadata }
-    });
-    return { ok: !!metaOnly.ok, statusSet: false };
-  }
-  const row = (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).find((r) => String(r.id) === String(id));
-  if (!row) return { ok: false, statusSet: false };
-  row.status = 'converted';
-  row.metadata = Object.assign(
-    {},
-    (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
-    { converted_practice_id: String(practiceId || ''), converted_at: nowIso }
-  );
-  saveDbState();
-  return { ok: true, statusSet: true };
 }
 
 // ── Phase 6 E1 (audit B3/B4): admin CSV exports + lead/archive browser ──────
@@ -31628,11 +31369,9 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/public/stats' && req.method === 'GET') {
-    // Phase 6 E2 (audit B5): per-stat precedence owner override > live-derived
-    // (gpsPlaced ← placements, only once it exceeds the SITE_STATS seed —
-    // never below the seed publicly) > SITE_STATS default; jobsCount always live.
-    const publicStats = await buildPublicSiteStats();
-    sendJson(res, 200, Object.assign({ ok: true }, publicStats));
+    // Static marketing-site figures — served verbatim from SITE_STATS. No live
+    // computation and no owner override (the admin website tab was removed).
+    sendJson(res, 200, Object.assign({ ok: true }, SITE_STATS));
     return;
   }
 
@@ -32607,216 +32346,6 @@ async function handleApi(req, res, pathname) {
     await maybeNotifySiteEnquiry(row);
 
     sendJson(res, 200, { ok: true });
-    return;
-  }
-
-  // GET /api/admin/site-enquiries — list marketing-site enquiries for the
-  // admin "Website" tab (task 13), newest-first, optional ?status= filter.
-  if (pathname === '/api/admin/site-enquiries' && req.method === 'GET') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    const statusFilter = String(url.searchParams.get('status') || '').trim();
-    if (statusFilter && !SITE_ENQUIRY_LIST_STATUSES.includes(statusFilter)) {
-      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_LIST_STATUSES.join(', ') + '.' });
-      return;
-    }
-    const enquiries = await listSiteEnquiryRows(statusFilter);
-    sendJson(res, 200, { ok: true, enquiries });
-    return;
-  }
-
-  // POST /api/admin/site-enquiries/update — change an enquiry's status
-  // (task 13 admin workflow: new -> contacted -> closed).
-  if (pathname === '/api/admin/site-enquiries/update' && req.method === 'POST') {
-    const admin = requireAdminSession(req, res);
-    if (!admin) return;
-    let body;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
-      return;
-    }
-    const id = String((body && body.id) || '').trim();
-    const status = String((body && body.status) || '').trim();
-    if (!id) {
-      sendJson(res, 400, { ok: false, error: 'id is required.' });
-      return;
-    }
-    if (!SITE_ENQUIRY_STATUSES.includes(status)) {
-      sendJson(res, 400, { ok: false, error: 'status must be one of: ' + SITE_ENQUIRY_STATUSES.join(', ') + '.' });
-      return;
-    }
-    const result = await updateSiteEnquiryStatus(id, status);
-    if (result.notFound) {
-      sendJson(res, 404, { ok: false, error: 'Enquiry not found.' });
-      return;
-    }
-    if (!result.ok) {
-      sendJson(res, 500, { ok: false, error: 'Failed to update enquiry.' });
-      return;
-    }
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-
-  // ── Phase 6 E2: POST /api/admin/enquiry/convert ──────────────────────────
-  // One-click "Create practice & send intake" on a website enquiry: creates a
-  // practices row from the enquiry's contact details, sends the themed intake
-  // email (same sendPracticeIntakeEmail the FB-lead webhook uses), and marks
-  // the enquiry status='converted' with metadata.converted_practice_id.
-  // Idempotent: a second call returns the existing practice, creates nothing
-  // and sends nothing. Guard matches the enquiries panel (requireAdminSession).
-  if (pathname === '/api/admin/enquiry/convert' && req.method === 'POST') {
-    const cvAdmin = requireAdminSession(req, res);
-    if (!cvAdmin) return;
-    let cvBody;
-    try {
-      cvBody = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
-      return;
-    }
-    const cvEnquiryId = String((cvBody && (cvBody.enquiryId || cvBody.id)) || '').trim();
-    if (!cvEnquiryId) {
-      sendJson(res, 400, { ok: false, error: 'enquiryId is required.' });
-      return;
-    }
-    const cvEnquiry = await getSiteEnquiryRowById(cvEnquiryId);
-    if (!cvEnquiry) {
-      sendJson(res, 404, { ok: false, error: 'Enquiry not found.' });
-      return;
-    }
-    const cvMeta = (cvEnquiry.metadata && typeof cvEnquiry.metadata === 'object') ? cvEnquiry.metadata : {};
-    if (cvEnquiry.status === 'converted' || cvMeta.converted_practice_id) {
-      sendJson(res, 200, {
-        ok: true,
-        alreadyConverted: true,
-        practice_id: String(cvMeta.converted_practice_id || '')
-      });
-      return;
-    }
-    if (!String(cvEnquiry.email || '').trim()) {
-      sendJson(res, 400, { ok: false, error: 'Enquiry has no contact email — cannot send an intake link.' });
-      return;
-    }
-
-    const cvName = String(cvEnquiry.name || '').trim();
-    const cvPracticeName = String(cvEnquiry.practice_name || '').trim()
-      || (cvName ? cvName + "'s practice" : 'Website enquiry practice');
-    const cvRow = {
-      name: cvPracticeName,
-      location_city: '',
-      location_state: String(cvEnquiry.state || '').trim(),
-      location_country: 'Australia',
-      practice_type: '',
-      contact_name: cvName,
-      contact_email: String(cvEnquiry.email || '').trim(),
-      contact_phone: String(cvEnquiry.phone || '').trim(),
-      ahpra_number: '',
-      source: 'website_enquiry',
-      is_active: true,
-      created_by: (cvAdmin && cvAdmin.email) || 'admin',
-      stage: 'prospective',
-      website: '',
-      intake_token: practicePipeline.generateIntakeToken(),
-      agreement_status: 'unsigned',
-      metadata: {
-        site_enquiry_id: String(cvEnquiry.id),
-        enquiry_kind: String(cvEnquiry.kind || ''),
-        enquiry_message: String(cvEnquiry.message || '').slice(0, 1000)
-      }
-    };
-
-    let cvCreated = null;
-    let cvDegraded = false;
-    try {
-      cvCreated = await atsInsertPracticeRow(cvRow);
-      if (!cvCreated && isSupabaseDbConfigured()) {
-        // Missing-column / CHECK tolerance (mirrors the FB-lead webhook): the
-        // pipeline migration (20260705100000) or the source-CHECK widening
-        // (20260706200000) may not be applied. Retry with the legacy column
-        // set + source 'manual' so the convert never 500s on lagging DDL.
-        console.error('[enquiry-convert] practices insert rejected — run migrations 20260705100000 + 20260706200000');
-        cvCreated = await atsInsertPracticeRow({
-          name: cvRow.name,
-          location_city: '',
-          location_state: cvRow.location_state,
-          location_country: 'Australia',
-          practice_type: '',
-          contact_name: cvRow.contact_name,
-          contact_email: cvRow.contact_email,
-          contact_phone: cvRow.contact_phone,
-          ahpra_number: '',
-          source: 'manual',
-          is_active: true,
-          created_by: cvRow.created_by
-        });
-        cvDegraded = true;
-      }
-    } catch (cvErr) {
-      console.error('[enquiry-convert] practice insert failed:', cvErr && cvErr.message);
-      cvCreated = null;
-    }
-    if (!cvCreated) {
-      sendJson(res, 500, { ok: false, error: 'Failed to create the practice from this enquiry.' });
-      return;
-    }
-
-    let cvEmailSent = false;
-    if (cvDegraded) {
-      // The legacy row can't persist an intake token — a link sent now would
-      // be dead. Same reasoning as the FB-lead webhook: skip the send; the
-      // owner can use "Resend intake email" once the migration is applied.
-      console.error('[enquiry-convert] intake token not persistable — intake email skipped');
-    } else {
-      const cvSendResult = await sendPracticeIntakeEmail(cvCreated).catch(function (e) {
-        console.error('[enquiry-convert] intake email send failed:', e && e.message);
-        return null;
-      });
-      cvEmailSent = !!(cvSendResult && cvSendResult.ok);
-    }
-
-    const cvMarked = await markSiteEnquiryConverted(cvEnquiry.id, cvCreated.id);
-    if (!cvMarked.ok) {
-      console.error('[enquiry-convert] failed to mark enquiry converted for', cvEnquiryId);
-    }
-
-    const cvResponse = { ok: true, practice_id: String(cvCreated.id), email_sent: cvEmailSent };
-    if (cvDegraded) cvResponse.degraded = true;
-    sendJson(res, 200, cvResponse);
-    return;
-  }
-
-  // ── Phase 6 E2 (audit B5): owner-editable public site stats ──────────────
-  if (pathname === '/api/admin/site-stats' && req.method === 'GET') {
-    const ssCtx = requireCeoSession(req, res);
-    if (!ssCtx) return;
-    sendJson(res, 200, { ok: true, stats: await buildSiteStatsAdminView() });
-    return;
-  }
-
-  if (pathname === '/api/admin/site-stats' && req.method === 'POST') {
-    const ssCtx = requireCeoSession(req, res);
-    if (!ssCtx) return;
-    let ssBody;
-    try {
-      ssBody = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
-      return;
-    }
-    const ssValidated = validateSiteStatsOverridesPayload(ssBody);
-    if (!ssValidated.ok) {
-      sendJson(res, 400, { ok: false, error: ssValidated.error });
-      return;
-    }
-    const ssSaved = await setSiteStatsOverrides(ssValidated.overrides);
-    if (!ssSaved) {
-      sendJson(res, 500, { ok: false, error: 'Failed to save the stats overrides.' });
-      return;
-    }
-    sendJson(res, 200, { ok: true, stats: await buildSiteStatsAdminView() });
     return;
   }
 
@@ -57203,29 +56732,17 @@ module.exports.__testUtils = {
   isInternalAtsRoleOpenForGp,
   canRevealPracticeIdentity,
   _applyGpRoleVisibilityGate,
-  getPublicJobsCount,
   getPublicJobsRows,
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
   SITE_STATS,
-  sanitizeStoredSiteStatsOverrides,
-  validateSiteStatsOverridesPayload,
-  getSiteStatsOverrides,
-  setSiteStatsOverrides,
-  getGpsPlacedLiveCount,
-  buildSiteStatsAdminView,
-  buildPublicSiteStats,
-  __resetSiteStatsOverridesForTest,
-  __seedAtsPlacementsForTest,
   mapEmploymentTypeToSchema,
   buildJobPostingJsonLd,
   injectJobSeoIntoHtml,
   renderSitemapXml,
   buildSitemapXmlBody,
   getBlogPostSlugs,
-  getSiteEnquiryRowById,
-  markSiteEnquiryConverted,
   validateSiteEnquiryPayload,
   isSiteEnquiryHoneypotFilled,
   checkSiteEnquiryRateLimit,
@@ -57235,7 +56752,6 @@ module.exports.__testUtils = {
   __seedSiteEnquiriesForTest,
   insertSiteEnquiryRow,
   listSiteEnquiryRows,
-  updateSiteEnquiryStatus,
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,

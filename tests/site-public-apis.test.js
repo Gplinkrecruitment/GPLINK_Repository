@@ -4,13 +4,13 @@ import crypto from 'crypto';
 
 // Coverage for the two new public (no-session) marketing-site APIs:
 //   GET /api/public/jobs  — sanitized, filtered, paginated read of career_roles
-//   GET /api/public/stats — SITE_STATS constants + a live (cached) jobsCount
+//   GET /api/public/stats — the static SITE_STATS constants, served verbatim
 //
 // Two test strategies, matching how the production code is structured:
 //  1. HTTP round-trip tests against a real booted server (Supabase left
 //     UNCONFIGURED, same pattern as tests/site-public-routes.test.js) — these
 //     prove the routes exist, require no session, and degrade gracefully
-//     (empty jobs list / SITE_STATS.jobsFallback) when there is no database.
+//     (empty jobs list) when there is no database.
 //  2. Direct unit tests against the exported __testUtils pure functions
 //     (mapCareerRoleRowToPublicJob, sanitizePublicJob, classifyPublicJobType,
 //     buildPublicJobsResponse) — these are the EXACT functions the live route
@@ -94,13 +94,13 @@ describe('GET /api/public/jobs (HTTP)', () => {
 });
 
 describe('GET /api/public/stats (HTTP)', () => {
-  it('is 200 with no session cookie and returns the exact SITE_STATS constants', async () => {
+  it('is 200 with no session cookie and returns the exact static SITE_STATS constants', async () => {
     const res = await get('/api/public/stats');
     expect(res.status).toBe(200);
     expect(res.json).toEqual({
       ok: true,
-      jobsCount: 1470, // SITE_STATS.jobsFallback — no Supabase configured in this boot
-      locations: 830,
+      jobsCount: 240, // static owner-set figure (no live computation any more)
+      locations: 230,
       avgPlacementDays: 22,
       gpsPlaced: 150,
       satisfaction: 100
