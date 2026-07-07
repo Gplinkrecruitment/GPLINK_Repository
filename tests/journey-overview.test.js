@@ -142,6 +142,19 @@ describe('pages/index.html — 7-stage journey surface', () => {
     expect(indexHtml).toContain("We couldn't refresh your latest progress");
   });
 
+  it('refresh check is resilient: retries, self-healing banner, 401 → sign-in', () => {
+    // One transient hiccup must not permanently brand the page (2026-07-07:
+    // owner saw a stuck banner while the server logged nothing but 200s).
+    // Retries before first showing the banner…
+    expect(indexHtml).toMatch(/checkServerState\(attempt \+ 1\)/);
+    // …keeps re-checking while visible so it hides itself on recovery…
+    expect(indexHtml).toMatch(/setInterval\(\(\) => checkServerState\(2\), 30000\)/);
+    expect(indexHtml).toContain('clearInterval(dataErrorRecheckTimer)');
+    // …and a dead session bounces to sign-in instead of claiming stale data.
+    expect(indexHtml).toContain('r.status === 401');
+    expect(indexHtml).toContain('"/pages/signin"');
+  });
+
   it('never uses the bare "RSO" abbreviation in GP-visible copy', () => {
     expect(indexHtml).not.toMatch(/\bRSO\b/);
   });

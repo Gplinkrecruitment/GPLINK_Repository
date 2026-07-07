@@ -1972,13 +1972,42 @@
     // ── Honest API-failure state for the dashboard's server refresh ──
     // The journey renders from locally cached progress; this check tells the
     // GP when the server copy couldn't be reached instead of failing silently.
-    function checkServerState() {
+    // A single transient hiccup must NOT brand the page: retry twice before
+    // showing the banner, keep re-checking while it's visible, hide it as
+    // soon as a check succeeds, and treat 401 as a dead session (bounce to
+    // sign-in like the server does for the page itself) rather than
+    // pretending the data may be out of date.
+    let dataErrorRecheckTimer = null;
+    function checkServerState(attempt) {
       const banner = document.getElementById("dataErrorBanner");
       if (!banner) return;
+      attempt = attempt || 0;
       fetch("/api/state", { credentials: "same-origin" })
-        .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-        .then(() => { banner.hidden = true; })
-        .catch(() => { banner.hidden = false; });
+        .then((r) => {
+          if (r.status === 401) {
+            try { (window.top || window).location.href = "/pages/signin"; }
+            catch (e) { window.location.href = "/pages/signin"; }
+            throw new Error("signed out");
+          }
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(() => {
+          banner.hidden = true;
+          if (dataErrorRecheckTimer) { clearInterval(dataErrorRecheckTimer); dataErrorRecheckTimer = null; }
+        })
+        .catch((err) => {
+          if (err && err.message === "signed out") return;
+          if (attempt < 2) {
+            setTimeout(() => checkServerState(attempt + 1), 1500 * (attempt + 1));
+            return;
+          }
+          banner.hidden = false;
+          // Keep watching so the banner clears itself once the connection recovers.
+          if (!dataErrorRecheckTimer) {
+            dataErrorRecheckTimer = setInterval(() => checkServerState(2), 30000);
+          }
+        });
     }
     const dataErrorRetryBtn = document.getElementById("dataErrorRetry");
     if (dataErrorRetryBtn) {
