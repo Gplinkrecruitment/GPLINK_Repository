@@ -68,25 +68,13 @@ describe('pages/visa.html — live status section', () => {
   });
 });
 
-describe('pages/visa.html — document checklist', () => {
-  it('has the checklist section with subclass-482 framing', () => {
-    expect(visaHtml).toContain('Visa document checklist');
-    expect(visaHtml).toContain('Subclass 482');
-  });
-
-  it('covers the core employer-sponsored document set', () => {
-    expect(visaHtml).toContain('Current passport');
-    expect(visaHtml).toContain('Sponsorship &amp; nomination documents');
-    expect(visaHtml).toContain('Signed employment contract');
-    expect(visaHtml).toContain('Health examination');
-    expect(visaHtml).toContain('Police &amp; character checks');
-    expect(visaHtml).toContain('English language evidence');
-    expect(visaHtml).toContain('Dependant documents');
-  });
-
-  it('frames who provides each item', () => {
-    expect(visaHtml).toContain('You provide');
-    expect(visaHtml).toContain('We arrange');
+describe('pages/visa.html — document checklist removed (owner request 2026-07-08)', () => {
+  it('carries no visa document checklist card or leftover checklist markup/styles', () => {
+    expect(visaHtml).not.toContain('Visa document checklist');
+    expect(visaHtml).not.toContain('visa-checklist');
+    expect(visaHtml).not.toContain('visa-check-item');
+    expect(visaHtml).not.toContain('You provide');
+    expect(visaHtml).not.toContain('We arrange');
   });
 });
 

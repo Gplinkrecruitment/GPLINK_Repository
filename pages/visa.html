@@ -438,33 +438,6 @@
       border-radius: 999px; cursor: pointer;
     }
     .visa-error button:hover { border-color: var(--gp-blue-border); }
-    .visa-checklist { list-style: none; display: grid; gap: 0; }
-    .visa-check-item {
-      display: flex; align-items: flex-start; gap: var(--sp-3);
-      padding: var(--sp-3) 0;
-      border-top: 1px solid var(--border);
-    }
-    .visa-check-icon {
-      width: 18px; height: 18px; flex-shrink: 0;
-      border: 2px solid var(--gp-blue-border); border-radius: 6px;
-      margin-top: 2px;
-      background:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E") center / 10px no-repeat;
-    }
-    .visa-check-info { flex: 1; min-width: 0; }
-    .visa-check-title { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.4; }
-    .visa-check-desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.55; margin-top: 1px; }
-    .visa-check-badge {
-      flex-shrink: 0; padding: 3px 10px; border-radius: 999px;
-      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
-      white-space: nowrap; margin-top: 2px;
-    }
-    .visa-check-badge.you { background: var(--gp-surface-sunken); color: var(--ink-soft); border: 1px solid var(--border); }
-    .visa-check-badge.us { background: var(--gp-blue-soft); color: var(--gp-blue-ink, #1d4ed8); border: 1px solid var(--gp-blue-border); }
-    @media (max-width: 480px) {
-      .visa-check-badge { display: none; }
-    }
-
     /* ---- MODAL ---- */
     .modal {
       position: fixed; inset: 0;
@@ -656,78 +629,6 @@
             <button class="btn-modern btn-primary" id="contactOfficerBtn" type="button">Contact your Registration Support Officer</button>
           </div>
         </div>
-      </div>
-
-      <!-- DOCUMENT CHECKLIST -->
-      <div class="visa-card gp-reveal gp-reveal-4">
-        <h3 class="visa-card-title">Visa document checklist</h3>
-        <p class="visa-card-sub">Typical documents for an employer-sponsored Subclass 482 application. Your Registration Support Officer will confirm exactly which apply to you and request each one when it's needed — nothing is due until we ask.</p>
-        <ul class="visa-checklist">
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Current passport</div>
-              <div class="visa-check-desc">Colour copy of the photo page for you and every dependant travelling with you. Check it stays valid well past your planned start date.</div>
-            </div>
-            <span class="visa-check-badge you">You provide</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Signed employment contract</div>
-              <div class="visa-check-desc">Your contract with the sponsoring practice — finalised as part of securing your placement.</div>
-            </div>
-            <span class="visa-check-badge us">We arrange</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Sponsorship &amp; nomination documents</div>
-              <div class="visa-check-desc">Your practice's Standard Business Sponsorship and the nomination of your position — prepared with the practice on your behalf.</div>
-            </div>
-            <span class="visa-check-badge us">We arrange</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Qualifications &amp; registration evidence</div>
-              <div class="visa-check-desc">Medical degree, specialist qualifications and your AHPRA registration — largely reused from the documents already in your GP Link file.</div>
-            </div>
-            <span class="visa-check-badge you">You provide</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">English language evidence</div>
-              <div class="visa-check-desc">IELTS/OET results or passport-based exemption (for example UK or Irish citizens) — the same evidence used for your registration.</div>
-            </div>
-            <span class="visa-check-badge you">You provide</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Health examination</div>
-              <div class="visa-check-desc">Immigration medical through Bupa Medical Visa Services (or an approved panel clinic overseas). We send you the referral with your HAP ID when it's time to book.</div>
-            </div>
-            <span class="visa-check-badge us">We arrange the referral</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Police &amp; character checks</div>
-              <div class="visa-check-desc">A police certificate from each country you've lived in for 12 months or more during the last 10 years, for you and adult dependants.</div>
-            </div>
-            <span class="visa-check-badge you">You provide</span>
-          </li>
-          <li class="visa-check-item">
-            <span class="visa-check-icon" aria-hidden="true"></span>
-            <div class="visa-check-info">
-              <div class="visa-check-title">Dependant documents</div>
-              <div class="visa-check-desc">Marriage certificate and children's birth certificates for family members included on the application.</div>
-            </div>
-            <span class="visa-check-badge you">You provide</span>
-          </li>
-        </ul>
       </div>
 
       <!-- ALTERNATIVE PATHWAY (inline support text) -->
