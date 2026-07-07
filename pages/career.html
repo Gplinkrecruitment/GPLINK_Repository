@@ -5076,6 +5076,7 @@
       max-height: calc(100dvh - 32px);
       max-height: calc(100dvh - 32px - max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
       overflow: auto;
+      overscroll-behavior: contain; /* card scroll must not chain to the page at its edges */
       background: var(--gp-surface);
       border-radius: var(--gp-r-xl);
       border: 1px solid var(--gp-border);
@@ -5212,6 +5213,17 @@
 
     .career-gate-modal.is-open {
       display: flex;
+    }
+
+    /* While the gate modal is open the page behind must not scroll: gestures
+       starting on the backdrop fall through to the document otherwise. The
+       lock must sit on html too — body overflow stops propagating to the
+       viewport once html has overflow-x: hidden. The gate opens at page load
+       (scroll position 0), so no jump on lock. */
+    html.career-gate-open,
+    body.career-gate-open {
+      overflow: hidden;
+      overscroll-behavior: none;
     }
 
     .career-gate-top {
@@ -12586,8 +12598,8 @@
        must never lock the page (fails open). */
     var careerGateState = { cvVerified: false, checked: false };
     function careerGateEl(id) { return document.getElementById(id); }
-    function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); } }
-    function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } }
+    function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); document.documentElement.classList.add('career-gate-open'); document.body.classList.add('career-gate-open'); } }
+    function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } document.documentElement.classList.remove('career-gate-open'); document.body.classList.remove('career-gate-open'); }
 
     function careerGateSetScanState(state, opts) {
       ['careerGateScanChecking', 'careerGateScanOk', 'careerGateScanBad'].forEach(function (id) { var el = careerGateEl(id); if (el) el.hidden = true; });

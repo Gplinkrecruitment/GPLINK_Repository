@@ -89,3 +89,23 @@ describe('careers gate modal — mobile shell fixes', () => {
     expect(html).toMatch(/html,\s*body\s*\{[^}]*overflow-x:\s*hidden/);
   });
 });
+
+// Round 3 — owner report 2026-07-08: with the popup open, scroll gestures
+// sometimes scroll the career page underneath instead of the popup. Gestures
+// starting on the backdrop fall through to the document, and the card's
+// scroll chains to the page at its top/bottom edges.
+describe('careers gate modal — background scroll lock', () => {
+  it('page scrolling is locked while the gate modal is open', () => {
+    // the lock MUST cover html as well: body overflow no longer propagates
+    // to the viewport once html has overflow-x: hidden (verified live —
+    // a body-only lock still scrolled).
+    expect(html).toMatch(/html\.career-gate-open,\s*body\.career-gate-open\s*\{[^}]*overflow:\s*hidden/);
+    // open/close must toggle the lock class on BOTH roots in step with is-open
+    expect(html).toMatch(/function openCareerGateModal[^\n]*documentElement\.classList\.add\('career-gate-open'\)[^\n]*body\.classList\.add\('career-gate-open'\)/);
+    expect(html).toMatch(/function closeCareerGateModal[^\n]*documentElement\.classList\.remove\('career-gate-open'\)[^\n]*body\.classList\.remove\('career-gate-open'\)/);
+  });
+
+  it('modal card scroll does not chain to the page at its edges', () => {
+    expect(cssBlock('.modal-card')).toMatch(/overscroll-behavior:\s*contain/);
+  });
+});
