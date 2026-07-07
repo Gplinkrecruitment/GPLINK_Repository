@@ -1852,6 +1852,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function daysAgo(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
   function isSameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
+  async function loadSession(){
+    try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
+    if(!d.authenticated){window.location.href="/pages/admin-signin";return false;}
+    const profile=d.profile||d.session||{};
+    const adminRole=profile.adminRole||profile.role||"";
+    S.viewer=Object.assign({},profile,{role:adminRole,roleLabel:adminRole==="super_admin"?"Super Admin":"Admin"});
+    S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
+  }
+  function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
+  function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
+
+  /* \u2550\u2550 Data Loading \u2550\u2550 */
+  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
+  async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
+  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
+  async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
+  async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
   const ADMIN_LOAD_TIMEOUT_MS=12000;
   function runAdminLoadJob(label,fn){
     return new Promise(function(resolve){
