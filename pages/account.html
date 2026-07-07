@@ -1046,7 +1046,10 @@
       lastSavedSnapshot: null,
       isSaving: false,
       autoSaveTimer: null,
-      pendingAutoSave: false
+      pendingAutoSave: false,
+      // Full gp_onboarding blob (from user_state), so relocation edits merge
+      // back without dropping anything else the onboarding wizard stored.
+      onboardingBlob: null
     };
 
     /* ─── HELPERS ─── */
@@ -1419,6 +1422,113 @@
       return profile;
     }
 
+    /* ─── RELOCATION DETAILS ↔ onboarding answers ───────────────────────
+       The GP entered City of choice / Commence-work-by date / Who's moving
+       (and children count) during onboarding. Those answers live in
+       user_state.gp_onboarding under different key names
+       (preferredCity / targetDate / whoMoving / childrenCount) and are NOT
+       part of the /api/profile record — so this section rendered blank even
+       though the GP had filled it in. Read them from /api/state and write
+       edits straight back there, so the account page is an honest, editable
+       window onto the same answers (single source of truth: gp_onboarding). */
+    var WHO_MOVING_ONBOARDING_TO_ACCOUNT = {
+      just_me: "Just me",
+      me_partner: "Me and partner",
+      me_children: "Me and children",
+      me_partner_children: "Me, partner and children"
+    };
+    var WHO_MOVING_ACCOUNT_TO_ONBOARDING = {
+      "Just me": "just_me",
+      "Me and partner": "me_partner",
+      "Me and children": "me_children",
+      "Me, partner and children": "me_partner_children"
+    };
+    var RELOCATION_CITY_OPTIONS = ["Adelaide", "Brisbane", "Canberra", "Darwin", "Melbourne", "Perth", "Sydney"];
+
+    function parseOnboardingBlob(raw) {
+      if (!raw) return {};
+      if (typeof raw === "string") { try { return JSON.parse(raw) || {}; } catch (e) { return {}; } }
+      return typeof raw === "object" ? raw : {};
+    }
+
+    function relocationFieldsFromOnboarding(ob) {
+      var city = typeof ob.preferredCity === "string" ? ob.preferredCity : "";
+      if (city && RELOCATION_CITY_OPTIONS.indexOf(city) === -1) city = "";
+      var date = typeof ob.targetDate === "string" ? ob.targetDate : "";
+      var who = WHO_MOVING_ONBOARDING_TO_ACCOUNT[ob.whoMoving] || "";
+      var kids = "";
+      if (who.indexOf("children") !== -1) {
+        var n = parseInt(ob.childrenCount, 10);
+        if (Number.isFinite(n) && n > 0) kids = n >= 5 ? "5+" : String(n);
+      }
+      return { cityOfChoice: city, preferredStartDate: date, movingParty: who, childrenMovingCount: kids };
+    }
+
+    function relocationChangedSince(snapshot) {
+      var s = snapshot || {};
+      return fieldEls.cityOfChoice.value !== (s.cityOfChoice || "")
+        || fieldEls.preferredStartDate.value !== (s.preferredStartDate || "")
+        || fieldEls.movingParty.value !== (s.movingParty || "")
+        || fieldEls.childrenMovingCount.value !== (s.childrenMovingCount || "");
+    }
+
+    async function loadRelocationFromOnboarding() {
+      try {
+        var response = await fetch("/api/state", { credentials: "same-origin" });
+        if (!response.ok) return;
+        var data = await response.json();
+        var stateObj = data && data.state && typeof data.state === "object" ? data.state : {};
+        var ob = parseOnboardingBlob(stateObj.gp_onboarding);
+        state.onboardingBlob = ob;
+        var reloc = relocationFieldsFromOnboarding(ob);
+        // Onboarding is the source of truth for these four — always apply.
+        fieldEls.cityOfChoice.value = reloc.cityOfChoice;
+        fieldEls.preferredStartDate.value = reloc.preferredStartDate;
+        fieldEls.movingParty.value = reloc.movingParty;
+        fieldEls.childrenMovingCount.value = reloc.childrenMovingCount;
+        state.profile.cityOfChoice = reloc.cityOfChoice;
+        state.profile.preferredStartDate = reloc.preferredStartDate;
+        state.profile.movingParty = reloc.movingParty;
+        state.profile.childrenMovingCount = reloc.childrenMovingCount;
+        updateChildrenMovingVisibility();
+        // Loaded values are already "saved" — don't flag the form dirty.
+        state.lastSavedSnapshot = formSnapshot();
+        updateSaveButtonState();
+        renderSummary();
+      } catch (err) { /* leave fields as-is on failure */ }
+    }
+
+    async function saveRelocationToOnboarding() {
+      // Re-read the freshest onboarding blob so we merge (never clobber) the
+      // rest of the wizard's answers, then persist the four relocation fields.
+      var base = state.onboardingBlob && typeof state.onboardingBlob === "object" ? state.onboardingBlob : {};
+      try {
+        var response = await fetch("/api/state", { credentials: "same-origin" });
+        if (response.ok) {
+          var data = await response.json();
+          var stateObj = data && data.state && typeof data.state === "object" ? data.state : {};
+          base = parseOnboardingBlob(stateObj.gp_onboarding) || base;
+        }
+      } catch (e) { /* fall back to the cached blob */ }
+      var merged = Object.assign({}, base);
+      merged.preferredCity = fieldEls.cityOfChoice.value || "";
+      merged.targetDate = fieldEls.preferredStartDate.value || "";
+      merged.whoMoving = WHO_MOVING_ACCOUNT_TO_ONBOARDING[fieldEls.movingParty.value] || "";
+      if (merged.whoMoving === "me_children" || merged.whoMoving === "me_partner_children") {
+        var raw = fieldEls.childrenMovingCount.value || "";
+        var n = raw === "5+" ? 5 : parseInt(raw, 10);
+        merged.childrenCount = (Number.isFinite(n) && n > 0) ? n : (base.childrenCount || 1);
+      }
+      state.onboardingBlob = merged;
+      var putResp = await fetch("/api/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ state: { gp_onboarding: merged } })
+      });
+      if (!putResp.ok) throw new Error("relocation_save_failed");
+    }
+
     async function uploadCareerDocumentToBackend(type, file, hadExisting) {
       var mimeType = validateCareerDocumentFile(file);
       var fileDataUrl = await readFileAsDataUrl(file);
@@ -1503,6 +1613,9 @@
         if (!force) state.pendingAutoSave = true;
         return;
       }
+      // Relocation fields live in gp_onboarding, not the profile record — note
+      // whether they changed BEFORE lastSavedSnapshot is refreshed below.
+      var relocChanged = relocationChangedSince(state.lastSavedSnapshot);
       state.isSaving = true;
       updateSaveButtonState();
       setSaveState("Saving...", "saving");
@@ -1511,6 +1624,8 @@
         var merged = normalizeProfile(Object.assign({}, state.profile, saved, { files: state.profile.files }));
         merged.updatedAt = saved.updatedAt || new Date().toISOString();
         state.profile = merged;
+        // Persist the relocation answers to their real home (gp_onboarding).
+        if (relocChanged) await saveRelocationToOnboarding();
         state.lastSavedSnapshot = formSnapshot();
         setSaveState("Saved " + formatTimestamp(state.profile.updatedAt), "saved");
       } catch (err) {
@@ -1680,6 +1795,7 @@
       try {
         var latest = await loadProfileFromBackend();
         applyProfileToForm(latest);
+        await loadRelocationFromOnboarding();
         try {
           var latestCareerDocuments = await loadCareerDocumentsFromBackend();
           applyCareerDocuments(latestCareerDocuments);
@@ -1945,6 +2061,8 @@
           setSaveState("Couldn't load profile. Check connection.", "error");
         }
       }
+      // Relocation details come from the onboarding answers, not /api/profile.
+      await loadRelocationFromOnboarding();
       try {
         var careerDocuments = await loadCareerDocumentsFromBackend();
         applyCareerDocuments(careerDocuments);
