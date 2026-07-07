@@ -162,6 +162,28 @@ describe('pages/index.html — 7-stage journey surface', () => {
   });
 });
 
+describe('pages/index.html — featured practice banner', () => {
+  it('adapts its copy to placement state (find-a-position until secured)', () => {
+    // Placed GPs keep the secured-practice framing…
+    expect(indexHtml).toContain('"Your Practice"');
+    expect(indexHtml).toContain('"View your secured placement details and practice information"');
+    // …while unplaced GPs are pointed at finding + securing a position.
+    expect(indexHtml).toContain('"Find Your Practice"');
+    expect(indexHtml).toContain('"Browse open GP positions and secure your placement to advance your journey"');
+    expect(indexHtml).toContain('"Browse jobs"');
+    // The switch is driven by the placement flag, not hardcoded.
+    expect(indexHtml).toMatch(/if \(snap\.careerSecured\) \{[\s\S]{0,500}\} else \{[\s\S]{0,500}Find Your Practice/);
+    expect(indexHtml).toContain('id="dreamBannerTitle"');
+    expect(indexHtml).toContain('id="dreamBannerCtaLabel"');
+  });
+
+  it('carries the shiny sweep in both states, with a reduced-motion opt-out', () => {
+    expect(indexHtml).toContain('.dream-banner::after');
+    expect(indexHtml).toContain('@keyframes dreamBannerShine');
+    expect(indexHtml).toMatch(/prefers-reduced-motion[\s\S]{0,200}dream-banner::after/);
+  });
+});
+
 describe('js/app-shell.js — registration dropdown agrees with the journey', () => {
   it('consumes the same canonical stage list', () => {
     expect(appShellJs).toContain('GPJourneyStages.getStageStates(');

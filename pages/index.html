@@ -251,6 +251,32 @@
     .dream-banner {
       background: var(--gp-grad-brand);
       padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Shiny sweep — a soft band of light glides across the banner on a loop
+       (shown whether or not a placement is secured). */
+    .dream-banner::after {
+      content: "";
+      position: absolute;
+      top: -40%; bottom: -40%; left: 0; width: 34%;
+      background: linear-gradient(105deg,
+        rgba(255,255,255,0) 0%,
+        rgba(255,255,255,0.14) 40%,
+        rgba(255,255,255,0.32) 50%,
+        rgba(255,255,255,0.14) 60%,
+        rgba(255,255,255,0) 100%);
+      transform: translateX(-160%) skewX(-18deg);
+      animation: dreamBannerShine 4.5s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes dreamBannerShine {
+      0%   { transform: translateX(-160%) skewX(-18deg); }
+      60%  { transform: translateX(480%) skewX(-18deg); }
+      100% { transform: translateX(480%) skewX(-18deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dream-banner::after { animation: none; content: none; }
     }
 
     .dream-banner-inner {
@@ -895,11 +921,11 @@
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           Featured
         </div>
-        <div class="dream-banner-title">Your Practice</div>
+        <div class="dream-banner-title" id="dreamBannerTitle">Your Practice</div>
         <div class="dream-banner-sub" id="dreamBannerSub">View your secured placement details and practice information</div>
       </div>
       <a class="dream-banner-cta" href="career">
-        View
+        <span id="dreamBannerCtaLabel">View</span>
         <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
       </a>
     </div>
@@ -1559,10 +1585,20 @@
       if (titleEl) titleEl.textContent = snap.currentTitle;
       if (subEl) subEl.textContent = snap.currentSub;
 
-      // Dream banner subtitle
+      // Dream banner — a placed GP sees their secured practice; everyone else
+      // is pointed at finding + securing a position (the career page shows
+      // them the job board until they're placed).
+      const bannerTitle = document.getElementById("dreamBannerTitle");
       const bannerSub = document.getElementById("dreamBannerSub");
-      if (bannerSub) {
-        bannerSub.textContent = "View your secured placement details and practice information";
+      const bannerCtaLabel = document.getElementById("dreamBannerCtaLabel");
+      if (snap.careerSecured) {
+        if (bannerTitle) bannerTitle.textContent = "Your Practice";
+        if (bannerSub) bannerSub.textContent = "View your secured placement details and practice information";
+        if (bannerCtaLabel) bannerCtaLabel.textContent = "View";
+      } else {
+        if (bannerTitle) bannerTitle.textContent = "Find Your Practice";
+        if (bannerSub) bannerSub.textContent = "Browse open GP positions and secure your placement to advance your journey";
+        if (bannerCtaLabel) bannerCtaLabel.textContent = "Browse jobs";
       }
     }
 
