@@ -8,11 +8,12 @@
 //     → Commencement) with lock copy, exposed as window.GPJourneyStages.
 //   - BOTH surfaces (pages/index.html journey + js/app-shell.js registration
 //     dropdown) consume GPJourneyStages.getStageStates — so they can't drift.
-//   - registration-stepper.js is no longer dead-loaded: index.html invokes
-//     GPRegistrationStepper.render into #journeyStepper.
+//   - The horizontal journey stepper and the ?locked bounce notice were
+//     REMOVED from index.html by owner request (2026-07-07): the vertical
+//     journey list is the only journey renderer on the dashboard. The server
+//     stage-gate still bounces with ?locked=<stage>; the page now ignores it.
 //   - Commencement's lock is explained ("Unlocks once PBS & Medicare is
-//     complete") and a server stage-gate bounce carries ?locked=<stage> which
-//     index.html turns into a visible notice instead of a silent redirect.
+//     complete") in the journey list + registration dropdown.
 //   - Index has an honest API-failure retry affordance for its server refresh.
 // GP-visible copy must never say the bare "RSO" abbreviation.
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -113,37 +114,12 @@ describe('pages/index.html — 7-stage journey surface', () => {
     expect(consumerCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('invokes the registration stepper (no longer dead-loaded)', () => {
-    expect(indexHtml).toMatch(/js\/registration-stepper\.js\?v=/);
-    expect(indexHtml).toContain('id="journeyStepper"');
-    expect(indexHtml).toContain('window.GPRegistrationStepper.render({');
-    // Re-render after deferred scripts execute so render() actually runs.
+  it('does not load or render the horizontal stepper (removed by owner request)', () => {
+    expect(indexHtml).not.toMatch(/js\/registration-stepper\.js/);
+    expect(indexHtml).not.toContain('id="journeyStepper"');
+    expect(indexHtml).not.toContain('GPRegistrationStepper');
+    // The journey list still re-renders once deferred journey-stages.js has executed.
     expect(indexHtml).toMatch(/DOMContentLoaded[\s\S]*?renderJourneyList\(\)/);
-  });
-
-  it('stepper navigation is shell-aware (posts gp-shell-route when embedded)', () => {
-    // A raw window.location.href from onStepSelect can't be intercepted by
-    // nav-shell-bridge (it only hooks <a> clicks), which double-nested the
-    // app-shell inside its own iframe. The stepper must route through the
-    // shell-aware helper instead.
-    expect(indexHtml).toContain('onStepSelect(step) { navigateToStagePage(step.page, step.title); }');
-    expect(indexHtml).not.toContain('onStepSelect(step) { window.location.href = step.page; }');
-    // The helper posts the documented gp-shell-route message to the parent…
-    const helper = indexHtml.match(/function navigateToStagePage\([\s\S]*?\n    }\n/);
-    expect(helper).not.toBeNull();
-    expect(helper[0]).toContain('window.self !== window.top');
-    expect(helper[0]).toMatch(/postMessage\(\s*\{ type: "gp-shell-route", intent: "navigate", href: href/);
-    // …and only falls back to a plain navigation when NOT embedded.
-    expect(helper[0]).toContain('window.location.href = href;');
-  });
-
-  it('lock notice is honest when a done stage is not returnable', () => {
-    // ?locked=<stage> bounce for a DONE but non-returnable stage must not
-    // claim the stage "has just unlocked".
-    expect(indexHtml).toMatch(/returnDenied[\s\S]*?isRegistrationReturnAllowed\(stage\.key\)/);
-    expect(indexHtml).toContain("isn't open right now — your Registration Support Officer can help if you need to revisit it.");
-    // The genuinely-open case keeps the unlocked copy.
-    expect(indexHtml).toContain('has just unlocked — you can open it from the journey below.');
   });
 
   it('counts progress across all 7 stages (visa included, no 6-step remnant)', () => {
@@ -155,10 +131,9 @@ describe('pages/index.html — 7-stage journey surface', () => {
     expect(indexHtml).toContain('currentRoute = "commencement"');
   });
 
-  it('shows the locked-stage bounce notice instead of a silent redirect', () => {
-    expect(indexHtml).toContain('id="stageLockedNotice"');
-    expect(indexHtml).toMatch(/searchParams|URLSearchParams/);
-    expect(indexHtml).toContain('.get("locked")');
+  it('locked-stage bounce lands silently (notice removed by owner request)', () => {
+    expect(indexHtml).not.toContain('id="stageLockedNotice"');
+    expect(indexHtml).not.toContain('.get("locked")');
   });
 
   it('has an honest API-failure retry affordance for the server refresh', () => {

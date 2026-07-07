@@ -15,7 +15,6 @@
   <script src="../js/document-prep.js?v=20260614a" defer></script>
   <script src="../js/qualification-scan.js?v=20260707a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
-  <script src="/js/registration-stepper.js?v=20260612a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -359,10 +358,8 @@
     }
     .outstanding-chevron { flex: 0 0 auto; width: 16px; height: 16px; stroke: var(--gp-faint); fill: none; stroke-width: 2; }
 
-    /* ─── JOURNEY STEPPER + NOTICES ─── */
-    .journey-stepper { margin-bottom: 14px; }
-    .journey-stepper:empty { display: none; }
-    .data-error-banner, .stage-locked-notice {
+    /* ─── JOURNEY NOTICES ─── */
+    .data-error-banner {
       display: flex; align-items: center; gap: 10px;
       padding: 10px 14px; margin-bottom: 12px;
       border-radius: var(--gp-r-md);
@@ -377,19 +374,6 @@
       border: 1px solid currentColor; background: transparent; color: inherit;
       font: inherit; font-weight: 700; padding: 4px 12px; border-radius: 999px;
       cursor: pointer; flex-shrink: 0;
-    }
-    .stage-locked-notice {
-      background: var(--gp-blue-soft); color: var(--gp-blue-ink, #1d4ed8);
-      border: 1px solid var(--gp-blue-border);
-    }
-    .stage-locked-notice svg {
-      width: 16px; height: 16px; flex-shrink: 0;
-      stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .stage-locked-notice span { flex: 1; }
-    .stage-locked-notice button {
-      border: none; background: transparent; color: inherit; cursor: pointer;
-      font-size: 18px; line-height: 1; padding: 0 2px; flex-shrink: 0;
     }
     .journey-toast {
       position: fixed; left: 50%; bottom: calc(24px + var(--gp-shell-bottom-clearance, 0px));
@@ -946,16 +930,6 @@
       <span>We couldn't refresh your latest progress. What you see below may be out of date.</span>
       <button type="button" id="dataErrorRetry">Retry</button>
     </div>
-
-    <!-- Shown when a locked stage page bounced back here (?locked=<stage>) -->
-    <div class="stage-locked-notice" id="stageLockedNotice" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      <span id="stageLockedNoticeText"></span>
-      <button type="button" id="stageLockedNoticeClose" aria-label="Dismiss">&times;</button>
-    </div>
-
-    <!-- 7-stage horizontal stepper (registration-stepper.js) -->
-    <div class="journey-stepper gp-reveal gp-reveal-2" id="journeyStepper"></div>
 
     <div class="journey-list gp-reveal gp-reveal-2" id="journeyList"></div>
 
@@ -1602,51 +1576,6 @@
       setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 2600);
     }
 
-    // Shell-aware stage navigation. Inside the app-shell iframe a raw
-    // window.location.href can't be intercepted by nav-shell-bridge (it only
-    // hooks <a> clicks), so the embedded page would reload the FULL app-shell
-    // inside itself. Post the documented gp-shell-route message instead —
-    // the same route the journey rows' <a data-route> links resolve to.
-    function navigateToStagePage(page, title) {
-      const href = "/pages/" + String(page || "").replace(/^\/?(pages\/)?/, "");
-      if (window.self !== window.top && window.parent && typeof window.parent.postMessage === "function") {
-        try {
-          window.parent.postMessage(
-            { type: "gp-shell-route", intent: "navigate", href: href, title: title || document.title || "" },
-            window.location.origin
-          );
-          return;
-        } catch (e) { /* fall through to a plain navigation */ }
-      }
-      window.location.href = href;
-    }
-
-    // Horizontal 7-stage stepper (js/registration-stepper.js). The stepper
-    // script is deferred, so this no-ops on the first parse-time render and
-    // is re-invoked on DOMContentLoaded once GPRegistrationStepper exists.
-    function renderJourneyStepper(stages, currentIdx) {
-      const el = document.getElementById("journeyStepper");
-      if (!el || !window.GPRegistrationStepper || typeof window.GPRegistrationStepper.render !== "function") return;
-      window.GPRegistrationStepper.render({
-        container: el,
-        ariaLabel: "Your 7-stage registration journey",
-        steps: stages.map((s, idx) => ({
-          id: s.key,
-          title: s.title,
-          description: s.locked ? (s.lockReason || "") : s.description,
-          status: s.done ? "completed" : s.locked ? "locked" : idx === currentIdx ? "current" : "upcoming",
-          current: idx === currentIdx,
-          // Every unlocked stage is navigable (AHPRA/Visa render their own
-          // in-page gates); locked stages explain themselves via toast.
-          interactive: !s.locked,
-          page: s.page,
-          lockReason: s.lockReason
-        })),
-        onStepSelect(step) { navigateToStagePage(step.page, step.title); },
-        onLockedStep(step) { showJourneyToast(step.lockReason || "Complete the previous step to unlock this."); }
-      });
-    }
-
     function renderJourneyList() {
       const listEl = document.getElementById("journeyList");
       if (!listEl || !window.GPJourneyStages) return;
@@ -1671,8 +1600,6 @@
 
       let currentIdx = stages.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = stages.length - 1;
-
-      renderJourneyStepper(stages, currentIdx);
 
       const checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
 
@@ -2038,46 +1965,9 @@
     }
     renderRegistrationRows();
 
-    // registration-stepper.js is deferred — re-render the journey (and its
-    // stepper) once deferred scripts have executed so .render() actually runs.
+    // journey-stages.js is deferred — re-render the journey list once deferred
+    // scripts have executed so getStageStates() actually runs.
     document.addEventListener("DOMContentLoaded", () => { renderJourneyList(); });
-
-    // ── Locked-stage bounce notice (?locked=<stage>) ──
-    // The server stage gate redirects locked pages (e.g. /pages/commencement)
-    // back here with ?locked=<stage>; explain the lock instead of a silent bounce.
-    (function showStageLockedNotice() {
-      let lockedKey = "";
-      try { lockedKey = new URLSearchParams(window.location.search).get("locked") || ""; } catch (e) {}
-      if (!lockedKey || !window.GPJourneyStages) return;
-      // Server stage keys use "myintealth"; the journey key is "myinthealth".
-      if (lockedKey === "myintealth") lockedKey = "myinthealth";
-      const noticeEl = document.getElementById("stageLockedNotice");
-      const textEl = document.getElementById("stageLockedNoticeText");
-      if (!noticeEl || !textEl) return;
-      const bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
-      const states = window.GPJourneyStages.getStageStates(getProgressSnapshot(), bypassLocks);
-      const stage = states.find((s) => s.key === lockedKey);
-      if (!stage) return;
-      // Three honest cases: still locked ahead of the GP; done but the server
-      // denied returning to it (isRegistrationReturnAllowed false); or genuinely
-      // open now (e.g. a race where progress synced after the bounce).
-      const returnDenied = stage.done && !bypassLocks && !isRegistrationReturnAllowed(stage.key);
-      textEl.textContent = stage.locked
-        ? stage.title + " is still locked — " + (stage.lockReason || "complete the previous step to unlock it.")
-        : returnDenied
-          ? stage.title + " isn't open right now — your Registration Support Officer can help if you need to revisit it."
-          : stage.title + " has just unlocked — you can open it from the journey below.";
-      noticeEl.hidden = false;
-      const closeBtn = document.getElementById("stageLockedNoticeClose");
-      if (closeBtn) closeBtn.addEventListener("click", () => { noticeEl.hidden = true; });
-      try { noticeEl.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
-      // Drop the param so a refresh doesn't re-show the notice.
-      try {
-        const cleaned = new URL(window.location.href);
-        cleaned.searchParams.delete("locked");
-        window.history.replaceState(null, "", cleaned.pathname + cleaned.search + cleaned.hash);
-      } catch (e) {}
-    })();
 
     // ── Honest API-failure state for the dashboard's server refresh ──
     // The journey renders from locally cached progress; this check tells the
