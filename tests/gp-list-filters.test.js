@@ -335,9 +335,11 @@ describe('admin.html — filter controls (static)', () => {
     expect(html).toContain('assigned_rso_email');
     expect(html).toContain('days_in_stage');
     expect(html).toContain('rso_workload');
-    // Existing chips are untouched
-    for (const chip of ['"urgent"', '"overdue"', '"blocked"', '"active"', '"complete"']) {
+    // Filter row shows case-health lanes: All / Needs Action / On Track
+    // (replaced the old urgent/overdue/blocked/active/complete chips).
+    for (const chip of ['"needsaction"', '"ontrack"']) {
       expect(html.includes(chip)).toBe(true);
     }
+    expect(html).toContain('function caseNeedsAction');
   });
 });

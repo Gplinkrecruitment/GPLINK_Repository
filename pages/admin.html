@@ -2048,6 +2048,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return S.va.dashboard.users.find(u=>u.case_id===rc.id||u.user_id===rc.user_id)||null;
   }
 
+  /* A case "needs action" when it has an urgent or overdue task, or a task due
+     today; everything else (incl. candidate-only rows) is "on track". Shared by
+     the filter row, the counts, and the Needs Action / On Track list lanes. */
+  function caseNeedsAction(m){
+    const rc=m&&m.rc;
+    if(!rc)return false;
+    if(rc.urgent_tasks>0||rc.overdue_tasks>0)return true;
+    return (S.tasks||[]).some(t=>t.case_id===rc.id&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
+  }
   function filteredCases(){
     let list=mergedCases();
     const q=S.query.trim().toLowerCase();
@@ -2056,11 +2065,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const email=(m.rc?m.rc.gp_email:m.gp?m.gp.email:"")||"";
       return(name+" "+email).toLowerCase().includes(q);
     });
-    if(S.filter==="urgent")list=list.filter(m=>m.rc&&m.rc.urgent_tasks>0);
-    else if(S.filter==="overdue")list=list.filter(m=>m.rc&&m.rc.overdue_tasks>0);
-    else if(S.filter==="blocked")list=list.filter(m=>m.rc&&m.rc.blocker_status);
-    else if(S.filter==="active")list=list.filter(m=>!m.rc||m.rc.status==="active");
-    else if(S.filter==="complete")list=list.filter(m=>m.rc&&m.rc.status==="complete");
+    if(S.filter==="needsaction")list=list.filter(caseNeedsAction);
+    else if(S.filter==="ontrack")list=list.filter(m=>!caseNeedsAction(m));
     /* Structured filters (stage / RSO / country / stage-age) + "My caseload" —
        fields come from /api/admin/cases (assigned_rso_email, days_in_stage) with
        country looked up from the va/dashboard users payload. Candidate-only rows
@@ -2089,9 +2095,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       all:all.length,
       urgent:all.filter(m=>m.rc&&m.rc.urgent_tasks>0).length,
       overdue:all.filter(m=>m.rc&&m.rc.overdue_tasks>0).length,
-      blocked:all.filter(m=>m.rc&&m.rc.blocker_status).length,
-      active:all.filter(m=>!m.rc||m.rc.status==="active").length,
-      complete:all.filter(m=>m.rc&&m.rc.status==="complete").length
+      needsAction:all.filter(caseNeedsAction).length,
+      onTrack:all.filter(m=>!caseNeedsAction(m)).length
     };
   }
 
@@ -2112,8 +2117,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderFilters(){
     const c=counts();
     const filters=[
-      {k:"all",l:"All",c:c.all},{k:"urgent",l:"Urgent",c:c.urgent},{k:"overdue",l:"Overdue",c:c.overdue},
-      {k:"blocked",l:"Blocked",c:c.blocked},{k:"active",l:"Active",c:c.active},{k:"complete",l:"Complete",c:c.complete}
+      {k:"all",l:"All",c:c.all},
+      {k:"needsaction",l:"Needs Action",c:c.needsAction},
+      {k:"ontrack",l:"On Track",c:c.onTrack}
     ];
     let html=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
     if(S.view!=="queue"){
@@ -2250,13 +2256,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const needsAction=[];
     const onTrack=[];
     list.forEach(m=>{
-      const rc=m.rc;
-      if(!rc){onTrack.push(m);return;}
-      const hasUrgent=rc.urgent_tasks>0;
-      const hasOverdue=rc.overdue_tasks>0;
-      const hasDueToday=(S.tasks||[]).some(t=>t.case_id===rc.id&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
-      if(hasUrgent||hasOverdue||hasDueToday){needsAction.push(m);}
-      else{onTrack.push(m);}
+      if(caseNeedsAction(m))needsAction.push(m);
+      else onTrack.push(m);
     });
 
     let html='';
