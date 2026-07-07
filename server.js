@@ -8866,7 +8866,17 @@ function getAdminHostScope(req) {
   const hostname = getRequestHostname(req);
   if (!hostname) return '';
   if (SUPER_ADMIN_ALLOWED_HOSTS.has(hostname)) return 'super_admin';
-  if (PREVIEW_SUPER_ADMIN_HOSTS.has(hostname)) return 'super_admin';
+  if (PREVIEW_SUPER_ADMIN_HOSTS.has(hostname)) {
+    // Preview-only review aid: a reviewer can switch this preview URL to the
+    // RSO / employee-admin portal via ?portal=rso on /pages/admin-signin
+    // (persisted in the gp_preview_portal cookie, written in handleRequest).
+    // Never reachable in production: PREVIEW_SUPER_ADMIN_HOSTS is empty when
+    // VERCEL_ENV === 'production', so this whole branch is dead there.
+    try {
+      if (getCookies(req).gp_preview_portal === 'rso') return 'admin';
+    } catch (e) { /* fall through to super_admin */ }
+    return 'super_admin';
+  }
   if (ADMIN_ALLOWED_HOSTS.has(hostname)) return 'admin';
   if (NODE_ENV !== 'production' && isLoopbackHostname(hostname)) return 'local';
   return '';
@@ -53705,6 +53715,20 @@ async function handleRequest(req, res) {
     res.writeHead(404);
     res.end('Not found');
     return;
+  }
+
+  // Preview-only: /pages/admin-signin?portal=rso switches this preview URL to the
+  // RSO / employee-admin portal (?portal=super switches back to CEO/super-admin).
+  // Persisted in the gp_preview_portal cookie read by getAdminHostScope. This is a
+  // safe spot — the admin sign-in GET writes no other Set-Cookie. No-op in
+  // production because PREVIEW_SUPER_ADMIN_HOSTS is empty there.
+  if (pathname === '/pages/admin-signin.html' && PREVIEW_SUPER_ADMIN_HOSTS.has(getRequestHostname(req))) {
+    const previewPortalChoice = String(url.searchParams.get('portal') || '').toLowerCase();
+    if (previewPortalChoice === 'rso' || previewPortalChoice === 'admin') {
+      res.setHeader('Set-Cookie', 'gp_preview_portal=rso; Path=/; Max-Age=86400; SameSite=Lax');
+    } else if (previewPortalChoice === 'super' || previewPortalChoice === 'ceo') {
+      res.setHeader('Set-Cookie', 'gp_preview_portal=; Path=/; Max-Age=0; SameSite=Lax');
+    }
   }
 
   // CEO dashboard is delivered ONLY on the super-admin host scope (#69).
