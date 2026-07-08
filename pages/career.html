@@ -12178,11 +12178,19 @@
         var securedPanel = document.querySelector('[data-view-panel="secured"]');
         var csd = getComputedStyle(de), cs = getComputedStyle(b);
         var css = shell ? getComputedStyle(shell) : null;
+        var grid = document.querySelector(".secured-grid");
+        var mainEl = document.querySelector(".main");
         var maxSH = Math.max(de.scrollHeight, b.scrollHeight, shell ? shell.scrollHeight : 0);
-        var embedded;
+        var embedded, parentInnerH = null;
         try { embedded = window.self !== window.top; } catch (e2) { embedded = "cross-origin"; }
+        try { parentInnerH = window.parent && window.parent.innerHeight; } catch (e4) { parentInnerH = "cross-origin"; }
+        var whoEmail = "";
+        try { whoEmail = (window.gpSessionProfile && window.gpSessionProfile.email) || ""; } catch (e5) {}
         var data = {
-          tag: tag || "", embedded: embedded,
+          tag: tag || "", embedded: embedded, email: whoEmail,
+          provisional: de.hasAttribute("data-career-placement-provisional"),
+          parentInnerH: parentInnerH,
+          gridSH: grid ? grid.scrollHeight : null, mainSH: mainEl ? mainEl.scrollHeight : null,
           winH: window.innerHeight, winW: window.innerWidth,
           docSH: de.scrollHeight, docCH: de.clientHeight,
           bodySH: b.scrollHeight, bodyCH: b.clientHeight,
@@ -12202,8 +12210,9 @@
         var el = document.getElementById("careerScrollDiag");
         if (el) {
           el.textContent = "GP Link scroll check (temporary)\n"
-            + "needs-scroll=" + (data.overflows ? "YES" : "no") + "  screen=" + data.winH + "  content=" + maxSH + "\n"
-            + "body.oflowY=" + data.bodyOverflowY + "  shell.oflowY=" + data.shellOverflowY + "  touch=" + data.bodyTouchAction + "\n"
+            + "needs-scroll=" + (data.overflows ? "YES" : "no") + "  W=" + data.winW + " H=" + data.winH + "  content=" + maxSH + "\n"
+            + "grid=" + data.gridSH + " main=" + data.mainSH + " provisional=" + data.provisional + "\n"
+            + "body.oflowY=" + data.bodyOverflowY + " shell.oflowY=" + data.shellOverflowY + " touch=" + data.bodyTouchAction + "\n"
             + "secured=" + data.modeSecured + " boot=" + data.booting + " lock=" + data.gateLock + " state=" + data.placementState;
           el.style.display = "block";
         }
@@ -12214,7 +12223,7 @@
               method: "POST", credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                message: "SCROLL-DIAG secured needs-scroll=" + data.overflows + " screen=" + data.winH + " content=" + maxSH + " body.oflowY=" + data.bodyOverflowY,
+                message: "SCROLL-DIAG " + data.winW + "w needs-scroll=" + data.overflows + " content=" + maxSH + " prov=" + data.provisional + " email=" + (data.email || "?"),
                 stack: JSON.stringify(data),
                 url: location.href,
                 userAgent: navigator.userAgent
