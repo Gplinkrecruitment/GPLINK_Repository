@@ -16,8 +16,10 @@ describe('CEO standalone page UI', () => {
     expect(ceo).toMatch(/RSO Workload/);
   });
 
-  it('has its own standalone top nav (not iframe-only)', () => {
-    expect(ceo).toMatch(/class="ceo-topnav"/);
+  it('has its own master-tab nav (standalone, not iframe-only)', () => {
+    // The old standalone .ceo-topnav strip is retired; the master-tab bar is the nav.
+    expect(ceo).toMatch(/id="masterTabs"/);
+    expect(ceo).toMatch(/class="ats-master-tab[^"]*" data-mtab="registration"/);
   });
 
   it('unified menu: RSO + Technical are their own master tabs, Medical Centres is deleted, Guide stays; ops live under RSO', () => {
@@ -35,8 +37,11 @@ describe('CEO standalone page UI', () => {
     expect(ceo).not.toMatch(/data-tab="medical"/);
     expect(ceo).not.toMatch(/id="mcContent"/);
     expect(ceo).not.toMatch(/loadMedicalCentres/);
-    // The Guide help link still opens in a new tab.
-    expect(ceo).toMatch(/href="\/pages\/admin\?view=guide"[^>]*target="_blank"/);
+    // The old pop-out Guide link is gone — the guide is now the Registration → Guides
+    // sub-tab, mounted from the shared js/guide-panel.js component (CEO-editable).
+    expect(ceo).not.toMatch(/href="\/pages\/admin\?view=guide"/);
+    expect(ceo).toMatch(/data-regsub="guides"/);
+    expect(ceo).toMatch(/id="ceoGuidePanel"/);
     // The operational areas no longer bounce out to the light admin page.
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=gps"/);
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=support"/);
@@ -63,6 +68,11 @@ describe('CEO standalone page UI', () => {
     }
     // The Registration/Overview tab is now labelled "Overview".
     expect(ceo).toMatch(/data-mtab="registration">[\s\S]{0,600}?Overview/);
+    // The RSO tab (data-mtab stays "rso") is now labelled "Registration".
+    expect(ceo).toMatch(/data-mtab="rso">[\s\S]{0,600}?Registration/);
+    // Registration has a two-item sub-nav: RSOs (default) + Guides.
+    expect(ceo).toMatch(/data-regsub="rsos"/);
+    expect(ceo).toMatch(/data-regsub="guides"/);
     // The shared master-tab switcher knows about the two new panels.
     const shared = fs.readFileSync(path.join(root, 'js/ceo-ats-shared.js'), 'utf8');
     const line = shared.split('\n').find((l) => l.includes('var MASTER_PANELS ='));

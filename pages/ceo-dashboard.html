@@ -105,6 +105,11 @@
     .ceo-topnav .nav-item.active { color: var(--text); border-bottom-color: var(--blue); }
     .ceo-topnav .nav-spacer { flex: 1; }
     .ceo-topnav .nav-back { color: var(--text-dim); font-weight: 500; }
+    /* ═══ REGISTRATION SUB-NAV (RSOs | Guides) ═══ */
+    .reg-subnav { display: flex; align-items: center; gap: 4px; padding: 8px 24px 0; background: var(--bg-elevated); border-bottom: 1px solid var(--panel-border); position: sticky; top: 60px; z-index: 89; }
+    .reg-subtab { padding: 9px 16px; font-size: 13px; font-weight: 600; color: var(--text-muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+    .reg-subtab:hover { color: var(--text); }
+    .reg-subtab.active { color: var(--text); border-bottom-color: var(--blue); }
     .escalation-badge {
       display: none;
       align-items: center; gap: 6px;
@@ -1371,7 +1376,7 @@
       </button>
       <button class="ats-master-tab" data-mtab="rso">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M9 12l2 2 4-4"/></svg>
-        RSO
+        Registration
       </button>
       <button class="ats-master-tab" data-mtab="candidates">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1400,11 +1405,9 @@
     </nav>
 
     <div class="master-panel" id="panel-registration">
-    <!-- STANDALONE TOP NAV — RSO / Medical / Technical are now their own master
-         tabs; only the Guide help link remains here on the Overview view. -->
-    <nav class="ceo-topnav" id="ceoTopNav">
-      <a class="nav-item" href="/pages/admin?view=guide" target="_blank" rel="noopener">Guide</a>
-    </nav>
+    <!-- The old standalone top nav (RSO / Medical / Technical / Guide) is retired:
+         RSO + Technical are master tabs, Medical Centres is covered by Practices,
+         and the Guide is now the Registration → Guides sub-tab. -->
 
     <!-- TIME FILTER -->
     <div class="time-filter-bar" id="timeFilterBar">
@@ -1425,9 +1428,19 @@
     </div>
     </div><!-- /#panel-registration -->
 
-    <!-- RSO OVERSIGHT (own master tab) — rendered by loadRsoOversight() -->
+    <!-- REGISTRATION (own master tab): RSO oversight (default) + CEO-editable
+         Guides. RSOs read the same guide read-only in the admin/RSO dashboard. -->
     <div class="master-panel" id="panel-rso" style="display:none">
-      <div class="content" id="rsoContent"></div>
+      <nav class="reg-subnav" id="regSubnav">
+        <button class="reg-subtab active" data-regsub="rsos" type="button">RSOs</button>
+        <button class="reg-subtab" data-regsub="guides" type="button">Guides</button>
+      </nav>
+      <div class="reg-subpanel" id="regSub-rsos">
+        <div class="content" id="rsoContent"></div>
+      </div>
+      <div class="reg-subpanel" id="regSub-guides" style="display:none;padding:16px 24px">
+        <div id="ceoGuidePanel"></div>
+      </div>
     </div>
 
     <!-- ATS MASTER PANELS (rendered by /js/ceo-ats-*.js) -->
@@ -3036,7 +3049,35 @@
        switcher (js/ceo-ats-shared.js) calls window.load<Name>Tab when a tab opens,
        so bridge those names onto the existing loaders. loadRsoOversight and
        loadTechnical are hoisted declarations defined later in this script. */
-    window.loadRsoTab = function () { loadRsoOversight(); };
+    window.loadRsoTab = function () { loadRsoOversight(); ensureRegSubnav(); };
+
+    /* Registration master tab has two sub-views: RSOs (oversight, default) and
+       Guides (the CEO-editable how-to library, shared with the RSO dashboard via
+       js/guide-panel.js). Wire the sub-nav once; lazy-mount the editable guide the
+       first time the Guides sub-tab is opened. The server enforces CEO-only writes
+       (requireCeoSession), so canEdit here only controls which buttons render. */
+    var _ceoGuideMounted = false;
+    function ensureRegSubnav() {
+      var nav = document.getElementById('regSubnav');
+      if (!nav || nav._wired) return;
+      nav._wired = true;
+      nav.addEventListener('click', function (e) {
+        var btn = e.target.closest('.reg-subtab');
+        if (!btn) return;
+        var sub = btn.getAttribute('data-regsub');
+        Array.prototype.forEach.call(nav.querySelectorAll('.reg-subtab'), function (b) {
+          b.classList.toggle('active', b === btn);
+        });
+        var rsosP = document.getElementById('regSub-rsos');
+        var guidesP = document.getElementById('regSub-guides');
+        if (rsosP) rsosP.style.display = (sub === 'rsos') ? '' : 'none';
+        if (guidesP) guidesP.style.display = (sub === 'guides') ? '' : 'none';
+        if (sub === 'guides' && !_ceoGuideMounted && window.GuidePanel) {
+          _ceoGuideMounted = true;
+          window.GuidePanel.mount('ceoGuidePanel', { canEdit: true });
+        }
+      });
+    }
     window.loadTechnicalTab = function () { if (typeof loadTechnical === 'function') loadTechnical(); };
 
     /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO master tab on load
@@ -7213,6 +7254,7 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
+  <script src="/js/guide-panel.js?v=20260708a"></script>
   <script src="/js/ceo-ats-shared.js?v=20260708a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260707i"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260707f"></script>

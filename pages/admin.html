@@ -1245,6 +1245,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260527a"></script>
+<script src="/js/guide-panel.js?v=20260708a"></script>
   <div class="top-bar">
     <div class="top-bar-left">
       <h1 id="topTitle">RSO Command Centre</h1>
@@ -1930,7 +1931,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();return;}
     if(S.view==="hubInbox"){vaShowPanel("hubInbox");HubInbox.show();return;}
     if(S.view==="support"||S.view==="tickets"){S.view="support";setActiveViewTab("support");vaShowPanel("support");renderSupportPanel();return;}
-    if(S.view==="guide"){vaShowPanel("guide");renderGuidePanel();return;}
+    if(S.view==="guide"){vaShowPanel("guide");mountGuidePanelRO();return;}
     if(S.view==="interviews"){var ivTabEl=document.getElementById("interviewsTab");if(ivTabEl)ivTabEl.style.display="";vaShowPanel("interviews");renderInterviewsPanel();return;}
     if(S.view==="scheduled_calls"){vaShowPanel("scheduled_calls");renderScheduledCallsPanel();return;}
     if(S.view==="stuck"){vaShowPanel("stuck");renderStuckPanel();return;}
@@ -5940,8 +5941,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }else if(view==="tools"){
         renderToolsPanel();
       }else if(view==="guide"){
-        if(!S.guide.folders)await loadGuideData();
-        renderGuidePanel();
+        mountGuidePanelRO();
       }else if(view==="interviews"){
         await loadInterviews();
       }else if(view==="scheduled_calls"){
@@ -7859,214 +7859,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   var HubInbox=createHubEmailView({panelId:"hubInboxPanel",showFilters:true});
   // ── Guide Tab ──────────────────────────────────────────────
-  function parseScribeEmbed(input){
-    if(!input)return'';
-    var m=input.match(/src=["']([^"']+)["']/);
-    return m?m[1]:input.trim();
+  var _guideMountedRO=false;
+  // Read-only guide: RSOs watch the how-tos here; ALL editing lives in the CEO
+  // dashboard (Registration -> Guides). Shared renderer: js/guide-panel.js. The
+  // server enforces CEO-only writes (requireCeoSession) regardless of this flag.
+  function mountGuidePanelRO(){
+    if(_guideMountedRO)return;
+    if(!window.GuidePanel){console.error('[Guide] GuidePanel module not loaded');return;}
+    _guideMountedRO=true;
+    window.GuidePanel.mount('guidePanel',{canEdit:false});
   }
-  async function loadGuideData(){
-    S.guide.loading=true;
-    try{
-      var r=await fetch('/api/admin/guide/folders',{credentials:'include'});
-      var d=await r.json();
-      if(d.ok)S.guide.folders=d.folders||[];
-    }catch(e){console.error('[Guide] load error',e);}
-    S.guide.loading=false;
-  }
-  function guideFindItem(folders,itemId){
-    var found=null;
-    (function walk(list){list.forEach(function(f){if(found)return;(f.items||[]).forEach(function(i){if(i.id===itemId)found=i;});walk(f.children||[]);});})(folders);
-    return found;
-  }
-  function guideFlatFolders(folders){
-    var out=[];
-    (function walk(list){list.forEach(function(f){out.push(f);walk(f.children||[]);});})(folders);
-    return out;
-  }
-  function renderGuidePanel(){
-    var el=document.getElementById('guidePanel');if(!el)return;
-    var folders=S.guide.folders||[];
-    var sa=isSA();
-    function renderFolderList(list,depth){
-      return list.map(function(f){
-        var expanded=!!S.guide.expandedFolderIds[f.id];
-        var items=f.items||[];
-        var children=f.children||[];
-        function countAllItems(folder){
-          var n=(folder.items||[]).length;
-          (folder.children||[]).forEach(function(c){n+=countAllItems(c);});
-          return n;
-        }
-        var totalCount=countAllItems(f);
-        var itemsHtml='';
-        if(expanded){
-          itemsHtml='<div class="guide-folder-items">'+
-            items.map(function(item){
-              var active=S.guide.selectedItemId===item.id;
-              return '<div class="guide-item'+(active?' active':'')+'" data-guide-item="'+item.id+'" data-scribe-url="'+item.scribe_url.replace(/"/g,'&quot;')+'" data-item-title="'+item.title.replace(/"/g,'&quot;')+'">'+
-                '<span style="flex:1">'+item.title+'</span>'+
-                (sa?'<button class="guide-mgmt-btn" data-edit-item="'+item.id+'" title="Edit">&#9998;</button><button class="guide-mgmt-btn" data-delete-item="'+item.id+'" title="Delete">&times;</button>':'')+
-              '</div>';
-            }).join('')+
-            (items.length===0&&children.length===0?'<div style="padding:8px 12px;font-size:11px;color:var(--muted);">No guides in this folder yet</div>':'')+
-            (children.length>0?renderFolderList(children,depth+1):'')+
-            (sa?'<button class="guide-add-btn" data-add-item-folder="'+f.id+'">+ Add Guide</button>':'')+
-          '</div>';
-        }
-        return '<div class="guide-folder" style="margin-left:'+(depth*16)+'px" draggable="true" data-drag-folder="'+f.id+'">'+
-          '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
-            (sa?'<span class="guide-drag-handle" title="Drag to reorder" style="cursor:grab;opacity:.35;font-size:11px;margin-right:2px;">&#9776;</span>':'')+
-            '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+esc(f.name)+
-            '<span class="guide-folder-count">'+totalCount+'</span>'+
-            (sa?'<button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
-          '</div>'+itemsHtml+
-        '</div>';
-      }).join('');
-    }
-    var folderListHtml=renderFolderList(folders,0);
-    var selectedItem=null;
-    if(S.guide.selectedItemId){
-      selectedItem=guideFindItem(folders,S.guide.selectedItemId);
-    }
-    var detailHtml='';
-    if(selectedItem){
-      detailHtml='<div class="guide-detail-header"><h3>'+esc(selectedItem.title)+'</h3><button onclick="S.guide.selectedItemId=null;renderGuidePanel();" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--muted);">&times;</button></div>'+
-        '<div class="guide-detail-body"><iframe src="'+safeEmbedUrl(selectedItem.scribe_url)+'" allowfullscreen></iframe></div>';
-    }else{
-      detailHtml='<div class="guide-empty"><div><div style="font-size:40px;margin-bottom:8px;">&#127891;</div>Select a guide to view the tutorial</div></div>';
-    }
-    el.innerHTML='<div class="guide-wrap">'+
-      '<div class="guide-folders">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;font-weight:700;">Guides</h3>'+
-        (sa?'<button class="guide-add-btn" data-add-folder>+ Add Folder</button>':'')+
-        '</div>'+
-        (folders.length===0?'<div class="guide-empty" style="height:auto;padding:20px;"><div>No guides yet</div></div>':folderListHtml)+
-      '</div>'+
-      '<div class="guide-detail">'+detailHtml+'</div>'+
-    '</div>';
-  }
-  // ── Guide Drag-and-Drop Reorder ──────────────────────────
-  var guideDragState={draggingId:null};
-  document.addEventListener('dragstart',function(e){
-    var folder=e.target.closest('[data-drag-folder]');
-    if(!folder)return;
-    guideDragState.draggingId=folder.getAttribute('data-drag-folder');
-    folder.classList.add('dragging');
-    e.dataTransfer.effectAllowed='move';
-    e.dataTransfer.setData('text/plain',guideDragState.draggingId);
-  });
-  document.addEventListener('dragend',function(e){
-    var folder=e.target.closest('[data-drag-folder]');
-    if(folder)folder.classList.remove('dragging');
-    document.querySelectorAll('.guide-folder').forEach(function(el){el.classList.remove('drag-over-above','drag-over-below');});
-    guideDragState.draggingId=null;
-  });
-  document.addEventListener('dragover',function(e){
-    var folder=e.target.closest('[data-drag-folder]');
-    if(!folder||!guideDragState.draggingId)return;
-    if(folder.getAttribute('data-drag-folder')===guideDragState.draggingId)return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect='move';
-    var rect=folder.getBoundingClientRect();
-    var midY=rect.top+rect.height/2;
-    folder.classList.toggle('drag-over-above',e.clientY<midY);
-    folder.classList.toggle('drag-over-below',e.clientY>=midY);
-  });
-  document.addEventListener('dragleave',function(e){
-    var folder=e.target.closest('[data-drag-folder]');
-    if(folder){folder.classList.remove('drag-over-above','drag-over-below');}
-  });
-  document.addEventListener('drop',function(e){
-    var folder=e.target.closest('[data-drag-folder]');
-    if(!folder||!guideDragState.draggingId)return;
-    var targetId=folder.getAttribute('data-drag-folder');
-    if(targetId===guideDragState.draggingId)return;
-    e.preventDefault();
-    var rect=folder.getBoundingClientRect();
-    var above=e.clientY<rect.top+rect.height/2;
-    var topFolders=S.guide.folders||[];
-    var dragIdx=topFolders.findIndex(function(f){return f.id===guideDragState.draggingId;});
-    var targetIdx=topFolders.findIndex(function(f){return f.id===targetId;});
-    if(dragIdx===-1||targetIdx===-1)return;
-    var moved=topFolders.splice(dragIdx,1)[0];
-    var insertIdx=topFolders.findIndex(function(f){return f.id===targetId;});
-    if(!above)insertIdx++;
-    topFolders.splice(insertIdx,0,moved);
-    S.guide.folders=topFolders;
-    renderGuidePanel();
-    var order=topFolders.map(function(f,i){return{id:f.id,sort_order:i};});
-    fetch('/api/admin/guide/folders/reorder',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:order})})
-      .then(function(r){return r.json();}).then(function(d){if(!d.ok)alert('Failed to save order');});
-    document.querySelectorAll('.guide-folder').forEach(function(el){el.classList.remove('drag-over-above','drag-over-below');});
-    guideDragState.draggingId=null;
-  });
-  // ── Guide Tab Event Handlers ──────────────────────────────
-  document.addEventListener('click',function(e){
-    var fh=e.target.closest('[data-guide-folder]');
-    if(fh&&!e.target.closest('.guide-mgmt-btn')&&!e.target.closest('.guide-drag-handle')){
-      var fid=fh.getAttribute('data-guide-folder');
-      if(S.guide.expandedFolderIds[fid]){delete S.guide.expandedFolderIds[fid];}else{S.guide.expandedFolderIds[fid]=true;}
-      renderGuidePanel();return;
-    }
-    var gi=e.target.closest('[data-guide-item]');
-    if(gi&&!e.target.closest('.guide-mgmt-btn')){
-      S.guide.selectedItemId=gi.getAttribute('data-guide-item');
-      renderGuidePanel();return;
-    }
-    if(e.target.closest('[data-add-folder]')){
-      var name=prompt('Folder name:');
-      if(!name)return;
-      fetch('/api/admin/guide/folders',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var addItemBtn=e.target.closest('[data-add-item-folder]');
-    if(addItemBtn){
-      var folderId=addItemBtn.getAttribute('data-add-item-folder');
-      var title=prompt('Guide title:');if(!title)return;
-      var raw=prompt('Paste Scribe embed code:');if(!raw)return;
-      var url=parseScribeEmbed(raw);
-      fetch('/api/admin/guide/items',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder_id:folderId,title:title,scribe_url:url})})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var editFolderBtn=e.target.closest('[data-edit-folder]');
-    if(editFolderBtn){
-      var fid2=editFolderBtn.getAttribute('data-edit-folder');
-      var current=guideFlatFolders(S.guide.folders||[]).find(function(f){return f.id===fid2;});
-      var newName=prompt('Rename folder:',current?current.name:'');if(!newName)return;
-      fetch('/api/admin/guide/folders/'+encodeURIComponent(fid2),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var delFolderBtn=e.target.closest('[data-delete-folder]');
-    if(delFolderBtn){
-      var fid3=delFolderBtn.getAttribute('data-delete-folder');
-      if(!confirm('Delete this folder and all its guides?'))return;
-      fetch('/api/admin/guide/folders/'+encodeURIComponent(fid3),{method:'DELETE',credentials:'include'})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;S.guide.selectedItemId=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var editItemBtn=e.target.closest('[data-edit-item]');
-    if(editItemBtn){
-      var iid=editItemBtn.getAttribute('data-edit-item');
-      var currentItem=guideFindItem(S.guide.folders||[],iid);
-      var newTitle=prompt('Guide title:',currentItem?currentItem.title:'');if(!newTitle)return;
-      var rawEmbed=prompt('Paste Scribe embed code:',currentItem?currentItem.scribe_url:'');if(!rawEmbed)return;
-      var newUrl=parseScribeEmbed(rawEmbed);
-      fetch('/api/admin/guide/items/'+encodeURIComponent(iid),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle,scribe_url:newUrl})})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-    var delItemBtn=e.target.closest('[data-delete-item]');
-    if(delItemBtn){
-      var iid2=delItemBtn.getAttribute('data-delete-item');
-      if(!confirm('Delete this guide?'))return;
-      fetch('/api/admin/guide/items/'+encodeURIComponent(iid2),{method:'DELETE',credentials:'include'})
-        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;if(S.guide.selectedItemId===iid2)S.guide.selectedItemId=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
-      return;
-    }
-  });
 
   function vaHidePanels(){
     ["inboxPanel","supportPanel","toolsPanel"].forEach(function(id){
