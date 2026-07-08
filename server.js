@@ -25009,10 +25009,29 @@ ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1p
 </div></body></html>`;
 }
 
+// A practice-facing recommendation must NEVER be an AI refusal or meta-comment.
+// Those only appear when the model balks — most often because the name printed
+// on the CV differs from the GP's account name (a name change, marriage, or a
+// different professional name). We detect that shape and drop it so the email
+// omits the block, exactly as it does on any other AI failure, rather than
+// showing a practice "I'm sorry, the CV is for someone else".
+function looksLikeAiRefusal(text) {
+  var t = String(text || '').toLowerCase();
+  return /\bi(?:['’]| a)?m sorry\b/.test(t)
+    || /\bi apologi[sz]e\b/.test(t)
+    || /\bi (?:cannot|can ?not|can['’]t|am unable to|am not able to|won['’]t be able to)\b/.test(t)
+    || /\bas an ai\b/.test(t)
+    || /\bthe cv (?:provided|above|attached|supplied) (?:is|belongs|appears)\b/.test(t)
+    || /\bno (?:cv|information|details?) (?:is |are |was )?(?:available|provided|supplied)\b/.test(t)
+    || /\bcannot (?:invent|attribute|write a summary|create a summary|provide a summary)\b/.test(t);
+}
+
 // 3-sentence, highly-recommending summary of the GP's experience, written by
 // AI from the verified careers CV. Returns '' on ANY failure — the email
 // simply omits the recommendation block (submit-to-practice must never be
-// blocked on this being available).
+// blocked on this being available). The name PRINTED on the CV is deliberately
+// ignored (GPs change names); the candidate is always referred to by their GP
+// Link account name.
 async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName }) {
   try {
     if (!process.env.ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return '';
@@ -25025,7 +25044,8 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
       if (!text) return '';
       blocks.push({ type: 'text', text: 'CV TEXT:\n\n' + text.slice(0, 30000) });
     } else return '';
-    blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + String(gpName || '').trim() + '\'s experience and strengths, framed as a strong recommendation. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts. Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
+    var recName = String(gpName || '').trim();
+    blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. This CV belongs to a doctor whose GP Link account name is Dr ' + recName + '. IMPORTANT: the name printed on the CV itself may be different from "' + recName + '" — doctors often change their name (marriage, a new professional name, and so on). This is completely normal and expected. You MUST treat the CV as Dr ' + recName + '\'s own record, and you MUST NOT mention, question, compare, or flag any difference between the name on the CV and Dr ' + recName + '. Never refuse. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + recName + '\'s experience and strengths, framed as a strong recommendation and referring to the doctor throughout as Dr ' + recName + '. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts other than the name (always use Dr ' + recName + '). Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
     var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
       method: 'POST',
       headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
@@ -25035,6 +25055,9 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
     var json = await resp.json();
     if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
     var out = (json && json.content && json.content[0] && json.content[0].text || '').trim();
+    // Belt-and-braces: even with the prompt above, never let a stray refusal or
+    // meta-comment reach a practice — drop it so the email omits the block.
+    if (looksLikeAiRefusal(out)) return '';
     return out.length > 20 && out.length < 1200 ? out : '';
   } catch (err) {
     console.warn('[submit-to-practice] recommendation generation failed (email sends without it):', err && err.message);
@@ -57013,6 +57036,7 @@ module.exports.__testUtils = {
   __resetVapidWarningForTests: function () { vapidMissingWarned = false; },
   buildCandidateSubmissionEmailHtml,
   generateCandidateRecommendation,
+  looksLikeAiRefusal,
   buildCandidateIntro: careerIntro.buildCandidateIntro
 };
 // cache-bust 1778597236
