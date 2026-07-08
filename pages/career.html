@@ -5999,6 +5999,7 @@
          containers and JAMS touch scrolling — the placement page then can't scroll
          at all. It must scroll like every other page that works in the same iframe. */
       overscroll-behavior-y: contain;
+      touch-action: pan-y; /* explicitly permit vertical touch scrolling */
       color: var(--gp-ink);
       --bg: #ffffff;
       --panel: #ffffff;
@@ -7828,6 +7829,7 @@
   </script>
 <div id="career-live-region" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
   <div id="careerBootOverlay" aria-hidden="true"><div class="career-boot-spinner"></div></div>
+  <div id="careerScrollDiag" role="status" style="display:none;position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:300;background:rgba(2,6,23,0.9);color:#fff;font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:10px;white-space:pre-wrap;box-shadow:0 8px 24px -12px rgba(0,0,0,0.6);"></div>
   <div class="shell">
     <header class="app-header gp-reveal">
       <div class="header-greeting">
@@ -12162,6 +12164,67 @@
       } catch (e) { /* never block the render */ }
     }
 
+    // TEMPORARY diagnostic (owner-reported placement-page scroll freeze, 2026-07-08).
+    // After 4 blind fixes failed, capture the REAL scroll state on the user's device:
+    // (a) show a small on-screen readout and (b) post it once to /api/errors/report
+    // so we can read the exact numbers (incl. her iOS/Safari version) back from the
+    // client_errors table. Remove once the freeze is confirmed fixed. It must never
+    // throw — the whole body is guarded.
+    function reportSecuredScrollDiag(tag, doPost) {
+      try {
+        if (careerState.activeView !== "secured") return;
+        var de = document.documentElement, b = document.body;
+        var shell = document.querySelector(".shell");
+        var securedPanel = document.querySelector('[data-view-panel="secured"]');
+        var csd = getComputedStyle(de), cs = getComputedStyle(b);
+        var css = shell ? getComputedStyle(shell) : null;
+        var maxSH = Math.max(de.scrollHeight, b.scrollHeight, shell ? shell.scrollHeight : 0);
+        var embedded;
+        try { embedded = window.self !== window.top; } catch (e2) { embedded = "cross-origin"; }
+        var data = {
+          tag: tag || "", embedded: embedded,
+          winH: window.innerHeight, winW: window.innerWidth,
+          docSH: de.scrollHeight, docCH: de.clientHeight,
+          bodySH: b.scrollHeight, bodyCH: b.clientHeight,
+          shellSH: shell ? shell.scrollHeight : null, shellCH: shell ? shell.clientHeight : null,
+          panelSH: securedPanel ? securedPanel.scrollHeight : null,
+          htmlOverflowY: csd.overflowY, bodyOverflowY: cs.overflowY,
+          shellOverflowY: css ? css.overflowY : null,
+          bodyHeight: cs.height, bodyMinHeight: cs.minHeight, bodyPosition: cs.position,
+          bodyTouchAction: cs.touchAction || cs.getPropertyValue("touch-action"),
+          shellHeight: css ? css.height : null,
+          modeSecured: b.classList.contains("career-mode-secured"),
+          booting: de.hasAttribute("data-career-booting"),
+          placementState: de.getAttribute("data-career-placement-state") || "ready",
+          gateLock: b.classList.contains("career-gate-open") || de.classList.contains("career-gate-open"),
+          overflows: maxSH > (window.innerHeight + 4)
+        };
+        var el = document.getElementById("careerScrollDiag");
+        if (el) {
+          el.textContent = "GP Link scroll check (temporary)\n"
+            + "needs-scroll=" + (data.overflows ? "YES" : "no") + "  screen=" + data.winH + "  content=" + maxSH + "\n"
+            + "body.oflowY=" + data.bodyOverflowY + "  shell.oflowY=" + data.shellOverflowY + "  touch=" + data.bodyTouchAction + "\n"
+            + "secured=" + data.modeSecured + " boot=" + data.booting + " lock=" + data.gateLock + " state=" + data.placementState;
+          el.style.display = "block";
+        }
+        if (doPost && !reportSecuredScrollDiag._sent) {
+          reportSecuredScrollDiag._sent = true;
+          try {
+            fetch("/api/errors/report", {
+              method: "POST", credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: "SCROLL-DIAG secured needs-scroll=" + data.overflows + " screen=" + data.winH + " content=" + maxSH + " body.oflowY=" + data.bodyOverflowY,
+                stack: JSON.stringify(data),
+                url: location.href,
+                userAgent: navigator.userAgent
+              })
+            }).catch(function () {});
+          } catch (e3) { /* best effort */ }
+        }
+      } catch (e) { /* diagnostic must never break the page */ }
+    }
+
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
@@ -12879,10 +12942,10 @@
     // Returning to the page (bfcache restore) or rotating the device can drop the
     // scroll context on iOS — re-assert it whenever we're on the placement view.
     window.addEventListener("pageshow", function () {
-      if (careerState.activeView === "secured") ensureSecuredScrollable();
+      if (careerState.activeView === "secured") { ensureSecuredScrollable(); reportSecuredScrollDiag("pageshow", false); }
     });
     window.addEventListener("orientationchange", function () {
-      if (careerState.activeView === "secured") ensureSecuredScrollable();
+      if (careerState.activeView === "secured") setTimeout(function () { ensureSecuredScrollable(); reportSecuredScrollDiag("orient", false); }, 300);
     });
 
     (async function init() {
@@ -12900,6 +12963,10 @@
       syncCareerViewFromLocation();
       renderPage();
       clearCareerBoot(); // live data picked the correct view — reveal it once
+      if (careerState.activeView === "secured") {
+        // Capture the settled scroll state on the device and report it to us.
+        setTimeout(function () { reportSecuredScrollDiag("settled", true); }, 1600);
+      }
       ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
