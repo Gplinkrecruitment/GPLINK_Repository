@@ -42774,6 +42774,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     const [caseRes, tasksRes, tlRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1'),
       supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
@@ -42802,6 +42803,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     const [tlRes, msgRes] = await Promise.all([
       supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200'),
       supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200')
@@ -42821,6 +42823,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('case_id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
 
     if (!ANTHROPIC_API_KEY) {
       sendJson(res, 503, { ok: false, error: 'AI service not configured.' });
@@ -43143,6 +43146,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const allowed = ['assigned_va', 'assigned_rso', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
     const patch = {};
@@ -43403,6 +43407,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const text = body && typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) { sendJson(res, 400, { ok: false, message: 'Missing text.' }); return; }
@@ -43508,6 +43513,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!gdAdminCtx) return;
     var gdCaseId = url.searchParams.get('case_id');
     if (!gdCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    if (!(await ensureAdminCaseAccess(gdAdminCtx, await fetchCaseAssignmentById(gdCaseId), res))) return;
 
     try {
       // 1. Get case + user info
@@ -44039,6 +44045,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at', 'escalated_by'];
     const patch = {};
@@ -44221,6 +44228,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('task_id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing task_id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
     const tRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
     const task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
     const up = task && task.metadata && task.metadata.upload ? task.metadata.upload : null;
@@ -44238,6 +44246,7 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
     const drTaskId = url.searchParams.get('task_id');
     if (!drTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(drTaskId), res))) return;
     const drRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,title,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(drTaskId) + '&limit=1');
     const drTask = (drRes.ok && Array.isArray(drRes.data) && drRes.data[0]) ? drRes.data[0] : null;
     if (!drTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
@@ -44406,6 +44415,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('taskId');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
     // Heal legacy auto-matched tasks that have the attachment only on their columns (no rows yet)
     await _ensureTaskArtifacts(taskId);
     const msgs = await supabaseDbRequest('task_messages',
@@ -44489,6 +44499,7 @@ Return ONLY valid JSON with no markdown formatting:
     var threadCaseId = url.searchParams.get('caseId');
     var threadIdParam = url.searchParams.get('threadId') || '';
     if (!threadCaseId) { sendJson(res, 400, { ok: false, error: 'caseId required' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(threadCaseId), res))) return;
     var tCRes = await supabaseDbRequest('registration_cases',
       'select=id,stage,assigned_va,practice_name,user_id&id=eq.' + encodeURIComponent(threadCaseId) + '&limit=1');
     var tCase = (tCRes.ok && Array.isArray(tCRes.data) && tCRes.data[0]) ? tCRes.data[0] : null;
@@ -44631,6 +44642,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('taskId');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
     // Heal legacy auto-matched tasks that have the attachment only on their columns (no rows yet)
     await _ensureTaskArtifacts(taskId);
     const docs = await supabaseDbRequest('task_documents',
@@ -46120,6 +46132,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const userId = url.searchParams.get('user_id');
     if (!userId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(userId), res))) return;
     const sRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     let country = 'GB';
     if (sRes.ok && Array.isArray(sRes.data) && sRes.data[0]) {
@@ -46147,6 +46160,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
       return;
     }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(targetUserId), res))) return;
 
     const existing = await getOnboardingDocumentRow(targetUserId, country, key);
     const mapped = mapPreparedDocumentRow(existing);
@@ -48132,6 +48146,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('task_id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
 
     const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
     if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
@@ -48512,6 +48527,7 @@ Return ONLY valid JSON with no markdown formatting:
     const gdpCaseId = url.searchParams.get('case_id') || '';
     const gdpKey = sanitizeUserString(url.searchParams.get('key') || '', 120);
     if (!gdpCaseId || !gdpKey) { sendJson(res, 400, { ok: false, message: 'case_id and key required.' }); return; }
+    if (!(await ensureAdminCaseAccess(gdpAdmin, await fetchCaseAssignmentById(gdpCaseId), res))) return;
 
     const gdpCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(gdpCaseId) + '&limit=1');
     const gdpUserId = gdpCaseRes.ok && Array.isArray(gdpCaseRes.data) && gdpCaseRes.data[0] ? gdpCaseRes.data[0].user_id : null;
@@ -50282,6 +50298,7 @@ Return ONLY valid JSON with no markdown formatting:
     ]);
     const application = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0 ? caseRes.data[0] : null;
     if (!application) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx6, await fetchCaseAssignmentByUserId(application.user_id), res))) return;
     // Get profile
     let profile = null;
     if (application.user_id) {
@@ -50622,6 +50639,7 @@ Return ONLY valid JSON with no markdown formatting:
     ]);
     if (!appRes.ok || !Array.isArray(appRes.data) || appRes.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
     const application = appRes.data[0];
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(application.user_id), res))) return;
     const profileRes = await supabaseDbRequest('user_profiles', `select=first_name,last_name,email&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`);
     const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data.length > 0 ? profileRes.data[0] : {};
     application.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
@@ -51062,6 +51080,7 @@ Return ONLY valid JSON with no markdown formatting:
     const oldRes = await supabaseDbRequest('visa_applications', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     const oldCase = oldRes.ok && Array.isArray(oldRes.data) && oldRes.data.length > 0 ? oldRes.data[0] : null;
     if (!oldCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(oldCase.user_id), res))) return;
 
     const r = await supabaseDbRequest('visa_applications', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
@@ -51109,6 +51128,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     const [caseRes, tasksRes, tlRes, docOpsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1'),
       supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
@@ -51661,6 +51681,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const allowed = ['assigned_va', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date',
       'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage', 'priority',
