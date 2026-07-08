@@ -12250,13 +12250,23 @@
           var pde = pdoc.documentElement, pb = pdoc.body;
           data.parentOverflowY = pwin.getComputedStyle(pde).overflowY + "/" + pwin.getComputedStyle(pb).overflowY;
           data.parentDoc = pde.scrollHeight + ":" + pde.clientHeight;
+          // What element in the PARENT (app-shell) sits at the viewport centre? If
+          // it's NOT our active iframe, something is covering it and eating wheel.
+          var pcx = Math.round(pwin.innerWidth / 2), pcy = Math.round(pwin.innerHeight / 2);
+          var pstack = pdoc.elementsFromPoint ? pdoc.elementsFromPoint(pcx, pcy) : [pdoc.elementFromPoint(pcx, pcy)];
+          data.parentCenter = (pstack || []).slice(0, 3).map(function (n) {
+            if (!n || !n.tagName) return "?";
+            var cls = (n.className && typeof n.className === "string") ? "." + n.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
+            var pe = ""; try { pe = pwin.getComputedStyle(n).pointerEvents; } catch (_e) {}
+            return n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + cls + "{pe:" + pe + "}";
+          }).join(" > ");
         } catch (e9) { data.parentProbe = "err:" + (e9 && e9.message ? e9.message.slice(0, 40) : "?"); }
         var el = document.getElementById("careerScrollDiag");
         if (el) {
           el.textContent = "GP Link scroll check (temporary)\n"
             + "needs-scroll=" + (data.overflows ? "YES" : "no") + " W=" + data.winW + " H=" + data.winH + " content=" + maxSH + " canScrollProg=" + data.canScrollProg + "\n"
             + "iframe: scrolling=" + data.frameScrollingAttr + " pointer=" + data.framePointerEvents + " h=" + data.frameH + " class=" + data.frameClass + "\n"
-            + "stack: overflow=" + data.stackOverflow + " h=" + data.stackH + "  parentOflowY=" + data.parentOverflowY + " parentDoc=" + data.parentDoc + "\n"
+            + "stack: overflow=" + data.stackOverflow + " parentCentre: " + data.parentCenter + "\n"
             + "centre: " + data.centerStack + (data.parentProbe ? (" | parentProbe=" + data.parentProbe) : "");
           el.style.display = "block";
         }
@@ -12267,7 +12277,7 @@
               method: "POST", credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                message: "SCROLL-DIAG " + data.winW + "w overflow=" + data.overflows + " canScrollProg=" + data.canScrollProg + " frameScroll=" + data.frameScrollingAttr + " framePtr=" + data.framePointerEvents + " stackOflow=" + data.stackOverflow + " email=" + (data.email || "?"),
+                message: "SCROLL-DIAG " + data.winW + "w framePtr=" + data.framePointerEvents + " frameClass=" + data.frameClass + " parentCentre=" + (data.parentCenter||"").slice(0,80) + " email=" + (data.email || "?"),
                 stack: JSON.stringify(data),
                 url: location.href,
                 userAgent: navigator.userAgent
