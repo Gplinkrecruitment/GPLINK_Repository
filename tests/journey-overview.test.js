@@ -136,25 +136,19 @@ describe('pages/index.html — 7-stage journey surface', () => {
     expect(indexHtml).not.toContain('.get("locked")');
   });
 
-  it('has an honest API-failure retry affordance for the server refresh', () => {
-    expect(indexHtml).toContain('id="dataErrorBanner"');
-    expect(indexHtml).toContain('id="dataErrorRetry"');
-    expect(indexHtml).toContain("We couldn't refresh your latest progress");
-  });
-
-  it('refresh check is resilient: retries, self-healing banner, 401 → sign-in', () => {
-    // One transient hiccup must not permanently brand the page (2026-07-07:
-    // owner saw a stuck banner while the server logged nothing but 200s).
-    // Retries before first showing the banner…
-    expect(indexHtml).toMatch(/checkServerState\(attempt \+ 1\)/);
-    // …keeps re-checking while visible so it hides itself on recovery…
-    expect(indexHtml).toMatch(/setInterval\(\(\) => checkServerState\(2\), 30000\)/);
-    expect(indexHtml).toContain('clearInterval(dataErrorRecheckTimer)');
-    // …and a dead session bounces to sign-in instead of claiming stale data.
-    expect(indexHtml).toContain('r.status === 401');
-    expect(indexHtml).toContain('"/pages/signin"');
-    // The banner states its technical reason so screenshots are diagnosable.
-    expect(indexHtml).toContain('id="dataErrorDetail"');
+  it('no longer shows the false "couldn\'t refresh your progress" banner (owner request 2026-07-08)', () => {
+    // The journey renders from locally cached progress and the page is
+    // auth-guarded, so a transient background /api/state hiccup never meant the
+    // data shown was actually stale — the red banner only ever cried wolf.
+    // An earlier "resilient" retry/self-heal attempt (2026-07-07) still let it
+    // stick, so the whole banner + its server-ping machinery were removed.
+    expect(indexHtml).not.toContain("We couldn't refresh your latest progress");
+    expect(indexHtml).not.toContain('id="dataErrorBanner"');
+    expect(indexHtml).not.toContain('id="dataErrorRetry"');
+    expect(indexHtml).not.toContain('id="dataErrorDetail"');
+    expect(indexHtml).not.toContain('checkServerState');
+    expect(indexHtml).not.toContain('dataErrorRecheckTimer');
+    expect(indexHtml).not.toContain('data-error-banner');
   });
 
   it('never uses the bare "RSO" abbreviation in GP-visible copy', () => {
