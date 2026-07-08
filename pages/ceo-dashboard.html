@@ -7106,7 +7106,7 @@
             html += '<div class="ceo-support-row">';
             html += '<div class="ceo-support-row-main">';
             html += '<div class="ceo-support-row-title">' + esc(t.title || '(untitled ticket)') + '</div>';
-            html += '<div class="ceo-support-row-gp">' + esc(t.gp_name || 'Unknown GP') + (t.practice_name ? ' &middot; ' + esc(t.practice_name) : '') + '</div>';
+            html += '<div class="ceo-support-row-gp">' + esc(t.gp_name || 'EXTERNAL (Not on App)') + (t.practice_name ? ' &middot; ' + esc(t.practice_name) : '') + '</div>';
             if (snippet) html += '<div class="ceo-support-row-snippet">' + esc(snippet) + '</div>';
             html += '<div class="ceo-support-row-pills">';
             html += supportStatusPill(t.status);

@@ -7523,7 +7523,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const statusLabel=item.status==="closed"?"Closed":(item.status==="in_progress"?"In Progress":(item.status==="waiting_on_gp"?"Waiting on GP":"Open"));
 
       h+='<tr data-support-id="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">';
-      h+='<td><strong>'+esc(item.gp_name||"Unknown")+'</strong></td>';
+      const gpLabel=item.gp_name||"EXTERNAL (Not on App)";
+      h+='<td>'+(item.is_external?'<span style="color:var(--muted);font-weight:600">'+esc(gpLabel)+'</span>':'<strong>'+esc(gpLabel)+'</strong>')+'</td>';
       h+='<td>'+srcBadge+'</td>';
       const nudgeTag=item.source==="nudge_reply"?' <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle">Nudge Reply</span>':"";
       h+='<td>'+esc(item.title||"")+nudgeTag+'</td>';
