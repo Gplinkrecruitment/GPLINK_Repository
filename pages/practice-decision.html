@@ -9,6 +9,11 @@
 <style>
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
+  /* The page hides sections via the `hidden` attribute. Some sections (e.g.
+     #pdLoading) also set their own `display`, and an author `display` always
+     beats the UA [hidden]{display:none} — which left the "Loading…" spinner
+     stuck on screen after the page loaded. Force `hidden` to win everywhere. */
+  [hidden]{display:none !important;}
   body{
     background:var(--gp-canvas);
     color:var(--gp-text);
