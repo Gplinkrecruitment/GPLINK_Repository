@@ -5991,14 +5991,20 @@
     body.career-mode-secured {
       background: #ffffff !important;
       min-height: 100vh;
-      overflow-x: hidden;
       /* NB: the legacy iOS momentum-scroll property is deliberately NOT set on this
          body, and overflow-y is left to the natural document flow. On iOS inside the
          app-shell iframe, turning the <body> into its own momentum-scroll container
          (or forcing overflow-y:auto on BOTH <html> and <body>) nests two scroll
          containers and JAMS touch scrolling — the placement page then can't scroll
-         at all. It must scroll like every other page that works in the same iframe. */
-      overscroll-behavior-y: contain;
+         at all. It must scroll like every other page that works in the same iframe.
+
+         Also do NOT set `overflow-x` or `overscroll-behavior-y: contain` here. On the
+         tall secured (hired) page the real vertical overflow lives on <html>, and body
+         is exactly content-height. Setting overflow-x turned <body> into a dead scroll
+         container with no scroll range, and overscroll-behavior-y: contain then blocked
+         the wheel from chaining up to <html> — the page moved a few px then rubber-banded
+         back to the top (owner report 2026-07-09). Horizontal clipping is already handled
+         by the base `html, body { overflow-x: hidden }`. */
       touch-action: pan-y; /* explicitly permit vertical touch scrolling */
       color: var(--gp-ink);
       --bg: #ffffff;
@@ -7832,7 +7838,6 @@
   </script>
 <div id="career-live-region" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
   <div id="careerBootOverlay" aria-hidden="true"><div class="career-boot-spinner"></div></div>
-  <div id="careerScrollDiag" role="status" style="display:none;position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:300;background:rgba(2,6,23,0.9);color:#fff;font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:10px;white-space:pre-wrap;box-shadow:0 8px 24px -12px rgba(0,0,0,0.6);"></div>
   <div class="shell">
     <header class="app-header gp-reveal">
       <div class="header-greeting">
@@ -12167,162 +12172,6 @@
       } catch (e) { /* never block the render */ }
     }
 
-    // TEMPORARY diagnostic (owner-reported placement-page scroll freeze, 2026-07-08).
-    // After 4 blind fixes failed, capture the REAL scroll state on the user's device:
-    // (a) show a small on-screen readout and (b) post it once to /api/errors/report
-    // so we can read the exact numbers (incl. her iOS/Safari version) back from the
-    // client_errors table. Remove once the freeze is confirmed fixed. It must never
-    // throw — the whole body is guarded.
-    function reportSecuredScrollDiag(tag, doPost) {
-      try {
-        if (careerState.activeView !== "secured") return;
-        var de = document.documentElement, b = document.body;
-        var shell = document.querySelector(".shell");
-        var securedPanel = document.querySelector('[data-view-panel="secured"]');
-        var csd = getComputedStyle(de), cs = getComputedStyle(b);
-        var css = shell ? getComputedStyle(shell) : null;
-        var grid = document.querySelector(".secured-grid");
-        var mainEl = document.querySelector(".main");
-        var maxSH = Math.max(de.scrollHeight, b.scrollHeight, shell ? shell.scrollHeight : 0);
-        var embedded, parentInnerH = null;
-        try { embedded = window.self !== window.top; } catch (e2) { embedded = "cross-origin"; }
-        try { parentInnerH = window.parent && window.parent.innerHeight; } catch (e4) { parentInnerH = "cross-origin"; }
-        var whoEmail = "";
-        try { whoEmail = (window.gpSessionProfile && window.gpSessionProfile.email) || ""; } catch (e5) {}
-        var data = {
-          tag: tag || "", embedded: embedded, email: whoEmail,
-          provisional: de.hasAttribute("data-career-placement-provisional"),
-          parentInnerH: parentInnerH,
-          gridSH: grid ? grid.scrollHeight : null, mainSH: mainEl ? mainEl.scrollHeight : null,
-          winH: window.innerHeight, winW: window.innerWidth,
-          docSH: de.scrollHeight, docCH: de.clientHeight,
-          bodySH: b.scrollHeight, bodyCH: b.clientHeight,
-          shellSH: shell ? shell.scrollHeight : null, shellCH: shell ? shell.clientHeight : null,
-          panelSH: securedPanel ? securedPanel.scrollHeight : null,
-          htmlOverflowY: csd.overflowY, bodyOverflowY: cs.overflowY,
-          shellOverflowY: css ? css.overflowY : null,
-          bodyHeight: cs.height, bodyMinHeight: cs.minHeight, bodyPosition: cs.position,
-          bodyTouchAction: cs.touchAction || cs.getPropertyValue("touch-action"),
-          shellHeight: css ? css.height : null,
-          modeSecured: b.classList.contains("career-mode-secured"),
-          booting: de.hasAttribute("data-career-booting"),
-          placementState: de.getAttribute("data-career-placement-state") || "ready",
-          gateLock: b.classList.contains("career-gate-open") || de.classList.contains("career-gate-open"),
-          overflows: maxSH > (window.innerHeight + 4)
-        };
-        // Decisive probe: does a programmatic scroll move, and what element sits at
-        // the viewport centre (is an invisible overlay eating wheel/touch events?).
-        try {
-          var scroller = document.scrollingElement || de;
-          data.scrollerTag = scroller === de ? "html" : (scroller === b ? "body" : (scroller && scroller.tagName) || "?");
-          var beforeTop = scroller.scrollTop;
-          scroller.scrollTop = 140;
-          data.canScrollProg = scroller.scrollTop > beforeTop;
-          scroller.scrollTop = beforeTop;
-        } catch (e6) { data.canScrollProg = "err"; }
-        try {
-          var cx = Math.round(window.innerWidth / 2), cy = Math.round(window.innerHeight / 2);
-          var stack = (document.elementsFromPoint ? document.elementsFromPoint(cx, cy) : [document.elementFromPoint(cx, cy)]) || [];
-          data.centerStack = stack.slice(0, 4).map(function (n) {
-            if (!n || !n.tagName) return "?";
-            var cls = (n.className && typeof n.className === "string") ? "." + n.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
-            var pos = "";
-            try { pos = getComputedStyle(n).position; } catch (e8) {}
-            return n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + cls + "[" + pos + "]";
-          }).join("  >  ");
-        } catch (e7) { data.centerStack = "err"; }
-        // Parent-side probe: the iframe element that hosts this window, and whether
-        // the app-shell (not this doc) is the intended scroller / is blocking it.
-        try {
-          var pwin = window.parent, pdoc = pwin.document;
-          var frames = pdoc.querySelectorAll("iframe"), mine = null;
-          for (var fi = 0; fi < frames.length; fi++) { if (frames[fi].contentWindow === window) { mine = frames[fi]; break; } }
-          if (mine) {
-            var fcs = pwin.getComputedStyle(mine);
-            data.frameScrollingAttr = mine.getAttribute("scrolling");
-            data.framePointerEvents = fcs.pointerEvents;
-            data.frameClass = (mine.className || "").slice(0, 40);
-            data.frameH = Math.round(mine.getBoundingClientRect().height);
-            var stackEl = mine.closest ? mine.closest(".app-shell-frame-stack") : null;
-            data.stackOverflow = stackEl ? pwin.getComputedStyle(stackEl).overflow : "?";
-            data.stackH = stackEl ? Math.round(stackEl.getBoundingClientRect().height) : null;
-          } else { data.frameFound = false; }
-          var pde = pdoc.documentElement, pb = pdoc.body;
-          data.parentOverflowY = pwin.getComputedStyle(pde).overflowY + "/" + pwin.getComputedStyle(pb).overflowY;
-          data.parentDoc = pde.scrollHeight + ":" + pde.clientHeight;
-          // What element in the PARENT (app-shell) sits at the viewport centre? If
-          // it's NOT our active iframe, something is covering it and eating wheel.
-          var pcx = Math.round(pwin.innerWidth / 2), pcy = Math.round(pwin.innerHeight / 2);
-          var pstack = pdoc.elementsFromPoint ? pdoc.elementsFromPoint(pcx, pcy) : [pdoc.elementFromPoint(pcx, pcy)];
-          data.parentCenter = (pstack || []).slice(0, 3).map(function (n) {
-            if (!n || !n.tagName) return "?";
-            var cls = (n.className && typeof n.className === "string") ? "." + n.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
-            var pe = ""; try { pe = pwin.getComputedStyle(n).pointerEvents; } catch (_e) {}
-            return n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + cls + "{pe:" + pe + "}";
-          }).join(" > ");
-        } catch (e9) { data.parentProbe = "err:" + (e9 && e9.message ? e9.message.slice(0, 40) : "?"); }
-        var el = document.getElementById("careerScrollDiag");
-        if (el) {
-          el.textContent = "GP Link scroll check (temporary)\n"
-            + "needs-scroll=" + (data.overflows ? "YES" : "no") + " W=" + data.winW + " H=" + data.winH + " content=" + maxSH + " canScrollProg=" + data.canScrollProg + "\n"
-            + "iframe: scrolling=" + data.frameScrollingAttr + " pointer=" + data.framePointerEvents + " h=" + data.frameH + " class=" + data.frameClass + "\n"
-            + "stack: overflow=" + data.stackOverflow + " parentCentre: " + data.parentCenter + "\n"
-            + "centre: " + data.centerStack + (data.parentProbe ? (" | parentProbe=" + data.parentProbe) : "");
-          el.style.display = "block";
-        }
-        if (doPost && !reportSecuredScrollDiag._sent) {
-          reportSecuredScrollDiag._sent = true;
-          try {
-            fetch("/api/errors/report", {
-              method: "POST", credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                message: "SCROLL-DIAG " + data.winW + "w framePtr=" + data.framePointerEvents + " frameClass=" + data.frameClass + " parentCentre=" + (data.parentCenter||"").slice(0,80) + " email=" + (data.email || "?"),
-                stack: JSON.stringify(data),
-                url: location.href,
-                userAgent: navigator.userAgent
-              })
-            }).catch(function () {});
-          } catch (e3) { /* best effort */ }
-        }
-      } catch (e) { /* diagnostic must never break the page */ }
-    }
-
-    // DECISIVE interactive test: while the user tries to scroll, record whether
-    // wheel events even reach the document (=0 → something intercepts them above
-    // the page), whether any were defaultPrevented (a capturing preventDefault),
-    // and whether scrollTop actually advanced (did it scroll at all / get reset).
-    function watchScroll() {
-      try {
-        if (careerState.activeView !== "secured") return;
-        var scroller = document.scrollingElement || document.documentElement;
-        var r = { scrollEvts: 0, maxTop: 0, lastTop: 0, wheelEvts: 0, wheelPrevented: 0, email: "" };
-        try { r.email = (window.gpSessionProfile && window.gpSessionProfile.email) || ""; } catch (e2) {}
-        var onScroll = function () { r.scrollEvts++; r.lastTop = scroller.scrollTop; if (scroller.scrollTop > r.maxTop) r.maxTop = scroller.scrollTop; };
-        var onWheel = function (e) { r.wheelEvts++; if (e.defaultPrevented) r.wheelPrevented++; };
-        window.addEventListener("scroll", onScroll, { passive: true });
-        window.addEventListener("wheel", onWheel, { passive: true });
-        var el = document.getElementById("careerScrollDiag");
-        if (el) el.textContent = "SCROLL TEST — please try scrolling with your trackpad/mouse NOW for ~5 seconds…";
-        setTimeout(function () {
-          window.removeEventListener("scroll", onScroll);
-          window.removeEventListener("wheel", onWheel);
-          if (el) el.textContent = "SCROLL TEST RESULT (thank you)\n"
-            + "wheel events reaching page = " + r.wheelEvts + " (of those, blocked = " + r.wheelPrevented + ")\n"
-            + "scroll events = " + r.scrollEvts + "  maxScrollReached = " + r.maxTop + "  nowAt = " + r.lastTop;
-          try {
-            fetch("/api/errors/report", {
-              method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                message: "SCROLL-TEST wheelEvts=" + r.wheelEvts + " wheelBlocked=" + r.wheelPrevented + " scrollEvts=" + r.scrollEvts + " maxTop=" + r.maxTop + " email=" + r.email,
-                stack: JSON.stringify(r), url: location.href, userAgent: navigator.userAgent
-              })
-            }).catch(function () {});
-          } catch (e3) {}
-        }, 6000);
-      } catch (e) { /* never break the page */ }
-    }
-
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
@@ -13040,10 +12889,10 @@
     // Returning to the page (bfcache restore) or rotating the device can drop the
     // scroll context on iOS — re-assert it whenever we're on the placement view.
     window.addEventListener("pageshow", function () {
-      if (careerState.activeView === "secured") { ensureSecuredScrollable(); reportSecuredScrollDiag("pageshow", false); }
+      if (careerState.activeView === "secured") ensureSecuredScrollable();
     });
     window.addEventListener("orientationchange", function () {
-      if (careerState.activeView === "secured") setTimeout(function () { ensureSecuredScrollable(); reportSecuredScrollDiag("orient", false); }, 300);
+      if (careerState.activeView === "secured") setTimeout(function () { ensureSecuredScrollable(); }, 300);
     });
 
     (async function init() {
@@ -13061,10 +12910,6 @@
       syncCareerViewFromLocation();
       renderPage();
       clearCareerBoot(); // live data picked the correct view — reveal it once
-      if (careerState.activeView === "secured") {
-        // Capture the settled scroll state, then run the interactive scroll test.
-        setTimeout(function () { reportSecuredScrollDiag("settled", true); watchScroll(); }, 1600);
-      }
       ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;

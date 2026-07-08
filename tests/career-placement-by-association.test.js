@@ -246,6 +246,30 @@ describe('pages/career.html — placement scroll freeze + boot flash fixes (owne
     expect(block).not.toMatch(/-webkit-overflow-scrolling\s*:/);
   });
 
+  it('does NOT trap the wheel on the tall secured page (no overscroll-contain / dead scroll container)', () => {
+    // On the tall hired ("My Practice") page the real vertical overflow lives on
+    // <html>, and <body> is exactly content-height. Setting overflow-x turned <body>
+    // into a scroll container with NO scroll range, and overscroll-behavior-y: contain
+    // then blocked the wheel from chaining up to <html> — the page moved a few px then
+    // rubber-banded back to the top (owner report 2026-07-09). Neither may return.
+    // Strip CSS comments first (they mention these props by name), THEN scope to just
+    // this rule's body — otherwise a `}` inside a comment truncates the slice.
+    const noComments = careerHtml.replace(/\/\*[\s\S]*?\*\//g, '');
+    const start = noComments.indexOf('body.career-mode-secured {');
+    const block = noComments.slice(start, noComments.indexOf('}', start));
+    expect(block).not.toMatch(/overscroll-behavior-y\s*:\s*contain/);
+    expect(block).not.toMatch(/^\s*overflow-x\s*:/m);
+  });
+
+  it('has no temporary on-screen scroll diagnostic scaffolding left in the page', () => {
+    // The 2026-07-08 debugging session added an on-screen readout + auto-POST probe to
+    // find the cause. Once fixed it must be fully removed so it never posts to
+    // /api/errors/report or shows the box to users.
+    for (const token of ['careerScrollDiag', 'reportSecuredScrollDiag', 'watchScroll', 'SCROLL-DIAG', 'SCROLL-TEST']) {
+      expect(careerHtml).not.toContain(token);
+    }
+  });
+
   it('restores natural scroll instead of forcing overflow-y:auto on BOTH <html> and <body>', () => {
     const render = careerHtml.slice(careerHtml.indexOf('function renderSecuredPlacement'));
     const body = render.slice(0, render.indexOf('function setView'));
