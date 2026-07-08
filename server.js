@@ -22428,14 +22428,25 @@ async function buildCareerPlacementPayload({
   providerRoleId,
   profile,
   zohoCandidateId,
+  applicationId,
   skipContractCache
 }) {
-  const appId = sanitizeZohoText(applicationRecord && applicationRecord.id);
+  // Zoho is decommissioned, so applicationRecord (the old live Zoho fetch) is now
+  // null — take the id from the local gp_applications row's zoho_application_id
+  // instead, so the contract-extract / placement caches keyed on it still resolve.
+  const appId = sanitizeZohoText(applicationRecord && applicationRecord.id) || String(applicationId || '').trim();
   const placementCacheKey = appId ? `placement_payload:${appId}` : '';
 
   if (placementCacheKey && !skipContractCache) {
     const cached = await getRuntimeKv(placementCacheKey).catch(() => null);
     if (cached && cached.value && typeof cached.value === 'object' && cached.value.practiceName) {
+      // Payloads cached while Zoho was live may carry a contractUrl pointing at the
+      // now-dead /api/career/contract streamer (always 404s). Strip it so the front
+      // end hides the button instead of offering a broken download.
+      if (typeof cached.value.contractUrl === 'string' && cached.value.contractUrl.indexOf('/api/career/contract') === 0) {
+        cached.value.contractUrl = '';
+        cached.value.contractFileName = '';
+      }
       return applyGpShareToPlacementPayload(cached.value);
     }
   }
@@ -22446,10 +22457,20 @@ async function buildCareerPlacementPayload({
     || 'Medical Centre';
   const roleTitle = derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName);
   const location = getZohoPlacementLocation(jobOpeningRecord, roleRow);
-  // Zoho Recruit decommissioned — contract terms were extracted from Zoho
-  // attachments; in-app offers now carry their own terms. Left null here so the
-  // job-opening/role fallbacks below supply the displayed values.
-  const contractTerms = null;
+  // Zoho Recruit decommissioned — the LIVE contract-term extraction ran off Zoho
+  // attachments and is no longer produced. BUT terms extracted while Zoho was live
+  // are still cached in runtime_kv (career_contract_extract:<appId>) and remain the
+  // real agreed figures for already-placed GPs (split %, relocation package, contract
+  // length). Read them back so the placement view keeps showing the true values
+  // instead of collapsing every field to "Pending". (In-app offers don't use this
+  // path — they build their payload via buildInAppPlacementPayload.)
+  let contractTerms = null;
+  if (appId) {
+    const contractCached = await getRuntimeKv(buildCareerContractCacheKey(appId)).catch(() => null);
+    if (contractCached && contractCached.value && typeof contractCached.value === 'object') {
+      contractTerms = contractCached.value;
+    }
+  }
   const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(getZohoField(applicationRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
@@ -22476,14 +22497,27 @@ async function buildCareerPlacementPayload({
     profile
   }).catch(function (e) { console.error('[buildPlacement] lifestyle failed:', e && e.message); return null; });
 
-  const contractAttachmentId = contractTerms && contractTerms.status === 'ready' && contractTerms.attachmentId
-    ? contractTerms.attachmentId
-    : '';
-  const contractFileName = contractTerms && contractTerms.fileName ? contractTerms.fileName : '';
-  const contractApplicationId = sanitizeZohoText(applicationRecord && applicationRecord.id) || '';
-  const contractUrl = contractAttachmentId && contractApplicationId
-    ? `/api/career/contract?applicationId=${encodeURIComponent(contractApplicationId)}&attachmentId=${encodeURIComponent(contractAttachmentId)}`
-    : '';
+  // Contract download. The old Zoho attachment stream (/api/career/contract) is
+  // decommissioned and always 404s, and the original Zoho contract PDFs were never
+  // migrated — so we must NOT link that route (it would hand the GP a broken
+  // download). Only surface a download when a REAL, servable contract document
+  // exists in the GP's documents (offer_contract), served by the live
+  // /api/prepared-documents/download route. If none exists, leave the URL empty so
+  // the front end hides the button rather than offering a dead link.
+  let contractUrl = '';
+  let contractFileName = '';
+  const gpUserId = (profile && profile.user_id) || '';
+  if (gpUserId && isSupabaseDbConfigured()) {
+    try {
+      const contractRow = await getOfferDocumentRow(gpUserId, 'offer_contract');
+      const contractStatus = contractRow ? String(contractRow.status || '') : '';
+      if (contractRow && (contractStatus === 'approved' || contractStatus === 'uploaded' || contractStatus === 'received')) {
+        const documentCountry = normalizeDocumentCountry((profile && (profile.registration_country || profile.country)) || '') || 'uk';
+        contractUrl = buildPreparedDocumentDownloadUrl(documentCountry, 'offer_contract');
+        contractFileName = contractRow.file_name || '';
+      }
+    } catch (e) { contractUrl = ''; contractFileName = ''; }
+  }
 
   const placementResult = {
     practiceName,
@@ -34866,6 +34900,7 @@ async function handleApi(req, res, pathname) {
             providerRoleId,
             profile,
             zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || '',
+            applicationId: (localApp && localApp.zoho_application_id) || '',
             skipContractCache: forceRefresh
           });
         }
@@ -35234,7 +35269,8 @@ async function handleApi(req, res, pathname) {
           practiceContacts,
           providerRoleId,
           profile,
-          zohoCandidateId: appRow.zoho_candidate_id || ''
+          zohoCandidateId: appRow.zoho_candidate_id || '',
+          applicationId: appRow.zoho_application_id || ''
         });
       } catch {}
     }
