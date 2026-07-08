@@ -1011,7 +1011,10 @@
       background: var(--gp-surface, #fff);
       border-radius: var(--gp-r-xl, 24px) var(--gp-r-xl, 24px) 0 0;
       box-shadow: var(--gp-shadow-lg);
-      padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+      /* Bottom padding clears the app-shell bottom nav (embedded) so the
+         Apply / Not-yet buttons are never hidden behind it; max() not + because
+         the measured nav height already includes the iOS safe-area inset. */
+      padding: 28px 24px calc(24px + max(env(safe-area-inset-bottom, 0px), var(--gp-shell-bottom-clearance, 0px)));
       width: 100%;
       max-width: 480px;
     }

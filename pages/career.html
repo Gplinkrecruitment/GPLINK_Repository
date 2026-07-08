@@ -7738,7 +7738,10 @@
       width: 100%; max-width: 480px;
       background: var(--gp-surface, #fff);
       border-radius: 20px 20px 0 0;
-      padding: 22px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+      /* Bottom padding clears the app-shell bottom nav (embedded) so the
+         Accept / Cancel buttons are never hidden behind it; max() not + because
+         the measured nav height already includes the iOS safe-area inset. */
+      padding: 22px 20px calc(22px + max(env(safe-area-inset-bottom, 0px), var(--gp-shell-bottom-clearance, 0px)));
       box-shadow: 0 -12px 40px -12px rgba(15, 23, 42, .3);
     }
     .at-match-confirm-card h3 {
