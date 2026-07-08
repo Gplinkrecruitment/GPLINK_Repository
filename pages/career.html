@@ -12210,12 +12210,33 @@
           gateLock: b.classList.contains("career-gate-open") || de.classList.contains("career-gate-open"),
           overflows: maxSH > (window.innerHeight + 4)
         };
+        // Decisive probe: does a programmatic scroll move, and what element sits at
+        // the viewport centre (is an invisible overlay eating wheel/touch events?).
+        try {
+          var scroller = document.scrollingElement || de;
+          data.scrollerTag = scroller === de ? "html" : (scroller === b ? "body" : (scroller && scroller.tagName) || "?");
+          var beforeTop = scroller.scrollTop;
+          scroller.scrollTop = 140;
+          data.canScrollProg = scroller.scrollTop > beforeTop;
+          scroller.scrollTop = beforeTop;
+        } catch (e6) { data.canScrollProg = "err"; }
+        try {
+          var cx = Math.round(window.innerWidth / 2), cy = Math.round(window.innerHeight / 2);
+          var stack = (document.elementsFromPoint ? document.elementsFromPoint(cx, cy) : [document.elementFromPoint(cx, cy)]) || [];
+          data.centerStack = stack.slice(0, 4).map(function (n) {
+            if (!n || !n.tagName) return "?";
+            var cls = (n.className && typeof n.className === "string") ? "." + n.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
+            var pos = "";
+            try { pos = getComputedStyle(n).position; } catch (e8) {}
+            return n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + cls + "[" + pos + "]";
+          }).join("  >  ");
+        } catch (e7) { data.centerStack = "err"; }
         var el = document.getElementById("careerScrollDiag");
         if (el) {
           el.textContent = "GP Link scroll check (temporary)\n"
             + "needs-scroll=" + (data.overflows ? "YES" : "no") + "  W=" + data.winW + " H=" + data.winH + "  content=" + maxSH + "\n"
-            + "grid=" + data.gridSH + " main=" + data.mainSH + " provisional=" + data.provisional + "\n"
-            + "body.oflowY=" + data.bodyOverflowY + " shell.oflowY=" + data.shellOverflowY + " touch=" + data.bodyTouchAction + "\n"
+            + "canScrollProgrammatically=" + data.canScrollProg + " scroller=" + data.scrollerTag + "\n"
+            + "centre: " + data.centerStack + "\n"
             + "secured=" + data.modeSecured + " boot=" + data.booting + " lock=" + data.gateLock + " state=" + data.placementState;
           el.style.display = "block";
         }
@@ -12226,7 +12247,7 @@
               method: "POST", credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                message: "SCROLL-DIAG " + data.winW + "w needs-scroll=" + data.overflows + " content=" + maxSH + " prov=" + data.provisional + " email=" + (data.email || "?"),
+                message: "SCROLL-DIAG " + data.winW + "w overflow=" + data.overflows + " canScrollProg=" + data.canScrollProg + " center=" + (data.centerStack || "").slice(0, 60) + " email=" + (data.email || "?"),
                 stack: JSON.stringify(data),
                 url: location.href,
                 userAgent: navigator.userAgent
