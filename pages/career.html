@@ -12288,6 +12288,41 @@
       } catch (e) { /* diagnostic must never break the page */ }
     }
 
+    // DECISIVE interactive test: while the user tries to scroll, record whether
+    // wheel events even reach the document (=0 → something intercepts them above
+    // the page), whether any were defaultPrevented (a capturing preventDefault),
+    // and whether scrollTop actually advanced (did it scroll at all / get reset).
+    function watchScroll() {
+      try {
+        if (careerState.activeView !== "secured") return;
+        var scroller = document.scrollingElement || document.documentElement;
+        var r = { scrollEvts: 0, maxTop: 0, lastTop: 0, wheelEvts: 0, wheelPrevented: 0, email: "" };
+        try { r.email = (window.gpSessionProfile && window.gpSessionProfile.email) || ""; } catch (e2) {}
+        var onScroll = function () { r.scrollEvts++; r.lastTop = scroller.scrollTop; if (scroller.scrollTop > r.maxTop) r.maxTop = scroller.scrollTop; };
+        var onWheel = function (e) { r.wheelEvts++; if (e.defaultPrevented) r.wheelPrevented++; };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("wheel", onWheel, { passive: true });
+        var el = document.getElementById("careerScrollDiag");
+        if (el) el.textContent = "SCROLL TEST — please try scrolling with your trackpad/mouse NOW for ~5 seconds…";
+        setTimeout(function () {
+          window.removeEventListener("scroll", onScroll);
+          window.removeEventListener("wheel", onWheel);
+          if (el) el.textContent = "SCROLL TEST RESULT (thank you)\n"
+            + "wheel events reaching page = " + r.wheelEvts + " (of those, blocked = " + r.wheelPrevented + ")\n"
+            + "scroll events = " + r.scrollEvts + "  maxScrollReached = " + r.maxTop + "  nowAt = " + r.lastTop;
+          try {
+            fetch("/api/errors/report", {
+              method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: "SCROLL-TEST wheelEvts=" + r.wheelEvts + " wheelBlocked=" + r.wheelPrevented + " scrollEvts=" + r.scrollEvts + " maxTop=" + r.maxTop + " email=" + r.email,
+                stack: JSON.stringify(r), url: location.href, userAgent: navigator.userAgent
+              })
+            }).catch(function () {});
+          } catch (e3) {}
+        }, 6000);
+      } catch (e) { /* never break the page */ }
+    }
+
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
@@ -13027,8 +13062,8 @@
       renderPage();
       clearCareerBoot(); // live data picked the correct view — reveal it once
       if (careerState.activeView === "secured") {
-        // Capture the settled scroll state on the device and report it to us.
-        setTimeout(function () { reportSecuredScrollDiag("settled", true); }, 1600);
+        // Capture the settled scroll state, then run the interactive scroll test.
+        setTimeout(function () { reportSecuredScrollDiag("settled", true); watchScroll(); }, 1600);
       }
       ensureCareerGate();
       loadRoleCardHeroImages();
