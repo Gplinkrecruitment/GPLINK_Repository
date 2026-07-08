@@ -33,6 +33,15 @@
       }
       if (initialView === "secured") {
         document.documentElement.setAttribute("data-career-initial-view", "secured");
+      } else {
+        // We do NOT yet know this GP's correct view (cold cache, or a stale cache
+        // left by another account on this shared browser origin). Do not paint the
+        // browse job-board first — the "career page flashes, then the placement
+        // page loads in, then scrolling freezes" bug is caused by that wrong-view
+        // first paint and the reflow when it swaps to the placement view. Hide
+        // content behind a neutral spinner until the live server data picks the
+        // correct view, then reveal it exactly once (cleared in init()).
+        document.documentElement.setAttribute("data-career-booting", "1");
       }
     })();
   </script>
@@ -679,6 +688,36 @@
 
     html[data-career-initial-view="secured"] [data-view-panel="secured"] {
       display: grid !important;
+    }
+
+    /* Boot gate: while we don't yet know the correct view, hide the page content
+       (so the wrong "browse" view never flashes) and show a neutral spinner. init()
+       clears data-career-booting once the live data has picked the right view. */
+    #careerBootOverlay { display: none; }
+    html[data-career-booting] #careerBootOverlay {
+      display: flex;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg, #f6f8fc);
+    }
+    html[data-career-booting] .view-panel,
+    html[data-career-booting] .page-hero {
+      display: none !important;
+    }
+    .career-boot-spinner {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 3px solid rgba(37, 99, 235, 0.18);
+      border-top-color: var(--gp-blue, #2563eb);
+      animation: careerBootSpin 0.8s linear infinite;
+    }
+    @keyframes careerBootSpin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .career-boot-spinner { animation-duration: 2.4s; }
     }
 
     .secured-loading-state {
@@ -5953,7 +5992,12 @@
       background: #ffffff !important;
       min-height: 100vh;
       overflow-x: hidden;
-      -webkit-overflow-scrolling: touch;
+      /* NB: the legacy iOS momentum-scroll property is deliberately NOT set on this
+         body, and overflow-y is left to the natural document flow. On iOS inside the
+         app-shell iframe, turning the <body> into its own momentum-scroll container
+         (or forcing overflow-y:auto on BOTH <html> and <body>) nests two scroll
+         containers and JAMS touch scrolling — the placement page then can't scroll
+         at all. It must scroll like every other page that works in the same iframe. */
       overscroll-behavior-y: contain;
       color: var(--gp-ink);
       --bg: #ffffff;
@@ -7783,6 +7827,7 @@
     }
   </script>
 <div id="career-live-region" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
+  <div id="careerBootOverlay" aria-hidden="true"><div class="career-boot-spinner"></div></div>
   <div class="shell">
     <header class="app-header gp-reveal">
       <div class="header-greeting">
@@ -12097,6 +12142,26 @@
         .catch(() => { /* leave the card hidden */ });
     }
 
+    // Guarantee the placement (secured) page can scroll on every device — most
+    // importantly iOS Safari inside the app-shell iframe. The failure modes we
+    // defend against: (1) a leaked `.career-gate-open` lock (overflow:hidden on
+    // html+body), and (2) a previously-forced overflow-y:auto on BOTH <html> and
+    // <body>, which nests two scroll containers and JAMS iOS touch scrolling. The
+    // fix is to clear both and fall back to the NATURAL document scroll, then nudge
+    // a reflow so WebKit re-establishes the scroll context after the content height
+    // changes on the browse->secured swap.
+    function ensureSecuredScrollable() {
+      try {
+        document.documentElement.classList.remove("career-gate-open");
+        document.body.classList.remove("career-gate-open");
+        document.documentElement.style.overflow = "";
+        document.documentElement.style.overflowY = "";
+        document.body.style.overflow = "";
+        document.body.style.overflowY = "";
+        void document.body.offsetHeight; // force layout so iOS re-arms scrolling
+      } catch (e) { /* never block the render */ }
+    }
+
     function renderSecuredPlacement() {
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
@@ -12104,19 +12169,11 @@
       // placement — never show an "upcoming interview" card on the practice
       // view (owner request). Keep the card hidden here.
       if (securedInterviewCardEl) securedInterviewCardEl.hidden = true;
-      // The CV-gate popup is only for GPs still job-hunting; a placed GP must
-      // never be behind it. Its open state adds .career-gate-open (overflow:hidden)
-      // to html+body, so if it ever opened during a race before placement was
-      // known, the practice page would be stuck unscrollable. Clearing it here
-      // guarantees the placement page always scrolls.
+      // A placed GP must be able to scroll the practice page and must never be
+      // trapped behind the CV-gate lock. Clear the gate (belt-and-braces — it is
+      // only for job-hunting GPs) and restore natural, iOS-safe scrolling.
       if (typeof closeCareerGateModal === "function") closeCareerGateModal();
-      // Belt-and-suspenders: the practice page must ALWAYS scroll vertically.
-      // An inline overflow-y beats any leaked overflow:hidden lock class from
-      // any source (the horizontal lock from career-mode-secured is left alone).
-      try {
-        document.documentElement.style.overflowY = "auto";
-        document.body.style.overflowY = "auto";
-      } catch (e) { /* never block the render */ }
+      ensureSecuredScrollable();
       const placement = resolveSecuredPlacement();
       // Provisional placement: real practice, package not yet loaded. Mark the
       // page so CSS hides the demo-dependent sections, and show an honest note
@@ -12808,18 +12865,41 @@
       if (ev.target && ev.target.id === 'careerGateCta' && !ev.target.disabled) closeCareerGateModal();
     });
 
+    // Reveal the page once the correct view is known (removes the boot spinner set
+    // by the head script). Idempotent + guarded by a failsafe so the spinner can
+    // never trap the page. If we landed on the secured view, guarantee it scrolls.
+    function clearCareerBoot() {
+      if (clearCareerBoot._done) return;
+      clearCareerBoot._done = true;
+      window.clearTimeout(clearCareerBoot._failsafe);
+      document.documentElement.removeAttribute("data-career-booting");
+      if (careerState.activeView === "secured") ensureSecuredScrollable();
+    }
+
+    // Returning to the page (bfcache restore) or rotating the device can drop the
+    // scroll context on iOS — re-assert it whenever we're on the placement view.
+    window.addEventListener("pageshow", function () {
+      if (careerState.activeView === "secured") ensureSecuredScrollable();
+    });
+    window.addEventListener("orientationchange", function () {
+      if (careerState.activeView === "secured") ensureSecuredScrollable();
+    });
+
     (async function init() {
+      // Failsafe: never trap the page behind the boot spinner if a fetch hangs.
+      clearCareerBoot._failsafe = window.setTimeout(clearCareerBoot, 3000);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       await hydrateCareerSessionEmail();
       syncCareerViewFromLocation();
       renderPage();
       moveNavGlass(activeNavItem);
-      if (handleRequestedRoleRedirect()) return;
+      if (handleRequestedRoleRedirect()) { clearCareerBoot(); return; }
       await loadRemoteRoles({ render: false });
       await loadRemoteApplications({ render: false });
       await loadTeamMatches();
       syncCareerViewFromLocation();
       renderPage();
+      clearCareerBoot(); // live data picked the correct view — reveal it once
       ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;

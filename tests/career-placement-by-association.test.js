@@ -214,6 +214,57 @@ describe('pages/career.html — provisional placement rendering hooks', () => {
   });
 });
 
+describe('pages/career.html — placement scroll freeze + boot flash fixes (owner request 2026-07-08)', () => {
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
+
+  it('does NOT make the secured body its own momentum-scroll container (jams iOS iframe scroll)', () => {
+    const start = careerHtml.indexOf('body.career-mode-secured {');
+    const block = careerHtml.slice(start, start + 900);
+    // The legacy `-webkit-overflow-scrolling: touch` declaration must be gone — it
+    // is the only scrolling page-body in the app that ever had it, and on iOS in an
+    // iframe it freezes touch scrolling.
+    expect(block).not.toMatch(/-webkit-overflow-scrolling\s*:/);
+  });
+
+  it('restores natural scroll instead of forcing overflow-y:auto on BOTH <html> and <body>', () => {
+    const render = careerHtml.slice(careerHtml.indexOf('function renderSecuredPlacement'));
+    const body = render.slice(0, render.indexOf('function setView'));
+    // The prior "safeguard" set overflowY="auto" on both the root and body, nesting
+    // two scroll containers and freezing iOS scroll. It must no longer do that.
+    expect(body).not.toMatch(/documentElement\.style\.overflowY\s*=\s*["']auto["']/);
+    expect(body).not.toMatch(/document\.body\.style\.overflowY\s*=\s*["']auto["']/);
+    // It calls the self-healing helper instead.
+    expect(body).toContain('ensureSecuredScrollable()');
+  });
+
+  it('defines a self-healing scroll helper (clears the gate lock, resets overflow, nudges reflow)', () => {
+    const fn = careerHtml.slice(careerHtml.indexOf('function ensureSecuredScrollable'));
+    const body = fn.slice(0, fn.indexOf('function renderSecuredPlacement'));
+    expect(body).toContain('classList.remove("career-gate-open")');
+    // resets overflowY to '' (natural scroll), never forces 'auto'
+    expect(body).toMatch(/style\.overflowY\s*=\s*["']["']/);
+    expect(body).toContain('offsetHeight'); // reflow nudge re-arms iOS scrolling
+  });
+
+  it('boot-gates the first paint so the wrong (browse) view never flashes', () => {
+    // Head marks the page "booting" when the correct view is not yet known.
+    expect(careerHtml).toContain('setAttribute("data-career-booting", "1")');
+    // A neutral spinner overlay + CSS that hides the panels while booting.
+    expect(careerHtml).toContain('id="careerBootOverlay"');
+    expect(careerHtml).toContain('career-boot-spinner');
+    expect(careerHtml).toMatch(/html\[data-career-booting\]\s+\.view-panel/);
+    // init reveals the correct view exactly once, with a failsafe.
+    expect(careerHtml).toContain('function clearCareerBoot');
+    expect(careerHtml).toContain('removeAttribute("data-career-booting")');
+    expect(careerHtml).toMatch(/clearCareerBoot\._failsafe\s*=\s*window\.setTimeout\(clearCareerBoot/);
+  });
+
+  it('re-asserts scroll on pageshow / orientationchange for the secured view', () => {
+    expect(careerHtml).toMatch(/addEventListener\("pageshow"[\s\S]{0,140}ensureSecuredScrollable/);
+    expect(careerHtml).toMatch(/addEventListener\("orientationchange"[\s\S]{0,140}ensureSecuredScrollable/);
+  });
+});
+
 describe('GET /api/career/profile/status — placement by association', () => {
   it('does NOT require the CV gate for a GP tied to a practice on their case', async () => {
     const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
