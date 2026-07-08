@@ -121,7 +121,7 @@ function httpReq(method, p, { cookie } = {}) {
     if (cookie) headers.Cookie = cookie;
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
       const c = []; res.on('data', (x) => c.push(x));
-      res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed, raw }); });
+      res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed, raw, headers: res.headers }); });
     });
     r.on('error', reject); r.end();
   });
@@ -180,6 +180,26 @@ describe('GET /api/career/applications — placement by association', () => {
     expect(res.body.ok).toBe(true);
     const anyProvisional = res.body.applications.some((a) => a.placement && a.placement.provisional === true);
     expect(anyProvisional).toBe(false);
+  });
+
+  it('never lets one account read another account\'s cached applications in the same browser', async () => {
+    // This response carries per-user placement data. If it is browser-cacheable
+    // (private, max-age / stale-while-revalidate) it MUST also Vary: Cookie — otherwise
+    // the browser's URL-keyed HTTP cache serves account A's response to account B's
+    // identical request in the SAME browser (shared/clinic computer, or two logins in
+    // one browser). That was the 2026-07-09 "Smith Miller tab shows Helen's career page"
+    // mix-up. Safe outcomes: cacheable + Vary:Cookie, OR not cacheable (no-store).
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
+    expect(res.status).toBe(200);
+    const cacheControl = String(res.headers['cache-control'] || '').toLowerCase();
+    const vary = String(res.headers['vary'] || '').toLowerCase();
+    const isBrowserCacheable = /(?:^|[ ,])(?:max-age|s-maxage|stale-while-revalidate)/.test(cacheControl)
+      && !/no-store/.test(cacheControl);
+    if (isBrowserCacheable) {
+      expect(vary).toContain('cookie');
+    } else {
+      expect(cacheControl).toContain('no-store');
+    }
   });
 });
 

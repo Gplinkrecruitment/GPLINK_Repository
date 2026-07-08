@@ -8825,8 +8825,16 @@ const SECURITY_HEADERS = {
 const PUBLIC_CONFIG_CACHE_HEADERS = {
   'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400'
 };
+// Per-user API responses (career applications, interviews, roles). `private` keeps
+// them out of shared/CDN caches, BUT a browser's own HTTP cache keys on the URL alone —
+// so without `Vary: Cookie` it would serve account A's response to account B's identical
+// request in the SAME browser (a shared/clinic computer, or two logins in one browser)
+// for up to max-age/stale-while-revalidate. Root cause of the 2026-07-09 "Smith Miller
+// tab shows Helen Wazalski's career page" mix-up. `Vary: Cookie` folds the session cookie
+// into the cache key, so each account only ever reads its own cached copy.
 const PRIVATE_METADATA_CACHE_HEADERS = {
-  'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
+  'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+  'Vary': 'Cookie'
 };
 
 function isStackTraceResponseKey(key) {
