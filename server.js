@@ -5428,20 +5428,61 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
 
         // Route GP-matched email tasks to that GP's RSO (assigned_va, default Hazel).
         var taskAssignee = gpCase ? await resolveCaseRsoAssignee(gpCase.id, gpCase.assigned_va) : null;
-        var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
-          task_type: 'email_triage',
-          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
-          description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
-          priority: emailRouting.priority,
-          source_trigger: 'gmail_triage',
-          related_stage: emailRelatedStage,
-          assignee: taskAssignee,
-          gmail_message_id: currentMsgId,
-          email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
-          email_sender: emailMeta.sender || '',
-          gmail_thread_id: emailMeta.threadId || '',
-          _actor: 'system'
-        });
+        // \u2500\u2500 Grouping (sliding 24h, per sender) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // Same person + same channel (email) within the window \u2192 fold this email
+        // into that sender's existing OPEN email ticket rather than opening a new
+        // one. Keyed by the sender's address, scoped to the same case (or, for
+        // unmatched senders, the caseless Support pool). Bumping updated_at slides
+        // the window. Different channels stay separate tickets.
+        var _emSenderAddr = extractEmailAddress(emailMeta.sender);
+        var _emGroupTarget = null;
+        if (_emSenderAddr && isSupabaseDbConfigured()) {
+          var _emSince = new Date(Date.now() - SUPPORT_GROUP_WINDOW_MS).toISOString();
+          var _emScope = gpCase ? '&case_id=eq.' + encodeURIComponent(gpCase.id) : '&case_id=is.null';
+          // Fetch recent open email tickets in scope, then match the sender address
+          // EXACTLY in JS. (An `email_sender ilike` filter is unsafe: `_` is a LIKE
+          // wildcard and substrings collide, e.g. sam@x.com vs sam@x.com.au — which
+          // would misfile one person's email onto another's ticket.)
+          var _emg = await supabaseDbRequest('registration_tasks',
+            'select=id,case_id,email_sender&task_type=eq.email_triage&status=in.(open,in_progress,waiting)' + _emScope +
+            '&updated_at=gte.' + encodeURIComponent(_emSince) + '&order=updated_at.desc&limit=50');
+          if (_emg.ok && Array.isArray(_emg.data)) {
+            _emGroupTarget = _emg.data.find(function (t) { return extractEmailAddress(t.email_sender) === _emSenderAddr; }) || null;
+          }
+        }
+        var taskResult;
+        if (_emGroupTarget) {
+          taskResult = _emGroupTarget;
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(_emGroupTarget.id),
+            { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { updated_at: new Date().toISOString() } });
+          if (!gpCase) {
+            // Caseless Support ticket: record the folded email here (the matched-case
+            // path records it via the hub message insert further below).
+            await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{
+              task_id: _emGroupTarget.id, case_id: null, direction: 'inbound', channel: 'email',
+              sender: emailMeta.sender || '', recipient: emailMeta.to || '', subject: emailMeta.subject || '',
+              body_text: (emailMeta.bodyText || '').substring(0, 50000),
+              gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || null,
+              created_at: new Date().toISOString()
+            }] }).catch(function (e) { console.error('[Gmail] group message insert failed:', e && e.message); });
+          }
+          console.log('[Gmail] Grouped email into existing ticket', _emGroupTarget.id, 'from', _emSenderAddr);
+        } else {
+          taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
+            task_type: 'email_triage',
+            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+            description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
+            priority: emailRouting.priority,
+            source_trigger: 'gmail_triage',
+            related_stage: emailRelatedStage,
+            assignee: taskAssignee,
+            gmail_message_id: currentMsgId,
+            email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
+            email_sender: emailMeta.sender || '',
+            gmail_thread_id: emailMeta.threadId || '',
+            _actor: 'system'
+          });
+        }
         if (!taskResult) {
           console.error('[Gmail] Failed to create email_triage task for message', currentMsgId);
         } else {
@@ -9552,13 +9593,24 @@ async function handleDoubleTickWebhook(req, res) {
   }
 
   try {
-    // Idempotency: skip if we've already handled this exact message
+    // Idempotency: skip if we've already handled this exact message. Check BOTH
+    // where a message can land: as its own task (first message) OR folded into an
+    // existing ticket's task_messages (a grouped message). Without the second
+    // check, a webhook redelivery of a grouped message would fold it again.
     if (messageId && isSupabaseDbConfigured()) {
       const existing = await supabaseDbRequest(
         'registration_tasks',
         'select=id&doubletick_message_id=eq.' + encodeURIComponent(messageId) + '&limit=1'
       );
       if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) {
+        sendJson(res, 200, { ok: true, action: 'duplicate_ignored' });
+        return;
+      }
+      const existingMsg = await supabaseDbRequest(
+        'task_messages',
+        'select=id&doubletick_message_id=eq.' + encodeURIComponent(messageId) + '&limit=1'
+      );
+      if (existingMsg.ok && Array.isArray(existingMsg.data) && existingMsg.data.length > 0) {
         sendJson(res, 200, { ok: true, action: 'duplicate_ignored' });
         return;
       }
@@ -9687,6 +9739,45 @@ async function handleDoubleTickWebhook(req, res) {
             taskPayload.doubletick_conversation_url = webUrl || dtResult.url;
           }
         } catch (e) { console.warn('[doubletick-webhook] Failed to fetch conversation URL:', e.message); }
+      }
+
+      // ── Grouping (sliding 24h, per contact) ──────────────────────────────
+      // Same person + same channel (WhatsApp) within the window → fold this
+      // message into that person's existing OPEN ticket instead of spawning a
+      // new one. The contact is keyed by their DoubleTick conversation (per
+      // phone), with a case_id fallback for registered GPs. Each fold bumps
+      // updated_at so the window slides with the conversation.
+      const _waSince = new Date(Date.now() - SUPPORT_GROUP_WINDOW_MS).toISOString();
+      let _waGroupTarget = null;
+      const _waOpen = '&status=in.(open,in_progress,waiting)';
+      if (taskPayload.doubletick_conversation_url) {
+        const g = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id&task_type=eq.whatsapp_help' + _waOpen +
+          '&doubletick_conversation_url=eq.' + encodeURIComponent(taskPayload.doubletick_conversation_url) +
+          '&updated_at=gte.' + encodeURIComponent(_waSince) + '&order=updated_at.desc&limit=1');
+        if (g.ok && Array.isArray(g.data) && g.data.length > 0) _waGroupTarget = g.data[0];
+      }
+      if (!_waGroupTarget && activeCase) {
+        const g2 = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id&task_type=eq.whatsapp_help' + _waOpen +
+          '&case_id=eq.' + encodeURIComponent(activeCase.id) +
+          '&updated_at=gte.' + encodeURIComponent(_waSince) + '&order=updated_at.desc&limit=1');
+        if (g2.ok && Array.isArray(g2.data) && g2.data.length > 0) _waGroupTarget = g2.data[0];
+      }
+      if (_waGroupTarget) {
+        await supabaseDbRequest('task_messages', '', {
+          method: 'POST', body: [{
+            task_id: _waGroupTarget.id, case_id: _waGroupTarget.case_id || (activeCase ? activeCase.id : null),
+            direction: 'inbound', channel: 'whatsapp', sender: fromPhone,
+            body_text: (messageBody || '').substring(0, 2000), doubletick_message_id: messageId || null,
+            created_at: new Date().toISOString()
+          }]
+        }).catch(err => console.error('[doubletick-webhook] group message insert failed:', err && err.message));
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(_waGroupTarget.id),
+          { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { updated_at: new Date().toISOString() } });
+        console.log('[doubletick-webhook] Grouped WhatsApp message into existing ticket', _waGroupTarget.id);
+        sendJson(res, 200, { ok: true, action: 'task_appended' });
+        return;
       }
 
       const tRes = await supabaseDbRequest(
@@ -12498,6 +12589,119 @@ async function _createRegTask(caseId, data) {
     });
   }
   return task;
+}
+
+// ── Support ticket identity + grouping helpers ─────────────────────────────
+// Label shown in the Support list's GP column when the sender is NOT a GP
+// registered in the app. Known GPs (matched by phone or email) show their name.
+const EXTERNAL_SUPPORT_LABEL = 'EXTERNAL (Not on App)';
+// Sliding-window size for grouping same-person, same-channel support messages
+// into a single ticket. Each new message bumps the ticket's updated_at, so an
+// ongoing conversation stays one ticket until there is a full 24h of silence.
+const SUPPORT_GROUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Extract a bare lower-cased email address from a "Name <addr@x>" sender string.
+function extractEmailAddress(sender) {
+  const m = String(sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/);
+  return m ? m[0].toLowerCase() : '';
+}
+
+// Look up a user_profile by phone: exact match across common AU/int'l formats,
+// then a fuzzy last-9-digit suffix match. Returns the profile row or null.
+// (Extracted from the DoubleTick webhook's inline matcher so display + ingestion
+// resolve identity the same way.)
+async function findUserProfileByPhone(phone) {
+  if (!phone || !isSupabaseDbConfigured()) return null;
+  const normalizedPhone = normalizePhone(phone);
+  const localPhone = normalizedPhone.startsWith('+61') ? '0' + normalizedPhone.slice(3) : null;
+  const phoneDigits = String(phone).replace(/[^0-9]/g, '');
+  const bareNumber = phoneDigits.length > 9 ? phoneDigits.slice(-9) : phoneDigits;
+  const sel = 'select=user_id,first_name,last_name,email,phone_number,phone';
+  for (const pv of [...new Set([normalizedPhone, phone, localPhone, bareNumber, '0' + bareNumber].filter(Boolean))]) {
+    for (const col of ['phone_number', 'phone']) {
+      const r = await supabaseDbRequest('user_profiles', sel + '&' + col + '=eq.' + encodeURIComponent(pv) + '&limit=1');
+      if (r.ok && Array.isArray(r.data) && r.data.length > 0) return r.data[0];
+    }
+  }
+  if (phoneDigits.length >= 9) {
+    const suffix = phoneDigits.slice(-9);
+    const r = await supabaseDbRequest('user_profiles', sel + '&or=(phone.ilike.*' + suffix + ',phone_number.ilike.*' + suffix + ')&limit=1');
+    if (r.ok && Array.isArray(r.data) && r.data.length > 0) return r.data[0];
+  }
+  return null;
+}
+
+// Look up a user_profile by email (case-insensitive, EXACT). Returns the profile
+// or null. The `_` in an address is a LIKE single-char wildcard, so we verify the
+// returned rows' address matches exactly in JS rather than trusting the ilike.
+async function findUserProfileByEmail(email) {
+  const addr = extractEmailAddress(email);
+  if (!addr || !isSupabaseDbConfigured()) return null;
+  const r = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone&email=ilike.' + encodeURIComponent(addr) + '&limit=10');
+  if (r.ok && Array.isArray(r.data)) {
+    const exact = r.data.find(p => String(p.email || '').toLowerCase() === addr);
+    if (exact) return exact;
+  }
+  return null;
+}
+
+// Pull a phone number out of a support item: the registered GP's profile phone,
+// else the "Name (+phone)" prefix stored in an unregistered WhatsApp task's body.
+function phoneFromSupportItem(item, profile) {
+  const p = profile || {};
+  const profPhone = p.phone || p.phone_number || '';
+  if (profPhone) return profPhone;
+  const m = String((item && item.body) || '').match(/\((\+?\d[\d\s\-]+)\)/);
+  return m ? m[1].trim() : '';
+}
+
+// Display name for a support ticket's GP column. A known in-app GP → their full
+// name. Never "Unknown": when there is no name we either fall back to the email
+// (in-app tickets, whose sender is always a registered user) or clearly mark the
+// sender EXTERNAL (Not on App). Returns { name, isExternal }.
+function supportDisplayName(profile, opts) {
+  const p = profile || {};
+  const knownName = [(p.first_name || ''), (p.last_name || '')].join(' ').trim();
+  if (knownName) return { name: knownName, isExternal: false };
+  if (opts && opts.allowEmailFallback && p.email) return { name: p.email, isExternal: false };
+  return { name: EXTERNAL_SUPPORT_LABEL, isExternal: true };
+}
+
+// Sliding-window test for grouping: is an existing same-person, same-channel
+// ticket recent enough to fold a new message into it? Epoch-ms inputs.
+function isWithinGroupingWindow(updatedAtMs, nowMs, windowMs) {
+  if (!updatedAtMs || !nowMs) return false;
+  return (nowMs - updatedAtMs) <= (windowMs || SUPPORT_GROUP_WINDOW_MS);
+}
+
+// Contact name carried on a WhatsApp support item (the DoubleTick contact name),
+// stored as the "<name> (phone)" prefix of an unregistered task's description,
+// or in the "WhatsApp enquiry from <name>" title.
+function contactNameFromSupportItem(item) {
+  const body = String((item && item.body) || '');
+  const m = body.match(/^([^\n(]+?)\s*\(\+?\d/);
+  if (m && m[1].trim()) return m[1].trim();
+  const title = String((item && item.title) || '');
+  const tm = title.match(/enquiry from\s+(.+)$/i);
+  return tm ? tm[1].trim() : '';
+}
+
+// Match a free-text full name to a known GP profile. Returns a profile ONLY when
+// EXACTLY ONE GP has that first + last (case-insensitive). An absent or ambiguous
+// match returns null, so a name is never pinned onto the wrong person. Used as a
+// last-resort fallback for a known GP who messaged from an unregistered number.
+async function findUserProfileByFullName(fullName) {
+  const name = String(fullName || '').trim();
+  if (!name || !isSupabaseDbConfigured()) return null;
+  const parts = name.split(/\s+/);
+  if (parts.length < 2) return null;
+  const first = parts[0];
+  const last = parts.slice(1).join(' ');
+  const r = await supabaseDbRequest('user_profiles',
+    'select=user_id,first_name,last_name,email,phone_number,phone&first_name=ilike.' +
+    encodeURIComponent(first) + '&last_name=ilike.' + encodeURIComponent(last) + '&limit=2');
+  if (r.ok && Array.isArray(r.data) && r.data.length === 1) return r.data[0];
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -45981,6 +46185,40 @@ Return ONLY valid JSON with no markdown formatting:
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(p => { profileMap[p.user_id] = p; });
     }
 
+    // Resolve identity for WhatsApp/email items with no matched user_id yet: a
+    // known in-app GP (matched by phone for WhatsApp, sender email for email) →
+    // adopt their profile + name; anyone unmatched stays external and shows the
+    // EXTERNAL label below. Cached per unique phone/email so a burst of one
+    // person's messages costs a single lookup.
+    const _idCache = {};
+    for (const item of items) {
+      if (item.user_id && profileMap[item.user_id]) continue;
+      let prof = null;
+      if (item.source === 'whatsapp') {
+        const phone = phoneFromSupportItem(item, profileMap[item.user_id]);
+        if (phone) {
+          const key = 'p:' + phone;
+          prof = Object.prototype.hasOwnProperty.call(_idCache, key) ? _idCache[key] : (_idCache[key] = await findUserProfileByPhone(phone));
+        }
+        // Fallback: a known GP who messaged from a number we don't have on file —
+        // resolve by their (unique) contact name so we still show who it is.
+        if (!prof) {
+          const nm = contactNameFromSupportItem(item);
+          if (nm) {
+            const key = 'n:' + nm.toLowerCase();
+            prof = Object.prototype.hasOwnProperty.call(_idCache, key) ? _idCache[key] : (_idCache[key] = await findUserProfileByFullName(nm));
+          }
+        }
+      } else if (item.source === 'email') {
+        const addr = extractEmailAddress(item.email_sender);
+        if (addr) {
+          const key = 'e:' + addr;
+          prof = Object.prototype.hasOwnProperty.call(_idCache, key) ? _idCache[key] : (_idCache[key] = await findUserProfileByEmail(addr));
+        }
+      }
+      if (prof && prof.user_id) { item.user_id = prof.user_id; profileMap[prof.user_id] = prof; }
+    }
+
     // Resolve DoubleTick conversation URLs for ALL items that don't have one
     if (DOUBLETICK_API_KEY) {
       const waMissing = items.filter(i => !i.doubletick_url);
@@ -46011,8 +46249,10 @@ Return ONLY valid JSON with no markdown formatting:
 
     const enriched = items.map(item => {
       const p = profileMap[item.user_id] || {};
+      const disp = supportDisplayName(p); // genuine external senders possible here
       return Object.assign({}, item, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: disp.name,
+        is_external: disp.isExternal,
         gp_email: p.email || '',
         gp_phone: p.phone_number || p.phone || '',
         whatsapp_link: buildWhatsAppLink(item.stage, p.first_name || '', p.phone_number || p.phone || '')
@@ -46049,8 +46289,10 @@ Return ONLY valid JSON with no markdown formatting:
     }
     const enriched = tickets.map(function (t) {
       const p = profileMap[t.user_id] || {};
+      const disp = supportDisplayName(p, { allowEmailFallback: true }); // in-app tickets: always a registered user
       return Object.assign({}, t, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: disp.name,
+        is_external: disp.isExternal,
         gp_email: p.email || '',
         whatsapp_link: buildWhatsAppLink(t.stage, p.first_name || '', p.phone || p.phone_number || '')
       });
@@ -52321,9 +52563,10 @@ Return ONLY valid JSON with no markdown formatting:
     var supportEnriched = rsoTickets.map(function (t) {
       var p = supportProfileMap[t.user_id] || {};
       var c = (t.case_id && supportCaseById[t.case_id]) || {};
-      var gpName = [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown');
+      var disp = supportDisplayName(p, { allowEmailFallback: true }); // in-app tickets: always a registered user
       return Object.assign({}, t, {
-        gp_name: gpName,
+        gp_name: disp.name,
+        is_external: disp.isExternal,
         gp_email: p.email || '',
         practice_name: c.practice_name || null
       });
@@ -57107,6 +57350,13 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  supportDisplayName,
+  isWithinGroupingWindow,
+  extractEmailAddress,
+  phoneFromSupportItem,
+  contactNameFromSupportItem,
+  EXTERNAL_SUPPORT_LABEL,
+  SUPPORT_GROUP_WINDOW_MS,
   makePracticeActionToken,
   verifyPracticeActionToken,
   createSignedPurposeToken,
