@@ -43898,17 +43898,22 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
+    const tasksGpScope = await resolveAdminGpScope(adminCtx);
     const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting';
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     const tasksRes = await supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=200');
     if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
-    const tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    let tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
     // Enrich with case + GP info
     const caseIds = [...new Set(tasks.map(function (t) { return t.case_id; }).filter(Boolean))];
     let caseMap = {};
     if (caseIds.length > 0) {
-      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va,assigned_rso&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
       if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
+    }
+    // Authorization: a regular admin (RSO) only sees tasks for their assigned GPs.
+    if (!tasksGpScope.superAdmin) {
+      tasks = tasks.filter(function (t) { return gpScopeAllowsCase(tasksGpScope, caseMap[t.case_id]); });
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
