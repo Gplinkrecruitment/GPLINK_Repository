@@ -12231,13 +12231,33 @@
             return n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + cls + "[" + pos + "]";
           }).join("  >  ");
         } catch (e7) { data.centerStack = "err"; }
+        // Parent-side probe: the iframe element that hosts this window, and whether
+        // the app-shell (not this doc) is the intended scroller / is blocking it.
+        try {
+          var pwin = window.parent, pdoc = pwin.document;
+          var frames = pdoc.querySelectorAll("iframe"), mine = null;
+          for (var fi = 0; fi < frames.length; fi++) { if (frames[fi].contentWindow === window) { mine = frames[fi]; break; } }
+          if (mine) {
+            var fcs = pwin.getComputedStyle(mine);
+            data.frameScrollingAttr = mine.getAttribute("scrolling");
+            data.framePointerEvents = fcs.pointerEvents;
+            data.frameClass = (mine.className || "").slice(0, 40);
+            data.frameH = Math.round(mine.getBoundingClientRect().height);
+            var stackEl = mine.closest ? mine.closest(".app-shell-frame-stack") : null;
+            data.stackOverflow = stackEl ? pwin.getComputedStyle(stackEl).overflow : "?";
+            data.stackH = stackEl ? Math.round(stackEl.getBoundingClientRect().height) : null;
+          } else { data.frameFound = false; }
+          var pde = pdoc.documentElement, pb = pdoc.body;
+          data.parentOverflowY = pwin.getComputedStyle(pde).overflowY + "/" + pwin.getComputedStyle(pb).overflowY;
+          data.parentDoc = pde.scrollHeight + ":" + pde.clientHeight;
+        } catch (e9) { data.parentProbe = "err:" + (e9 && e9.message ? e9.message.slice(0, 40) : "?"); }
         var el = document.getElementById("careerScrollDiag");
         if (el) {
           el.textContent = "GP Link scroll check (temporary)\n"
-            + "needs-scroll=" + (data.overflows ? "YES" : "no") + "  W=" + data.winW + " H=" + data.winH + "  content=" + maxSH + "\n"
-            + "canScrollProgrammatically=" + data.canScrollProg + " scroller=" + data.scrollerTag + "\n"
-            + "centre: " + data.centerStack + "\n"
-            + "secured=" + data.modeSecured + " boot=" + data.booting + " lock=" + data.gateLock + " state=" + data.placementState;
+            + "needs-scroll=" + (data.overflows ? "YES" : "no") + " W=" + data.winW + " H=" + data.winH + " content=" + maxSH + " canScrollProg=" + data.canScrollProg + "\n"
+            + "iframe: scrolling=" + data.frameScrollingAttr + " pointer=" + data.framePointerEvents + " h=" + data.frameH + " class=" + data.frameClass + "\n"
+            + "stack: overflow=" + data.stackOverflow + " h=" + data.stackH + "  parentOflowY=" + data.parentOverflowY + " parentDoc=" + data.parentDoc + "\n"
+            + "centre: " + data.centerStack + (data.parentProbe ? (" | parentProbe=" + data.parentProbe) : "");
           el.style.display = "block";
         }
         if (doPost && !reportSecuredScrollDiag._sent) {
@@ -12247,7 +12267,7 @@
               method: "POST", credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                message: "SCROLL-DIAG " + data.winW + "w overflow=" + data.overflows + " canScrollProg=" + data.canScrollProg + " center=" + (data.centerStack || "").slice(0, 60) + " email=" + (data.email || "?"),
+                message: "SCROLL-DIAG " + data.winW + "w overflow=" + data.overflows + " canScrollProg=" + data.canScrollProg + " frameScroll=" + data.frameScrollingAttr + " framePtr=" + data.framePointerEvents + " stackOflow=" + data.stackOverflow + " email=" + (data.email || "?"),
                 stack: JSON.stringify(data),
                 url: location.href,
                 userAgent: navigator.userAgent
