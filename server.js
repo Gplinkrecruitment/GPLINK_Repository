@@ -412,6 +412,109 @@ async function loadRsoTeam(opts) {
   }
 }
 
+// ── RSO GP-assignment scoping (authorization) ──────────────────────────────────
+// A regular admin (role 'admin'/'staff' = an RSO) may only ever SEE or ACT ON GPs
+// assigned to them: registration_cases.assigned_rso || assigned_va === their
+// rso_team.user_id. Super admins (CEO, role 'super_admin') are NEVER scoped.
+// Everything is fail-closed: a non-super admin who cannot be resolved to a roster
+// user_id (rsoUserId === null) sees an empty list and is 403'd on every GP detail.
+
+// Match the admin's session email against the rso_team roster → their user_id.
+async function resolveAdminRsoUserId(adminCtx) {
+  const email = String((adminCtx && adminCtx.email) || '').trim().toLowerCase();
+  if (!email) return null;
+  const roster = await loadRsoTeam({ includeInactive: true });
+  for (let i = 0; i < roster.length; i++) {
+    const r = roster[i];
+    if (r && r.email && String(r.email).trim().toLowerCase() === email) return r.user_id || null;
+  }
+  return null;
+}
+
+// True when a registration_cases row is assigned to the given RSO user_id.
+function caseAssignedToRso(caseRow, rsoUserId) {
+  if (!caseRow || !rsoUserId) return false;
+  return (caseRow.assigned_rso || caseRow.assigned_va || null) === rsoUserId;
+}
+
+// The GP-visibility scope for a request:
+//   { superAdmin: true,  rsoUserId: null }     → sees/acts on everything
+//   { superAdmin: false, rsoUserId: '<uuid>' } → only cases assigned to rsoUserId
+//   { superAdmin: false, rsoUserId: null }     → sees/acts on NOTHING (not on roster)
+async function resolveAdminGpScope(adminCtx) {
+  if (isSuperAdminRole(adminCtx && adminCtx.role)) return { superAdmin: true, rsoUserId: null };
+  return { superAdmin: false, rsoUserId: await resolveAdminRsoUserId(adminCtx) };
+}
+
+// Given a resolved scope and a case row, may the admin access it? Super admins: yes.
+function gpScopeAllowsCase(scope, caseRow) {
+  if (scope && scope.superAdmin) return true;
+  return caseAssignedToRso(caseRow, scope && scope.rsoUserId);
+}
+
+// Fetch a single registration_cases row's assignment fields by case id (for
+// per-GP detail/mutation endpoints that receive a case_id). Returns null on miss.
+async function fetchCaseAssignmentById(caseId) {
+  const id = String(caseId || '').trim();
+  if (!id) return null;
+  const r = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,assigned_rso,assigned_va&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+// Same, resolved by the GP's user_id (for endpoints that receive a user_id).
+async function fetchCaseAssignmentByUserId(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+  const r = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+// Same, resolved by a registration_tasks.id (for per-task detail/mutation endpoints).
+async function fetchCaseAssignmentByTaskId(taskId) {
+  const tid = String(taskId || '').trim();
+  if (!tid) return null;
+  const tr = await supabaseDbRequest('registration_tasks',
+    'select=case_id&id=eq.' + encodeURIComponent(tid) + '&limit=1');
+  const caseId = (tr.ok && Array.isArray(tr.data) && tr.data[0]) ? tr.data[0].case_id : null;
+  return caseId ? fetchCaseAssignmentById(caseId) : null;
+}
+
+// Guard for a per-GP detail/mutation endpoint: resolves the caller's scope and the
+// target case, and sends a 403 (returning false) when a non-super admin tries to
+// reach a GP not assigned to them. `caseRow` needs only assigned_rso/assigned_va.
+// Returns true when access is allowed (caller proceeds).
+async function ensureAdminCaseAccess(adminCtx, caseRow, res) {
+  const scope = await resolveAdminGpScope(adminCtx);
+  if (gpScopeAllowsCase(scope, caseRow)) return true;
+  sendJson(res, 403, { ok: false, message: 'This GP is not assigned to you.' });
+  return false;
+}
+
+// The set of GP user_ids whose case is assigned to this RSO — used to scope the
+// dashboard candidate list (built from user records, not case rows).
+async function fetchAssignedCaseUserIds(rsoUserId) {
+  const set = new Set();
+  if (!rsoUserId) return set;
+  const r = await supabaseDbRequest('registration_cases',
+    'select=user_id&or=(assigned_rso.eq.' + encodeURIComponent(rsoUserId) + ',assigned_va.eq.' + encodeURIComponent(rsoUserId) + ')');
+  if (r.ok && Array.isArray(r.data)) r.data.forEach(function (row) { if (row.user_id) set.add(row.user_id); });
+  return set;
+}
+
+// Shallow-copy the dashboard aggregate with its per-GP arrays (candidates +
+// verificationQueue) filtered to the given user_id set, so a non-super admin's
+// dashboard only exposes their assigned GPs. Super admins never call this.
+function scopeDashboardToUserIds(dashboard, userIdSet) {
+  if (!dashboard || typeof dashboard !== 'object') return dashboard;
+  const keep = function (item) { return !!item && userIdSet.has(item.userId); };
+  const out = Object.assign({}, dashboard);
+  if (Array.isArray(dashboard.candidates)) out.candidates = dashboard.candidates.filter(keep);
+  if (Array.isArray(dashboard.verificationQueue)) out.verificationQueue = dashboard.verificationQueue.filter(keep);
+  return out;
+}
+
 // Resolve the RSO (registration_tasks.assignee UUID) for a GP's case: prefer the
 // case's assigned_va, else default to Hazel. knownAssignedVa: pass the loaded value
 // if available; undefined triggers a lookup, null/value is used as-is.
@@ -40099,6 +40202,9 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Missing user_id parameter.' });
       return;
     }
+    // Authorization: a regular admin (RSO) may only impersonate a GP assigned to
+    // them; a super admin may impersonate anyone.
+    if (!(await ensureAdminCaseAccess(admin, await fetchCaseAssignmentByUserId(targetUserId), res))) return;
 
     try {
       let gpProfile = null;
@@ -42192,10 +42298,18 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 502, { ok: false, message: 'Failed to load admin dashboard from database.' });
       return;
     }
+    // Authorization: a regular admin (RSO) only sees their assigned GPs. The
+    // aggregate is a shared cache, so scope the per-GP arrays per-request.
+    const dashScope = await resolveAdminGpScope(adminCtx);
+    let dashboardOut = dashboard;
+    if (!dashScope.superAdmin) {
+      const assignedIds = await fetchAssignedCaseUserIds(dashScope.rsoUserId);
+      dashboardOut = scopeDashboardToUserIds(dashboard, assignedIds);
+    }
     sendJson(res, 200, {
       ok: true,
       refreshedAt: new Date().toISOString(),
-      ...dashboard
+      ...dashboardOut
     });
     return;
   }
@@ -42594,6 +42708,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
+    const casesGpScope = await resolveAdminGpScope(adminCtx);
     const casesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
     if (!casesRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load cases.' }); return; }
     const cases = Array.isArray(casesRes.data) ? casesRes.data : [];
@@ -42628,6 +42743,8 @@ Return ONLY valid JSON with no markdown formatting:
     for (var ci = 0; ci < cases.length; ci++) {
       var c = cases[ci];
       if (c.user_id && adminUserIds.has(c.user_id)) continue;
+      // Authorization: a regular admin (RSO) only ever sees GPs assigned to them.
+      if (!gpScopeAllowsCase(casesGpScope, c)) continue;
       var p = profileMap[c.user_id] || {};
       var caseEmailLc = String(p.email || c.gp_email || '').trim().toLowerCase();
       if (HIDDEN_CASE_EMAILS.has(caseEmailLc)) continue;
@@ -56741,6 +56858,11 @@ module.exports.__testUtils = {
   createSignedPurposeToken,
   recordServerError,
   recordCronRun,
+  resolveAdminRsoUserId,
+  resolveAdminGpScope,
+  caseAssignedToRso,
+  gpScopeAllowsCase,
+  scopeDashboardToUserIds,
   sendEmail,
   buildMatchEmailHtml,
   sendMatchEmail,

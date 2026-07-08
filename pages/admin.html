@@ -2116,18 +2116,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderFilters(){
-    const c=counts();
-    const filters=[
-      {k:"all",l:"All",c:c.all},
-      {k:"needsaction",l:"Needs Action",c:c.needsAction},
-      {k:"ontrack",l:"On Track",c:c.onTrack}
-    ];
-    let html=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
-    if(S.view!=="queue"){
-      html+=renderCaseFilterSelects();
-      html+=renderRsoCaseloadStrip();
-    }
-    document.getElementById("filterBar").innerHTML=html;
+    // GP-list filters removed: an admin only ever sees GPs assigned to them
+    // (enforced server-side in /api/admin/cases + /api/admin/dashboard), so the
+    // All/Needs-Action/On-Track, RSO, caseload and stage filters are gone. The
+    // list still groups cases into Needs Action / On Track lanes below. S.filter
+    // stays "all" so filteredCases applies no client-side narrowing.
+    S.filter="all"; S.fMine=false; S.fStage=""; S.fRso=""; S.fCountry=""; S.fAge="";
+    const fb=document.getElementById("filterBar");
+    if(fb)fb.innerHTML="";
+    return;
   }
 
   /* ── Structured GP-list filters: stage / RSO / country / stage-age + My caseload ── */

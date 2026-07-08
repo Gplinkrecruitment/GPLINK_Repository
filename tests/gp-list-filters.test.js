@@ -318,28 +318,24 @@ describe('GET /api/admin/va/dashboard — users + rso_workload', () => {
   });
 });
 
-describe('admin.html — filter controls (static)', () => {
+describe('admin.html — GP-list filters removed (assigned-only)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages', 'admin.html'), 'utf8');
 
-  it('renders the structured filter selects + My caseload chip + RSO strip', () => {
-    expect(html).toContain('data-ffield="fStage"');
-    expect(html).toContain('data-ffield="fRso"');
-    expect(html).toContain('data-ffield="fCountry"');
-    expect(html).toContain('data-ffield="fAge"');
-    expect(html).toContain('data-my-caseload');
-    expect(html).toContain('data-rso-chip');
-    expect(html).toContain('renderRsoCaseloadStrip');
+  it('renderFilters clears the filter bar and builds no filter controls', () => {
+    const start = html.indexOf('function renderFilters(){');
+    expect(start).toBeGreaterThan(-1);
+    const body = html.slice(start, start + 700);
+    // The bar is emptied — an admin only ever sees GPs assigned to them, so the
+    // All / Needs-Action / On-Track / RSO / caseload / stage filters are gone.
+    expect(body).toContain('filterBar');
+    expect(body).toContain('innerHTML=""');
+    expect(body).not.toContain('data-filter=');
+    expect(body).not.toContain('renderCaseFilterSelects');
+    expect(body).not.toContain('renderRsoCaseloadStrip');
   });
 
-  it('filter logic reads the new payload fields', () => {
-    expect(html).toContain('assigned_rso_email');
-    expect(html).toContain('days_in_stage');
-    expect(html).toContain('rso_workload');
-    // Filter row shows case-health lanes: All / Needs Action / On Track
-    // (replaced the old urgent/overdue/blocked/active/complete chips).
-    for (const chip of ['"needsaction"', '"ontrack"']) {
-      expect(html.includes(chip)).toBe(true);
-    }
+  it('the list still groups cases into Needs Action / On Track lanes', () => {
+    // Lane grouping is not a filter control — it stays.
     expect(html).toContain('function caseNeedsAction');
   });
 });
