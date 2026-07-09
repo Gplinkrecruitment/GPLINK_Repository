@@ -11,7 +11,7 @@
 //       acceptance ("Your placement is secured") exactly once, and NOT again on
 //       an idempotent repeat accept.
 //  G8 — GET /api/cron/interview-reminders scans scheduled_calls booked
-//       interviews and sends a 2h + a 24h reminder, each exactly once (dedupe
+//       interviews and sends a 1h + a 24h reminder, each exactly once (dedupe
 //       via notification_channels), skips a cancelled interview, and skips a
 //       past one.
 //  G2 — career.html static pins (securedInterview* ids, my-interviews fetch,
@@ -218,7 +218,7 @@ const practiceMails = (matcher) => resendCalls.filter((c) => {
   return toPractice && matcher(String(c.body && c.body.subject || ''));
 });
 const practiceConfirm = () => practiceMails((s) => /placement confirmed/i.test(s));
-const practiceRemind2h = () => practiceMails((s) => /^interview reminder/i.test(s) && /2 hours/i.test(s));
+const practiceRemind2h = () => practiceMails((s) => /^interview reminder/i.test(s) && /an hour/i.test(s));
 const practiceRemind24h = () => practiceMails((s) => /^interview reminder/i.test(s) && /tomorrow/i.test(s));
 
 let realFetch;
@@ -334,13 +334,13 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
   let rowSoon, rowDay, rowCancelled, rowPast;
   beforeAll(() => {
     db.scheduled_calls.length = 0;
-    rowSoon = seedInterview({ scheduled_at: new Date(Date.now() + 1.5 * H).toISOString() });      // within 2h
-    rowDay = seedInterview({ scheduled_at: new Date(Date.now() + 10 * H).toISOString() });         // within 24h, >2h
-    rowCancelled = seedInterview({ status: 'cancelled', scheduled_at: new Date(Date.now() + 1.5 * H).toISOString() });
+    rowSoon = seedInterview({ scheduled_at: new Date(Date.now() + 0.5 * H).toISOString() });      // within 1h
+    rowDay = seedInterview({ scheduled_at: new Date(Date.now() + 10 * H).toISOString() });         // within 24h, >1h
+    rowCancelled = seedInterview({ status: 'cancelled', scheduled_at: new Date(Date.now() + 0.5 * H).toISOString() });
     rowPast = seedInterview({ scheduled_at: new Date(Date.now() - 2 * H).toISOString() });          // already happened
   });
 
-  it('sends a 2h reminder and a 24h reminder, one each, and skips cancelled/past', async () => {
+  it('sends a 1h reminder and a 24h reminder, one each, and skips cancelled/past', async () => {
     const before2 = remind2h().length;
     const before24 = remind24h().length;
     const beforeP2 = practiceRemind2h().length;
@@ -350,7 +350,7 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
 
-    // rowSoon -> 2h nudge; rowDay -> 24h heads-up. rowCancelled + rowPast: none.
+    // rowSoon -> 1h nudge; rowDay -> 24h heads-up. rowCancelled + rowPast: none.
     expect(remind2h().length - before2).toBe(1);
     expect(remind24h().length - before24).toBe(1);
 
@@ -360,16 +360,16 @@ describe('G8 — interview reminder cron (scheduled_calls)', () => {
     expect(practiceRemind24h().length - beforeP24).toBe(1);
     const pMail = practiceRemind2h().slice(-1)[0];
     expect(String(pMail.body.subject)).toContain('Gap Doctor');
-    expect(String(pMail.body.text)).toContain('Zoom link: https://zoom.us/j/gap-');
+    expect(String(pMail.body.text)).toContain('Join the meeting: https://zoom.us/j/gap-');
     expect(String(pMail.body.text)).toContain('When: ');
 
     // Dedupe flags persisted on the two live rows only.
     const soon = db.scheduled_calls.find((c) => c.id === rowSoon.id);
     const day = db.scheduled_calls.find((c) => c.id === rowDay.id);
-    expect(soon.notification_channels && soon.notification_channels.interview_reminders && soon.notification_channels.interview_reminders.h2).toBeTruthy();
+    expect(soon.notification_channels && soon.notification_channels.interview_reminders && soon.notification_channels.interview_reminders.h1).toBeTruthy();
     expect(day.notification_channels && day.notification_channels.interview_reminders && day.notification_channels.interview_reminders.h24).toBeTruthy();
-    // D1a: practice reminders dedupe independently (practice_h2/practice_h24).
-    expect(soon.notification_channels.interview_reminders.practice_h2).toBeTruthy();
+    // Practice reminders dedupe independently (practice_h1/practice_h24).
+    expect(soon.notification_channels.interview_reminders.practice_h1).toBeTruthy();
     expect(day.notification_channels.interview_reminders.practice_h24).toBeTruthy();
     // The cancelled + past rows were never touched.
     expect(db.scheduled_calls.find((c) => c.id === rowCancelled.id).notification_channels).toBeNull();
