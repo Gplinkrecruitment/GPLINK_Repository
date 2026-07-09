@@ -42,6 +42,7 @@
     "/pages/interview-prep": true,
     "/pages/offer-review": true,
     "/pages/secure-interview": true,
+    "/pages/confirm-call": true,
     "/pages/area-guide": true
   };
   var FRAME_EQUIVALENT_ROUTE_PATHS = {
@@ -70,6 +71,7 @@
     "/pages/interview-prep": { desktop: "career", mobile: "/pages/career" },
     "/pages/offer-review": { desktop: "career", mobile: "/pages/career" },
     "/pages/secure-interview": { desktop: "career", mobile: "/pages/career" },
+    "/pages/confirm-call": { desktop: "home", mobile: "/pages/index" },
     "/pages/area-guide": { desktop: "career", mobile: "/pages/career" },
     "/pages/messages": { desktop: "support", mobile: "/pages/messages" },
     "/pages/account": { desktop: "account", mobile: "/pages/account" }

@@ -27,3 +27,12 @@ describe('pages/confirm-call.html', () => {
     expect(html).toContain('Confirm your Zoom call');
   });
 });
+
+import fs2 from 'fs';
+describe('app-shell registers confirm-call', () => {
+  const shell = fs2.readFileSync(path.join(ROOT, 'js', 'app-shell.js'), 'utf8');
+  it('is a known page path and nav group', () => {
+    expect(shell).toContain('"/pages/confirm-call"');
+    expect(shell).toMatch(/"\/pages\/confirm-call":\s*\{\s*desktop:/);
+  });
+});
