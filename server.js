@@ -49721,6 +49721,24 @@ Return ONLY valid JSON with no markdown formatting:
           // Anything else explicitly waiting on the GP (calls to rebook, stage
           // tasks handed to the GP, …) — deep link to its stage page.
           if (t.status !== 'waiting_on_gp' || m.s80) return;
+          // Zoom assistance calls get an in-app confirm page + a clearer title
+          // (the raw title 'Zoom Assistance Call — <Stage>' opened the stage's
+          // registration page, which bounced to the registration intro).
+          if (t.task_type === 'zoom_call') {
+            const zcStage = String(t.related_stage || '').toLowerCase();
+            const zcLabel = { myintealth: 'MyIntealth', myinthealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[zcStage] || 'GP Link';
+            items.push({
+              id: 'task-' + t.id,
+              kind: 'registration_task',
+              title: 'Confirm your Zoom call — ' + zcLabel,
+              description: '',
+              stage: t.related_stage || '',
+              deepLink: '/pages/confirm-call.html?stage=' + encodeURIComponent(zcStage),
+              createdAt: t.created_at || null,
+              priority: (t.priority === 'high' || t.priority === 'urgent') ? 'high' : 'normal'
+            });
+            return;
+          }
           items.push({
             id: 'task-' + t.id,
             kind: 'registration_task',
