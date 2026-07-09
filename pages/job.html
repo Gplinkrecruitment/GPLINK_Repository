@@ -1014,7 +1014,7 @@
       /* Bottom padding clears the app-shell bottom nav (embedded) so the
          Apply / Not-yet buttons are never hidden behind it; max() not + because
          the measured nav height already includes the iOS safe-area inset. */
-      padding: 28px 24px calc(24px + max(env(safe-area-inset-bottom, 0px), var(--gp-shell-bottom-clearance, 0px)));
+      padding: 28px 24px calc(24px + max(env(safe-area-inset-bottom, 0px), var(--gp-shell-bottom-clearance, 70px)));
       width: 100%;
       max-width: 480px;
     }
