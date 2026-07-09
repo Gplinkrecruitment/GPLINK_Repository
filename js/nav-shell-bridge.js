@@ -24,7 +24,6 @@
     "/pages/registration-intro": true,
     "/pages/application-detail": true,
     "/pages/job": true,
-    "/pages/interview-prep": true,
     "/pages/offer-review": true,
     "/pages/area-guide": true
   };
