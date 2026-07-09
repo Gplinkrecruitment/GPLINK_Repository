@@ -43261,12 +43261,16 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
-      const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number,country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      // NOTE: user_profiles has NO `country` column (it's `registration_country`). Selecting a
+      // non-existent column makes PostgREST 400 the ENTIRE query, so `profile` fell back to {} and
+      // the candidate name resolved to 'Unknown' for EVERY GP (registration_cases has no gp_name/
+      // gp_email columns to catch it either). Select the real column so the name is read correctly.
+      const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number,registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : {};
       const gpName = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || regCase.gp_name || regCase.gp_email || 'Unknown';
       const gpEmail = profile.email || regCase.gp_email || '';
       const gpPhone = profile.phone_number || regCase.gp_phone || '';
-      const gpCountry = profile.country || regCase.country || '';
+      const gpCountry = profile.registration_country || regCase.country || '';
 
       let practiceEmail = '';
       try {
@@ -45889,6 +45893,13 @@ Return ONLY valid JSON with no markdown formatting:
         var visibleOverrideAt = Date.parse(st.gp_stage_override_at || '') || 0;
         var visibleIdUpdatedAt = Date.parse(st.gp_amc_myintealth_id_updated_at || '') || 0;
         if (visibleOverrideAt && visibleStageIdx >= 0 && visibleStageIdx <= 2 && visibleIdUpdatedAt <= visibleOverrideAt) {
+          visibleMyintealthId = null;
+        }
+        // Stale carry-over guard: a MyIntealth ID whose last update predates the GP's own
+        // registration case cannot belong to this candidate (e.g. leftover test data on a
+        // reused email). Never surface it — it would falsely read as MyIntealth progress.
+        var visibleCaseCreatedAt = Date.parse(c.created_at || '') || 0;
+        if (visibleMyintealthId && visibleIdUpdatedAt && visibleCaseCreatedAt && visibleIdUpdatedAt < visibleCaseCreatedAt) {
           visibleMyintealthId = null;
         }
       }
