@@ -131,29 +131,41 @@
         showOnly('bookedState');
       }
       function apply(call) {
-        if (!call) { showOnly('emptyState'); stopPoll(); return; }
-        if (call.status === 'booked' || call.status === 'completed') { renderBooked(call); stopPoll(); return; }
+        if (!call) { showOnly('emptyState'); return false; }
+        if (call.status === 'booked' || call.status === 'completed') { renderBooked(call); return false; }
         renderInvite(call);
+        return true; // still waiting on a booking -> keep polling
       }
       function load() {
         var q = stage ? ('?stage=' + encodeURIComponent(stage)) : '';
         return fetch('/api/gp/assistance-call' + q, { credentials: 'same-origin' })
           .then(function (r) {
-            if (r.status === 401) { showOnly('errorState'); document.getElementById('errorMsg').textContent = 'Please sign in again to see your call.'; return null; }
-            return r.ok ? r.json() : null;
+            if (r.status === 401) {
+              document.getElementById('errorMsg').textContent = 'Please sign in again to see your call.';
+              showOnly('errorState');
+              return { terminal: true };
+            }
+            return r.ok ? r.json() : { error: true };
           })
-          .then(function (d) { if (d && d.ok) apply(d.call); else if (d !== undefined) showOnly('errorState'); })
-          .catch(function () { showOnly('errorState'); });
+          .then(function (d) {
+            if (!d || d.terminal) return false;                 // 401 already handled
+            if (d.error || d.ok !== true) { showOnly('errorState'); return false; }
+            return apply(d.call);                                // true => keep polling
+          })
+          .catch(function () { showOnly('errorState'); return false; });
       }
       function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
       function startPoll() {
         stopPoll(); polls = 0;
-        pollTimer = setInterval(function () { polls++; if (polls > 40) { stopPoll(); return; } load(); }, 6000); // ~4 min
+        pollTimer = setInterval(function () {
+          polls++; if (polls > 40) { stopPoll(); return; }
+          load().then(function (keep) { if (!keep) stopPoll(); });
+        }, 6000);
       }
 
       document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
       window.addEventListener('focus', function () { load(); });
-      load().then(startPoll);
+      load().then(function (keep) { if (keep) startPoll(); });
     })();
   </script>
 </body>
