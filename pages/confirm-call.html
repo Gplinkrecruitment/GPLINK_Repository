@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Confirm your Zoom call</title>
+  <script src="../js/native-bridge.js?v=20260707a"></script>
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
+  <script src="../js/auth-guard.js?v=20260706a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--gp-canvas); color: var(--gp-text); font-family: var(--gp-font-body, "DM Sans", system-ui, sans-serif); -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px calc(40px + var(--gp-shell-bottom-clearance, 0px)); }
+    .hidden { display: none !important; }
+    .card { background: var(--gp-surface); border: 1px solid var(--gp-border); border-radius: var(--gp-r-lg, 18px); box-shadow: var(--gp-shadow-sm); padding: 22px; }
+    h1 { font-family: var(--gp-font-display, "Source Serif 4", serif); font-size: var(--gp-fs-xl, 1.5rem); color: var(--gp-ink); margin: 0 0 6px; }
+    .sub { color: var(--gp-muted); font-size: var(--gp-fs-sm, .95rem); margin: 0 0 18px; line-height: 1.5; }
+    .row { display: flex; gap: 10px; align-items: baseline; margin: 10px 0; font-size: .95rem; }
+    .row .k { color: var(--gp-muted); min-width: 86px; }
+    .row .v { color: var(--gp-ink); font-weight: 600; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px 18px; border-radius: 14px; border: 0; background: var(--gp-blue, #2563eb); color: #fff; font-weight: 700; font-size: 1rem; text-decoration: none; cursor: pointer; margin-top: 18px; }
+    .btn.secondary { background: transparent; color: var(--gp-blue, #2563eb); border: 1px solid var(--gp-border); margin-top: 10px; }
+    .muted-note { color: var(--gp-muted); font-size: .85rem; margin-top: 14px; line-height: 1.5; }
+    .spinner { width: 30px; height: 30px; border: 3px solid var(--gp-border); border-top-color: var(--gp-blue, #2563eb); border-radius: 50%; animation: spin .8s linear infinite; margin: 30px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .icon { font-size: 34px; text-align: center; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="loadingState"><div class="spinner"></div></div>
+
+    <div id="inviteState" class="hidden">
+      <div class="card">
+        <h1 id="inviteTitle">Confirm your Zoom call</h1>
+        <p class="sub" id="inviteReason"></p>
+        <div class="row"><span class="k">With</span><span class="v" id="inviteWith">the GP Link team</span></div>
+        <div class="row"><span class="k">Length</span><span class="v" id="inviteLen">30 minutes</span></div>
+        <a id="chooseTimeBtn" class="btn" target="_blank" rel="noopener">Choose a time</a>
+        <button id="refreshBtn" class="btn secondary" type="button">I've booked — refresh</button>
+        <p class="muted-note">Picking a time opens our booking page in a new tab. Once you've chosen, come back here — this page updates automatically and shows your Zoom link.</p>
+      </div>
+    </div>
+
+    <div id="bookedState" class="hidden">
+      <div class="card">
+        <div class="icon">✅</div>
+        <h1>Your Zoom call is confirmed</h1>
+        <p class="sub" id="bookedReason"></p>
+        <div class="row"><span class="k">When</span><span class="v" id="bookedWhen"></span></div>
+        <div class="row"><span class="k">Length</span><span class="v" id="bookedLen">30 minutes</span></div>
+        <a id="joinZoomBtn" class="btn hidden" target="_blank" rel="noopener">Join Zoom</a>
+        <p id="zoomPending" class="muted-note hidden">Your Zoom link will be emailed to you and will appear here shortly.</p>
+      </div>
+    </div>
+
+    <div id="emptyState" class="hidden">
+      <div class="card">
+        <h1>No Zoom call scheduled</h1>
+        <p class="sub">There's no Zoom assistance call waiting for you right now. If you were expecting one, please check your email or contact the GP Link team.</p>
+        <a class="btn" href="/pages/index.html">Back to home</a>
+      </div>
+    </div>
+
+    <div id="errorState" class="hidden">
+      <div class="card">
+        <h1>Something went wrong</h1>
+        <p class="sub" id="errorMsg">We couldn't load your call just now. Please try again in a moment.</p>
+        <a class="btn" href="/pages/index.html">Back to home</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var stage = (params.get('stage') || '').trim().toLowerCase();
+      var pollTimer = null, polls = 0;
+
+      function showOnly(id) {
+        ['loadingState', 'inviteState', 'bookedState', 'emptyState', 'errorState'].forEach(function (s) {
+          var el = document.getElementById(s);
+          if (el) el.classList.toggle('hidden', s !== id);
+        });
+      }
+      function fmtWhen(iso, tz) {
+        if (!iso) return '';
+        try {
+          var opts = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' };
+          if (tz) opts.timeZone = tz;
+          return new Intl.DateTimeFormat(undefined, opts).format(new Date(iso)) + (tz ? ' (' + tz + ')' : '');
+        } catch (e) { return iso; }
+      }
+      function renderInvite(call) {
+        document.getElementById('inviteTitle').textContent = 'Confirm your Zoom call' + (call.stageLabel ? ' — ' + call.stageLabel : '');
+        var reason = call.meetingReason && call.meetingReason.trim()
+          ? call.meetingReason.trim()
+          : ('to help you with your ' + (call.stageLabel || 'registration') + ' registration');
+        document.getElementById('inviteReason').textContent = 'A quick video call ' + reason + '.';
+        if (call.rsoName) document.getElementById('inviteWith').textContent = call.rsoName;
+        document.getElementById('inviteLen').textContent = (call.durationMinutes || 30) + ' minutes';
+        var btn = document.getElementById('chooseTimeBtn');
+        if (call.calendlyBookingUrl && call.calendlyBookingUrl.indexOf('https:') === 0) {
+          btn.href = call.calendlyBookingUrl;
+          btn.classList.remove('hidden');
+        } else {
+          btn.classList.add('hidden');
+        }
+        showOnly('inviteState');
+      }
+      function renderBooked(call) {
+        var reason = call.meetingReason && call.meetingReason.trim() ? call.meetingReason.trim() : '';
+        document.getElementById('bookedReason').textContent = reason ? ('A video call ' + reason + '.') : '';
+        document.getElementById('bookedWhen').textContent = fmtWhen(call.scheduledAt, call.timezone) || 'Time to be confirmed';
+        document.getElementById('bookedLen').textContent = (call.durationMinutes || 30) + ' minutes';
+        var zbtn = document.getElementById('joinZoomBtn');
+        var pending = document.getElementById('zoomPending');
+        if (call.zoomJoinUrl && call.zoomJoinUrl.indexOf('https:') === 0) {   // never fabricate a link
+          zbtn.href = call.zoomJoinUrl;
+          zbtn.classList.remove('hidden');
+          pending.classList.add('hidden');
+        } else {
+          zbtn.classList.add('hidden');
+          pending.classList.remove('hidden');
+        }
+        showOnly('bookedState');
+      }
+      function apply(call) {
+        if (!call) { showOnly('emptyState'); stopPoll(); return; }
+        if (call.status === 'booked' || call.status === 'completed') { renderBooked(call); stopPoll(); return; }
+        renderInvite(call);
+      }
+      function load() {
+        var q = stage ? ('?stage=' + encodeURIComponent(stage)) : '';
+        return fetch('/api/gp/assistance-call' + q, { credentials: 'same-origin' })
+          .then(function (r) {
+            if (r.status === 401) { showOnly('errorState'); document.getElementById('errorMsg').textContent = 'Please sign in again to see your call.'; return null; }
+            return r.ok ? r.json() : null;
+          })
+          .then(function (d) { if (d && d.ok) apply(d.call); else if (d !== undefined) showOnly('errorState'); })
+          .catch(function () { showOnly('errorState'); });
+      }
+      function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+      function startPoll() {
+        stopPoll(); polls = 0;
+        pollTimer = setInterval(function () { polls++; if (polls > 40) { stopPoll(); return; } load(); }, 6000); // ~4 min
+      }
+
+      document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
+      window.addEventListener('focus', function () { load(); });
+      load().then(startPoll);
+    })();
+  </script>
+</body>
+</html>
