@@ -11,6 +11,7 @@
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260607a" defer></script>
   <script src="../js/updates-sync.js?v=20260707b" defer></script>
+  <script src="/js/career-home-card.js?v=20260709a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
   <script src="../js/qualification-scan.js?v=20260707a" defer></script>
@@ -1317,6 +1318,9 @@
       return pendingTs >= persistedTs ? pendingParsed : persisted;
     }
 
+    var liveAppCards = [];
+    var liveAppsLoaded = false;
+
     function renderUpdatesFeed() {
       const listEl = document.getElementById("gp-updates-list");
       const cardEl = document.getElementById("gp-updates-card");
@@ -1330,7 +1334,18 @@
         : (typeof window.getGpLinkUpdates === "function"
             ? window.getGpLinkUpdates().slice()
             : (Array.isArray(window.gpLinkUpdates) ? window.gpLinkUpdates.slice() : []));
-      const updates = [...baseUpdates, ...getPreparedDocReviewUpdates()].sort((a, b) => {
+      const baseUpdatesFiltered = liveAppsLoaded
+        ? baseUpdates.filter((u) => {
+            const ttl = u && typeof u.title === "string" ? u.title : "";
+            // Career notifications (all stamped category === 'career' server-side) are
+            // superseded by the single live application card. Legacy cached rows
+            // that predate the category field are caught by the known titles.
+            if (u && u.category === "career") return false;
+            if (["Application Submitted", "Profile Submitted to Practice", "Interview Scheduled", "Interview Cancelled"].indexOf(ttl) !== -1) return false;
+            return true;
+          })
+        : baseUpdates;
+      const updates = [...baseUpdatesFiltered, ...getPreparedDocReviewUpdates()].sort((a, b) => {
         const aTime = Date.parse(a.ts || "") || 0;
         const bTime = Date.parse(b.ts || "") || 0;
         return bTime - aTime;
@@ -1363,8 +1378,30 @@
       // Count actions for stat pill
       updateActionCount(actionUpdates.length);
 
+      const iconSvgs = {
+        action: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        success: '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
+        info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+        case: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+      };
+
       listEl.innerHTML = "";
-      if (!displayItems.length) {
+
+      liveAppCards.forEach((c) => {
+        const row = document.createElement("a");
+        row.href = c.href;
+        row.className = "update-item";
+        row.innerHTML =
+          '<div class="update-icon ' + c.iconType + '">' + (iconSvgs[c.iconType] || iconSvgs.info) + '</div>' +
+          '<div class="update-content"><p class="update-title"></p><div class="update-ts"></div></div>' +
+          '<span class="update-badge ' + c.badgeClass + '"></span>';
+        row.querySelector(".update-title").textContent = c.title;         // textContent — never innerHTML with server data
+        row.querySelector(".update-ts").textContent = formatUpdateTimestamp(c.ts || "");
+        row.querySelector(".update-badge").textContent = c.badgeLabel;
+        listEl.appendChild(row);
+      });
+
+      if (!displayItems.length && !liveAppCards.length) {
         const empty = document.createElement("div");
         empty.className = "updates-empty";
         empty.textContent = "No updates yet. We'll post here when something changes or if we need anything from you.";
@@ -1372,12 +1409,6 @@
         return;
       }
 
-      const iconSvgs = {
-        action: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-        success: '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
-        info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
-        case: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
-      };
       const typeLabel = { success: "Success", info: "Info", action: "Action", case: "Case" };
 
       displayItems.forEach((entry) => {
@@ -1431,6 +1462,35 @@
         window.refreshInboxBadges();
       }
     }
+
+    (function loadLiveApplicationCards() {
+      // This inline block is not `defer`red, so it executes synchronously during
+      // HTML parsing — strictly BEFORE any `defer` external script (including
+      // /js/career-home-card.js) runs. Gate on DOMContentLoaded (same idiom as
+      // js/updates-sync.js's own bootstrap and the renderJourneyList() listener
+      // above) so window.deriveCareerHomeCard is guaranteed to exist by the time
+      // this runs, instead of silently no-op'ing on every page load.
+      function run() {
+        if (typeof window.deriveCareerHomeCard !== "function") return;
+        fetch("/api/career/applications", { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (!d || d.ok !== true || !Array.isArray(d.applications)) return; // leave the feed untouched on failure
+            liveAppsLoaded = true;
+            liveAppCards = d.applications
+              .map((a) => window.deriveCareerHomeCard(a))
+              .filter(Boolean)
+              .slice(0, 3);
+            if (typeof renderUpdatesFeed === "function") renderUpdatesFeed();
+          })
+          .catch(() => { /* never break the dashboard */ });
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", run);
+      } else {
+        run();
+      }
+    })();
 
     function getCurrentUserEmail() {
       try {

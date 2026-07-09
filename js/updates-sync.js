@@ -58,6 +58,7 @@
     // same-app /pages/ paths survive sanitization.
     if (typeof item.target === "string" && item.target.indexOf("/pages/") === 0) out.target = item.target;
     if (typeof item.nudgeId === "string" && item.nudgeId) out.nudgeId = item.nudgeId;
+    if (typeof item.category === "string" && item.category) out.category = item.category;
     return out;
   }
 
