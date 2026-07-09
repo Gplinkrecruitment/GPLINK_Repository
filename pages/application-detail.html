@@ -794,6 +794,14 @@
         } catch (e) { return ""; }
       }
 
+      // Inline interview scheduler state. MUST be initialized here (top of the
+      // IIFE) — the cached-preview renderApplication() below runs before the
+      // scheduler function block further down, and it reads ivSched.wired. A
+      // `var` object literal placed after that call would still be `undefined`
+      // at render time (only the function *declarations* hoist), which threw
+      // "Cannot read properties of undefined (reading 'wired')".
+      var ivSched = { appId: null, loaded: false, loading: false, slots: [], selectedStart: null, wired: false };
+
       // Load from sessionStorage cache first, then fetch from API
       var appData = null;
       try {
@@ -1142,7 +1150,8 @@
       }
 
       // ── Inline slot scheduler ────────────────────────────────────────────
-      var ivSched = { appId: null, loaded: false, loading: false, slots: [], selectedStart: null, wired: false };
+      // (ivSched state is declared at the TOP of the IIFE so the early cached
+      // render can safely read it — see the note there.)
 
       function ivDayGroupKey(slot) {
         try { return new Intl.DateTimeFormat('en-CA', { timeZone: slot.local.gp.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc)); }
