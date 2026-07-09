@@ -49794,6 +49794,51 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // GET /api/gp/assistance-call — the CURRENT GP's MyIntealth/AMC/AHPRA Zoom
+  // assistance call (scheduled_calls, meeting_kind='consultation'). Powers the
+  // in-app "Confirm your Zoom call" page (pages/confirm-call.html). Own-data
+  // only — the user is resolved from the session, never a query param.
+  if (pathname === '/api/gp/assistance-call' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, call: null }); return; }
+    const acEmail = getSessionEmail(session);
+    const acUserId = getSessionSupabaseUserId(session) || (acEmail ? await getSupabaseUserIdByEmail(acEmail) : null);
+    if (!acUserId) { sendJson(res, 200, { ok: true, call: null }); return; }
+    const AC_STAGE_LABELS = { myintealth: 'MyIntealth', myinthealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' };
+    const acStageParam = String(url.searchParams.get('stage') || '').trim().toLowerCase();
+    try {
+      const acRes = await supabaseDbRequest('scheduled_calls',
+        'select=id,stage,status,meeting_reason,calendly_booking_url,scheduled_at,booked_at,timezone,duration_minutes,zoom_join_url,assigned_rso_name,created_at' +
+        '&user_id=eq.' + encodeURIComponent(acUserId) +
+        '&meeting_kind=eq.consultation&status=neq.cancelled&order=created_at.desc&limit=20');
+      const acRows = (acRes.ok && Array.isArray(acRes.data)) ? acRes.data : [];
+      if (!acRows.length) { sendJson(res, 200, { ok: true, call: null }); return; }
+      let acRow = null;
+      if (acStageParam) acRow = acRows.find((r) => String(r.stage || '').toLowerCase() === acStageParam) || null;
+      if (!acRow) acRow = acRows[0];
+      const acStage = String(acRow.stage || '').toLowerCase();
+      sendJson(res, 200, { ok: true, call: {
+        id: acRow.id,
+        stage: acStage,
+        stageLabel: AC_STAGE_LABELS[acStage] || (acStage ? acStage.toUpperCase() : ''),
+        status: acRow.status || 'invited',
+        meetingReason: acRow.meeting_reason || null,
+        calendlyBookingUrl: acRow.calendly_booking_url || null,
+        scheduledAt: acRow.scheduled_at || null,
+        bookedAt: acRow.booked_at || null,
+        timezone: acRow.timezone || null,
+        durationMinutes: acRow.duration_minutes || 30,
+        zoomJoinUrl: acRow.zoom_join_url || null,
+        rsoName: acRow.assigned_rso_name || null
+      } });
+    } catch (e) {
+      console.error('[GPAssistanceCall] failed:', e.message);
+      sendJson(res, 200, { ok: true, call: null });
+    }
+    return;
+  }
+
   if (pathname === '/api/user/nudges' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
