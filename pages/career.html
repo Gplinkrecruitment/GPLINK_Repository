@@ -8036,7 +8036,7 @@
                with href="#" would save the CURRENT page ("career.html"). The render
                only adds href + download when a genuinely servable contract URL
                exists, and otherwise keeps this hidden. -->
-          <a class="placement-contract-card" id="securedContractLink" target="_top" hidden>
+          <a class="placement-contract-card" id="securedContractLink" target="_blank" rel="noopener" hidden>
             <div class="placement-contract-icon">
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </div>
@@ -12327,8 +12327,17 @@
 
       if (securedContractLinkEl) {
         if (placement.contractUrl) {
+          // Open the download endpoint in a NEW TOP-LEVEL TAB rather than using a
+          // `download` anchor. The endpoint 302-redirects to a cross-origin Supabase
+          // signed URL, and browsers silently block the `download` attribute across a
+          // cross-origin redirect (esp. inside the app-shell iframe) — so a download
+          // anchor here does nothing. A same-origin _blank navigation carries the GP's
+          // session cookie, follows the redirect, and the signed URL's
+          // Content-Disposition: attachment drives the actual file download.
           securedContractLinkEl.href = placement.contractUrl;
-          securedContractLinkEl.setAttribute("download", "");
+          securedContractLinkEl.setAttribute("target", "_blank");
+          securedContractLinkEl.setAttribute("rel", "noopener");
+          securedContractLinkEl.removeAttribute("download");
           securedContractLinkEl.hidden = false;
           const subEl = securedContractLinkEl.querySelector(".placement-contract-sub");
           if (subEl && placement.contractFileName) {
