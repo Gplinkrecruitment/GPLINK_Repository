@@ -351,6 +351,64 @@
       background: var(--gp-blue-border);
     }
 
+    /* ── Inline interview scheduler ── */
+    .iv-sched-hint {
+      font-size: var(--gp-fs-sm);
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 0 0 14px;
+    }
+    .iv-sched-status {
+      font-size: var(--gp-fs-sm);
+      color: var(--muted);
+      font-weight: 600;
+      margin: 0 0 12px;
+    }
+    .iv-sched-status[hidden] { display: none; }
+    .iv-days { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
+    .iv-day-group { }
+    .iv-day-heading {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: var(--gp-tracking-label);
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    .iv-slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+      gap: 8px;
+    }
+    .iv-slot-btn {
+      font: inherit;
+      font-size: var(--gp-fs-sm);
+      font-weight: 700;
+      color: var(--text);
+      padding: 11px 8px;
+      border: 1.5px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-sm);
+      background: var(--gp-surface);
+      cursor: pointer;
+      text-align: center;
+      transition: border-color var(--gp-dur-fast) var(--gp-ease),
+                  background var(--gp-dur-fast) var(--gp-ease),
+                  color var(--gp-dur-fast) var(--gp-ease);
+    }
+    .iv-slot-btn:hover { border-color: var(--gp-blue); }
+    .iv-slot-btn.is-selected {
+      background: var(--gp-blue);
+      border-color: var(--gp-blue);
+      color: #fff;
+      box-shadow: 0 6px 16px -8px rgba(29, 78, 216, 0.6);
+    }
+    .iv-confirm-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
     /* ── Offer card ── */
     .offer-card {
       margin-top: 16px;
@@ -627,18 +685,34 @@
       <!-- Status Timeline -->
       <div class="status-timeline" id="statusTimeline"></div>
 
-      <!-- Interview Card (shown conditionally) -->
+      <!-- Interview Card (shown conditionally) — two states:
+           #interviewScheduler (pick a time) and #interviewBooked (locked in) -->
       <div class="interview-card" id="interviewCard" hidden>
-        <h3 class="interview-card-title">Upcoming Interview</h3>
-        <div class="interview-meta" id="interviewMeta"></div>
-        <button class="btn-join-interview" id="joinInterviewBtn" type="button">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          Join Video Call
-        </button>
-        <button class="btn-add-calendar" id="addCalendarBtn" type="button" hidden>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Add to Calendar
-        </button>
+        <h3 class="interview-card-title" id="interviewCardTitle">Upcoming Interview</h3>
+
+        <!-- SCHEDULER: shown until the doctor confirms a time -->
+        <div id="interviewScheduler" hidden>
+          <p class="iv-sched-hint">Pick a time that suits you — your Registration Support Officer joins you, so you're never in the room alone.</p>
+          <p class="iv-sched-status" id="ivSchedStatus">Loading available times…</p>
+          <div class="iv-days" id="ivDays"></div>
+          <button class="btn-join-interview iv-confirm-btn" id="ivConfirmBtn" type="button" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>
+            Confirm interview time
+          </button>
+        </div>
+
+        <!-- BOOKED: shown once a slot is confirmed -->
+        <div id="interviewBooked" hidden>
+          <div class="interview-meta" id="interviewMeta"></div>
+          <button class="btn-join-interview" id="joinInterviewBtn" type="button">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            Join Video Call
+          </button>
+          <button class="btn-add-calendar" id="addCalendarBtn" type="button" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Add to Calendar
+          </button>
+        </div>
       </div>
 
       <!-- Offer Card (shown when status is offer-related) -->
@@ -836,66 +910,35 @@
             + '</div>';
         }).join("");
 
-        // Interview card — use structured interview object from API when available
+        // Interview card — two states. BOOKED (a slot is locked in) shows the
+        // details + Join/Calendar; otherwise the inline SCHEDULER lets the
+        // doctor pick a time from the practice's offered slots and confirm it
+        // right here. The live interview row comes from scheduled_calls via
+        // /api/career/application.
         var isInterview = normalizeStatusKey(app.rawStatus || app.status).indexOf("interview") !== -1;
         var interviewCard = document.getElementById("interviewCard");
         var interviewObj = app.interview || null;
         latestInterview = interviewObj;
+        var interviewIsBooked = !!(interviewObj && interviewObj.scheduled_at);
         if (isInterview || interviewObj) {
           interviewCard.hidden = false;
-          var interviewRows = [];
+          var ivSchedWrap = document.getElementById("interviewScheduler");
+          var ivBookedWrap = document.getElementById("interviewBooked");
+          var ivTitleEl = document.getElementById("interviewCardTitle");
 
-          if (interviewObj && interviewObj.scheduled_at) {
-            var d = new Date(interviewObj.scheduled_at);
-            if (!isNaN(d.getTime())) {
-              interviewRows.push({ label: "Date", value: d.toLocaleDateString("en-AU", { weekday: "long", month: "long", day: "numeric" }) });
-              interviewRows.push({ label: "Time", value: d.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }) });
-            }
-            if (interviewObj.duration_minutes) {
-              interviewRows.push({ label: "Duration", value: interviewObj.duration_minutes + " minutes" });
-            }
-            if (interviewObj.format) {
-              var formatLabels = { video: "Video Call", phone: "Phone Call", in_person: "In Person" };
-              interviewRows.push({ label: "Format", value: formatLabels[interviewObj.format] || interviewObj.format });
-            }
-            if (interviewObj.interviewer_name) {
-              interviewRows.push({ label: "Interviewer", value: interviewObj.interviewer_name + (interviewObj.interviewer_role ? " (" + interviewObj.interviewer_role + ")" : "") });
-            }
+          if (interviewIsBooked) {
+            ivTitleEl.textContent = "Upcoming Interview";
+            ivSchedWrap.hidden = true;
+            ivBookedWrap.hidden = false;
+            renderBookedInterview(interviewObj, app);
           } else {
-            // Fallback to meta items
-            var metaLabels = ["Interview", "Format", "Lead"];
-            (app.meta || []).forEach(function (m) {
-              if (metaLabels.indexOf(m.label) !== -1) interviewRows.push(m);
-            });
-          }
-
-          document.getElementById("interviewMeta").innerHTML = interviewRows.map(function (m) {
-            return '<div class="interview-meta-row"><span class="interview-meta-label">' + esc(m.label) + '</span><span class="interview-meta-value">' + esc(m.value) + '</span></div>';
-          }).join("");
-
-          // Show/hide join button based on format
-          var joinBtn = document.getElementById("joinInterviewBtn");
-          if (interviewObj && interviewObj.format && interviewObj.format !== "video") {
-            joinBtn.hidden = true;
-          }
-
-          // Not booked yet: the practice has shared availability but the doctor
-          // hasn't locked a slot. Show a "Confirm interview time" CTA into the
-          // slot picker, retitle the card, and hide the join/calendar buttons
-          // (there is no meeting to join or save yet).
-          var notBookedYet = !(interviewObj && interviewObj.scheduled_at);
-          var canConfirmSlot = app.interviewBookable === true && notBookedYet;
-          if (canConfirmSlot) {
-            var titleEl = interviewCard.querySelector('.interview-card-title');
-            if (titleEl) titleEl.textContent = 'Schedule your interview';
-            document.getElementById("joinInterviewBtn").hidden = true;
-            if (!interviewCard.querySelector('.confirm-slot-btn')) {
-              var confirmLink = document.createElement('a');
-              confirmLink.href = 'secure-interview?applicationId=' + encodeURIComponent(app.id || appId);
-              confirmLink.className = 'btn-join-interview confirm-slot-btn';
-              confirmLink.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg> Confirm interview time';
-              interviewCard.insertBefore(confirmLink, interviewCard.querySelector('.interview-meta').nextSibling);
-            }
+            // Not locked in yet → show the inline slot picker. The slots endpoint
+            // is reveal-gated server-side, so it only returns real times once the
+            // practice has accepted; otherwise it reports a friendly waiting state.
+            ivTitleEl.textContent = "Schedule your interview";
+            ivBookedWrap.hidden = true;
+            ivSchedWrap.hidden = false;
+            initInterviewScheduler(app.id || appId);
           }
 
           // Interview Strategy link (renderApplication may run twice — cached
@@ -1075,6 +1118,161 @@
         } else {
           withdrawBtn.hidden = true;
         }
+      }
+
+      // ── Booked-state renderer ────────────────────────────────────────────
+      function renderBookedInterview(interviewObj) {
+        var rows = [];
+        var dt = new Date(interviewObj.scheduled_at);
+        if (!isNaN(dt.getTime())) {
+          rows.push({ label: "Date", value: dt.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
+          rows.push({ label: "Time", value: dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) });
+        }
+        rows.push({ label: "Duration", value: (interviewObj.duration_minutes || 45) + " minutes" });
+        var formatLabels = { video: "Video Call", phone: "Phone Call", in_person: "In Person" };
+        rows.push({ label: "Format", value: formatLabels[interviewObj.format] || "Video Call" });
+        if (interviewObj.interviewer_name) {
+          rows.push({ label: "Interviewer", value: interviewObj.interviewer_name + (interviewObj.interviewer_role ? " (" + interviewObj.interviewer_role + ")" : "") });
+        }
+        document.getElementById("interviewMeta").innerHTML = rows.map(function (m) {
+          return '<div class="interview-meta-row"><span class="interview-meta-label">' + esc(m.label) + '</span><span class="interview-meta-value">' + esc(m.value) + '</span></div>';
+        }).join("");
+        // Join button is only meaningful for a video interview (the default).
+        document.getElementById("joinInterviewBtn").hidden = !!(interviewObj.format && interviewObj.format !== "video");
+      }
+
+      // ── Inline slot scheduler ────────────────────────────────────────────
+      var ivSched = { appId: null, loaded: false, loading: false, slots: [], selectedStart: null, wired: false };
+
+      function ivDayGroupKey(slot) {
+        try { return new Intl.DateTimeFormat('en-CA', { timeZone: slot.local.gp.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc)); }
+        catch (e) { return String(slot.startUtc).slice(0, 10); }
+      }
+      function ivDayHeading(slot) {
+        try { return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(slot.startUtc)); }
+        catch (e) { return ivDayGroupKey(slot); }
+      }
+      function ivTimeLabel(slot) {
+        try { return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc)); }
+        catch (e) { return (slot.local && slot.local.gp && slot.local.gp.label) || slot.startUtc; }
+      }
+
+      function initInterviewScheduler(schedAppId) {
+        wireIvConfirm();
+        if (ivSched.appId === schedAppId && (ivSched.loaded || ivSched.loading)) return;
+        ivSched.appId = schedAppId;
+        ivSched.loading = true;
+        ivSched.loaded = false;
+        ivSched.selectedStart = null;
+        var statusEl = document.getElementById('ivSchedStatus');
+        var daysEl = document.getElementById('ivDays');
+        document.getElementById('ivConfirmBtn').disabled = true;
+        daysEl.innerHTML = '';
+        statusEl.hidden = false;
+        statusEl.textContent = 'Loading available times…';
+        fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(schedAppId), { credentials: 'same-origin' })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
+          .then(function (res) {
+            ivSched.loading = false; ivSched.loaded = true;
+            var status = res.status, data = res.data || {};
+            if (status === 200 && data.ok) {
+              ivSched.slots = Array.isArray(data.slots) ? data.slots : [];
+              renderInterviewSlots(ivSched.slots);
+              return;
+            }
+            statusEl.hidden = false;
+            if (status === 403) statusEl.textContent = "Your interview isn't open for booking just yet — we'll email you the moment the practice shares their times.";
+            else statusEl.textContent = "We couldn't load your interview times. Please try again shortly.";
+          })
+          .catch(function () {
+            ivSched.loading = false;
+            statusEl.hidden = false;
+            statusEl.textContent = "We couldn't load your interview times. Please try again shortly.";
+          });
+      }
+
+      function renderInterviewSlots(slots) {
+        var statusEl = document.getElementById('ivSchedStatus');
+        var daysEl = document.getElementById('ivDays');
+        daysEl.innerHTML = '';
+        document.getElementById('ivConfirmBtn').disabled = true;
+        if (!slots || !slots.length) {
+          statusEl.hidden = false;
+          statusEl.textContent = "No interview times are available to choose yet. We'll email you the moment the practice shares their availability.";
+          return;
+        }
+        statusEl.hidden = true;
+        var groups = []; var byKey = {};
+        slots.forEach(function (slot) {
+          var key = ivDayGroupKey(slot);
+          if (!byKey[key]) { byKey[key] = { heading: ivDayHeading(slot), slots: [] }; groups.push(byKey[key]); }
+          byKey[key].slots.push(slot);
+        });
+        groups.forEach(function (g) {
+          var group = document.createElement('div'); group.className = 'iv-day-group';
+          var h = document.createElement('div'); h.className = 'iv-day-heading'; h.textContent = g.heading; group.appendChild(h);
+          var grid = document.createElement('div'); grid.className = 'iv-slot-grid';
+          g.slots.forEach(function (slot) {
+            var b = document.createElement('button'); b.type = 'button'; b.className = 'iv-slot-btn';
+            b.textContent = ivTimeLabel(slot);
+            b.setAttribute('data-start-utc', slot.startUtc);
+            b.addEventListener('click', function () { selectIvSlot(slot.startUtc, b); });
+            grid.appendChild(b);
+          });
+          group.appendChild(grid); daysEl.appendChild(group);
+        });
+      }
+
+      function selectIvSlot(startUtc, btn) {
+        ivSched.selectedStart = startUtc;
+        var all = document.querySelectorAll('#ivDays .iv-slot-btn');
+        for (var i = 0; i < all.length; i++) all[i].classList.remove('is-selected');
+        btn.classList.add('is-selected');
+        document.getElementById('ivConfirmBtn').disabled = false;
+      }
+
+      function wireIvConfirm() {
+        var btn = document.getElementById('ivConfirmBtn');
+        if (!btn || ivSched.wired) return;
+        ivSched.wired = true;
+        btn.addEventListener('click', function () {
+          if (!ivSched.selectedStart) return;
+          var original = btn.innerHTML;
+          btn.disabled = true;
+          btn.textContent = 'Confirming…';
+          fetch('/api/career/interview/book', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId: ivSched.appId, slot_start_utc: ivSched.selectedStart })
+          })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
+            .then(function (res) {
+              var status = res.status, data = res.data || {};
+              if (status === 200 && data.ok && data.booked) { applyBookedInterview(data.booked); return; }
+              btn.disabled = false; btn.innerHTML = original;
+              if (status === 409) { alert('That time was just taken — please choose another.'); ivSched.loaded = false; ivSched.appId = null; initInterviewScheduler(ivSched.appId || (appData && appData.id) || appId); }
+              else if (status === 403) { alert("Your interview isn't open for booking yet. Please check back shortly."); }
+              else { alert('Something went wrong booking that time — please try again.'); }
+            })
+            .catch(function () { btn.disabled = false; btn.innerHTML = original; alert('Network error — please try again.'); });
+        });
+      }
+
+      function applyBookedInterview(booked) {
+        var target = appData || {};
+        target.interview = {
+          id: (target.interview && target.interview.id) || null,
+          scheduled_at: booked.scheduled_at,
+          zoom_join_url: booked.zoom_join_url || null,
+          duration_minutes: 45,
+          format: 'video',
+          status: 'scheduled'
+        };
+        if (!target.rawStatus || getStatusIndex(target.rawStatus) < 2) target.rawStatus = 'interview';
+        appData = target;
+        renderApplication(target);
+        var card = document.getElementById('interviewCard');
+        if (card && card.scrollIntoView) { try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
       }
     })();
   </script>

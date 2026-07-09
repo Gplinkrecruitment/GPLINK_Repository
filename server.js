@@ -57147,7 +57147,18 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   var notifyPromise = (async function () {
     try {
       var gpEmail = appCtx.gpEmail || '';
-      var timeLabel = new Date(slotStartUtc).toUTCString();
+      // Readable, timezone-aware time labels — the raw UTC string was unfriendly.
+      // The practice sees it in its own AU zone; the GP in their country's zone.
+      var _fmtInterviewWhen = function (tz) {
+        try {
+          return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(slotStartUtc));
+        } catch (e) { return new Date(slotStartUtc).toUTCString(); }
+      };
+      var practiceWhen = _fmtInterviewWhen(interviewMeetings.practiceTzForLocation(appCtx.practiceName || ''));
+      var gpWhen = _fmtInterviewWhen(interviewMeetings.gpTzForCountry(appCtx.gpCountry));
+      var timeLabel = practiceWhen; // used by the internal ops notify below
+      var zoomJoin = (zoom && typeof zoom.join_url === 'string' && zoom.join_url.indexOf('https://') === 0) ? zoom.join_url : '';
+      var _esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
       // D1a: attach a calendar invite (METHOD:REQUEST) so both sides get an
       // "Add to calendar" card. UID is stable per interview row so a later
       // cancellation .ics (same UID, SEQUENCE 1) removes the event again.
@@ -57176,7 +57187,14 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         await sendEmail({
           to: appCtx.practiceEmail,
           subject: 'Interview confirmed — ' + appCtx.gpName,
-          text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
+          html: buildCareerEmailHtml({
+            title: 'Interview confirmed',
+            body: _esc(appCtx.gpName || 'The doctor') + ' has confirmed the interview for <strong>' + _esc(practiceWhen) + '</strong>. A calendar invite is attached. When the time comes, join the video call using the button below.',
+            ctaText: zoomJoin ? 'Join Video Call' : 'GP Link',
+            ctaUrl: zoomJoin || APP_BASE_URL,
+            footer: 'Need to reschedule? Just reply to this email and the GP Link team will help.'
+          }),
+          text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + practiceWhen + '.' + (zoomJoin ? ' Join Zoom: ' + zoomJoin : ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
@@ -57184,8 +57202,15 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       if (gpEmail && isEmailConfigured()) {
         await sendEmail({
           to: gpEmail,
-          subject: 'Your interview is confirmed',
-          text: 'Your interview at ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + timeLabel + '. Zoom: ' + (zoom.join_url || ''),
+          subject: 'Your interview is confirmed 🎉',
+          html: buildCareerEmailHtml({
+            title: 'Your interview is confirmed 🎉',
+            body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>. Your Registration Support Officer will join you, so you’re never in the room alone. A calendar invite is attached, and you can join the video call from the button below when it’s time.',
+            ctaText: zoomJoin ? 'Join Video Call' : 'View My Interview',
+            ctaUrl: zoomJoin || (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || ''))),
+            footer: 'Need to reschedule? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+          }),
+          text: 'Your interview with ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + gpWhen + '.' + (zoomJoin ? ' Join Zoom: ' + zoomJoin : ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });

@@ -12110,11 +12110,12 @@
       if (isOffer) {
         statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review offer \u2192</a>';
       } else if (isInterview) {
-        // Primary CTA lets the doctor actually LOCK IN a time (the practice has
-        // shared its availability); the strategy link stays as a secondary
-        // action. Without the confirm link there was no in-app path to book.
-        statusAction = '<a href="secure-interview?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Confirm interview time \u2192</a>'
-          + '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="at-cta-link" onclick="event.stopPropagation();">Interview strategy \u2192</a>';
+        // ONE CTA only \u2014 the foot is a single non-wrapping flex row, so a second
+        // nowrap link overflowed the card on mobile (clipping the card AND the
+        // Offers tab as the shell sized the iframe to the wider content). "Book"
+        // is the important action here; Interview Strategy lives on the detail
+        // page. Keep the label short so it never crowds the identity chip.
+        statusAction = '<a href="application-detail?id=' + encodeURIComponent(actionAppId) + '&role=' + encodeURIComponent(application.roleId || "") + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Confirm time \u2192</a>';
       }
 
       const openAttrs = application.isPlacementSecured
