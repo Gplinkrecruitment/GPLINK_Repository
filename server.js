@@ -6484,6 +6484,35 @@ async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType
   }
 }
 
+// Mint a short-lived signed upload URL so the BROWSER can PUT a file straight to
+// Supabase Storage, bypassing Vercel's ~4.5 MB serverless request-body limit
+// (a base64-in-JSON upload of a multi-MB scanned contract is rejected before the
+// function even runs). Returns an absolute URL the browser PUTs the raw file to.
+async function supabaseStorageCreateSignedUploadUrl(bucket, objectPath) {
+  if (!isSupabaseDbConfigured()) return '';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    }).catch(() => null);
+    if (!response || !response.ok) return '';
+    const data = await response.json().catch(() => null);
+    if (!data || typeof data.url !== 'string' || !data.url) return '';
+    // data.url is a relative path like "/object/upload/sign/<bucket>/<path>?token=..."
+    return `${SUPABASE_URL}/storage/v1${data.url}`;
+  } catch (err) {
+    return '';
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function supabaseStorageDeleteObject(bucket, objectPath) {
   if (!isSupabaseDbConfigured()) return false;
   const controller = new AbortController();
@@ -51735,6 +51764,89 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
     sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
+    return;
+  }
+
+  // ── Admin: attach a GP's offer/contract via DIRECT-to-Storage upload ──────────
+  // The base64-in-JSON practice-doc/upload above fails for a multi-MB scanned
+  // contract because Vercel rejects request bodies over ~4.5 MB before the function
+  // runs. Instead the browser uploads the raw file straight to Supabase Storage
+  // using a signed upload URL (no size limit), then calls /finalize to record it.
+  // Step 1 — mint the signed upload URL.
+  if (pathname === '/api/admin/offer-contract/sign-upload' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let ocsuBody; try { ocsuBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const ocsuCaseId = String(ocsuBody.case_id || '').trim();
+    if (!ocsuCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+    const ocsuCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(ocsuCaseId) + '&limit=1');
+    const ocsuUserId = (ocsuCaseRes.ok && Array.isArray(ocsuCaseRes.data) && ocsuCaseRes.data[0]) ? ocsuCaseRes.data[0].user_id : '';
+    if (!ocsuUserId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const ocsuPath = ['users', sanitizeStoragePathSegment(ocsuUserId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
+    const ocsuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, ocsuPath);
+    if (!ocsuUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, uploadUrl: ocsuUrl, storagePath: ocsuPath });
+    return;
+  }
+
+  // Step 2 — the browser has PUT the file to Storage; now record it so BOTH the
+  // admin "Prepared by GP LINK" offer/contract card shows it AND the GP's
+  // "Download Your Contract" button works, then invalidate the GP's cached
+  // placement so the button appears on their My Practice page immediately.
+  if (pathname === '/api/admin/offer-contract/finalize' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let ocfBody; try { ocfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const ocfCaseId = String(ocfBody.case_id || '').trim();
+    const ocfFileName = sanitizeUserString(String(ocfBody.file_name || ''), 240) || 'Offer-Contract.pdf';
+    if (!ocfCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+    const ocfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(ocfCaseId) + '&limit=1');
+    const ocfUserId = (ocfCaseRes.ok && Array.isArray(ocfCaseRes.data) && ocfCaseRes.data[0]) ? ocfCaseRes.data[0].user_id : '';
+    if (!ocfUserId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const ocfPath = ['users', sanitizeStoragePathSegment(ocfUserId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
+    // Pull the bytes back from Storage (a server-side fetch is NOT bound by the
+    // request body limit) so we can mirror to Drive + build the download row.
+    const ocfObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, ocfPath);
+    if (!ocfObj || !ocfObj.buffer || !ocfObj.buffer.length) {
+      sendJson(res, 400, { ok: false, message: 'We could not find the uploaded file. Please try uploading again.' });
+      return;
+    }
+    const ocfMime = ocfObj.mimeType || String(ocfBody.mime_type || '') || 'application/pdf';
+    // Create the user_documents row (+ Drive), then persist the Storage reference so
+    // the GP-facing download resolves via Supabase Storage even without Drive.
+    const ocfDelivery = await deliverToMyDocuments(ocfUserId, ocfCaseId, 'offer_contract', ocfFileName, ocfObj.buffer, ocfMime, { notifyGp: false });
+    const ocfDocPatch = {
+      file_url: ocfPath,
+      storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+      storage_path: ocfPath,
+      mime_type: ocfMime,
+      status: 'approved'
+    };
+    if (ocfDelivery && ocfDelivery.driveFile) ocfDocPatch.google_drive_file_id = ocfDelivery.driveFile;
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(ocfUserId) + '&document_key=eq.offer_contract',
+      { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: ocfDocPatch });
+    try { await _updatePreparedDocsState(ocfUserId, 'offer_contract', (ocfDelivery && ocfDelivery.driveFile) || null, ocfFileName); } catch (e) { /* best-effort */ }
+    // Mark the admin "Prepared by GP LINK" offer/contract card completed.
+    await _ensurePracticeDocOps(ocfCaseId);
+    const ocfOpsPatch = { ops_status: 'completed' };
+    if (ocfDelivery && ocfDelivery.driveFile) ocfOpsPatch.google_drive_file_id = ocfDelivery.driveFile;
+    await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(ocfCaseId) + '&document_key=eq.offer_contract',
+      { method: 'PATCH', body: ocfOpsPatch });
+    // Drop the GP's cached placement payload(s) so the download button appears now.
+    try {
+      const ocfApps = await supabaseDbRequest('gp_applications', 'select=zoho_application_id&user_id=eq.' + encodeURIComponent(ocfUserId));
+      if (ocfApps.ok && Array.isArray(ocfApps.data)) {
+        for (const ocfApp of ocfApps.data) {
+          const ocfAppId = ocfApp && ocfApp.zoho_application_id ? String(ocfApp.zoho_application_id).trim() : '';
+          if (ocfAppId) await deleteRuntimeKv('placement_payload:' + ocfAppId);
+        }
+      }
+    } catch (e) { /* cache invalidation is best-effort */ }
+    await _logCaseEvent(ocfCaseId, null, 'system', ocfFileName + ' uploaded for offer contract', null, adminCtx.email);
+    sendJson(res, 200, { ok: true, message: 'Contract uploaded and delivered to the GP.' });
     return;
   }
 

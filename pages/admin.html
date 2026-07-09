@@ -6567,6 +6567,52 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!file||!docKey||!caseId)return;
       var label=input.closest(".doc-upload-btn");
       if(label)label.textContent="Uploading\u2026";
+      function onDocUploaded(){
+        showOpsToast("Document uploaded");
+        var c=S.cases.find(function(x){return x.id===caseId;});
+        if(c){
+          if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].gpDocuments;
+          loadGpDocuments(c.user_id,caseId);
+        }
+      }
+      function onDocFailed(msg){
+        showOpsToast(msg||"Upload failed","red");
+        resetGpLinkDocUploadLabel(label,docKey,!!file);
+      }
+      // Offer/contract is often a multi-MB scanned PDF that exceeds the serverless
+      // request-body limit, so upload the raw file straight to Supabase Storage via
+      // a signed URL (no size cap), then finalize. Finalize also delivers it to the
+      // GP's downloadable documents so their "Download Your Contract" button works.
+      if(docKey==="offer_contract"){
+        (async function(){
+          try{
+            var sr=await fetch("/api/admin/offer-contract/sign-upload",{
+              method:"POST",credentials:"same-origin",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({case_id:caseId,document_key:docKey,file_name:file.name,mime_type:file.type||""})
+            });
+            var sd=await sr.json().catch(function(){return {};});
+            if(!sd||!sd.ok||!sd.uploadUrl){onDocFailed(sd&&sd.message);return;}
+            var pr=await fetch(sd.uploadUrl,{
+              method:"PUT",
+              headers:{"Content-Type":file.type||"application/octet-stream","x-upsert":"true"},
+              body:file
+            });
+            if(!pr.ok){onDocFailed("Upload failed ("+pr.status+")");return;}
+            var fr=await fetch("/api/admin/offer-contract/finalize",{
+              method:"POST",credentials:"same-origin",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({case_id:caseId,file_name:file.name,mime_type:file.type||"",file_size:file.size})
+            });
+            var fd=await fr.json().catch(function(){return {};});
+            if(fd&&fd.ok){onDocUploaded();}else{onDocFailed(fd&&fd.message);}
+          }catch(err){
+            console.error("[VA] offer/contract upload failed:",err);
+            onDocFailed();
+          }
+        })();
+        return;
+      }
       var reader=new FileReader();
       reader.onload=async function(){
         try{
@@ -6576,21 +6622,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             body:JSON.stringify({case_id:caseId,document_key:docKey,file_data:reader.result,file_name:file.name})
           });
           var d=await r.json().catch(function(){return {};});
-          if(d&&d.ok){
-            showOpsToast("Document uploaded");
-            var c=S.cases.find(function(x){return x.id===caseId;});
-            if(c){
-              if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].gpDocuments;
-              loadGpDocuments(c.user_id,caseId);
-            }
-          }else{
-            showOpsToast(d.message||"Upload failed","red");
-            resetGpLinkDocUploadLabel(label,docKey,!!file);
-          }
+          if(d&&d.ok){onDocUploaded();}else{onDocFailed(d&&d.message);}
         }catch(err){
           console.error("[VA] GP LINK doc upload failed:",err);
-          showOpsToast("Upload failed","red");
-          resetGpLinkDocUploadLabel(label,docKey,!!file);
+          onDocFailed();
         }
       };
       reader.readAsDataURL(file);
