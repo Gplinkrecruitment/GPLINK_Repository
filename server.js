@@ -22514,12 +22514,24 @@ async function buildCareerPlacementPayload({
   const practiceContactRecord = Array.isArray(practiceContacts) && practiceContacts.length > 0
     ? practiceContacts.slice().sort(sortZohoRecordsByRecent)[0]
     : null;
-  // With Zoho gone there's usually no live contact record. Before falling back to
-  // an empty placeholder (which the front end shows as inactive buttons), use the
-  // GP's real saved practice contact from their registration case if one exists —
-  // so Call/Email/WhatsApp reach the CORRECT practice, never a demo number.
-  let casePracticeContact = null;
+  // With Zoho gone there's usually no live contact record. Pull the practice's real
+  // contact from the app's Practices section (the source of truth the team edits) so
+  // Call/Email/WhatsApp reach the CORRECT practice for every placed GP — never a demo
+  // number. Sources in precedence order: the linked practices row → the hired
+  // application's saved contact (name/email) → the registration case → empty.
   const gpUserIdForContact = (profile && profile.user_id) || '';
+  let practiceRow = null;
+  if (!practiceContactRecord && roleRow && roleRow.practice_id && isSupabaseDbConfigured()) {
+    try { practiceRow = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { practiceRow = null; }
+  }
+  let appContact = null;
+  if (!practiceContactRecord && gpUserIdForContact && isSupabaseDbConfigured()) {
+    try {
+      const acRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&user_id=eq.' + encodeURIComponent(gpUserIdForContact) + '&status=eq.hired&limit=1');
+      if (acRes.ok && Array.isArray(acRes.data) && acRes.data[0]) appContact = acRes.data[0];
+    } catch (e) { appContact = null; }
+  }
+  let casePracticeContact = null;
   if (!practiceContactRecord && gpUserIdForContact && isSupabaseDbConfigured()) {
     try {
       const caseRes = await supabaseDbRequest('registration_cases', 'select=practice_contact&user_id=eq.' + encodeURIComponent(gpUserIdForContact) + '&limit=1');
@@ -22532,24 +22544,30 @@ async function buildCareerPlacementPayload({
   let practiceContact;
   if (practiceContactRecord) {
     practiceContact = buildPracticeContactPayload(practiceContactRecord, practiceName);
-  } else if (casePracticeContact && typeof casePracticeContact === 'object') {
-    const cc = casePracticeContact;
-    const ccName = String(cc.name || cc.contactName || '').trim() || (practiceName ? practiceName + ' Team' : 'Medical Centre Team');
-    const ccPhone = String(cc.phone || cc.contactPhone || '').trim();
-    const ccEmail = String(cc.email || cc.contactEmail || '').trim();
-    // Only use an explicit WhatsApp number — never silently reuse a landline.
-    const ccWhatsapp = String(cc.whatsapp || cc.contactWhatsapp || '').trim();
-    practiceContact = {
-      name: ccName,
-      initials: buildInitials(ccName),
-      role: String(cc.role || cc.title || '').trim() || 'Medical centre contact',
-      meta: (ccPhone || ccEmail || ccWhatsapp) ? 'Reach out directly to the practice' : 'Direct contact details will appear here once synced',
-      phone: ccPhone,
-      email: ccEmail,
-      whatsapp: ccWhatsapp
-    };
   } else {
-    practiceContact = buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
+    const pr = (practiceRow && typeof practiceRow === 'object') ? practiceRow : {};
+    const ac = (appContact && typeof appContact === 'object') ? appContact : {};
+    const cc = (casePracticeContact && typeof casePracticeContact === 'object') ? casePracticeContact : {};
+    const cName = String(pr.contact_name || ac.practice_contact_name || cc.name || cc.contactName || '').trim();
+    const cEmail = String(pr.contact_email || ac.practice_contact_email || cc.email || cc.contactEmail || '').trim();
+    const cPhone = String(pr.contact_phone || cc.phone || cc.contactPhone || '').trim();
+    // Practices carry one contact number; use it for WhatsApp too (AU practice
+    // mobiles are WhatsApp-reachable). An explicit WhatsApp field wins if present.
+    const cWhatsapp = String(pr.contact_whatsapp || cc.whatsapp || cc.contactWhatsapp || cPhone || '').trim();
+    if (cName || cEmail || cPhone || cWhatsapp) {
+      const displayName = cName || (practiceName ? practiceName + ' Team' : 'Medical Centre Team');
+      practiceContact = {
+        name: displayName,
+        initials: buildInitials(displayName),
+        role: 'Medical centre contact',
+        meta: (cEmail || cPhone || cWhatsapp) ? 'Reach out directly to the practice' : 'Direct contact details will appear here once synced',
+        phone: cPhone,
+        email: cEmail,
+        whatsapp: cWhatsapp
+      };
+    } else {
+      practiceContact = buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
+    }
   }
   const resolvedStartDateIso = getPlacementStartDate(startDateIso, applicationRecord, jobOpeningRecord, roleRow);
   const lifestyle = await resolvePracticeLifestylePayload({
