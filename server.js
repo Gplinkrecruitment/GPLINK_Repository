@@ -22485,9 +22485,43 @@ async function buildCareerPlacementPayload({
   const practiceContactRecord = Array.isArray(practiceContacts) && practiceContacts.length > 0
     ? practiceContacts.slice().sort(sortZohoRecordsByRecent)[0]
     : null;
-  const practiceContact = practiceContactRecord
-    ? buildPracticeContactPayload(practiceContactRecord, practiceName)
-    : buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
+  // With Zoho gone there's usually no live contact record. Before falling back to
+  // an empty placeholder (which the front end shows as inactive buttons), use the
+  // GP's real saved practice contact from their registration case if one exists —
+  // so Call/Email/WhatsApp reach the CORRECT practice, never a demo number.
+  let casePracticeContact = null;
+  const gpUserIdForContact = (profile && profile.user_id) || '';
+  if (!practiceContactRecord && gpUserIdForContact && isSupabaseDbConfigured()) {
+    try {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=practice_contact&user_id=eq.' + encodeURIComponent(gpUserIdForContact) + '&limit=1');
+      const caseRow = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+      if (caseRow && caseRow.practice_contact) {
+        casePracticeContact = typeof caseRow.practice_contact === 'string' ? JSON.parse(caseRow.practice_contact) : caseRow.practice_contact;
+      }
+    } catch (e) { casePracticeContact = null; }
+  }
+  let practiceContact;
+  if (practiceContactRecord) {
+    practiceContact = buildPracticeContactPayload(practiceContactRecord, practiceName);
+  } else if (casePracticeContact && typeof casePracticeContact === 'object') {
+    const cc = casePracticeContact;
+    const ccName = String(cc.name || cc.contactName || '').trim() || (practiceName ? practiceName + ' Team' : 'Medical Centre Team');
+    const ccPhone = String(cc.phone || cc.contactPhone || '').trim();
+    const ccEmail = String(cc.email || cc.contactEmail || '').trim();
+    // Only use an explicit WhatsApp number — never silently reuse a landline.
+    const ccWhatsapp = String(cc.whatsapp || cc.contactWhatsapp || '').trim();
+    practiceContact = {
+      name: ccName,
+      initials: buildInitials(ccName),
+      role: String(cc.role || cc.title || '').trim() || 'Medical centre contact',
+      meta: (ccPhone || ccEmail || ccWhatsapp) ? 'Reach out directly to the practice' : 'Direct contact details will appear here once synced',
+      phone: ccPhone,
+      email: ccEmail,
+      whatsapp: ccWhatsapp
+    };
+  } else {
+    practiceContact = buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
+  }
   const resolvedStartDateIso = getPlacementStartDate(startDateIso, applicationRecord, jobOpeningRecord, roleRow);
   const lifestyle = await resolvePracticeLifestylePayload({
     applicationId: sanitizeZohoText(applicationRecord && applicationRecord.id),

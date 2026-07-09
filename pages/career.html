@@ -4726,6 +4726,18 @@
       background: rgba(37, 99, 235, 0.06);
     }
 
+    /* No real contact channel yet: show the button as inactive so it can't be
+       clicked through to a wrong/demo contact. */
+    .placement-practice-contact-btn-disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .placement-practice-contact-btn-disabled:hover {
+      border-color: var(--line);
+      background: var(--panel-soft);
+    }
+
     .placement-practice-contact-btn svg {
       width: 16px;
       height: 16px;
@@ -7989,15 +8001,15 @@
               </div>
             </div>
             <div class="placement-practice-contact-actions">
-              <a class="placement-practice-contact-btn" id="securedPracticeContactCallLink" href="tel:+61259082200" target="_top">
+              <a class="placement-practice-contact-btn placement-practice-contact-btn-disabled" id="securedPracticeContactCallLink" aria-disabled="true" tabindex="-1" target="_top">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.64 2.6a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.48-1.3a2 2 0 0 1 2.11-.45c.83.31 1.7.52 2.6.64A2 2 0 0 1 22 16.92z"></path></svg>
                 <span>Call</span>
               </a>
-              <a class="placement-practice-contact-btn" id="securedPracticeContactEmailLink" href="mailto:practice@murrumbidgeemedical.com.au" target="_top">
+              <a class="placement-practice-contact-btn placement-practice-contact-btn-disabled" id="securedPracticeContactEmailLink" aria-disabled="true" tabindex="-1" target="_top">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"></path><path d="m4 7 8 6 8-6"></path></svg>
                 <span>Email</span>
               </a>
-              <a class="placement-practice-contact-btn placement-practice-contact-btn-whatsapp" id="securedPracticeContactWhatsAppLink" href="https://wa.me/61400000000" target="_blank" rel="noreferrer">
+              <a class="placement-practice-contact-btn placement-practice-contact-btn-whatsapp placement-practice-contact-btn-disabled" id="securedPracticeContactWhatsAppLink" aria-disabled="true" tabindex="-1" target="_blank" rel="noreferrer">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-11.72 7.05L4 20l1.52-4.06A8 8 0 1 1 20 11.5Z"></path><path d="M9.8 9.4c.2-.4.4-.4.6-.4h.5c.2 0 .4 0 .5.4l.4 1c.1.2.1.4 0 .5l-.3.5c-.1.1-.2.3 0 .5.3.6 1 1.6 2.3 2.2.2.1.4.1.5 0l.5-.3c.1-.1.3-.1.5 0l1 .4c.3.1.4.3.4.5v.5c0 .2 0 .4-.4.6-.4.2-1.1.4-1.8.2-1-.2-2.3-.8-3.6-2.1-1.4-1.3-2-2.6-2.1-3.6-.2-.7 0-1.4.3-1.9Z"></path></svg>
                 <span>WhatsApp</span>
               </a>
@@ -8874,6 +8886,24 @@
     function buildWhatsAppHref(value) {
       const digits = String(value || "").replace(/[^\d]/g, "");
       return digits ? "https://wa.me/" + digits : "#";
+    }
+
+    // Enable a contact button with a real href, or disable it (no dead link). Used
+    // by the secured-placement Call/Email/WhatsApp buttons so an un-synced practice
+    // never leaves a button pointing at the wrong (demo) contact.
+    function setContactChannel(el, href) {
+      if (!el) return;
+      if (href) {
+        el.setAttribute("href", href);
+        el.classList.remove("placement-practice-contact-btn-disabled");
+        el.removeAttribute("aria-disabled");
+        el.removeAttribute("tabindex");
+      } else {
+        el.removeAttribute("href");
+        el.classList.add("placement-practice-contact-btn-disabled");
+        el.setAttribute("aria-disabled", "true");
+        el.setAttribute("tabindex", "-1");
+      }
     }
 
     function createSavedSnapshot(role) {
@@ -11023,7 +11053,8 @@
     function resolveSecuredPlacement() {
       const placementApp = getSecuredPlacementApp();
       const placementRole = placementApp ? findRole(placementApp.roleId) : null;
-      const placementPayload = placementApp && placementApp.placement && typeof placementApp.placement === "object"
+      const hasServerPlacement = !!(placementApp && placementApp.placement && typeof placementApp.placement === "object");
+      const placementPayload = hasServerPlacement
         ? placementApp.placement
         : {};
       const storyPayload = placementPayload.story && typeof placementPayload.story === "object" ? placementPayload.story : {};
@@ -11079,11 +11110,18 @@
           initials: practiceContactPayload.initials || FB.practiceContact.initials,
           role: practiceContactPayload.role || FB.practiceContact.role,
           meta: practiceContactPayload.meta || FB.practiceContact.meta,
-          phone: practiceContactPayload.phone || FB.practiceContact.phone,
-          email: practiceContactPayload.email || FB.practiceContact.email,
-          whatsapp: practiceContactPayload.whatsapp || FB.practiceContact.whatsapp
+          // Contact CHANNELS must point at the GP's REAL practice. For a genuine
+          // server-side placement an empty phone/email/WhatsApp means "not synced
+          // yet" — it must stay empty (the render then disables the button), never
+          // borrow the demo practice's details (that sent GPs to the wrong clinic).
+          // Only pure-demo mode (no server placement at all) uses the FB channels.
+          phone: hasServerPlacement ? (practiceContactPayload.phone || "") : (practiceContactPayload.phone || FB.practiceContact.phone),
+          email: hasServerPlacement ? (practiceContactPayload.email || "") : (practiceContactPayload.email || FB.practiceContact.email),
+          whatsapp: hasServerPlacement ? (practiceContactPayload.whatsapp || "") : (practiceContactPayload.whatsapp || FB.practiceContact.whatsapp)
         },
-        contractUrl: placementPayload.contractUrl || FB.contractUrl || "",
+        // Same rule for the contract download: a real placement with no servable
+        // contract stays empty (button hidden) rather than linking the demo PDF.
+        contractUrl: hasServerPlacement ? (placementPayload.contractUrl || "") : (placementPayload.contractUrl || FB.contractUrl || ""),
         contractFileName: placementPayload.contractFileName || "",
         compensation: {
           range: compensationPayload.range || FB.compensation.range,
@@ -12223,13 +12261,19 @@
       securedPracticeContactNameEl.textContent = placement.practiceContact.name;
       securedPracticeContactRoleEl.textContent = placement.practiceContact.role;
       securedPracticeContactMetaEl.textContent = placement.practiceContact.meta;
-      securedPracticeContactCallLinkEl.href = placement.practiceContact.phone
-        ? "tel:" + placement.practiceContact.phone.replace(/\s+/g, "")
-        : "#";
-      securedPracticeContactEmailLinkEl.href = placement.practiceContact.email
-        ? "mailto:" + placement.practiceContact.email
-        : "#";
-      securedPracticeContactWhatsAppLinkEl.href = buildWhatsAppHref(placement.practiceContact.whatsapp);
+      // Contact buttons: enable + link only when a real channel exists; otherwise
+      // disable the button (no dead "#" link that could scroll or mislead). The
+      // "once synced" copy on the card already explains why they're inactive.
+      setContactChannel(
+        securedPracticeContactCallLinkEl,
+        placement.practiceContact.phone ? "tel:" + placement.practiceContact.phone.replace(/\s+/g, "") : ""
+      );
+      setContactChannel(
+        securedPracticeContactEmailLinkEl,
+        placement.practiceContact.email ? "mailto:" + placement.practiceContact.email : ""
+      );
+      const whatsAppHref = buildWhatsAppHref(placement.practiceContact.whatsapp);
+      setContactChannel(securedPracticeContactWhatsAppLinkEl, whatsAppHref === "#" ? "" : whatsAppHref);
       if (practiceLifestyleHeadingEl) practiceLifestyleHeadingEl.textContent = placement.lifestyle.heading || "Life Around This Practice";
       if (practiceLifestyleIntroEl) practiceLifestyleIntroEl.textContent = placement.lifestyle.intro || "Explore housing, schooling and travel around the practice before you relocate.";
 

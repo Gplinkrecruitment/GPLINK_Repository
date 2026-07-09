@@ -261,6 +261,25 @@ describe('pages/career.html — placement scroll freeze + boot flash fixes (owne
     expect(block).not.toMatch(/^\s*overflow-x\s*:/m);
   });
 
+  it('does NOT borrow the demo practice contact/contract for a real server placement', () => {
+    // A genuine server-side placement with an empty phone/email/WhatsApp or contract
+    // URL must stay empty (buttons disable / hide) — it must never fall back to the
+    // SECURED_PLACEMENT demo values, which pointed placed GPs at the wrong clinic and
+    // a non-working contract download (owner report 2026-07-09).
+    expect(careerHtml).toMatch(/hasServerPlacement\s*=\s*!!\(placementApp/);
+    expect(careerHtml).toMatch(/phone:\s*hasServerPlacement\s*\?\s*\(practiceContactPayload\.phone\s*\|\|\s*""\)/);
+    expect(careerHtml).toMatch(/email:\s*hasServerPlacement\s*\?\s*\(practiceContactPayload\.email\s*\|\|\s*""\)/);
+    expect(careerHtml).toMatch(/whatsapp:\s*hasServerPlacement\s*\?\s*\(practiceContactPayload\.whatsapp\s*\|\|\s*""\)/);
+    expect(careerHtml).toMatch(/contractUrl:\s*hasServerPlacement\s*\?\s*\(placementPayload\.contractUrl\s*\|\|\s*""\)/);
+    // Contact buttons ship inactive and get enabled only when a real channel exists.
+    expect(careerHtml).toContain('function setContactChannel(el, href)');
+    // No demo contact hrefs baked into the static button markup (the buttons ship
+    // inactive; the render adds a real href only when a channel exists).
+    expect(careerHtml).not.toContain('href="tel:+61259082200"');
+    expect(careerHtml).not.toContain('href="mailto:practice@murrumbidgeemedical.com.au"');
+    expect(careerHtml).not.toContain('href="https://wa.me/61400000000"');
+  });
+
   it('has no temporary on-screen scroll diagnostic scaffolding left in the page', () => {
     // The 2026-07-08 debugging session added an on-screen readout + auto-POST probe to
     // find the cause. Once fixed it must be fully removed so it never posts to
