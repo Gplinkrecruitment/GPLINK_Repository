@@ -32680,7 +32680,14 @@ async function handleApi(req, res, pathname) {
         const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
         if (!pRow) return;
         const firstName = pRow.first_name || 'there';
-        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        // appRow.id is the gp_applications PK the practice token resolved to —
+        // and exactly the id /api/career/interview/slots expects. (interviewRef
+        // here only carries {id,status}, and atsGetApplicationContext exposes no
+        // applicationId key, so both of those resolve to '' — use appRow.id.)
+        const gpAppId = String((appRow && appRow.id) || (ctx && ctx.app && ctx.app.id) || '');
+        const secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
+        // Carry the deep link in the WhatsApp copy so "pick a slot" is one tap.
+        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           const dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
@@ -32692,13 +32699,17 @@ async function handleApi(req, res, pathname) {
             }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
           }
         }
-        if (pRow.email && isEmailConfigured()) {
-          sendEmail({
-            to: pRow.email,
-            subject: 'Your interview slots are ready',
-            text: notifyMsg,
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
-          }).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
+        // Email gets a real CTA button (buildCareerEmailHtml) that deep-links to
+        // the slot picker, instead of the old bare-text "open the app" line.
+        if (isEmailConfigured()) {
+          sendGpNotificationEmail(gpUserId,
+            'Your interview slots are ready',
+            'Your interview times are ready, {{name}}',
+            'The practice has shared when they can meet. Tap below to choose the time that suits you — your Registration Support Officer joins you, so you are never in the room alone.',
+            'Choose your interview time',
+            secureUrl,
+            'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+          ).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
         }
       } catch (notifyErr) {
         console.warn('[practice-decision] availability notify error (ignored):', notifyErr && notifyErr.message);
@@ -35275,6 +35286,24 @@ async function handleApi(req, res, pathname) {
         roleType: 'General Practitioner'
       };
 
+    // Identity reveal — mirror the /api/career/applications list endpoint so the
+    // detail view shows the REAL practice name once this application has earned
+    // the reveal (practice accepted / admin-applied / secured). Without this the
+    // detail page always rendered the masked "DPA - … " label even when the
+    // matching list card already showed "IDENTITY UNLOCKED".
+    let detailRevealed = false;
+    try {
+      detailRevealed = (await canRevealPracticeIdentity(userId, appRow.career_role_id))
+        || isCareerPlacementSecuredStatus(status);
+    } catch (revealErr) { detailRevealed = false; }
+    if (detailRevealed) {
+      const detailRealName = (roleRow && roleRow.practice_name)
+        || getZohoApplicationPracticeName(liveRecord)
+        || '';
+      if (detailRealName) roleClient.practiceName = String(detailRealName);
+      roleClient.revealed = true;
+    }
+
     // Build placement payload if status warrants it
     let placement = null;
     if (isCareerPlacementSecuredStatus(status)) {
@@ -35348,6 +35377,39 @@ async function handleApi(req, res, pathname) {
       }
     } catch {}
 
+    // The live self-serve interview lives in scheduled_calls (meeting_kind=
+    // 'interview'), NOT career_interviews — which only the older admin-scheduled
+    // path writes and is empty for GP-booked interviews. Fall back to it so the
+    // detail page reflects the practice's availability request and, once the GP
+    // books a slot, the confirmed time + Zoom link (career_interviews stays the
+    // preferred source when it does have a row).
+    if (!interview) {
+      try {
+        const scRes = await supabaseDbRequest('scheduled_calls',
+          'select=id,application_id,scheduled_at,duration_minutes,timezone,status,zoom_join_url,created_at,updated_at&application_id=eq.'
+          + encodeURIComponent(appRow.id) + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=1');
+        const scRow = (scRes.ok && Array.isArray(scRes.data) && scRes.data[0]) ? scRes.data[0] : null;
+        if (scRow) {
+          const scJoin = scRow.zoom_join_url ? safeZoomOrHttpUrl(scRow.zoom_join_url) : null;
+          interview = {
+            id: scRow.id,
+            application_id: scRow.application_id,
+            scheduled_at: scRow.scheduled_at || null,
+            duration_minutes: scRow.duration_minutes || null,
+            timezone: scRow.timezone || null,
+            format: 'video',
+            status: scRow.status === 'booked' ? 'scheduled' : String(scRow.status || ''),
+            zoom_join_url: scJoin || null,
+            interviewer_name: '',
+            interviewer_role: '',
+            gp_notes: '',
+            created_at: scRow.created_at,
+            updated_at: scRow.updated_at
+          };
+        }
+      } catch {}
+    }
+
     // Same rule as the list payload: "Review Offer" only ever points at a REAL
     // in-app offer (offer-review.html knows nothing about Zoho offers), so a
     // Zoho-offered app without a live in-app offer gets consultant-led copy
@@ -35371,7 +35433,14 @@ async function handleApi(req, res, pathname) {
       appliedAt: appRow.applied_at || new Date().toISOString(),
       role: roleClient,
       placement,
-      interview
+      interview,
+      // The GP can self-serve a slot once the practice has accepted them
+      // (identity revealed) and no interview time is locked in yet — mirrors the
+      // reveal gate on /api/career/interview/slots. Lets the detail page show a
+      // "Confirm your interview time" button that deep-links to secure-interview.
+      interviewBookable: !!detailRevealed
+        && !isCareerPlacementSecuredStatus(status)
+        && !(interview && interview.scheduled_at)
     };
     if (detailPresentation) {
       enrichedApp.statusLabel = detailPresentation.statusLabel;
@@ -57069,7 +57138,9 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
       var pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
       if (pRow) {
         var gpFirstName = pRow.first_name || 'there';
-        var notifyMsg = 'Hi ' + gpFirstName + ', your interview times are ready to choose — open the app to pick a slot.';
+        var gpAppId = String(row.application_id || '');
+        var secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
+        var notifyMsg = 'Hi ' + gpFirstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           var dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
@@ -57081,13 +57152,27 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
             }).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
-        if (pRow.email && isEmailConfigured()) {
-          sendEmail({
-            to: pRow.email,
-            subject: 'Your interview slots are ready',
-            text: notifyMsg,
-            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
-          }).catch(function (e) { console.warn('[interview] GP email notify failed (ignored):', e && e.message); });
+        if (isEmailConfigured()) {
+          // A real CTA button beats bare text. sendGpNotificationEmail needs a
+          // user id; when the interview row only has a case id, fall back to a
+          // plain email that still carries the clickable deep link.
+          if (gpUserId) {
+            sendGpNotificationEmail(gpUserId,
+              'Your interview slots are ready',
+              'Your interview times are ready, {{name}}',
+              'The practice has shared when they can meet. Tap below to choose the time that suits you — your Registration Support Officer joins you, so you are never in the room alone.',
+              'Choose your interview time',
+              secureUrl,
+              'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+            ).catch(function (e) { console.warn('[interview] GP email notify failed (ignored):', e && e.message); });
+          } else if (pRow.email) {
+            sendEmail({
+              to: pRow.email,
+              subject: 'Your interview slots are ready',
+              text: notifyMsg,
+              from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+            }).catch(function (e) { console.warn('[interview] GP email notify failed (ignored):', e && e.message); });
+          }
         }
       }
     }

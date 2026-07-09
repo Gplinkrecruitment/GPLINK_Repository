@@ -7,8 +7,13 @@
 //      "Under Review" card for a role the system no longer had any record of.
 //   2. APPLY ≠ OFFER — the Offers tab badge counted EVERY application, so a
 //      freshly-applied "Under Review" row lit the badge as though it were an
-//      offer. Applying only puts you under review; only a genuine practice
-//      offer (server flag offerPending) is an offer.
+//      offer. Applying only puts you under review. The badge now counts live
+//      OPPORTUNITIES via isCareerOpportunity: a genuine offer (offerPending), a
+//      practice-accepted/identity-revealed application, or a scheduled
+//      interview — the states where the practice has actually moved forward. A
+//      plain applied/under-review row still does NOT count, and terminal +
+//      already-secured states drop out. (The earlier offerPending-only rule
+//      wrongly showed 0 for an interview-stage doctor the practice had accepted.)
 // These pages are static files served verbatim, so asserting on the source is
 // an honest check of what the browser runs.
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -55,17 +60,43 @@ describe('career Offers — reconcile to server truth (no ghost offers)', () => 
 });
 
 describe('career Offers — applying is Under Review, not an offer', () => {
-  it('the Offers tab badge counts genuine offers only, not every application', () => {
+  it('the Offers badge counts live opportunities (offer/interview/accepted), not every application', () => {
     const shortcuts = careerHtml.slice(
       careerHtml.indexOf('function renderHeroShortcuts'),
       careerHtml.indexOf('function renderHeroShortcuts') + 1400
     );
-    // Must filter on the server-decided offer flag…
-    expect(shortcuts).toMatch(/offersTabBadge[\s\S]*?offerPending === true/);
+    // Counts the shared opportunity predicate, not the raw application total.
+    // (Owner report: a practice-accepted interview-stage application IS an
+    // offer to the doctor and must light the badge — offerPending alone showed
+    // 0. The predicate still excludes a plain applied/under-review row.)
+    expect(shortcuts).toMatch(/offersTabBadge[\s\S]*?filter\(isCareerOpportunity\)/);
     // …and must NOT count the raw application total for the offers badge.
     expect(shortcuts).not.toContain('offersTabBadgeEl.textContent = String(careerState.applications.length)');
     // Hidden when there are no offers.
     expect(shortcuts).toContain('offersTabBadgeEl.hidden = offerCount === 0;');
+  });
+
+  it('isCareerOpportunity: apply/under-review does NOT count; offer/interview/revealed do; terminal + secured drop out', () => {
+    // Extract the predicate + its normaliser from the page and run it, so this
+    // asserts real behaviour rather than a source string.
+    const fnSrc = careerHtml.slice(
+      careerHtml.indexOf('function normalizeStatusKey'),
+      careerHtml.indexOf('function nextStepForApplication')
+    );
+    // eslint-disable-next-line no-new-func
+    const isOpp = new Function(fnSrc + '\n; return isCareerOpportunity;')();
+    // Plain apply / under review → NOT an opportunity (badge stays dark).
+    expect(isOpp({ rawStatus: 'under_review', offerPending: false, revealed: false })).toBe(false);
+    expect(isOpp({ rawStatus: 'applied', offerPending: false, revealed: false })).toBe(false);
+    expect(isOpp({ rawStatus: 'submitted', offerPending: false, revealed: false })).toBe(false);
+    // Practice moved forward → opportunity.
+    expect(isOpp({ rawStatus: 'interview', offerPending: false, revealed: true })).toBe(true);
+    expect(isOpp({ rawStatus: 'offer', offerPending: true, revealed: true })).toBe(true);
+    expect(isOpp({ rawStatus: 'reviewing', offerPending: false, revealed: true })).toBe(true); // accepted/revealed
+    // Terminal + already-secured → drop out (secured has its own view).
+    expect(isOpp({ rawStatus: 'not_proceeding', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'withdrawn', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'hired', offerPending: false, revealed: true, isPlacementSecured: true })).toBe(false);
   });
 
   it('server only marks offerPending for a genuine waiting offer, never on apply', () => {

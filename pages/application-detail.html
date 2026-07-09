@@ -125,6 +125,11 @@
       font-size: var(--gp-fs-sm);
       font-weight: 600;
     }
+    /* [hidden] normally means display:none, but the display:flex above wins the
+       specificity fight — so hiding the loader via el.hidden=true never took
+       effect and "Loading application details..." stayed on screen forever,
+       stacked above the real content. Make the attribute win. */
+    .loading-state[hidden] { display: none; }
 
     /* ── Application header ── */
     .app-header-section {
@@ -738,6 +743,13 @@
             appData.rawStatus = data.application.status;
             if (!data.application.statusLabel) delete appData.statusLabel;
             if (!data.application.statusTone) delete appData.statusTone;
+            // The API applies the identity-reveal gate, so its role name is the
+            // source of truth. renderApplication reads app.practiceName FIRST, so
+            // a stale cached (masked "DPA - …") value would otherwise win even
+            // after the practice revealed the real name — override it here.
+            if (data.application.role && data.application.role.practiceName) {
+              appData.practiceName = data.application.role.practiceName;
+            }
             renderApplication(appData);
           } else if (!appData) {
             document.getElementById("loadingState").innerHTML = '<p>Application not found.</p>';
@@ -865,6 +877,25 @@
           var joinBtn = document.getElementById("joinInterviewBtn");
           if (interviewObj && interviewObj.format && interviewObj.format !== "video") {
             joinBtn.hidden = true;
+          }
+
+          // Not booked yet: the practice has shared availability but the doctor
+          // hasn't locked a slot. Show a "Confirm interview time" CTA into the
+          // slot picker, retitle the card, and hide the join/calendar buttons
+          // (there is no meeting to join or save yet).
+          var notBookedYet = !(interviewObj && interviewObj.scheduled_at);
+          var canConfirmSlot = app.interviewBookable === true && notBookedYet;
+          if (canConfirmSlot) {
+            var titleEl = interviewCard.querySelector('.interview-card-title');
+            if (titleEl) titleEl.textContent = 'Schedule your interview';
+            document.getElementById("joinInterviewBtn").hidden = true;
+            if (!interviewCard.querySelector('.confirm-slot-btn')) {
+              var confirmLink = document.createElement('a');
+              confirmLink.href = 'secure-interview?applicationId=' + encodeURIComponent(app.id || appId);
+              confirmLink.className = 'btn-join-interview confirm-slot-btn';
+              confirmLink.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg> Confirm interview time';
+              interviewCard.insertBefore(confirmLink, interviewCard.querySelector('.interview-meta').nextSibling);
+            }
           }
 
           // Interview Strategy link (renderApplication may run twice — cached

@@ -8825,6 +8825,37 @@
       };
     }
 
+    // An application counts as a live "opportunity" for the Offers tab the
+    // moment the practice moves it forward — a real in-app offer, an accepted
+    // (identity-revealed) application, or a scheduled interview. Terminal
+    // outcomes and an already-secured placement (its own view) drop out. Used
+    // for BOTH the Offers badge count and the "Offers" group so they agree —
+    // previously the badge counted offerPending only, so an interview-stage
+    // application (practice accepted, interview being scheduled) showed 0.
+    function isCareerOpportunity(application) {
+      if (!application) return false;
+      if (application.isPlacementSecured) return false;
+      const key = normalizeStatusKey(application.rawStatus);
+      if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return false;
+      return application.offerPending === true
+        || application.revealed === true
+        || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "finalising_placement"].includes(key);
+    }
+
+    // Human "Next step" line by status — the detail page reads this off the
+    // cached preview meta. Was hard-coded to "GP Link screening" for everything
+    // that wasn't a secured placement, so an interview-stage doctor wrongly saw
+    // "GP Link screening" instead of "Confirm your interview time".
+    function nextStepForApplication(status) {
+      const key = normalizeStatusKey(status);
+      if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return "Relocation handover";
+      if (key === "finalising_placement") return "Finalising your placement";
+      if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
+      if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
+      if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
+      return "GP Link screening";
+    }
+
     function normalizeCareerApplication(record) {
       const source = record && typeof record === "object" ? record : {};
       const meta = getApplicationStatusMeta(source.rawStatus || source.status);
@@ -11340,8 +11371,7 @@
         // light up the Offers tab. offerPending is the same server-decided flag
         // the panel uses to group its "Offers" section (a placement you've
         // already secured is past the offer stage and no longer pending).
-        const offerCount = careerState.applications
-          .filter((application) => application && application.offerPending === true).length;
+        const offerCount = careerState.applications.filter(isCareerOpportunity).length;
         offersTabBadgeEl.hidden = offerCount === 0;
         offersTabBadgeEl.textContent = String(offerCount);
       }
@@ -11608,7 +11638,7 @@
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
           { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
-          { label: "Next step", value: getApplicationStatusMeta(app.status).isPlacementSecured ? "Relocation handover" : "GP Link screening" }
+          { label: "Next step", value: nextStepForApplication(app.status) }
         ]
       }));
       // The server is the source of truth for applications, so reconcile to
@@ -12046,6 +12076,10 @@
       else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
       else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
+      // Interview stage is post-acceptance — an "UNDER REVIEW" ribbon here
+      // contradicted the "Interview stage" pill + the unlocked identity. Give it
+      // its own positive-accent ribbon.
+      else if (isInterview) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
       else if (isSubmittedToPractice) ribbon = '<span class="at-rstatus at-rstatus--applied">SUBMITTED</span>';
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
@@ -12076,7 +12110,11 @@
       if (isOffer) {
         statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review offer \u2192</a>';
       } else if (isInterview) {
-        statusAction = '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="at-cta-link" onclick="event.stopPropagation();">Interview strategy \u2192</a>';
+        // Primary CTA lets the doctor actually LOCK IN a time (the practice has
+        // shared its availability); the strategy link stays as a secondary
+        // action. Without the confirm link there was no in-app path to book.
+        statusAction = '<a href="secure-interview?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Confirm interview time \u2192</a>'
+          + '<a href="interview-prep?id=' + encodeURIComponent(actionAppId) + '" class="at-cta-link" onclick="event.stopPropagation();">Interview strategy \u2192</a>';
       }
 
       const openAttrs = application.isPlacementSecured
@@ -12119,8 +12157,8 @@
       applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("offers");
       applicationsEmptyStateEl.classList.toggle("is-visible", applications.length === 0);
       if (!applications.length) return;
-      const offers = applications.filter((application) => application.offerPending === true);
-      const others = applications.filter((application) => application.offerPending !== true);
+      const offers = applications.filter(isCareerOpportunity);
+      const others = applications.filter((application) => !isCareerOpportunity(application));
       let html = "";
       if (offers.length) {
         html += '<p class="at-grouplbl">Offers</p>' + offers.map((application) => buildApplicationRowHtml(application)).join("");
