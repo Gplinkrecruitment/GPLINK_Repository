@@ -401,7 +401,6 @@ describe('G2 — career.html static pins', () => {
   it('has the securedInterview* card markers', () => {
     expect(html).toContain('id="securedInterviewCard"');
     expect(html).toContain('id="securedInterviewJoinLink"');
-    expect(html).toContain('id="securedInterviewPrepLink"');
     expect(html).toContain('securedInterviewWhen');
     expect(html).toContain('securedInterviewPractice');
   });

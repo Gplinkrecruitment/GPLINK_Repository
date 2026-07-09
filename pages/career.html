@@ -2077,8 +2077,7 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    .placement-interview-join,
-    .placement-interview-prep-link {
+    .placement-interview-join {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -2089,19 +2088,12 @@
       text-decoration: none;
       cursor: pointer;
       border: 1px solid transparent;
-    }
-    .placement-interview-join {
       background: #2563eb;
       color: #fff;
     }
     .placement-interview-join svg {
       width: 18px;
       height: 18px;
-    }
-    .placement-interview-prep-link {
-      background: #fff;
-      color: #2563eb;
-      border-color: #2563eb;
     }
     html.dark-mode .placement-interview-card {
       background: #111827;
@@ -2110,11 +2102,6 @@
     html.dark-mode .placement-interview-when,
     html.dark-mode .placement-interview-practice {
       color: #f8fafc;
-    }
-    html.dark-mode .placement-interview-prep-link {
-      background: transparent;
-      color: #93c5fd;
-      border-color: #93c5fd;
     }
     /* ===== end G2 addition ===== */
 
@@ -7976,7 +7963,6 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                 <span>Join on Zoom</span>
               </a>
-              <button class="placement-interview-prep-link" id="securedInterviewPrepLink" type="button">Interview prep &amp; details</button>
             </div>
           </article>
 
@@ -9140,7 +9126,6 @@
     const securedInterviewWhenEl = document.getElementById("securedInterviewWhen");
     const securedInterviewPracticeEl = document.getElementById("securedInterviewPractice");
     const securedInterviewJoinLinkEl = document.getElementById("securedInterviewJoinLink");
-    const securedInterviewPrepLinkEl = document.getElementById("securedInterviewPrepLink");
     const securedExpectedIncomeEl = document.getElementById("securedExpectedIncome");
     const securedExpectedIncomeUnitEl = document.getElementById("securedExpectedIncomeUnit");
     const securedPracticeContactInitialsEl = document.getElementById("securedPracticeContactInitials");
@@ -12039,8 +12024,8 @@
     }
 
     // One Atlas row per application. Offer-received rows get the green accent
-    // + a CTA into the existing offer-review flow; interview rows keep the
-    // interview-prep link; everything else opens application-detail.
+    // + a CTA into the existing offer-review flow; interview rows link to the
+    // detail page to book a time; everything else opens application-detail.
     function buildApplicationRowHtml(application) {
       const role = findRole(application.roleId);
       const thumbSource = role || {
@@ -12110,11 +12095,10 @@
       if (isOffer) {
         statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review offer \u2192</a>';
       } else if (isInterview) {
-        // ONE CTA only \u2014 the foot is a single non-wrapping flex row, so a second
-        // nowrap link overflowed the card on mobile (clipping the card AND the
-        // Offers tab as the shell sized the iframe to the wider content). "Book"
-        // is the important action here; Interview Strategy lives on the detail
-        // page. Keep the label short so it never crowds the identity chip.
+        // ONE short CTA \u2014 the foot is a single non-wrapping flex row, so a
+        // second nowrap link overflowed the card on mobile (clipping the card
+        // AND the Offers tab as the shell sized the iframe to the wider
+        // content). Booking a time is the action here; it opens the detail page.
         statusAction = '<a href="application-detail?id=' + encodeURIComponent(actionAppId) + '&role=' + encodeURIComponent(application.roleId || "") + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Confirm time \u2192</a>';
       }
 
@@ -12520,18 +12504,6 @@
       const href = securedContinueBtnEl.dataset.href || "myinthealth";
       window.location.href = href;
     });
-
-    // G2: shell-aware navigation to the interview prep page.
-    if (securedInterviewPrepLinkEl) {
-      securedInterviewPrepLinkEl.addEventListener("click", () => {
-        const route = "/pages/interview-prep";
-        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
-          window.parent.gpShellNavigate(route, "Interview prep");
-        } else {
-          window.location.href = "interview-prep";
-        }
-      });
-    }
 
     document.addEventListener("click", (event) => {
       const matchAcceptBtn = event.target.closest("[data-match-accept]");

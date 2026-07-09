@@ -6136,7 +6136,6 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/registration-intro.html',
   '/pages/application-detail.html',
   '/pages/job.html',
-  '/pages/interview-prep.html',
   '/pages/offer-review.html',
   '/pages/area-guide.html'
 ]);
@@ -25149,7 +25148,11 @@ async function sendInterviewReminderEmail(userId, opts) {
   // career_interviews cron) or 'in about 2 hours' (the 2h scheduled_calls run).
   const whenPhrase = opts.whenPhrase || 'tomorrow';
   const timezone = opts.timezone || '';
-  const interviewPrepUrl = opts.interviewPrepUrl || (APP_BASE_URL + '/pages/interview-prep');
+  // The interview-prep page was removed; the no-Zoom fallback CTA opens the app
+  // instead (the doctor's interview detail when we know it, else Career).
+  const appLink = opts.applicationId
+    ? (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String(opts.applicationId)))
+    : (APP_BASE_URL + '/pages/career');
   const dateObj = new Date(scheduledAt);
   // Time in the GP's local label when a timezone is known; otherwise fall back
   // to the server locale (preserves the original career_interviews behaviour).
@@ -25170,9 +25173,9 @@ async function sendInterviewReminderEmail(userId, opts) {
     'Interview ' + (whenPhrase === 'tomorrow' ? 'Tomorrow' : 'Reminder') + ' — GP Link',
     'Interview reminder, {{name}}',
     'Just a friendly reminder — you have an interview ' + whenPhrase + '.' + detail,
-    zoomJoinUrl ? 'Join Video Interview' : 'View Interview Prep',
-    zoomJoinUrl || interviewPrepUrl,
-    'See your full prep checklist and details: <a href="' + interviewPrepUrl + '">Interview prep &amp; details</a>. Make sure you\'re in a quiet place with stable internet. Good luck!'
+    zoomJoinUrl ? 'Join Video Interview' : 'Open GP Link',
+    zoomJoinUrl || appLink,
+    'Make sure you\'re in a quiet place with stable internet. Good luck!'
   );
 }
 
@@ -34651,7 +34654,8 @@ async function handleApi(req, res, pathname) {
 
   // GET /api/career/my-interviews — the CURRENT user's interviews, merged from BOTH
   // interview stores: scheduled_calls (newer 3-way CEO flow, meeting_kind='interview')
-  // and career_interviews (older admin-scheduled flow). Consumed by pages/interview-prep.html.
+  // and career_interviews (older admin-scheduled flow). Consumed by the secured
+  // "My Practice" upcoming-interview card in pages/career.html.
   // GP-facing payload only: NEVER expose zoom_host_url, zoom_passcode or interviewer_email.
   if (pathname === '/api/career/my-interviews' && req.method === 'GET') {
     const session = requireSession(req, res);
