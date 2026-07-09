@@ -554,6 +554,13 @@
         try { dt = new Date(a.interview.scheduled_at).toLocaleString(); } catch (ex) { dt = a.interview.scheduled_at || ''; }
         interviewHtml = '<span class="ats-app-interview-booked">Booked for ' + ATS.esc(dt) + '</span>' +
           ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-cancel" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Cancel &amp; rebook</button>';
+        // Meeting join link (resolved server-side: real Zoom → standing room → none).
+        var ivJoinUrl = String((a.interview && a.interview.join_url) || '');
+        if (ivJoinUrl.indexOf('https://') === 0) {
+          interviewHtml += '<div class="ats-app-interview-join">🔗 <a href="' + ATS.escAttr(ivJoinUrl) + '" target="_blank" rel="noopener">Join meeting link</a></div>';
+        } else {
+          interviewHtml += '<div class="ats-app-interview-join ats-app-interview-join-muted">No meeting link yet — set INTERVIEW_MEETING_URL or connect Zoom</div>';
+        }
         if (a.interview.summary) {
           interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
         }
