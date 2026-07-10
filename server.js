@@ -18728,7 +18728,8 @@ const PUBLIC_JOB_FIELDS = [
   'id', 'title', 'location_label', 'location_state',
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
   'employment_type', 'tags', 'published_at',
-  'display_label', 'header_image_url', 'suburb', 'nearest_city'
+  'display_label', 'header_image_url', 'suburb', 'nearest_city',
+  'visa', 'packageTerms'
 ];
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
@@ -18775,7 +18776,12 @@ function mapCareerRoleRowToPublicJob(row) {
       : (gpLinkMeta.publicIntro || ''),
     employment_type: row && row.employment_type ? String(row.employment_type) : '',
     tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
-    published_at: row && row.published_at ? row.published_at : null
+    published_at: row && row.published_at ? row.published_at : null,
+    // Commercial terms for the public "Practice profile" — money/perks only, no
+    // practice name or exact address (source_payload is never sent; only these
+    // whitelisted fields survive sanitizePublicJob).
+    visa: !!(row && row.visa_pathway_aligned),
+    packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null
   };
 }
 
