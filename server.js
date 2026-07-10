@@ -26133,6 +26133,30 @@ function _matchWeekdayDateLabel(iso) {
     return new Intl.DateTimeFormat('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
   } catch (e) { return ''; }
 }
+// Calendar-date key (YYYY-MM-DD) in a given IANA timezone — used only to
+// decide whether a final-call expiry falls "today" or "tomorrow" relative to
+// now, both evaluated in the same timezone so a late-night send near
+// midnight can't mismatch the wall-clock day the GP actually sees.
+function _matchTzDateKey(date, timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  } catch (e) { return ''; }
+}
+// "3:45 pm today" / "9:10 am tomorrow" — the 2h final-call subject's time
+// label. Australia/Brisbane matches the timezone every other match-email
+// date label in this file is rendered in (no DST in QLD, so this is stable
+// year-round). Never throws on a bad/missing ISO string — degrades to ''.
+function _matchFinalCallTimeLabel(expiresAtIso, nowDate) {
+  try {
+    var expiresAt = new Date(expiresAtIso);
+    if (isNaN(expiresAt.getTime())) return '';
+    var now = nowDate || new Date();
+    var tz = 'Australia/Brisbane';
+    var timeStr = expiresAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz });
+    var dayWord = (_matchTzDateKey(expiresAt, tz) === _matchTzDateKey(now, tz)) ? 'today' : 'tomorrow';
+    return timeStr + ' ' + dayWord;
+  } catch (e) { return ''; }
+}
 
 // Builds the match notification email (mockup docs/mockups/matching/
 // matching-email-popup-v3.html + the v5 urgency box), as email-safe HTML
@@ -26152,6 +26176,11 @@ function _matchWeekdayDateLabel(iso) {
 function buildMatchEmailHtml(row, job, practice, opts) {
   var o = opts || {};
   var reminder = o.reminder === true;
+  // 2h "final call" nudge (Task 2 of the 2026-07-11 nudges plan) — a distinct,
+  // shorter variant from the 24h reminder above: red/amber urgency, no video/
+  // next-steps, and a secondary "I need more time" action instead of the
+  // reminder's "not the right fit" link.
+  var finalCall = o.finalCall === true;
   var reasons = (row && row.match_reasons && typeof row.match_reasons === 'object' && !Array.isArray(row.match_reasons) && Array.isArray(row.match_reasons.reasons))
     ? row.match_reasons.reasons : [];
   var jobRow = job || {};
@@ -26174,6 +26203,11 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var greetName = lastName ? ('Dr ' + _matchEmailEsc(lastName)) : 'Doctor';
   var applicationId = (row && row.id) ? String(row.id) : '';
   var acceptUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?match=' + applicationId);
+  // Final-call secondary CTA: same deep link + `&needtime=1` so the career
+  // page (a later task) can detect the GP asked for more time. Built from a
+  // fresh encodeURIComponent call (not string-appended onto acceptUrl) so the
+  // querystring is correctly escaped regardless of what's inside `next`.
+  var needTimeUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?match=' + applicationId + '&needtime=1');
   var expiresLabel = (row && row.match_expires_at) ? _matchWeekdayDateLabel(row.match_expires_at) : '';
 
   // NOTE: every stored URL below passes BOTH gates — _matchSafeUrl (http(s)
@@ -26215,7 +26249,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
     '</div>'
   ) : '';
 
-  var videoHtml = (!reminder && introVideoUrl) ? (
+  var videoHtml = (!reminder && !finalCall && introVideoUrl) ? (
     '<a href="' + _matchEmailEsc(introVideoUrl) + '" style="position:relative;border-radius:14px;overflow:hidden;margin:14px 0 20px;display:block;text-decoration:none;">' +
       '<div style="background:linear-gradient(160deg,#0b1322 0%,#1a2c4e 60%,#14203a 100%);height:130px;display:flex;align-items:center;justify-content:center;">' +
         '<div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.94);display:flex;align-items:center;justify-content:center;">' +
@@ -26232,39 +26266,62 @@ function buildMatchEmailHtml(row, job, practice, opts) {
       '<div style="display:table-cell;font-size:13.5px;color:#166534;line-height:1.45;vertical-align:middle;"><b>of GPs we match are accepted by the practice.</b><br>When our team puts you forward, the practice already wants what you offer.</div>' +
     '</div>';
 
-  var urgencyHtml = reminder
-    ? '<div style="display:table;width:100%;background:#fdf3e1;border:1px solid #f4ddb0;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
-        '<div style="display:table-cell;width:60px;font-family:\'Source Serif 4\',Georgia,serif;font-size:22px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">24h</div>' +
-        '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>Less than 24 hours left to accept this match.</b> After that we may offer the position to another GP.</div>' +
+  var urgencyHtml = finalCall
+    ? '<div style="display:table;width:100%;background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
+        '<div style="display:table-cell;width:60px;font-family:\'Source Serif 4\',Georgia,serif;font-size:22px;font-weight:700;color:#991b1b;white-space:nowrap;vertical-align:middle;">2h</div>' +
+        '<div style="display:table-cell;font-size:12.5px;color:#991b1b;line-height:1.45;vertical-align:middle;"><b>This match expires within the next 2 hours.</b> After that we’ll offer the position to another GP.</div>' +
       '</div>'
-    : (expiresLabel
+    : (reminder
       ? '<div style="display:table;width:100%;background:#fdf3e1;border:1px solid #f4ddb0;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
-          '<div style="display:table-cell;width:70px;font-family:\'Source Serif 4\',Georgia,serif;font-size:20px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">5 days</div>' +
-          '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>This match is reserved for you until ' + _matchEmailEsc(expiresLabel) + '.</b> After that we may offer the position to another GP.</div>' +
+          '<div style="display:table-cell;width:60px;font-family:\'Source Serif 4\',Georgia,serif;font-size:22px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">24h</div>' +
+          '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>Less than 24 hours left to accept this match.</b> After that we may offer the position to another GP.</div>' +
         '</div>'
-      : '');
+      : (expiresLabel
+        ? '<div style="display:table;width:100%;background:#fdf3e1;border:1px solid #f4ddb0;border-radius:12px;padding:12px 14px;margin:16px 0;">' +
+            '<div style="display:table-cell;width:70px;font-family:\'Source Serif 4\',Georgia,serif;font-size:20px;font-weight:700;color:#92400e;white-space:nowrap;vertical-align:middle;">5 days</div>' +
+            '<div style="display:table-cell;font-size:12.5px;color:#92400e;line-height:1.45;vertical-align:middle;"><b>This match is reserved for you until ' + _matchEmailEsc(expiresLabel) + '.</b> After that we may offer the position to another GP.</div>' +
+          '</div>'
+        : ''));
 
+  var acceptButtonLabel = finalCall ? 'Accept before it expires' : (reminder ? 'Review &amp; accept my match' : 'Accept this match');
   var acceptButtonHtml =
-    '<a href="' + _matchEmailEsc(acceptUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">Accept this match</a>' +
+    '<a href="' + _matchEmailEsc(acceptUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">' + acceptButtonLabel + '</a>' +
     '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>';
 
-  var nextStepsHtml = reminder ? '' : (
+  // Secondary action: the reminder's low-key "not the right fit" opt-out
+  // link (same deep link — a later task reads the decline intent once the
+  // GP lands on the career page), or the final-call's "need more time"
+  // button (its own `&needtime=1`-tagged deep link, see needTimeUrl above).
+  var secondaryActionHtml = finalCall
+    ? '<a href="' + _matchEmailEsc(needTimeUrl) + '" style="position:relative;display:block;text-align:center;color:#9a3412;font-weight:600;text-decoration:none;font-size:13.5px;padding:12px 32px;border-radius:12px;margin:4px 0 8px;background:#fff7ed;border:1px solid #fdba74;">I&#39;m interested — I need more time</a>'
+    : (reminder
+      ? '<div style="text-align:center;margin:2px 0 4px;"><a href="' + _matchEmailEsc(acceptUrl) + '" style="font-size:12.5px;color:#64748b;text-decoration:underline;">Not the right fit? Tell us why</a></div>'
+      : '');
+
+  var nextStepsHtml = (reminder || finalCall) ? '' : (
     '<div style="border-left:4px solid #2563eb;background:#f1f5f9;border-radius:6px;padding:12px 16px;margin:20px 0 4px;font-size:13.5px;color:#334155;">' +
       '<div style="font-size:12px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">What happens next</div>' +
       'Accept the match and we\'ll confirm your interest with the practice. You\'ll then receive your <b>official offer with an interview date</b> — we handle everything in between.' +
     '</div>'
   );
 
-  var chipLabel = reminder ? '⏳ 24 hours left' : '✦ Team match';
-  var chipHtml = '<span style="display:inline-block;background:' + (reminder ? '#fdf3e1' : '#eff4ff') + ';border:1px solid ' + (reminder ? '#f4ddb0' : '#d6e2fb') + ';color:' + (reminder ? '#92400e' : '#173da6') + ';font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:5px 12px;border-radius:999px;margin-bottom:14px;">' + chipLabel + '</span>';
+  var chipLabel = finalCall ? '⚠ Final call' : (reminder ? '⏳ 24 hours left' : '✦ Team match');
+  var chipBg = finalCall ? '#fee2e2' : (reminder ? '#fdf3e1' : '#eff4ff');
+  var chipBorder = finalCall ? '#fca5a5' : (reminder ? '#f4ddb0' : '#d6e2fb');
+  var chipColor = finalCall ? '#991b1b' : (reminder ? '#92400e' : '#173da6');
+  var chipHtml = '<span style="display:inline-block;background:' + chipBg + ';border:1px solid ' + chipBorder + ';color:' + chipColor + ';font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:5px 12px;border-radius:999px;margin-bottom:14px;">' + chipLabel + '</span>';
 
-  var headline = reminder
-    ? greetName + ', your matched position is about to expire.'
-    : greetName + ', we’ve matched you to a position.';
+  var headline = finalCall
+    ? greetName + ', this match expires within 2 hours.'
+    : (reminder
+      ? greetName + ', your matched position is about to expire.'
+      : greetName + ', we’ve matched you to a position.');
 
-  var introParagraph = reminder
-    ? '<p style="margin:0 0 14px;">This match closes soon — here’s a reminder of the role your team picked for you.</p>'
-    : '<p style="margin:0 0 14px;">Our team has <b>specifically matched you</b> to this role based on your preferences and experience — and on what the medical practice is looking for in their next GP.</p>';
+  var introParagraph = finalCall
+    ? '<p style="margin:0 0 14px;">Last chance to accept — after this we’ll offer the position to another GP.</p>'
+    : (reminder
+      ? '<p style="margin:0 0 14px;">This match closes soon — here’s a reminder of the role your team picked for you.</p>'
+      : '<p style="margin:0 0 14px;">Our team has <b>specifically matched you</b> to this role based on your preferences and experience — and on what the medical practice is looking for in their next GP.</p>');
 
   var innerHtml =
     chipHtml +
@@ -26276,6 +26333,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
     statCalloutHtml +
     urgencyHtml +
     acceptButtonHtml +
+    secondaryActionHtml +
     nextStepsHtml;
 
   return (
@@ -26315,10 +26373,15 @@ async function sendMatchEmail(applicationRow, opts) {
     var state = String(job.location_state || '').trim();
     var subjectLoc = [city, state].filter(Boolean).join(' ');
     var reminder = o.reminder === true;
-    var subject = reminder
-      ? '⏳ 24 hours left — your matched position in ' + (city || subjectLoc || 'your area')
-      : "You've been personally matched — " + practiceName + (subjectLoc ? ', ' + subjectLoc : '');
-    var html = buildMatchEmailHtml(applicationRow, job, practice, { gpLastName: gp.lastName, reminder: reminder });
+    // 2h "final call" nudge (Task 2 of the 2026-07-11 nudges plan) — the
+    // cron's new pass between the 24h reminder and expiry.
+    var finalCall = o.finalCall === true;
+    var subject = finalCall
+      ? 'Final call — your match expires at ' + _matchFinalCallTimeLabel(applicationRow.match_expires_at)
+      : (reminder
+        ? '24 hours left — ' + (practiceName || 'the practice') + ' is holding your spot'
+        : "You've been personally matched — " + practiceName + (subjectLoc ? ', ' + subjectLoc : ''));
+    var html = buildMatchEmailHtml(applicationRow, job, practice, { gpLastName: gp.lastName, reminder: reminder, finalCall: finalCall });
     return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
   } catch (e) {
     console.error('[match-email] send failed:', e && e.message);
@@ -29956,13 +30019,21 @@ async function handleApi(req, res, pathname) {
   }
 
   // ── Hourly: AI-matching lifecycle — reminders + expiry (Task 5 of the
-  // 2026-07-06 AI matching plan). Three independently-bounded passes so a
-  // slow one can't starve the others of a clean partial result:
+  // 2026-07-06 AI matching plan; final-call nudge added by Task 2 of the
+  // 2026-07-11 nudges plan). Four independently-bounded passes so a slow
+  // one can't starve the others of a clean partial result:
   //  (a) reminder — 'shortlisted' rows that were actually matched
   //      (matched_at set), have no reminder yet, and expire within 24h ->
   //      sendMatchEmail(row, {reminder:true}) (Task 4's urgency variant,
-  //      which builds its own "⏳ 24 hours left…" subject) then stamp
+  //      which builds its own "24 hours left…" subject) then stamp
   //      match_reminder_sent_at so a rerun never double-sends.
+  //  (a2) final call — 'shortlisted' rows that were matched, still have no
+  //      outcome, have no final-call yet, and expire within 2h ->
+  //      sendMatchEmail(row, {finalCall:true}) then stamp
+  //      match_final_reminder_sent_at. Mirrors (a)'s isolation/stamp-check
+  //      pattern exactly. Deliberately does NOT require the 24h reminder to
+  //      have already fired (a row extended or shortlisted with <2h left
+  //      would otherwise never get a final call).
   //  (b) expiry — 'shortlisted' rows whose 5-day window has passed ->
   //      not_proceeding + match_outcome='expired' + a stage-event row
   //      (mirrors the match_extend branch's atsRecordStageEvent call), then
@@ -29975,7 +30046,7 @@ async function handleApi(req, res, pathname) {
     if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var mlHandlerStart = Date.now();
     var ML_CRON_TIME_BUDGET_MS = 45000;
-    var mlReminded = 0, mlExpiredCount = 0, mlErrors = [], mlTimedOut = false;
+    var mlReminded = 0, mlFinalCalled = 0, mlExpiredCount = 0, mlErrors = [], mlTimedOut = false;
     try {
       var mlNowIso = new Date().toISOString();
       var mlReminderWindowIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -30020,6 +30091,48 @@ async function handleApi(req, res, pathname) {
           }
         } catch (mlRemErr) {
           mlErrors.push({ id: mlRemRow.id, stage: 'reminder', error: mlRemErr && mlRemErr.message });
+        }
+      }
+
+      // (a2) Final-call pass: same bound/ordering rationale as (a). Filter
+      // deliberately omits match_reminder_sent_at — a row can land inside
+      // the 2h window without ever having crossed the 24h reminder window
+      // first (e.g. a fresh match_extend), and it still deserves a final
+      // call. match_outcome=is.null excludes rows already accepted/declined/
+      // expired between passes.
+      var mlFinalWindowIso = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+      var mlFinRes = await supabaseDbRequest('gp_applications',
+        'select=id,user_id,career_role_id,match_reasons,match_expires_at' +
+        '&ats_stage=eq.shortlisted&matched_at=not.is.null&match_final_reminder_sent_at=is.null' +
+        '&match_outcome=is.null' +
+        '&match_expires_at=gte.' + encodeURIComponent(mlNowIso) +
+        '&match_expires_at=lte.' + encodeURIComponent(mlFinalWindowIso) +
+        '&order=match_expires_at.asc&limit=200');
+      var mlFinRows = (mlFinRes.ok && Array.isArray(mlFinRes.data)) ? mlFinRes.data : [];
+
+      for (var mfi = 0; mfi < mlFinRows.length; mfi++) {
+        if (Date.now() - mlHandlerStart > ML_CRON_TIME_BUDGET_MS) { mlTimedOut = true; break; }
+        var mlFinRow = mlFinRows[mfi];
+        try {
+          var mlFinSendRes = await sendMatchEmail(mlFinRow, { finalCall: true });
+          if (mlFinSendRes && mlFinSendRes.ok) {
+            // Same checked-stamp-write pattern as (a) — a successful send
+            // whose stamp PATCH fails must surface in errors[], never be
+            // silently counted as finalCalled over an unstamped row.
+            var mlFinStampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mlFinRow.id), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' },
+              body: { match_final_reminder_sent_at: new Date().toISOString() }
+            });
+            if (mlFinStampRes && mlFinStampRes.ok) {
+              mlFinalCalled++;
+            } else {
+              mlErrors.push({ id: mlFinRow.id, stage: 'final_call', error: 'stamp_failed' });
+            }
+          } else {
+            mlErrors.push({ id: mlFinRow.id, stage: 'final_call', error: (mlFinSendRes && mlFinSendRes.error) || 'send_failed' });
+          }
+        } catch (mlFinErr) {
+          mlErrors.push({ id: mlFinRow.id, stage: 'final_call', error: mlFinErr && mlFinErr.message });
         }
       }
 
@@ -30079,7 +30192,7 @@ async function handleApi(req, res, pathname) {
         try { await evaluateCareerLocks(mlHandlerStart + ML_CRON_TIME_BUDGET_MS); } catch (mlLockErr) { mlErrors.push({ stage: 'lock', error: mlLockErr && mlLockErr.message }); }
       }
 
-      sendJson(res, 200, { ok: true, reminded: mlReminded, expired: mlExpiredCount, errors: mlErrors, timedOut: mlTimedOut });
+      sendJson(res, 200, { ok: true, reminded: mlReminded, finalCalled: mlFinalCalled, expired: mlExpiredCount, errors: mlErrors, timedOut: mlTimedOut });
     } catch (mlErr) {
       console.error('[Cron] match-lifecycle failed:', mlErr);
       await respondServerError(res, mlErr, { route: pathname, method: req.method });
@@ -55047,7 +55160,10 @@ Return ONLY valid JSON with no markdown formatting:
       var mePatch = {
         match_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
         match_outcome: null,
+        // Task 2 (2026-07-11 nudges plan): a fresh window resets every nudge stamp.
         match_reminder_sent_at: null,
+        match_final_reminder_sent_at: null,
+        match_more_time_requested_at: null,
         ats_stage: 'shortlisted', ats_stage_updated_at: meNowIso, updated_at: meNowIso
       };
       var meUpdated = null;

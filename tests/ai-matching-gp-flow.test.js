@@ -452,12 +452,12 @@ describe('sendMatchEmail', () => {
     expect(resendCalls[0].body.html).toContain('Coral Coast Family Practice');
   });
 
-  it('reminder variant carries the ⏳ 24-hours subject naming the city', async () => {
+  it('reminder variant carries the verbatim 24h subject naming the practice (Task 2, 2026-07-11 nudges plan)', async () => {
     const row = tableOf('gp_applications').find((a) => a.id === 'app-view-1');
     const result = await serverModule.__testUtils.sendMatchEmail(row, { reminder: true });
     expect(result.ok).toBe(true);
     expect(resendCalls.length).toBe(1);
-    expect(resendCalls[0].body.subject).toBe('⏳ 24 hours left — your matched position in Bundaberg');
+    expect(resendCalls[0].body.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
   });
 });
 
