@@ -29,6 +29,7 @@
 
   // First-visit Scan mini-tour (part of the app walkthrough). Runs once, gated on state.
   function maybeScanTour() {
+    if (!isOpen) return;
     var S = window.gpWalkthroughState, C = window.gpCoach;
     if (!S || !C || C.isActive()) return;
     try {
