@@ -18075,13 +18075,26 @@ async function handleZoomSummaryCompleted(payload) {
     return;
   }
 
-  // Match by zoom_meeting_id where summary_status='pending'
+  // Normal path: meeting.ended already set summary_status='pending'.
   const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&summary_status=eq.pending&limit=1');
-  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
-    console.warn('[zoom meeting.summary_completed] No pending summary record for meeting_id:', meetingId);
-    return;
+  let callRecord = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  if (!callRecord) {
+    // Robustness: the summary can be ready before (or without) a meeting.ended
+    // webbook. Fall back to any non-cancelled row for this meeting that hasn't
+    // already saved a summary, arm it (completed + pending), then fetch.
+    const r2 = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=neq.cancelled&summary_status=neq.saved&order=created_at.desc&limit=1');
+    callRecord = (r2.ok && Array.isArray(r2.data) && r2.data[0]) ? r2.data[0] : null;
+    if (!callRecord) {
+      console.warn('[zoom meeting.summary_completed] No matching scheduled_call for meeting_id:', meetingId);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: callRecord.status === 'booked' ? 'completed' : callRecord.status, completed_at: callRecord.completed_at || nowIso, summary_status: 'pending', updated_at: nowIso }
+    });
+    callRecord = Object.assign({}, callRecord, { summary_status: 'pending' });
   }
-  const callRecord = r.data[0];
   await fetchAndSaveZoomSummary(callRecord);
 }
 
@@ -18148,6 +18161,7 @@ async function fetchAndSaveZoomSummary(call) {
         meeting_action_items: nextSteps,
         meeting_summary_raw: summaryData,
         summary_fetch_attempts: attempts,
+        summary_saved_at: now,
         updated_at: now
       }
     });
@@ -24496,7 +24510,29 @@ async function createZoomInterviewMeeting(o) {
   var res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic: o.topic, type: 2, start_time: o.startUtc, duration: o.durationMin, timezone: 'UTC', settings: { join_before_host: false } })
+    body: JSON.stringify({
+      topic: o.topic,
+      type: 2, // scheduled meeting
+      start_time: o.startUtc,
+      duration: o.durationMin,
+      timezone: 'UTC',
+      settings: {
+        host_video: true,
+        participant_video: true,
+        // The host is the S2S account owner, who usually doesn't attend a 3-way
+        // interview (GP + practice + RSO). Let attendees start without them, and
+        // no waiting room to gatekeep — otherwise everyone sits in "waiting for
+        // host" and the meeting never starts.
+        join_before_host: true,
+        waiting_room: false,
+        meeting_authentication: false,
+        auto_recording: 'none',
+        // AI Companion meeting summary — auto-start it so a per-interview summary
+        // is generated and delivered via the meeting.summary_completed webhook.
+        // Requires AI Companion "Meeting Summary" enabled on the Zoom account.
+        auto_start_meeting_summary: true
+      }
+    })
   });
   var d = await res.json();
   return { id: String(d.id || ''), uuid: d.uuid || '', join_url: d.join_url || '', passcode: d.password || '' };
