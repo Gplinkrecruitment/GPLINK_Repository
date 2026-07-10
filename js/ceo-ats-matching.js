@@ -946,19 +946,25 @@
     });
   }
 
+  // Final-review fix (Finding 3): drill-ins activate the target tab via the
+  // skipLoad=true path (window.ATS.setActiveTab, same mechanism applyHash()
+  // uses for #candidate=/#board=/#practice= deep links) instead of
+  // ATS.showMaster(), which also kicks off that tab's LIST loader — a second
+  // async render that could race the opener below and clobber the detail view
+  // it just opened.
   function onOpenPractice(id) {
     if (!id) return;
-    if (window.ATS && typeof window.ATS.showMaster === 'function') window.ATS.showMaster('practices');
+    if (window.ATS && typeof window.ATS.setActiveTab === 'function') window.ATS.setActiveTab('practices', true);
     if (typeof window.atsOpenPractice === 'function') window.atsOpenPractice(id);
   }
   function onOpenCandidate(id) {
     if (!id) return;
-    if (window.ATS && typeof window.ATS.showMaster === 'function') window.ATS.showMaster('candidates');
+    if (window.ATS && typeof window.ATS.setActiveTab === 'function') window.ATS.setActiveTab('candidates', true);
     if (typeof window.atsOpenCandidate === 'function') window.atsOpenCandidate(id);
   }
   function onOpenJob(id) {
     if (!id) return;
-    if (window.ATS && typeof window.ATS.showMaster === 'function') window.ATS.showMaster('jobs');
+    if (window.ATS && typeof window.ATS.setActiveTab === 'function') window.ATS.setActiveTab('jobs', true);
     if (typeof window.atsOpenJobBoard === 'function') window.atsOpenJobBoard(id);
   }
 

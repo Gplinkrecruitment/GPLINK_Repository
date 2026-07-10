@@ -482,9 +482,16 @@ describe('wiring pins (source-level — network/DOM behaviour not exercised unde
     expect(matchingSrc).toContain('window.atsOpenCandidate(id)');
     expect(matchingSrc).toContain('window.atsOpenJobBoard(id)');
     expect(matchingSrc).toContain('window.atsOpenPractice(id)');
-    expect(matchingSrc).toMatch(/ATS\.showMaster\('practices'\)/);
-    expect(matchingSrc).toMatch(/ATS\.showMaster\('candidates'\)/);
-    expect(matchingSrc).toMatch(/ATS\.showMaster\('jobs'\)/);
+    // Final-review fix (Finding 3): drill-ins must activate the tab via the
+    // skipLoad=true path (ATS.setActiveTab), NOT ATS.showMaster() — showMaster
+    // also fires that tab's list loader, a second async render that can race
+    // the opener call below it and clobber the just-opened detail view.
+    expect(matchingSrc).toMatch(/ATS\.setActiveTab\('practices',\s*true\)/);
+    expect(matchingSrc).toMatch(/ATS\.setActiveTab\('candidates',\s*true\)/);
+    expect(matchingSrc).toMatch(/ATS\.setActiveTab\('jobs',\s*true\)/);
+    expect(matchingSrc).not.toMatch(/ATS\.showMaster\('practices'\)/);
+    expect(matchingSrc).not.toMatch(/ATS\.showMaster\('candidates'\)/);
+    expect(matchingSrc).not.toMatch(/ATS\.showMaster\('jobs'\)/);
   });
   it('25 rows + Show more', () => {
     expect(matchingSrc).toContain('visibleCount: 25');

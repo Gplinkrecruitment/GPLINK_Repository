@@ -34506,7 +34506,8 @@ async function handleApi(req, res, pathname) {
     }
 
     const mmMatches = mmLive.map((r) => {
-      const job = mmJobById[r.career_role_id] || {};
+      const jobRow = mmJobById[r.career_role_id];
+      const job = jobRow || {};
       const practice = mmPracticeById[job.practice_id] || {};
       const reasons = (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
         ? r.match_reasons.reasons : [];
@@ -34518,8 +34519,14 @@ async function handleApi(req, res, pathname) {
       const mmMapQuery = buildCareerMatchMapQuery(
         resolveCareerPracticeAddress(practice), mmPracticeName, job.suburb || job.location_city || '', job.location_state || ''
       );
+      // Final-review fix (Finding 1): roleId must be the PUBLIC provider:providerRoleId
+      // id parseCareerRolePublicId()/GET /api/career/role expect — the same
+      // makeCareerRoleId() helper /api/career/roles uses — not the raw
+      // career_roles.id bigint (which 400s the role-detail endpoint). Only
+      // fall back to the raw id when the job row itself is missing.
+      const mmRoleId = jobRow ? makeCareerRoleId(jobRow.provider, jobRow.provider_role_id) : String(r.career_role_id);
       return {
-        applicationId: r.id, roleId: r.career_role_id, score: (r.match_score != null ? r.match_score : null),
+        applicationId: r.id, roleId: mmRoleId, score: (r.match_score != null ? r.match_score : null),
         reasons, expiresAt: r.match_expires_at || null, seenAt: r.match_seen_at || null, matchedAt: r.matched_at || null,
         jobTitle: job.title || r.job_title || '', practiceName: mmPracticeName,
         website: practice.website || '', introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
@@ -55636,6 +55643,13 @@ Return ONLY valid JSON with no markdown formatting:
           match_score: msReopenScore, match_reasons: { reasons: msReopenReasons, _history: msHistory },
           matched_by: ctxMS.email || '', matched_at: msNowIso, match_expires_at: msExpiresAt,
           match_seen_at: null, match_reminder_sent_at: null, updated_at: msNowIso,
+          // Final-review fix (Finding 2): the reopen branch must clear ALL
+          // nudge stamps (same set the match_extend PATCH branch resets, see
+          // ~55703), not just match_seen_at/match_reminder_sent_at — a stale
+          // match_final_reminder_sent_at/match_more_time_requested_at from
+          // the PRIOR match window would otherwise carry over and could
+          // suppress/mis-classify the cron's nudges on the freshly reopened one.
+          match_final_reminder_sent_at: null, match_more_time_requested_at: null,
           // Task 7 (2026-07-11 matching-board): the fresh-insert branch below
           // already sets revealed:true — a REOPEN must too, or a GP whose
           // prior application on this exact job went terminal (declined /

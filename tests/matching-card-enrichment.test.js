@@ -302,7 +302,11 @@ const db = {
       status: 'applied', job_title: 'GP — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_score: 80, match_reasons: { reasons: ['Coastal fit'], _history: [] },
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 4 * 86400000),
-      match_seen_at: null, match_outcome: null
+      match_seen_at: null, match_outcome: null,
+      // revealed:true so this row also serves the Finding-1 seam test below
+      // (roleId round-trip through GET /api/career/role, which gates the
+      // realPracticeName reveal on canRevealPracticeIdentity).
+      revealed: true
     },
     {
       id: 'app-noaddr-1', user_id: GP_NOADDR.userId, career_role_id: 'job-noaddr',
@@ -491,5 +495,34 @@ describe('GET /api/career/matches — mapQuery (Task 6)', () => {
     const m = res.body.matches.find((x) => x.applicationId === 'app-intake-1');
     expect(m).toBeTruthy();
     expect(m.mapQuery).toBe('5 Ocean Dr, Urangan, QLD');
+  });
+});
+
+// ============================================================================
+// Final-review Finding 1 (2026-07-11 whole-branch review): the matches mapper
+// emitted `roleId: r.career_role_id` — the raw career_roles.id bigint —
+// instead of the PUBLIC `provider:providerRoleId` id parseCareerRolePublicId()
+// (and therefore GET /api/career/role) requires. career.html's "See the full
+// job opening" link feeds this roleId straight into job.html?id=<roleId>,
+// which calls GET /api/career/role?id=<roleId> — so the raw bigint 400'd
+// there with "Missing or invalid role id." This seam test proves the exact
+// value /api/career/matches emits round-trips through /api/career/role.
+// ============================================================================
+describe('GET /api/career/matches roleId -> GET /api/career/role (Finding 1 seam test)', () => {
+  it('the roleId /api/career/matches emits for a live match is accepted as-is by GET /api/career/role', async () => {
+    const cookie = userCookie(GP_ADDR.email, GP_ADDR.userId);
+
+    const matchesRes = await httpReq('GET', '/api/career/matches', { cookie });
+    expect(matchesRes.status).toBe(200);
+    const m = matchesRes.body.matches.find((x) => x.applicationId === 'app-addr-1');
+    expect(m).toBeTruthy();
+    // The public provider:providerRoleId id — NOT the raw 'job-addr' bigint id.
+    expect(m.roleId).toBe('internal_ats:ats_job_addr');
+
+    const roleRes = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent(m.roleId), { cookie });
+    expect(roleRes.status).toBe(200);
+    expect(roleRes.body.ok).toBe(true);
+    expect(roleRes.body.role.revealed).toBe(true);
+    expect(roleRes.body.role.realPracticeName).toBe('Coral Coast Family Practice');
   });
 });

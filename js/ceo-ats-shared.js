@@ -167,6 +167,13 @@
     applyHash();
   }
   window.ATS.showMaster = showMaster;
+  // Final-review fix (Finding 3): exposes the skipLoad-capable tab switch so a
+  // drill-in opener (e.g. the Matching board's onOpenPractice/onOpenCandidate/
+  // onOpenJob) can activate the tab WITHOUT triggering its list loader — the
+  // same skipLoad=true path applyHash() already uses for #candidate=/#board=/
+  // #practice= deep links, so an opened detail view isn't clobbered by a
+  // late-arriving list fetch racing it.
+  window.ATS.setActiveTab = setActiveTab;
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSwitcher);
   else initSwitcher();

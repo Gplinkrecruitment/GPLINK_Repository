@@ -77,6 +77,13 @@ const NEEDTIME_GATED_GP = { userId: 'gp-needtime-gated-1', email: 'needtime-gate
 const NEEDTIME_LOCKED_GP = { userId: 'gp-needtime-locked-1', email: 'needtime-locked@gplink-test.local' };
 const NEEDTIME_OTHER_GP = { userId: 'gp-needtime-other-1', email: 'needtime-other@gplink-test.local' };
 
+// ── Finding 2 (2026-07-11 final-review fix) fixture: POST
+// /api/ats/matching/shortlist reopening a TERMINAL row that carries all
+// three nudge stamps from its PRIOR match window — proves the reopen branch
+// (msPatch) clears match_final_reminder_sent_at + match_more_time_requested_at
+// too, not just match_seen_at/match_reminder_sent_at.
+const REOPEN_NUDGE_GP = { userId: 'gp-reopen-nudge-1', email: 'reopen-nudge@gplink-test.local' };
+
 // ── In-memory PostgREST emulator (mirrors tests/ai-matching-cron.test.js) ───
 const db = {
   user_profiles: ALL_GPS.map((g, i) => ({
@@ -88,7 +95,8 @@ const db = {
     { user_id: NEEDTIME_RESOLVED_GP.userId, email: NEEDTIME_RESOLVED_GP.email, first_name: 'Owen', last_name: 'Baxter', registration_country: 'united kingdom' },
     { user_id: NEEDTIME_GATED_GP.userId, email: NEEDTIME_GATED_GP.email, first_name: 'Test', last_name: 'NeedtimeGated', registration_country: 'united kingdom' },
     { user_id: NEEDTIME_LOCKED_GP.userId, email: NEEDTIME_LOCKED_GP.email, first_name: 'Test', last_name: 'NeedtimeLocked', registration_country: 'united kingdom' },
-    { user_id: NEEDTIME_OTHER_GP.userId, email: NEEDTIME_OTHER_GP.email, first_name: 'Test', last_name: 'NeedtimeOther', registration_country: 'united kingdom' }
+    { user_id: NEEDTIME_OTHER_GP.userId, email: NEEDTIME_OTHER_GP.email, first_name: 'Test', last_name: 'NeedtimeOther', registration_country: 'united kingdom' },
+    { user_id: REOPEN_NUDGE_GP.userId, email: REOPEN_NUDGE_GP.email, first_name: 'Test', last_name: 'ReopenNudge', registration_country: 'united kingdom' }
   ]),
   user_state: [
     { user_id: NEEDTIME_LIVE_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
@@ -98,7 +106,13 @@ const db = {
     // Career-locked (Task 8's 3-strike lock): locked_at set, never released —
     // isCareerLocked() is true, so need-more-time must 423 (review fix).
     { user_id: NEEDTIME_LOCKED_GP.userId, state: { gp_onboarding_complete: true, career_lock: { strikes: [], locked_at: iso(NOW - 86400000), released_at: null, reasons: {} } }, updated_at: iso(NOW) },
-    { user_id: NEEDTIME_OTHER_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) }
+    { user_id: NEEDTIME_OTHER_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
+    { user_id: REOPEN_NUDGE_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) }
+  ],
+  // Finding 2 fixture: the reopen-eligibility re-check (atsBuildGpMatchInputs)
+  // requires a cv_signed_dated/uploaded row before it treats a candidate as hasCv.
+  user_documents: [
+    { id: 'doc-reopen-nudge-1', user_id: REOPEN_NUDGE_GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' }
   ],
   registration_cases: [],
   rso_team: [],
@@ -167,6 +181,18 @@ const db = {
       id: 'app-extend-1', user_id: EXTEND_GP.userId, career_role_id: 'job-1',
       ats_stage: 'not_proceeding', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
+      matched_at: iso(NOW - 7 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_outcome: 'expired',
+      match_reminder_sent_at: iso(NOW - 3 * 86400000), match_final_reminder_sent_at: iso(NOW - 2 * 86400000), match_more_time_requested_at: iso(NOW - 2 * 86400000)
+    },
+    // Finding 2 (2026-07-11 final-review fix) fixture: a TERMINAL row (the
+    // POST /api/ats/matching/shortlist REOPEN case, not the match_extend PATCH
+    // above) carrying all three nudge stamps from its prior match window —
+    // proves the reopen branch's msPatch clears match_final_reminder_sent_at
+    // + match_more_time_requested_at too.
+    {
+      id: 'app-reopen-nudge-1', user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'not_proceeding', origin: 'ai_matched', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: ['old reason'], _history: [] },
       matched_at: iso(NOW - 7 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_outcome: 'expired',
       match_reminder_sent_at: iso(NOW - 3 * 86400000), match_final_reminder_sent_at: iso(NOW - 2 * 86400000), match_more_time_requested_at: iso(NOW - 2 * 86400000)
     },
@@ -504,6 +530,36 @@ describe('PATCH /api/ats/application {match_extend:true} — clears all three nu
     expect(after.match_more_time_requested_at).toBe(null);
     expect(after.ats_stage).toBe('shortlisted');
     expect(after.match_outcome).toBe(null);
+  });
+});
+
+// ============================================================================
+// Finding 2 (2026-07-11 final-review fix): the shortlist REOPEN branch
+// (server.js msPatch, POST /api/ats/matching/shortlist) reset match_seen_at/
+// match_reminder_sent_at and set revealed:true, but left the two newer nudge
+// stamps (match_final_reminder_sent_at, match_more_time_requested_at) from
+// the PRIOR terminal match window untouched — leaving stale stamps that could
+// suppress/mis-classify the cron's nudges on the freshly reopened match.
+// revealed:true itself is already covered by
+// tests/matching-job-unmask.test.js's reopen test — this only pins the stamps.
+// ============================================================================
+describe('POST /api/ats/matching/shortlist — REOPEN clears stale nudge stamps (Finding 2, 2026-07-11 final-review fix)', () => {
+  it('reopening a terminal row with both stamps set clears match_final_reminder_sent_at and match_more_time_requested_at', async () => {
+    const before = db.gp_applications.find((a) => a.id === 'app-reopen-nudge-1');
+    expect(before.match_final_reminder_sent_at).toBeTruthy();
+    expect(before.match_more_time_requested_at).toBeTruthy();
+
+    const r = await httpReq('POST', '/api/ats/matching/shortlist', {
+      headers: { Host: SUPER_HOST, Cookie: superCookie() },
+      body: { items: [{ user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1' }] }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([{ user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1', ok: true, reopened: true }]);
+
+    const after = db.gp_applications.find((a) => a.id === 'app-reopen-nudge-1');
+    expect(after.ats_stage).toBe('shortlisted');
+    expect(after.match_final_reminder_sent_at).toBe(null);
+    expect(after.match_more_time_requested_at).toBe(null);
   });
 });
 
