@@ -555,6 +555,54 @@
     }
     .at-map-address { font-size: 13px; font-weight: 600; color: var(--gp-text, #1f2b43); margin: 9px 2px 0; display: flex; align-items: center; gap: 6px; }
     .at-map-address svg { flex: none; color: var(--gp-green, #16a34a); }
+    /* AI Matching (Task 7): "Open in Maps ↗" overlay link, revealed-only. */
+    .at-map-open {
+      position: absolute;
+      right: 9px;
+      top: 9px;
+      z-index: 3;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1d4ed8;
+      background: rgba(255, 255, 255, .94);
+      border-radius: 999px;
+      padding: 5px 10px;
+      text-decoration: none;
+    }
+
+    /* AI Matching (Task 7): revealed practice website link under the title. */
+    .at-dweb {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin: 8px 0 0;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #fff;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .at-dweb:hover { color: #eaf2ff; }
+
+    /* AI Matching (Task 7): blue "matched" banner + "Why this matches you" ticks. */
+    .at-matchbanner {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 13px;
+      padding: 12px 14px;
+      margin-top: 16px;
+      font-size: 12.5px;
+      color: #1e40af;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+    .at-matchbanner-ico { flex: none; font-size: 15px; line-height: 1; }
+    .at-matchwhy { margin-top: 11px; display: flex; flex-direction: column; gap: 7px; }
+    .at-matchtick { font-size: 12.5px; color: #334155; display: flex; gap: 8px; line-height: 1.5; }
+    .at-matchtick::before { content: "✓"; color: #2563eb; font-weight: 900; flex: none; }
 
     /* ── Registration Support Officer strip ── */
     .at-support {
@@ -1193,8 +1241,8 @@
        drive-by click. -->
   <div class="at-sheet-overlay" id="applyConfirmOverlay" hidden>
     <div class="at-sheet">
-      <h2>Apply for this role?</h2>
-      <p>You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
+      <h2 id="applyConfirmTitle">Apply for this role?</h2>
+      <p id="applyConfirmIntro">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
       <div class="at-sheet-time" id="applyConfirmMeter"></div>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="applyConfirmCancelBtn" type="button">Not yet</button>
@@ -1405,6 +1453,58 @@
     return params.get("id") || "";
   }
 
+  // AI Matching (Task 7, 2026-07-11 matching-board): career.html links here
+  // as job.html?id={roleId}&match={applicationId} — the deep-link that says
+  // "this exact job opening is the GP's live match". Read once at load; the
+  // server-returned role.match is what's actually trusted (this is only used
+  // to confirm the link on THIS page matches the ONE live match the payload
+  // carries, same "must match" gate career.html's sticky bar uses).
+  function getMatchIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("match") || "";
+  }
+
+  // http(s)-only URL gate for the revealed practice website — same rule as
+  // career.html's matchSafeUrl / the email builder's _matchSafeUrl: never let
+  // a stored URL become a script-scheme href in the GP's session.
+  function matchSafeUrl(value) {
+    const v = String(value || "").trim();
+    return /^https?:\/\//i.test(v) ? v : "";
+  }
+
+  // Mirrors career.html's formatMatchCountdown exactly, so the sticky bar's
+  // sub-line reads identically on both pages (Part D verbatim: "⏳ {time
+  // left} — your spot is reserved until then" — countdown.label already
+  // carries the ⏳ prefix + "left" suffix).
+  function formatMatchCountdown(expiresAtIso) {
+    if (!expiresAtIso) return { label: "", amber: false, expired: true };
+    const ms = new Date(expiresAtIso).getTime() - Date.now();
+    if (!isFinite(ms) || ms <= 0) return { label: "", amber: false, expired: true };
+    const totalHours = Math.floor(ms / (60 * 60 * 1000));
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    const amber = totalHours < 24;
+    const label = days > 0 ? `⏳ ${days}d ${hours}h left` : `⏳ ${hours}h left`;
+    return { label, amber, expired: false };
+  }
+
+  // The single gate for "is this page load a live matched-job view": the
+  // server already only ever attaches role.match for a live/non-expired
+  // shortlisted row (Task 7's /api/career/role change) — this also requires
+  // the url's own ?match= to name that exact application (never assume a
+  // role.match block implies the CURRENT visit is the matched one — a GP can
+  // still open a job page they were matched on via a plain, non-match link)
+  // and re-checks the countdown client-side so a stale cached payload can't
+  // show the banner/sticky-accept past expiry.
+  function getActiveMatch(role) {
+    const match = role && role.match;
+    if (!match || !match.applicationId) return null;
+    const urlMatchId = getMatchIdFromUrl();
+    if (!urlMatchId || String(match.applicationId) !== urlMatchId) return null;
+    if (formatMatchCountdown(match.expiresAt).expired) return null;
+    return match;
+  }
+
   function readPreviewRole(roleId) {
     try {
       const raw = sessionStorage.getItem(ROLE_PREVIEW_SESSION_KEY);
@@ -1510,13 +1610,19 @@
     const pillText = (renderContext && renderContext.mode === "offer")
       ? "Offer received"
       : (revealed ? "Identity unlocked" : "Eligible for you");
+    // AI Matching (Task 7): revealed practice website, http(s)-only —
+    // rendered right under the location line, same spot the approved
+    // mockup (round6-clicky-card.html screen 2) puts it under the title.
+    const website = revealed ? matchSafeUrl(role.website) : "";
+    const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
     dheadEl.innerHTML =
       '<div class="at-dhtags">' +
         '<span class="at-dpill">' + AT_CHECK_SVG + pillText + '</span>' +
         '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>' +
       '</div>' +
       '<h1 class="at-dtitle">' + escapeHtml(headline) + '</h1>' +
-      (locText ? '<p class="at-dloc">' + AT_PIN_SVG + escapeHtml(locText) + '</p>' : "");
+      (locText ? '<p class="at-dloc">' + AT_PIN_SVG + escapeHtml(locText) + '</p>' : "") +
+      (website ? '<a class="at-dweb" href="' + escapeHtml(website) + '" target="_blank" rel="noopener noreferrer">🌐 ' + escapeHtml(websiteLabel) + ' ↗</a>' : "");
   }
 
   /* ── Hero photo / scenery ── */
@@ -1637,16 +1743,44 @@
     const overlay = revealed
       ? '<span class="at-map-overlay"><span class="at-pin"><span class="at-ring at-ring--exact"><span class="at-dotpin at-dotpin--exact"></span></span></span></span>'
       : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span></span>';
+    // AI Matching (Task 7): revealed-only "Open in Maps ↗" link, same pattern
+    // career.html's match card uses (a real maps.google.com link, opened in
+    // a new tab — distinct from the embed iframe's src above).
+    const openMapsLink = revealed
+      ? '<a class="at-map-open" href="https://www.google.com/maps?q=' + encodeURIComponent(query) + '" target="_blank" rel="noopener noreferrer">Open in Maps ↗</a>'
+      : '';
     return '<div class="at-sech">The area</div>' +
       '<div class="at-rv at-rv4">' +
         '<figure class="at-map" style="margin:0">' +
           '<iframe src="' + escapeHtml(src) + '" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role area map"></iframe>' +
           overlay +
+          openMapsLink +
           '<figcaption class="at-map-caption">' + escapeHtml(caption) + '</figcaption>' +
         '</figure>' +
         (revealed && role.practiceAddress
           ? '<p class="at-map-address">' + AT_PIN_SVG + escapeHtml(role.practiceAddress) + '</p>'
           : "") +
+      '</div>';
+  }
+
+  /* ── AI Matching (Task 7): blue "matched" banner + "Why this matches you"
+     ticks — only when this exact page load is the GP's live, deep-linked
+     match (getActiveMatch), never merely because the role happens to carry
+     a match block server-side. ── */
+  function buildMatchBannerHtml(role) {
+    const match = getActiveMatch(role);
+    if (!match) return "";
+    return '<div class="at-matchbanner"><span class="at-matchbanner-ico">💙</span>' +
+      '<span>Your team matched you here for a reason — this page normally hides the practice name, but your match unlocks the full picture.</span></div>';
+  }
+
+  function buildMatchWhyHtml(role) {
+    const match = getActiveMatch(role);
+    const reasons = match && Array.isArray(match.reasons) ? match.reasons.filter((r) => typeof r === "string" && r.trim()) : [];
+    if (!reasons.length) return "";
+    return '<div class="at-sech">Why this matches you</div>' +
+      '<div class="at-matchwhy">' +
+        reasons.map((r) => '<div class="at-matchtick">' + escapeHtml(r) + '</div>').join("") +
       '</div>';
   }
 
@@ -2121,6 +2255,8 @@
 
   /* ── Deliberate-apply confirm sheet (Task 7) ── */
   const applyConfirmOverlayEl = document.getElementById("applyConfirmOverlay");
+  const applyConfirmTitleEl = document.getElementById("applyConfirmTitle");
+  const applyConfirmIntroEl = document.getElementById("applyConfirmIntro");
   const applyConfirmMeterEl = document.getElementById("applyConfirmMeter");
   const applyConfirmBtnEl = document.getElementById("applyConfirmBtn");
   const applyConfirmCancelBtnEl = document.getElementById("applyConfirmCancelBtn");
@@ -2312,6 +2448,8 @@
       buildPracticeIdentityHtml(role) +
       buildIntroVideoHtml(role) +
       buildMapHtml(role) +
+      buildMatchBannerHtml(role) +
+      buildMatchWhyHtml(role) +
       buildSupportHtml();
     requestAnimationFrame(() => {
       const fill = document.getElementById("pbarFill");
@@ -2366,12 +2504,25 @@
       }
       return;
     }
+    // AI Matching (Task 7): when this page load is the GP's live, deep-
+    // linked match, the sticky bar's idle state becomes the "Accept this
+    // match" bar (spec Part D verbatim sub-line) — restyling the SAME
+    // button/flow, never a second bar or a new accept call (submitApply()
+    // still POSTs the ordinary /api/career/apply, which the server already
+    // merges into accepting the match on a live-shortlisted row).
+    const activeMatch = getActiveMatch(currentRole);
     const states = {
-      idle: {
-        cls: "at-bapply",
-        html: "Apply for this role<small>Your Registration Support Officer reviews it before the practice does</small>",
-        disabled: false
-      },
+      idle: activeMatch
+        ? {
+            cls: "at-bapply",
+            html: "Accept this match<small>" + escapeHtml(formatMatchCountdown(activeMatch.expiresAt).label) + " — your spot is reserved until then</small>",
+            disabled: false
+          }
+        : {
+            cls: "at-bapply",
+            html: "Apply for this role<small>Your Registration Support Officer reviews it before the practice does</small>",
+            disabled: false
+          },
       applying: { cls: "at-bapply", html: "Applying…", disabled: true },
       applied: {
         cls: "at-bapply at-bapply--done",
@@ -2580,9 +2731,17 @@
   }
 
   function openApplyConfirm() {
+    // AI Matching (Task 7): the SAME confirm sheet, relabelled when this is
+    // really an accept — server-side this is still just /api/career/apply,
+    // merged into accepting the match on a live-shortlisted row.
+    const activeMatch = getActiveMatch(currentRole);
+    applyConfirmTitleEl.textContent = activeMatch ? "Accept this match?" : "Apply for this role?";
+    applyConfirmIntroEl.textContent = activeMatch
+      ? "We'll confirm your interest with the practice. You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about."
+      : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.";
     applyConfirmMeterEl.textContent = "";
     applyConfirmBtnEl.disabled = false;
-    applyConfirmBtnEl.textContent = "Apply";
+    applyConfirmBtnEl.textContent = activeMatch ? "Accept" : "Apply";
     applyConfirmOverlayEl.hidden = false;
     // Best-effort meter — graceful if the fetch fails: the cap note above
     // still shows, just without the "N of 3 used" line.
@@ -2600,8 +2759,9 @@
 
   async function submitApply() {
     if (!currentRole) { closeApplyConfirm(); return; }
+    const activeMatch = getActiveMatch(currentRole);
     applyConfirmBtnEl.disabled = true;
-    applyConfirmBtnEl.textContent = "Applying…";
+    applyConfirmBtnEl.textContent = activeMatch ? "Accepting…" : "Applying…";
     applyState = "applying";
     paintApply();
     try {

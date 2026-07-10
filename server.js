@@ -18604,7 +18604,12 @@ function mapCareerRoleRowToClient(row) {
   return {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
     sourceId: row && row.provider_role_id ? String(row.provider_role_id) : '',
-    match: 'Live opening',
+    // NOTE: `match` used to be a hardcoded 'Live opening' display string here
+    // (never read by any client — verified via repo-wide search) — Task 7
+    // (2026-07-11 matching-board) repurposes the `match` key on the DETAIL
+    // payload (mapCareerRoleDetailToClient / /api/career/role) for the real
+    // live-AI-match object ({applicationId, expiresAt, reasons, score}), so
+    // the dead placeholder is removed here rather than left to collide.
     // masked_title (practice-client pipeline, task 6) is a display-safe
     // masked name — it is NEVER the real practice name. Falls back to the
     // existing Zoho-derived publicHeadline, then a generic label.
@@ -18715,6 +18720,37 @@ async function canRevealPracticeIdentity(userId, careerRoleId) {
   }
 
   return practicePipeline.canRevealPracticeIdentityCore({ application, offer });
+}
+
+// Task 7 (2026-07-11 matching-board): resolves the LIVE, non-expired,
+// AI-matched shortlist row (if any) for this exact user+role — the single
+// gp_applications lookup /api/career/role uses to decide whether to attach
+// the `match` block (job-page banner/ticks/sticky-accept). Deliberately its
+// own query rather than reusing canRevealPracticeIdentity's internal one:
+// that function only ever returns a boolean, and a revealed application
+// isn't always a live match (e.g. admin_applied origin, or an accepted
+// offer on a since-progressed/expired row) — this asks the narrower
+// question "is there a shortlisted row, still within its match window,
+// waiting on THIS GP right now".
+async function getLiveShortlistedMatchForRole(userId, careerRoleId) {
+  const uid = String(userId || '').trim();
+  const roleId = careerRoleId !== undefined && careerRoleId !== null ? String(careerRoleId).trim() : '';
+  if (!uid || !roleId) return null;
+
+  let application = null;
+  if (isSupabaseDbConfigured()) {
+    const appRes = await supabaseDbRequest('gp_applications',
+      'select=*&user_id=eq.' + encodeURIComponent(uid) + '&career_role_id=eq.' + encodeURIComponent(roleId) + '&limit=1');
+    application = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
+  } else {
+    application = (dbState.atsApplications || []).find((a) =>
+      a && String(a.user_id) === uid && String(a.career_role_id) === roleId
+    ) || null;
+  }
+  if (!application) return null;
+  if (application.ats_stage !== 'shortlisted' || !application.matched_at) return null;
+  if (application.match_expires_at && new Date(application.match_expires_at).getTime() <= Date.now()) return null;
+  return application;
 }
 
 function parseCareerRolePublicId(publicId) {
@@ -33411,9 +33447,10 @@ async function handleApi(req, res, pathname) {
     const revealed = roleDetailUserId ? await canRevealPracticeIdentity(roleDetailUserId, finalRoleRow.id) : false;
     if (revealed) {
       let practiceAddress = '';
+      let practiceRow = null;
       if (finalRoleRow.practice_id) {
         try {
-          const practiceRow = await atsGetPracticeRow(finalRoleRow.practice_id);
+          practiceRow = await atsGetPracticeRow(finalRoleRow.practice_id);
           practiceAddress = (practiceRow && practiceRow.address)
             ? String(practiceRow.address)
             : ((practiceRow && practiceRow.metadata && practiceRow.metadata.intake && practiceRow.metadata.intake.address) ? String(practiceRow.metadata.intake.address) : '');
@@ -33423,6 +33460,37 @@ async function handleApi(req, res, pathname) {
       roleClientPayload.realPracticeName = finalRoleRow.practice_name ? String(finalRoleRow.practice_name) : '';
       roleClientPayload.practiceAddress = practiceAddress;
       roleClientPayload.revealedMapQuery = [practiceAddress, finalRoleRow.suburb, finalRoleRow.location_state].filter(Boolean).join(', ');
+
+      // Task 7 (2026-07-11 matching-board): website — practices.website
+      // first, falling back to the role's own source_payload the same way
+      // extractCareerWebsiteUrl already reads it for the masked/anonymous
+      // card's sourceWebsiteAvailable flag (~16247) — covers a role whose
+      // practice_id link is missing/stale but whose original job-ad payload
+      // still carries a website. Raw value (not scheme-normalized here) —
+      // job.html gates rendering to http(s)-only, same as career.html's
+      // match card (matchSafeUrl), so a bare/garbage value simply renders
+      // nothing rather than needing sanitizing on the way out.
+      const revealedWebsite = (practiceRow && practiceRow.website)
+        ? String(practiceRow.website)
+        : extractCareerWebsiteUrl(getCareerRoleRawPayload(finalRoleRow));
+      if (revealedWebsite) roleClientPayload.website = revealedWebsite;
+
+      // Task 7: a live shortlisted, non-expired AI match for THIS user+role.
+      // The job-page banner/"Why this matches you" ticks/sticky-Accept bar
+      // only ever render client-side when this is present AND the url's
+      // ?match= param equals its applicationId (job.html's job, not this
+      // endpoint's — the block is otherwise harmless to include).
+      const matchRow = roleDetailUserId ? await getLiveShortlistedMatchForRole(roleDetailUserId, finalRoleRow.id) : null;
+      if (matchRow) {
+        const matchReasons = (matchRow.match_reasons && typeof matchRow.match_reasons === 'object' && !Array.isArray(matchRow.match_reasons) && Array.isArray(matchRow.match_reasons.reasons))
+          ? matchRow.match_reasons.reasons : [];
+        roleClientPayload.match = {
+          applicationId: matchRow.id,
+          expiresAt: matchRow.match_expires_at || null,
+          reasons: matchReasons,
+          score: (matchRow.match_score != null ? matchRow.match_score : null)
+        };
+      }
     }
 
     sendJson(res, 200, {
@@ -55567,7 +55635,14 @@ Return ONLY valid JSON with no markdown formatting:
           match_outcome: null, decline_reason: null,
           match_score: msReopenScore, match_reasons: { reasons: msReopenReasons, _history: msHistory },
           matched_by: ctxMS.email || '', matched_at: msNowIso, match_expires_at: msExpiresAt,
-          match_seen_at: null, match_reminder_sent_at: null, updated_at: msNowIso
+          match_seen_at: null, match_reminder_sent_at: null, updated_at: msNowIso,
+          // Task 7 (2026-07-11 matching-board): the fresh-insert branch below
+          // already sets revealed:true — a REOPEN must too, or a GP whose
+          // prior application on this exact job went terminal (declined /
+          // not_proceeding / expired / position_filled) and is now reopened
+          // stays masked despite being freshly re-matched (job.html would
+          // show them a blurred practice name for their own live match).
+          revealed: true
         };
         var msUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(msExisting.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: msPatch });
         var msReopenedRow = (msUpd.ok && Array.isArray(msUpd.data) && msUpd.data[0]) ? msUpd.data[0] : null;
