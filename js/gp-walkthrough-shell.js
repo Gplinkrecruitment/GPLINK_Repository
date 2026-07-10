@@ -62,19 +62,14 @@
     if (!C || !S || C.isActive()) return;
     var steps = buildSteps();
     if (!steps.length) return;
-    // TEMP QA gate: no tourDone persistence — testers see the tour every login.
-    C.run(steps, { label: function (i, n) { return 'Step ' + (i + 1) + ' of ' + n; } });
+    C.run(steps, { label: function (i, n) { return 'Step ' + (i + 1) + ' of ' + n; }, onDone: markDone, onSkip: markDone });
   }
   function tryAuto() {
     if (ranAuto || !homeLoaded || !hydrated) return;
     if (guarded()) return;
     ranAuto = true; // decide exactly once (transient guards no longer consume the one shot)
-    // TEMP QA gate: only allowlisted testers (server-side) auto-run the tour, and they run it
-    // EVERY login. Remove this gate (restore `if (!S.shouldRunTour(readState())) return;` +
-    // onDone/onSkip:markDone above) to enable the real new-sign-ups-only rollout.
-    var G = window.gpWalkthroughGate;
-    if (!G || !G.enabled) return;
-    G.enabled().then(function (on) { if (on) setTimeout(runTour, 350); }); // let the nav settle
+    if (!S.shouldRunTour(readState())) return; // new users only (existing users marked seen at launch)
+    setTimeout(runTour, 350); // let the nav settle
   }
 
   if (window.gpLinkStateSync && window.gpLinkStateSync.isHydrated && window.gpLinkStateSync.isHydrated()) { hydrated = true; }

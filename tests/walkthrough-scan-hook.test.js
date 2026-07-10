@@ -5,7 +5,7 @@ import path from 'node:path';
 describe('scan modal triggers a first-visit Scan mini-tour', () => {
   it('qualification-scan.js references the scan-area walkthrough hook', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'js', 'qualification-scan.js'), 'utf8');
-    expect(src).toContain('gpWalkthroughGate');
+    expect(src).toContain('gpWalkthroughState');
     expect(src).toMatch(/maybeScanTour|'scan'|"scan"/);
   });
 });
