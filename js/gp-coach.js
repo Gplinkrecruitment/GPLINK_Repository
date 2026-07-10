@@ -37,18 +37,18 @@
       + '.gp-coach-spot{position:fixed;border-radius:14px;pointer-events:none;'
       + 'box-shadow:0 0 0 9999px rgba(9,14,28,.62),0 0 0 3px rgba(255,255,255,.92);'
       + 'transition:all .32s cubic-bezier(.22,.61,.21,1);}'
-      + '.gp-coach-tip{position:fixed;width:min(280px,calc(100vw - 24px));background:#fff;border-radius:16px;'
+      + '.gp-coach-tip{position:fixed;width:min(280px,calc(100vw - 24px));background:var(--gp-surface,#fff);border-radius:16px;'
       + 'padding:15px 15px 13px;box-shadow:0 24px 55px -24px rgba(2,6,23,.5);'
-      + "font-family:var(--gp-font-body,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);color:#1f2b43;"
+      + "font-family:var(--gp-font-body,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);color:var(--gp-text,#1f2b43);"
       + 'transition:all .3s cubic-bezier(.22,.61,.21,1);}'
-      + '.gp-coach-step{font-size:11px;font-weight:700;letter-spacing:.05em;color:#2563eb;text-transform:uppercase;margin-bottom:6px;}'
-      + '.gp-coach-title{margin:0 0 5px;font-size:15.5px;font-weight:700;color:#0f172a;}'
+      + '.gp-coach-step{font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--gp-blue,#2563eb);text-transform:uppercase;margin-bottom:6px;}'
+      + '.gp-coach-title{margin:0 0 5px;font-size:15.5px;font-weight:700;color:var(--gp-ink,#0f172a);}'
       + '.gp-coach-body{margin:0 0 13px;font-size:13.5px;line-height:1.5;}'
       + '.gp-coach-acts{display:flex;align-items:center;gap:8px;}'
-      + '.gp-coach-skip{margin-right:auto;background:none;border:none;font:inherit;font-size:12.5px;font-weight:600;color:#94a3b8;cursor:pointer;}'
-      + '.gp-coach-back{background:#eff4ff;border:none;border-radius:10px;padding:8px 13px;font:inherit;font-size:13px;font-weight:600;color:#1d4ed8;cursor:pointer;}'
-      + '.gp-coach-next{background:linear-gradient(135deg,#2e6bf0,#1d4ed8);border:none;border-radius:10px;padding:8px 15px;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;}'
-      + '.gp-coach-arrow{position:absolute;width:14px;height:14px;background:#fff;transform:rotate(45deg);}'
+      + '.gp-coach-skip{margin-right:auto;background:none;border:none;font:inherit;font-size:12.5px;font-weight:600;color:var(--gp-faint,#94a3b8);cursor:pointer;}'
+      + '.gp-coach-back{background:var(--gp-blue-soft,#eff4ff);border:none;border-radius:10px;padding:8px 13px;font:inherit;font-size:13px;font-weight:600;color:var(--gp-blue-deep,#1d4ed8);cursor:pointer;}'
+      + '.gp-coach-next{background:var(--gp-grad-brand,linear-gradient(135deg,#2e6bf0,#1d4ed8));border:none;border-radius:10px;padding:8px 15px;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;}'
+      + '.gp-coach-arrow{position:absolute;width:14px;height:14px;background:var(--gp-surface,#fff);transform:rotate(45deg);}'
       + '.gp-coach-arrow.below{top:-7px;}.gp-coach-arrow.above{bottom:-7px;}'
       + '@media (prefers-reduced-motion: reduce){.gp-coach-spot,.gp-coach-tip{transition:none!important;}}';
     var el = d.createElement('style'); el.id = STYLE_ID; el.textContent = css; d.head.appendChild(el);
@@ -92,10 +92,12 @@
     overlay.className = 'gp-coach-overlay';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'gp-coach-title');
+    overlay.setAttribute('aria-describedby', 'gp-coach-body');
     var spot = d.createElement('div'); spot.className = 'gp-coach-spot';
     var tip = d.createElement('div'); tip.className = 'gp-coach-tip';
     tip.innerHTML = '<div class="gp-coach-arrow"></div><div class="gp-coach-step" aria-live="polite"></div>'
-      + '<h5 class="gp-coach-title"></h5><p class="gp-coach-body"></p><div class="gp-coach-acts"></div>';
+      + '<h5 class="gp-coach-title" id="gp-coach-title"></h5><p class="gp-coach-body" id="gp-coach-body"></p><div class="gp-coach-acts"></div>';
     overlay.appendChild(spot); overlay.appendChild(tip);
     d.body.appendChild(overlay);
 
@@ -122,6 +124,13 @@
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); skip(); }
         else if (e.key === 'Enter') { e.preventDefault(); next(); }
+        else if (e.key === 'Tab') {
+          var btns = actsEl.querySelectorAll('button');
+          if (!btns.length) return;
+          var first = btns[0], last = btns[btns.length - 1];
+          if (e.shiftKey && d.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && d.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
       }
       function reposition() {
         if (!curTarget) return;
