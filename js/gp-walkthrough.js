@@ -67,9 +67,17 @@
     var area = S.routeToArea(location.pathname);
     if (!area) return;
     if (guarded()) return;
-    if (!S.shouldRunTip(readState(), area)) return;
-    markSeen(area);          // mark BEFORE running so it can never double-fire
-    runArea(area);
+    // TEMP QA gate: only allowlisted testers see mini-tours, once per browser session
+    // (sessionStorage) so they replay every login. Remove this gate (restore the
+    // `if (!S.shouldRunTip(readState(), area)) return; markSeen(area);` lines) for the real rollout.
+    var G = window.gpWalkthroughGate;
+    if (!G || !G.enabled) return;
+    G.enabled().then(function (on) {
+      if (!on) return;
+      var skey = 'gp_wt_seen_' + area;
+      try { if (sessionStorage.getItem(skey) === '1') return; sessionStorage.setItem(skey, '1'); } catch (e) {}
+      runArea(area);
+    });
   }
 
   // Replay entry (Account row): ask the shell to run the nav tour.

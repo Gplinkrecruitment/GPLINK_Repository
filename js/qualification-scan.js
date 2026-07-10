@@ -30,24 +30,22 @@
   // First-visit Scan mini-tour (part of the app walkthrough). Runs once, gated on state.
   function maybeScanTour() {
     if (!isOpen) return;
-    var S = window.gpWalkthroughState, C = window.gpCoach;
-    if (!S || !C || (C.isActive && C.isActive())) return;
+    var C = window.gpCoach, G = window.gpWalkthroughGate;
+    if (!C || (C.isActive && C.isActive()) || !G || !G.enabled) return;
     try {
       if (localStorage.getItem('gp_account_under_review') === 'true') return;
       if (localStorage.getItem('gp_account_pep_waitlist') === 'true') return;
     } catch (e) {}
     if (document.body && document.body.classList.contains('gp-restricted')) return;
-    var KEY = 'gp_walkthrough_state';
-    var st; try { st = S.parseState(localStorage.getItem(KEY)); } catch (e) { st = S.defaultState(); }
-    if (!S.shouldRunTip(st, 'scan')) return;
-    try {
-      localStorage.setItem(KEY, S.serializeState(S.withTipSeen(st, 'scan')));
-      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
-    } catch (e) {}
-    C.run([
-      { target: '.scan-actions', title: 'Scan a document', body: 'Take a photo with your camera, or upload a file you already have.' },
-      { target: '#gpScanSubmit', title: 'We verify it for you', body: 'Tap “Scan with AI” and we read and check the document automatically.' }
-    ], { label: function (i, n) { return 'First-visit · ' + (i + 1) + '/' + n; } });
+    // TEMP QA gate: only allowlisted testers see the scan tour, once per browser session.
+    G.enabled().then(function (on) {
+      if (!on || !isOpen) return;
+      try { if (sessionStorage.getItem('gp_wt_seen_scan') === '1') return; sessionStorage.setItem('gp_wt_seen_scan', '1'); } catch (e) {}
+      C.run([
+        { target: '.scan-actions', title: 'Scan a document', body: 'Take a photo with your camera, or upload a file you already have.' },
+        { target: '#gpScanSubmit', title: 'We verify it for you', body: 'Tap “Scan with AI” and we read and check the document automatically.' }
+      ], { label: function (i, n) { return 'First-visit · ' + (i + 1) + '/' + n; } });
+    });
   }
 
   /* ── Helpers ── */

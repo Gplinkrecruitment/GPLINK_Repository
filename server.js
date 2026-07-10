@@ -6191,6 +6191,12 @@ const USER_STATE_KEYS = [
   'gp_walkthrough_state'
 ];
 
+// TEMPORARY QA gate: the in-app walkthrough (nav tour + first-visit tips) is shown ONLY to
+// these logged-in emails, every login, so we can test it in production without existing GPs
+// seeing it. Exposed via GET /api/walkthrough-config. Empty/remove this list (and the client
+// gate) to enable the real new-sign-ups-only rollout. Emails are compared lowercased.
+const WALKTHROUGH_TEST_EMAILS = ['helenwazalski@gmail.com'];
+
 const EPIC_STAGE_META = [
   { key: 'create_account', label: 'Create account' },
   { key: 'account_establishment', label: 'Account establishment' },
@@ -42591,6 +42597,15 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 200, { ok: true, read: readMap });
+    return;
+  }
+
+  // TEMP QA gate: is the in-app walkthrough enabled for the current logged-in user?
+  if (pathname === '/api/walkthrough-config' && req.method === 'GET') {
+    const wtSession = getSession(req);
+    const wtEmail = wtSession ? String(getSessionEmail(wtSession) || '').trim().toLowerCase() : '';
+    const wtShow = !!wtEmail && WALKTHROUGH_TEST_EMAILS.indexOf(wtEmail) !== -1;
+    sendJson(res, 200, { ok: true, show: wtShow });
     return;
   }
 
