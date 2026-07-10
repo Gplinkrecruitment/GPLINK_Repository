@@ -13,6 +13,13 @@
 <meta property="og:url" content="https://www.mygplink.com.au/jobs/view">
 <link rel="stylesheet" href="/css/site.css?v=20260703">
 <style>
+  /* The `hidden` attribute must always win. Several blocks below set an explicit
+     display (skeleton = grid, hero img = block, earnings = flex); without this,
+     those author rules override the UA `[hidden]{display:none}`, which left the
+     loading skeleton (and empty hero/earnings boxes) stuck on screen after the
+     job content finished loading. */
+  [hidden]{display:none!important;}
+
   /* ---------- breadcrumb ---------- */
   .job-breadcrumb-bar{background:var(--card);border-bottom:1px solid var(--line);padding:16px 0;}
   .job-breadcrumb-bar a{font-size:13.5px;font-weight:650;color:var(--teal);text-decoration:none;}
