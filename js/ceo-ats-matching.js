@@ -57,6 +57,21 @@
   };
   var AU_STATES = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
 
+  // Board display order for pipeline/live nodes: most-progressed first (offer
+  // nearest the practice). The Task 4 endpoint already returns rows in this
+  // order (its tests pin it), but the board must not silently depend on the
+  // server's ordering — both the funnel line and the expand panel sort
+  // defensively via mbSortPipeline (mirrors server.js
+  // MATCHING_BOARD_STAGE_RANK).
+  var MB_STAGE_RANK = { offer: 0, interview: 1, reviewing: 2, submitted: 3, applied: 4, shortlisted: 5 };
+  function mbStageRank(stage) {
+    var r = MB_STAGE_RANK[stage];
+    return (r === undefined) ? 99 : r;
+  }
+  function mbSortPipeline(list) {
+    return (list || []).slice().sort(function (a, b) { return mbStageRank(a.ats_stage) - mbStageRank(b.ats_stage); });
+  }
+
   /* ============================================================
    * Pure helpers — dates, buckets, labels. No DOM, no escaping (the HTML
    * builders below apply A.esc/A.escAttr at the point of interpolation).
@@ -240,7 +255,7 @@
   // Empty state (no pipeline AND no cached ranking) shows only the run button.
   function mbTrackHtml(row, nowMs) {
     var job = (row && row.job) || {};
-    var pipeline = (row && row.pipeline) || [];
+    var pipeline = mbSortPipeline((row && row.pipeline) || []);
     var suggestions = (row && row.suggestions) || [];
     var ranking = (row && row.ranking) || null;
     if (!pipeline.length && !ranking) {
@@ -263,7 +278,7 @@
   // GPs-direction mirror of mbTrackHtml (live[] instead of pipeline[]).
   function mbGpTrackHtml(row, nowMs) {
     var gp = (row && row.gp) || {};
-    var live = (row && row.live) || [];
+    var live = mbSortPipeline((row && row.live) || []);
     var suggestions = (row && row.suggestions) || [];
     var ranking = (row && row.ranking) || null;
     if (!live.length && !ranking) {
@@ -415,6 +430,42 @@
     return '<select class="ats-mb-state-select" data-mb-state>' + opts.join('') + '</select>';
   }
 
+  // Top-bar sort control (spec Part A item 2: "sort (default: longest
+  // unfilled first)"; gps flip default "nothing-sent + oldest first" reads
+  // as "Waiting longest").
+  function mbSortSelectHtml(direction, sort) {
+    var opts = (direction === 'gps')
+      ? [['default', 'Waiting longest'], ['az', 'GP A–Z']]
+      : [['default', 'Longest unfilled'], ['az', 'Practice A–Z']];
+    var cur = sort || 'default';
+    return '<select class="ats-mb-sort-select" data-mb-sort>' + opts.map(function (o) {
+      return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('') + '</select>';
+  }
+
+  // Row-level sort, applied in renderBoard after filtering and before the
+  // 25-row slice. Array.prototype.sort is stable in every supported engine,
+  // so ties keep the server's order (which matters for the gps direction's
+  // signal-first grouping among equal days_on_books).
+  function mbSortRows(rows, direction, sort) {
+    var out = (rows || []).slice();
+    var isGp = direction === 'gps';
+    if (sort === 'az') {
+      out.sort(function (a, b) {
+        var an = isGp ? ((a.gp && a.gp.name) || '') : ((a.job && a.job.practice_name) || '');
+        var bn = isGp ? ((b.gp && b.gp.name) || '') : ((b.job && b.job.practice_name) || '');
+        return String(an).localeCompare(String(bn));
+      });
+    } else {
+      out.sort(function (a, b) {
+        var ad = isGp ? ((a.gp && a.gp.days_on_books) || 0) : ((a.job && a.job.days_open) || 0);
+        var bd = isGp ? ((b.gp && b.gp.days_on_books) || 0) : ((b.job && b.job.days_open) || 0);
+        return bd - ad;
+      });
+    }
+    return out;
+  }
+
   // rows: the CURRENT direction's full (unfiltered) row list — chip counts
   // are faceted against the full set, independent of the other active
   // filters, so a chip always answers "how many if I click me right now".
@@ -444,8 +495,9 @@
     }
     var stateSelect = !isGp ? mbStateSelectHtml(filters.state) : '';
     var dpaChip = !isGp ? mbChip('DPA only', null, 'dpa:1', !!filters.dpa) : '';
+    var sortSelect = mbSortSelectHtml(direction, filters.sort);
     var search = '<input type="text" class="ats-mb-search" data-mb-search placeholder="🔍 Search…" value="' + A.escAttr(filters.q || '') + '" />';
-    return '<div class="ats-mb-toolbar-row">' + chips.join('') + stateSelect + dpaChip + search + '</div>';
+    return '<div class="ats-mb-toolbar-row">' + chips.join('') + stateSelect + dpaChip + sortSelect + search + '</div>';
   }
 
   function mbFilledToggleHtml(count, active) {
@@ -557,7 +609,7 @@
     selection = selection || {};
     nowMs = nowMs || Date.now();
     var isGp = !!row.gp;
-    var pipelineList = isGp ? (row.live || []) : (row.pipeline || []);
+    var pipelineList = mbSortPipeline(isGp ? (row.live || []) : (row.pipeline || []));
     var suggestions = row.suggestions || [];
     var ranking = row.ranking || null;
     var rowId = isGp ? (row.gp && row.gp.user_id) : (row.job && row.job.id);
@@ -703,6 +755,7 @@
     var allRows = state.boardData.rows || [];
     var kpis = state.positionsKpis || {};
     var filteredRows = isGp ? mbFilterGpRows(allRows, state.filters) : mbFilterPositionsRows(allRows, state.filters);
+    filteredRows = mbSortRows(filteredRows, state.direction, state.filters.sort);
     var visibleRows = filteredRows.slice(0, state.visibleCount);
     var showMore = filteredRows.length > visibleRows.length;
     var ctx = { expandedId: state.expandedId, runningIds: state.runningIds, nowMs: state.nowMs };
@@ -805,6 +858,7 @@
   }
 
   function onStateSelectChange(val) { state.filters.state = val || ''; state.visibleCount = 25; renderBoard(); }
+  function onSortSelectChange(val) { state.filters.sort = val || 'default'; state.visibleCount = 25; renderBoard(); }
 
   function onSearchInput(val) {
     state.filters.q = val || '';
@@ -934,7 +988,10 @@
     if (e.target && e.target.getAttribute && e.target.getAttribute('data-mb-search') != null) onSearchInput(e.target.value);
   }
   function onPanelChange(e) {
-    if (e.target && e.target.getAttribute && e.target.getAttribute('data-mb-state') != null) onStateSelectChange(e.target.value);
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-mb-state') != null) onStateSelectChange(t.value);
+    else if (t.getAttribute('data-mb-sort') != null) onSortSelectChange(t.value);
   }
 
   window.loadMatchingTab = loadMatchingTab;
@@ -960,6 +1017,9 @@
     mbFilledRowHtml: mbFilledRowHtml,
     mbExpandHtml: mbExpandHtml,
     mbFilterPositionsRows: mbFilterPositionsRows,
-    mbFilterGpRows: mbFilterGpRows
+    mbFilterGpRows: mbFilterGpRows,
+    mbSortPipeline: mbSortPipeline,
+    mbSortRows: mbSortRows,
+    mbSortSelectHtml: mbSortSelectHtml
   };
 })();

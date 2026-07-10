@@ -498,6 +498,96 @@ describe('wiring pins (source-level — network/DOM behaviour not exercised unde
   });
 });
 
+describe('sort control (spec Part A top bar: "sort (default: longest unfilled first)")', () => {
+  it('positions toolbar carries the sort select: Longest unfilled (default) / Practice A–Z', () => {
+    const html = MB.mbFilterChipsHtml('positions', [], {});
+    expect(html).toContain('ats-mb-sort-select');
+    expect(html).toMatch(/<option value="default" selected>Longest unfilled<\/option>/);
+    expect(html).toMatch(/<option value="az">Practice A–Z<\/option>/);
+  });
+  it('gps toolbar mirrors it: Waiting longest (default) / GP A–Z', () => {
+    const html = MB.mbFilterChipsHtml('gps', [], {});
+    expect(html).toMatch(/<option value="default" selected>Waiting longest<\/option>/);
+    expect(html).toMatch(/<option value="az">GP A–Z<\/option>/);
+  });
+  it('a chosen sort persists as the selected option across re-renders', () => {
+    const html = MB.mbSortSelectHtml('positions', 'az');
+    expect(html).toMatch(/<option value="az" selected>Practice A–Z<\/option>/);
+    expect(html).not.toMatch(/value="default" selected/);
+  });
+
+  const posRows = [
+    { job: job({ id: 'j-short', days_open: 10, practice_name: 'Zebra Health' }), pipeline: [], suggestions: [] },
+    { job: job({ id: 'j-long', days_open: 74, practice_name: 'Mango Medical' }), pipeline: [], suggestions: [] },
+    { job: job({ id: 'j-mid', days_open: 41, practice_name: 'Apple Clinic' }), pipeline: [], suggestions: [] },
+  ];
+  it('positions default sort = days_open desc (longest unfilled first)', () => {
+    expect(MB.mbSortRows(posRows, 'positions', 'default').map((r) => r.job.id)).toEqual(['j-long', 'j-mid', 'j-short']);
+  });
+  it('positions A–Z sorts by practice_name', () => {
+    expect(MB.mbSortRows(posRows, 'positions', 'az').map((r) => r.job.practice_name)).toEqual(['Apple Clinic', 'Mango Medical', 'Zebra Health']);
+  });
+
+  const gpSortRows = [
+    { gp: { user_id: 'g-new', name: 'Zara Young', days_on_books: 2 }, live: [], suggestions: [] },
+    { gp: { user_id: 'g-old', name: 'Milo Old', days_on_books: 30 }, live: [], suggestions: [] },
+    { gp: { user_id: 'g-mid', name: 'Ada Mid', days_on_books: 12 }, live: [], suggestions: [] },
+  ];
+  it('gps default sort = days_on_books desc (waiting longest first)', () => {
+    expect(MB.mbSortRows(gpSortRows, 'gps', 'default').map((r) => r.gp.user_id)).toEqual(['g-old', 'g-mid', 'g-new']);
+  });
+  it('gps A–Z sorts by GP name', () => {
+    expect(MB.mbSortRows(gpSortRows, 'gps', 'az').map((r) => r.gp.name)).toEqual(['Ada Mid', 'Milo Old', 'Zara Young']);
+  });
+
+  it('renderBoard applies the sort before the 25-row slice (source pin)', () => {
+    expect(matchingSrc).toContain('filteredRows = mbSortRows(filteredRows, state.direction, state.filters.sort);');
+    const renderFn = matchingSrc.slice(matchingSrc.indexOf('function renderBoard'), matchingSrc.indexOf('function mbFindExpandedRow'));
+    expect(renderFn.indexOf('mbSortRows')).toBeGreaterThan(-1);
+    expect(renderFn.indexOf('mbSortRows')).toBeLessThan(renderFn.indexOf('.slice(0, state.visibleCount)'));
+  });
+  it('the change handler wires data-mb-sort into state.filters.sort (source pin)', () => {
+    expect(matchingSrc).toContain("t.getAttribute('data-mb-sort') != null) onSortSelectChange(t.value);");
+    expect(matchingSrc).toContain("function onSortSelectChange(val) { state.filters.sort = val || 'default';");
+  });
+});
+
+describe('pipeline node ordering — defensive most-progressed-first sort', () => {
+  // Deliberately shuffled (least-progressed first) to prove the board does
+  // NOT silently depend on the server's offer-first ordering.
+  const shuffled = [
+    { application_id: 'a-short', user_id: 'u-short', name: 'Dr Shortlist First', ats_stage: 'shortlisted', stage_updated_at: hoursAgo(1), match: { score: 80, expires_at: daysFromNow(3), outcome: null, more_time_requested_at: null, final_reminder_sent_at: null } },
+    { application_id: 'a-app', user_id: 'u-app', name: 'Dr Applied Second', ats_stage: 'applied', stage_updated_at: hoursAgo(2), match: null },
+    { application_id: 'a-offer', user_id: 'u-offer', name: 'Dr Offer Last', ats_stage: 'offer', stage_updated_at: hoursAgo(3), match: null },
+    { application_id: 'a-int', user_id: 'u-int', name: 'Dr Interview Mid', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null },
+  ];
+  const orderOf = (html, names) => names.map((n) => html.indexOf(n));
+  const isAscending = (xs) => xs.every((x, i) => x >= 0 && (i === 0 || x > xs[i - 1]));
+
+  it('mbSortPipeline ranks offer < interview < reviewing/submitted < applied < shortlisted, without mutating its input', () => {
+    const input = shuffled.slice();
+    const sorted = MB.mbSortPipeline(input);
+    expect(sorted.map((p) => p.ats_stage)).toEqual(['offer', 'interview', 'applied', 'shortlisted']);
+    expect(input.map((p) => p.ats_stage)).toEqual(['shortlisted', 'applied', 'offer', 'interview']); // untouched
+  });
+  it('mbTrackHtml renders a shuffled pipeline offer-first', () => {
+    const html = MB.mbTrackHtml(row({ pipeline: shuffled }), NOW);
+    expect(isAscending(orderOf(html, ['Dr Offer Last', 'Dr Interview Mid', 'Dr Applied Second', 'Dr Shortlist First']))).toBe(true);
+  });
+  it('mbExpandHtml lists the same shuffled pipeline offer-first', () => {
+    const html = MB.mbExpandHtml(row({ pipeline: shuffled }), {}, NOW);
+    expect(isAscending(orderOf(html, ['Dr Offer Last', 'Dr Interview Mid', 'Dr Applied Second', 'Dr Shortlist First']))).toBe(true);
+  });
+  it('mbGpTrackHtml sorts a shuffled live[] the same way', () => {
+    const live = [
+      { application_id: 'a1', career_role_id: 'r1', title: 'Role One', practice_name: 'Practice Shortlisted', ats_stage: 'shortlisted', stage_updated_at: hoursAgo(1), match: null },
+      { application_id: 'a2', career_role_id: 'r2', title: 'Role Two', practice_name: 'Practice Offer', ats_stage: 'offer', stage_updated_at: hoursAgo(2), match: null },
+    ];
+    const html = MB.mbGpTrackHtml({ gp: { user_id: 'g1', name: 'Dr X', days_on_books: 3 }, live, suggestions: [], ranking: null }, NOW);
+    expect(isAscending(orderOf(html, ['Practice Offer', 'Practice Shortlisted']))).toBe(true);
+  });
+});
+
 describe('KPI clear + flip refetch (source pins — behaviour requires a live DOM to exercise end-to-end)', () => {
   it('the "open" KPI tile clears urgency/status/dpa/state (its "filter" is "show everything")', () => {
     const fn = matchingSrc.slice(matchingSrc.indexOf('function onKpiClick'), matchingSrc.indexOf('function onFlipClick'));

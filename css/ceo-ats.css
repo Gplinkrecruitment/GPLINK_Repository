@@ -388,7 +388,10 @@
 .ats-mb-chip.hot.on { color:var(--ats-red); background:var(--ats-red-dim); border-color:var(--ats-red); }
 .ats-mb-chip.won { border-color:var(--ats-border); }
 .ats-mb-chip.won.on { color:var(--ats-green); background:var(--ats-green-dim); border-color:var(--ats-green); }
-.ats-mb-state-select { font-size:12px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:999px; padding:6px 10px; color:var(--ats-text); font-family:inherit; }
+/* .ats-scope select.<class> (not bare .<class>) so these out-specific the
+ * generic `.ats-scope select { width:100% }` rule above — same pattern as
+ * .ats-scope select.ats-app-stage. */
+.ats-scope select.ats-mb-state-select, .ats-scope select.ats-mb-sort-select { width:auto; font-size:12px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:999px; padding:6px 10px; color:var(--ats-text); font-family:inherit; }
 .ats-mb-search { flex:1; min-width:140px; max-width:260px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:10px; padding:7px 12px; font-size:12px; color:var(--ats-text); font-family:inherit; }
 .ats-mb-search::placeholder { color:var(--ats-dim); }
 
