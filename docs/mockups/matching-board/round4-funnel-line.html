@@ -1,0 +1,158 @@
+<style>
+  .m4 { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .m4 .board { background:#0b0f1a; border-radius:16px; padding:16px; color:#e5e7eb; overflow-x:auto; }
+  .m4 .legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center; background:#111827; border:1px solid #232c42; border-radius:12px; padding:9px 14px; margin-bottom:12px; }
+  .m4 .lg { display:flex; align-items:center; gap:6px; font-size:10.5px; font-weight:600; color:#94a3b8; white-space:nowrap; }
+  .m4 .lgdot { width:9px; height:9px; border-radius:50%; }
+
+  .m4 .plogo { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-weight:800; font-size:12px; color:#fff; flex:none; border:2px solid #111827; }
+  .m4 .gav { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:10px; color:#fff; flex:none; }
+  .m4 .scorepill { font-size:9.5px; font-weight:800; border-radius:999px; padding:1px 6px; }
+  .m4 .sc-hi { background:#052e16; color:#4ade80; border:1px solid #166534; }
+  .m4 .sc-mid { background:#172554; color:#93c5fd; border:1px solid #1e40af; }
+  .m4 .urg { font-size:10px; font-weight:700; border-radius:999px; padding:2px 8px; display:inline-flex; align-items:center; gap:5px; }
+  .m4 .urg::before { content:''; width:6px; height:6px; border-radius:50%; }
+  .m4 .urg.red { background:#7f1d1dcc; color:#fecaca; } .m4 .urg.red::before { background:#f87171; }
+  .m4 .urg.amber { background:#78350fcc; color:#fde68a; } .m4 .urg.amber::before { background:#fbbf24; }
+
+  .m4 .rrow { display:flex; align-items:stretch; background:#111827; border:1px solid #232c42; border-radius:16px; margin-bottom:11px; overflow:hidden; }
+  .m4 .rleft { width:250px; flex:none; position:relative; }
+  .m4 .photo { position:absolute; inset:0; }
+  .m4 .photo::after { content:''; position:absolute; inset:0; background:linear-gradient(90deg, rgba(11,15,26,.25), rgba(17,24,39,.92) 78%, #111827); }
+  .m4 .rleft .inner { position:relative; z-index:1; padding:12px 14px; display:flex; flex-direction:column; gap:6px; height:100%; justify-content:center; }
+  .m4 .prow { display:flex; gap:9px; align-items:center; }
+  .m4 .pname { font-size:12.5px; font-weight:700; color:#f8fafc; line-height:1.25; text-shadow:0 1px 6px rgba(0,0,0,.6); }
+  .m4 .ploc { font-size:10.5px; color:#cbd5e1; margin-top:1px; text-shadow:0 1px 6px rgba(0,0,0,.6); }
+  .m4 .postitle { font-size:10px; color:#94a3b8; }
+
+  .m4 .rtrack { flex:1; position:relative; display:flex; align-items:center; gap:9px; padding:14px 14px 14px 20px; min-height:72px; border-left:1px dashed #232c42; }
+  /* solid line through the pipeline zone, fading dashes into suggestions */
+  .m4 .pipezone { position:relative; display:flex; align-items:center; gap:9px; }
+  .m4 .pipezone::before { content:''; position:absolute; left:-20px; right:-14px; top:50%; height:2.5px; background:#3b82f6; z-index:0; }
+  .m4 .suggzone { position:relative; display:flex; align-items:center; gap:9px; flex:1; }
+  .m4 .suggzone::before { content:''; position:absolute; left:-9px; right:6px; top:50%; height:0; border-top:2px dashed #3b82f655; z-index:0; }
+
+  .m4 .gnode { position:relative; z-index:1; background:#0e1526; border:1px solid #26314e; border-radius:11px; padding:5px 9px; display:flex; gap:7px; align-items:center; white-space:nowrap; }
+  .m4 .gname { font-size:11px; font-weight:700; color:#f1f5f9; line-height:1.2; }
+  .m4 .stg { font-size:9px; font-weight:700; line-height:1.2; margin-top:1px; }
+  .m4 .gnode.interview { border-color:#4f46e5; box-shadow:0 0 0 1px #4f46e544; } .m4 .stg.interview { color:#a5b4fc; }
+  .m4 .gnode.offer { border-color:#166534; box-shadow:0 0 0 1px #16653444; } .m4 .stg.offer { color:#4ade80; }
+  .m4 .gnode.submitted { border-color:#7c3aed88; } .m4 .stg.submitted { color:#c4b5fd; }
+  .m4 .gnode.await { border-color:#78350f; } .m4 .stg.await { color:#fbbf24; }
+  .m4 .gnode.expiring { border-color:#f59e0b; animation:m4pulse 1.6s ease-in-out infinite; } .m4 .stg.expiring { color:#fbbf24; }
+  @keyframes m4pulse { 0%,100% { box-shadow:0 0 0 0 rgba(245,158,11,.45);} 50% { box-shadow:0 0 0 6px rgba(245,158,11,0);} }
+  .m4 .gnode.sugg { opacity:.68; } .m4 .stg.sugg { color:#64748b; }
+  .m4 .agechip { position:relative; z-index:1; font-size:9.5px; font-weight:700; color:#64748b; border:1px dashed #334155; background:#0b0f1a; border-radius:999px; padding:5px 10px; white-space:nowrap; }
+  .m4 .agechip b { color:#93c5fd; }
+
+  /* filled row */
+  .m4 .rrow.filled { border-color:#14532d; background:#0c1a12; }
+  .m4 .filledtrack { flex:1; display:flex; align-items:center; gap:12px; padding:14px 14px 14px 20px; border-left:1px dashed #14532d; }
+  .m4 .winbadge { font-size:11px; font-weight:800; color:#4ade80; background:#052e16; border:1px solid #166534; border-radius:999px; padding:5px 12px; white-space:nowrap; }
+  .m4 .winsub { font-size:10.5px; color:#6ee7b7cc; }
+
+  .m4 .chip { font-size:11px; font-weight:600; color:#94a3b8; background:#151b2b; border:1px solid #232c42; border-radius:999px; padding:6px 11px; white-space:nowrap; display:inline-block; }
+  .m4 .chip.won { color:#6ee7b7; border-color:#166534; background:#05291733; }
+  .m4 .cap { font-size:12px; color:#64748b; margin-top:10px; line-height:1.55; }
+  .m4 .cap b { color:#cbd5e1; }
+</style>
+
+<div class="m4">
+<h2>Round 4 — the whole funnel, living on one line</h2>
+<p class="subtitle">Each row now tells the position's complete story. The line is <b>solid blue through GPs actually in the pipeline</b> (ordered: closest-to-filled sits nearest the practice) and <b>fades to dashes for AI suggestions</b> not yet contacted. Legend on top; your other three additions are in here too.</p>
+
+<div class="section" style="margin-top:20px">
+  <div class="mockup">
+    <div class="mockup-header">Row anatomy — pipeline zone (solid line) → suggestions zone (dashed)</div>
+    <div class="mockup-body" style="background:#05070d; padding:14px">
+      <div class="board">
+        <div class="legend">
+          <span style="font-size:10px; font-weight:800; letter-spacing:.05em; color:#475569">LINE GUIDE</span>
+          <span class="lg"><span class="lgdot" style="background:#4ade80"></span>Offer</span>
+          <span class="lg"><span class="lgdot" style="background:#818cf8"></span>Interview</span>
+          <span class="lg"><span class="lgdot" style="background:#a78bfa"></span>With practice</span>
+          <span class="lg"><span class="lgdot" style="background:#fbbf24"></span>Awaiting reply</span>
+          <span class="lg"><span class="lgdot" style="background:#fbbf24; box-shadow:0 0 0 3px rgba(245,158,11,.25)"></span>Expiring &lt;24h</span>
+          <span class="lg"><span class="lgdot" style="background:#475569"></span>Suggested (not contacted)</span>
+        </div>
+
+        <!-- Row 1: full funnel -->
+        <div class="rrow" style="border-left:3px solid #ef4444">
+          <div class="rleft">
+            <div class="photo" style="background:linear-gradient(135deg,#0ea5e9 0%,#38bdf8 40%,#fbbf24 100%)"></div>
+            <div class="inner">
+              <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+              <div><span class="urg red">74 days unfilled</span></div>
+              <div class="postitle">VR GP · Full time · DPA</div>
+            </div>
+          </div>
+          <div class="rtrack">
+            <div class="pipezone">
+              <div class="gnode interview"><div class="gav" style="background:#ea580c">HW</div><div><div class="gname">Dr H. Wazalski</div><div class="stg interview">Interview · Tue 15 Jul</div></div></div>
+              <div class="gnode submitted"><div class="gav" style="background:#4f46e5">AT</div><div><div class="gname">Dr A. Toma</div><div class="stg submitted">With practice · 2d</div></div></div>
+              <div class="gnode await"><div class="gav" style="background:#2563eb">SM</div><div><div class="gname">Dr S. Mirza</div><div class="stg await">Awaiting · 3d left</div></div><span class="scorepill sc-hi">92</span></div>
+            </div>
+            <div class="suggzone">
+              <div class="gnode sugg"><div class="gav" style="background:#9333ea">JO</div><div><div class="gname">Dr J. O'Neill</div><div class="stg sugg">Suggested</div></div><span class="scorepill sc-mid">87</span></div>
+              <div class="gnode sugg"><div class="gav" style="background:#0d9488">PK</div><div><div class="gname">Dr P. Krishnan</div><div class="stg sugg">Suggested</div></div><span class="scorepill sc-mid">81</span></div>
+              <div class="agechip">ranked <b>3d ago</b> · ↻ refresh</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2: offer + expiring -->
+        <div class="rrow" style="border-left:3px solid #f59e0b">
+          <div class="rleft">
+            <div class="photo" style="background:linear-gradient(135deg,#166534 0%,#4ade80 60%,#a3e635 100%)"></div>
+            <div class="inner">
+              <div class="prow"><div class="plogo" style="background:#7c3aed">RM</div><div><div class="pname">Riverbend Medical Centre</div><div class="ploc">📍 Toowoomba, QLD</div></div></div>
+              <div><span class="urg amber">41 days unfilled</span></div>
+              <div class="postitle">VR GP · Part time</div>
+            </div>
+          </div>
+          <div class="rtrack">
+            <div class="pipezone">
+              <div class="gnode offer"><div class="gav" style="background:#be185d">LN</div><div><div class="gname">Dr L. Nguyen</div><div class="stg offer">Offer sent · awaiting sign</div></div></div>
+              <div class="gnode expiring"><div class="gav" style="background:#0891b2">RB</div><div><div class="gname">Dr R. Bello</div><div class="stg expiring">⏳ Expires in 14h — nudge?</div></div><span class="scorepill sc-mid">84</span></div>
+            </div>
+            <div class="suggzone">
+              <div class="gnode sugg"><div class="gav" style="background:#059669">MF</div><div><div class="gname">Dr M. Farah</div><div class="stg sugg">Suggested</div></div><span class="scorepill sc-mid">77</span></div>
+              <div class="agechip">ranked <b>today</b></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filled row under toggle -->
+        <div style="margin:14px 0 8px"><span class="chip won">✓ Filled last 30 days (2) — showing</span></div>
+        <div class="rrow filled">
+          <div class="rleft">
+            <div class="inner" style="padding:12px 14px">
+              <div class="prow"><div class="plogo" style="background:#0891b2">HH</div><div><div class="pname">Harbourview Health</div><div class="ploc">📍 Gladstone, QLD</div></div></div>
+              <div class="postitle">GP · Full time · was unfilled 52 days</div>
+            </div>
+          </div>
+          <div class="filledtrack">
+            <span class="winbadge">✓ FILLED — Dr Priya Krishnan · 28 Jun</span>
+            <span class="winsub">3 other GPs redirected to similar roles · redirect emails sent ✓</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>Reading a row left to right:</b> the closer a GP sits to the practice, the closer that position is to being filled. Coral Coast reads instantly as "one in interview Tuesday, one with the practice, one match awaiting reply, two suggestions ready to send." Riverbend shows the amber <b>pulse</b> on Dr Bello — his 5-day window dies in 14 hours. Suggestion nodes are dimmer with a dashed line, and the age chip shows how old the AI ranking is with one-click refresh. Filled rows turn green under the "Filled last 30 days" chip, confirming the redirects went out.</p>
+</div>
+
+<div class="section">
+  <h3>Is the funnel line right?</h3>
+  <div class="options">
+    <div class="option" data-choice="approve-round4" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Yes — design complete</h3><p>Solid-to-dashed funnel line, stage colours, expiring pulse, age chip, filled rows. Write the spec.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-round4" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal what to adjust.</p></div>
+    </div>
+  </div>
+</div>
+</div>

@@ -1,0 +1,181 @@
+<style>
+  .m2 { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .m2 .board { background:#0b0f1a; border-radius:16px; padding:16px; color:#e5e7eb; overflow-x:auto; }
+  .m2 .plogo { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; font-weight:800; font-size:12px; color:#fff; flex:none; }
+  .m2 .gav { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:10px; color:#fff; flex:none; position:relative; }
+  .m2 .dot { position:absolute; right:-2px; bottom:-2px; width:9px; height:9px; border-radius:50%; border:2px solid #0e1526; }
+  .m2 .dot.amber { background:#f59e0b; } .m2 .dot.green { background:#22c55e; } .m2 .dot.grey { background:#475569; }
+  .m2 .scorepill { font-size:10px; font-weight:800; border-radius:999px; padding:1px 7px; }
+  .m2 .sc-hi { background:#052e16; color:#4ade80; border:1px solid #166534; }
+  .m2 .sc-mid { background:#172554; color:#93c5fd; border:1px solid #1e40af; }
+  .m2 .urg { font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 9px; display:inline-flex; align-items:center; gap:5px; }
+  .m2 .urg::before { content:''; width:6px; height:6px; border-radius:50%; }
+  .m2 .urg.red { background:#7f1d1d33; color:#fca5a5; } .m2 .urg.red::before { background:#ef4444; }
+
+  .m2 .rrow { display:flex; align-items:center; background:#111827; border:1px solid #232c42; border-radius:16px; padding:12px 14px; border-left:3px solid #ef4444; }
+  .m2 .rleft { width:236px; flex:none; padding-right:14px; border-right:1px dashed #232c42; }
+  .m2 .pname { font-size:13px; font-weight:700; color:#f1f5f9; line-height:1.25; }
+  .m2 .ploc { font-size:11px; color:#64748b; margin-top:1px; }
+  .m2 .pmeta { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; align-items:center; }
+  .m2 .postitle { font-size:10.5px; color:#94a3b8; margin-top:5px; }
+  .m2 .prow { display:flex; gap:10px; align-items:center; }
+  .m2 .rtrack { flex:1; position:relative; display:flex; align-items:center; gap:9px; padding-left:18px; min-height:60px; }
+  .m2 .rtrack::before { content:''; position:absolute; left:0; right:8px; top:50%; height:2px; background:linear-gradient(90deg,#3b82f6cc,#3b82f622); }
+
+  .m2 .gnode { position:relative; z-index:1; background:#0e1526; border:1px solid #26314e; border-radius:11px; padding:6px 9px; display:flex; gap:7px; align-items:center; white-space:nowrap; }
+  .m2 .gnode.top { border-color:#166534; }
+  .m2 .gname { font-size:11px; font-weight:700; color:#f1f5f9; }
+  .m2 .morenode { position:relative; z-index:1; border:1px dashed #334155; color:#64748b; border-radius:11px; padding:10px 11px; font-size:10.5px; font-weight:700; background:#0b0f1a; white-space:nowrap; }
+
+  .m2 .runbtn { position:relative; z-index:1; border:1px solid #1d4ed8; color:#dbeafe; background:#1d4ed855; border-radius:11px; padding:10px 14px; font-size:11.5px; font-weight:700; white-space:nowrap; box-shadow:0 4px 18px -8px rgba(59,130,246,.5); }
+  .m2 .ghost { position:relative; z-index:1; border-radius:11px; height:38px; width:110px; background:linear-gradient(90deg,#0e1526 25%,#1a2440 50%,#0e1526 75%); background-size:200% 100%; animation:m2shimmer 1.4s infinite; border:1px solid #1a2440; }
+  @keyframes m2shimmer { 0% {background-position:200% 0} 100% {background-position:-200% 0} }
+  .m2 .scanmsg { font-size:11px; color:#93c5fd; font-weight:600; }
+  .m2 .scanmsg .sub { color:#475569; font-weight:500; font-size:10.5px; margin-top:2px; }
+
+  /* expanded detail panel */
+  .m2 .expand { background:#0e1526; border:1px solid #26314e; border-top:none; border-radius:0 0 16px 16px; margin:-6px 8px 0; padding:16px 16px 12px; }
+  .m2 .exrow { display:flex; align-items:flex-start; gap:11px; padding:11px 4px; border-bottom:1px solid #1a2236; }
+  .m2 .exrow:last-of-type { border-bottom:none; }
+  .m2 .cb { width:16px; height:16px; border-radius:5px; border:1.5px solid #334155; flex:none; margin-top:4px; }
+  .m2 .cb.on { background:#2563eb; border-color:#2563eb; display:grid; place-items:center; color:#fff; font-size:11px; font-weight:900; }
+  .m2 .exgav { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:12px; color:#fff; flex:none; }
+  .m2 .exname { font-size:13px; font-weight:700; color:#f1f5f9; }
+  .m2 .exsub { font-size:11px; color:#64748b; margin-top:1px; }
+  .m2 .ticks { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+  .m2 .tick { font-size:11px; color:#94a3b8; display:flex; gap:6px; align-items:flex-start; }
+  .m2 .tick::before { content:'✓'; color:#3b82f6; font-weight:900; flex:none; }
+  .m2 .exbtn { margin-left:auto; flex:none; font-size:10.5px; font-weight:700; color:#dbeafe; background:#1d4ed8; border-radius:8px; padding:7px 12px; white-space:nowrap; }
+  .m2 .exbtn.ghosted { background:#1f2937; color:#94a3b8; }
+  .m2 .bulkbar { display:flex; align-items:center; gap:10px; background:#101a30; border:1px solid #1e40af; border-radius:12px; padding:10px 14px; margin-top:12px; }
+  .m2 .bulkbtn { margin-left:auto; font-size:11.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#2563eb,#1d4ed8); border-radius:9px; padding:9px 16px; box-shadow:0 6px 18px -6px rgba(37,99,235,.55); }
+  .m2 .exclnote { font-size:10.5px; color:#64748b; margin-top:10px; }
+  .m2 .exclnote a { color:#93c5fd; }
+  .m2 .stagelbl { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#3b82f6; margin:0 0 8px 2px; }
+  .m2 .cap { font-size:12px; color:#64748b; margin-top:10px; line-height:1.55; }
+  .m2 .cap b { color:#cbd5e1; }
+  .m2 .arrowdown { text-align:center; color:#334155; font-size:18px; margin:8px 0; }
+</style>
+
+<div class="m2">
+<h2>Round 2 — clicking "run AI ranking" + fitting more GPs per row</h2>
+<p class="subtitle">Same Coral Coast row from Option B, shown in the three states it moves through. Note the GP nodes are now compact — first name initial + surname, status as a coloured dot on the avatar — so <b>6 fit before "+ more"</b> on a normal screen.</p>
+
+<div class="section" style="margin-top:20px">
+  <div class="stagelbl">State 1 — before: no matches yet</div>
+  <div class="board" style="padding:12px">
+    <div class="rrow">
+      <div class="rleft">
+        <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+        <div class="pmeta"><span class="urg red">74 days unfilled</span></div>
+        <div class="postitle">VR GP · Full time · DPA</div>
+      </div>
+      <div class="rtrack">
+        <div class="runbtn">⚡ Run AI ranking</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrowdown">▼ click</div>
+
+  <div class="stagelbl">State 2 — running: honest progress, nothing fake</div>
+  <div class="board" style="padding:12px">
+    <div class="rrow">
+      <div class="rleft">
+        <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+        <div class="pmeta"><span class="urg red">74 days unfilled</span></div>
+        <div class="postitle">VR GP · Full time · DPA</div>
+      </div>
+      <div class="rtrack">
+        <div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>
+        <div class="scanmsg">🤖 Ranking 38 eligible GPs against this position…<div class="sub">usually 10–20 seconds · 4 GPs auto-excluded (placed, mid-interview or paused)</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrowdown">▼ done</div>
+
+  <div class="stagelbl">State 3 — results: compact nodes on the line, detail panel opens underneath</div>
+  <div class="board" style="padding:12px">
+    <div class="rrow" style="border-radius:16px 16px 0 0">
+      <div class="rleft">
+        <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+        <div class="pmeta"><span class="urg red">74 days unfilled</span></div>
+        <div class="postitle">VR GP · Full time · DPA</div>
+      </div>
+      <div class="rtrack">
+        <div class="gnode top"><div class="gav" style="background:#2563eb">SM<span class="dot grey"></span></div><span class="gname">Dr S. Mirza</span><span class="scorepill sc-hi">92</span></div>
+        <div class="gnode"><div class="gav" style="background:#9333ea">JO<span class="dot grey"></span></div><span class="gname">Dr J. O'Neill</span><span class="scorepill sc-mid">87</span></div>
+        <div class="gnode"><div class="gav" style="background:#0d9488">PK<span class="dot grey"></span></div><span class="gname">Dr P. Krishnan</span><span class="scorepill sc-mid">81</span></div>
+        <div class="gnode"><div class="gav" style="background:#ea580c">AT<span class="dot grey"></span></div><span class="gname">Dr A. Toma</span><span class="scorepill sc-mid">78</span></div>
+        <div class="gnode"><div class="gav" style="background:#be185d">LN<span class="dot grey"></span></div><span class="gname">Dr L. Nguyen</span><span class="scorepill sc-mid">76</span></div>
+        <div class="gnode"><div class="gav" style="background:#4f46e5">RB<span class="dot grey"></span></div><span class="gname">Dr R. Bello</span><span class="scorepill sc-mid">71</span></div>
+        <div class="morenode">+3 ▸</div>
+      </div>
+    </div>
+    <div class="expand">
+      <div style="font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px">RANKED MATCHES — review, tick, then notify. Nothing is sent until you click.</div>
+      <div class="exrow">
+        <div class="cb on">✓</div>
+        <div class="exgav" style="background:#2563eb">SM</div>
+        <div style="flex:1">
+          <div class="exname">Dr Sana Mirza <span class="scorepill sc-hi" style="margin-left:6px">92 match</span></div>
+          <div class="exsub">UK-trained · RACGP in progress · onboarding complete · 0 active applications</div>
+          <div class="ticks">
+            <div class="tick">Wants coastal Queensland — this is her top preferred region</div>
+            <div class="tick">7 yrs family-medicine experience matches the practice's patient mix</div>
+            <div class="tick">Available full time from September, matching the start window</div>
+          </div>
+        </div>
+        <div class="exbtn">Shortlist &amp; notify</div>
+      </div>
+      <div class="exrow">
+        <div class="cb on">✓</div>
+        <div class="exgav" style="background:#9333ea">JO</div>
+        <div style="flex:1">
+          <div class="exname">Dr James O'Neill <span class="scorepill sc-mid" style="margin-left:6px">87 match</span></div>
+          <div class="exsub">IE-trained · onboarding complete · 1 active application</div>
+          <div class="ticks">
+            <div class="tick">Asked specifically for regional QLD towns of this size</div>
+            <div class="tick">Mixed-billing experience lines up with the practice's model</div>
+          </div>
+        </div>
+        <div class="exbtn">Shortlist &amp; notify</div>
+      </div>
+      <div class="exrow">
+        <div class="cb"></div>
+        <div class="exgav" style="background:#0d9488">PK</div>
+        <div style="flex:1">
+          <div class="exname">Dr Priya Krishnan <span class="scorepill sc-mid" style="margin-left:6px">81 match</span></div>
+          <div class="exsub">NZ-trained · onboarding complete · open to relocating anywhere</div>
+          <div class="ticks">
+            <div class="tick">Flexible on location and start date</div>
+          </div>
+        </div>
+        <div class="exbtn ghosted">Shortlist &amp; notify</div>
+      </div>
+      <div class="bulkbar">
+        <span style="font-size:11.5px; color:#93c5fd; font-weight:700">2 selected</span>
+        <span style="font-size:10.5px; color:#64748b">each gets the match email + 5-day window · moves to Shortlist stage</span>
+        <div class="bulkbtn">Shortlist 2 &amp; notify ➜</div>
+      </div>
+      <div class="exclnote">4 GPs were excluded before ranking (2 placed · 1 mid-interview · 1 applications paused) — <a href="#">see why</a> · Ranking cached for 24h · <a href="#">Re-run fresh</a></div>
+    </div>
+  </div>
+  <p class="cap"><b>What you're seeing:</b> the ranking runs right inside the row — placeholders shimmer while the AI scores the eligible GPs (10–20s), then the compact nodes land on the line and the full detail panel opens underneath with the reasons, tick-boxes and the same "Shortlist &amp; notify" action that exists today (email + 5-day window + Shortlist pipeline stage). Clicking any GP node on an already-ranked row opens this same panel. The dot on each avatar is the live status: grey = not contacted, amber = awaiting reply, green = accepted.</p>
+</div>
+
+<div class="section">
+  <h3>Does this run-ranking flow feel right?</h3>
+  <div class="options">
+    <div class="option" data-choice="approve-round2" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Yes — lock it in</h3><p>Inline shimmer while ranking, compact nodes (6+ per row), detail panel with reasons + shortlist underneath.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-round2" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal what to adjust.</p></div>
+    </div>
+  </div>
+</div>
+</div>

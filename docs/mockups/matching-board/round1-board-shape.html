@@ -1,0 +1,259 @@
+<style>
+  .m1 { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .m1 .board { background:#0b0f1a; border-radius:16px; padding:18px; color:#e5e7eb; overflow-x:auto; }
+  .m1 .filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
+  .m1 .chip { font-size:11.5px; font-weight:600; color:#94a3b8; background:#151b2b; border:1px solid #232c42; border-radius:999px; padding:6px 12px; white-space:nowrap; }
+  .m1 .chip.on { color:#dbeafe; background:#1e3a8a33; border-color:#3b82f6; }
+  .m1 .chip.warn { color:#fbbf24; border-color:#78350f; }
+  .m1 .chip.hot { color:#f87171; border-color:#7f1d1d; }
+  .m1 .searchbox { flex:1; min-width:140px; background:#151b2b; border:1px solid #232c42; border-radius:10px; padding:7px 12px; font-size:12px; color:#64748b; }
+
+  /* ---------- shared card bits ---------- */
+  .m1 .plogo { width:38px; height:38px; border-radius:10px; display:grid; place-items:center; font-weight:800; font-size:13px; color:#fff; flex:none; }
+  .m1 .gav { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:11px; color:#fff; flex:none; }
+  .m1 .scorepill { font-size:10.5px; font-weight:800; border-radius:999px; padding:2px 8px; }
+  .m1 .sc-hi { background:#052e16; color:#4ade80; border:1px solid #166534; }
+  .m1 .sc-mid { background:#172554; color:#93c5fd; border:1px solid #1e40af; }
+  .m1 .sc-lo { background:#1c1917; color:#d6d3d1; border:1px solid #44403c; }
+  .m1 .urg { font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 9px; display:inline-flex; align-items:center; gap:5px; }
+  .m1 .urg::before { content:''; width:6px; height:6px; border-radius:50%; }
+  .m1 .urg.red { background:#7f1d1d33; color:#fca5a5; } .m1 .urg.red::before { background:#ef4444; }
+  .m1 .urg.amber { background:#78350f33; color:#fcd34d; } .m1 .urg.amber::before { background:#f59e0b; }
+  .m1 .urg.green { background:#05966922; color:#6ee7b7; } .m1 .urg.green::before { background:#10b981; }
+
+  /* ---------- OPTION A: map view with connector lines ---------- */
+  .m1 .mapwrap { position:relative; width:900px; height:470px; }
+  .m1 .mapcard { position:absolute; background:#111827; border:1px solid #232c42; border-radius:14px; padding:11px 13px; }
+  .m1 .mapcard.sel { border-color:#3b82f6; box-shadow:0 0 0 1px #3b82f6, 0 8px 30px -10px rgba(59,130,246,.45); }
+  .m1 .mapcard.dim { opacity:.42; }
+  .m1 .prow { display:flex; gap:10px; align-items:center; }
+  .m1 .pname { font-size:13px; font-weight:700; color:#f1f5f9; line-height:1.25; }
+  .m1 .ploc { font-size:11px; color:#64748b; margin-top:1px; }
+  .m1 .pmeta { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .m1 .gpcard { display:flex; gap:10px; align-items:center; }
+  .m1 .gname { font-size:12.5px; font-weight:700; color:#f1f5f9; }
+  .m1 .gsub { font-size:10.5px; color:#64748b; margin-top:1px; }
+  .m1 .gtags { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+  .m1 .gtag { font-size:9.5px; font-weight:600; color:#93c5fd; background:#172554; border-radius:6px; padding:2px 7px; }
+  .m1 svg.links { position:absolute; inset:0; pointer-events:none; }
+  .m1 .linklabel { position:absolute; font-size:10px; font-weight:800; color:#93c5fd; background:#0b0f1a; border:1px solid #1e40af; border-radius:999px; padding:1px 8px; }
+
+  /* ---------- OPTION B: radar rows ---------- */
+  .m1 .rrow { display:flex; align-items:center; gap:0; background:#111827; border:1px solid #232c42; border-radius:16px; padding:12px 14px; margin-bottom:12px; }
+  .m1 .rleft { width:252px; flex:none; padding-right:14px; border-right:1px dashed #232c42; }
+  .m1 .rtrack { flex:1; position:relative; display:flex; align-items:center; gap:14px; padding-left:22px; min-height:74px; }
+  .m1 .rtrack::before { content:''; position:absolute; left:0; right:8px; top:50%; height:2px; background:linear-gradient(90deg,#3b82f6cc,#3b82f622); }
+  .m1 .gnode { position:relative; z-index:1; background:#0e1526; border:1px solid #26314e; border-radius:12px; padding:8px 11px; display:flex; gap:8px; align-items:center; }
+  .m1 .gnode.top { border-color:#166534; box-shadow:0 4px 18px -8px rgba(74,222,128,.35); }
+  .m1 .gnode .st { font-size:9px; font-weight:700; margin-top:2px; }
+  .m1 .st.wait { color:#fbbf24; } .m1 .st.none { color:#475569; } .m1 .st.acc { color:#4ade80; }
+  .m1 .morenode { position:relative; z-index:1; border:1px dashed #334155; color:#64748b; border-radius:12px; padding:12px 13px; font-size:11px; font-weight:700; background:#0b0f1a; white-space:nowrap; }
+  .m1 .postitle { font-size:11px; color:#94a3b8; margin-top:6px; }
+
+  /* ---------- OPTION C: master-detail ---------- */
+  .m1 .mdwrap { display:flex; gap:14px; min-width:860px; }
+  .m1 .mdleft { width:270px; flex:none; display:flex; flex-direction:column; gap:8px; }
+  .m1 .mditem { background:#111827; border:1px solid #232c42; border-radius:12px; padding:10px 12px; }
+  .m1 .mditem.sel { border-color:#3b82f6; background:#101a30; }
+  .m1 .mdright { flex:1; background:#111827; border:1px solid #232c42; border-radius:14px; padding:14px 16px; }
+  .m1 .mdgp { display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid #1a2236; }
+  .m1 .mdgp:last-child { border-bottom:none; }
+  .m1 .mbtn { margin-left:auto; font-size:10.5px; font-weight:700; color:#dbeafe; background:#1d4ed8; border-radius:8px; padding:6px 11px; white-space:nowrap; }
+
+  .m1 .cap { font-size:12px; color:#64748b; margin-top:10px; line-height:1.55; }
+  .m1 .cap b { color:#cbd5e1; }
+</style>
+
+<div class="m1">
+<h2>Round 1 — what shape should the matching board take?</h2>
+<p class="subtitle">All dummy data. Each mockup keeps your core idea — medical centres on the left with status (how long unfilled), matched GPs to the right — but arranges it differently. Filters shown on top in every version.</p>
+
+<!-- ============ OPTION A ============ -->
+<div class="section" style="margin-top:22px">
+  <div class="mockup">
+    <div class="mockup-header">A — Map view: click a centre, lines light up to its matched GPs</div>
+    <div class="mockup-body" style="background:#05070d; padding:16px">
+      <div class="board">
+        <div class="filters">
+          <div class="chip on">All positions</div><div class="chip hot">Unfilled 60d+</div><div class="chip warn">Unfilled 30d+</div><div class="chip">No matches sent</div><div class="chip">Awaiting GP reply</div><div class="chip">QLD ▾</div>
+          <div class="searchbox">🔍 Search centres or GPs…</div>
+        </div>
+        <div class="mapwrap">
+          <svg class="links" width="900" height="470" viewBox="0 0 900 470">
+            <path d="M292 70 C 420 70, 450 66, 588 66" stroke="#3b82f6" stroke-width="2" fill="none"/>
+            <path d="M292 78 C 430 82, 440 178, 588 178" stroke="#3b82f6" stroke-width="2" fill="none" opacity=".75"/>
+            <path d="M292 86 C 430 100, 430 290, 588 290" stroke="#3b82f6" stroke-width="2" fill="none" opacity=".5"/>
+          </svg>
+          <div class="mapcard sel" style="left:10px; top:16px; width:250px">
+            <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+            <div class="pmeta"><span class="urg red">74 days unfilled</span><span class="chip" style="padding:2px 9px; font-size:10px">VR GP · FT</span></div>
+          </div>
+          <div class="mapcard dim" style="left:10px; top:138px; width:250px">
+            <div class="prow"><div class="plogo" style="background:#7c3aed">RM</div><div><div class="pname">Riverbend Medical Centre</div><div class="ploc">📍 Toowoomba, QLD</div></div></div>
+            <div class="pmeta"><span class="urg amber">41 days unfilled</span><span class="chip" style="padding:2px 9px; font-size:10px">VR GP · PT</span></div>
+          </div>
+          <div class="mapcard dim" style="left:10px; top:260px; width:250px">
+            <div class="prow"><div class="plogo" style="background:#0891b2">HH</div><div><div class="pname">Harbourview Health</div><div class="ploc">📍 Gladstone, QLD</div></div></div>
+            <div class="pmeta"><span class="urg amber">38 days unfilled</span><span class="chip" style="padding:2px 9px; font-size:10px">GP · DPA</span></div>
+          </div>
+          <div class="mapcard dim" style="left:10px; top:382px; width:250px">
+            <div class="prow"><div class="plogo" style="background:#059669">WP</div><div><div class="pname">Wattle Park Medical</div><div class="ploc">📍 Cairns, QLD</div></div></div>
+            <div class="pmeta"><span class="urg green">9 days unfilled</span></div>
+          </div>
+
+          <div class="linklabel" style="left:420px; top:52px">92% match</div>
+          <div class="linklabel" style="left:420px; top:130px">87%</div>
+          <div class="linklabel" style="left:420px; top:225px">81%</div>
+
+          <div class="mapcard" style="left:588px; top:28px; width:280px">
+            <div class="gpcard"><div class="gav" style="background:#2563eb">SM</div><div><div class="gname">Dr Sana Mirza</div><div class="gsub">UK-trained · Wants coastal QLD</div></div><span class="scorepill sc-hi" style="margin-left:auto">92</span></div>
+            <div class="gtags"><span class="gtag">Awaiting reply · 3d left</span><span class="gtag">Family medicine</span></div>
+          </div>
+          <div class="mapcard" style="left:588px; top:140px; width:280px">
+            <div class="gpcard"><div class="gav" style="background:#9333ea">JO</div><div><div class="gname">Dr James O'Neill</div><div class="gsub">IE-trained · Regional preference</div></div><span class="scorepill sc-mid" style="margin-left:auto">87</span></div>
+            <div class="gtags"><span class="gtag">Not yet contacted</span></div>
+          </div>
+          <div class="mapcard" style="left:588px; top:252px; width:280px">
+            <div class="gpcard"><div class="gav" style="background:#0d9488">PK</div><div><div class="gname">Dr Priya Krishnan</div><div class="gsub">NZ-trained · Open to relocate</div></div><span class="scorepill sc-mid" style="margin-left:auto">81</span></div>
+            <div class="gtags"><span class="gtag">Not yet contacted</span><span class="gtag">Visa: 482 ready</span></div>
+          </div>
+          <div class="mapcard dim" style="left:588px; top:364px; width:280px; text-align:center; border-style:dashed">
+            <div style="font-size:11.5px; color:#64748b; font-weight:700; padding:6px 0">+ 4 more matches · run fresh AI ranking</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>How it works:</b> centres stacked on the left, sorted by how long the position has sat unfilled. Click one → blue lines draw across to its ranked GPs with the match % riding on the line. Other centres fade back. <b>Good for:</b> focus on one position at a time, very literal "lines" feel. <b>Trade-off:</b> you only see one centre's matches at a time.</p>
+</div>
+
+<!-- ============ OPTION B ============ -->
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">B — Radar rows: every position is a row, its GPs sit on a line extending right</div>
+    <div class="mockup-body" style="background:#05070d; padding:16px">
+      <div class="board">
+        <div class="filters">
+          <div class="chip on">Longest unfilled first</div><div class="chip hot">60d+ (2)</div><div class="chip warn">30d+ (5)</div><div class="chip">No matches sent (3)</div><div class="chip">Awaiting reply (4)</div>
+          <div class="searchbox">🔍 Search…</div>
+        </div>
+
+        <div class="rrow" style="border-left:3px solid #ef4444">
+          <div class="rleft">
+            <div class="prow"><div class="plogo" style="background:#e11d48">CC</div><div><div class="pname">Coral Coast Family Practice</div><div class="ploc">📍 Bundaberg, QLD</div></div></div>
+            <div class="pmeta"><span class="urg red">74 days unfilled</span></div>
+            <div class="postitle">VR GP · Full time · DPA</div>
+          </div>
+          <div class="rtrack">
+            <div class="gnode top"><div class="gav" style="background:#2563eb">SM</div><div><div class="gname">Dr Sana Mirza</div><div class="st wait">⏳ Awaiting reply · 3d left</div></div><span class="scorepill sc-hi">92</span></div>
+            <div class="gnode"><div class="gav" style="background:#9333ea">JO</div><div><div class="gname">Dr James O'Neill</div><div class="st none">Not contacted</div></div><span class="scorepill sc-mid">87</span></div>
+            <div class="gnode"><div class="gav" style="background:#0d9488">PK</div><div><div class="gname">Dr Priya Krishnan</div><div class="st none">Not contacted</div></div><span class="scorepill sc-mid">81</span></div>
+            <div class="morenode">+4 more ▸</div>
+          </div>
+        </div>
+
+        <div class="rrow" style="border-left:3px solid #f59e0b">
+          <div class="rleft">
+            <div class="prow"><div class="plogo" style="background:#7c3aed">RM</div><div><div class="pname">Riverbend Medical Centre</div><div class="ploc">📍 Toowoomba, QLD</div></div></div>
+            <div class="pmeta"><span class="urg amber">41 days unfilled</span></div>
+            <div class="postitle">VR GP · Part time</div>
+          </div>
+          <div class="rtrack">
+            <div class="gnode top"><div class="gav" style="background:#ea580c">HW</div><div><div class="gname">Dr Helen Wazalski</div><div class="st acc">✓ Accepted match</div></div><span class="scorepill sc-hi">94</span></div>
+            <div class="gnode"><div class="gav" style="background:#4f46e5">AT</div><div><div class="gname">Dr Ahmed Toma</div><div class="st wait">⏳ Awaiting · 18h left</div></div><span class="scorepill sc-mid">83</span></div>
+            <div class="morenode">+2 more ▸</div>
+          </div>
+        </div>
+
+        <div class="rrow" style="border-left:3px solid #f59e0b">
+          <div class="rleft">
+            <div class="prow"><div class="plogo" style="background:#0891b2">HH</div><div><div class="pname">Harbourview Health</div><div class="ploc">📍 Gladstone, QLD</div></div></div>
+            <div class="pmeta"><span class="urg amber">38 days unfilled</span></div>
+            <div class="postitle">GP · Full time · DPA</div>
+          </div>
+          <div class="rtrack">
+            <div class="morenode" style="border-color:#1d4ed8; color:#93c5fd">⚡ No matches yet — run AI ranking</div>
+          </div>
+        </div>
+
+        <div class="rrow" style="border-left:3px solid #10b981">
+          <div class="rleft">
+            <div class="prow"><div class="plogo" style="background:#059669">WP</div><div><div class="pname">Wattle Park Medical</div><div class="ploc">📍 Cairns, QLD</div></div></div>
+            <div class="pmeta"><span class="urg green">9 days unfilled</span></div>
+            <div class="postitle">VR GP · Full time</div>
+          </div>
+          <div class="rtrack">
+            <div class="gnode"><div class="gav" style="background:#be185d">LN</div><div><div class="gname">Dr Lin Nguyen</div><div class="st wait">⏳ Awaiting · 4d left</div></div><span class="scorepill sc-hi">90</span></div>
+            <div class="morenode">+1 more ▸</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>How it works:</b> one row per open position, sorted so the longest-unfilled bleeds at the top (red edge = 60d+, amber = 30d+, green = fresh). The line extends right through that position's matched GPs — best match first, each showing its live status (awaiting reply, accepted, not contacted). Rows with no matches show a one-click "run AI ranking". <b>Good for:</b> the whole book of open positions AND all matching activity visible in one glance, no clicking needed. <b>Trade-off:</b> each row fits ~3 GPs before "+ more".</p>
+</div>
+
+<!-- ============ OPTION C ============ -->
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">C — Split view: compact centre list left, full ranked detail right</div>
+    <div class="mockup-body" style="background:#05070d; padding:16px">
+      <div class="board">
+        <div class="filters">
+          <div class="chip on">Longest unfilled</div><div class="chip">A–Z</div><div class="chip hot">60d+</div><div class="chip">No matches sent</div>
+          <div class="searchbox">🔍 Search…</div>
+        </div>
+        <div class="mdwrap">
+          <div class="mdleft">
+            <div class="mditem sel">
+              <div class="prow"><div class="plogo" style="background:#e11d48; width:30px; height:30px; font-size:11px">CC</div><div><div class="pname" style="font-size:12px">Coral Coast Family Practice</div><div class="ploc">Bundaberg · <span style="color:#fca5a5; font-weight:700">74d</span></div></div></div>
+            </div>
+            <div class="mditem">
+              <div class="prow"><div class="plogo" style="background:#7c3aed; width:30px; height:30px; font-size:11px">RM</div><div><div class="pname" style="font-size:12px">Riverbend Medical Centre</div><div class="ploc">Toowoomba · <span style="color:#fcd34d; font-weight:700">41d</span></div></div></div>
+            </div>
+            <div class="mditem">
+              <div class="prow"><div class="plogo" style="background:#0891b2; width:30px; height:30px; font-size:11px">HH</div><div><div class="pname" style="font-size:12px">Harbourview Health</div><div class="ploc">Gladstone · <span style="color:#fcd34d; font-weight:700">38d</span></div></div></div>
+            </div>
+            <div class="mditem">
+              <div class="prow"><div class="plogo" style="background:#059669; width:30px; height:30px; font-size:11px">WP</div><div><div class="pname" style="font-size:12px">Wattle Park Medical</div><div class="ploc">Cairns · <span style="color:#6ee7b7; font-weight:700">9d</span></div></div></div>
+            </div>
+          </div>
+          <div class="mdright">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px">
+              <div class="plogo" style="background:#e11d48">CC</div>
+              <div><div class="pname" style="font-size:14px">Coral Coast Family Practice — VR GP, Full time</div><div class="ploc">📍 Bundaberg, QLD · <span style="color:#fca5a5; font-weight:700">unfilled 74 days</span> · DPA approved</div></div>
+            </div>
+            <div class="mdgp"><div class="gav" style="background:#2563eb">SM</div><div><div class="gname">Dr Sana Mirza</div><div class="gsub">92 match · coastal QLD preference · UK-trained · ⏳ awaiting reply, 3d left</div></div><span class="mbtn" style="background:#1f2937; color:#94a3b8">Sent ✓</span></div>
+            <div class="mdgp"><div class="gav" style="background:#9333ea">JO</div><div><div class="gname">Dr James O'Neill</div><div class="gsub">87 match · regional preference · IE-trained</div></div><span class="mbtn">Shortlist &amp; notify</span></div>
+            <div class="mdgp"><div class="gav" style="background:#0d9488">PK</div><div><div class="gname">Dr Priya Krishnan</div><div class="gsub">81 match · open to relocate · NZ-trained</div></div><span class="mbtn">Shortlist &amp; notify</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>How it works:</b> today's split-pane pattern — dense centre list on the left with the unfilled-days number, click one to see everything about its matches on the right, with actions inline. <b>Good for:</b> most working room per GP (full reasons, buttons). <b>Trade-off:</b> no lines, less of a "board" feel — closest to the current tab.</p>
+</div>
+
+<div class="section">
+  <h3>Which shape should the board take?</h3>
+  <p class="subtitle">You can also combine them — e.g. B as the overview with C's detail opening when you click a row.</p>
+  <div class="options">
+    <div class="option" data-choice="option-a-map" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Map view with lines</h3><p>Click a centre → lines light up to its GPs. One position in focus at a time.</p></div>
+    </div>
+    <div class="option" data-choice="option-b-rows" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Radar rows (recommended)</h3><p>Every position + its matches visible at once, urgency-sorted, statuses on each GP node.</p></div>
+    </div>
+    <div class="option" data-choice="option-c-split" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content"><h3>Split view</h3><p>Compact list + deep detail pane. Most room for actions, least visual.</p></div>
+    </div>
+    <div class="option" data-choice="option-b-plus-c" onclick="toggleSelect(this)">
+      <div class="letter">D</div>
+      <div class="content"><h3>B + C combined</h3><p>Radar rows as the glanceable overview; clicking a row opens the full detail pane with actions.</p></div>
+    </div>
+  </div>
+</div>
+</div>

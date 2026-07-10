@@ -1,0 +1,143 @@
+<style>
+  .m5 { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .m5 .phone { width:375px; max-width:100%; margin:0 auto; background:#0b1322; border-radius:38px; padding:10px; box-shadow:0 18px 50px -18px rgba(11,19,34,.55); }
+  .m5 .screen { border-radius:30px; overflow:hidden; position:relative; min-height:740px; display:flex; flex-direction:column; background:#f1f5f9; color:#0f172a; }
+  .m5 .status { display:flex; justify-content:space-between; padding:14px 22px 0; font-size:12px; font-weight:600; color:#334155; }
+  .m5 .scrollarea { flex:1; padding:14px 16px 30px; }
+  .m5 .pagehead { font-size:19px; font-weight:800; letter-spacing:-.01em; margin:6px 2px 3px; }
+  .m5 .pagesub { font-size:12px; color:#64748b; margin:0 2px 14px; }
+
+  .m5 .seclbl { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#64748b; margin:0 2px 8px; display:flex; align-items:center; gap:7px; }
+  .m5 .seclbl .n { background:#2563eb; color:#fff; font-size:10px; font-weight:800; border-radius:999px; padding:1px 7px; }
+
+  .m5 .mcard { background:#fff; border:1px solid #e2e8f0; border-radius:20px; overflow:hidden; box-shadow:0 10px 34px -14px rgba(15,23,42,.18); }
+  .m5 .mcard.hl { box-shadow:0 0 0 3px #bfdbfe, 0 14px 40px -14px rgba(37,99,235,.35); }
+  .m5 .mcard.lastcall { box-shadow:0 0 0 3px #fde68a, 0 14px 40px -14px rgba(217,119,6,.35); animation:m5glow 1.8s ease-in-out infinite; }
+  @keyframes m5glow { 0%,100% { box-shadow:0 0 0 3px #fde68a, 0 14px 40px -14px rgba(217,119,6,.35);} 50% { box-shadow:0 0 0 6px #fde68a66, 0 14px 40px -14px rgba(217,119,6,.35);} }
+  .m5 .mphoto { height:96px; background:linear-gradient(135deg,#0ea5e9 0%,#38bdf8 45%,#fbbf24 100%); position:relative; }
+  .m5 .mbadge { position:absolute; left:14px; bottom:10px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#fff; background:rgba(15,23,42,.55); backdrop-filter:blur(4px); border-radius:999px; padding:4px 11px; }
+  .m5 .mbody { padding:15px 16px 16px; }
+  .m5 .mtit { font-size:15.5px; font-weight:800; letter-spacing:-.01em; }
+  .m5 .mloc { font-size:12px; color:#64748b; margin-top:2px; }
+  .m5 .cd { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:800; border-radius:999px; padding:5px 12px; margin-top:10px; }
+  .m5 .cd.amber { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
+  .m5 .cd.red { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; animation:m5tick 1s steps(1) infinite; }
+  @keyframes m5tick { 50% { opacity:.75; } }
+  .m5 .ticks { margin-top:12px; display:flex; flex-direction:column; gap:7px; }
+  .m5 .tick { font-size:12.5px; color:#334155; display:flex; gap:8px; line-height:1.45; }
+  .m5 .tick::before { content:'✓'; color:#2563eb; font-weight:900; flex:none; }
+  .m5 .accept { display:block; text-align:center; margin-top:14px; font-size:14.5px; font-weight:700; color:#fff; border-radius:13px; padding:13px 18px; background:linear-gradient(110deg,#2563eb 0%,#1d4ed8 45%,#3b82f6 60%,#1d4ed8 100%); background-size:220% 100%; animation:m5shine 2.6s linear infinite; box-shadow:0 10px 24px -8px rgba(37,99,235,.55); text-decoration:none; }
+  @keyframes m5shine { 0% { background-position:120% 0; } 100% { background-position:-120% 0; } }
+  .m5 .decline { display:block; text-align:center; margin-top:10px; font-size:12px; color:#64748b; text-decoration:underline; }
+  .m5 .whyline { font-size:11px; color:#94a3b8; text-align:center; margin-top:10px; }
+
+  .m5 .toast { position:absolute; left:14px; right:14px; bottom:18px; background:#0f172a; color:#f1f5f9; border-radius:14px; padding:12px 14px; font-size:12px; line-height:1.5; box-shadow:0 14px 34px -10px rgba(15,23,42,.5); display:flex; gap:10px; align-items:flex-start; z-index:5; }
+  .m5 .toast .tic { flex:none; width:20px; height:20px; border-radius:50%; background:#059669; display:grid; place-items:center; font-size:11px; font-weight:900; }
+  .m5 .othercard { background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:13px 15px; margin-top:12px; opacity:.6; }
+  .m5 .ocl { font-size:12.5px; font-weight:700; }
+  .m5 .ocs { font-size:11px; color:#64748b; margin-top:2px; }
+  .m5 .capt { text-align:center; font-size:12px; color:#64748b; margin-top:12px; }
+  .m5 .cap { font-size:12px; color:#64748b; margin-top:10px; line-height:1.55; }
+  .m5 .cap b { color:#cbd5e1; }
+</style>
+
+<div class="m5">
+<h2>Round 5 — where each nudge CTA lands the GP</h2>
+<p class="subtitle">Both buttons deep-link into the app and auto-scroll to the match card on My Practice (sign-in is survived, same as the original match email). Left: after the 24-hour nudge. Right: after tapping <b>"I'm interested — I need more time"</b> on the 2-hour nudge.</p>
+
+<div class="split" style="align-items:flex-start; margin-top:20px">
+
+  <div class="mockup">
+    <div class="mockup-header">📱 "Review &amp; accept my match" — 24h nudge</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:24px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>9:41</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="scrollarea">
+            <div class="pagehead">My Practice</div>
+            <div class="pagesub">Your career, all in one place</div>
+
+            <div class="seclbl"><span class="n">1</span> Your team match — reserved for you</div>
+            <div class="mcard hl">
+              <div class="mphoto"><span class="mbadge">Matched by your team</span></div>
+              <div class="mbody">
+                <div class="mtit">Coral Coast Family Practice</div>
+                <div class="mloc">📍 Bundaberg, Queensland · VR GP · Full time</div>
+                <span class="cd amber">⏳ 23 hours left to accept</span>
+                <div class="ticks">
+                  <div class="tick">Coastal Queensland — your top preferred region</div>
+                  <div class="tick">Family-medicine caseload matches your 7 years of experience</div>
+                  <div class="tick">Full-time start in September, exactly your window</div>
+                </div>
+                <a class="accept" href="#">Accept this match</a>
+                <a class="decline" href="#">Not the right fit? Tell us why</a>
+                <div class="whyline">98% of GPs we match are accepted by the practice.</div>
+              </div>
+            </div>
+
+            <div class="othercard">
+              <div class="ocl">Browse other roles</div>
+              <div class="ocs">54 positions across Australia</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="capt">Card auto-scrolled into view + briefly glows blue so the eye lands on it.</p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">📱 "I need more time" — 2h nudge, final-call state</div>
+    <div class="mockup-body" style="background:#e8ecf4; padding:24px 12px">
+      <div class="phone">
+        <div class="screen">
+          <div class="status"><span>16:23</span><span>▪▪▪ ⌁ ▮</span></div>
+          <div class="scrollarea">
+            <div class="pagehead">My Practice</div>
+            <div class="pagesub">Your career, all in one place</div>
+
+            <div class="seclbl"><span class="n">1</span> Your team match — final call</div>
+            <div class="mcard lastcall">
+              <div class="mphoto"><span class="mbadge">Matched by your team</span></div>
+              <div class="mbody">
+                <div class="mtit">Coral Coast Family Practice</div>
+                <div class="mloc">📍 Bundaberg, Queensland · VR GP · Full time</div>
+                <span class="cd red">⏰ Expires 6:15pm today · 1h 52m</span>
+                <div class="ticks">
+                  <div class="tick">Coastal Queensland — your top preferred region</div>
+                  <div class="tick">Family-medicine caseload matches your 7 years of experience</div>
+                  <div class="tick">Full-time start in September, exactly your window</div>
+                </div>
+                <a class="accept" href="#">Accept before it expires</a>
+                <a class="decline" href="#">Not the right fit? Tell us why</a>
+                <div class="whyline">98% of GPs we match are accepted by the practice.</div>
+              </div>
+            </div>
+
+            <div class="othercard">
+              <div class="ocl">Browse other roles</div>
+              <div class="ocs">54 positions across Australia</div>
+            </div>
+          </div>
+          <div class="toast"><span class="tic">✓</span><span><b>We've let the team know you need more time.</b><br>They may extend your window — watch your alerts. Accepting now still works.</span></div>
+        </div>
+      </div>
+      <p class="capt">"Need more time" confirms in a toast — nothing auto-extends; your team decides.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>Does the landing experience look right?</h3>
+  <div class="options">
+    <div class="option" data-choice="approve-round5" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Yes — write the spec</h3><p>Deep link → auto-scroll + glow, amber 24h state, red final-call state with live countdown, need-more-time toast + Team Alert.</p></div>
+    </div>
+    <div class="option" data-choice="tweak-round5" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Change something</h3><p>Tell me in the terminal what to adjust.</p></div>
+    </div>
+  </div>
+</div>
+</div>
