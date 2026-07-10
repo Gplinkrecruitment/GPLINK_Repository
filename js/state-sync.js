@@ -23,7 +23,8 @@
     'gp_amc_myintealth_id',
     'gp_amc_myintealth_id_updated_at',
     'gp_admin_stage_override',
-    'gp_stage_override_at'
+    'gp_stage_override_at',
+    'gp_walkthrough_state'
   ];
   // Keys managed exclusively by admin endpoints — never push back to server
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];

@@ -6187,7 +6187,8 @@ const USER_STATE_KEYS = [
   'gp_amc_myintealth_id_updated_at',
   'gp_admin_stage_override',
   'gp_stage_override_at',
-  'gp_eligibility_waitlist'
+  'gp_eligibility_waitlist',
+  'gp_walkthrough_state'
 ];
 
 const EPIC_STAGE_META = [
