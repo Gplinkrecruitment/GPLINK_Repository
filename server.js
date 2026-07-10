@@ -18857,7 +18857,13 @@ async function getActivePublicJobRowsLive() {
   // practice-client-pipeline job (task 6) is only ever public once an
   // admin/CEO has approved it. Rows with no approval_status at all (Zoho /
   // legacy manual rows) are treated as approved.
-  return result.data.filter((row) => !row.approval_status || row.approval_status === 'approved');
+  // Also hide filled/closed jobs: a marked-filled role keeps is_active=true so it
+  // still shows on the admin Jobs board with a "Filled" badge, but it must never
+  // appear on the public marketing site. job_status can be null on legacy rows
+  // (treated as open), so this is filtered in JS rather than in the query.
+  return result.data.filter((row) =>
+    (!row.approval_status || row.approval_status === 'approved') &&
+    String(row.job_status || 'open').trim().toLowerCase() === 'open');
 }
 
 // Cached read for GET /api/public/jobs — 5-min TTL so an anonymous, no-auth
@@ -33089,10 +33095,12 @@ async function handleApi(req, res, pathname) {
     // Supabase career_roles table (manual + internal ATS + archived rows).
     if (isSupabaseDbConfigured()) {
       const rows = await listCareerRoleRows(true);
-      // listCareerRoleRows(true) returns every active provider, including
-      // internal_ats rows whose job_status is filled/closed (closing an ATS job
-      // does not flip is_active) — hide those from GPs.
-      const visibleRows = rows.filter((row) => row && (row.provider !== 'internal_ats' || isInternalAtsRoleOpenForGp(row)));
+      // listCareerRoleRows(true) returns every active provider (zoho + internal_ats).
+      // A filled/closed job keeps is_active=true (marking it filled does not flip
+      // is_active, so it can still show on the admin Jobs board with a "Filled"
+      // badge) — so hide any non-open role from GPs regardless of provider. The
+      // open-check (is_active + approved + job_status==='open') is provider-agnostic.
+      const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row));
       sendJson(res, 200, {
         ok: true,
         source: visibleRows.length ? 'supabase' : 'fallback',
