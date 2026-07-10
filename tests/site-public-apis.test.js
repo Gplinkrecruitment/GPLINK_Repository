@@ -125,7 +125,8 @@ const PUBLIC_JOB_FIELDS = [
   'id', 'title', 'location_label', 'location_state',
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
   'employment_type', 'tags', 'published_at',
-  'display_label', 'header_image_url', 'suburb', 'nearest_city'
+  'display_label', 'header_image_url', 'suburb', 'nearest_city',
+  'visa', 'packageTerms'
 ];
 
 function makeRawRow(overrides) {

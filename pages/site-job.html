@@ -13,6 +13,13 @@
 <meta property="og:url" content="https://www.mygplink.com.au/jobs/view">
 <link rel="stylesheet" href="/css/site.css?v=20260703">
 <style>
+  /* The `hidden` attribute must always win. Several blocks below set an explicit
+     display (skeleton = grid, hero img = block, earnings = flex); without this,
+     those author rules override the UA `[hidden]{display:none}`, which left the
+     loading skeleton (and empty hero/earnings boxes) stuck on screen after the
+     job content finished loading. */
+  [hidden]{display:none!important;}
+
   /* ---------- breadcrumb ---------- */
   .job-breadcrumb-bar{background:var(--card);border-bottom:1px solid var(--line);padding:16px 0;}
   .job-breadcrumb-bar a{font-size:13.5px;font-weight:650;color:var(--teal);text-decoration:none;}
@@ -328,6 +335,13 @@
     rows.push(['DPA Location', job.dpa ? 'Yes' : 'No']);
     if (job.mmm) rows.push(['Modified Monash Model', mmmChipLabel(job.mmm)]);
     if (job.billing_model) rows.push(['Billing', job.billing_model]);
+    // Owner-supplied commercial terms (only the ones this role carries).
+    var pt = (job.packageTerms && typeof job.packageTerms === 'object') ? job.packageTerms : {};
+    if (pt.billingSplit) rows.push(['Billing split', pt.billingSplit]);
+    if (pt.incomeGuarantee) rows.push(['Income guarantee', pt.incomeGuarantee]);
+    if (pt.agreementBonus) rows.push(['Sign-on bonus', pt.agreementBonus]);
+    if (job.visa || pt.visaSponsorship) rows.push(['Visa sponsorship', 'Available']);
+    if (pt.supervision) rows.push(['Supervision', 'Available']);
 
     if (!rows.length && !job.suburb) {
       profileWrap.hidden = true;

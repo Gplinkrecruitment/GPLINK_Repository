@@ -185,6 +185,9 @@
     var listEl = el('atsJobList');
     if (listEl) {
       listEl.addEventListener('click', function (e) {
+        // A "View in app / on website" link is a normal <a> — let it navigate in
+        // its new tab; do NOT also open the pipeline board for that job card.
+        if (e.target.closest && e.target.closest('[data-ats-view]')) return;
         var approveBtn = e.target.closest ? e.target.closest('[data-ats-approve-job]') : null;
         if (approveBtn) { openApprovalModal(approveBtn.getAttribute('data-ats-approve-job')); return; }
         var card = e.target.closest ? e.target.closest('.ats-job-card[data-job-id]') : null;
@@ -293,12 +296,37 @@
           '<span>🗓 ' + A.esc(j.type || '—') + '</span>' +
           '<span>💳 ' + A.esc(j.billing || '—') + '</span>' +
         '</div>' +
+        jobViewLinksHtml(j) +
       '</div>' +
       '<div class="ats-job-right">' +
         (pending ? approveBtn : '<div class="ats-stage-spark">' + stageSpark(j.stage_counts) + '</div>') +
         '<div class="ats-cand-count"><b>' + active + '</b> in pipeline</div>' +
       '</div>' +
     '</div>';
+  }
+
+  // Two "open this opening" links per job card: the in-app job page and the
+  // public marketing page. Uses window.buildJobViewLinks (js/ats-job-view-links.js)
+  // which turns the server-supplied public_id into the two URLs. The website link
+  // is only shown once the job is actually live to the public (open + approved) —
+  // a filled/closed/pending job has no public page yet. data-ats-view lets the
+  // list click handler ignore these clicks so they don't also open the pipeline.
+  function jobViewLinksHtml(j) {
+    var links = (typeof window !== 'undefined' && window.buildJobViewLinks)
+      ? window.buildJobViewLinks(j) : { publicId: '', appUrl: '', websiteUrl: '' };
+    if (!links.publicId) return '';
+    var isPublic = j.status === 'open' && j.approval_status !== 'pending' && j.approval_status !== 'rejected';
+    var LINK = 'display:inline-flex;align-items:center;gap:4px;padding:4px 10px;margin-top:8px;' +
+      'border:1px solid rgba(255,255,255,0.16);border-radius:8px;font-size:12px;font-weight:600;' +
+      'color:inherit;text-decoration:none;background:rgba(255,255,255,0.05)';
+    var html = '<div class="ats-job-links" style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<a data-ats-view href="' + A.escAttr(links.appUrl) + '" target="_blank" rel="noopener" ' +
+        'title="Open this opening in the in-app job page" style="' + LINK + '">↗ View in app</a>';
+    if (isPublic) {
+      html += '<a data-ats-view href="' + A.escAttr(links.websiteUrl) + '" target="_blank" rel="noopener" ' +
+        'title="Open this opening on the public website" style="' + LINK + '">↗ View on website</a>';
+    }
+    return html + '</div>';
   }
 
   /* ============================================================

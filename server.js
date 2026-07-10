@@ -11022,6 +11022,15 @@ const PAGE_STAGE_MAP = {
   '/pages/commencement.html': 'commencement'
 };
 
+// ── Vaulted stages ──
+// Registration stages temporarily shelved from the GP journey. A vaulted stage
+// is blocked from direct page access (isStageAccessAllowed below bounces it to
+// the dashboard) — the client mirror is VAULTED in js/journey-stages.js, which
+// hides it from the stepper / registration dropdown / mobile sheet. To restore a
+// stage, remove it from BOTH sets. (The admin/CEO STAGE_ORDER tracking is left
+// intact — vaulting only affects the GP-facing journey.)
+const VAULTED_STAGES = new Set(['commencement']);
+
 // Pure stage-gate decision (testable). Visa, AHPRA and Career are ALWAYS accessible:
 // visa = the always-on 482→186 info page (docs/deferred-visa-application.md); AHPRA
 // renders its own prerequisite gateway; Career is placement context. Every other stage
@@ -11029,6 +11038,7 @@ const PAGE_STAGE_MAP = {
 // overrides at all) follows natural progression and is allowed.
 function stageGateDecision(stage, overrides, isBypass) {
   if (!stage) return true;
+  if (VAULTED_STAGES.has(stage)) return false; // vaulted — blocked for everyone, incl. bypass
   if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
   if (isBypass) return true;
   if (!overrides || typeof overrides !== 'object') return true;
@@ -11039,6 +11049,10 @@ function stageGateDecision(stage, overrides, isBypass) {
 async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
   if (!stage) return true; // Not a gated page
+  // Vaulted stages are blocked for EVERYONE (incl. bypass emails) — this sits
+  // before the always-allowed / bypass short-circuits below so /pages/commencement
+  // bounces to the dashboard while the stage is shelved. See VAULTED_STAGES above.
+  if (VAULTED_STAGES.has(stage)) return false;
   // Always-accessible stages — short-circuit before any DB read. visa MUST be here:
   // stage-advance writes overrides.visa=false for every GP before the visa stage
   // (visa is STAGE_ORDER index 5), yet the journey's Visa card is always unlocked, so
@@ -18625,6 +18639,11 @@ function mapCareerRoleRowToClient(row) {
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
     benefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits.slice(0, 4) : [],
+    // Structured commercial terms (billing split, income guarantee, agreement
+    // bonus, visa, supervision) so the job page's "The package" box can show the
+    // owner's exact figures as distinct rows rather than only as marketing
+    // bullets. null on jobs that don't carry them (rendered gracefully).
+    packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null,
     filterTokens,
     support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
@@ -18730,7 +18749,8 @@ const PUBLIC_JOB_FIELDS = [
   'id', 'title', 'location_label', 'location_state',
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
   'employment_type', 'tags', 'published_at',
-  'display_label', 'header_image_url', 'suburb', 'nearest_city'
+  'display_label', 'header_image_url', 'suburb', 'nearest_city',
+  'visa', 'packageTerms'
 ];
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
@@ -18777,7 +18797,12 @@ function mapCareerRoleRowToPublicJob(row) {
       : (gpLinkMeta.publicIntro || ''),
     employment_type: row && row.employment_type ? String(row.employment_type) : '',
     tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
-    published_at: row && row.published_at ? row.published_at : null
+    published_at: row && row.published_at ? row.published_at : null,
+    // Commercial terms for the public "Practice profile" — money/perks only, no
+    // practice name or exact address (source_payload is never sent; only these
+    // whitelisted fields survive sanitizePublicJob).
+    visa: !!(row && row.visa_pathway_aligned),
+    packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null
   };
 }
 
@@ -18864,7 +18889,13 @@ async function getActivePublicJobRowsLive() {
   // practice-client-pipeline job (task 6) is only ever public once an
   // admin/CEO has approved it. Rows with no approval_status at all (Zoho /
   // legacy manual rows) are treated as approved.
-  return result.data.filter((row) => !row.approval_status || row.approval_status === 'approved');
+  // Also hide filled/closed jobs: a marked-filled role keeps is_active=true so it
+  // still shows on the admin Jobs board with a "Filled" badge, but it must never
+  // appear on the public marketing site. job_status can be null on legacy rows
+  // (treated as open), so this is filtered in JS rather than in the query.
+  return result.data.filter((row) =>
+    (!row.approval_status || row.approval_status === 'approved') &&
+    String(row.job_status || 'open').trim().toLowerCase() === 'open');
 }
 
 // Cached read for GET /api/public/jobs — 5-min TTL so an anonymous, no-auth
@@ -28685,6 +28716,11 @@ function atsJobCard(job, practicesById, appsByJob) {
     header_image_url: job.header_image_url || '',
     suburb: job.suburb || '',
     masked_title: job.masked_title || '',
+    // Precomputed "<provider>:<provider_role_id>" public id (the same string
+    // makeCareerRoleId emits and parseCareerRolePublicId reads) so the Jobs board
+    // can link straight to the in-app job page (/pages/job.html?id=) and the
+    // public marketing page (/jobs/view?id=). Admin-only surface.
+    public_id: makeCareerRoleId(job.provider, job.provider_role_id),
     // DPA flag for the admin Jobs-tab chip (cosmetic). Admin-only surface —
     // atsJobCard never feeds GP/public payloads. null when the column is absent.
     dpa: (typeof job.dpa === 'boolean') ? job.dpa : null
@@ -33091,10 +33127,12 @@ async function handleApi(req, res, pathname) {
     // Supabase career_roles table (manual + internal ATS + archived rows).
     if (isSupabaseDbConfigured()) {
       const rows = await listCareerRoleRows(true);
-      // listCareerRoleRows(true) returns every active provider, including
-      // internal_ats rows whose job_status is filled/closed (closing an ATS job
-      // does not flip is_active) — hide those from GPs.
-      const visibleRows = rows.filter((row) => row && (row.provider !== 'internal_ats' || isInternalAtsRoleOpenForGp(row)));
+      // listCareerRoleRows(true) returns every active provider (zoho + internal_ats).
+      // A filled/closed job keeps is_active=true (marking it filled does not flip
+      // is_active, so it can still show on the admin Jobs board with a "Filled"
+      // badge) — so hide any non-open role from GPs regardless of provider. The
+      // open-check (is_active + approved + job_status==='open') is provider-agnostic.
+      const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row));
       sendJson(res, 200, {
         ok: true,
         source: visibleRows.length ? 'supabase' : 'fallback',

@@ -1682,12 +1682,20 @@
 
   /* ── Detail body ── */
   function buildPackageCellsHtml(role) {
+    const pt = (role.packageTerms && typeof role.packageTerms === "object") ? role.packageTerms : {};
     const cells = [
       { label: "Earnings", value: role.earnings || "Package on request" },
-      { label: "Billing", value: role.billing || "Billing on request" },
-      { label: "Role type", value: role.roleType || "Permanent" },
-      { label: "Location", value: role.locationLine || role.location || "Australia" }
+      { label: "Billing", value: role.billing || "Billing on request" }
     ];
+    // Owner-specified commercial terms shown as distinct package rows (only the
+    // ones this role carries — jobs without them just keep the base cells).
+    if (pt.billingSplit) cells.push({ label: "Billing split", value: String(pt.billingSplit) });
+    if (pt.incomeGuarantee) cells.push({ label: "Income guarantee", value: String(pt.incomeGuarantee) });
+    if (pt.agreementBonus) cells.push({ label: "Sign-on bonus", value: String(pt.agreementBonus) });
+    if (pt.visaSponsorship) cells.push({ label: "Visa", value: "Sponsorship available" });
+    if (pt.supervision) cells.push({ label: "Supervision", value: "Available" });
+    cells.push({ label: "Role type", value: role.roleType || "Permanent" });
+    cells.push({ label: "Location", value: role.locationLine || role.location || "Australia" });
     return '<div class="at-sech">The package</div>' +
       '<div class="at-earnrow at-rv at-rv2">' +
       cells.map((cell) =>
