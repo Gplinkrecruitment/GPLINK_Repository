@@ -34519,6 +34519,77 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/career/match/need-more-time {applicationId} — Task 3 (2026-07-11
+  // nudges plan): the 2h "final call" email's secondary CTA (`&needtime=1`
+  // deep link, Task 2). Records the GP's ask so a human can decide whether to
+  // extend — this endpoint NEVER auto-extends the match window itself (that
+  // stays a deliberate CEO/RSO action via the existing match_extend PATCH).
+  // Clones still-interested's session/ownership/row-loading/expiry-
+  // classification pattern above, including the account gate (a gated
+  // account must not be able to page the team via a stale email link
+  // either). Returns { ok:true, state:'noted'|'already'|'expired'|'resolved' }.
+  if (pathname === '/api/career/match/need-more-time' && req.method === 'POST') {
+    const nmtSession = requireSession(req, res);
+    if (!nmtSession) return;
+    const nmtEmail = getSessionEmail(nmtSession);
+    if (!nmtEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const nmtUserId = getSessionSupabaseUserId(nmtSession) || await getSupabaseUserIdByEmail(nmtEmail);
+    if (!nmtUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let nmtBody; try { nmtBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const nmtAppId = String((nmtBody && nmtBody.applicationId) || '').trim();
+    if (!nmtAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    // Same account gate as /matches, /respond, and /still-interested.
+    const nmtStateResult = await getSupabaseUserStateByEmail(nmtEmail);
+    const nmtState = (nmtStateResult && nmtStateResult.state && typeof nmtStateResult.state === 'object') ? nmtStateResult.state : {};
+    const nmtAcctStatus = String(nmtState.account_status || 'active').toLowerCase();
+    const nmtGated = !nmtState.gp_onboarding_complete || nmtAcctStatus === 'under_review' || nmtAcctStatus === 'pep_waitlist' || nmtAcctStatus === 'archived';
+    if (nmtGated) { sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' }); return; }
+
+    // Row must belong to the session user — same ownership-via-query-filter
+    // convention as every other match endpoint (a wrong-owner id 404s).
+    const nmtRowRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(nmtAppId) + '&user_id=eq.' + encodeURIComponent(nmtUserId) + '&limit=1');
+    const nmtRow = (nmtRowRes.ok && Array.isArray(nmtRowRes.data) && nmtRowRes.data[0]) ? nmtRowRes.data[0] : null;
+    if (!nmtRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
+
+    // Same expiry classification as /respond and /still-interested.
+    const nmtIsStillWaiting = nmtRow.ats_stage === 'shortlisted';
+    const nmtIsSweptExpired = nmtRow.ats_stage === 'not_proceeding' && nmtRow.match_outcome === 'expired';
+    const nmtIsExpired = (nmtIsStillWaiting && nmtRow.match_expires_at && Date.parse(nmtRow.match_expires_at) < Date.now()) || nmtIsSweptExpired;
+    if (nmtIsExpired) { sendJson(res, 200, { ok: true, state: 'expired' }); return; }
+    if (!nmtIsStillWaiting) { sendJson(res, 200, { ok: true, state: 'resolved' }); return; }
+    if (nmtRow.match_more_time_requested_at) { sendJson(res, 200, { ok: true, state: 'already' }); return; }
+
+    // Checked write: the stamp PATCH is awaited BEFORE responding, so a
+    // 'noted' response is only ever returned once the ask is actually
+    // persisted (same discipline as the cron's checked-stamp-write above).
+    const nmtNowIso = new Date().toISOString();
+    const nmtStampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(nmtAppId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { match_more_time_requested_at: nmtNowIso }
+    });
+    if (!nmtStampRes || !nmtStampRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not record your request — try again.' }); return; }
+
+    // Profile lookup happens BEFORE sendJson: no awaits between the response
+    // and the ops send (same rule as still-interested's expired branch), so
+    // on serverless the email reliably fires in the same beat.
+    const nmtGpCtx = await getGpEmailContext(nmtUserId).catch(function () { return null; });
+    const nmtGpDisplayName = (nmtGpCtx && nmtGpCtx.name) || nmtEmail;
+    const nmtPracticeName = String(nmtRow.practice_name || 'the practice').trim();
+    const nmtJobTitle = String(nmtRow.job_title || 'a role').trim();
+    const nmtExpiresAt = nmtRow.match_expires_at ? new Date(nmtRow.match_expires_at).toLocaleString('en-AU', { timeZone: 'Australia/Brisbane' }) : 'unknown';
+    sendJson(res, 200, { ok: true, state: 'noted' });
+    if (isEmailConfigured()) {
+      sendEmail({
+        to: GP_OWNER_EMAIL,
+        subject: 'GP asked for more time — ' + nmtGpDisplayName + ' × ' + nmtPracticeName,
+        text: nmtGpDisplayName + ' asked for more time to decide on "' + nmtJobTitle + '" at ' + nmtPracticeName +
+          ' — match expires ' + nmtExpiresAt + '. Open the Matching board and hit Extend 5 days if you agree. Application: ' + nmtRow.id,
+        from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
+      }).catch(() => {});
+    }
+    return;
+  }
+
   // POST /api/career/match/respond {applicationId, action:'accept'|'decline', reason?}
   // Accept = self-apply on a matched job (spec §7): identical downstream effects
   // to POST /api/career/apply (shared helpers above), plus match bookkeeping +

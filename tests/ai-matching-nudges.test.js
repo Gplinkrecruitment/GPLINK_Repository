@@ -66,13 +66,35 @@ const ALL_GPS = [REMIND24_GP, OUTSIDE30_GP, FINAL_GP, FINAL_ACCEPTED_GP, FINAL_A
 // re-stamped" assertion can check it's byte-identical after the cron run.
 const ALREADY_FINAL_STAMP = iso(NOW - 10 * 60000);
 
+// ── Task 3 (2026-07-11 nudges plan) fixtures: POST /api/career/match/need-more-time.
+// Separate GP-session (not admin-session) fixtures — kept out of ALL_GPS/the
+// shared user_profiles map so each gets a distinctive display name for the
+// verbatim ops-email subject assertion below.
+const NEEDTIME_LIVE_GP = { userId: 'gp-needtime-live-1', email: 'needtime-live@gplink-test.local' };
+const NEEDTIME_EXPIRED_GP = { userId: 'gp-needtime-expired-1', email: 'needtime-expired@gplink-test.local' };
+const NEEDTIME_RESOLVED_GP = { userId: 'gp-needtime-resolved-1', email: 'needtime-resolved@gplink-test.local' };
+const NEEDTIME_GATED_GP = { userId: 'gp-needtime-gated-1', email: 'needtime-gated@gplink-test.local' };
+const NEEDTIME_OTHER_GP = { userId: 'gp-needtime-other-1', email: 'needtime-other@gplink-test.local' };
+
 // ── In-memory PostgREST emulator (mirrors tests/ai-matching-cron.test.js) ───
 const db = {
   user_profiles: ALL_GPS.map((g, i) => ({
     user_id: g.userId, email: g.email, first_name: 'Test', last_name: `Nudge${i}`,
     registration_country: 'united kingdom'
-  })),
-  user_state: [],
+  })).concat([
+    { user_id: NEEDTIME_LIVE_GP.userId, email: NEEDTIME_LIVE_GP.email, first_name: 'Amara', last_name: 'Chen', registration_country: 'united kingdom' },
+    { user_id: NEEDTIME_EXPIRED_GP.userId, email: NEEDTIME_EXPIRED_GP.email, first_name: 'Priya', last_name: 'Nair', registration_country: 'united kingdom' },
+    { user_id: NEEDTIME_RESOLVED_GP.userId, email: NEEDTIME_RESOLVED_GP.email, first_name: 'Owen', last_name: 'Baxter', registration_country: 'united kingdom' },
+    { user_id: NEEDTIME_GATED_GP.userId, email: NEEDTIME_GATED_GP.email, first_name: 'Test', last_name: 'NeedtimeGated', registration_country: 'united kingdom' },
+    { user_id: NEEDTIME_OTHER_GP.userId, email: NEEDTIME_OTHER_GP.email, first_name: 'Test', last_name: 'NeedtimeOther', registration_country: 'united kingdom' }
+  ]),
+  user_state: [
+    { user_id: NEEDTIME_LIVE_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
+    { user_id: NEEDTIME_EXPIRED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
+    { user_id: NEEDTIME_RESOLVED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
+    { user_id: NEEDTIME_GATED_GP.userId, state: { gp_onboarding_complete: true, account_status: 'under_review' }, updated_at: iso(NOW) },
+    { user_id: NEEDTIME_OTHER_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) }
+  ],
   registration_cases: [],
   rso_team: [],
   ats_stage_events: [],
@@ -142,6 +164,46 @@ const db = {
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 7 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_outcome: 'expired',
       match_reminder_sent_at: iso(NOW - 3 * 86400000), match_final_reminder_sent_at: iso(NOW - 2 * 86400000), match_more_time_requested_at: iso(NOW - 2 * 86400000)
+    },
+    // Task 3 (2026-07-11 nudges plan): POST /api/career/match/need-more-time fixtures.
+    // Live, unstamped — the "noted" + idempotent-"already" pair (same row, two calls).
+    {
+      id: 'app-needtime-live-1', user_id: NEEDTIME_LIVE_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
+      match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
+    },
+    // Still 'shortlisted' but match_expires_at is in the past — the lifecycle
+    // cron hasn't swept it yet (mirrors app-expired-1 in ai-matching-gp-flow).
+    // matched_at is deliberately null: the lifecycle cron's expiry-sweep
+    // filter requires matched_at=not.is.null, and this fixture must NOT be
+    // picked up by that cron pass (it belongs only to this describe block) —
+    // need-more-time's own classification never reads matched_at anyway.
+    {
+      id: 'app-needtime-expired-1', user_id: NEEDTIME_EXPIRED_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      matched_at: null, match_expires_at: iso(NOW - 3600000),
+      match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
+    },
+    // Already accepted — ats_stage moved off 'shortlisted', so the row reads
+    // as resolved regardless of how much time is left on match_expires_at.
+    {
+      id: 'app-needtime-resolved-1', user_id: NEEDTIME_RESOLVED_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
+      match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: 'accepted'
+    },
+    // Live, owned by NEEDTIME_GATED_GP whose account_status is under_review —
+    // the account gate must block this before any row/email logic runs.
+    {
+      id: 'app-needtime-gated-1', user_id: NEEDTIME_GATED_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
+      match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     }
   ]
 };
@@ -283,6 +345,13 @@ function superCookie() {
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
 }
 
+// ── GP session cookie (mirrors tests/ai-matching-gp-flow.test.js's userCookie) ──
+function userCookie(email, supabaseUserId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+}
+
 const CRON_SECRET = 'match-lifecycle-cron-secret-' + RUN_ID;
 const callCron = () => httpReq('GET', '/api/cron/match-lifecycle', { headers: { Authorization: 'Bearer ' + CRON_SECRET } });
 
@@ -421,5 +490,93 @@ describe('PATCH /api/ats/application {match_extend:true} — clears all three nu
     expect(after.match_more_time_requested_at).toBe(null);
     expect(after.ats_stage).toBe('shortlisted');
     expect(after.match_outcome).toBe(null);
+  });
+});
+
+// ============================================================================
+// Task 3 (2026-07-11 nudges plan): POST /api/career/match/need-more-time — the
+// 2h final-call email's secondary CTA (`&needtime=1` deep link, Task 2).
+// Clones the still-interested/respond session-ownership-row-loading-expiry
+// pattern (tests/ai-matching-gp-flow.test.js), but as a GP-session (not
+// admin-session) endpoint, so it uses the userCookie() helper above.
+// ============================================================================
+describe('POST /api/career/match/need-more-time (Task 3, 2026-07-11 nudges plan)', () => {
+  it('live + unstamped: notes the request, stamps the column, and sends exactly one verbatim ops email; a second call is idempotent', async () => {
+    resendCalls.length = 0;
+    const expectedSubject = 'GP asked for more time — Amara Chen × Coral Coast Family Practice';
+
+    const before = db.gp_applications.find((a) => a.id === 'app-needtime-live-1');
+    expect(before.match_more_time_requested_at).toBeNull();
+
+    const first = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_LIVE_GP.email, NEEDTIME_LIVE_GP.userId) },
+      body: { applicationId: 'app-needtime-live-1' }
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.ok).toBe(true);
+    expect(first.body.state).toBe('noted');
+
+    const after = db.gp_applications.find((a) => a.id === 'app-needtime-live-1');
+    expect(after.match_more_time_requested_at).toBeTruthy();
+
+    const opsEmails = resendCalls.filter((c) => c.body && c.body.subject === expectedSubject);
+    expect(opsEmails.length).toBe(1);
+    expect(opsEmails[0].body.to).toEqual(['hello@mygplink.com.au']);
+    expect(opsEmails[0].body.text).toContain('Extend 5 days');
+
+    // Second call on the now-stamped row: 'already', no new email.
+    const second = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_LIVE_GP.email, NEEDTIME_LIVE_GP.userId) },
+      body: { applicationId: 'app-needtime-live-1' }
+    });
+    expect(second.status).toBe(200);
+    expect(second.body.ok).toBe(true);
+    expect(second.body.state).toBe('already');
+    // Stamp is unchanged (still the same value the first call wrote).
+    expect(db.gp_applications.find((a) => a.id === 'app-needtime-live-1').match_more_time_requested_at).toBe(after.match_more_time_requested_at);
+    expect(resendCalls.filter((c) => c.body && c.body.subject === expectedSubject).length).toBe(1);
+  });
+
+  it('expired (unswept) row: state expired, no stamp, no email', async () => {
+    resendCalls.length = 0;
+    const res = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_EXPIRED_GP.email, NEEDTIME_EXPIRED_GP.userId) },
+      body: { applicationId: 'app-needtime-expired-1' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('expired');
+    expect(db.gp_applications.find((a) => a.id === 'app-needtime-expired-1').match_more_time_requested_at).toBeNull();
+    expect(resendCalls.length).toBe(0);
+  });
+
+  it('resolved (already accepted) row: state resolved, no stamp, no email', async () => {
+    resendCalls.length = 0;
+    const res = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_RESOLVED_GP.email, NEEDTIME_RESOLVED_GP.userId) },
+      body: { applicationId: 'app-needtime-resolved-1' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('resolved');
+    expect(db.gp_applications.find((a) => a.id === 'app-needtime-resolved-1').match_more_time_requested_at).toBeNull();
+    expect(resendCalls.length).toBe(0);
+  });
+
+  it('is account-gated + owner-scoped: gated account -> 403, wrong-owner applicationId -> 404', async () => {
+    resendCalls.length = 0;
+    const gated = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_GATED_GP.email, NEEDTIME_GATED_GP.userId) },
+      body: { applicationId: 'app-needtime-gated-1' }
+    });
+    expect(gated.status).toBe(403);
+    expect(gated.body.error).toBe('account_gated');
+
+    const wrongOwner = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_OTHER_GP.email, NEEDTIME_OTHER_GP.userId) },
+      body: { applicationId: 'app-needtime-live-1' }
+    });
+    expect(wrongOwner.status).toBe(404);
+    expect(resendCalls.length).toBe(0);
   });
 });
