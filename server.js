@@ -18618,6 +18618,11 @@ function mapCareerRoleRowToClient(row) {
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
     benefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits.slice(0, 4) : [],
+    // Structured commercial terms (billing split, income guarantee, agreement
+    // bonus, visa, supervision) so the job page's "The package" box can show the
+    // owner's exact figures as distinct rows rather than only as marketing
+    // bullets. null on jobs that don't carry them (rendered gracefully).
+    packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null,
     filterTokens,
     support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
