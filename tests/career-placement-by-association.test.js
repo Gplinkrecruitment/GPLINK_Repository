@@ -345,23 +345,3 @@ describe('GET /api/career/profile/status — placement by association', () => {
     expect(res.body.placed).toBe(false);
   });
 });
-
-describe('pages/interview-prep.html — fabricated prep content removed (owner request 2026-07-08)', () => {
-  const prepHtml = fs.readFileSync(path.join(ROOT, 'pages', 'interview-prep.html'), 'utf8');
-
-  it('no longer ships the hardcoded placeholder briefing', () => {
-    expect(prepHtml).not.toContain('Khaleed Ibanez');
-    expect(prepHtml).not.toContain('Rachel Thompson');
-    expect(prepHtml).not.toContain('How to Succeed in This Interview');
-    expect(prepHtml).not.toContain('What This Practice Is Looking For');
-    expect(prepHtml).not.toContain('What You Should Emphasise');
-    expect(prepHtml).not.toContain('Mistakes to Avoid');
-    expect(prepHtml).not.toContain('Questions to Ask');
-  });
-
-  it('keeps the genuinely-true elements (practice, Zoom link, notes)', () => {
-    expect(prepHtml).toContain('id="heroPracticeName"');
-    expect(prepHtml).toContain('id="joinZoomTile"');
-    expect(prepHtml).toContain('id="personalNotes"');
-  });
-});

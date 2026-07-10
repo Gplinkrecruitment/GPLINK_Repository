@@ -59,6 +59,8 @@ beforeAll(async () => {
   process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
   process.env.SUPER_ADMIN_EMAILS = 'super@gplink-test.local';
   process.env.ADMIN_EMAILS = '';
+  // Zoom API unconfigured in tests → the join link comes from the standing room.
+  process.env.INTERVIEW_MEETING_URL = 'https://zoom.us/j/testroom';
   execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'seed-ats-dev.js')], { env: { ...process.env, DB_FILE_PATH: DB_FILE } });
   const { createServer } = await import('../server.js');
   server = createServer();

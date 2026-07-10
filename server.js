@@ -6136,7 +6136,6 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/registration-intro.html',
   '/pages/application-detail.html',
   '/pages/job.html',
-  '/pages/interview-prep.html',
   '/pages/offer-review.html',
   '/pages/area-guide.html'
 ]);
@@ -24487,7 +24486,11 @@ async function gcalCreateEvent(o) {
 // Create a Zoom meeting for an interview (separate from the consultation Zoom path).
 async function createZoomInterviewMeeting(o) {
   if (!isZoomConfigured()) {
-    return { id: 'zoom_local_' + Date.now(), uuid: 'uuid_local', join_url: 'https://zoom.local/j/interview', passcode: '' };
+    // Zoom API not configured — no real meeting is created. Return EMPTY so the
+    // old fake 'https://zoom.local/...' link is never stored or surfaced as a
+    // dead "Join" button. resolveInterviewJoinUrl() supplies the standing
+    // INTERVIEW_MEETING_URL room as the fallback join link when one is set.
+    return { id: '', uuid: '', join_url: '', passcode: '' };
   }
   var token = await getZoomAccessToken();
   var res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
@@ -24497,6 +24500,57 @@ async function createZoomInterviewMeeting(o) {
   });
   var d = await res.json();
   return { id: String(d.id || ''), uuid: d.uuid || '', join_url: d.join_url || '', passcode: d.password || '' };
+}
+
+// The join link surfaced to GP / practice / RSO across confirmation emails,
+// reminders, the app and the CEO dashboard. Precedence: a real per-interview
+// Zoom link (Zoom API configured — also what enables per-interview AI summaries)
+// → a single standing room set via INTERVIEW_MEETING_URL (e.g. a Zoom Personal
+// Meeting Room or a Google Meet room) → '' (no link yet). Never surfaces the old
+// unconfigured 'zoom.local' stub.
+function resolveInterviewJoinUrl(zoomJoinUrl) {
+  var z = String(zoomJoinUrl || '').trim();
+  if (z.indexOf('https://') === 0 && z.indexOf('zoom.local') === -1) return z;
+  var stat = String(process.env.INTERVIEW_MEETING_URL || '').trim();
+  if (stat.indexOf('https://') === 0) return stat;
+  return '';
+}
+
+// Server-side "Add to Google Calendar" template URL (mirrors the client builder
+// in pages/job.html). Used as the secondary CTA in interview emails alongside the
+// attached .ics (which covers Apple/Outlook).
+function buildGoogleCalendarUrl(o) {
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmt(dd) {
+    return dd.getUTCFullYear() + pad(dd.getUTCMonth() + 1) + pad(dd.getUTCDate()) + 'T' + pad(dd.getUTCHours()) + pad(dd.getUTCMinutes()) + '00Z';
+  }
+  var start = new Date(o.startUtc);
+  if (isNaN(start.getTime())) return '';
+  var end = new Date(start.getTime() + ((o.durationMin || 45) * 60000));
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + encodeURIComponent(o.summary || 'GP Link Interview')
+    + '&dates=' + fmt(start) + '/' + fmt(end)
+    + '&details=' + encodeURIComponent(o.description || '')
+    + '&location=' + encodeURIComponent(o.location || '');
+}
+
+// Resolve the support officer (RSO) to notify for an interview. Uses the case's
+// assigned RSO (assigned_rso, else assigned_va) mapped to the rso_team roster;
+// when no one is assigned, defaults to hello@mygplink.com.au (owner-specified).
+// Returns { email, name, phone }.
+async function resolveInterviewRso(caseId) {
+  var fallback = { email: 'hello@mygplink.com.au', name: 'GP Link', phone: '' };
+  try {
+    if (!caseId || !isSupabaseDbConfigured()) return fallback;
+    var r = await supabaseDbRequest('registration_cases', 'select=assigned_rso,assigned_va&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var row = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    var uid = row ? (row.assigned_rso || row.assigned_va) : null;
+    if (!uid) return fallback;
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var rso = Array.isArray(roster) ? roster.find(function (x) { return String(x.user_id) === String(uid); }) : null;
+    if (rso && rso.email) return { email: rso.email, name: rso.name || 'GP Link', phone: rso.phone || '' };
+    return fallback;
+  } catch (e) { return fallback; }
 }
 
 /* ───────── Email via Resend HTTP API ───────── */
@@ -25149,7 +25203,11 @@ async function sendInterviewReminderEmail(userId, opts) {
   // career_interviews cron) or 'in about 2 hours' (the 2h scheduled_calls run).
   const whenPhrase = opts.whenPhrase || 'tomorrow';
   const timezone = opts.timezone || '';
-  const interviewPrepUrl = opts.interviewPrepUrl || (APP_BASE_URL + '/pages/interview-prep');
+  // The interview-prep page was removed; the no-Zoom fallback CTA opens the app
+  // instead (the doctor's interview detail when we know it, else Career).
+  const appLink = opts.applicationId
+    ? (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String(opts.applicationId)))
+    : (APP_BASE_URL + '/pages/career');
   const dateObj = new Date(scheduledAt);
   // Time in the GP's local label when a timezone is known; otherwise fall back
   // to the server locale (preserves the original career_interviews behaviour).
@@ -25170,9 +25228,9 @@ async function sendInterviewReminderEmail(userId, opts) {
     'Interview ' + (whenPhrase === 'tomorrow' ? 'Tomorrow' : 'Reminder') + ' — GP Link',
     'Interview reminder, {{name}}',
     'Just a friendly reminder — you have an interview ' + whenPhrase + '.' + detail,
-    zoomJoinUrl ? 'Join Video Interview' : 'View Interview Prep',
-    zoomJoinUrl || interviewPrepUrl,
-    'See your full prep checklist and details: <a href="' + interviewPrepUrl + '">Interview prep &amp; details</a>. Make sure you\'re in a quiet place with stable internet. Good luck!'
+    zoomJoinUrl ? 'Join Video Interview' : 'Open GP Link',
+    zoomJoinUrl || appLink,
+    'Make sure you\'re in a quiet place with stable internet. Good luck!'
   );
 }
 
@@ -28289,7 +28347,7 @@ function atsLocalCandidateFacts(row) {
     if (matches.length) {
       matches.sort(function (x, y) { return (y.created_at || '') > (x.created_at || '') ? 1 : -1; });
       var m = matches[0];
-      intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null };
+      intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null, join_url: resolveInterviewJoinUrl(m.zoom_join_url) };
     }
     var offerRow = (dbState.atsOffers || []).find(function (o) { return String(o.application_id) === String(a.id); }) || null;
     return Object.assign({}, a, {
@@ -28356,7 +28414,7 @@ async function atsProdCandidateFacts(regCase) {
   if (prodAppIds.length) {
     var prodAppIdList = prodAppIds.map(function (id) { return String(id); }).join(',');
     var aiRes = await supabaseDbRequest('scheduled_calls',
-      'select=id,application_id,status,scheduled_at,meeting_summary&application_id=in.(' + encodeURIComponent(prodAppIdList) + ')&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=200');
+      'select=id,application_id,status,scheduled_at,meeting_summary,zoom_join_url&application_id=in.(' + encodeURIComponent(prodAppIdList) + ')&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=200');
     ((aiRes.ok && aiRes.data) || []).forEach(function (r) {
       if (!appInterviewMap[r.application_id]) {
         appInterviewMap[r.application_id] = r;
@@ -28383,7 +28441,7 @@ async function atsProdCandidateFacts(regCase) {
       practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
       // Drawer source chip (Task F): Zoho-managed vs in-app application.
       source: a.zoho_application_id ? 'zoho' : 'in_app',
-      interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null } : null,
+      interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
   });
@@ -29434,7 +29492,7 @@ async function handleApi(req, res, pathname) {
       // migration is needed and there is no clobber risk).
       var irScNow = Date.now();
       var irScRes = await supabaseDbRequest('scheduled_calls',
-        'select=id,application_id,user_id,practice_name,scheduled_at,format,timezone,zoom_join_url,notification_channels' +
+        'select=id,application_id,user_id,case_id,practice_name,scheduled_at,format,timezone,zoom_join_url,notification_channels' +
         '&meeting_kind=eq.interview&status=eq.booked&limit=200');
       var irScRows = irScRes.ok && Array.isArray(irScRes.data) ? irScRes.data : [];
       var irScSent = 0;
@@ -29446,22 +29504,22 @@ async function handleApi(req, res, pathname) {
           if (irScUntil <= 0) continue; // already started / in the past
           var irScNc = (irSc.notification_channels && typeof irSc.notification_channels === 'object') ? irSc.notification_channels : {};
           var irScRem = (irScNc.interview_reminders && typeof irScNc.interview_reminders === 'object') ? irScNc.interview_reminders : {};
-          // Within 2h → the imminent nudge; between 2h and 24h → the day-before
-          // heads-up. The >2h guard means an interview booked <2h out gets ONLY
-          // the 2h reminder (never also a nonsensical "tomorrow" one), while an
-          // interview booked further out gets the 24h reminder now and the 2h
-          // reminder once it crosses into the final two hours.
-          // D1a: the practice contact now gets its own reminder per window,
-          // deduped independently via the practice_h2/practice_h24 keys (so a
-          // failed practice send retries next run without re-emailing the GP).
+          // Two windows: <=1h → the final nudge; 1h–24h → the day-before heads-up.
+          // Each audience (GP / practice / RSO) is deduped independently per window
+          // (keys: h1, practice_h1, rso_h1 and the h24 equivalents) so a failed
+          // send to one party retries next hour without re-notifying the others.
           var irScWindow = null;
-          if (irScUntil <= 2 * 60 * 60 * 1000) irScWindow = 'h2';
+          if (irScUntil <= 60 * 60 * 1000) irScWindow = 'h1';
           else if (irScUntil <= 24 * 60 * 60 * 1000) irScWindow = 'h24';
           if (!irScWindow) continue;
           var irScGpDue = !irScRem[irScWindow];
           var irScPrDue = !irScRem['practice_' + irScWindow];
-          if (!irScGpDue && !irScPrDue) continue;
-          var irScPhrase = irScWindow === 'h2' ? 'in about 2 hours' : 'tomorrow';
+          var irScRsoDue = !irScRem['rso_' + irScWindow];
+          if (!irScGpDue && !irScPrDue && !irScRsoDue) continue;
+          var irScPhrase = irScWindow === 'h1' ? 'in about an hour' : 'tomorrow';
+          // Resolved join link (real Zoom → INTERVIEW_MEETING_URL → ''), shared by
+          // every party's reminder.
+          var irScJoin = resolveInterviewJoinUrl(irSc.zoom_join_url);
 
           // Resolve the GP userId (interview rows may carry it, else via the app).
           var irScUserId = irSc.user_id || '';
@@ -29483,17 +29541,25 @@ async function handleApi(req, res, pathname) {
               practiceName: irScPractice,
               scheduledAt: irSc.scheduled_at,
               format: irSc.format || 'video',
-              zoomJoinUrl: irSc.zoom_join_url || '',
+              zoomJoinUrl: irScJoin,
               timezone: irSc.timezone || '',
-              whenPhrase: irScPhrase
+              whenPhrase: irScPhrase,
+              applicationId: irSc.application_id || ''
             });
+            // WhatsApp the GP the same nudge with the join link.
+            try {
+              var irScGpPhone = await getGpWhatsAppPhone(irScUserId);
+              if (irScGpPhone) {
+                await sendWhatsappText(irScGpPhone, 'GP Link: your interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.' + (irScJoin ? ' Join: ' + irScJoin : ' We\'ll send the link shortly.'));
+              }
+            } catch (irScGpWaErr) { /* WhatsApp best-effort */ }
             irScRem[irScWindow] = new Date().toISOString();
             irScChanged = true;
             irScSent++;
           }
 
-          // D1a: practice-side reminder — own try/catch so a practice-email
-          // failure never blocks the GP dedupe flag from persisting below.
+          // Practice-side reminder (email only — no practice phone is stored).
+          // Own try/catch so a practice failure never blocks the other dedupe flags.
           if (irScPrDue) {
             try {
               var irScCtx = null;
@@ -29501,8 +29567,6 @@ async function handleApi(req, res, pathname) {
               var irScPrEmail = (irScCtx && irScCtx.practiceEmail) || '';
               if (irScPrEmail && isEmailConfigured()) {
                 var irScGpName = (irScCtx && irScCtx.gpName) || 'your GP Link candidate';
-                // The interview time in the practice's local zone (AU, derived
-                // from the practice/location text like the slot scheduler does).
                 var irScPrTz = interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '');
                 var irScPrWhen;
                 try {
@@ -29513,13 +29577,12 @@ async function handleApi(req, res, pathname) {
                 } catch (fmtErr) {
                   irScPrWhen = new Date(irSc.scheduled_at).toUTCString();
                 }
-                var irScZoom = /^https:\/\//i.test(String(irSc.zoom_join_url || '')) ? String(irSc.zoom_join_url) : '';
                 await sendEmail({
                   to: irScPrEmail,
                   subject: 'Interview reminder — ' + irScGpName + ' ' + irScPhrase,
                   text: 'A friendly reminder: your interview with ' + irScGpName + ' is ' + irScPhrase + '.\n\n'
                     + 'When: ' + irScPrWhen + '\n'
-                    + (irScZoom ? 'Zoom link: ' + irScZoom + '\n' : '')
+                    + (irScJoin ? 'Join the meeting: ' + irScJoin + '\n' : '')
                     + '\nIf the time no longer works, just reply to this email and we\'ll rearrange.',
                   from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
                 });
@@ -29529,6 +29592,47 @@ async function handleApi(req, res, pathname) {
               }
             } catch (irScPrErr) {
               console.warn('[InterviewReminder] practice reminder failed (ignored) for interview', irSc && irSc.id, ':', irScPrErr && irScPrErr.message);
+            }
+          }
+
+          // RSO reminder — email + WhatsApp to the support officer (assigned RSO,
+          // else hello@). Own try/catch so it never blocks the other flags.
+          if (irScRsoDue) {
+            try {
+              var irScRso = await resolveInterviewRso(irSc.case_id);
+              var irScRsoEmail = String((irScRso && irScRso.email) || '').trim();
+              var irScRsoGpName = 'the candidate';
+              try {
+                var irScRsoCtx = await atsGetApplicationContext(String(irSc.application_id || ''));
+                irScRsoGpName = (irScRsoCtx && irScRsoCtx.gpName) || 'the candidate';
+              } catch (gnErr) { irScRsoGpName = 'the candidate'; }
+              var irScRsoTz = interviewMeetings.practiceTzForLocation(irScPractice || '');
+              var irScRsoWhen;
+              try {
+                irScRsoWhen = new Intl.DateTimeFormat('en-AU', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: irScRsoTz }).format(new Date(irSc.scheduled_at));
+              } catch (fErr) { irScRsoWhen = new Date(irSc.scheduled_at).toUTCString(); }
+              var irScRsoAny = false;
+              if (irScRsoEmail && isEmailConfigured()) {
+                await sendEmail({
+                  to: irScRsoEmail,
+                  subject: 'Interview reminder — ' + irScRsoGpName + ' ' + irScPhrase,
+                  text: irScRsoGpName + '’s interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.\n\nWhen: ' + irScRsoWhen + '\n' + (irScJoin ? 'Join the meeting: ' + irScJoin + '\n' : '') + '\nPlease join to support them.',
+                  from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+                });
+                irScRsoAny = true;
+              }
+              var irScRsoPhone = (irScRso && irScRso.phone) ? normalizePhone(irScRso.phone) : '';
+              if (irScRsoPhone) {
+                await sendWhatsappText(irScRsoPhone, 'GP Link: ' + irScRsoGpName + '’s interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.' + (irScJoin ? ' Join: ' + irScJoin : ''));
+                irScRsoAny = true;
+              }
+              if (irScRsoAny) {
+                irScRem['rso_' + irScWindow] = new Date().toISOString();
+                irScChanged = true;
+                irScSent++;
+              }
+            } catch (irScRsoErr) {
+              console.warn('[InterviewReminder] RSO reminder failed (ignored) for interview', irSc && irSc.id, ':', irScRsoErr && irScRsoErr.message);
             }
           }
 
@@ -34651,7 +34755,8 @@ async function handleApi(req, res, pathname) {
 
   // GET /api/career/my-interviews — the CURRENT user's interviews, merged from BOTH
   // interview stores: scheduled_calls (newer 3-way CEO flow, meeting_kind='interview')
-  // and career_interviews (older admin-scheduled flow). Consumed by pages/interview-prep.html.
+  // and career_interviews (older admin-scheduled flow). Consumed by the secured
+  // "My Practice" upcoming-interview card in pages/career.html.
   // GP-facing payload only: NEVER expose zoom_host_url, zoom_passcode or interviewer_email.
   if (pathname === '/api/career/my-interviews' && req.method === 'GET') {
     const session = requireSession(req, res);
@@ -35437,7 +35542,9 @@ async function handleApi(req, res, pathname) {
           + encodeURIComponent(appRow.id) + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=1');
         const scRow = (scRes.ok && Array.isArray(scRes.data) && scRes.data[0]) ? scRes.data[0] : null;
         if (scRow) {
-          const scJoin = scRow.zoom_join_url ? safeZoomOrHttpUrl(scRow.zoom_join_url) : null;
+          // Resolve to a real join link (Zoom → INTERVIEW_MEETING_URL → none) so
+          // the in-app "Join" works even before per-meeting Zoom is configured.
+          const scJoin = safeZoomOrHttpUrl(resolveInterviewJoinUrl(scRow.zoom_join_url));
           interview = {
             id: scRow.id,
             application_id: scRow.application_id,
@@ -35535,7 +35642,7 @@ async function handleApi(req, res, pathname) {
         timezone: raw.timezone,
         format: raw.format,
         status: raw.status,
-        zoom_join_url: raw.zoom_join_url ? safeZoomOrHttpUrl(raw.zoom_join_url) : null,
+        zoom_join_url: safeZoomOrHttpUrl(resolveInterviewJoinUrl(raw.zoom_join_url)),
         interviewer_name: raw.interviewer_name || '',
         interviewer_role: raw.interviewer_role || '',
         gp_notes: raw.gp_notes || '',
@@ -57156,6 +57263,10 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     startUtc: slotStartUtc,
     durationMin: 45
   });
+  // The join link stored on the row + returned to the app: a real per-interview
+  // Zoom link when Zoom is configured, else the standing INTERVIEW_MEETING_URL
+  // room, else '' (no dead 'zoom.local' stub). All surfaces read this.
+  var resolvedJoin = resolveInterviewJoinUrl(zoom.join_url);
 
   var gcal;
   try {
@@ -57177,7 +57288,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       booked_at: nowTs,
       zoom_meeting_id: String(zoom.id || ''),
       zoom_meeting_uuid: String(zoom.uuid || ''),
-      zoom_join_url: String(zoom.join_url || ''),
+      zoom_join_url: resolvedJoin,
       zoom_passcode: String(zoom.passcode || ''),
       gcal_event_id: String(gcal.id || ''),
       updated_at: nowTs
@@ -57220,13 +57331,19 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       var practiceWhen = _fmtInterviewWhen(interviewMeetings.practiceTzForLocation(appCtx.practiceName || ''));
       var gpWhen = _fmtInterviewWhen(interviewMeetings.gpTzForCountry(appCtx.gpCountry));
       var timeLabel = practiceWhen; // used by the internal ops notify below
-      var zoomJoin = (zoom && typeof zoom.join_url === 'string' && zoom.join_url.indexOf('https://') === 0) ? zoom.join_url : '';
+      // Resolved join link (real Zoom → INTERVIEW_MEETING_URL standing room → '').
+      var joinUrl = resolveInterviewJoinUrl(zoom.join_url);
       var _esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
-      // D1a: attach a calendar invite (METHOD:REQUEST) so both sides get an
-      // "Add to calendar" card. UID is stable per interview row so a later
-      // cancellation .ics (same UID, SEQUENCE 1) removes the event again.
-      // Built in its own try/catch — a bad date or ICS bug must never stop
-      // the plain-text confirmations below from going out.
+      // Support officer to notify (assigned RSO, else hello@) + their first name.
+      var bookRso = await resolveInterviewRso(appCtx.caseId);
+      var rsoFirst = String(bookRso.name || 'GP Link').split(' ')[0];
+      // "Add to calendar" (Google render URL); the .ics below covers Apple/Outlook.
+      var calDesc = 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
+      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
+      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
+      // D1a: attach a calendar invite (METHOD:REQUEST). UID is stable per interview
+      // row so a later cancellation .ics (same UID, SEQUENCE 1) removes it again.
+      // Built in its own try/catch — a bad date can never stop the confirmations.
       var bookIcsAttachment = null;
       try {
         bookIcsAttachment = interviewIcs.icsAttachment({
@@ -57234,11 +57351,10 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           start: slotStartUtc,
           durationMins: 45,
           summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
-          description: 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.'
-            + (zoom.join_url ? ' Join Zoom: ' + zoom.join_url : ''),
-          location: zoom.join_url || '',
+          description: calDesc,
+          location: joinUrl || '',
           organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
-          attendeeEmails: [gpEmail, appCtx.practiceEmail || ''].filter(Boolean),
+          attendeeEmails: [gpEmail, appCtx.practiceEmail || '', bookRso.email || ''].filter(Boolean),
           method: 'REQUEST',
           sequence: 0,
           status: 'CONFIRMED'
@@ -57246,48 +57362,76 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       } catch (icsErr) {
         console.warn('[interview] booking .ics build failed (ignored):', icsErr && icsErr.message);
       }
+      // Practice confirmation.
       if (appCtx.practiceEmail && isEmailConfigured()) {
         await sendEmail({
           to: appCtx.practiceEmail,
           subject: 'Interview confirmed — ' + appCtx.gpName,
           html: buildCareerEmailHtml({
             title: 'Interview confirmed',
-            body: _esc(appCtx.gpName || 'The doctor') + ' has confirmed the interview for <strong>' + _esc(practiceWhen) + '</strong>. A calendar invite is attached. When the time comes, join the video call using the button below.',
-            ctaText: zoomJoin ? 'Join Video Call' : 'GP Link',
-            ctaUrl: zoomJoin || APP_BASE_URL,
+            body: _esc(appCtx.gpName || 'The doctor') + ' has confirmed the interview for <strong>' + _esc(practiceWhen) + '</strong>.' + (joinUrl ? ' At the scheduled time, join the video call with the button below.' : ' The video link will be shared before the interview.'),
+            ctaText: joinUrl ? 'Join Meeting' : 'View interview',
+            ctaUrl: joinUrl || APP_BASE_URL,
+            secondaryCtaText: 'Add to Calendar',
+            secondaryCtaUrl: practiceCalUrl,
             footer: 'Need to reschedule? Just reply to this email and the GP Link team will help.'
           }),
-          text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + practiceWhen + '.' + (zoomJoin ? ' Join Zoom: ' + zoomJoin : ''),
+          text: 'The interview with ' + appCtx.gpName + ' is confirmed for ' + practiceWhen + '.' + (joinUrl ? ' Join the meeting: ' + joinUrl : ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
+      // GP confirmation.
       if (gpEmail && isEmailConfigured()) {
         await sendEmail({
           to: gpEmail,
           subject: 'Your interview is confirmed 🎉',
           html: buildCareerEmailHtml({
             title: 'Your interview is confirmed 🎉',
-            body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>. Your Registration Support Officer will join you, so you’re never in the room alone. A calendar invite is attached, and you can join the video call from the button below when it’s time.',
-            ctaText: zoomJoin ? 'Join Video Call' : 'View My Interview',
-            ctaUrl: zoomJoin || (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || ''))),
+            body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>. Your Registration Support Officer will join you, so you’re never in the room alone.' + (joinUrl ? ' Join the video call from the button below when it’s time.' : ' We’ll share the video link with you before the interview.'),
+            ctaText: joinUrl ? 'Join Meeting' : 'View my interview',
+            ctaUrl: joinUrl || (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || ''))),
+            secondaryCtaText: 'Add to Calendar',
+            secondaryCtaUrl: gpCalUrl,
             footer: 'Need to reschedule? Reply to this email or message us on WhatsApp at +61 494 391 968.'
           }),
-          text: 'Your interview with ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + gpWhen + '.' + (zoomJoin ? ' Join Zoom: ' + zoomJoin : ''),
+          text: 'Your interview with ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + gpWhen + '.' + (joinUrl ? ' Join the meeting: ' + joinUrl : ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
-      // GAP A4: signal the ops inbox so the team sees new interview bookings
-      // without having to poll the dashboard. Separate try so a failure here
-      // never affects the GP/practice confirmations above.
+      // RSO notification — the support officer who sits in on the interview.
+      // Defaults to hello@ when unassigned; skipped there only to avoid doubling
+      // the ops email below (which already lands in hello@).
+      var bookRsoEmail = String(bookRso.email || '').trim();
+      var bookRsoIsHello = bookRsoEmail.toLowerCase() === 'hello@mygplink.com.au';
+      if (bookRsoEmail && !bookRsoIsHello && isEmailConfigured()) {
+        await sendEmail({
+          to: bookRsoEmail,
+          subject: 'Interview to support — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'a practice'),
+          html: buildCareerEmailHtml({
+            title: 'You’re supporting an interview',
+            body: 'Hi ' + _esc(rsoFirst) + ', ' + _esc(appCtx.gpName || 'your doctor') + ' has an interview with ' + _esc(appCtx.practiceName || 'the practice') + ' on <strong>' + _esc(practiceWhen) + '</strong>. Please join so they’re never in the room alone.' + (joinUrl ? ' Join with the button below.' : ' The video link will be shared before the interview.'),
+            ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
+            ctaUrl: joinUrl || (APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
+            secondaryCtaText: 'Add to Calendar',
+            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
+            footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
+          }),
+          text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + practiceWhen + '.' + (joinUrl ? ' Join: ' + joinUrl : ''),
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
+        });
+      }
+      // Ops inbox (hello@) — internal record with a candidate deep link + the
+      // resolved support officer + join link (or a config hint when there is none).
       try {
         if (isEmailConfigured()) {
           var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String((appCtx.caseId != null ? appCtx.caseId : (appCtx.app && appCtx.app.id)) || ''));
           await sendEmail({
             to: 'hello@mygplink.com.au',
             subject: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' — ' + timeLabel,
-            text: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' for ' + timeLabel + '.\n\nZoom: ' + (zoom.join_url || '(link pending)') + '\nOpen the candidate: ' + opsDeepLink,
+            text: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' for ' + timeLabel + '.\n\nMeeting: ' + (joinUrl || '(no link — set INTERVIEW_MEETING_URL or configure the Zoom API)') + '\nSupport officer: ' + (bookRso.name || 'GP Link') + ' <' + bookRsoEmail + '>\nOpen the candidate: ' + opsDeepLink,
             from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
           });
         }
@@ -57300,7 +57444,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   })();
   notifyPromise.catch(function () {});
 
-  return { booked: { scheduled_at: slotStartUtc, zoom_join_url: zoom.join_url || '' }, zoom: zoom, gcal: gcal, notifyPromise: notifyPromise };
+  return { booked: { scheduled_at: slotStartUtc, zoom_join_url: resolvedJoin }, zoom: zoom, gcal: gcal, notifyPromise: notifyPromise };
 }
 
 async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {

@@ -135,7 +135,6 @@ describe('Team Alerts redesign (Task 9) — cache buster bumped everywhere', () 
     'pages/registration-intro.html',
     'pages/account.html',
     'pages/myinthealth.html',
-    'pages/interview-prep.html',
     'pages/application-detail.html',
     'pages/messages.html',
     'pages/amc.html',

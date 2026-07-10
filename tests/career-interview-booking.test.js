@@ -224,6 +224,9 @@ beforeAll(async () => {
   process.env.ZOOM_ACCOUNT_ID = '';
   process.env.ZOOM_CLIENT_ID = '';
   process.env.ZOOM_CLIENT_SECRET = '';
+  // Zoom API is unconfigured, so per-interview meetings aren't created; the join
+  // link comes from the standing INTERVIEW_MEETING_URL room instead.
+  process.env.INTERVIEW_MEETING_URL = 'https://zoom.us/j/testroom';
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
   process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = '';
   process.env.GOOGLE_CALENDAR_ID = '';
