@@ -64,6 +64,15 @@
     commencement: "Unlocks once PBS & Medicare is complete"
   };
 
+  // ── Vaulted stages (temporarily removed from the GP journey) ──
+  // Stages listed here keep their definition above (so they can be restored by
+  // simply deleting the key below) but are excluded from everything the GP sees:
+  // the journey list, the registration dropdown and the mobile sheet all consume
+  // VISIBLE_STAGES / getStageStates below. Server-side this is mirrored by
+  // VAULTED_STAGES in server.js (page access + can-proceed) — keep the two in sync.
+  var VAULTED = { commencement: true };
+  var VISIBLE_STAGES = STAGES.filter(function (stage) { return !VAULTED[stage.key]; });
+
   // Derives the per-stage display state (done / locked / lockReason) from a
   // progress snapshot: { careerSecured, epicDone, amcDone, ahpraDone, visaDone,
   // pbsDone }. `bypass` mirrors BYPASS_LOCK_EMAILS handling on both surfaces.
@@ -85,7 +94,7 @@
       pbs: !bypass && !s.ahpraDone,
       commencement: !bypass && !s.pbsDone
     };
-    return STAGES.map(function (stage, index) {
+    return VISIBLE_STAGES.map(function (stage, index) {
       var locked = lockedMap[stage.key] === true;
       return {
         key: stage.key,
@@ -101,14 +110,16 @@
   }
 
   function findStage(key) {
-    for (var i = 0; i < STAGES.length; i++) {
-      if (STAGES[i].key === key) return STAGES[i];
+    for (var i = 0; i < VISIBLE_STAGES.length; i++) {
+      if (VISIBLE_STAGES[i].key === key) return VISIBLE_STAGES[i];
     }
     return null;
   }
 
   window.GPJourneyStages = {
-    STAGES: STAGES,
+    STAGES: VISIBLE_STAGES,
+    ALL_STAGES: STAGES,
+    VAULTED: VAULTED,
     LOCK_COPY: LOCK_COPY,
     getStageStates: getStageStates,
     findStage: findStage

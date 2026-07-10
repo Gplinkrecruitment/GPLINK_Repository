@@ -11015,6 +11015,15 @@ const PAGE_STAGE_MAP = {
   '/pages/commencement.html': 'commencement'
 };
 
+// ── Vaulted stages ──
+// Registration stages temporarily shelved from the GP journey. A vaulted stage
+// is blocked from direct page access (isStageAccessAllowed below bounces it to
+// the dashboard) — the client mirror is VAULTED in js/journey-stages.js, which
+// hides it from the stepper / registration dropdown / mobile sheet. To restore a
+// stage, remove it from BOTH sets. (The admin/CEO STAGE_ORDER tracking is left
+// intact — vaulting only affects the GP-facing journey.)
+const VAULTED_STAGES = new Set(['commencement']);
+
 // Pure stage-gate decision (testable). Visa, AHPRA and Career are ALWAYS accessible:
 // visa = the always-on 482→186 info page (docs/deferred-visa-application.md); AHPRA
 // renders its own prerequisite gateway; Career is placement context. Every other stage
@@ -11022,6 +11031,7 @@ const PAGE_STAGE_MAP = {
 // overrides at all) follows natural progression and is allowed.
 function stageGateDecision(stage, overrides, isBypass) {
   if (!stage) return true;
+  if (VAULTED_STAGES.has(stage)) return false; // vaulted — blocked for everyone, incl. bypass
   if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
   if (isBypass) return true;
   if (!overrides || typeof overrides !== 'object') return true;
@@ -11032,6 +11042,10 @@ function stageGateDecision(stage, overrides, isBypass) {
 async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
   if (!stage) return true; // Not a gated page
+  // Vaulted stages are blocked for EVERYONE (incl. bypass emails) — this sits
+  // before the always-allowed / bypass short-circuits below so /pages/commencement
+  // bounces to the dashboard while the stage is shelved. See VAULTED_STAGES above.
+  if (VAULTED_STAGES.has(stage)) return false;
   // Always-accessible stages — short-circuit before any DB read. visa MUST be here:
   // stage-advance writes overrides.visa=false for every GP before the visa stage
   // (visa is STAGE_ORDER index 5), yet the journey's Visa card is always unlocked, so

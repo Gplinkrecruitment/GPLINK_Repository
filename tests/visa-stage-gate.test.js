@@ -56,3 +56,15 @@ describe('stageGateDecision — other stages still honour overrides (no regressi
     expect(stageGateDecision('', {}, false)).toBe(true);
   });
 });
+
+describe('stageGateDecision — vaulted commencement is fully shelved', () => {
+  it('blocks commencement regardless of overrides or bypass', () => {
+    expect(stageGateDecision('commencement', {}, false)).toBe(false);                    // natural progression can't reach it
+    expect(stageGateDecision('commencement', { commencement: true }, false)).toBe(false); // an override cannot unlock it
+    expect(stageGateDecision('commencement', {}, true)).toBe(false);                     // bypass cannot reach it either
+  });
+  it('leaves the live stages unaffected', () => {
+    expect(stageGateDecision('pbs', { pbs: true }, false)).toBe(true);
+    expect(stageGateDecision('visa', {}, false)).toBe(true);
+  });
+});

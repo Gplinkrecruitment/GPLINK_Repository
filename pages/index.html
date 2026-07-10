@@ -1010,9 +1010,10 @@
         })
         .catch(function () { document.documentElement.style.visibility = ""; });
     })();
-    // 7 canonical stages (js/journey-stages.js). Commencement has no client-side
-    // completion signal, so displayed progress tops out at 6/7 until commencement.
-    const TOTAL_STEPS = 7;
+    // Canonical GP journey stages (js/journey-stages.js). Commencement is
+    // currently VAULTED there, so the GP sees 6 stages and a GP through PBS &
+    // Medicare shows 6/6 = 100%. Restore to 7 when commencement is un-vaulted.
+    const TOTAL_STEPS = 6;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1591,7 +1592,10 @@
       else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "View your secured practice placement"; }
       else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
       else if (epicDone && amcDone && careerSecured && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "commencement"; currentTitle = "Commencement"; currentSub = "Pre-arrival checklist and your first day at the practice"; }
+      // Commencement is vaulted (js/journey-stages.js) — PBS & Medicare is the
+      // final visible stage, so once it's done the journey is complete. Point the
+      // CTA at the practice view instead of the shelved commencement page.
+      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
 
       return {
         epicDone, epicCurrentLabel,
