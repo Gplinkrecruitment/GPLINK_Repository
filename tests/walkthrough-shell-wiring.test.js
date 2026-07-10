@@ -12,6 +12,20 @@ describe('shell wiring', () => {
     expect(html).toMatch(/\/js\/gp-walkthrough-state\.js\?v=/);
     expect(html).toMatch(/\/js\/gp-walkthrough-shell\.js\?v=/);
   });
+  it('app-shell.html loads the walkthrough scripts in dependency order', () => {
+    const html = read('pages/app-shell.html');
+    const iStateSync = html.indexOf('state-sync.js');
+    const iCoach = html.indexOf('gp-coach.js');
+    const iState = html.indexOf('gp-walkthrough-state.js');
+    const iShell = html.indexOf('gp-walkthrough-shell.js');
+    expect(iStateSync).toBeGreaterThan(-1);
+    expect(iCoach).toBeGreaterThan(-1);
+    expect(iState).toBeGreaterThan(-1);
+    expect(iShell).toBeGreaterThan(-1);
+    expect(iStateSync).toBeLessThan(iCoach);
+    expect(iCoach).toBeLessThan(iState);
+    expect(iState).toBeLessThan(iShell);
+  });
   it('app-shell.js dispatches gp-shell-frame-loaded and handles gp-shell-run-tour', () => {
     const js = read('js/app-shell.js');
     expect(js).toContain('gp-shell-frame-loaded');

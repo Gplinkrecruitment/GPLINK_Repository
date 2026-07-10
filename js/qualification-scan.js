@@ -31,7 +31,7 @@
   function maybeScanTour() {
     if (!isOpen) return;
     var S = window.gpWalkthroughState, C = window.gpCoach;
-    if (!S || !C || C.isActive()) return;
+    if (!S || !C || (C.isActive && C.isActive())) return;
     try {
       if (localStorage.getItem('gp_account_under_review') === 'true') return;
       if (localStorage.getItem('gp_account_pep_waitlist') === 'true') return;

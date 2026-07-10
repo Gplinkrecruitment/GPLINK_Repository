@@ -66,8 +66,8 @@
   }
   function tryAuto() {
     if (ranAuto || !homeLoaded || !hydrated) return;
-    ranAuto = true; // decide exactly once
     if (guarded()) return;
+    ranAuto = true; // decide exactly once (transient guards no longer consume the one shot)
     if (!S.shouldRunTour(readState())) return;
     setTimeout(runTour, 350); // let the nav settle
   }

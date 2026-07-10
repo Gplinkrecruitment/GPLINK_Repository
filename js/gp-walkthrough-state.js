@@ -5,10 +5,15 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.gpWalkthroughState = api;
 })(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
-  var AREAS = ['home', 'practice', 'support', 'account', 'scan'];
+  var AREAS = Object.freeze(['home', 'practice', 'support', 'account', 'scan']);
 
+  function tipsAll(v) {
+    var t = {};
+    for (var i = 0; i < AREAS.length; i++) t[AREAS[i]] = v;
+    return t;
+  }
   function defaultState() {
-    return { tourDone: false, tips: { home: false, practice: false, support: false, account: false, scan: false } };
+    return { tourDone: false, tips: tipsAll(false) };
   }
   function normalize(state) {
     var d = defaultState();
@@ -25,7 +30,7 @@
   }
   function serializeState(state) { return JSON.stringify(normalize(state)); }
   function allSeenState() {
-    return { tourDone: true, tips: { home: true, practice: true, support: true, account: true, scan: true } };
+    return { tourDone: true, tips: tipsAll(true) };
   }
   function withTourDone(state) { var n = normalize(state); n.tourDone = true; return n; }
   function withTipSeen(state, area) {
