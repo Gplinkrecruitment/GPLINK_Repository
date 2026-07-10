@@ -25617,6 +25617,29 @@ async function atsGetPracticeRow(id) {
   }
   return (dbState.atsPractices || []).find(function (p) { return String(p.id) === String(id); }) || null;
 }
+
+// Task 6 (2026-07-11 matching-board): resolves a practice row's street
+// address the SAME way /api/career/role does for revealedMapQuery (address
+// column, falling back to a legacy intake-only metadata.intake.address).
+function resolveCareerPracticeAddress(practiceRow) {
+  if (!practiceRow) return '';
+  if (practiceRow.address) return String(practiceRow.address);
+  if (practiceRow.metadata && practiceRow.metadata.intake && practiceRow.metadata.intake.address) {
+    return String(practiceRow.metadata.intake.address);
+  }
+  return '';
+}
+
+// Builds the Google-Maps query string the GP match card's map embed + "Open
+// in Maps" link use. Same [address, city, state] shape /api/career/role
+// exposes as revealedMapQuery when a street address is on file; falls back to
+// the practice name + city/state so the map/link is never blank for a
+// practice whose intake hasn't captured an address yet.
+function buildCareerMatchMapQuery(practiceAddress, practiceName, city, state) {
+  const address = String(practiceAddress || '').trim();
+  const parts = address ? [address, city, state] : [practiceName, city, state];
+  return parts.filter(Boolean).join(', ');
+}
 async function atsInsertPracticeRow(row) {
   if (isSupabaseDbConfigured()) {
     var r = await supabaseDbRequest('practices', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
@@ -34419,12 +34442,21 @@ async function handleApi(req, res, pathname) {
       const practice = mmPracticeById[job.practice_id] || {};
       const reasons = (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
         ? r.match_reasons.reasons : [];
+      const mmPracticeName = practice.name || job.practice_name || r.practice_name || '';
+      // Task 6 (2026-07-11 matching-board): the card's map preview + "Open in
+      // Maps" link need a query string — same address /api/career/role uses
+      // for revealedMapQuery, falling back to the practice name when no
+      // street address is on file yet.
+      const mmMapQuery = buildCareerMatchMapQuery(
+        resolveCareerPracticeAddress(practice), mmPracticeName, job.suburb || job.location_city || '', job.location_state || ''
+      );
       return {
         applicationId: r.id, roleId: r.career_role_id, score: (r.match_score != null ? r.match_score : null),
         reasons, expiresAt: r.match_expires_at || null, seenAt: r.match_seen_at || null, matchedAt: r.matched_at || null,
-        jobTitle: job.title || r.job_title || '', practiceName: practice.name || job.practice_name || r.practice_name || '',
+        jobTitle: job.title || r.job_title || '', practiceName: mmPracticeName,
         website: practice.website || '', introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
-        locationCity: job.location_city || '', locationState: job.location_state || '', dpa: job.dpa === true
+        locationCity: job.location_city || '', locationState: job.location_state || '', dpa: job.dpa === true,
+        mapQuery: mmMapQuery
       };
     }).sort((a, b) => new Date(b.matchedAt || 0) - new Date(a.matchedAt || 0));
 

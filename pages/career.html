@@ -7684,6 +7684,45 @@
     .at-match-pass { text-align: center; font-size: 11px; color: var(--gp-faint, #94a3b8); padding-top: 8px; }
     .at-match-pass a { color: var(--gp-muted, #64748b); }
 
+    /* Match card (design R6): website button, map preview, "see full job
+       opening" row — inserted under the reason ticks, above the 98% line. */
+    .at-match-qrow { display: flex; gap: 8px; margin-bottom: 9px; }
+    .at-match-qbtn {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+      font-size: 11.5px; font-weight: 700; color: var(--gp-blue, #2563eb);
+      background: var(--gp-blue-soft, #eff4ff); border: 1px solid var(--gp-blue-border, #d6e2fb);
+      border-radius: 11px; padding: 9px 8px; text-decoration: none;
+    }
+    .at-match-map {
+      position: relative; margin-bottom: 9px; border-radius: 13px; overflow: hidden;
+      border: 1px solid var(--gp-border, #e3e9f4); height: 92px; background: var(--gp-blue-soft, #eff4ff);
+    }
+    .at-match-map iframe { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; }
+    .at-match-map-open {
+      position: absolute; right: 8px; bottom: 8px; font-size: 10px; font-weight: 700;
+      color: var(--gp-blue, #2563eb); background: rgba(255, 255, 255, .9); border-radius: 999px;
+      padding: 4px 10px; text-decoration: none;
+    }
+    .at-match-seejob {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px;
+      font-size: 13px; font-weight: 700; color: var(--gp-ink, #0f172a);
+      background: var(--gp-surface-2, #f8fafc); border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: 13px; padding: 12px 14px; text-decoration: none;
+    }
+    .at-match-seejob-arr { color: var(--gp-blue, #2563eb); font-weight: 900; }
+
+    /* Sticky accept bar — pinned above the app-shell bottom nav while ≥1 live
+       match exists (design R6: same "Accept this match" CTA + countdown
+       sub-line as the card, always reachable without scrolling). */
+    .at-match-stickybar {
+      position: fixed; left: 50%; transform: translateX(-50%); bottom: 0;
+      width: min(100% - 24px, 560px); z-index: 60;
+      background: var(--gp-surface, #fff); border: 1px solid var(--gp-border, #e3e9f4);
+      border-radius: 16px 16px 0 0; box-shadow: 0 -12px 30px -12px rgba(15, 23, 42, .25);
+      padding: 12px 16px calc(12px + max(env(safe-area-inset-bottom, 0px), var(--gp-shell-bottom-clearance, 0px)));
+    }
+    .at-match-stickybar-sub { text-align: center; font-size: 11px; font-weight: 700; color: var(--gp-amber-ink, #92400e); margin-top: 8px; }
+
     /* The one deliberate standout — glossy animated shine (copied from the
        approved mockups matching-email-popup-v3.html / matching-multi-timer-v5.html). */
     .shiny {
@@ -7772,7 +7811,8 @@
     html.dark-mode .at-match-pin,
     html.dark-mode .at-match-filled,
     html.dark-mode .at-match-alt-card,
-    html.dark-mode .at-match-confirm-card { background: #151e2e; border-color: #26324a; }
+    html.dark-mode .at-match-confirm-card,
+    html.dark-mode .at-match-stickybar { background: #151e2e; border-color: #26324a; }
     html.dark-mode .at-match-pn,
     html.dark-mode .at-match-filled-pn,
     html.dark-mode .at-match-alt-title,
@@ -7780,6 +7820,9 @@
     html.dark-mode .at-match-jt,
     html.dark-mode .at-match-confirm-card p { color: #cbd5e1; }
     html.dark-mode .at-match-why { background: rgba(37, 99, 235, .14); border-color: rgba(96, 148, 255, .28); }
+    html.dark-mode .at-match-seejob { background: #1b2436; border-color: #26324a; color: #e8eefb; }
+    html.dark-mode .at-match-qbtn { background: rgba(37, 99, 235, .14); border-color: rgba(96, 148, 255, .28); }
+    html.dark-mode .at-match-map { background: #1b2436; border-color: #26324a; }
 
     /* Saved-tab alerts toggle, restyled quietly */
     .at-alerts-toggle {
@@ -8089,6 +8132,10 @@
   </div>
 
   <div class="toast" id="careerToast"></div>
+
+  <!-- Sticky accept bar (Task 6, design R6): pinned above the app-shell
+       bottom nav whenever ≥1 live team match exists — see renderMatchStickyBar(). -->
+  <div class="at-match-stickybar" id="matchStickyBar" hidden></div>
 
   <!-- Careers profile-completion gate modal (Task 5). Not dismissible: no close
        button, no scrim-click close, no Escape handler — the CTA only enables
@@ -11787,6 +11834,22 @@
       const videoHtml = introVideoUrl
         ? `<a class="at-match-chip" href="${escapeHtml(introVideoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">▶ Meet the practice · video</a>`
         : "";
+      // Design R6 (2026-07-11 matching-board spec Part C): website button,
+      // map preview + "Open in Maps" link, and the full-opening row — all
+      // gated the SAME http(s)-only way as the rest of this card (mapQuery
+      // itself is never rendered as visible text, only percent-encoded into
+      // our own maps.google.com URLs, so it needs no scheme gate).
+      const mapQuery = String(match.mapQuery || "").trim();
+      const mapEmbedUrl = mapQuery ? `https://maps.google.com/maps?q=${encodeURIComponent(mapQuery)}&output=embed` : "";
+      const mapOpenUrl = mapQuery ? `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}` : "";
+      const seeJobHref = `/pages/job.html?id=${encodeURIComponent(String(match.roleId || ""))}&match=${encodeURIComponent(match.applicationId)}`;
+      const quickActionsHtml = website
+        ? `<div class="at-match-qrow"><a class="at-match-qbtn" href="${escapeHtml(website)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">🌐 Visit website</a></div>`
+        : "";
+      const mapHtml = mapEmbedUrl
+        ? `<div class="at-match-map"><iframe loading="lazy" src="${escapeHtml(mapEmbedUrl)}" title="Map"></iframe><a class="at-match-map-open" href="${escapeHtml(mapOpenUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">Open in Maps ↗</a></div>`
+        : "";
+      const seeJobHtml = `<a class="at-match-seejob" href="${escapeHtml(seeJobHref)}"><span>See the full job opening</span><span class="at-match-seejob-arr">→</span></a>`;
       return `<article class="at-match-pin${countdown.amber ? " at-match-pin--amber" : ""}" data-match-id="${escapeHtml(match.applicationId)}">
         <div class="at-match-ribbon${countdown.amber ? " at-match-ribbon--amber" : ""}">
           <span>Matched to you</span>
@@ -11801,6 +11864,9 @@
             <ul>${shownReasons.map((r) => `<li><span class="at-match-tick">✓</span>${escapeHtml(r)}</li>`).join("")}</ul>
             ${moreCount > 0 ? `<button type="button" class="at-match-more" data-match-more="${escapeHtml(match.applicationId)}">+ ${moreCount} more reason${moreCount === 1 ? "" : "s"} ›</button>` : ""}
           </div>` : ""}
+          ${quickActionsHtml}
+          ${mapHtml}
+          ${seeJobHtml}
           <div class="at-match-stat">98% of GPs we match are accepted by the practice.</div>
           ${videoHtml}
           <button type="button" class="at-match-accept shiny" data-match-accept="${escapeHtml(match.applicationId)}">${countdown.amber ? "Accept before it expires" : "Accept this match"}</button>
@@ -11828,6 +11894,96 @@
           </div>`).join("")}
         </div>` : `<p class="at-match-filled-fallback">Reply to your team and they'll match you personally.</p>`}
       </div>`;
+    }
+
+    // True while a match's countdown hasn't expired — the single definition
+    // of "live" the sticky bar and the client nudge alerts share with the
+    // card's own countdown chip.
+    function isMatchLive(match) {
+      return !!match && !formatMatchCountdown(match.expiresAt).expired;
+    }
+
+    function getLiveMatches() {
+      return (teamMatchesState.matches || []).filter(isMatchLive);
+    }
+
+    // The sticky bar targets the ?match=<id> deep-linked match while it's
+    // still live, else the newest live match (the server already returns
+    // matches newest-matched-first).
+    function pickStickyMatch(liveMatches) {
+      let deepLinkId = "";
+      try { deepLinkId = new URL(window.location.href).searchParams.get("match") || ""; } catch (e) {}
+      if (deepLinkId) {
+        const found = liveMatches.find((m) => String(m.applicationId) === String(deepLinkId));
+        if (found) return found;
+      }
+      return liveMatches[0] || null;
+    }
+
+    // Sticky accept bar (design R6): fixed above the shell nav while ≥1 live
+    // match exists; hides itself the moment there's none (no live match, or
+    // this GP just accepted/declined — renderPage() re-runs this every time).
+    function renderMatchStickyBar() {
+      const bar = document.getElementById("matchStickyBar");
+      if (!bar) return;
+      const target = pickStickyMatch(getLiveMatches());
+      if (!target) {
+        bar.hidden = true;
+        bar.innerHTML = "";
+        return;
+      }
+      const countdown = formatMatchCountdown(target.expiresAt);
+      bar.hidden = false;
+      bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-sticky-accept="${escapeHtml(target.applicationId)}">Accept this match</button>
+        <div class="at-match-stickybar-sub">${escapeHtml(countdown.label)} — your spot is reserved until then</div>`;
+    }
+
+    // Client-side mirror of the 24h/2h nudge emails: the FIRST time this
+    // browser sees a live match cross under 24h / under 2h left, push a
+    // one-time updates-panel alert — deduped per application+threshold in
+    // localStorage so neither threshold ever fires twice for the same match,
+    // even across reloads. Reuses pushMatchTeamAlert's writer (saveGpLinkUpdates).
+    function pushMatchNudgeAlert(match, windowLabel) {
+      try {
+        if (typeof window.saveGpLinkUpdates !== "function") return;
+        const existing = typeof window.getGpLinkUpdates === "function" ? window.getGpLinkUpdates() : (Array.isArray(window.gpLinkUpdates) ? window.gpLinkUpdates : []);
+        const practiceLabel = match.practiceName || "your matched practice";
+        const item = {
+          type: "warning",
+          title: `Less than ${windowLabel} left to accept your match`,
+          detail: `${practiceLabel} is holding your spot — open My Practice to accept before it expires.`,
+          ts: Date.now()
+        };
+        window.saveGpLinkUpdates([item].concat(Array.isArray(existing) ? existing : []));
+      } catch (e) {}
+    }
+
+    function checkMatchNudgeAlerts(matches) {
+      (Array.isArray(matches) ? matches : []).forEach((m) => {
+        if (!m || !m.expiresAt) return;
+        const msLeft = new Date(m.expiresAt).getTime() - Date.now();
+        if (!isFinite(msLeft) || msLeft <= 0) return;
+        const hoursLeft = msLeft / (60 * 60 * 1000);
+        const appId = String(m.applicationId);
+        if (hoursLeft < 24) {
+          const key24h = "match-nudge-24h-" + appId;
+          try {
+            if (!localStorage.getItem(key24h)) {
+              localStorage.setItem(key24h, "1");
+              pushMatchNudgeAlert(m, "24 hours");
+            }
+          } catch (e) {}
+        }
+        if (hoursLeft < 2) {
+          const key2h = "match-nudge-2h-" + appId;
+          try {
+            if (!localStorage.getItem(key2h)) {
+              localStorage.setItem(key2h, "1");
+              pushMatchNudgeAlert(m, "2 hours");
+            }
+          } catch (e) {}
+        }
+      });
     }
 
     function renderTeamMatches() {
@@ -11874,6 +12030,7 @@
           }
         });
         if (sawNew) persistSeenMatchAlertIds(seenMatchAlertIds);
+        checkMatchNudgeAlerts(matches);
         teamMatchesState = {
           matches,
           positionFilled: Array.isArray(data.positionFilled) ? data.positionFilled : [],
@@ -11991,9 +12148,34 @@
     // expired notice's "your team has been told" line honest.
     function handleMatchDeepLink() {
       let matchId = "";
-      try { matchId = new URL(window.location.href).searchParams.get("match") || ""; } catch (e) {}
+      let needTime = false;
+      try {
+        const deepLinkUrl = new URL(window.location.href);
+        matchId = deepLinkUrl.searchParams.get("match") || "";
+        needTime = deepLinkUrl.searchParams.get("needtime") === "1";
+      } catch (e) {}
       if (!matchId) return;
-      if (highlightMatchCard(matchId)) return;
+
+      // "I need more time" (the 2h final-call email's secondary CTA):
+      // called once we know the card is genuinely live on this page — the
+      // server itself is the real source of truth (idempotent; a stale/
+      // already-resolved match no-ops with no toast), this local live check
+      // just avoids pinging the ops-email-firing endpoint from a dead link.
+      function requestMoreTimeIfNeeded() {
+        if (!needTime) return;
+        fetch("/api/career/match/need-more-time", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ applicationId: matchId })
+        }).then(async (res) => {
+          const data = await res.json().catch(() => null);
+          if (data && (data.state === "noted" || data.state === "already")) {
+            showToast("We've let the team know you need more time. They may extend your window — watch your alerts. Accepting now still works.");
+          }
+        }).catch(() => {});
+      }
+
+      if (highlightMatchCard(matchId)) { requestMoreTimeIfNeeded(); return; }
       fetch("/api/career/match/still-interested", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -12009,7 +12191,7 @@
         if (data.state === "live") {
           // Live on the server but not rendered — this page's match list is
           // stale (e.g. matched moments ago). Refresh and retry the scroll once.
-          loadTeamMatches().then(() => { renderPage(); highlightMatchCard(matchId); });
+          loadTeamMatches().then(() => { renderPage(); highlightMatchCard(matchId); requestMoreTimeIfNeeded(); });
           return;
         }
         showToast("This match has already been responded to.");
@@ -12405,6 +12587,7 @@
       renderSearchFilterControls();
       renderHeroShortcuts();
       renderTeamMatches();
+      renderMatchStickyBar();
       renderRoles();
       renderApplications();
       renderSavedJobs();
@@ -12512,6 +12695,12 @@
       const matchAcceptBtn = event.target.closest("[data-match-accept]");
       if (matchAcceptBtn) {
         openMatchConfirmSheet(matchAcceptBtn.getAttribute("data-match-accept"));
+        return;
+      }
+
+      const matchStickyAcceptBtn = event.target.closest("[data-match-sticky-accept]");
+      if (matchStickyAcceptBtn) {
+        openMatchConfirmSheet(matchStickyAcceptBtn.getAttribute("data-match-sticky-accept"));
         return;
       }
 
