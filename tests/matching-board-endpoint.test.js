@@ -430,6 +430,7 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
   const OLD = 'gp-cand-old';
   const NEWC = 'gp-cand-new';
   const SEARCH = 'gp-cand-search';
+  const BLOCKED = 'gp-cand-blocked';
 
   beforeAll(() => {
     // A dedicated open job for CAND_LIVE's live application, kept separate
@@ -441,12 +442,37 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
       dpa: true, header_image_url: '', job_status: 'open', is_active: true,
       published_at: daysAgo(10), created_at: daysAgo(10)
     });
+    db.user_profiles.push(
+      { user_id: BLOCKED, email: 'blocked@test.local', first_name: 'Blocked', last_name: 'Placed' }
+    );
     db.registration_cases.push(
       { id: 'case-cand-live', user_id: LIVE, created_at: daysAgo(3) },
       { id: 'case-cand-cached', user_id: CACHED, created_at: daysAgo(1) },
       { id: 'case-cand-old', user_id: OLD, created_at: daysAgo(20) },
       { id: 'case-cand-new', user_id: NEWC, created_at: daysAgo(2) },
-      { id: 'case-cand-search', user_id: SEARCH, created_at: daysAgo(1) }
+      { id: 'case-cand-search', user_id: SEARCH, created_at: daysAgo(1) },
+      { id: 'case-cand-blocked', user_id: BLOCKED, created_at: daysAgo(30) }
+    );
+    // Eligibility fixtures. The no-signal "filler" GPs (OLD/NEW/SEARCH) must
+    // genuinely PASS the ranking endpoints' eligibility gate (onboarding
+    // complete + career CV uploaded) to earn a board slot. LIVE and CACHED
+    // get NO user_state/CV on purpose — they are INELIGIBLE
+    // (onboarding_incomplete + no_cv) and must still appear purely on their
+    // signal (live application / cached ranking respectively). BLOCKED is
+    // fully onboarded WITH a CV but placed (career_secured) — its ONLY
+    // eligibility block is 'placed' — and has no signal, so it must be
+    // excluded from the rows entirely.
+    db.user_state.push(
+      { user_id: OLD, state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: NEWC, state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: SEARCH, state: { gp_onboarding_complete: true, account_status: 'active' } },
+      { user_id: BLOCKED, state: { gp_onboarding_complete: true, account_status: 'active', gp_career_state: { career_secured: true } } }
+    );
+    db.user_documents.push(
+      { id: 'cv-old', user_id: OLD, document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'cv-new', user_id: NEWC, document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'cv-search', user_id: SEARCH, document_key: 'cv_signed_dated', status: 'uploaded' },
+      { id: 'cv-blocked', user_id: BLOCKED, document_key: 'cv_signed_dated', status: 'uploaded' }
     );
     db.gp_applications.push({
       id: 'app-cand-live', user_id: LIVE, career_role_id: 'job-cand',
@@ -466,7 +492,7 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     });
   });
 
-  it('mirrors the shape with gp-shaped rows (days_on_books, live entries, subject_type=gp suggestions), signal-first then oldest-first ordering, never calling Anthropic', async () => {
+  it('mirrors the shape with gp-shaped rows (days_on_books, live entries, subject_type=gp suggestions), keeps ineligible signal GPs, excludes ineligible no-signal GPs, signal-first then oldest-first ordering, never calling Anthropic', async () => {
     const before = anthropicCallCount;
     const r = await atsGet('/api/ats/matching/board?direction=gps');
     expect(r.status).toBe(200);
@@ -477,6 +503,14 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     r.body.rows.forEach((row) => { byId[row.gp.user_id] = row; });
     expect(r.body.rows.length).toBe(5);
 
+    // A placed GP with no live match and no cached ranking never occupies a
+    // board slot — the "eligible others" filler pool applies the SAME
+    // eligibility gate the ranking endpoints use (checkMatchEligibility,
+    // evaluated job-agnostically).
+    expect(byId[BLOCKED]).toBeUndefined();
+
+    // LIVE is INELIGIBLE (no onboarding, no CV, at interview stage) but has
+    // a live application — the "any live match first" rule keeps it anyway.
     expect(byId[LIVE]).toBeTruthy();
     expect(byId[LIVE].gp.days_on_books).toBeGreaterThanOrEqual(2);
     expect(byId[LIVE].live.length).toBe(1);
@@ -484,6 +518,9 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     expect(byId[LIVE].live[0].title).toBe('GP — Candidate Job');
     expect(byId[LIVE].live[0].match).toBeNull();
 
+    // CACHED is likewise ineligible (no onboarding/CV) but has a cached
+    // gp-side ranking — the cached-ranking signal keeps it too.
+    expect(byId[CACHED]).toBeTruthy();
     expect(byId[CACHED].ranking).not.toBeNull();
     expect(Number.isInteger(byId[CACHED].ranking.age_hours)).toBe(true);
     expect(byId[CACHED].ranking.age_hours).toBeGreaterThanOrEqual(49);

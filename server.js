@@ -27078,6 +27078,15 @@ var MATCHING_BOARD_STAGE_RANK = { offer: 0, interview: 1, reviewing: 2, submitte
 // alone wouldn't catch them).
 var MATCHING_BOARD_TERMINAL_OUTCOMES = ['declined', 'expired', 'position_filled'];
 
+// Job-agnostic sentinel for the gps-direction "eligible others" gate:
+// passing this as the `job` to checkMatchEligibility disables exactly its
+// two job-specific blocks — 'existing_application' (guarded by
+// `j.id != null`) and 'dpa_ineligible' (guarded by `j.dpa !== true`) —
+// leaving only the GP-only gates (onboarding/CV/placed/interview-stage/
+// career-lock/account status), which is precisely what "eligible GPs" means
+// when no single job is in question.
+var MATCHING_BOARD_JOB_AGNOSTIC = { id: null, dpa: true };
+
 function matchingBoardStageRank(stage) {
   var r = MATCHING_BOARD_STAGE_RANK[stage];
   return (r === undefined) ? 99 : r;
@@ -55156,9 +55165,15 @@ Return ONLY valid JSON with no markdown formatting:
     // queries below are of no use to this direction, so running them here
     // would just be wasted round-trips.
     if (mbDirection === 'gps') {
-      // Reuses the SAME eligible-GP pool the candidates-ranking endpoint
-      // builds (atsListCandidateUserIds + atsBuildGpMatchInputs) rather than
-      // re-deriving the candidate universe here.
+      // Reuses the SAME pool + eligibility helpers the candidates-ranking
+      // endpoint uses (atsListCandidateUserIds + atsBuildGpMatchInputs +
+      // aiCandidateJobMatch.checkMatchEligibility) rather than re-deriving
+      // the rules here. mbKnownIds is the raw candidate universe (has a
+      // profile/case row); the per-GP eligibility verdict is applied at
+      // row-filter time below — GPs with a live match or a cached ranking
+      // are kept unconditionally (spec: "any live match/cached ranking
+      // first"), everyone else must pass the job-agnostic eligibility gate
+      // (spec: "then eligible GPs oldest-first").
       var mbCandidateIds = await atsListCandidateUserIds();
       var mbGpMap = await atsBuildGpMatchInputs(mbCandidateIds);
       var mbEligibleIds = mbCandidateIds.filter(function (uid) { return !!mbGpMap[uid]; });
@@ -55246,9 +55261,20 @@ Return ONLY valid JSON with no markdown formatting:
         return {
           gp: { user_id: uid, name: gp.name || '', email: gp.email || '', days_on_books: matchingBoardDaysOpen(mbCreatedAtByUser[uid], mbNowMs) },
           live: live, suggestions: suggestions, ranking: ranking,
-          _hasSignal: !!(cacheEntry || live.length) // sort key only — stripped below
+          // Internal keys, stripped below: _hasSignal is the sort/keep key
+          // (any live match or cached ranking); _eligible is the SAME
+          // eligibility verdict the ranking endpoints apply, evaluated
+          // job-agnostically (only the GP-side gates).
+          _hasSignal: !!(cacheEntry || live.length),
+          _eligible: aiCandidateJobMatch.checkMatchEligibility(gp, MATCHING_BOARD_JOB_AGNOSTIC).eligible
         };
       });
+
+      // Keep-rule (spec): signal rows (live match / cached ranking) stay
+      // unconditionally; no-signal rows earn a place only by passing the
+      // eligibility gate — a placed/paused/locked/no-CV GP with nothing in
+      // flight must never occupy one of the 150 slots.
+      mbGpRows = mbGpRows.filter(function (r) { return r._hasSignal || r._eligible; });
 
       mbGpRows.sort(function (a, b) {
         if (a._hasSignal !== b._hasSignal) return a._hasSignal ? -1 : 1;
@@ -55256,7 +55282,7 @@ Return ONLY valid JSON with no markdown formatting:
         var cb = mbCreatedAtByUser[b.gp.user_id] ? new Date(mbCreatedAtByUser[b.gp.user_id]).getTime() : 0;
         return ca - cb;
       });
-      mbGpRows = mbGpRows.slice(0, 150).map(function (r) { delete r._hasSignal; return r; });
+      mbGpRows = mbGpRows.slice(0, 150).map(function (r) { delete r._hasSignal; delete r._eligible; return r; });
 
       sendJson(res, 200, { ok: true, rows: mbGpRows });
       return;
