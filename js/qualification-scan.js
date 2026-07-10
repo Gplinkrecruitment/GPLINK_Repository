@@ -27,6 +27,28 @@
   var isOpen = false;
   var certContext = null; // { key, title, callback } when in certification scan mode
 
+  // First-visit Scan mini-tour (part of the app walkthrough). Runs once, gated on state.
+  function maybeScanTour() {
+    var S = window.gpWalkthroughState, C = window.gpCoach;
+    if (!S || !C || C.isActive()) return;
+    try {
+      if (localStorage.getItem('gp_account_under_review') === 'true') return;
+      if (localStorage.getItem('gp_account_pep_waitlist') === 'true') return;
+    } catch (e) {}
+    if (document.body && document.body.classList.contains('gp-restricted')) return;
+    var KEY = 'gp_walkthrough_state';
+    var st; try { st = S.parseState(localStorage.getItem(KEY)); } catch (e) { st = S.defaultState(); }
+    if (!S.shouldRunTip(st, 'scan')) return;
+    try {
+      localStorage.setItem(KEY, S.serializeState(S.withTipSeen(st, 'scan')));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+    C.run([
+      { target: '.scan-actions', title: 'Scan a document', body: 'Take a photo with your camera, or upload a file you already have.' },
+      { target: '#gpScanSubmit', title: 'We verify it for you', body: 'Tap “Scan with AI” and we read and check the document automatically.' }
+    ], { label: function (i, n) { return 'First-visit · ' + (i + 1) + '/' + n; } });
+  }
+
   /* ── Helpers ── */
   function canonicalQualKey(docType) {
     var t = String(docType || '').toLowerCase();
@@ -543,6 +565,7 @@
     var modal = getModal();
     resetModal();
     modal.classList.add("open");
+    setTimeout(maybeScanTour, 350);
   }
 
   function closeModal() {
