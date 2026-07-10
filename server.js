@@ -28678,6 +28678,11 @@ function atsJobCard(job, practicesById, appsByJob) {
     header_image_url: job.header_image_url || '',
     suburb: job.suburb || '',
     masked_title: job.masked_title || '',
+    // Precomputed "<provider>:<provider_role_id>" public id (the same string
+    // makeCareerRoleId emits and parseCareerRolePublicId reads) so the Jobs board
+    // can link straight to the in-app job page (/pages/job.html?id=) and the
+    // public marketing page (/jobs/view?id=). Admin-only surface.
+    public_id: makeCareerRoleId(job.provider, job.provider_role_id),
     // DPA flag for the admin Jobs-tab chip (cosmetic). Admin-only surface —
     // atsJobCard never feeds GP/public payloads. null when the column is absent.
     dpa: (typeof job.dpa === 'boolean') ? job.dpa : null
