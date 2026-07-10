@@ -1539,6 +1539,7 @@
 
       if (frameState) {
         frameState.loadedRoute = nextRoute;
+        try { window.dispatchEvent(new CustomEvent("gp-shell-frame-loaded", { detail: { route: nextRoute } })); } catch (e) {}
         frameState.pendingRoute = "";
         frameState.title = childDoc ? childDoc.title : "";
       }
@@ -1575,6 +1576,11 @@
     var activeFrameShowsRoute = false;
     if (event.origin !== window.location.origin) return;
     if (!event.data || !event.data.type) return;
+
+    if (event.data.type === "gp-shell-run-tour") {
+      if (window.gpWalkthroughShell && window.gpWalkthroughShell.runTour) window.gpWalkthroughShell.runTour();
+      return;
+    }
 
     // Child pages can hide/show the shell chrome (nav bars)
     if (event.data.type === "gp-shell-hide-chrome") {
