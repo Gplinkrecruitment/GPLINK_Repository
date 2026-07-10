@@ -27058,6 +27058,60 @@ function atsMatchCacheFresh(entry) {
   return Number.isFinite(age) && age >= 0 && age < MATCH_CACHE_TTL_MS;
 }
 
+// ---- AI Matching (Task 4 of the 2026-07-11 nudges/board plan) -------------
+// Small pure helpers for GET /api/ats/matching/board. No DB calls, no AI
+// calls — the endpoint itself (near the other /api/ats/matching/* routes)
+// does the batched fetching and calls these to shape/order rows.
+
+// Stages that show up in a job's LIVE pipeline on the board. Deliberately
+// excludes 'hired' (a hired application means the job moved to job_status
+// 'filled' and surfaces in the `filled` list instead, not `rows[].pipeline`)
+// and 'not_proceeding' (terminal — never shown as a pipeline node).
+var MATCHING_BOARD_PIPELINE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer'];
+
+// Board display order for pipeline nodes: closest-to-hire first.
+var MATCHING_BOARD_STAGE_RANK = { offer: 0, interview: 1, reviewing: 2, submitted: 3, applied: 4, shortlisted: 5 };
+
+// match_outcome values that mean "this GP already had a resolved match on
+// this job" — used to keep them out of the AI-suggestion list even though
+// their ats_stage moved to 'not_proceeding' (so the live-pipeline exclusion
+// alone wouldn't catch them).
+var MATCHING_BOARD_TERMINAL_OUTCOMES = ['declined', 'expired', 'position_filled'];
+
+function matchingBoardStageRank(stage) {
+  var r = MATCHING_BOARD_STAGE_RANK[stage];
+  return (r === undefined) ? 99 : r;
+}
+
+// Whole days between an ISO timestamp and `nowMs` — used for both a job's
+// days_open (posted = published_at || created_at) and a GP's days_on_books
+// (registration_cases.created_at). Never negative (a clock-skewed future
+// timestamp reads as 0, not -1).
+function matchingBoardDaysOpen(sinceIso, nowMs) {
+  if (!sinceIso) return 0;
+  var sinceMs = new Date(sinceIso).getTime();
+  if (!Number.isFinite(sinceMs)) return 0;
+  var days = Math.floor((nowMs - sinceMs) / 86400000);
+  return days > 0 ? days : 0;
+}
+
+// Shape a gp_applications row's match_* columns into the board's
+// `match:{...}` node, or null when the row was never an AI match (a plain
+// self-apply/admin-apply has no matched_at).
+function matchingBoardMatchNode(app) {
+  if (!app || !app.matched_at) return null;
+  return {
+    score: (app.match_score != null) ? app.match_score : null,
+    matched_at: app.matched_at,
+    expires_at: app.match_expires_at || null,
+    seen_at: app.match_seen_at || null,
+    outcome: app.match_outcome || null,
+    reminder_sent_at: app.match_reminder_sent_at || null,
+    final_reminder_sent_at: app.match_final_reminder_sent_at || null,
+    more_time_requested_at: app.match_more_time_requested_at || null
+  };
+}
+
 // Candidate universe = every GP with a registration_cases row (same universe
 // /api/ceo/candidates lists from), bounded like every other ATS list query.
 async function atsListCandidateUserIds() {
@@ -55072,6 +55126,294 @@ Return ONLY valid JSON with no markdown formatting:
     if (mjResult.error) mjPayload.degraded = true;
     await atsSetMatchCache('gp', mjUserId, mjPayload);
     sendJson(res, 200, Object.assign({ ok: true, gp: mjGpOut, generated_at: atsNowIso() }, mjPayload));
+    return;
+  }
+
+  // GET /api/ats/matching/board?direction=positions|gps&q= — the ONE
+  // aggregate read behind the Matching board UI. NEVER calls Anthropic —
+  // match_cache rows are read as-is; nothing here triggers a fresh ranking
+  // (spec 2026-07-11, Part A "Data source — new endpoint, board never
+  // triggers AI"). Two independent branches, each running only the queries
+  // it needs:
+  //   direction=positions (default) -> {ok, kpis, rows, filled} — open jobs
+  //     + days_open, each job's live pipeline, cached AI suggestions of ANY
+  //     age (stale is fine — the client labels it via ranking.age_hours),
+  //     KPI counts, recently-filled (last 30d) jobs.
+  //   direction=gps -> {ok, rows} — the same per-row shape mirrored onto
+  //     GPs (gp:{...}, live:[...], suggestions from subject_type='gp'
+  //     cache) instead of jobs; no kpis/filled (those are job-centric header
+  //     stats the gps tab doesn't need, so this branch skips those reads
+  //     entirely rather than computing them unused).
+  if (pathname === '/api/ats/matching/board' && req.method === 'GET') {
+    var ctxMB = requireAtsSession(req, res); if (!ctxMB) return;
+    var mbDirection = (url.searchParams.get('direction') === 'gps') ? 'gps' : 'positions';
+    var mbQ = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    var mbNowMs = Date.now();
+
+    // ---- direction=gps: mirror the shape with GP-shaped rows. Kept as an
+    // entirely separate, self-contained branch (its own queries only) rather
+    // than sharing the positions-direction reads below — the jobs/KPI/filled
+    // queries below are of no use to this direction, so running them here
+    // would just be wasted round-trips.
+    if (mbDirection === 'gps') {
+      // Reuses the SAME eligible-GP pool the candidates-ranking endpoint
+      // builds (atsListCandidateUserIds + atsBuildGpMatchInputs) rather than
+      // re-deriving the candidate universe here.
+      var mbCandidateIds = await atsListCandidateUserIds();
+      var mbGpMap = await atsBuildGpMatchInputs(mbCandidateIds);
+      var mbEligibleIds = mbCandidateIds.filter(function (uid) { return !!mbGpMap[uid]; });
+
+      if (mbQ) {
+        mbEligibleIds = mbEligibleIds.filter(function (uid) {
+          var gp = mbGpMap[uid];
+          var hay = ((gp.name || '') + ' ' + (gp.email || '')).toLowerCase();
+          return hay.indexOf(mbQ) !== -1;
+        });
+      }
+
+      var mbCreatedAtByUser = {};
+      for (var mbCai = 0; mbCai < mbEligibleIds.length; mbCai += 200) {
+        var mbCaChunk = mbEligibleIds.slice(mbCai, mbCai + 200);
+        var mbCasesRes = await supabaseDbRequest('registration_cases', 'select=user_id,created_at&user_id=in.(' + encodeURIComponent(_atsInList(mbCaChunk)) + ')&limit=500');
+        ((mbCasesRes.ok && mbCasesRes.data) || []).forEach(function (c) { mbCreatedAtByUser[c.user_id] = c.created_at; });
+      }
+
+      var mbGpAppsByUser = {};
+      for (var mbGai = 0; mbGai < mbEligibleIds.length; mbGai += 200) {
+        var mbGaChunk = mbEligibleIds.slice(mbGai, mbGai + 200);
+        var mbGpAppsRes = await supabaseDbRequest('gp_applications',
+          'select=id,user_id,career_role_id,ats_stage,ats_stage_updated_at,match_score,matched_at,match_expires_at,match_seen_at,match_outcome,match_reminder_sent_at,match_final_reminder_sent_at,match_more_time_requested_at' +
+          '&user_id=in.(' + encodeURIComponent(_atsInList(mbGaChunk)) + ')&limit=5000');
+        ((mbGpAppsRes.ok && mbGpAppsRes.data) || []).forEach(function (a) { (mbGpAppsByUser[a.user_id] = mbGpAppsByUser[a.user_id] || []).push(a); });
+      }
+
+      var mbLiveJobIds = Array.from(new Set(Object.keys(mbGpAppsByUser).reduce(function (acc, uid) {
+        mbGpAppsByUser[uid].forEach(function (a) { if (MATCHING_BOARD_PIPELINE_STAGES.indexOf(a.ats_stage) !== -1) acc.push(String(a.career_role_id)); });
+        return acc;
+      }, [])));
+      var mbLiveJobsById = {};
+      for (var mbLji = 0; mbLji < mbLiveJobIds.length; mbLji += 200) {
+        var mbLjChunk = mbLiveJobIds.slice(mbLji, mbLji + 200);
+        var mbLiveJobsRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name&id=in.(' + encodeURIComponent(_atsInList(mbLjChunk)) + ')&limit=500');
+        ((mbLiveJobsRes.ok && mbLiveJobsRes.data) || []).forEach(function (j) { mbLiveJobsById[String(j.id)] = j; });
+      }
+
+      var mbGpCacheByUser = {};
+      for (var mbGci = 0; mbGci < mbEligibleIds.length; mbGci += 200) {
+        var mbGcChunk = mbEligibleIds.slice(mbGci, mbGci + 200);
+        var mbGpCacheRes = await supabaseDbRequest('match_cache',
+          'select=subject_id,payload,generated_at&subject_type=eq.gp&subject_id=in.(' + encodeURIComponent(_atsInList(mbGcChunk)) + ')&limit=500');
+        ((mbGpCacheRes.ok && mbGpCacheRes.data) || []).forEach(function (c) { mbGpCacheByUser[String(c.subject_id)] = c; });
+      }
+
+      var mbGpRows = mbEligibleIds.map(function (uid) {
+        var gp = mbGpMap[uid];
+        var appsAll = mbGpAppsByUser[uid] || [];
+        var liveJobIdSet = {};
+        var live = appsAll
+          .filter(function (a) { return MATCHING_BOARD_PIPELINE_STAGES.indexOf(a.ats_stage) !== -1; })
+          .slice()
+          .sort(function (a, b) { return matchingBoardStageRank(a.ats_stage) - matchingBoardStageRank(b.ats_stage); })
+          .map(function (a) {
+            liveJobIdSet[String(a.career_role_id)] = true;
+            var j = mbLiveJobsById[String(a.career_role_id)] || {};
+            return {
+              application_id: a.id, career_role_id: a.career_role_id,
+              title: j.title || '', practice_name: j.practice_name || '',
+              ats_stage: a.ats_stage, stage_updated_at: a.ats_stage_updated_at || null,
+              match: matchingBoardMatchNode(a)
+            };
+          });
+
+        var cacheEntry = mbGpCacheByUser[uid] || null;
+        var ranking = null;
+        var suggestions = [];
+        if (cacheEntry) {
+          var payload = cacheEntry.payload || {};
+          var ranked = Array.isArray(payload.ranked) ? payload.ranked : [];
+          // Mirrors the positions-side rule: never suggest a job this GP is
+          // already live on.
+          suggestions = ranked
+            .filter(function (r) { return !liveJobIdSet[String(r.career_role_id)]; })
+            .map(function (r) { return { career_role_id: r.career_role_id, title: r.title || '', practice_name: r.practice_name || '', score: r.score, reasons: r.reasons || [], chips: r.chips || [] }; });
+          ranking = {
+            generated_at: cacheEntry.generated_at,
+            age_hours: Math.floor((mbNowMs - new Date(cacheEntry.generated_at).getTime()) / 3600000),
+            excluded_count: (payload.excluded_count != null) ? payload.excluded_count : 0
+          };
+        }
+
+        return {
+          gp: { user_id: uid, name: gp.name || '', email: gp.email || '', days_on_books: matchingBoardDaysOpen(mbCreatedAtByUser[uid], mbNowMs) },
+          live: live, suggestions: suggestions, ranking: ranking,
+          _hasSignal: !!(cacheEntry || live.length) // sort key only — stripped below
+        };
+      });
+
+      mbGpRows.sort(function (a, b) {
+        if (a._hasSignal !== b._hasSignal) return a._hasSignal ? -1 : 1;
+        var ca = mbCreatedAtByUser[a.gp.user_id] ? new Date(mbCreatedAtByUser[a.gp.user_id]).getTime() : 0;
+        var cb = mbCreatedAtByUser[b.gp.user_id] ? new Date(mbCreatedAtByUser[b.gp.user_id]).getTime() : 0;
+        return ca - cb;
+      });
+      mbGpRows = mbGpRows.slice(0, 150).map(function (r) { delete r._hasSignal; return r; });
+
+      sendJson(res, 200, { ok: true, rows: mbGpRows });
+      return;
+    }
+
+    // ---- direction=positions (default): open jobs + days_open, live
+    // pipeline per job, cached suggestions, KPI strip, recently-filled jobs.
+    var mbJobsRes = await supabaseDbRequest('career_roles',
+      'select=id,title,practice_id,practice_name,location_city,location_state,suburb,employment_type,dpa,header_image_url,job_status,is_active,published_at,created_at' +
+      '&job_status=eq.open&is_active=eq.true&limit=500');
+    var mbJobs = (mbJobsRes.ok && Array.isArray(mbJobsRes.data)) ? mbJobsRes.data : [];
+
+    var mbFilledSinceIso = new Date(mbNowMs - 30 * 86400000).toISOString();
+    var mbFilledRes = await supabaseDbRequest('career_roles',
+      'select=id,title,practice_id,practice_name,location_city,location_state,suburb,employment_type,dpa,header_image_url,job_status,is_active,published_at,created_at' +
+      '&job_status=eq.filled&updated_at=gte.' + encodeURIComponent(mbFilledSinceIso) + '&limit=500');
+    var mbFilledJobs = (mbFilledRes.ok && Array.isArray(mbFilledRes.data)) ? mbFilledRes.data : [];
+
+    var mbJobIds = mbJobs.map(function (j) { return String(j.id); });
+    var mbAllJobIds = mbJobIds.concat(mbFilledJobs.map(function (j) { return String(j.id); }));
+
+    var mbPracticeIds = Array.from(new Set(mbJobs.concat(mbFilledJobs).map(function (j) { return j.practice_id; }).filter(Boolean)));
+    var mbPracticesById = {};
+    for (var mbPzi = 0; mbPzi < mbPracticeIds.length; mbPzi += 200) {
+      var mbPzChunk = mbPracticeIds.slice(mbPzi, mbPzi + 200);
+      var mbPracRes = await supabaseDbRequest('practices', 'select=id,name&id=in.(' + encodeURIComponent(_atsInList(mbPzChunk)) + ')&limit=500');
+      ((mbPracRes.ok && mbPracRes.data) || []).forEach(function (p) { mbPracticesById[String(p.id)] = p; });
+    }
+
+    // ALL gp_applications rows (any stage/outcome) for these job ids in ONE
+    // batched query per 200-id chunk — bucketed in JS below into "live
+    // pipeline" vs "excluded from suggestions" vs "hired"/"redirected" per
+    // job. Never a per-job query.
+    var mbAppsByJob = {};
+    for (var mbAzi = 0; mbAzi < mbAllJobIds.length; mbAzi += 200) {
+      var mbAzChunk = mbAllJobIds.slice(mbAzi, mbAzi + 200);
+      var mbAppsRes = await supabaseDbRequest('gp_applications',
+        'select=id,user_id,career_role_id,ats_stage,ats_stage_updated_at,match_score,matched_at,match_expires_at,match_seen_at,match_outcome,match_reminder_sent_at,match_final_reminder_sent_at,match_more_time_requested_at' +
+        '&career_role_id=in.(' + encodeURIComponent(_atsInList(mbAzChunk)) + ')&limit=5000');
+      ((mbAppsRes.ok && mbAppsRes.data) || []).forEach(function (a) {
+        var jid = String(a.career_role_id);
+        (mbAppsByJob[jid] = mbAppsByJob[jid] || []).push(a);
+      });
+    }
+
+    var mbAppUserIds = [];
+    Object.keys(mbAppsByJob).forEach(function (jid) { mbAppsByJob[jid].forEach(function (a) { mbAppUserIds.push(String(a.user_id)); }); });
+    mbAppUserIds = Array.from(new Set(mbAppUserIds));
+    var mbProfilesById = {};
+    for (var mbPri = 0; mbPri < mbAppUserIds.length; mbPri += 200) {
+      var mbPrChunk = mbAppUserIds.slice(mbPri, mbPri + 200);
+      var mbProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + encodeURIComponent(_atsInList(mbPrChunk)) + ')&limit=500');
+      ((mbProfRes.ok && mbProfRes.data) || []).forEach(function (p) { mbProfilesById[String(p.user_id)] = p; });
+    }
+    var mbGpName = function (uid) {
+      var p = mbProfilesById[String(uid)] || {};
+      return [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || p.email || 'Candidate';
+    };
+
+    var mbCacheByJob = {};
+    for (var mbCzi = 0; mbCzi < mbJobIds.length; mbCzi += 200) {
+      var mbCzChunk = mbJobIds.slice(mbCzi, mbCzi + 200);
+      var mbCacheRes = await supabaseDbRequest('match_cache',
+        'select=subject_id,payload,generated_at&subject_type=eq.job&subject_id=in.(' + encodeURIComponent(_atsInList(mbCzChunk)) + ')&limit=500');
+      ((mbCacheRes.ok && mbCacheRes.data) || []).forEach(function (c) { mbCacheByJob[String(c.subject_id)] = c; });
+    }
+
+    var mbJobCard = function (job) {
+      var p = job.practice_id ? mbPracticesById[String(job.practice_id)] : null;
+      return {
+        id: job.id, title: job.title || '', practice_id: job.practice_id || '',
+        practice_name: (p && p.name) || job.practice_name || '',
+        city: job.location_city || '', state: job.location_state || '', suburb: job.suburb || '',
+        type: job.employment_type || '', dpa: job.dpa === true,
+        header_image_url: job.header_image_url || '',
+        posted: job.published_at || job.created_at || '',
+        days_open: matchingBoardDaysOpen(job.published_at || job.created_at, mbNowMs),
+        job_status: job.job_status || 'open'
+      };
+    };
+
+    var mbRows = mbJobs.map(function (job) {
+      var jid = String(job.id);
+      var appsAll = mbAppsByJob[jid] || [];
+      var pipeline = appsAll
+        .filter(function (a) { return MATCHING_BOARD_PIPELINE_STAGES.indexOf(a.ats_stage) !== -1; })
+        .slice()
+        .sort(function (a, b) { return matchingBoardStageRank(a.ats_stage) - matchingBoardStageRank(b.ats_stage); })
+        .map(function (a) {
+          return {
+            application_id: a.id, user_id: a.user_id, name: mbGpName(a.user_id),
+            ats_stage: a.ats_stage, stage_updated_at: a.ats_stage_updated_at || null,
+            match: matchingBoardMatchNode(a)
+          };
+        });
+
+      // Suggestions must never re-offer a GP already live on this job (any
+      // non-terminal ats_stage) OR one whose match on THIS job already
+      // resolved terminally (declined / expired / redirected away when the
+      // position filled) — the latter wouldn't be caught by the live check
+      // alone since it sits at ats_stage='not_proceeding'.
+      var excludeIds = {};
+      appsAll.forEach(function (a) {
+        if (atsPracticeUtil.ATS_STAGES.indexOf(a.ats_stage) !== -1) excludeIds[String(a.user_id)] = true;
+        else if (a.ats_stage === 'not_proceeding' && MATCHING_BOARD_TERMINAL_OUTCOMES.indexOf(a.match_outcome) !== -1) excludeIds[String(a.user_id)] = true;
+      });
+
+      var cacheEntry = mbCacheByJob[jid] || null;
+      var ranking = null;
+      var suggestions = [];
+      if (cacheEntry) {
+        var payload = cacheEntry.payload || {};
+        var ranked = Array.isArray(payload.ranked) ? payload.ranked : [];
+        suggestions = ranked
+          .filter(function (r) { return !excludeIds[String(r.user_id)]; })
+          .map(function (r) { return { user_id: r.user_id, name: r.name || '', score: r.score, reasons: r.reasons || [], chips: r.chips || [] }; });
+        ranking = {
+          generated_at: cacheEntry.generated_at,
+          age_hours: Math.floor((mbNowMs - new Date(cacheEntry.generated_at).getTime()) / 3600000),
+          excluded_count: (payload.excluded_count != null) ? payload.excluded_count : 0
+        };
+      }
+
+      return { job: mbJobCard(job), pipeline: pipeline, suggestions: suggestions, ranking: ranking };
+    });
+    mbRows.sort(function (a, b) { return b.job.days_open - a.job.days_open; });
+
+    // ---- KPIs (positions-direction only — see the gps branch's early return) ------
+    var mbKpiAwaiting = 0;
+    mbRows.forEach(function (r) { r.pipeline.forEach(function (p) { if (p.ats_stage === 'shortlisted') mbKpiAwaiting++; }); });
+    var mbAcceptedSinceIso = new Date(mbNowMs - 7 * 86400000).toISOString();
+    var mbAcceptedRes = await supabaseDbRequest('gp_applications',
+      'select=id&match_outcome=eq.accepted&ats_stage_updated_at=gte.' + encodeURIComponent(mbAcceptedSinceIso) + '&limit=2000');
+    var mbKpiAcceptedWeek = ((mbAcceptedRes.ok && mbAcceptedRes.data) || []).length;
+    var mbKpis = {
+      open: mbJobs.length,
+      unfilled60: mbRows.filter(function (r) { return r.job.days_open >= 60; }).length,
+      awaiting: mbKpiAwaiting,
+      accepted_week: mbKpiAcceptedWeek
+    };
+
+    // ---- Filled (last 30 days) --------------------------------------------
+    var mbFilled = mbFilledJobs.map(function (job) {
+      var jid = String(job.id);
+      var appsAll = mbAppsByJob[jid] || [];
+      var hiredApp = appsAll
+        .filter(function (a) { return a.ats_stage === 'hired'; })
+        .sort(function (a, b) { return new Date(b.ats_stage_updated_at || 0) - new Date(a.ats_stage_updated_at || 0); })[0] || null;
+      var redirectedCount = appsAll.filter(function (a) { return a.match_outcome === 'position_filled'; }).length;
+      return {
+        job: mbJobCard(job),
+        hired: hiredApp ? { name: mbGpName(hiredApp.user_id), at: hiredApp.ats_stage_updated_at || null } : null,
+        redirected_count: redirectedCount
+      };
+    });
+
+    sendJson(res, 200, { ok: true, kpis: mbKpis, rows: mbRows, filled: mbFilled });
     return;
   }
 
