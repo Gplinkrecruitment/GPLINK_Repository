@@ -74,6 +74,7 @@ const NEEDTIME_LIVE_GP = { userId: 'gp-needtime-live-1', email: 'needtime-live@g
 const NEEDTIME_EXPIRED_GP = { userId: 'gp-needtime-expired-1', email: 'needtime-expired@gplink-test.local' };
 const NEEDTIME_RESOLVED_GP = { userId: 'gp-needtime-resolved-1', email: 'needtime-resolved@gplink-test.local' };
 const NEEDTIME_GATED_GP = { userId: 'gp-needtime-gated-1', email: 'needtime-gated@gplink-test.local' };
+const NEEDTIME_LOCKED_GP = { userId: 'gp-needtime-locked-1', email: 'needtime-locked@gplink-test.local' };
 const NEEDTIME_OTHER_GP = { userId: 'gp-needtime-other-1', email: 'needtime-other@gplink-test.local' };
 
 // ── In-memory PostgREST emulator (mirrors tests/ai-matching-cron.test.js) ───
@@ -86,6 +87,7 @@ const db = {
     { user_id: NEEDTIME_EXPIRED_GP.userId, email: NEEDTIME_EXPIRED_GP.email, first_name: 'Priya', last_name: 'Nair', registration_country: 'united kingdom' },
     { user_id: NEEDTIME_RESOLVED_GP.userId, email: NEEDTIME_RESOLVED_GP.email, first_name: 'Owen', last_name: 'Baxter', registration_country: 'united kingdom' },
     { user_id: NEEDTIME_GATED_GP.userId, email: NEEDTIME_GATED_GP.email, first_name: 'Test', last_name: 'NeedtimeGated', registration_country: 'united kingdom' },
+    { user_id: NEEDTIME_LOCKED_GP.userId, email: NEEDTIME_LOCKED_GP.email, first_name: 'Test', last_name: 'NeedtimeLocked', registration_country: 'united kingdom' },
     { user_id: NEEDTIME_OTHER_GP.userId, email: NEEDTIME_OTHER_GP.email, first_name: 'Test', last_name: 'NeedtimeOther', registration_country: 'united kingdom' }
   ]),
   user_state: [
@@ -93,6 +95,9 @@ const db = {
     { user_id: NEEDTIME_EXPIRED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_RESOLVED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_GATED_GP.userId, state: { gp_onboarding_complete: true, account_status: 'under_review' }, updated_at: iso(NOW) },
+    // Career-locked (Task 8's 3-strike lock): locked_at set, never released —
+    // isCareerLocked() is true, so need-more-time must 423 (review fix).
+    { user_id: NEEDTIME_LOCKED_GP.userId, state: { gp_onboarding_complete: true, career_lock: { strikes: [], locked_at: iso(NOW - 86400000), released_at: null, reasons: {} } }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_OTHER_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) }
   ],
   registration_cases: [],
@@ -200,6 +205,15 @@ const db = {
     // the account gate must block this before any row/email logic runs.
     {
       id: 'app-needtime-gated-1', user_id: NEEDTIME_GATED_GP.userId, career_role_id: 'job-1',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_reasons: { reasons: [] },
+      matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
+      match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
+    },
+    // Live, owned by NEEDTIME_LOCKED_GP whose career_lock is active — the
+    // lock gate must 423 before any row/email logic runs (review fix).
+    {
+      id: 'app-needtime-locked-1', user_id: NEEDTIME_LOCKED_GP.userId, career_role_id: 'job-1',
       ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
@@ -577,6 +591,19 @@ describe('POST /api/career/match/need-more-time (Task 3, 2026-07-11 nudges plan)
       body: { applicationId: 'app-needtime-live-1' }
     });
     expect(wrongOwner.status).toBe(404);
+    expect(resendCalls.length).toBe(0);
+  });
+
+  it('is career-lock gated: a locked GP with a live match -> 423, no stamp, no email (review fix)', async () => {
+    resendCalls.length = 0;
+    const res = await httpReq('POST', '/api/career/match/need-more-time', {
+      headers: { Cookie: userCookie(NEEDTIME_LOCKED_GP.email, NEEDTIME_LOCKED_GP.userId) },
+      body: { applicationId: 'app-needtime-locked-1' }
+    });
+    expect(res.status).toBe(423);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.locked).toBe(true);
+    expect(db.gp_applications.find((a) => a.id === 'app-needtime-locked-1').match_more_time_requested_at).toBeNull();
     expect(resendCalls.length).toBe(0);
   });
 });

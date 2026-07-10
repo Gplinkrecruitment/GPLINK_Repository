@@ -34546,6 +34546,15 @@ async function handleApi(req, res, pathname) {
     const nmtGated = !nmtState.gp_onboarding_complete || nmtAcctStatus === 'under_review' || nmtAcctStatus === 'pep_waitlist' || nmtAcctStatus === 'archived';
     if (nmtGated) { sendJson(res, 403, { ok: false, error: 'account_gated', message: 'Your account cannot respond to matches right now — contact your team.' }); return; }
 
+    // Same lock gate as still-interested (review fix): a locked GP must not
+    // be able to page the team via an old match-email deep link — and this
+    // endpoint additionally writes a stamp, so it fails closed BEFORE the
+    // row load, exactly like its sibling.
+    if (isCareerLocked(nmtState.career_lock)) {
+      sendJson(res, 423, { ok: false, locked: true, message: 'Your career page is paused — book a call with the team to reopen it.' });
+      return;
+    }
+
     // Row must belong to the session user — same ownership-via-query-filter
     // convention as every other match endpoint (a wrong-owner id 404s).
     const nmtRowRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(nmtAppId) + '&user_id=eq.' + encodeURIComponent(nmtUserId) + '&limit=1');
