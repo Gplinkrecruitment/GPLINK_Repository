@@ -34,8 +34,10 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
     expect(html).toMatch(/<div class="master-panel ats-scope" id="panel-matching" style="display:none"><\/div>/);
   });
 
-  it('ceo-dashboard.html loads ceo-ats-matching.js with a 2026-07-07 cache buster', () => {
-    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260707[a-z]"><\/script>/);
+  it('ceo-dashboard.html loads ceo-ats-matching.js with the current cache buster', () => {
+    // Bumped by the Task 5 (2026-07-11) matching-board rewrite — see
+    // tests/matching-board-ui.test.js for the full board-rewrite coverage.
+    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260711a"><\/script>/);
   });
 
   it("js/ceo-ats-shared.js MASTER_PANELS includes 'matching'", () => {
@@ -48,11 +50,14 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
     expect(matchingSrc).toMatch(/window\.loadMatchingTab\s*=\s*loadMatchingTab;/);
   });
 
-  it('js/ceo-ats-matching.js posts to the shortlist endpoint with the exact confirm copy template', () => {
+  it('js/ceo-ats-matching.js posts to the shortlist endpoint behind a confirm() gate', () => {
+    // Task 5 (2026-07-11) rewrote the whole tab into the funnel board — the
+    // exact confirm-copy template from the original Task 3 picker no longer
+    // exists verbatim (see tests/matching-board-ui.test.js's wiring-pins
+    // describe block for the current copy), but the safety gate itself —
+    // never shortlisting without an explicit confirm() — must survive.
     expect(matchingSrc).toContain('/api/ats/matching/shortlist');
-    // Brief-mandated verbatim confirm text (placeholders substituted at runtime):
-    // Send the match email and in-app notification to N GP(s) for "<job title>"?
-    expect(matchingSrc).toContain(`Send the match email and in-app notification to ' + gpCount + ' GP(s) for "' + jobTitle + '"?`);
+    expect(matchingSrc).toMatch(/window\.confirm\(\s*'Send the match email and in-app notification/);
   });
 
   it('js/ceo-ats-jobs.js renders a Shortlist-card status line reading the match_* fields', () => {
