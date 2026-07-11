@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+/* Supabase password set/reset links can only redirect to the site root (the sole
+   URL in Supabase's redirect allow-list), so they arrive here with the recovery
+   token in the URL hash. Forward it to the sign-in page's "Set new password"
+   screen so the visitor is never stranded on the marketing homepage. */
+(function(){try{var h=location.hash||"";if(h.indexOf("type=recovery")!==-1){location.replace("/pages/signin"+(location.search||"")+h);}}catch(e){}})();
+</script>
 <title>GP Jobs in Australia for Overseas Doctors | GP Link</title>
 <meta name="description" content="Free, end-to-end support for overseas-trained GPs moving to Australia — AHPRA registration, visa sponsorship and practice placement, all in one place.">
 <link rel="canonical" href="https://www.mygplink.com.au/">
