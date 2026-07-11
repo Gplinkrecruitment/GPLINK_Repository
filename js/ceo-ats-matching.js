@@ -298,8 +298,36 @@
     );
   }
 
+  // Corporate groups (ForHealth, GP West Group, …) post many openings under
+  // one practice_name; the opening's own name lives after the legacy "||"
+  // separator in the title. The board leads with the opening and shows the
+  // group as a small click-through tile instead (owner call 2026-07-12).
+  function mbPracticeDisplay(job) {
+    job = job || {};
+    var raw = String(job.title || '');
+    var idx = raw.indexOf('||');
+    var role = (idx === -1 ? raw : raw.slice(0, idx)).trim();
+    var opening = idx === -1 ? '' : raw.slice(idx + 2).trim();
+    var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+    var pname = job.practice_name || '';
+    var isGroup = !!(opening && pname && norm(opening) !== norm(pname));
+    return {
+      heading: (isGroup ? opening : (pname || opening || role)) || 'Practice',
+      sub: role,
+      groupName: isGroup ? pname : ''
+    };
+  }
+
+  function mbGroupTileHtml(disp, job) {
+    if (!disp.groupName || !job.practice_id) return '';
+    return '<button type="button" class="ats-mb-corp" data-mb-open-practice="' + A.escAttr(job.practice_id) + '">🏢 ' + A.esc(disp.groupName) + '</button>';
+  }
+
   // ctx: { expandedId, runningIds, nowMs } — a subset of the module's state
   // object (or an equivalent plain object from a test).
+  // Click model (owner call 2026-07-12): the practice card opens the job
+  // opening's page; the group tile (corps only) opens the practice page; the
+  // track side still toggles the expand panel via the row-level handler.
   function mbRowHtml(row, ctx) {
     ctx = ctx || {};
     var job = (row && row.job) || {};
@@ -307,26 +335,24 @@
     var bucket = mbUrgencyBucket(job.days_open);
     var expanded = ctx.expandedId != null && String(ctx.expandedId) === String(job.id);
     var running = !!(ctx.runningIds && ctx.runningIds[job.id]);
-    var pinitials = A.initials(job.practice_name || job.title || 'Practice');
-    var pcolor = A.avatarColor(job.practice_name || job.title || 'Practice');
-    // Owner call (2026-07-11): no practice photos on the board — a stable
-    // per-practice gradient (seeded by the same avatar colour) reads cleaner.
-    var photoHtml =
-      '<div class="ats-mb-photowrap"><div class="ats-mb-photo" style="background:linear-gradient(135deg,' + pcolor + ' 0%,rgba(15,17,23,0.92) 78%)"></div><div class="ats-mb-photofade"></div></div>';
-    var practiceClickable = job.practice_id ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
+    var disp = mbPracticeDisplay(job);
+    var pinitials = A.initials(disp.heading);
+    var pcolor = A.avatarColor(disp.heading);
+    var practiceClickable = (!disp.groupName && job.practice_id) ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
     var loc = [job.suburb, job.city].filter(Boolean).join(', ') || job.city || '—';
     var trackHtml = running ? mbRunningTrackHtml('positions') : mbTrackHtml(row, nowMs);
     return (
       '<div class="ats-mb-row ' + bucket + (expanded ? ' expanded' : '') + '" data-mb-row="' + A.escAttr(job.id) + '">' +
-        '<div class="ats-mb-left">' + photoHtml +
+        '<div class="ats-mb-left"' + (job.id != null ? (' data-mb-open-job="' + A.escAttr(job.id) + '"') : '') + '>' +
           '<div class="ats-mb-inner">' +
             '<div class="ats-mb-prow">' +
               '<div class="ats-mb-plogo" style="background:' + pcolor + '"' + practiceClickable + '>' + A.esc(pinitials) + '</div>' +
-              '<div><div class="ats-mb-pname"' + practiceClickable + '>' + A.esc(job.practice_name || 'Practice') + '</div>' +
+              '<div><div class="ats-mb-pname">' + A.esc(disp.heading) + '</div>' +
               '<div class="ats-mb-ploc">📍 ' + A.esc(loc) + (job.state ? ', ' + A.esc(job.state) : '') + '</div></div>' +
             '</div>' +
+            mbGroupTileHtml(disp, job) +
             '<div><span class="ats-mb-urg ' + bucket + '">' + (job.days_open || 0) + ' days unfilled</span></div>' +
-            '<div class="ats-mb-postitle">' + A.esc(job.title || 'Role') + (job.type ? ' · ' + A.esc(job.type) : '') + (job.dpa ? ' · DPA' : '') + '</div>' +
+            '<div class="ats-mb-postitle">' + A.esc(disp.sub || 'Role') + (job.type ? ' · ' + A.esc(job.type) : '') + (job.dpa ? ' · DPA' : '') + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="ats-mb-track">' + trackHtml + '</div>' +
@@ -515,8 +541,9 @@
     f = f || {};
     var job = f.job || {};
     var hired = f.hired || null;
-    var initials = A.initials(job.practice_name || job.title || 'Practice');
-    var color = A.avatarColor(job.practice_name || job.title || 'Practice');
+    var disp = mbPracticeDisplay(job);
+    var initials = A.initials(disp.heading);
+    var color = A.avatarColor(disp.heading);
     var wasUnfilled = mbDaysBetween(job.posted, hired && hired.at);
     var hiredLine = hired
       ? ('✓ FILLED — ' + A.esc(hired.name || 'Unknown') + ' · ' + mbShortDate(hired.at))
@@ -524,16 +551,17 @@
     var redirectLine = f.redirected_count
       ? (f.redirected_count + ' other GP' + (f.redirected_count === 1 ? '' : 's') + ' redirected to similar roles · redirect emails sent ✓')
       : '';
-    var practiceClickable = job.practice_id ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
+    var practiceClickable = (!disp.groupName && job.practice_id) ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
     return (
       '<div class="ats-mb-row filled">' +
         '<div class="ats-mb-left"><div class="ats-mb-inner">' +
           '<div class="ats-mb-prow">' +
             '<div class="ats-mb-plogo" style="background:' + color + '"' + practiceClickable + '>' + A.esc(initials) + '</div>' +
-            '<div><div class="ats-mb-pname"' + practiceClickable + '>' + A.esc(job.practice_name || 'Practice') + '</div>' +
+            '<div><div class="ats-mb-pname"' + practiceClickable + '>' + A.esc(disp.heading) + '</div>' +
             '<div class="ats-mb-ploc">📍 ' + A.esc(job.city || '—') + (job.state ? ', ' + A.esc(job.state) : '') + '</div></div>' +
           '</div>' +
-          '<div class="ats-mb-postitle">' + A.esc(job.title || 'Role') + (wasUnfilled != null ? (' · was unfilled ' + wasUnfilled + ' days') : '') + '</div>' +
+          mbGroupTileHtml(disp, job) +
+          '<div class="ats-mb-postitle">' + A.esc(disp.sub || 'Role') + (wasUnfilled != null ? (' · was unfilled ' + wasUnfilled + ' days') : '') + '</div>' +
         '</div></div>' +
         '<div class="ats-mb-filledtrack">' +
           '<span class="ats-mb-winbadge">' + hiredLine + '</span>' +

@@ -304,13 +304,13 @@ describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
-  it('the left block renders a gradient — never the practice photo (owner call 2026-07-11)', () => {
+  it('the left block is a plain glassy panel — no photo, no gradient backdrop (owner call 2026-07-12)', () => {
     const evil = '"><img src=x onerror=alert(1)>';
     const html = MB.mbRowHtml(row({ job: job({ header_image_url: evil }) }), { nowMs: NOW });
     expect(html).not.toContain('"><img src=x onerror=alert(1)>');
     expect(html).not.toContain('<img');
-    expect(html).toContain('linear-gradient(135deg,');
-    expect(html).toContain('ats-mb-photowrap');
+    expect(html).not.toContain('ats-mb-photowrap');
+    expect(html).not.toContain('linear-gradient(135deg,');
   });
 
   it('a GP name with HTML in a pipeline node renders escaped', () => {
@@ -332,6 +332,55 @@ describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
     const html = MB.mbGpRowHtml(gpRow, { nowMs: NOW });
     expect(html).not.toContain('<script>x</script>');
     expect(html).not.toContain('<script>y</script>');
+  });
+});
+
+describe('corporate groups — opening name leads, group is a tile (owner call 2026-07-12)', () => {
+  const groupJob = () => job({ id: 'job-9', title: 'General Practitioner || Woodlake Village Medical Centre', practice_name: 'GP West Group', practice_id: 'prac-gw' });
+  it('headline is the opening name, not the corporation', () => {
+    const html = MB.mbRowHtml(row({ job: groupJob() }), { nowMs: NOW });
+    expect(html).toMatch(/ats-mb-pname">Woodlake Village Medical Centre</);
+    expect(html).not.toMatch(/ats-mb-pname">GP West Group</);
+  });
+  it('renders a corporation tile that opens the practice page', () => {
+    const html = MB.mbRowHtml(row({ job: groupJob() }), { nowMs: NOW });
+    expect(html).toMatch(/ats-mb-corp" data-mb-open-practice="prac-gw"/);
+    expect(html).toContain('GP West Group');
+  });
+  it('the card itself opens the job opening page', () => {
+    const html = MB.mbRowHtml(row({ job: groupJob() }), { nowMs: NOW });
+    expect(html).toMatch(/ats-mb-left" data-mb-open-job="job-9"/);
+  });
+  it('subtitle keeps the role part of the title, not the duplicated opening name', () => {
+    const html = MB.mbRowHtml(row({ job: groupJob() }), { nowMs: NOW });
+    expect(html).toMatch(/ats-mb-postitle">General Practitioner · Permanent · DPA</);
+  });
+  it('no tile when the practice name IS the opening name (independent practice)', () => {
+    const html = MB.mbRowHtml(row({ job: job({ title: 'General Practitioner || Bay Village Medical Centre', practice_name: 'Bay village medical centre' }) }), { nowMs: NOW });
+    expect(html).not.toContain('ats-mb-corp');
+    expect(html).toMatch(/ats-mb-pname">Bay village medical centre</);
+  });
+  it('titles without the || separator keep the practice-name headline (legacy shape)', () => {
+    const html = MB.mbRowHtml(row(), { nowMs: NOW }); // fixture title 'VR GP'
+    expect(html).toMatch(/ats-mb-pname">Coral Coast Family Practice</);
+    expect(html).not.toContain('ats-mb-corp');
+    expect(html).toMatch(/ats-mb-left" data-mb-open-job="job-1"/);
+  });
+  it('a group opening name with HTML renders escaped in headline and tile', () => {
+    const html = MB.mbRowHtml(row({ job: job({ title: 'GP || <script>z</script> Clinic', practice_name: '<b>Corp</b> Group', practice_id: 'p9' }) }), { nowMs: NOW });
+    expect(html).not.toContain('<script>z</script>');
+    expect(html).not.toContain('<b>Corp</b>');
+    expect(html).toContain('&lt;script&gt;z&lt;/script&gt; Clinic');
+    expect(html).toContain('&lt;b&gt;Corp&lt;/b&gt; Group');
+  });
+  it('filled rows use the same opening-name headline + group tile', () => {
+    const html = MB.mbFilledRowHtml({
+      job: job({ id: 'job-f', title: 'General Practitioner || Carrara Health Centre', practice_name: 'ForHealth', practice_id: 'prac-fh', posted: daysAgo(40) }),
+      hired: { name: 'Dr A', at: daysAgo(1) },
+      redirected_count: 0,
+    });
+    expect(html).toMatch(/ats-mb-pname"[^>]*>Carrara Health Centre</);
+    expect(html).toMatch(/ats-mb-corp" data-mb-open-practice="prac-fh"/);
   });
 });
 
@@ -624,11 +673,12 @@ describe('funnel line — solid through the pipeline, dashed through suggestions
 
 describe('cache buster + dead CSS pruned', () => {
   it('ceo-dashboard.html loads the bumped matching script, and only that tag', () => {
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260711a');
-    expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260707a');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260712a');
+    expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260711a');
   });
-  it('ceo-dashboard.html loads the bumped board stylesheet (stale ?v=20260707a served pre-board CSS from cache)', () => {
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260711b');
+  it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260712a');
+    expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260711b');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260707a');
   });
   it('the old picker CSS classes are gone; the kanban match-status classes survive', () => {

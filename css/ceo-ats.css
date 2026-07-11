@@ -414,10 +414,11 @@
 .ats-mb-row.green { border-left-color:var(--ats-green); }
 .ats-mb-row.filled { border-left-color:var(--ats-green); background:rgba(52,211,153,0.04); cursor:default; }
 
-.ats-mb-left { width:250px; flex:none; position:relative; }
-.ats-mb-photowrap { position:absolute; inset:0; }
-.ats-mb-photo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-.ats-mb-photofade { position:absolute; inset:0; background:linear-gradient(90deg, rgba(15,17,23,0.35), var(--ats-panel) 82%, var(--ats-panel)); }
+/* Owner call 2026-07-12: no photo/gradient backdrop — the practice side is a
+ * plain glassy panel in the same colour as the GP/track side of the row. */
+.ats-mb-left { width:250px; flex:none; position:relative; background:var(--ats-panel); }
+.ats-mb-corp { display:inline-flex; align-items:center; gap:5px; width:fit-content; margin:1px 0; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,0.05); border:1px solid var(--ats-border); color:var(--ats-dim); font:inherit; font-size:10px; font-weight:600; line-height:1.3; cursor:pointer; transition:all .15s; }
+.ats-mb-corp:hover { background:rgba(255,255,255,0.1); color:var(--ats-text); border-color:var(--ats-border-hover); }
 .ats-mb-inner { position:relative; z-index:1; padding:12px 14px; display:flex; flex-direction:column; gap:6px; height:100%; justify-content:center; min-height:74px; }
 .ats-mb-prow { display:flex; gap:9px; align-items:center; }
 .ats-mb-plogo, .ats-mb-gav { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-weight:800; font-size:12px; color:#fff; flex:none; }
