@@ -1998,10 +1998,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ["visa",loadVisa],
       ["pbs",loadPbs],
       ["vaDashboard",loadVaDashboard],
-      ["unmatchedDocuments",loadUnmatchedDocuments],
-      ["incomingQuestions",loadIncomingQuestions],
       ["vaAccounts",loadVaAccounts]
     ];
+    // Unmatched documents + incoming email questions are a super-admin/CEO ops-triage
+    // function (they render only in CEO surfaces). Never load them for a scoped RSO —
+    // or the "View RSO POV" preview, where isSA() is false — so no cross-RSO triage
+    // data reaches an RSO's browser.
+    if(isSA()){
+      jobs.push(["unmatchedDocuments",loadUnmatchedDocuments]);
+      jobs.push(["incomingQuestions",loadIncomingQuestions]);
+    }
     try{
       await Promise.all(jobs.map(function(job){return runAdminLoadJob(job[0],job[1]);}));
       /* When silent (auto-refresh), skip destructive re-render if user is interacting */
@@ -7750,12 +7756,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     function renderList(convs){
       const panel=document.getElementById(PANEL);if(!panel)return;
       const needs=convs.filter(function(c){return c.needsReply;}).length;
+      // The Mine / All RSOs scope toggle is super-admin-only. A regular RSO (and the
+      // "View RSO POV" preview, where isSA() is false) is locked to their own mail —
+      // the server also forces scope=mine for non-super-admins, so this is defence in
+      // depth, not the sole gate.
+      const scopeToggle=isSA()
+        ?'<button class="hub-filt '+(currentScope==="mine"?"active":"")+'" data-scope="mine">Mine</button>'+
+          '<button class="hub-filt '+(currentScope==="all"?"active":"")+'" data-scope="all">All RSOs</button>'
+        :'';
       const head=SHOW_FILTERS
         ?'<div class="hub-inbox-head"><h2>📥 Registration Inbox</h2>'+
           '<p class="hub-inbox-sub">Every reply arrives at <b>registration@mygplink.com.au</b> and is filed into the right conversation automatically.</p>'+
           '<div class="hub-filters">'+
-            '<button class="hub-filt '+(currentScope==="mine"?"active":"")+'" data-scope="mine">Mine</button>'+
-            '<button class="hub-filt '+(currentScope==="all"?"active":"")+'" data-scope="all">All RSOs</button>'+
+            scopeToggle+
             '<span class="hub-needs">'+needs+' need a reply</span></div></div>'
         :'<div class="hub-inbox-head"><p class="hub-inbox-sub">'+needs+' need a reply</p></div>';
       panel.innerHTML=head+

@@ -38644,7 +38644,16 @@ async function handleApi(req, res, pathname) {
     if (filterFrom) query += '&created_at=gte.' + encodeURIComponent(filterFrom);
     if (filterTo) query += '&created_at=lte.' + encodeURIComponent(filterTo);
     const result = await supabaseDbRequest('scheduled_calls', query, { method: 'GET' });
-    sendJson(res, 200, { ok: true, calls: result.ok && Array.isArray(result.data) ? result.data.map(normalizeScheduledCallForApi) : [] });
+    let callRows = result.ok && Array.isArray(result.data) ? result.data : [];
+    // Authorization: a regular admin (RSO) only sees calls for their assigned GPs.
+    // Fail-closed — a call linked to no/another GP is dropped. Honors ?pov_rso for
+    // the super-admin "View RSO POV" preview (url in scope).
+    const callsScope = await resolveAdminGpScope(admin, url);
+    if (!callsScope.superAdmin) {
+      const callsAssignedIds = await fetchAssignedCaseUserIds(callsScope.rsoUserId);
+      callRows = callRows.filter(function (c) { return c.user_id && callsAssignedIds.has(c.user_id); });
+    }
+    sendJson(res, 200, { ok: true, calls: callRows.map(normalizeScheduledCallForApi) });
     return;
   }
 
@@ -45488,9 +45497,22 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
+    // Authorization: a regular admin (RSO) is locked to their OWN mail and can never
+    // widen to "all RSOs" — only a super-admin may pass ?scope=all. Honors ?pov_rso
+    // for the "View RSO POV" preview (scope.rsoUserId → the previewed RSO's mailbox).
+    const inboxScope = await resolveAdminGpScope(adminCtx, url);
     // Optional caseId → per-candidate Emails view (one case, no owner filter).
     var convCaseId = url.searchParams.get('caseId');
-    var convScope = convCaseId ? 'all' : ((url.searchParams.get('scope') === 'all') ? 'all' : 'mine');
+    // Fail-closed: a non-super-admin asking for a specific case's thread must own that
+    // case — otherwise they could read another RSO's mail by guessing a caseId.
+    if (convCaseId && !inboxScope.superAdmin) {
+      const inboxCaseAssign = await fetchCaseAssignmentById(convCaseId);
+      if (!gpScopeAllowsCase(inboxScope, inboxCaseAssign)) {
+        sendJson(res, 200, { ok: true, conversations: [] });
+        return;
+      }
+    }
+    var convScope = convCaseId ? 'all' : ((inboxScope.superAdmin && url.searchParams.get('scope') === 'all') ? 'all' : 'mine');
     // With a caseId: load only that case's email messages. Otherwise: the recent 1000.
     var msgRes = convCaseId
       ? await supabaseDbRequest('task_messages',
@@ -45533,6 +45555,11 @@ Return ONLY valid JSON with no markdown formatting:
       if (r.user_id) rsoNameByUserId[r.user_id] = r.name;
       if (r.email && String(r.email).trim().toLowerCase() === adminEmail) meUserId = r.user_id;
     });
+    // For a scoped (non-super-admin) viewer the owner is authoritative from the scope
+    // resolver: for a real RSO this equals their roster user_id; for the "View RSO POV"
+    // preview it is the previewed RSO's user_id; for an off-roster admin it is null
+    // (→ empty below, fail-closed).
+    if (!inboxScope.superAdmin) meUserId = inboxScope.rsoUserId;
     // If the admin isn't on the RSO roster (e.g. a super-admin/CEO), "mine" has no
     // meaningful owner — return empty rather than falling through to everyone's mail.
     if (convScope === 'mine' && meUserId === null) {
@@ -46375,9 +46402,23 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=1000'),
       supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
     ]);
-    const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
-    const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
-    const openTickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
+    let cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
+    let tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    let openTickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
+
+    // Authorization: a regular admin (RSO) only sees their assigned GPs across this
+    // whole aggregate. Filtering the three source arrays here scopes EVERYTHING
+    // downstream (users, RSO workload, today's tasks, open tickets) and skips the
+    // expensive per-GP enrichment for GPs that aren't theirs. Honors ?pov_rso for the
+    // super-admin "View RSO POV" preview (url in scope).
+    const vaScope = await resolveAdminGpScope(adminCtx, url);
+    if (!vaScope.superAdmin) {
+      cases = cases.filter(function (c) { return caseAssignedToRso(c, vaScope.rsoUserId); });
+      const vaCaseIds = new Set(cases.map(function (c) { return c.id; }));
+      const vaUserIds = new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean));
+      tasks = tasks.filter(function (t) { return vaCaseIds.has(t.case_id); });
+      openTickets = openTickets.filter(function (tk) { return tk.user_id && vaUserIds.has(tk.user_id); });
+    }
 
     // RSO roster: names/emails for per-case assignment + the per-RSO caseload rollup.
     // Same loader + lib rollup the CEO "RSO Workload" card uses so the numbers match.
@@ -46884,7 +46925,18 @@ Return ONLY valid JSON with no markdown formatting:
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
-    sendJson(res, 200, { ok: true, items: enriched });
+    // Authorization: a regular admin (RSO) only sees support items for their assigned
+    // GPs. Genuinely external items (no linked GP) belong to no RSO, so they are
+    // dropped here (fail-closed) and remain visible only to super-admins. Honors
+    // ?pov_rso for the super-admin "View RSO POV" preview.
+    let visibleItems = enriched;
+    const supportScope = await resolveAdminGpScope(adminCtx, url);
+    if (!supportScope.superAdmin) {
+      const supportAssignedIds = await fetchAssignedCaseUserIds(supportScope.rsoUserId);
+      visibleItems = enriched.filter(function (i) { return i.user_id && supportAssignedIds.has(i.user_id); });
+    }
+
+    sendJson(res, 200, { ok: true, items: visibleItems });
     return;
   }
 
@@ -51441,8 +51493,16 @@ Return ONLY valid JSON with no markdown formatting:
         for (const p of profilesRes.data) profileMap[p.user_id] = p;
       }
     }
-    const enriched = cases.map(c => ({ ...c, profile: profileMap[c.user_id] || null }));
-    sendJson(res, 200, { ok: true, cases: enriched });
+    let visaEnriched = cases.map(c => ({ ...c, profile: profileMap[c.user_id] || null }));
+    // Authorization: a regular admin (RSO) only sees visa cases for their assigned
+    // GPs. The client holds this list for per-GP lookups, so filter it here to avoid
+    // leaking other RSOs' cases into the browser. Honors ?pov_rso for the preview.
+    const visaScope = await resolveAdminGpScope(adminCtx5, url);
+    if (!visaScope.superAdmin) {
+      const visaAssignedIds = await fetchAssignedCaseUserIds(visaScope.rsoUserId);
+      visaEnriched = visaEnriched.filter(c => c.user_id && visaAssignedIds.has(c.user_id));
+    }
+    sendJson(res, 200, { ok: true, cases: visaEnriched });
     return;
   }
 
@@ -51781,11 +51841,18 @@ Return ONLY valid JSON with no markdown formatting:
         profileRes.data.forEach(p => { profileMap[p.user_id] = p; });
       }
     }
-    const cases = apps.map(a => {
+    let pbsCases = apps.map(a => {
       const p = profileMap[a.user_id] || {};
       return { ...a, gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown', gp_email: p.email || '' };
     });
-    sendJson(res, 200, { ok: true, cases });
+    // Authorization: a regular admin (RSO) only sees PBS cases for their assigned GPs.
+    // The client holds this list for per-GP lookups, so filter here. Honors ?pov_rso.
+    const pbsScope = await resolveAdminGpScope(adminCtx, url);
+    if (!pbsScope.superAdmin) {
+      const pbsAssignedIds = await fetchAssignedCaseUserIds(pbsScope.rsoUserId);
+      pbsCases = pbsCases.filter(c => c.user_id && pbsAssignedIds.has(c.user_id));
+    }
+    sendJson(res, 200, { ok: true, cases: pbsCases });
     return;
   }
 
@@ -52146,7 +52213,7 @@ Return ONLY valid JSON with no markdown formatting:
     const tasksRes = await supabaseDbRequest('registration_tasks', query);
     if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
     // Exclude caseless whatsapp_help tasks — those belong in Support, not the ops queue
-    const tasks = (Array.isArray(tasksRes.data) ? tasksRes.data : []).filter(function (t) {
+    let tasks = (Array.isArray(tasksRes.data) ? tasksRes.data : []).filter(function (t) {
       return !(t.task_type === 'whatsapp_help' && !t.case_id);
     });
 
@@ -52156,6 +52223,13 @@ Return ONLY valid JSON with no markdown formatting:
     if (caseIds.length > 0) {
       const cRes = await supabaseDbRequest('registration_cases', 'select=*&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
       if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
+    }
+    // Authorization: a regular admin (RSO) only sees ops-queue tasks for their
+    // assigned GPs. Fail-closed — a task whose case is missing/unassigned is dropped.
+    // Honors ?pov_rso for the super-admin "View RSO POV" preview (url in scope).
+    const opsScope = await resolveAdminGpScope(adminCtx, url);
+    if (!opsScope.superAdmin) {
+      tasks = tasks.filter(function (t) { return gpScopeAllowsCase(opsScope, caseMap[t.case_id]); });
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
@@ -52904,6 +52978,20 @@ Return ONLY valid JSON with no markdown formatting:
     if (!stuckCtx) return;
     try {
       const stuckResult = await computeStuckCaseBuckets(Date.now());
+      // Authorization: a regular admin (RSO) only sees stuck cases for their assigned
+      // GPs. Filter each bucket's items and recompute counts + total. Super-admins are
+      // unscoped. Honors ?pov_rso for the "View RSO POV" preview (url in scope).
+      let stuckTotal = stuckResult.total;
+      let stuckBuckets = stuckResult.buckets;
+      const stuckScope = await resolveAdminGpScope(stuckCtx, url);
+      if (!stuckScope.superAdmin) {
+        const stuckAssignedIds = await fetchAssignedCaseUserIds(stuckScope.rsoUserId);
+        stuckBuckets = (stuckResult.buckets || []).map(function (b) {
+          const items = (b.items || []).filter(function (it) { return it.user_id && stuckAssignedIds.has(it.user_id); });
+          return Object.assign({}, b, { items: items, count: items.length });
+        });
+        stuckTotal = stuckBuckets.reduce(function (sum, b) { return sum + b.count; }, 0);
+      }
       let stuckLastSweep = null;
       try {
         const stuckKv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.sla_sweep_last_results&limit=1');
@@ -52912,8 +53000,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, {
         ok: true,
         generated_at: new Date().toISOString(),
-        total: stuckResult.total,
-        buckets: stuckResult.buckets,
+        total: stuckTotal,
+        buckets: stuckBuckets,
         last_sweep: stuckLastSweep
       });
     } catch (stuckErr) {

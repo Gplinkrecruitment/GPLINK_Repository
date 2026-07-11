@@ -55,11 +55,42 @@ const db = {
   registration_tasks: [],
   task_timeline: [],
   runtime_kv: [],
-  user_roles: []
+  user_roles: [],
+  // RSO roster so a regular-admin session email resolves to a roster user_id.
+  // Rae (rso-1) owns c-fresh / c-mid / c-old; Bob (rso-2) owns nothing.
+  rso_team: [
+    { user_id: 'rso-1', name: 'Rae Officer', email: 'rae@mygplink.com.au', active: true, on_leave: false },
+    { user_id: 'rso-2', name: 'Bob Other', email: 'bob@mygplink.com.au', active: true, on_leave: false }
+  ]
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'not'];
+function matchCond(row, col, op, val) {
+  const cell = row ? row[col] : undefined;
+  if (op === 'eq') return String(cell) === val;
+  if (op === 'neq') return String(cell) !== val;
+  if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
+  if (op === 'not') return val === 'is.null' ? !(cell === null || cell === undefined) : true;
+  if (op === 'gt') return cell != null && String(cell) > val;
+  if (op === 'gte') return cell != null && String(cell) >= val;
+  if (op === 'lt') return cell != null && String(cell) < val;
+  if (op === 'lte') return cell != null && String(cell) <= val;
+  if (op === 'in') {
+    return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
+      .map((s) => s.trim().replace(/^"/, '').replace(/"$/, '')).includes(String(cell));
+  }
+  return true;
+}
+// Parse a single PostgREST condition "col.op.val" (e.g. "assigned_va.eq.rso-1").
+function parseCond(str) {
+  const d1 = str.indexOf('.');
+  if (d1 < 0) return null;
+  const rest = str.slice(d1 + 1);
+  const d2 = rest.indexOf('.');
+  if (d2 < 0) return null;
+  return { col: str.slice(0, d1), op: rest.slice(0, d2), val: rest.slice(d2 + 1) };
+}
 function buildMatcher(searchParams) {
   const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
   const filters = [];
@@ -70,22 +101,17 @@ function buildMatcher(searchParams) {
     if (!FILTER_OPS.includes(op)) continue;
     filters.push({ col: key, op, val: raw.slice(dot + 1) });
   }
-  return (row) => filters.every(({ col, op, val }) => {
-    const cell = row ? row[col] : undefined;
-    if (op === 'eq') return String(cell) === val;
-    if (op === 'neq') return String(cell) !== val;
-    if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
-    if (op === 'not') return val === 'is.null' ? !(cell === null || cell === undefined) : true;
-    if (op === 'gt') return cell != null && String(cell) > val;
-    if (op === 'gte') return cell != null && String(cell) >= val;
-    if (op === 'lt') return cell != null && String(cell) < val;
-    if (op === 'lte') return cell != null && String(cell) <= val;
-    if (op === 'in') {
-      return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
-        .map((s) => s.trim().replace(/^"/, '').replace(/"$/, '')).includes(String(cell));
-    }
+  // PostgREST or=(condA,condB,...): the row matches if ANY sub-condition matches.
+  // Needed by fetchAssignedCaseUserIds' or=(assigned_rso.eq.X,assigned_va.eq.X).
+  const orRaw = searchParams.get('or');
+  const orGroup = orRaw
+    ? orRaw.replace(/^\(/, '').replace(/\)$/, '').split(',').map((s) => parseCond(s.trim())).filter(Boolean)
+    : null;
+  return (row) => {
+    if (!filters.every(({ col, op, val }) => matchCond(row, col, op, val))) return false;
+    if (orGroup && orGroup.length && !orGroup.some((c) => matchCond(row, c.col, c.op, c.val))) return false;
     return true;
-  });
+  };
 }
 
 function readBody(req) {
@@ -170,9 +196,16 @@ function adminCookie() {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
 }
-function httpReq(method, p, { cookie, bearer } = {}) {
+// A regular (non-super) admin session — an RSO. On the loopback host this resolves
+// to 'local' admin scope (non-production), so the role↔host check admits them.
+function rsoCookie(email) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, adminRole: 'admin' }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+}
+function httpReq(method, p, { cookie, bearer, host } = {}) {
   return new Promise((resolve, reject) => {
-    const headers = { Host: SUPER_HOST };
+    const headers = { Host: host || SUPER_HOST };
     if (cookie) headers.Cookie = cookie;
     if (bearer) headers.Authorization = 'Bearer ' + bearer;
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
@@ -269,6 +302,44 @@ describe('GET /api/admin/stuck-cases', () => {
     expect(allIds).not.toContain('c-gone');
     expect(allIds).not.toContain('c-dead');
     expect(r.body.total).toBe(4);
+  });
+});
+
+// RSO data-leak lockdown: a regular RSO only ever sees stuck cases for GPs assigned
+// to them; a super-admin can preview any RSO's exact view via ?pov_rso=. Proven
+// against the real endpoint + in-memory PostgREST (with or= support).
+describe('GET /api/admin/stuck-cases — RSO scoping', () => {
+  it('a regular RSO sees ONLY their assigned GPs (not unassigned, not another RSO\'s)', async () => {
+    // Rae (rso-1) owns c-fresh / c-mid / c-old; c-late is unassigned (assigned_va null).
+    const r = await httpReq('GET', '/api/admin/stuck-cases', { cookie: rsoCookie('rae@mygplink.com.au'), host: '127.0.0.1' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const allIds = r.body.buckets.flatMap((b) => b.items.map((i) => i.case_id)).sort();
+    expect(allIds).toEqual(['c-fresh', 'c-mid', 'c-old']);
+    expect(allIds).not.toContain('c-late'); // unassigned — not theirs
+    expect(r.body.total).toBe(3);
+    // count/total are recomputed post-filter, not the unscoped originals
+    for (const b of r.body.buckets) expect(b.count).toBe(b.items.length);
+  });
+
+  it('a regular RSO with no assigned cases sees nothing (fail-closed)', async () => {
+    const r = await httpReq('GET', '/api/admin/stuck-cases', { cookie: rsoCookie('bob@mygplink.com.au'), host: '127.0.0.1' });
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(0);
+    expect(r.body.buckets.every((b) => b.items.length === 0)).toBe(true);
+  });
+
+  it('super-admin "View RSO POV" (?pov_rso=) previews exactly that RSO\'s scope', async () => {
+    const r = await httpReq('GET', '/api/admin/stuck-cases?pov_rso=rae%40mygplink.com.au', { cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    const allIds = r.body.buckets.flatMap((b) => b.items.map((i) => i.case_id)).sort();
+    expect(allIds).toEqual(['c-fresh', 'c-mid', 'c-old']); // same as Rae sees
+    expect(r.body.total).toBe(3);
+  });
+
+  it('super-admin without pov_rso still sees everything (unscoped)', async () => {
+    const r = await httpReq('GET', '/api/admin/stuck-cases', { cookie: adminCookie() });
+    expect(r.body.total).toBe(4); // all active cases, unchanged
   });
 });
 
