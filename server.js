@@ -57646,6 +57646,18 @@ async function handleRequest(req, res) {
       res.end();
       return;
     }
+    // The public marketing site now lives on its own host (preview.mygplink.com.au,
+    // → the real www.mygplink.com.au after the DNS cutover). On the primary app host
+    // an anonymous visitor gets the app's front door (sign-in), NOT the marketing
+    // homepage. This also means Supabase password set/reset links — which can only
+    // redirect to this bare root — reach /pages/signin (which handles the recovery
+    // token) instead of being stranded on the marketing page. Every other host (the
+    // marketing host, loopback dev, Vercel preview URLs) keeps the marketing home.
+    if (getRequestHostname(req) === 'app.mygplink.com.au') {
+      res.writeHead(302, { Location: '/pages/signin' });
+      res.end();
+      return;
+    }
     serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES['/']);
     return;
   }
