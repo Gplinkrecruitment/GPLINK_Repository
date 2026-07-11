@@ -1303,11 +1303,16 @@
     pendingNavigation = { route: route };
     if (!activeState || !activeState.loadedRoute) {
       setLoading(true);
+      // Nothing is on screen yet — show the route skeleton while it loads.
+      showSkeleton(route);
     } else {
       setLoading(false);
+      // Content-to-content switch: keep the CURRENT page visible until the
+      // incoming frame announces itself (early activation in handleMessage).
+      // Covering live content with a skeleton made every tab switch read as
+      // "loading…" even when the next page was cache-instant.
     }
 
-    showSkeleton(route);
     loadRouteIntoFrame(targetFrame, embeddedRoute, route);
   }
 
@@ -1597,7 +1602,39 @@
     }
 
     if (event.data.type !== "gp-shell-route") return;
-    if (!activeWindow || event.source !== activeWindow) return;
+    if (!activeWindow || event.source !== activeWindow) {
+      // Early activation: the INCOMING frame announces its route at
+      // DOMContentLoaded (nav-shell-bridge notifyParent, intent "sync") —
+      // its content is already painted then. Swapping here instead of at
+      // the iframe load event stops tab switches from waiting on every
+      // image/font of the new page (the "loads before showing" lag).
+      var announcingFrame = null;
+      for (var fi = 0; fi < frameEls.length; fi += 1) {
+        try {
+          if (frameEls[fi].contentWindow === event.source) { announcingFrame = frameEls[fi]; break; }
+        } catch (err) {}
+      }
+      if (!announcingFrame || announcingFrame === activeFrameEl) return;
+      var announcedUrl = toRouteUrl(event.data.href);
+      var announcedRoute = announcedUrl ? routeFromUrl(announcedUrl) : "";
+      if (!announcedRoute || !pendingNavigation || !routesMatchForFrame(pendingNavigation.route, announcedRoute)) return;
+      var announcingState = getFrameState(announcingFrame);
+      announcingState.loadedRoute = announcedRoute;
+      announcingState.pendingRoute = "";
+      announcingState.title = event.data.title || "";
+      try { window.dispatchEvent(new CustomEvent("gp-shell-frame-loaded", { detail: { route: announcedRoute } })); } catch (e) {}
+      try {
+        if (announcingFrame.contentDocument) enforceEmbeddedChrome(announcingFrame.contentDocument);
+      } catch (err) {}
+      activateFrame(announcingFrame);
+      setLoading(false);
+      removeSkeleton();
+      updateFrameOffsets();
+      syncFromChildRoute(announcedUrl, event.data.title || "");
+      pendingNavigation = null;
+      scheduleRouteWarmup(announcedRoute);
+      return;
+    }
     routeUrl = toRouteUrl(event.data.href);
     if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
