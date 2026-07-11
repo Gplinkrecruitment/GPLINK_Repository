@@ -41124,6 +41124,66 @@ Return ONLY valid JSON with no markdown formatting:
     }
   }
 
+  // ── Send the welcome / set-password email via the app mailer (Resend) ──
+  // Given a valid 24h welcome-setup token, sends the styled "Welcome to GP Link —
+  // set your password" email — with a real CTA button (buildCareerEmailHtml) that
+  // renders in inboxes, unlike a hand-pasted Gmail draft that strips it. Token-gated
+  // (unguessable) + rate-limited. Used to invite an admin-created GP (e.g. a new
+  // placement) whose account has no self-set password yet.
+  if (pathname === '/api/auth/send-welcome-email' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'send-welcome-email'))) return;
+    let swBody;
+    try { swBody = await readJsonBody(req); }
+    catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const swToken = String((swBody && swBody.token) || '').trim();
+    if (!swToken || !isSupabaseDbConfigured() || !isEmailConfigured()) {
+      sendJson(res, 400, { ok: false, message: 'A valid token is required and email must be configured.' });
+      return;
+    }
+    try {
+      const swLookup = await supabaseDbRequest('password_setup_tokens',
+        'select=email,user_id,expires_at&token=eq.' + encodeURIComponent(swToken) + '&limit=1', { method: 'GET' });
+      const swRow = (swLookup.ok && Array.isArray(swLookup.data) && swLookup.data[0]) ? swLookup.data[0] : null;
+      const swValid = swRow && swRow.expires_at && (new Date(swRow.expires_at).getTime() > Date.now());
+      if (!swValid) { sendJson(res, 404, { ok: false, message: 'That invite link has expired.' }); return; }
+      const swEmail = String(swRow.email || '').trim().toLowerCase();
+      const swUserId = String(swRow.user_id || '').trim();
+      let swFirstName = '';
+      let swPracticeName = '';
+      if (swUserId) {
+        try {
+          const swProf = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(swUserId) + '&limit=1', { method: 'GET' });
+          swFirstName = (swProf.ok && Array.isArray(swProf.data) && swProf.data[0] && swProf.data[0].first_name) ? String(swProf.data[0].first_name).trim() : '';
+        } catch (e) {}
+        try {
+          const swOffer = await supabaseDbRequest('ats_offers', 'select=practice_name&user_id=eq.' + encodeURIComponent(swUserId) + '&order=created_at.desc&limit=1', { method: 'GET' });
+          swPracticeName = (swOffer.ok && Array.isArray(swOffer.data) && swOffer.data[0] && swOffer.data[0].practice_name) ? String(swOffer.data[0].practice_name).trim() : '';
+        } catch (e) {}
+      }
+      const swGreet = swFirstName ? ('Hi ' + swFirstName + ', your') : 'Your';
+      const swPlacement = swPracticeName ? (' and view the details of your secured placement at ' + swPracticeName) : ' and view the details of your secured placement';
+      const swCtaUrl = APP_BASE_URL + '/api/auth/welcome-setup?token=' + encodeURIComponent(swToken);
+      const swHtml = buildCareerEmailHtml({
+        title: 'Welcome to GP Link',
+        body: swGreet + ' GP Link account is ready. Set your password below to log in — from your dashboard you can finish your quick onboarding, track every step of your AHPRA registration,' + swPlacement + '. We look forward to supporting you all the way to your start date.',
+        ctaText: 'Set your password',
+        ctaUrl: swCtaUrl,
+        footer: 'This link is valid for 24 hours. If it expires, use "Forgot password" on the sign-in page at app.mygplink.com.au. If you weren\'t expecting this email, you can safely ignore it.'
+      });
+      const swResult = await sendEmail({ to: swEmail, subject: 'Welcome to GP Link — set your password', html: swHtml });
+      if (swResult && swResult.ok) {
+        sendJson(res, 200, { ok: true, sent: true, to: swEmail });
+      } else {
+        sendJson(res, 502, { ok: false, message: 'The mailer did not accept the message.', detail: (swResult && swResult.error) || '' });
+      }
+      return;
+    } catch (swErr) {
+      console.error('[send-welcome-email] error:', swErr && swErr.message);
+      sendJson(res, 500, { ok: false, message: 'Could not send the welcome email.' });
+      return;
+    }
+  }
+
   // ── Recovery password update (uses the Supabase recovery access_token directly) ──
   if (pathname === '/api/auth/recovery-update-password' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'reset-password'))) return;
