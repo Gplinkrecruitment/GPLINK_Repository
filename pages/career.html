@@ -9410,6 +9410,30 @@
       return true;
     }
 
+    // Synchronous best-effort read of the signed-in account from the shared
+    // SWR cache (gp-cache.js stores the parsed /api/auth/session response
+    // under this key in the tab's sessionStorage; the shell warms it at
+    // boot). Lets init() ownership-check a cached placement WITHOUT a
+    // network wait before first paint. Returns "" when nothing is cached.
+    function readCachedSessionEmailSync() {
+      var raw = null;
+      try {
+        raw = window.parent && window.parent !== window
+          ? window.parent.sessionStorage.getItem("gpc:/api/auth/session")
+          : null;
+      } catch (e) {}
+      if (!raw) {
+        try { raw = sessionStorage.getItem("gpc:/api/auth/session"); } catch (e) {}
+      }
+      try {
+        var entry = raw ? JSON.parse(raw) : null;
+        var profile = entry && entry.data && entry.data.profile;
+        return profile && typeof profile === "object" ? normalizeEmail(profile.email || "") : "";
+      } catch (e) {
+        return "";
+      }
+    }
+
     async function hydrateCareerSessionEmail() {
       if (window.gpSessionProfile && typeof window.gpSessionProfile === "object") {
         careerSessionEmail = normalizeEmail(window.gpSessionProfile.email || careerSessionEmail);
@@ -13190,15 +13214,17 @@
       clearCareerBoot._failsafe = window.setTimeout(clearCareerBoot, 3000);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       if (remoteApplicationsSettled) {
-        // Cached concrete placement: before painting it, confirm the cache
-        // belongs to THIS session's account — an admin hopping between
-        // "View as" GPs in one browser must never see the previous GP's
-        // practice while the real data loads. gp_state_owner is stamped by
-        // state-sync for the account that wrote the cache; the session fetch
-        // is gpCache-warm (microtask) on shell tab switches.
+        // Cached concrete placement: make sure the cache belongs to THIS
+        // session's account — an admin hopping between "View as" GPs in one
+        // browser must not see the previous GP's practice. The check is
+        // SYNCHRONOUS (shell-warmed cached session, no network) so the first
+        // paint is never delayed — awaiting the session here made every
+        // My Practice open sit on the skeleton for a full round trip. When
+        // no cached session exists to compare against, trust the local cache:
+        // the parallel fetches below reconcile to server truth within ~1s.
         const ownerAtBoot = careerSessionEmail;
-        await hydrateCareerSessionEmail();
-        if (ownerAtBoot && careerSessionEmail && careerSessionEmail !== ownerAtBoot) {
+        const cachedSessionEmail = readCachedSessionEmailSync();
+        if (ownerAtBoot && cachedSessionEmail && cachedSessionEmail !== ownerAtBoot) {
           remoteApplicationsSettled = false;
           careerState = normalizeCareerState(null, { dataSource: careerDataSource, roles: roleData });
           document.documentElement.setAttribute("data-career-booting", "1");

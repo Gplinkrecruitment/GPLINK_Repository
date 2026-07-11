@@ -1655,6 +1655,14 @@
   function init() {
     if (!frameEls.length || !activeFrameEl) return;
 
+    // Warm the session into the shared SWR cache (gp-cache.js, auth tier).
+    // Child pages read it synchronously (gpc:/api/auth/session) to
+    // ownership-check their cached state without a network wait before
+    // first paint, and gpCache-routed session fetches become instant.
+    if (window.gpCache && typeof window.gpCache.fetch === "function") {
+      try { window.gpCache.fetch("/api/auth/session").catch(function () {}); } catch (e) {}
+    }
+
     window.gpShellNavigate = function (route, options) {
       var opts = options || {};
       navigateTo(route, {
