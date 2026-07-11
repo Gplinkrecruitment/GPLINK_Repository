@@ -13242,14 +13242,13 @@
         // screen. Reveal now; the fetches below revalidate in the background.
         clearCareerBoot();
       }
-      // Session, roles, applications and team matches are independent — fetch
-      // them together instead of serially (was 4 back-to-back round trips
-      // before the page settled on cold loads).
+      // Session, roles and applications are independent — fetch them together
+      // instead of serially (was 4 back-to-back round trips before the page
+      // settled on cold loads).
       await Promise.allSettled([
         hydrateCareerSessionEmail(),
         loadRemoteRoles({ render: false }),
-        loadRemoteApplications({ render: false }),
-        loadTeamMatches()
+        loadRemoteApplications({ render: false })
       ]);
       syncCareerViewFromLocation();
       renderPage();
@@ -13258,7 +13257,15 @@
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
-      handleMatchDeepLink();
+      // Team matches never gate the reveal: placed GPs don't need them and a
+      // cold serverless start on this call was holding the boot overlay past
+      // its 3s failsafe — which then revealed the browse view for a beat
+      // before the placement landed. They render whenever they arrive.
+      loadTeamMatches().then(function () {
+        renderTeamMatches();
+        renderMatchStickyBar();
+        handleMatchDeepLink();
+      }).catch(function () {});
     })();
   </script>
 </body>

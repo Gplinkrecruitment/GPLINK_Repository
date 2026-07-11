@@ -1663,6 +1663,15 @@
       try { window.gpCache.fetch("/api/auth/session").catch(function () {}); } catch (e) {}
     }
 
+    // Prewarm every route's data at idle so the first click on any tab finds
+    // roles/applications/media-config already in the SWR cache — otherwise a
+    // Vercel cold start (1-3s) lands squarely on the user's click.
+    scheduleIdle(function () {
+      Object.keys(SAFE_ROUTE_DATA_PREFETCH).forEach(function (routeKey) {
+        warmSafeRouteData(routeKey);
+      });
+    }, 2500);
+
     window.gpShellNavigate = function (route, options) {
       var opts = options || {};
       navigateTo(route, {

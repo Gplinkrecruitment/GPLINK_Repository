@@ -2,44 +2,60 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260712d";
+  var VERSION = "20260712e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
   var CACHE_NAMES = [STATIC_CACHE, PAGE_CACHE, RUNTIME_CACHE];
-  // Give the network a fair window before falling back to a cached page:
-  // Vercel serverless cold starts routinely exceed 1.2s, and a too-eager
-  // fallback silently pins users to a previous deploy's page (seen 2026-07-07:
-  // owner kept getting the pre-fix dashboard out of PAGE_CACHE).
+  // Offline/error path only: how long to give the network before a cached
+  // page may answer a request that had no cache entry to serve instantly.
   var PAGE_TIMEOUT_MS = 4000;
 
+  // Precache manifest. Page entries MUST be the extensionless embedded
+  // variants the app shell actually requests ("/pages/career?gp_shell=…"):
+  // the server 302-redirects "/pages/career.html" to the clean URL, redirected
+  // responses are never cached (shouldCacheResponse), and an entry keyed under
+  // the .html URL would not match the shell's requests anyway — the old .html
+  // manifest precached NOTHING, so every page open paid a full network fetch.
+  // JS busters must track what the pages currently ship with
+  // (alerts-panel.test.js pins updates-sync structurally).
   var CORE_URLS = [
-    "/pages/app-shell.html",
-    "/pages/index.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/myinthealth.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/amc.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/ahpra.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/career.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/visa.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/pbs.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/commencement.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/messages.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/account.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/my-documents.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/registration-intro.html?gp_shell=embedded&gp_shell_static=1",
-    "/pages/signin.html",
-    "/js/app-shell.js?v=20260608a",
+    "/pages/app-shell",
+    "/pages/index?gp_shell=embedded&gp_shell_static=1",
+    "/pages/myinthealth?gp_shell=embedded&gp_shell_static=1",
+    "/pages/amc?gp_shell=embedded&gp_shell_static=1",
+    "/pages/ahpra?gp_shell=embedded&gp_shell_static=1",
+    "/pages/career?gp_shell=embedded&gp_shell_static=1",
+    "/pages/visa?gp_shell=embedded&gp_shell_static=1",
+    "/pages/pbs?gp_shell=embedded&gp_shell_static=1",
+    "/pages/messages?gp_shell=embedded&gp_shell_static=1",
+    "/pages/account?gp_shell=embedded&gp_shell_static=1",
+    "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
+    "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
+    "/pages/signin",
+    "/js/app-shell.js?v=20260712b",
     "/js/nav-shell-bridge.js?v=20260608a",
-    "/js/auth-guard.js?v=20260607a",
-    "/js/state-sync.js?v=20260607a",
-    "/js/bypass-config.js?v=20260610a",
+    "/js/auth-guard.js?v=20260706a",
+    "/js/state-sync.js?v=20260711a",
+    "/js/bypass-config.js?v=20260702a",
     "/js/updates-sync.js?v=20260707b",
-    "/js/qualification-scan.js?v=20260527a",
-    "/js/qualification-camera.js?v=20260527a",
+    "/js/qualification-scan.js?v=20260711b",
+    "/js/qualification-camera.js?v=20260614a",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20260610a",
+    "/js/onboarding.js?v=20260707b",
     "/js/error-reporter.js?v=20260527a",
-    "/js/web-push.js?v=20260707a"
+    "/js/web-push.js?v=20260707a",
+    "/js/gp-cache.js?v=20260707a",
+    "/js/perf-cache.js?v=20260608a",
+    "/js/journey-stages.js?v=20260711a",
+    "/js/native-bridge.js?v=20260707a",
+    "/js/match-popup.js?v=20260707b",
+    "/js/gp-coach.js?v=20260711a",
+    "/js/gp-walkthrough-state.js?v=20260711a",
+    "/js/gp-walkthrough.js?v=20260711b",
+    "/js/gp-walkthrough-shell.js?v=20260711b",
+    "/js/document-prep.js?v=20260614a",
+    "/js/career-home-card.js?v=20260709a"
   ];
 
   function toUrl(value) {
@@ -272,7 +288,25 @@
     if (url.pathname === "/sw.js") return;
 
     if (isPageDocument(request, url)) {
-      event.respondWith(networkFirst(request, PAGE_CACHE, PAGE_TIMEOUT_MS));
+      // Stale-while-revalidate: serve the cached page instantly (caches are
+      // VERSION-keyed, purged+re-precached on every deploy that bumps
+      // VERSION — the mandatory convention when a page's HTML changes) and
+      // refresh the cache in the background so even a missed bump self-heals
+      // one navigation later. network-first with a 4s window made every page
+      // switch pay a full network round trip and was the main reason
+      // navigation felt slow; cache misses still fall back to networkFirst
+      // (offline gets the timed cached fallback).
+      event.respondWith(
+        caches.match(request).then(function (cached) {
+          if (cached) {
+            fetch(request).then(function (response) {
+              return putIfCacheable(PAGE_CACHE, request, response);
+            }).catch(function () {});
+            return cached;
+          }
+          return networkFirst(request, PAGE_CACHE, PAGE_TIMEOUT_MS);
+        })
+      );
       return;
     }
 
