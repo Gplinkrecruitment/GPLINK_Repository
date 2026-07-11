@@ -21,7 +21,12 @@ const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-convfunnel-${RUN_ID}.json`);
 const SUPER_HOST = 'convfunnel-test.local';
 
-const NOW = Date.UTC(2026, 6, 7, 12, 0, 0); // 2026-07-07T12:00:00Z
+// Anchor to the real clock: the endpoint tests hit the live server, which
+// windows periods (7d/30d/90d) off Date.now(). A fixed anchor here becomes a
+// time bomb — the "3d-old" seed aged past the 7d window once the calendar
+// passed anchor+4d and the suite went red with no code change. Every seed and
+// assertion below is relative to NOW, so a live anchor stays deterministic.
+const NOW = Date.now();
 const DAY = 86400000;
 const ago = (days) => new Date(NOW - days * DAY).toISOString();
 
