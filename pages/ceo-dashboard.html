@@ -2959,6 +2959,17 @@
         if (rsoAction === 'add') { openAddRsoModal(); return; }
         if (rsoAction === 'edit') { openEditRsoModal(rsoActionEl.getAttribute('data-rso-id')); return; }
         if (rsoAction === 'bulk') { openBulkReassignModal(rsoActionEl.getAttribute('data-rso-id')); return; }
+        if (rsoAction === 'pov') {
+          // Open the RSO Command Centre scoped to this RSO in a new tab. Not noopener
+          // so the preview tab can close itself when the CEO clicks "Exit RSO view".
+          var povEmail = rsoActionEl.getAttribute('data-rso-email') || '';
+          var povName = rsoActionEl.getAttribute('data-rso-name') || '';
+          if (!povEmail) { showToast('This RSO has no linked email to preview.', 'error'); return; }
+          var povUrl = '/pages/admin?pov_rso=' + encodeURIComponent(povEmail)
+            + (povName ? '&pov_name=' + encodeURIComponent(povName) : '');
+          window.open(povUrl, '_blank');
+          return;
+        }
       }
       // RSO oversight card -> RSO detail
       var rsoCard = e.target.closest('.rso-card[data-rso-id]');
@@ -3230,12 +3241,19 @@
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value">' + (r.open_tasks || 0) + '</span><span class="rso-card-stat-label">Open</span></div>';
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value" style="color:' + ((r.overdue_tasks || 0) > 0 ? 'var(--red)' : 'var(--text)') + '">' + (r.overdue_tasks || 0) + '</span><span class="rso-card-stat-label">Overdue</span></div>';
         html += '</div>';
-        // Edit + bulk-reassign — only when we hold the full admin record (has user_id).
+        // Action buttons. "View RSO POV" opens the RSO Command Centre scoped exactly
+        // as this RSO sees it — available for any roster RSO with a linked email.
+        // Edit + bulk-reassign need the full admin record (has user_id).
+        var rsoActions = '';
+        if (r.email) {
+          rsoActions += '<button class="btn" data-rso-action="pov" data-rso-email="' + escAttr(r.email) + '" data-rso-name="' + escAttr(r.rso_name || '') + '">View RSO POV</button>';
+        }
         if (r.hasAdminRecord && r.user_id) {
-          html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'
-            + '<button class="btn" data-rso-action="edit" data-rso-id="' + esc(r.user_id) + '">Edit</button>'
-            + '<button class="btn" data-rso-action="bulk" data-rso-id="' + esc(r.user_id) + '">Reassign all cases</button>'
-            + '</div>';
+          rsoActions += '<button class="btn" data-rso-action="edit" data-rso-id="' + esc(r.user_id) + '">Edit</button>'
+            + '<button class="btn" data-rso-action="bulk" data-rso-id="' + esc(r.user_id) + '">Reassign all cases</button>';
+        }
+        if (rsoActions) {
+          html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' + rsoActions + '</div>';
         }
         html += '</div>';
       }

@@ -1429,6 +1429,36 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 <script>
 (function(){
   "use strict";
+  /* ── View RSO POV ──────────────────────────────────────────────────────────
+     When a super-admin opens /pages/admin?pov_rso=<email>, tag every /api/admin/*
+     request with that param so the server scopes the work-list to that RSO's
+     assigned GPs (the server honors pov_rso ONLY for genuine super-admins). The
+     page also renders in RSO mode below so it mirrors exactly what the RSO sees.
+     The real super-admin session cookie still governs server authorization — this
+     only changes which GPs/tasks are listed and how the page is presented. */
+  var POV = (function(){
+    try{
+      var p = new URLSearchParams(window.location.search);
+      var email = (p.get("pov_rso") || "").trim();
+      if(!email) return { active:false };
+      return { active:true, email:email, name:(p.get("pov_name") || "").trim() };
+    }catch(e){ return { active:false }; }
+  })();
+  if (POV.active) {
+    var _povFetch = window.fetch.bind(window);
+    window.fetch = function(input, init){
+      try{
+        var isReq = (typeof Request !== "undefined") && (input instanceof Request);
+        var u = isReq ? input.url : String(input);
+        if (u && u.indexOf("/api/admin/") !== -1 && u.indexOf("pov_rso=") === -1) {
+          var sep = u.indexOf("?") === -1 ? "?" : "&";
+          var tagged = u + sep + "pov_rso=" + encodeURIComponent(POV.email);
+          input = isReq ? new Request(tagged, input) : tagged;
+        }
+      }catch(e){}
+      return _povFetch(input, init);
+    };
+  }
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,pendingRender:false,
     fStage:"",fRso:"",fCountry:"",fAge:"",fMine:false,
@@ -1862,6 +1892,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
   }
   function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
+  function showPovBanner(){
+    if(document.getElementById("povBanner"))return;
+    var who=POV.name?(POV.name+" ("+POV.email+")"):POV.email;
+    var bar=document.createElement("div");
+    bar.id="povBanner";
+    bar.setAttribute("style","position:sticky;top:0;z-index:400;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;padding:8px 16px;background:linear-gradient(90deg,#2563eb,#7c3aed);color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 8px rgba(0,0,0,0.28)");
+    bar.innerHTML='<span style="opacity:.96">👁️ Viewing as '+esc(who)+' — exactly the dashboard this RSO sees</span>'+
+      '<button id="povExitBtn" type="button" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:6px;padding:3px 12px;font-size:12px;font-weight:600;cursor:pointer">Exit RSO view</button>';
+    document.body.insertBefore(bar,document.body.firstChild);
+    var btn=document.getElementById("povExitBtn");
+    if(btn)btn.addEventListener("click",function(){
+      try{window.close();}catch(e){}
+      setTimeout(function(){window.location.href="/pages/ceo-dashboard?tab=rsos";},120);
+    });
+  }
   function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
 
   /* \u2550\u2550 Data Loading \u2550\u2550 */
@@ -8852,6 +8897,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   bind();
   loadSession().then(ok=>{
     if(!ok)return;
+    if(POV.active){
+      // Render as the previewed RSO: role→"admin" makes isSA() false, which hides
+      // the super-admin-only UI, flips the title to "RSO Command Centre", and points
+      // the client-side "my caseload" filter/identity labels at this RSO. Server-side
+      // authorization still runs off the real super-admin session cookie.
+      S.viewer=Object.assign({},S.viewer,{
+        email:POV.email,
+        name:POV.name||(S.viewer&&S.viewer.name)||POV.email,
+        role:"admin",adminRole:"admin",roleLabel:"Admin"
+      });
+      showPovBanner();
+    }
     var urlParams=new URLSearchParams(window.location.search);
     var gpParam=urlParams.get("gp");
     if(gpParam){S.selectedCaseId=gpParam;S.view="gps";document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});vaShowPanel("gps");}

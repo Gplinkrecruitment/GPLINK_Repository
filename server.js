@@ -441,8 +441,23 @@ function caseAssignedToRso(caseRow, rsoUserId) {
 //   { superAdmin: true,  rsoUserId: null }     → sees/acts on everything
 //   { superAdmin: false, rsoUserId: '<uuid>' } → only cases assigned to rsoUserId
 //   { superAdmin: false, rsoUserId: null }     → sees/acts on NOTHING (not on roster)
-async function resolveAdminGpScope(adminCtx) {
-  if (isSuperAdminRole(adminCtx && adminCtx.role)) return { superAdmin: true, rsoUserId: null };
+//
+// "View RSO POV": a genuine super-admin may preview a specific RSO's scoped view
+// by passing ?pov_rso=<email> (pass the request `url`). This is the ONLY place the
+// override is honored and it is gated on the caller actually being a super-admin —
+// a regular RSO who sends pov_rso is ignored and still only ever sees their own
+// assigned GPs. The preview is faithful: an RSO not on the roster yields an empty
+// scope, which is exactly what that RSO would truly see.
+async function resolveAdminGpScope(adminCtx, url) {
+  const superAdmin = isSuperAdminRole(adminCtx && adminCtx.role);
+  if (superAdmin && url && url.searchParams) {
+    const povEmail = String(url.searchParams.get('pov_rso') || '').trim().toLowerCase();
+    if (povEmail) {
+      const povUserId = await resolveAdminRsoUserId({ email: povEmail });
+      return { superAdmin: false, rsoUserId: povUserId, povEmail };
+    }
+  }
+  if (superAdmin) return { superAdmin: true, rsoUserId: null };
   return { superAdmin: false, rsoUserId: await resolveAdminRsoUserId(adminCtx) };
 }
 
@@ -43333,7 +43348,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
     // Authorization: a regular admin (RSO) only sees their assigned GPs. The
     // aggregate is a shared cache, so scope the per-GP arrays per-request.
-    const dashScope = await resolveAdminGpScope(adminCtx);
+    const dashScope = await resolveAdminGpScope(adminCtx, url);
     let dashboardOut = dashboard;
     if (!dashScope.superAdmin) {
       const assignedIds = await fetchAssignedCaseUserIds(dashScope.rsoUserId);
@@ -43741,7 +43756,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
-    const casesGpScope = await resolveAdminGpScope(adminCtx);
+    const casesGpScope = await resolveAdminGpScope(adminCtx, url);
     const casesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
     if (!casesRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load cases.' }); return; }
     const cases = Array.isArray(casesRes.data) ? casesRes.data : [];
@@ -44935,7 +44950,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
-    const tasksGpScope = await resolveAdminGpScope(adminCtx);
+    const tasksGpScope = await resolveAdminGpScope(adminCtx, url);
     const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting';
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     const tasksRes = await supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=200');

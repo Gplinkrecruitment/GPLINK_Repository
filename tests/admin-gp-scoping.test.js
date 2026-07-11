@@ -35,6 +35,36 @@ describe('resolveAdminGpScope', () => {
   });
 });
 
+// "View RSO POV": a super-admin passes ?pov_rso=<email> to preview an RSO's scope.
+// The override is honored ONLY for super-admins; a regular admin sending it is ignored.
+const povUrl = (email) => new URL('http://x/api/admin/dashboard?pov_rso=' + encodeURIComponent(email));
+
+describe('resolveAdminGpScope — View RSO POV override', () => {
+  it('super_admin with pov_rso is scoped to that RSO (previews their view)', async () => {
+    const scope = await resolveAdminGpScope({ role: 'super_admin', email: 'ceo@mygplink.com.au' }, povUrl(HAZEL.email));
+    expect(scope.superAdmin).toBe(false);
+    expect(scope.rsoUserId).toBe(HAZEL.id);
+    expect(scope.povEmail).toBe(HAZEL.email);
+  });
+  it('pov_rso email match is case-insensitive', async () => {
+    const scope = await resolveAdminGpScope({ role: 'super_admin', email: 'ceo@mygplink.com.au' }, povUrl('HAZEL@MyGPLink.com.au'));
+    expect(scope.rsoUserId).toBe(HAZEL.id);
+  });
+  it('super_admin previewing an off-roster email gets an empty scope (faithful: they see nothing)', async () => {
+    const scope = await resolveAdminGpScope({ role: 'super_admin', email: 'ceo@mygplink.com.au' }, povUrl('ghost@example.com'));
+    expect(scope).toEqual({ superAdmin: false, rsoUserId: null, povEmail: 'ghost@example.com' });
+  });
+  it('a regular admin CANNOT use pov_rso to view another RSO (override ignored)', async () => {
+    const scope = await resolveAdminGpScope({ role: 'admin', email: KHALEED.email }, povUrl(HAZEL.email));
+    expect(scope.superAdmin).toBe(false);
+    expect(scope.rsoUserId).toBe(KHALEED.id); // still their own scope, not Hazel's
+  });
+  it('super_admin without a pov_rso param is unchanged (sees everything)', async () => {
+    expect(await resolveAdminGpScope({ role: 'super_admin', email: 'ceo@mygplink.com.au' }, new URL('http://x/api/admin/dashboard')))
+      .toEqual({ superAdmin: true, rsoUserId: null });
+  });
+});
+
 describe('caseAssignedToRso', () => {
   it('matches assigned_rso', () => {
     expect(caseAssignedToRso({ assigned_rso: HAZEL.id }, HAZEL.id)).toBe(true);
