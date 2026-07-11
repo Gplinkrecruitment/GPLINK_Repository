@@ -41050,6 +41050,65 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Welcome set-password bridge: our own 24-hour token → fresh Supabase recovery link ──
+  // A newly-placed GP's welcome email points its "Set your password" button here. Supabase's
+  // own recovery links expire in ~1h; instead we mint a random 24h token (password_setup_tokens)
+  // and, when the GP clicks within that window, generate a FRESH recovery link on the spot and
+  // redirect them straight into the existing "Set new password" screen. Net effect: a link the
+  // GP can use for a full 24 hours, without changing the global Supabase OTP expiry setting.
+  if (pathname === '/api/auth/welcome-setup' && req.method === 'GET') {
+    const setupReqUrl = new URL(req.url, 'http://localhost');
+    const setupToken = String(setupReqUrl.searchParams.get('token') || '').trim();
+    const signinBase = APP_BASE_URL + '/pages/signin';
+    if (!setupToken || !isSupabaseConfigured() || !SUPABASE_SERVICE_ROLE_KEY) {
+      res.writeHead(302, { Location: signinBase + '?setup=invalid' });
+      res.end();
+      return;
+    }
+    try {
+      const tokLookup = await supabaseDbRequest('password_setup_tokens',
+        'select=email,expires_at&token=eq.' + encodeURIComponent(setupToken) + '&limit=1', { method: 'GET' });
+      const tokRow = (tokLookup.ok && Array.isArray(tokLookup.data) && tokLookup.data[0]) ? tokLookup.data[0] : null;
+      const tokValid = tokRow && tokRow.expires_at && (new Date(tokRow.expires_at).getTime() > Date.now());
+      if (!tokValid) {
+        res.writeHead(302, { Location: signinBase + '?setup=expired' });
+        res.end();
+        return;
+      }
+      const setupEmail = String(tokRow.email || '').trim().toLowerCase();
+      const setupRedirectTo = APP_BASE_URL + '/pages/signin?reset=true';
+      const genRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ type: 'recovery', email: setupEmail, options: { redirect_to: setupRedirectTo } })
+      });
+      const genData = await genRes.json().catch(() => ({}));
+      const setupActionLink = genData.action_link || (genData.properties && genData.properties.action_link) || '';
+      if (!setupActionLink) {
+        console.error('[welcome-setup] generate_link returned no action_link for', setupEmail);
+        res.writeHead(302, { Location: signinBase + '?setup=error' });
+        res.end();
+        return;
+      }
+      // Record first click (best-effort). The token stays valid for its full 24h window so an
+      // email pre-scanner that fetches the link can't lock the GP out by consuming it early.
+      supabaseDbRequest('password_setup_tokens', 'token=eq.' + encodeURIComponent(setupToken),
+        { method: 'PATCH', body: { used_at: new Date().toISOString() } }).catch(() => {});
+      res.writeHead(302, { Location: setupActionLink });
+      res.end();
+      return;
+    } catch (setupErr) {
+      console.error('[welcome-setup] error:', setupErr && setupErr.message);
+      res.writeHead(302, { Location: signinBase + '?setup=error' });
+      res.end();
+      return;
+    }
+  }
+
   // ── Recovery password update (uses the Supabase recovery access_token directly) ──
   if (pathname === '/api/auth/recovery-update-password' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'reset-password'))) return;
