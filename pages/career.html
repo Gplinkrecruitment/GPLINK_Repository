@@ -33,6 +33,12 @@
       }
       if (initialView === "secured") {
         document.documentElement.setAttribute("data-career-initial-view", "secured");
+        // Mask the secured panel behind its loading skeleton until the first
+        // renderSecuredPlacement() stamps real data. Without this the static
+        // markup (placeholder practice text) is visible while the document
+        // parses — seen live as a flash of a wrong practice name before the
+        // cached placement painted.
+        document.documentElement.setAttribute("data-career-placement-state", "loading");
       } else {
         // We do NOT yet know this GP's correct view (cold cache, or a stale cache
         // left by another account on this shared browser origin). Do not paint the
@@ -7974,17 +7980,17 @@
 
             <div class="placement-hero-copy">
               <h2 class="placement-title">Your Practice Is Secured</h2>
-              <p class="placement-subtitle" id="securedPracticeName">Murrumbidgee Medical Centre</p>
-              <p class="placement-location-line" id="securedLocation">Wagga Wagga, NSW</p>
+              <p class="placement-subtitle" id="securedPracticeName"></p>
+              <p class="placement-location-line" id="securedLocation"></p>
             </div>
 
             <div class="placement-countdown">
               <div class="placement-countdown-main">
-                <div class="placement-countdown-value" id="securedCountdownValue">142</div>
+                <div class="placement-countdown-value" id="securedCountdownValue">&mdash;</div>
                 <p class="placement-countdown-copy" id="securedCountdownCopy">days until your start</p>
               </div>
               <div class="placement-countdown-meta">
-                <span class="placement-countdown-tag" id="securedStartDate">Starts August 2026</span>
+                <span class="placement-countdown-tag" id="securedStartDate"></span>
                 <span class="placement-countdown-tag placement-countdown-tag-muted" id="securedRoleTitle">General Practitioner</span>
               </div>
             </div>
@@ -8017,19 +8023,19 @@
           <div class="placement-income-float">
             <span class="placement-income-label">Expected income</span>
             <div class="placement-income-line">
-              <p class="placement-income-value" id="securedExpectedIncome">$2,500-$3,500</p>
-              <span class="placement-income-unit" id="securedExpectedIncomeUnit">Per Day</span>
+              <p class="placement-income-value" id="securedExpectedIncome"></p>
+              <span class="placement-income-unit" id="securedExpectedIncomeUnit"></span>
             </div>
           </div>
 
           <article class="placement-practice-contact-card" aria-label="Direct practice contact">
             <span class="placement-practice-contact-kicker">Medical Centre Point of Contact</span>
             <div class="placement-practice-contact-body">
-              <div class="placement-practice-contact-avatar" id="securedPracticeContactInitials">DI</div>
+              <div class="placement-practice-contact-avatar" id="securedPracticeContactInitials"></div>
               <div class="placement-practice-contact-copy">
-                <h3 class="placement-practice-contact-name" id="securedPracticeContactName">Dr Ifediora</h3>
-                <p class="placement-practice-contact-role" id="securedPracticeContactRole">Practice Owner</p>
-                <p class="placement-practice-contact-meta" id="securedPracticeContactMeta">Last contacted 3 days ago</p>
+                <h3 class="placement-practice-contact-name" id="securedPracticeContactName"></h3>
+                <p class="placement-practice-contact-role" id="securedPracticeContactRole"></p>
+                <p class="placement-practice-contact-meta" id="securedPracticeContactMeta"></p>
               </div>
             </div>
             <div class="placement-practice-contact-actions">
@@ -8098,11 +8104,11 @@
                 <div>
                   <span class="detail-label">Your drawn salary</span>
                   <div class="placement-salary-line">
-                    <h3 class="placement-salary" id="securedSalaryRange">$2,500-$3,500</h3>
-                    <span class="placement-salary-unit" id="securedSalaryUnit">day</span>
+                    <h3 class="placement-salary" id="securedSalaryRange"></h3>
+                    <span class="placement-salary-unit" id="securedSalaryUnit"></span>
                   </div>
                 </div>
-                <span class="placement-package-note" id="securedOfferNote">Offer package live</span>
+                <span class="placement-package-note" id="securedOfferNote"></span>
               </div>
               <div class="placement-offer-facts" id="securedOfferFacts"></div>
             </article>
@@ -8119,9 +8125,9 @@
               <div class="placement-next-step">
                 <div class="placement-next-step-copy">
                   <span class="detail-label">Next action</span>
-                  <p class="placement-next-step-text" id="securedNextStepText">Upload your final registration outcome so visa and arrival tasks can open.</p>
+                  <p class="placement-next-step-text" id="securedNextStepText"></p>
                 </div>
-                <button class="section-link placement-inline-link" id="securedContinueBtn" type="button">Continue Step 3</button>
+                <button class="section-link placement-inline-link" id="securedContinueBtn" type="button"></button>
               </div>
             </article>
           </div>
@@ -9091,7 +9097,12 @@
       const source = raw && typeof raw === "object" ? raw : {};
       const applications = Array.isArray(source.applications)
         ? source.applications
-            .filter((job) => job && roleIds.has(job.roleId))
+            // A secured placement must survive normalization even when its role
+            // is not in the public roles list — private/filled placement roles
+            // never are. Dropping it here made the cached "Practice Secured"
+            // view impossible: every boot fell back to the job board until the
+            // server re-sent the placement (the wrong-page flash on My Practice).
+            .filter((job) => job && (roleIds.has(job.roleId) || job.isPlacementSecured === true))
             .map((job) => {
               const liveRole = roleMap.get(job.roleId);
               return normalizeCareerApplication(liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job);
@@ -9406,9 +9417,23 @@
       }
 
       try {
-        const response = await fetch("/api/auth/session", { credentials: "same-origin" });
-        if (!response.ok) return careerSessionEmail;
-        const payload = await response.json().catch(() => null);
+        // Prefer the shared SWR cache (owner-scoped, 2-min fresh window for
+        // /api/auth/session) so tab switches inside the shell don't pay a
+        // session round trip on every career-page boot.
+        let gpCacheFetch = null;
+        try {
+          gpCacheFetch = (window.gpCache && window.gpCache.fetch)
+            || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch)
+            || null;
+        } catch (e) {}
+        let payload = null;
+        if (gpCacheFetch) {
+          payload = await gpCacheFetch("/api/auth/session");
+        } else {
+          const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+          if (!response.ok) return careerSessionEmail;
+          payload = await response.json().catch(() => null);
+        }
         const profile = payload && payload.profile && typeof payload.profile === "object" ? payload.profile : null;
         if (profile) {
           window.gpSessionProfile = profile;
@@ -13164,14 +13189,27 @@
       // Failsafe: never trap the page behind the boot spinner if a fetch hangs.
       clearCareerBoot._failsafe = window.setTimeout(clearCareerBoot, 3000);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
-      await hydrateCareerSessionEmail();
+      // Paint from the local cache BEFORE any network round trip. A placed GP
+      // whose placement synced on a previous visit sees their real practice
+      // immediately; everyone else renders under the boot overlay/skeleton.
       syncCareerViewFromLocation();
       renderPage();
       moveNavGlass(activeNavItem);
       if (handleRequestedRoleRedirect()) { clearCareerBoot(); return; }
-      await loadRemoteRoles({ render: false });
-      await loadRemoteApplications({ render: false });
-      await loadTeamMatches();
+      if (remoteApplicationsSettled) {
+        // Cached concrete placement — the correct view is already on screen.
+        // Reveal now; the fetches below just revalidate in the background.
+        clearCareerBoot();
+      }
+      // Session, roles, applications and team matches are independent — fetch
+      // them together instead of serially (was 4 back-to-back round trips
+      // before the page settled on cold loads).
+      await Promise.allSettled([
+        hydrateCareerSessionEmail(),
+        loadRemoteRoles({ render: false }),
+        loadRemoteApplications({ render: false }),
+        loadTeamMatches()
+      ]);
       syncCareerViewFromLocation();
       renderPage();
       clearCareerBoot(); // live data picked the correct view — reveal it once
