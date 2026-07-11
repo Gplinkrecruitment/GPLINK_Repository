@@ -13189,7 +13189,22 @@
       // Failsafe: never trap the page behind the boot spinner if a fetch hangs.
       clearCareerBoot._failsafe = window.setTimeout(clearCareerBoot, 3000);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
-      // Paint from the local cache BEFORE any network round trip. A placed GP
+      if (remoteApplicationsSettled) {
+        // Cached concrete placement: before painting it, confirm the cache
+        // belongs to THIS session's account — an admin hopping between
+        // "View as" GPs in one browser must never see the previous GP's
+        // practice while the real data loads. gp_state_owner is stamped by
+        // state-sync for the account that wrote the cache; the session fetch
+        // is gpCache-warm (microtask) on shell tab switches.
+        const ownerAtBoot = careerSessionEmail;
+        await hydrateCareerSessionEmail();
+        if (ownerAtBoot && careerSessionEmail && careerSessionEmail !== ownerAtBoot) {
+          remoteApplicationsSettled = false;
+          careerState = normalizeCareerState(null, { dataSource: careerDataSource, roles: roleData });
+          document.documentElement.setAttribute("data-career-booting", "1");
+        }
+      }
+      // Paint from the local cache BEFORE the data round trips. A placed GP
       // whose placement synced on a previous visit sees their real practice
       // immediately; everyone else renders under the boot overlay/skeleton.
       syncCareerViewFromLocation();
@@ -13197,8 +13212,8 @@
       moveNavGlass(activeNavItem);
       if (handleRequestedRoleRedirect()) { clearCareerBoot(); return; }
       if (remoteApplicationsSettled) {
-        // Cached concrete placement — the correct view is already on screen.
-        // Reveal now; the fetches below just revalidate in the background.
+        // Owner-confirmed cached placement — the correct view is already on
+        // screen. Reveal now; the fetches below revalidate in the background.
         clearCareerBoot();
       }
       // Session, roles, applications and team matches are independent — fetch
