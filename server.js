@@ -22750,6 +22750,13 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
   const billingLabel = normalizeCareerBillingLabel(role.billing_model) || 'Billing pending';
   const splitDisplay = ensureGpShareSplitDisplay(o.billing_split) || (String(o.billing_split || '').trim() || 'Pending');
   const sessionsDisplay = String(o.sessions_per_week || '').trim();
+  // Relocation package: a concrete perk (e.g. "$10,000") is more meaningful to an
+  // incoming GP than a "Sessions per week" tile that is usually still Pending, so
+  // when the offer records a relocation package we surface it in that third slot.
+  const relocationDisplay = normalizeContractCurrencyDisplay(String(o.relocation_package || '').trim())
+    || String(o.relocation_package || '').trim();
+  const sessionsStat = { label: 'Sessions', value: sessionsDisplay ? (/week/i.test(sessionsDisplay) ? sessionsDisplay : sessionsDisplay + ' / week') : 'Pending' };
+  const thirdQuickStat = relocationDisplay ? { label: 'Relocation', value: relocationDisplay } : sessionsStat;
   const startDateIso = normalizePlacementStartDate(o.start_date) || '';
   const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
 
@@ -22775,7 +22782,7 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
     quickStats: [
       { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
       { label: 'Split', value: splitDisplay },
-      { label: 'Sessions', value: sessionsDisplay ? (/week/i.test(sessionsDisplay) ? sessionsDisplay : sessionsDisplay + ' / week') : 'Pending' }
+      thirdQuickStat
     ],
     story: {
       title: (location || practiceName).replace(/,\s*Australia\s*$/i, ''),
@@ -22800,6 +22807,7 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
       facts: [
         { label: 'Billing type', value: billingLabel || 'Pending' },
         { label: 'Billing split', value: splitDisplay || 'Pending' },
+        ...(relocationDisplay ? [{ label: 'Relocation package', value: relocationDisplay }] : []),
         { label: 'Sessions per week', value: sessionsDisplay || 'Pending' },
         { label: 'Start date', value: startDateIso || 'Pending' }
       ]
@@ -56043,6 +56051,7 @@ Return ONLY valid JSON with no markdown formatting:
       practice_name: ofPracticeName,
       billing_split: sanitizeUserString(String(bodyOF.billing_split || ''), 120),
       sessions_per_week: sanitizeUserString(String(bodyOF.sessions_per_week || ''), 120),
+      relocation_package: sanitizeUserString(String(bodyOF.relocation_package || ''), 120),
       compensation_range: sanitizeUserString(String(bodyOF.compensation_range || ''), 160),
       start_date: ofStartDate,
       notes: sanitizeUserString(String(bodyOF.notes || ''), 4000),
