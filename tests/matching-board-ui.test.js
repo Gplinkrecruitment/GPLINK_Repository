@@ -304,10 +304,13 @@ describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
-  it('a quote-breaking header_image_url cannot escape its src attribute', () => {
+  it('the left block renders a gradient — never the practice photo (owner call 2026-07-11)', () => {
     const evil = '"><img src=x onerror=alert(1)>';
     const html = MB.mbRowHtml(row({ job: job({ header_image_url: evil }) }), { nowMs: NOW });
     expect(html).not.toContain('"><img src=x onerror=alert(1)>');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('linear-gradient(135deg,');
+    expect(html).toContain('ats-mb-photowrap');
   });
 
   it('a GP name with HTML in a pipeline node renders escaped', () => {
@@ -623,6 +626,10 @@ describe('cache buster + dead CSS pruned', () => {
   it('ceo-dashboard.html loads the bumped matching script, and only that tag', () => {
     expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260711a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260707a');
+  });
+  it('ceo-dashboard.html loads the bumped board stylesheet (stale ?v=20260707a served pre-board CSS from cache)', () => {
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260711b');
+    expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260707a');
   });
   it('the old picker CSS classes are gone; the kanban match-status classes survive', () => {
     // Checked as CSS rule declarations (class name + "{"), not bare

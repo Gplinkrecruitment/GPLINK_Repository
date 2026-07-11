@@ -309,9 +309,10 @@
     var running = !!(ctx.runningIds && ctx.runningIds[job.id]);
     var pinitials = A.initials(job.practice_name || job.title || 'Practice');
     var pcolor = A.avatarColor(job.practice_name || job.title || 'Practice');
-    var photoHtml = job.header_image_url
-      ? ('<div class="ats-mb-photowrap"><img class="ats-mb-photo" src="' + A.escAttr(job.header_image_url) + '" alt="" /><div class="ats-mb-photofade"></div></div>')
-      : '';
+    // Owner call (2026-07-11): no practice photos on the board — a stable
+    // per-practice gradient (seeded by the same avatar colour) reads cleaner.
+    var photoHtml =
+      '<div class="ats-mb-photowrap"><div class="ats-mb-photo" style="background:linear-gradient(135deg,' + pcolor + ' 0%,rgba(15,17,23,0.92) 78%)"></div><div class="ats-mb-photofade"></div></div>';
     var practiceClickable = job.practice_id ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
     var loc = [job.suburb, job.city].filter(Boolean).join(', ') || job.city || '—';
     var trackHtml = running ? mbRunningTrackHtml('positions') : mbTrackHtml(row, nowMs);
