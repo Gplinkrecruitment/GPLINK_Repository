@@ -12926,7 +12926,10 @@
         event.preventDefault();
         var route = '/pages/area-guide';
         if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === 'function') {
-          window.parent.gpShellNavigate(route, 'Area Guide');
+          // Second arg is the shell's OPTIONS object — passing a string made
+          // opts.replace truthy (String.prototype.replace), silently turning
+          // this into history-replace so Back skipped the career page.
+          window.parent.gpShellNavigate(route);
         } else {
           window.location.href = 'area-guide';
         }

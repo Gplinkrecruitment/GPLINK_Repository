@@ -261,6 +261,15 @@
     if (!routeUrl) return "";
     resolved = resolveSupportedPath(routeUrl.pathname);
     if (FRAME_EQUIVALENT_ROUTE_PATHS[resolved]) return resolved;
+    // Fragments never change which document a frame holds — "/pages/career"
+    // and "/pages/career#secured" are the SAME loaded page. Hash-sensitive
+    // matching permanently wedged the My Practice tab: career.html rewrites
+    // its URL to "#secured" at boot (history.replaceState), after which the
+    // nav's hash-less "/pages/career" never matched the frame's announced
+    // route — the announcement, load handler and watchdog all failed and no
+    // frame ever activated. Query strings still differentiate (deep links
+    // like ?match=/?role= must reach the frame).
+    routeUrl.hash = "";
     return routeFromUrl(routeUrl);
   }
 
@@ -338,24 +347,31 @@
     activeFrameEl = frame;
   }
 
+  // Returns true when the frame ALREADY shows the requested route fully
+  // loaded — no load event or announcement will ever fire, so the CALLER
+  // must activate the frame itself. Every other path starts a real
+  // (re)navigation that resolves via the announcement/load handlers.
   function loadRouteIntoFrame(frame, embeddedRoute, route) {
-    if (!frame) return;
+    if (!frame) return false;
     var state = getFrameState(frame);
     state.pendingRoute = route;
     state.title = "";
     if (frame.getAttribute("src") !== embeddedRoute) {
       frame.setAttribute("src", embeddedRoute);
-      return;
+      return false;
     }
     syncFrameStateFromLocation(frame);
-    if (isFrameShowingRoute(frame, route)) return;
+    if (isFrameShowingRoute(frame, route)) return true;
+    // The src attribute matches but the document inside is something else
+    // (self-navigated frame, aborted warm load). Force the navigation
+    // unconditionally — the old readyState==="complete" gate silently did
+    // NOTHING for an in-flight foreign document, stranding the navigation.
     try {
-      if (frame.contentDocument && frame.contentDocument.readyState === "complete") {
-        frame.contentWindow.location.replace(embeddedRoute);
-      }
+      frame.contentWindow.location.replace(embeddedRoute);
     } catch (err) {
       frame.setAttribute("src", embeddedRoute);
     }
+    return false;
   }
 
   function getPrimaryWarmRoute(pathname) {
@@ -1260,6 +1276,10 @@
 
     syncFrameStateFromLocation(activeFrameEl);
     if (routesMatchForFrame(route, currentRoute) && activeFrameEl && isFrameShowingRoute(activeFrameEl, route)) {
+      // Already on the requested page — any older in-flight intent is now
+      // obsolete. A stranded pendingNavigation would later activate a frame
+      // the user never asked for, or block their next click on its route.
+      pendingNavigation = null;
       scheduleRouteWarmup(route);
       return;
     }
@@ -1274,6 +1294,7 @@
     }
 
     if (isFrameShowingRoute(activeFrameEl, route)) {
+      pendingNavigation = null;
       setLoading(false);
       scheduleRouteWarmup(route);
       return;
@@ -1282,6 +1303,7 @@
     cachedFrame = findLoadedFrameForRoute(route);
     if (cachedFrame) {
       activateFrame(cachedFrame);
+      pendingNavigation = null;
       setLoading(false);
       removeSkeleton();
       try {
@@ -1313,7 +1335,78 @@
       // "loading…" even when the next page was cache-instant.
     }
 
-    loadRouteIntoFrame(targetFrame, embeddedRoute, route);
+    if (loadRouteIntoFrame(targetFrame, embeddedRoute, route)) {
+      // The target frame already holds this route fully loaded (e.g. its src
+      // attribute drifted from a stale warm/self-navigation, so the cached-
+      // frame lookup above missed it). Without activating here the intent
+      // would strand: no load event or announcement is ever coming — the nav
+      // highlighted the tab but the page never appeared (seen live 2026-07-12
+      // as "My Practice shows selected but never loads").
+      activateFrame(targetFrame);
+      pendingNavigation = null;
+      setLoading(false);
+      removeSkeleton();
+      try {
+        if (targetFrame.contentDocument) enforceEmbeddedChrome(targetFrame.contentDocument);
+      } catch (err) {}
+      syncFromChildRoute(routeUrl, getFrameState(targetFrame).title || "");
+      scheduleRouteWarmup(route);
+      return;
+    }
+    armPendingNavigationWatchdog(targetFrame, embeddedRoute, route, 0);
+  }
+
+  // Backstop for the frame swap: if neither the incoming frame's
+  // DOMContentLoaded announcement nor its load event resolved the pending
+  // navigation (src-attribute drift, aborted warm loads and self-navigated
+  // frames can eat both), re-check after 5s and force a resolution. One
+  // forced reload, then give up cleanly and re-sync the nav to what is
+  // actually on screen — the UI must never wedge with a tab highlighted
+  // and no page arriving.
+  var pendingNavigationWatchdogTimer = 0;
+  function armPendingNavigationWatchdog(frame, embeddedRoute, route, attempt) {
+    clearTimeout(pendingNavigationWatchdogTimer);
+    pendingNavigationWatchdogTimer = window.setTimeout(function () {
+      if (!pendingNavigation || !routesMatchForFrame(pendingNavigation.route, route)) return;
+      if (isFrameShowingRoute(frame, route)) {
+        activateFrame(frame);
+        pendingNavigation = null;
+        setLoading(false);
+        removeSkeleton();
+        try {
+          if (frame.contentDocument) enforceEmbeddedChrome(frame.contentDocument);
+        } catch (err) {}
+        syncFromChildRoute(route, getFrameState(frame).title || "");
+        scheduleRouteWarmup(route);
+        return;
+      }
+      if (attempt === 0) {
+        // If the target document has already committed and is just slow to
+        // finish (cold start, slow mobile), don't abort and restart it —
+        // give it one more window; its announcement/load resolves the swap.
+        var committedRoute = "";
+        try {
+          var frameHref = frame.contentWindow && frame.contentWindow.location ? frame.contentWindow.location.href : "";
+          if (frameHref && frameHref !== "about:blank") committedRoute = routeFromUrl(new URL(frameHref));
+        } catch (err) {}
+        if (!committedRoute || !routesMatchForFrame(committedRoute, route)) {
+          try {
+            frame.contentWindow.location.replace(embeddedRoute);
+          } catch (err) {
+            frame.setAttribute("src", embeddedRoute);
+          }
+        }
+        armPendingNavigationWatchdog(frame, embeddedRoute, route, 1);
+        return;
+      }
+      pendingNavigation = null;
+      setLoading(false);
+      removeSkeleton();
+      var actualState = syncFrameStateFromLocation(activeFrameEl);
+      if (actualState && actualState.loadedRoute) {
+        syncFromChildRoute(actualState.loadedRoute, actualState.title || "");
+      }
+    }, 5000);
   }
 
   function prefetchSupportedRoutes() {
@@ -1545,7 +1638,16 @@
       if (frameState) {
         frameState.loadedRoute = nextRoute;
         try { window.dispatchEvent(new CustomEvent("gp-shell-frame-loaded", { detail: { route: nextRoute } })); } catch (e) {}
-        frameState.pendingRoute = "";
+        // Only clear pendingRoute when this load event belongs to the
+        // document we are actually waiting for. A superseded document's late
+        // load event (the frame was retargeted while the old page finished
+        // loading) must not erase the record of the in-flight navigation —
+        // that made findLoadedFrameForRoute treat a still-navigating frame
+        // as idle, and activating it let the in-flight page later commit
+        // over the one the user chose. Mirrors syncFrameStateFromLocation.
+        if (!frameState.pendingRoute || routesMatchForFrame(frameState.pendingRoute, nextRoute)) {
+          frameState.pendingRoute = "";
+        }
         frameState.title = childDoc ? childDoc.title : "";
       }
 

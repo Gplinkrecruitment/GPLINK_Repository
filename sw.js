@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260712f";
+  var VERSION = "20260712h";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -33,7 +33,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20260712c",
+    "/js/app-shell.js?v=20260712e",
     "/js/nav-shell-bridge.js?v=20260608a",
     "/js/auth-guard.js?v=20260706a",
     "/js/state-sync.js?v=20260711a",
@@ -300,7 +300,33 @@
         caches.match(request).then(function (cached) {
           if (cached) {
             fetch(request).then(function (response) {
-              return putIfCacheable(PAGE_CACHE, request, response);
+              if (!shouldCacheResponse(response)) return response;
+              // Refresh BOTH caches: STATIC_CACHE (install precache) is
+              // created first, so caches.match always prefers its entry —
+              // updating only PAGE_CACHE would pin precached pages at
+              // install-time HTML forever, killing the self-heal this
+              // branch exists to provide.
+              var forStatic = response.clone();
+              var forRuntime = response.clone();
+              return putIfCacheable(PAGE_CACHE, request, response).then(function (result) {
+                return caches.open(STATIC_CACHE).then(function (cache) {
+                  return cache.match(request).then(function (existing) {
+                    if (existing) return cache.put(request, forStatic);
+                    return null;
+                  });
+                }).then(function () {
+                  // RUNTIME_CACHE can also hold page documents (idle-prefetch
+                  // warmUrls stores non-precached pages there) and may have
+                  // been created before PAGE_CACHE — refresh its entry too or
+                  // those pages stay pinned at warm-time HTML.
+                  return caches.open(RUNTIME_CACHE);
+                }).then(function (cache) {
+                  return cache.match(request).then(function (existing) {
+                    if (existing) return cache.put(request, forRuntime);
+                    return null;
+                  });
+                }).then(function () { return result; });
+              });
             }).catch(function () {});
             return cached;
           }
