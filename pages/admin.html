@@ -1198,6 +1198,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #hubInboxPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
     #hubInboxPanel .hub-send:hover{background:var(--hub-teal-dark)}
     #hubInboxPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
+    /* Collapsible per-thread groups inside a conversation */
+    #hubInboxPanel .hub-tgroup{border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;overflow:hidden}
+    #hubInboxPanel .hub-tgroup.selected{border-color:var(--hub-teal);box-shadow:0 0 0 2px rgba(15,118,110,.14)}
+    #hubInboxPanel .hub-tgroup-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fafbfc;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+    #hubInboxPanel .hub-tgroup.selected .hub-tgroup-head{background:var(--hub-teal-soft)}
+    #hubInboxPanel .tg-arrow{border:0;background:transparent;cursor:pointer;font-size:13px;color:var(--muted);padding:0 2px;font-family:inherit;line-height:1}
+    #hubInboxPanel .tg-arrow.spacer{cursor:default;color:#cbd5e1}
+    #hubInboxPanel .tg-subj{font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0}
+    #hubInboxPanel .tg-count{background:#eef2f7;border:1px solid #d7dee8;border-radius:10px;padding:1px 8px;font-size:11px;white-space:nowrap}
+    #hubInboxPanel .tg-unread{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:1px 8px;font-size:11px;white-space:nowrap}
+    #hubInboxPanel .tg-sel{margin-left:auto;font-size:11.5px;color:var(--hub-teal);white-space:nowrap}
+    #hubInboxPanel .hub-tgroup.selected .tg-sel{font-weight:700}
+    #hubInboxPanel .tg-older-row{padding:6px 12px;border-bottom:1px dashed var(--line);background:#fcfdfe}
+    #hubInboxPanel .tg-older{border:0;background:transparent;color:var(--hub-teal);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline;padding:0}
+    #hubInboxPanel .hub-tgroup .hub-msg{border:0;border-radius:0}
+    #hubInboxPanel .hub-tgroup .hub-msg+.hub-msg{border-top:1px solid var(--line)}
+    /* Composer mode line: replying into a thread vs starting a new email */
+    #hubInboxPanel .hub-mode{font-size:12.5px;padding:8px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    #hubInboxPanel .hub-mode.is-reply{background:var(--hub-teal-soft);color:#0b5b54}
+    #hubInboxPanel .hub-mode.is-new{background:#fafbfc;color:var(--muted)}
+    #hubInboxPanel .hub-mode b{color:var(--text)}
+    #hubInboxPanel .hub-mode-hint{color:var(--muted)}
+    #hubInboxPanel .tg-clear{border:0;background:transparent;color:var(--hub-amber);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline;padding:0 2px;margin-left:auto}
     /* Per-candidate Emails tab on the GP profile — same look as the global Inbox, scoped to #gpEmailsPanel */
     #gpEmailsPanel{--hub-teal:#0f766e;--hub-teal-dark:#0b5b54;--hub-teal-soft:#e6f4f2;--hub-sent:#eef6f5;--hub-amber:#b45309;--hub-amber-soft:#fff7ed;--hub-amber-line:#fed7aa;max-width:940px;margin:0 auto;padding:18px 16px 60px}
     #gpEmailsPanel .hub-loading,#gpEmailsPanel .hub-empty{color:var(--muted);font-size:14px;padding:34px 10px;text-align:center}
@@ -1253,6 +1276,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #gpEmailsPanel .hub-send{background:var(--hub-teal);color:#fff;border:0;border-radius:9px;padding:9px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
     #gpEmailsPanel .hub-send:hover{background:var(--hub-teal-dark)}
     #gpEmailsPanel .hub-send:disabled{background:#cbd5e1;cursor:not-allowed}
+    /* Collapsible per-thread groups inside a conversation */
+    #gpEmailsPanel .hub-tgroup{border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;overflow:hidden}
+    #gpEmailsPanel .hub-tgroup.selected{border-color:var(--hub-teal);box-shadow:0 0 0 2px rgba(15,118,110,.14)}
+    #gpEmailsPanel .hub-tgroup-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fafbfc;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+    #gpEmailsPanel .hub-tgroup.selected .hub-tgroup-head{background:var(--hub-teal-soft)}
+    #gpEmailsPanel .tg-arrow{border:0;background:transparent;cursor:pointer;font-size:13px;color:var(--muted);padding:0 2px;font-family:inherit;line-height:1}
+    #gpEmailsPanel .tg-arrow.spacer{cursor:default;color:#cbd5e1}
+    #gpEmailsPanel .tg-subj{font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0}
+    #gpEmailsPanel .tg-count{background:#eef2f7;border:1px solid #d7dee8;border-radius:10px;padding:1px 8px;font-size:11px;white-space:nowrap}
+    #gpEmailsPanel .tg-unread{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:1px 8px;font-size:11px;white-space:nowrap}
+    #gpEmailsPanel .tg-sel{margin-left:auto;font-size:11.5px;color:var(--hub-teal);white-space:nowrap}
+    #gpEmailsPanel .hub-tgroup.selected .tg-sel{font-weight:700}
+    #gpEmailsPanel .tg-older-row{padding:6px 12px;border-bottom:1px dashed var(--line);background:#fcfdfe}
+    #gpEmailsPanel .tg-older{border:0;background:transparent;color:var(--hub-teal);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline;padding:0}
+    #gpEmailsPanel .hub-tgroup .hub-msg{border:0;border-radius:0}
+    #gpEmailsPanel .hub-tgroup .hub-msg+.hub-msg{border-top:1px solid var(--line)}
+    /* Composer mode line: replying into a thread vs starting a new email */
+    #gpEmailsPanel .hub-mode{font-size:12.5px;padding:8px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    #gpEmailsPanel .hub-mode.is-reply{background:var(--hub-teal-soft);color:#0b5b54}
+    #gpEmailsPanel .hub-mode.is-new{background:#fafbfc;color:var(--muted)}
+    #gpEmailsPanel .hub-mode b{color:var(--text)}
+    #gpEmailsPanel .hub-mode-hint{color:var(--muted)}
+    #gpEmailsPanel .tg-clear{border:0;background:transparent;color:var(--hub-amber);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline;padding:0 2px;margin-left:auto}
     #hubInboxPanel .hub-suggest-row,#gpEmailsPanel .hub-suggest-row{display:flex;align-items:center;gap:10px;padding:10px 12px 0}
     #hubInboxPanel .hub-suggest,#gpEmailsPanel .hub-suggest{font-size:12.5px;font-weight:600;color:var(--hub-teal-dark,#0b5b54);background:#f0fdfa;border:1px solid #cdeae5;border-radius:8px;padding:6px 11px;cursor:pointer}
     #hubInboxPanel .hub-suggest-note,#gpEmailsPanel .hub-suggest-note{font-size:11.5px;color:var(--muted)}
@@ -7809,7 +7855,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var SHOW_FILTERS=opts.showFilters!==false;   // global=true, candidate=false
     let currentScope="mine";
     let currentCaseId=null;
+    // Thread-view state: which thread the composer replies into (null = new separate email),
+    // which threads are expanded to show their older emails, and the last-loaded header +
+    // thread groups so selection/expand clicks can repaint without refetching.
+    let selectedTKey=null;
+    let expandedTKeys={};
+    let _thState=null;
     function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+    function attrEsc(s){return esc(s).replace(/"/g,"&quot;");}
     async function loadList(){
       const panel=document.getElementById(PANEL);if(!panel)return;
       panel.innerHTML='<div class="hub-loading">Loading conversations…</div>';
@@ -7869,42 +7922,121 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         panel.innerHTML='<button class="hub-back">← Inbox</button><div class="hub-loading">Could not load this conversation.</div>';
         const b=panel.querySelector(".hub-back");if(b)b.addEventListener("click",loadList);return;
       }
-      renderThread(j.header||{},j.messages||[]);
+      renderThread(j.header||{},j.threads||null,j.messages||[]);
       fetch("/api/admin/inbox/mark-read",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({caseId:caseId,threadId:threadId||""})}).catch(function(){});
     }
-    function renderThread(header,messages){
-      const panel=document.getElementById(PANEL);if(!panel)return;
+    function renderThread(header,threads,messages){
       _hubHdr=header;
       messages=(messages||[]).slice().sort(function(a,b){return new Date(a.created_at||0)-new Date(b.created_at||0);});
-      const canSend=!!(header&&header.to);
-      const sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
+      // Prefer the server's per-thread grouping; fall back to one flat group so the view
+      // still works against a not-yet-redeployed server.
+      var groups=(threads&&threads.length)?threads:(messages.length?[{
+        key:"all",threadId:header.threadId||"",subject:header.lastSubject||(messages[0]&&messages[0].subject)||"(no subject)",
+        count:messages.length,messages:messages,to:header.to||"",inReplyTo:"",latestTaskId:header.latestTaskId||null,unread:false
+      }]:[]);
+      selectedTKey=null;expandedTKeys={};
+      _thState={header:header,groups:groups};
+      paintThread(true);
+    }
+    function tgSelected(){
+      if(!_thState||!selectedTKey)return null;
+      for(var i=0;i<_thState.groups.length;i++){if(_thState.groups[i].key===selectedTKey)return _thState.groups[i];}
+      return null;
+    }
+    // One collapsible thread: header row = the subject of the FIRST email in the thread
+    // (what it was originally about) + count + expand arrow; collapsed body = only the
+    // latest email as the usual big card. Clicking the card selects it for reply.
+    function tgGroupHtml(g){
+      var open=!!expandedTKeys[g.key];
+      var sel=(selectedTKey===g.key);
+      var shown=open?g.messages:g.messages.slice(-1);
+      var arrow=(g.count>1)
+        ?'<button type="button" class="tg-arrow" data-tkey="'+attrEsc(g.key)+'" title="'+(open?"Hide older emails":"Show the whole thread")+'">'+(open?"▾":"▸")+'</button>'
+        :'<span class="tg-arrow spacer">•</span>';
+      var older=(!open&&g.count>1)
+        ?'<div class="tg-older-row"><button type="button" class="tg-older" data-tkey="'+attrEsc(g.key)+'">▸ Show '+(g.count-1)+' earlier email'+((g.count-1)>1?"s":"")+' in this thread</button></div>'
+        :"";
+      return '<div class="hub-tgroup'+(sel?" selected":"")+'" data-tkey="'+attrEsc(g.key)+'">'+
+        '<div class="hub-tgroup-head">'+arrow+
+          '<span class="tg-subj" title="'+attrEsc(g.subject||"")+'">'+esc(g.subject||"(no subject)")+'</span>'+
+          '<span class="tg-count">'+g.count+' email'+(g.count>1?"s":"")+'</span>'+
+          (g.unread?'<span class="tg-unread">unread</span>':"")+
+          '<span class="tg-sel">'+(sel?"✓ Replying to this thread":"Click to reply")+'</span>'+
+        '</div>'+older+
+        shown.map(function(m){return msgHtml(m,g.messages.indexOf(m),g.messages);}).join("")+
+      '</div>';
+    }
+    function paintThread(scrollToEnd){
+      const panel=document.getElementById(PANEL);if(!panel||!_thState)return;
+      var header=_thState.header,groups=_thState.groups;
+      var sel=tgSelected();
+      // Reply target: the selected thread's own counterparty; a new email goes to the
+      // conversation's counterparty (the doctor / practice this case talks to).
+      var target=sel?(sel.to||header.to||""):(header.to||"");
+      var canSend=!!target;
+      var sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
+      var senderEmail=(header&&header.senderEmail)||"registration@mygplink.com.au";
+      // Preserve half-typed drafts across repaints (selection / expand clicks re-render).
+      var _r=panel.querySelector("#hubReply"),_c=panel.querySelector("#hubCc"),_s=panel.querySelector("#hubSubj");
+      var draft={reply:_r?_r.value:"",cc:_c?_c.value:"",subj:_s?_s.value:""};
+      var modeLine=sel
+        ?'<div class="hub-mode is-reply">↩ Replying in: <b>'+esc(sel.subject||"(no subject)")+'</b>'+(target?' · to '+esc(target):'')+'<button type="button" class="tg-clear" id="hubClearSel">✕ switch to new email</button></div>'
+        :'<div class="hub-mode is-new">✉ New separate email'+(target?' · to '+esc(target):'')+'<span class="hub-mode-hint"> — or click an email above to reply in its thread</span></div>';
       panel.innerHTML=
         '<button class="hub-back">← Inbox</button>'+
         '<div class="hub-thread-head"><h2>'+esc(header.name)+'</h2>'+
           (header.counterparty?'<div class="hub-conv-with">with '+esc(header.counterparty)+'</div>':'')+
           '<span class="hub-chip stage">'+esc(header.stage)+'</span>'+
           '<span class="hub-chip rso">RSO: '+esc(header.assignedRsoName)+'</span></div>'+
-        '<div class="hub-thread">'+(messages.length?messages.map(msgHtml).join(""):'<div class="hub-empty">No emails in this conversation yet.</div>')+'</div>'+
-        '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;registration@mygplink.com.au&gt;</div>'+
-        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
-        '<div class="hub-suggest-row"><button class="hub-suggest"'+(header.latestTaskId?'':' disabled')+'>✦ Suggest a reply</button>'+
+        '<div class="hub-thread">'+(groups.length?groups.map(tgGroupHtml).join(""):'<div class="hub-empty">No emails in this conversation yet.</div>')+'</div>'+
+        '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;'+esc(senderEmail)+'&gt;</div>'+
+        modeLine+
+        (sel?"":'<input id="hubSubj" class="hub-subj" type="text" placeholder="Subject of the new email (required)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 0;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>')+
+        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
+        '<div class="hub-suggest-row"><button class="hub-suggest"'+(((sel&&sel.latestTaskId)||header.latestTaskId)?'':' disabled')+'>✦ Suggest a reply</button>'+
         '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
-        '<textarea id="hubReply" placeholder="Type your reply…"'+(canSend?"":" disabled")+'></textarea>'+
+        '<textarea id="hubReply" placeholder="'+(sel?"Type your reply…":"Type your new email…")+'"'+(canSend?"":" disabled")+'></textarea>'+
         '<div class="hub-composer-foot">'+
           (canSend?"":'<span class="hub-nosend">No reply address found for this conversation — open the case to reply.</span>')+
-          '<button id="hubSend" class="hub-send"'+(canSend?"":" disabled")+'>Send</button></div></div>';
+          '<button id="hubSend" class="hub-send"'+(canSend?"":" disabled")+'>'+(sel?"Send reply":"Send new email")+'</button></div></div>';
+      var r2=panel.querySelector("#hubReply");if(r2)r2.value=draft.reply;
+      var c2=panel.querySelector("#hubCc");if(c2)c2.value=draft.cc;
+      var s2=panel.querySelector("#hubSubj");if(s2)s2.value=draft.subj;
+      wireThread(panel,header,canSend,scrollToEnd);
+    }
+    function wireThread(panel,header,canSend,scrollToEnd){
       panel.querySelector(".hub-back").addEventListener("click",loadList);
+      panel.querySelectorAll(".tg-arrow[data-tkey],.tg-older[data-tkey]").forEach(function(b){
+        b.addEventListener("click",function(ev){
+          ev.stopPropagation();
+          var k=b.getAttribute("data-tkey");
+          expandedTKeys[k]=!expandedTKeys[k];
+          paintThread(false);
+        });
+      });
+      panel.querySelectorAll(".hub-tgroup").forEach(function(el){
+        el.addEventListener("click",function(ev){
+          if(ev.target.closest("a,button,select,input,textarea"))return;
+          var k=el.getAttribute("data-tkey");
+          selectedTKey=(selectedTKey===k)?null:k;
+          paintThread(false);
+        });
+      });
+      var clearBtn=panel.querySelector("#hubClearSel");
+      if(clearBtn)clearBtn.addEventListener("click",function(){selectedTKey=null;paintThread(false);});
       const sendBtn=panel.querySelector("#hubSend");
       if(canSend&&sendBtn)sendBtn.addEventListener("click",function(){sendReply(header);});
       var sgBtn=panel.querySelector(".hub-suggest");
-      if(sgBtn&&header.latestTaskId){
+      var sgSel=tgSelected();
+      var sgTask=(sgSel&&sgSel.latestTaskId)||header.latestTaskId;
+      if(sgBtn&&sgTask){
         sgBtn.addEventListener("click",function(){
           sgBtn.disabled=true;sgBtn.textContent="✦ Drafting…";
           fetch("/api/admin/email-triage/suggest-reply",{
             method:"POST",credentials:"same-origin",
             headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({taskId:header.latestTaskId}),
+            body:JSON.stringify({taskId:sgTask}),
           }).then(function(r){return r.json();}).then(function(j){
             var ta=panel.querySelector("#hubReply");
             if(ta&&j&&j.suggestedReply)ta.value=j.suggestedReply;
@@ -7912,7 +8044,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }).catch(function(){sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";});
         });
       }
-      const t=panel.querySelector(".hub-thread");if(t)t.scrollTop=t.scrollHeight;
+      if(scrollToEnd){const t=panel.querySelector(".hub-thread");if(t)t.scrollTop=t.scrollHeight;}
     }
     function hubStripQuoted(body){
       var t=String(body||"");
@@ -8004,17 +8136,51 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         hubDisplayBody(m)+attHtml+'</div>';
     }
     async function sendReply(header){
-      if(!header||!header.to)return;
-      const panel=document.getElementById(PANEL);if(!panel)return;
+      const panel=document.getElementById(PANEL);if(!panel||!header)return;
+      var sel=tgSelected();
+      var target=sel?(sel.to||header.to||""):(header.to||"");
+      if(!target)return;
       const ta=panel.querySelector("#hubReply");const txt=((ta&&ta.value)||"").trim();if(!txt)return;
       const ccEl=panel.querySelector("#hubCc");const ccVal=((ccEl&&ccEl.value)||"").trim();
+      var payload={caseId:header.caseId,to:target,cc:ccVal||undefined,bodyHtml:hubTextToHtml(txt),bodyText:txt};
+      if(sel){
+        // Reply INTO the selected thread, under its original subject.
+        payload.subject="Re: "+String(sel.subject||header.lastSubject||"your registration").replace(/^\s*(Re:\s*)+/i,"");
+        if(sel.latestTaskId)payload.taskId=sel.latestTaskId;
+        if(sel.threadId){
+          payload.threadId=sel.threadId;
+        }else{
+          // The selected thread is a group of our automated notifications — no Gmail thread
+          // exists yet. Thread only on ids this group actually has (never the case's other
+          // mail), and adopt the group's rows into the Gmail thread this send creates so the
+          // whole exchange stays one conversation.
+          payload.newThread=true;
+          if(sel.inReplyTo)payload.inReplyTo=sel.inReplyTo;
+          var adoptIds=(sel.messages||[]).map(function(m){return m.id;}).filter(Boolean);
+          if(adoptIds.length)payload.adoptMessageIds=adoptIds;
+        }
+      }else{
+        // No thread selected → a brand-new separate email; the typed subject is required.
+        var sEl=panel.querySelector("#hubSubj");var subj=((sEl&&sEl.value)||"").trim();
+        if(!subj){if(sEl){sEl.style.borderColor="#dc2626";sEl.focus();}return;}
+        payload.subject=subj;
+        payload.newThread=true;
+      }
       const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
+      var resp=null;
       try{
-        await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({caseId:header.caseId,taskId:header.latestTaskId,threadId:header.threadId||"",to:header.to,cc:ccVal||undefined,
-            subject:"Re: "+(header.lastSubject||"your registration"),bodyHtml:hubTextToHtml(txt),bodyText:txt})});
-      }catch(e){if(sendBtn){sendBtn.disabled=false;sendBtn.textContent="Send";}return;}
-      openThread(header.caseId,header.threadId);
+        const r=await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(payload)});
+        resp=await r.json().catch(function(){return null;});
+        if(!r.ok||!(resp&&resp.ok!==false))throw new Error((resp&&resp.message)||"send failed");
+      }catch(e){
+        if(sendBtn){sendBtn.disabled=false;sendBtn.textContent=sel?"Send reply":"Send new email";}
+        return;
+      }
+      // Reopen the conversation where the email actually landed: an existing thread keeps its
+      // id; a notification-group reply or new email lives in the Gmail thread the send created.
+      var landed=(sel&&sel.threadId)||(resp&&resp.threadId)||header.threadId||"";
+      openThread(header.caseId,landed);
     }
     return {show:function(){const p=document.getElementById(PANEL);if(p)p.style.display="";loadList();},hide:function(){const p=document.getElementById(PANEL);if(p)p.style.display="none";}};
   }
