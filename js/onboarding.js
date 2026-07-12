@@ -385,7 +385,7 @@
       const retryCount = docState.retryCount || 0;
 
       const slot = document.createElement("div");
-      slot.className = "qual-doc-slot" + (status === "verified" ? " verified" : status === "failed" ? " failed" : status === "scanning" ? " scanning" : "");
+      slot.className = "qual-doc-slot" + (status === "verified" ? " verified" : status === "failed" ? " failed" : status === "scanning" ? " scanning" : (status === "approved" ? " verified" : status === "rejected" ? " failed" : ""));
       slot.id = "qualSlot_" + doc.key;
 
       // Badge
@@ -396,12 +396,21 @@
       else if (status === "failed") { badgeClass = "failed"; badgeText = "Failed"; }
       else if (status === "scanning") { badgeClass = "scanning"; badgeText = "Scanning..."; }
       else if (status === "manual_review") { badgeClass = "review"; badgeText = "Under Review"; }
+      else if (status === "approved") { badgeClass = "verified"; badgeText = "Approved"; }
+      else if (status === "rejected") { badgeClass = "failed"; badgeText = "Needs re-upload"; }
+      else if (status === "under_review") { badgeClass = "review"; badgeText = "Under Review"; }
 
       let infoHtml = "";
       if (status === "scanning") {
         infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Checking your document now...</div>';
       } else if (status === "verified" || status === "verified_name_pending") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Verified — one less thing to think about.</div>';
+      } else if (status === "approved") {
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Approved by our team — nothing more to do here.</div>';
+      } else if (status === "rejected") {
+        infoHtml = '<div class="qual-doc-slot-info error">' + escHtml(docState.rejectionReason || "Our team needs a clearer copy of this document.") + '<br>Please upload a new copy below.</div>';
+      } else if (status === "under_review") {
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Our team is reviewing this document — no action needed.</div>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
         infoHtml = '<div class="qual-doc-slot-info error">We\'ll have a team member verify this personally. No action needed from you.</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
@@ -423,7 +432,7 @@
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
-      const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "support_requested" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
+      const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "support_requested" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review" && status !== "approved" && status !== "under_review";
 
       slot.innerHTML =
         '<div class="qual-doc-slot-header">' +
@@ -865,6 +874,70 @@
     return "onboarding_specialist_qualification";
   }
 
+  // Reverse of getOnboardingDocumentStorageKey for a given country's doc list.
+  function getWizardKeyForStorageKey(storageKey, country) {
+    var docs = COUNTRY_DOCS[country] || [];
+    if (storageKey === "onboarding_primary_med_degree") {
+      return (docs.find(function (d) { return d.key === "primary_med_degree"; }) || {}).key || "primary_med_degree";
+    }
+    var specialist = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    return specialist ? specialist.key : null;
+  }
+
+  // Accept any key namespace in ?reupload= (canonical from emails, onboarding_* from
+  // storage, or the wizard's own key) and resolve to the wizard key for the country.
+  function resolveReuploadParamKey(raw, country) {
+    var docs = COUNTRY_DOCS[country] || [];
+    if (docs.some(function (d) { return d.key === raw; })) return raw;
+    if (raw === "primary_medical_degree" || raw === "onboarding_primary_med_degree") {
+      return getWizardKeyForStorageKey("onboarding_primary_med_degree", country);
+    }
+    if (raw === "specialist_qualification" || raw === "onboarding_specialist_qualification") {
+      return getWizardKeyForStorageKey("onboarding_specialist_qualification", country);
+    }
+    return null;
+  }
+
+  function isDefaultLocalState(s) {
+    return !s.country && (!s.qualDocs || Object.keys(s.qualDocs).length === 0) && !s.completedAt;
+  }
+
+  // Merge the server's copy of the wizard into local state. The server blob is the
+  // cross-device base (adopted wholesale only when this browser has nothing); the
+  // authoritative review decision per document ALWAYS wins over the local cache.
+  function mergeServerOnboarding(serverBlob, serverCountryName) {
+    if (serverBlob && typeof serverBlob === "object" && isDefaultLocalState(state)) {
+      state = { ...defaultState(), ...serverBlob, _version: 2 };
+      currentStep = state.currentStep || 0;
+      childrenCount = state.childrenCount || 1;
+    }
+    if (!state.country && serverCountryName) {
+      var c = COUNTRIES.find(function (x) { return x.name === serverCountryName || x.code === serverCountryName; });
+      if (c) state.country = c.code;
+    }
+  }
+
+  function applyServerDocStatuses(docsByStorageKey) {
+    if (!docsByStorageKey || !state.country) return;
+    if (!state.qualDocs) state.qualDocs = {};
+    Object.keys(docsByStorageKey).forEach(function (storageKey) {
+      var serverDoc = docsByStorageKey[storageKey] || {};
+      var wizardKey = getWizardKeyForStorageKey(storageKey, state.country);
+      if (!wizardKey) return;
+      var local = state.qualDocs[wizardKey] || {};
+      var serverStatus = String(serverDoc.status || "");
+      if (serverStatus === "accepted") {
+        state.qualDocs[wizardKey] = { ...local, fileName: local.fileName || serverDoc.fileName || "", status: "approved", rejectionReason: "" };
+      } else if (serverStatus === "rejected") {
+        state.qualDocs[wizardKey] = { ...local, fileName: local.fileName || serverDoc.fileName || "", status: "rejected", rejectionReason: serverDoc.rejection_reason || "" };
+      } else if (!local.status && (serverStatus === "under_review" || serverStatus === "pending") && serverDoc.fileName) {
+        // This browser has no memory of the upload (new device) — show it as
+        // with-our-team rather than an empty required slot.
+        state.qualDocs[wizardKey] = { fileName: serverDoc.fileName, status: "under_review", rejectionReason: "" };
+      }
+    });
+  }
+
   async function saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl) {
     if (!state.country || !fileName || !mimeType || !fileDataUrl) return null;
 
@@ -894,7 +967,7 @@
     if (docs.length === 0) return false;
     return docs.every((doc) => {
       const d = state.qualDocs && state.qualDocs[doc.key];
-      return d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested");
+      return d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested" || d.status === "approved" || d.status === "under_review");
     });
   }
 
@@ -1244,7 +1317,10 @@
       let value = "Not uploaded", cls = "status-missing";
       if (d) {
         if (d.status === "verified") { value = "Verified"; cls = "status-verified"; }
+        else if (d.status === "approved") { value = "Approved"; cls = "status-verified"; }
         else if (d.status === "manual_review") { value = "Under Review"; cls = "status-pending"; }
+        else if (d.status === "under_review") { value = "Under Review"; cls = "status-pending"; }
+        else if (d.status === "rejected") { value = "Needs re-upload"; cls = "status-missing"; }
         else { value = "Not verified"; cls = "status-missing"; }
       }
       return { label: doc.label, value, cls };
@@ -1479,12 +1555,23 @@
     window.location.href = "/pages/index";
   });
 
+  function highlightQualSlot(wizardKey) {
+    setTimeout(function () {
+      var slot = document.getElementById("qualSlot_" + wizardKey);
+      if (!slot) return;
+      try { slot.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+      slot.classList.add("reupload-highlight");
+      setTimeout(function () { slot.classList.remove("reupload-highlight"); }, 4200);
+    }, 350);
+  }
+
   // ── Init ───────────────────────────────────
   fetch("/api/auth/session", { credentials: "same-origin" })
     .then((r) => r.json())
     .then((data) => {
       if (!data || !data.authenticated) {
-        window.location.replace("/pages/signin");
+        var dest = window.location.pathname + window.location.search;
+        window.location.replace("/pages/signin" + (/^\/pages\//.test(dest) ? "?next=" + encodeURIComponent(dest) : ""));
         return;
       }
       // Store profile for name matching
@@ -1496,32 +1583,57 @@
         showEligibilityScreen(true);
         return;
       }
-      // Cross-device: this browser may not have the local flag — check the
-      // server-side state too (async, so supported GPs render instantly).
-      fetch("/api/state", { credentials: "same-origin" })
-        .then((r) => r.json())
-        .then((d) => {
-          var flag = d && d.state && d.state.gp_eligibility_waitlist;
-          if (!flag) return;
-          try {
-            localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, typeof flag === "string" ? flag : JSON.stringify(flag));
-          } catch (e) { /* ignore */ }
-          showEligibilityScreen(true);
-        })
-        .catch(() => { /* best effort */ });
 
       // If onboarding already completed and navigated here directly, allow re-entry
       // (removed auto-redirect to dashboard so users can redo onboarding via button)
 
-      // Deep link from the reminder emails: ?step=N opens the step the GP was on
-      // when they left (their local device may not have the saved progress).
-      var urlStep = parseInt(new URLSearchParams(window.location.search).get("step"), 10);
-      if (!isNaN(urlStep) && urlStep >= 0 && urlStep < TOTAL_STEPS) {
-        currentStep = urlStep;
-      }
-      goToStep(currentStep);
+      var eligibilityScreenShown = false;
+
+      // Cross-device restore: the server holds the wizard blob (user_state.gp_onboarding)
+      // and the authoritative per-document review statuses (user_documents). Restore
+      // both BEFORE first paint so a returning GP resumes instead of starting over.
+      fetch("/api/state", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var st = (d && d.state) || {};
+          var flag = st.gp_eligibility_waitlist;
+          if (flag) {
+            try { localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, typeof flag === "string" ? flag : JSON.stringify(flag)); } catch (e) {}
+            eligibilityScreenShown = true;
+            showEligibilityScreen(true);
+            return null;
+          }
+          var blob = st.gp_onboarding;
+          if (typeof blob === "string") { try { blob = JSON.parse(blob); } catch (e) { blob = null; } }
+          var selCountry = st.gp_selected_country;
+          if (typeof selCountry === "string") { try { var p = JSON.parse(selCountry); if (typeof p === "string") selCountry = p; } catch (e) {} }
+          mergeServerOnboarding(blob, selCountry);
+          if (!state.country) return null;
+          return fetch("/api/onboarding-documents?country=" + encodeURIComponent(state.country), { credentials: "same-origin" })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (docsResp) {
+              if (docsResp && docsResp.ok) applyServerDocStatuses(docsResp.docs || {});
+            })
+            .catch(function () { /* best effort */ });
+        })
+        .catch(function () { /* best effort — local state still works */ })
+        .then(function () {
+          if (eligibilityScreenShown) return; // eligibility screen already rendered — never fall through to the wizard
+          // Deep link from reminder emails: ?step=N opens that step. Deep link from
+          // reject emails: ?reupload=<docKey> opens the qualification step at that doc.
+          var params = new URLSearchParams(window.location.search);
+          var urlStep = parseInt(params.get("step"), 10);
+          if (!isNaN(urlStep) && urlStep >= 0 && urlStep < TOTAL_STEPS) currentStep = urlStep;
+          var reuploadRaw = params.get("reupload") || "";
+          var reuploadKey = reuploadRaw && state.country ? resolveReuploadParamKey(reuploadRaw, state.country) : null;
+          if (reuploadKey) currentStep = 1;
+          saveState();
+          goToStep(currentStep);
+          if (reuploadKey) highlightQualSlot(reuploadKey);
+        });
     })
     .catch(() => {
-      window.location.replace("/pages/signin");
+      var dest = window.location.pathname + window.location.search;
+      window.location.replace("/pages/signin" + (/^\/pages\//.test(dest) ? "?next=" + encodeURIComponent(dest) : ""));
     });
 })();

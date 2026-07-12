@@ -328,3 +328,35 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(row.status).not.toBe('rejected');
   });
 });
+
+describe('onboarding wizard client wiring (source-level)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'onboarding.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'pages', 'onboarding.html'), 'utf8');
+  it('reads the wizard blob and doc statuses back from the server', () => {
+    expect(src).toContain('gp_onboarding');
+    expect(src).toMatch(/fetch\("\/api\/onboarding-documents\?country="/);
+    expect(src).toContain('applyServerDocStatuses');
+  });
+  it('renders the three RSO statuses', () => {
+    expect(src).toContain('"approved"');
+    expect(src).toContain('"rejected"');
+    expect(src).toContain('"under_review"');
+    expect(src).toContain('rejectionReason');
+  });
+  it('handles the ?reupload deep link for canonical keys', () => {
+    expect(src).toContain('resolveReuploadParamKey');
+    expect(src).toContain('specialist_qualification');
+  });
+  it('preserves the destination through the signin bounce', () => {
+    expect(src).toMatch(/\/pages\/signin"?\s*\+\s*\(/);
+    expect(src).toContain('encodeURIComponent(dest)');
+  });
+  it('cache buster bumped', () => {
+    expect(html).toMatch(/onboarding\.js\?v=20260713/);
+  });
+  it('rejected docs do not count as complete', () => {
+    const fn = src.slice(src.indexOf('function allDocsComplete'), src.indexOf('}', src.indexOf('function allDocsComplete')) + 1);
+    expect(fn).toContain('approved');
+    expect(fn).not.toContain('"rejected"');
+  });
+});
