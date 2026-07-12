@@ -29612,6 +29612,106 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: hourly reconciliation of orphaned document reviews. Any user_documents
+  // row still awaiting review (status=under_review, or carrying a non-empty
+  // flag_reason) but with NO open flagged_doc/doc_review task for its (case,
+  // canonical doc key) gets one created via the same reasoned path used at upload
+  // (createFlaggedDocTask → routes un-placed candidates to the least-loaded RSO).
+  // Idempotent + capped; Bearer CRON_SECRET guard mirrors reconcile-followups.
+  if (req.method === 'GET' && pathname === '/api/cron/reconcile-doc-tasks') {
+    var rdtCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var rdtCronAuth = req.headers['authorization'] || '';
+    if (!rdtCronSecret || rdtCronAuth !== 'Bearer ' + rdtCronSecret) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: true, message: 'Not configured', scanned: 0, created: 0 });
+      return;
+    }
+    try {
+      var RDT_CAP = 200;
+      // Two fetches (PostgREST can't cleanly OR status + flag_reason). Under-review
+      // rows come first so they win the cap; flagged rows are a belt-and-suspenders
+      // (a flagged doc is normally already under_review). The per-row eligibility
+      // guard below is the real safety net regardless of what these return.
+      var rdtUnderRev = await supabaseDbRequest('user_documents',
+        'select=id,user_id,document_key,country_code,status,flag_reason,rejection_reason&status=eq.under_review&order=updated_at.desc&limit=' + RDT_CAP);
+      var rdtFlagged = await supabaseDbRequest('user_documents',
+        'select=id,user_id,document_key,country_code,status,flag_reason,rejection_reason&flag_reason=not.is.null&order=updated_at.desc&limit=' + RDT_CAP);
+      var rdtRowsRaw = []
+        .concat((rdtUnderRev.ok && Array.isArray(rdtUnderRev.data)) ? rdtUnderRev.data : [])
+        .concat((rdtFlagged.ok && Array.isArray(rdtFlagged.data)) ? rdtFlagged.data : []);
+
+      // Dedupe by document id (first occurrence wins → under_review prioritised).
+      var rdtSeenIds = {};
+      var rdtDocs = [];
+      for (var rdi = 0; rdi < rdtRowsRaw.length; rdi++) {
+        var rdRow = rdtRowsRaw[rdi];
+        if (!rdRow || !rdRow.id || rdtSeenIds[rdRow.id]) continue;
+        rdtSeenIds[rdRow.id] = true;
+        rdtDocs.push(rdRow);
+      }
+      var rdtCapped = false;
+      if (rdtDocs.length > RDT_CAP) { rdtDocs = rdtDocs.slice(0, RDT_CAP); rdtCapped = true; }
+
+      var rdtScanned = 0, rdtCreated = 0;
+      var rdtHandled = {}; // `${case_id}::${canonKey}` created this run (avoid dup within batch)
+      for (var rdj = 0; rdj < rdtDocs.length; rdj++) {
+        var rdtDoc = rdtDocs[rdj];
+        rdtScanned++;
+        if (rdtDoc.status === 'approved' || rdtDoc.status === 'rejected') continue; // already resolved
+        var rdtFlag = String(rdtDoc.flag_reason || '').trim();
+        // Only reconcile genuinely-pending docs: under review, or actively flagged.
+        // (Guards against the not.is.null fetch surfacing docs whose flag was cleared.)
+        if (rdtDoc.status !== 'under_review' && rdtFlag === '') continue;
+        var rdtKey = rdtDoc.document_key;
+        if (!rdtKey || !rdtDoc.user_id) continue;
+
+        var rdtCaseRes = await supabaseDbRequest('registration_cases',
+          'select=id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(rdtDoc.user_id) + '&limit=1');
+        var rdtCase = (rdtCaseRes.ok && Array.isArray(rdtCaseRes.data) && rdtCaseRes.data[0]) ? rdtCaseRes.data[0] : null;
+        if (!rdtCase) continue; // no case → nothing to attach a task to
+
+        var rdtCanon = canonicalQualKey(rdtKey);
+        var rdtCombo = rdtCase.id + '::' + rdtCanon;
+        if (rdtHandled[rdtCombo]) continue;
+
+        // Skip if an open review/flag task already covers this (case, canonical doc key).
+        var rdtOpen = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(rdtCase.id) +
+          '&task_type=in.(flagged_doc,doc_review)&related_document_key=eq.' + encodeURIComponent(rdtCanon) +
+          '&status=in.(open,in_progress,waiting)&limit=1');
+        if (rdtOpen.ok && Array.isArray(rdtOpen.data) && rdtOpen.data.length) continue;
+
+        var rdtLabel = getDocumentLabelForKey(rdtKey) || rdtKey;
+        var rdtReason = rdtDoc.rejection_reason ||
+          (rdtFlag ? ('Flagged for review (' + rdtFlag + ').') : '') ||
+          'Document is under review but had no open review task — reconciled by system.';
+        // Stage by origin: onboarding-wizard/storage qual spellings → onboarding;
+        // everything else falls back to inferStageFromDocKey (AHPRA for quals).
+        var rdtStage = (/^onboarding_/.test(String(rdtKey)) ||
+          rdtKey === 'primary_med_degree' || rdtKey === 'mrcgp_cert' || rdtKey === 'micgp_cert' ||
+          rdtKey === 'frnzcgp_cert' || rdtKey === 'cscst_cert')
+          ? 'onboarding'
+          : inferStageFromDocKey(rdtKey);
+        try {
+          var rdtTask = await createFlaggedDocTask(rdtDoc.user_id, rdtKey, rdtLabel, rdtReason, rdtStage);
+          if (rdtTask && rdtTask.id) { rdtCreated++; rdtHandled[rdtCombo] = true; }
+        } catch (rdtErr) {
+          console.error('[reconcile-doc-tasks] create failed for doc ' + rdtDoc.id + ':', rdtErr && rdtErr.message);
+        }
+      }
+      if (rdtCapped) console.log('[reconcile-doc-tasks] batch capped at ' + RDT_CAP + ' documents');
+      console.log('[reconcile-doc-tasks] scanned=' + rdtScanned + ' created=' + rdtCreated);
+      sendJson(res, 200, { ok: true, scanned: rdtScanned, created: rdtCreated, capped: rdtCapped });
+    } catch (err) {
+      console.error('[Cron] Reconcile doc tasks failed:', err);
+      await respondServerError(res, err, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
   // Cron: daily follow-up reconciliation — AI checks if follow-up tasks have been fulfilled
   if (req.method === 'GET' && pathname === '/api/cron/reconcile-followups') {
     var rfCronSecret = String(process.env.CRON_SECRET || '').trim();
