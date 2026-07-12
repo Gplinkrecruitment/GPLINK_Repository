@@ -22,7 +22,7 @@ reference, so no name can ever render.
 | F6 S6 seed (beach walk) | job `d384faeb-b0a4-4ef8-937e-2bf08ab6e121` | |
 | App screen CROPPED (S4) | media `44f29cf5-d11b-40ed-8aaa-c3bb6ac41378` | greeting header removed pre-upload |
 | App screen original (unused) | media `1dd84e3d-388c-4ce7-9c8a-74424c5e0fbb` | shows "Dr Helen" — do not use in shots |
-| S1 video take 1 | job `ec9cfd08-2140-440a-a1d2-2246744d81a0` | seedance_2_0 std 1080p 4s, audio off |
+| S1 video take 1 | job `ec9cfd08-2140-440a-a1d2-2246744d81a0` | seedance_2_0 std 1080p 4s, audio off. **COMPLETED + frame-QA'd:** performance arc lands (rub → clock glance → sag, push-in mid→CU, clock pinned 7:00, grade right). Nit: lanyard print mirrors ("SHN") in final CU — passable as strap reverse, monitor in edit. **Awaiting owner calibration verdict before S2–S6 run.** |
 
 **Costs (actual):** portrait 0.12 cr · NBP 2k plate 2 cr · Seedance 4s/1080p/std
 36 cr. Balance at production start: 2,492.7 (Ultra).
