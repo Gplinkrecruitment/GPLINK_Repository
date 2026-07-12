@@ -361,6 +361,67 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
   });
 });
 
+describe('ops resend-doc-rejection-email', () => {
+  // The test server (see beforeAll above) is booted with
+  // SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key' — that's the value
+  // the endpoint compares x-gp-ops-key against.
+  const SERVICE_KEY = 'test-service-role-key';
+  const OPS_PATH = '/api/admin/ops/resend-doc-rejection-email';
+
+  it('rejects a call with no valid ops key and no admin session (not 200)', async () => {
+    const r = await httpReq('POST', OPS_PATH, {
+      body: { user_id: GP.userId, document_key: 'specialist_qualification' },
+      headers: { 'x-gp-ops-key': 'wrong-key' }
+    });
+    expect(r.status).not.toBe(200);
+  });
+
+  it('404s when the given user/document_key has no rejected row', async () => {
+    const r = await httpReq('POST', OPS_PATH, {
+      body: { user_id: GP.userId, document_key: 'no_such_document_key' },
+      headers: { 'x-gp-ops-key': SERVICE_KEY }
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it('re-sends the rejection email for a rejected onboarding qualification with the corrected deep link', async () => {
+    // Deterministic re-seed: earlier tests in this file re-upload this row
+    // (clearing 'rejected'), so force it back to a known rejected state here
+    // rather than depending on state left over by prior tests.
+    const obRow = db.user_documents.find((d) => d.document_key === 'onboarding_specialist_qualification');
+    obRow.status = 'rejected';
+    obRow.rejection_reason = 'Blurry scan — please re-upload.';
+
+    const resendCallsBefore = resendCalls.length;
+    const r = await httpReq('POST', OPS_PATH, {
+      body: { user_id: GP.userId, document_key: 'specialist_qualification' },
+      headers: { 'x-gp-ops-key': SERVICE_KEY }
+    });
+
+    expect(r.body.target).toBe('/pages/onboarding.html?reupload=specialist_qualification');
+    expect(r.body.onboarding).toBe(true);
+    // NOTE on this assertion (deviation from the original spec): the task spec
+    // assumed RESEND_API_KEY is unset in this test file, expecting a 502 with
+    // result.error === 'Email not configured'. In fact this file's beforeAll
+    // (line ~236) sets process.env.RESEND_API_KEY = 'test-resend-key' and
+    // stubs global fetch to intercept api.resend.com calls with a 200 —
+    // exactly the same mocked path the FIRST describe block's reject/approve
+    // tests already exercise (see their "[sendEmail] Resend accepted" log
+    // lines). So sendEmail() here genuinely succeeds against the emulator,
+    // and the honest, non-fabricated outcome is 200/ok:true — verified below
+    // by asserting the mocked Resend call was actually made with the right
+    // recipient, rather than asserting a failure mode that doesn't occur in
+    // this harness.
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.result).toEqual({ ok: true });
+    expect(resendCalls.length).toBe(resendCallsBefore + 1);
+    const sent = resendCalls[resendCalls.length - 1];
+    expect(sent.to).toEqual([GP.email]);
+    expect(sent.subject).toContain('re-upload');
+  });
+});
+
 describe('onboarding wizard client wiring (source-level)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'onboarding.js'), 'utf8');
   const html = fs.readFileSync(path.join(__dirname, '..', 'pages', 'onboarding.html'), 'utf8');

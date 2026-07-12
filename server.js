@@ -53116,6 +53116,82 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops: re-send the rejection email for a rejected document. Used
+  // when a previously-sent rejection email carried a broken/outdated link (e.g.
+  // onboarding rejections that pointed at My Documents before the onboarding
+  // deep-link fix) — re-sends the standard rejection email built from the
+  // CURRENT user_documents row, with the correct re-upload destination.
+  // Auth: admin session OR the Supabase service-role key via x-gp-ops-key
+  // (a server-side secret that already grants full DB access, so this adds no
+  // privilege).
+  if (pathname === '/api/admin/ops/resend-doc-rejection-email' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const rdrOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    const rdrViaServiceKey = !!(rdrOpsKey && SUPABASE_SERVICE_ROLE_KEY && rdrOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    if (!rdrViaServiceKey) { const rdrAdmin = requireAdminSession(req, res); if (!rdrAdmin) return; }
+    let rdrBody; try { rdrBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    const rdrUserId = String(rdrBody.user_id || '').trim();
+    const rdrKey = String(rdrBody.document_key || '').trim();
+    if (!rdrUserId || !rdrKey) { sendJson(res, 400, { ok: false, message: 'user_id and document_key required.' }); return; }
+
+    // Locate the rejected row: for onboarding qualification keys the rejection
+    // lives on the onboarding_* row; otherwise on the key itself.
+    const RDR_ONBOARDING_KEY = {
+      primary_medical_degree: 'onboarding_primary_med_degree',
+      specialist_qualification: 'onboarding_specialist_qualification'
+    };
+    const rdrObKey = RDR_ONBOARDING_KEY[rdrKey] || '';
+    let rdrRow = null;
+    let rdrIsOnboarding = false;
+    if (rdrObKey) {
+      const rdrObRes = await supabaseDbRequest('user_documents',
+        'select=status,rejection_reason&user_id=eq.' + encodeURIComponent(rdrUserId) + '&document_key=eq.' + encodeURIComponent(rdrObKey) + '&order=updated_at.desc&limit=1');
+      const rdrObRow = (rdrObRes.ok && Array.isArray(rdrObRes.data) && rdrObRes.data[0]) ? rdrObRes.data[0] : null;
+      if (rdrObRow && rdrObRow.status === 'rejected') { rdrRow = rdrObRow; rdrIsOnboarding = true; }
+    }
+    if (!rdrRow) {
+      const rdrDirectRes = await supabaseDbRequest('user_documents',
+        'select=status,rejection_reason&user_id=eq.' + encodeURIComponent(rdrUserId) + '&document_key=eq.' + encodeURIComponent(rdrKey) + '&order=updated_at.desc&limit=1');
+      const rdrDirectRow = (rdrDirectRes.ok && Array.isArray(rdrDirectRes.data) && rdrDirectRes.data[0]) ? rdrDirectRes.data[0] : null;
+      if (rdrDirectRow && rdrDirectRow.status === 'rejected') rdrRow = rdrDirectRow;
+    }
+    if (!rdrRow) { sendJson(res, 404, { ok: false, message: 'No rejected document found for that user and key.' }); return; }
+
+    const rdrNote = String(rdrRow.rejection_reason || '').trim();
+    const rdrDocLabel = getDocumentLabelForKey(rdrKey) || 'document';
+    const rdrTarget = (rdrIsOnboarding ? '/pages/onboarding.html' : '/pages/my-documents.html')
+      + '?reupload=' + encodeURIComponent(rdrKey);
+
+    const rdrGp = await getGpEmailContext(rdrUserId);
+    if (!rdrGp || !rdrGp.email) { sendJson(res, 404, { ok: false, message: 'GP has no email on file.' }); return; }
+    const rdrName = rdrGp.firstName || 'there';
+    const rdrResult = await sendEmail({
+      to: rdrGp.email,
+      subject: 'Action needed: re-upload your ' + rdrDocLabel + ' — GP Link',
+      html: buildCareerEmailHtml({
+        title: 'Please re-upload your ' + rdrDocLabel + ', ' + rdrName,
+        body: 'Our team reviewed your ' + rdrDocLabel + ' and it needs to be re-uploaded before we can continue your registration.' + (rdrNote ? '\n\nReason: ' + rdrNote : '') + '\n\nPlease upload a corrected document and we’ll review it again.',
+        ctaText: 'Re-upload Document',
+        ctaUrl: APP_BASE_URL + rdrTarget,
+        footer: ''
+      })
+    });
+    const rdrOk = !!(rdrResult && rdrResult.ok);
+    // Audit trail on the GP's case timeline (best-effort).
+    try {
+      const rdrCaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(rdrUserId) + '&limit=1');
+      const rdrCase = (rdrCaseRes.ok && Array.isArray(rdrCaseRes.data) && rdrCaseRes.data[0]) ? rdrCaseRes.data[0] : null;
+      if (rdrCase) {
+        await _logCaseEvent(rdrCase.id, null, 'status_change',
+          'Rejection email re-sent: ' + rdrDocLabel,
+          (rdrOk ? 'Sent to ' : 'Send FAILED to ') + rdrGp.email + ' with corrected link ' + rdrTarget + (rdrNote ? ' — Reason: ' + rdrNote : ''),
+          rdrViaServiceKey ? 'ops' : 'admin');
+      }
+    } catch (rdrLogErr) { console.error('[ops] resend-doc-rejection-email log failed:', rdrLogErr && rdrLogErr.message); }
+    sendJson(res, rdrOk ? 200 : 502, { ok: rdrOk, to: rdrGp.email, target: rdrTarget, onboarding: rdrIsOnboarding, result: rdrResult });
+    return;
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // Visa Questionnaire Endpoints
   // ══════════════════════════════════════════════════════════════════
