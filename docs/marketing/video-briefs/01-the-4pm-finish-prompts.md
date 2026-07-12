@@ -1,8 +1,42 @@
-# Video #1 "The 4pm Finish" — Higgsfield prompt set (v1, for review)
+# Video #1 "The 4pm Finish" — Higgsfield prompt set (v2, IN PRODUCTION)
 
-**Status: DRAFT for owner review. Nothing has been generated yet.**
-Written by Fable 5 from `01-the-4pm-finish.md`. Once approved (or amended), we
-run the asset build, then the shots, one at a time.
+**Status: owner approved ("go", 2026-07-13). Reference kit BUILT & QA'd;
+shot generation under way.** Owner picked option 2 on the screenshot naming —
+implemented harder: the greeting header is physically cropped off the
+reference, so no name can ever render.
+
+## Production asset registry (Higgsfield job/media IDs)
+
+| Asset | ID | Notes |
+|-------|----|----|
+| Dr James anchor portrait (front) | job `3ef70a90-e91c-4096-a4b7-94c683ed3550` | warm take B face, neutralised via NBP edit |
+| Dr James 3/4 portrait | job `3c608e73-4724-4fc2-83ab-18ea690ea00e` | identity holds |
+| R3 NHS room plate (4K) | job `f4014d84-94e7-4887-b88d-71fd1d15a08d` | clock verified 7:00 |
+| R4 practice plate | job `e001614d-ceb9-42e1-a07b-328fcc4a85aa` | had stray sign letters — superseded by F5 fixed |
+| R5 beach plate | job `1d4191a3-adcf-47bd-b408-421b0e75d1f4` | |
+| F1 S1 seed (desk slump) | job `952c53da-bcfb-4afb-b402-832583992f41` | clock 7:00, lanyard, light-blue shirt |
+| F2c clock insert seed | media `f948b0d0-683f-4060-9084-6442537ccfb5` | PURE CROP of R3 (no gen risk) |
+| F3 S3 seed FIXED | job `bf3eb517-ba59-4e3e-a874-d66984cf612c` | shirt continuity fixed (grey tee → light-blue) |
+| F5 S5 seed FIXED | job `b12f66ad-854c-484a-b17a-cf7a5bc05dcd` | sign misspelling "CENITRE" corrected |
+| F5b watch insert seed (4K) | job `b922072b-5500-45ac-a0be-26153722e548` | dial verified 4:00 |
+| F6 S6 seed (beach walk) | job `d384faeb-b0a4-4ef8-937e-2bf08ab6e121` | |
+| App screen CROPPED (S4) | media `44f29cf5-d11b-40ed-8aaa-c3bb6ac41378` | greeting header removed pre-upload |
+| App screen original (unused) | media `1dd84e3d-388c-4ce7-9c8a-74424c5e0fbb` | shows "Dr Helen" — do not use in shots |
+| S1 video take 1 | job `ec9cfd08-2140-440a-a1d2-2246744d81a0` | seedance_2_0 std 1080p 4s, audio off |
+
+**Costs (actual):** portrait 0.12 cr · NBP 2k plate 2 cr · Seedance 4s/1080p/std
+36 cr. Balance at production start: 2,492.7 (Ultra).
+
+**House-style learnings (carry to videos 2–10):**
+1. soul_2 with a reference image may auto-"enhance" the prompt and override
+   intent (asked neutral, got smile) AND drift identity — do identity-preserving
+   edits with `nano_banana_pro` image-to-image instead.
+2. Always verify generated signage/dials at full resolution — caught
+   "MEDICAL CENITRE" and fixed via minimal NBP edit.
+3. Bake times-of-day into seed stills; crop inserts from verified plates
+   (zero-risk) rather than regenerating.
+4. Seedance may suggest a preset; decline via `declined_preset_id` and keep the
+   literal prompt.
 
 ---
 
