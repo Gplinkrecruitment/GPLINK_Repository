@@ -23430,6 +23430,18 @@ function isCertificationRequiredDocKey(key) {
   return CERTIFICATION_REQUIRED_DOC_KEYS.has(k) || CERTIFICATION_REQUIRED_DOC_KEYS.has(canonicalQualKey(k));
 }
 
+// Onboarding qualification uploads are collected ONLY to name-match the GP and to
+// store the file for later download (at the MyIntealth step) — they are NOT the
+// AHPRA submission copies, so they must never be held to AHPRA's "certified true
+// copy" standard. Certification is enforced only for documents uploaded at/after the
+// AHPRA stage. Origin is detected by the onboarding key namespace OR an onboarding
+// review stage — the RSO review task stores the canonical, non-namespaced key
+// (e.g. specialist_qualification), so related_stage is the only signal available there.
+function isOnboardingCollectedDoc(key, reviewStage) {
+  if (String(reviewStage || '').trim().toLowerCase() === 'onboarding') return true;
+  return /^onboarding_/.test(String(key || '').trim().toLowerCase());
+}
+
 async function extractDocxTextWithMammoth(buffer) {
   try {
     var mammoth = require('mammoth');
@@ -23787,7 +23799,7 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         expectedCountry: String(countryCode || '').toUpperCase(),
         profileName: profileName,
         verifiedNames: [],
-        requireCertification: isCertificationRequiredDocKey(documentKey)
+        requireCertification: isCertificationRequiredDocKey(documentKey) && !isOnboardingCollectedDoc(documentKey, reviewStage)
       }).catch(function () { return { ok: false }; });
 
       if (vres && vres.ok && vres.verification) {
@@ -49516,7 +49528,7 @@ Return ONLY valid JSON with no markdown formatting:
     const scExpectedCountry = scCountryMap[scCcRaw] || (scCcRaw ? scCcRaw.toUpperCase() : 'any');
 
     const scContentBlock = buildQualContentBlock(scDl.buffer, scDl.mimeType || (scDocRow && scDocRow.mime_type) || '');
-    const scRequireCert = isCertificationRequiredDocKey(scanDocKey);
+    const scRequireCert = isCertificationRequiredDocKey(scanDocKey) && !isOnboardingCollectedDoc(scanDocKey, scanTask.related_stage);
     const scVres = await verifyQualificationDocument({
       contentBlock: scContentBlock,
       documentType: scDocTypeLabel,
