@@ -474,7 +474,13 @@ function gpScopeAllowsCase(scope, caseRow) {
 function taskVisibleToRso(scope, task, caseRow) {
   if (gpScopeAllowsCase(scope, caseRow)) return true;
   if (scope && scope.superAdmin) return true;
-  return !!(task && task.assignee && scope && scope.rsoUserId && task.assignee === scope.rsoUserId);
+  // The task-level assignee branch only reveals candidate DOCUMENT CHECKS
+  // (flagged_doc / doc_review) routed to this RSO on an otherwise-unassigned case.
+  // Other task types must not surface via assignee alone — e.g. email_triage is
+  // auto-assigned to the default RSO (Hazel) even on unassigned cases, so honoring
+  // its assignee here would wrongly leak it into her "Document checks" list.
+  var isDocCheckTask = !!(task && (task.task_type === 'flagged_doc' || task.task_type === 'doc_review'));
+  return !!(isDocCheckTask && task.assignee && scope && scope.rsoUserId && task.assignee === scope.rsoUserId);
 }
 
 // Fetch a single registration_cases row's assignment fields by case id (for

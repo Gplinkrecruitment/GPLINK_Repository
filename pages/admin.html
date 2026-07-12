@@ -4437,7 +4437,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // this RSO on a candidate with no case owner) and the normal per-GP caseload list
     // (case_assigned===true). Document checks render in their own section and must never
     // also appear below in the caseload grouping.
-    var opsDocCheckTasks=allOpsTasks.filter(function(t){return t.case_assigned===false;});
+    var opsDocCheckTasks=allOpsTasks.filter(function(t){return t.case_assigned===false && (t.task_type==='flagged_doc'||t.task_type==='doc_review');});
     var opsCaseloadTasks=allOpsTasks.filter(function(t){return t.case_assigned!==false;});
     var opsSectionsHtml=opsDocCheckTasks.length?renderOpsDocChecksSection(opsDocCheckTasks):'';
 
