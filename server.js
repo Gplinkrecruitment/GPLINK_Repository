@@ -29694,6 +29694,13 @@ async function handleApi(req, res, pathname) {
         if (rdtDoc.status !== 'under_review' && rdtFlag === '') continue;
         var rdtKey = rdtDoc.document_key;
         if (!rdtKey || !rdtDoc.user_id) continue;
+        // Only reconcile QUALIFICATION documents. This sweep creates flagged_doc
+        // qualification tasks, so non-qualification uploads (career CV, criminal-history
+        // checks, visa docs, etc.) — which have their own review flows — must be skipped;
+        // otherwise a stray under_review row would be turned into a spurious qualification
+        // review task. isQualificationDocKey wraps QUALIFICATION_DOC_KEYS across every
+        // capture-flow spelling (onboarding/wizard/My-Documents).
+        if (!isQualificationDocKey(rdtKey)) continue;
 
         var rdtCaseRes = await supabaseDbRequest('registration_cases',
           'select=id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(rdtDoc.user_id) + '&limit=1');
