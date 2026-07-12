@@ -63,7 +63,27 @@ pipeline = 1080p + `upscale_video` (bytedance, aigc preset, 4k) on picks.
 | S1t2 4K upscale test | `be70ebc5-0b3e-4cdc-abaf-111e3f6214da` | pending validation |
 
 S7 end-card: built in edit from real logo (no generation).
-Balance after full v2 shoot: **2,015 credits** (started 2,492.7).
+
+### 4K masters (bytedance upscale, aigc preset, 2160×2160 @24fps — cost 0 cr on Ultra)
+
+| Shot | 4K job ID |
+|------|-----------|
+| S1 | `be70ebc5-0b3e-4cdc-abaf-111e3f6214da` (frame-verified: crisper skin/rain, no over-smoothing) |
+| S2a | `25c5aa13-517d-4495-be27-c53e275416a2` |
+| S2b | `523b1b12-e500-404b-852c-6dd150f5d95c` |
+| S2c | `986dbbc2-1f6d-46a3-a3d7-aa59f2e7928f` |
+| S3 | `4faa06b8-4810-4f66-94d2-a22d0b3e9c33` |
+| S4 | `aba223b6-ff81-4f78-8bbd-6b0f890a2729` |
+| S5 | `3265812a-d6e9-4c53-ae24-cd9c6f8c0b88` |
+| S5b | `cd2a53fd-ed6b-457e-a6e7-0cf705957da1` |
+| S6 | `e7eed7ef-68fd-4359-8752-ce964931b080` |
+
+Balance after full v2 shoot + all 4K upscales: **2,015 credits** (started
+2,492.7 → video #1 total ≈ 478 cr incl. all retakes and stills).
+
+**Remaining for video #1:** edit assembly — trim clips to the ~28s beat sheet,
+grade match, brand-blue `#2563eb` captions (beat-sheet copy), real-logo
+end-card (S7), optional VO. Then owner final sign-off.
 
 **Costs (actual):** portrait 0.12 cr · NBP 2k plate 2 cr · Seedance 4s/1080p/std
 36 cr. Balance at production start: 2,492.7 (Ultra).
