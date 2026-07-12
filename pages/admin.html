@@ -345,6 +345,20 @@
     .doc-preview-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:32px}
     .doc-preview-docx{overflow:auto;height:100%;padding:20px 32px;background:#fff}
     .doc-preview-docx .docx-preview-content{max-width:800px;margin:0 auto}
+    /* "Document checks" — candidate document-verification tasks routed to this RSO via
+       task.assignee even though the parent case has no owner yet (case_assigned===false,
+       see /api/admin/ops/queue). Kept visually distinct (blue-tinted) and separate from the
+       per-GP caseload list below it — these candidates are NOT this RSO's caseload. */
+    .ops-doccheck-section{background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius);padding:14px 16px;margin:0 0 16px}
+    .ops-doccheck-title{font-size:14px;font-weight:800;color:#1e3a8a}
+    .ops-doccheck-intro{font-size:12px;color:#1e40af;margin-top:3px;line-height:1.5;max-width:640px}
+    .ops-doccheck-row{display:flex;align-items:flex-start;gap:12px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+    .ops-doccheck-main{flex:1;min-width:0}
+    .ops-doccheck-name{font-weight:700;font-size:13px;color:var(--text)}
+    .ops-doccheck-doc{font-size:12px;color:#334155;margin-top:2px}
+    .ops-doccheck-reason{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
+    .ops-doccheck-routed{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#7c3aed;margin-top:6px}
+    .ops-doccheck-row .ops-btn-green{flex-shrink:0;align-self:center;white-space:nowrap}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
@@ -357,6 +371,8 @@
       .ops-gp-header{gap:6px;padding:8px 12px}
       .ops-detail-inner{max-width:100%}
       .ops-action-row{flex-direction:column}
+      .ops-doccheck-row{flex-direction:column}
+      .ops-doccheck-row .ops-btn-green{width:100%;text-align:center}
     }
     /* ══ VA Dashboard rebuild — Today, Tickets, Quals, WhatsApp, Nudges ══ */
     .today-wrap{padding:16px;overflow-y:auto;max-height:calc(100vh - 48px)}
@@ -4065,6 +4081,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+' — matches the account',c:'#15803d'}:(nameMatch==='mismatch')?{t:s.nameFound+' — does NOT match the account name',c:'#dc2626'}:{t:s.nameFound,c:'#111827'};
       rows.push(line('Name on document',nm.t,nm.c));
     }else{ rows.push(line('Name on document','not detected','#b45309')); }
+    // A genuine name mismatch (not just a low-confidence read) is likely a name change —
+    // call it out prominently so the RSO doesn't approve without noticing. Matches the
+    // approval side (server sets user_profiles.name_change_detected on nameMatch==='mismatch').
+    if(nameMatch==='mismatch'){
+      var mismatchMsg='Name on document ('+(s.nameFound||'unknown')+') differs from account ('+(s.profileName||'the account')+') — likely a name change. Approving records this as a name change.';
+      rows.push('<div style="margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #ef4444;border-radius:8px;font-weight:700;color:#b91c1c;">⚠ '+esc(mismatchMsg)+'</div>');
+    }
     if(s.dateFound)rows.push(line('Date on document',s.dateFound));
     if(s.issuingBody)rows.push(line('Issuing body',s.issuingBody));
     if(s.legible===false)rows.push(line('Legibility','hard to read','#dc2626'));
@@ -4375,14 +4398,59 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(tt==="practice_pack_child")return '<span class="ops-action-link" data-ops-action="'+esc(t.id)+'">Review \u2192</span>';
     return '<span class="ops-action-link" data-ops-action="'+esc(t.id)+'">Open \u2192</span>';
   }
+  // "Document checks": candidate document-verification tasks for un-placed GPs. The
+  // server (/api/admin/ops/queue) routes these to the least-loaded RSO via the task's
+  // `assignee`, WITHOUT assigning the case (case_assigned stays false) \u2014 the candidate
+  // isn't this RSO's caseload, they're just verifying one flagged document. Rendered as
+  // a flat list of self-contained cards (name + document + AI reason + routing note +
+  // a button straight into the existing review modal) rather than the per-GP
+  // header/expand-row caseload pattern, since there is nothing else to guide here.
+  function renderOpsDocChecksSection(tasks){
+    var h='<div class="ops-doccheck-section">';
+    h+='<div class="ops-doccheck-title">Document checks \u2014 candidates not in your caseload</div>';
+    h+='<div class="ops-doccheck-intro">These doctors haven\u2019t secured a placement yet, so they aren\u2019t assigned to anyone. Just verify the flagged document \u2014 you won\u2019t be guiding them through registration, and they won\u2019t appear in your GP list.</div>';
+    tasks.forEach(function(t){
+      var docLabel=t.title||t.related_document_key||'Flagged document';
+      var reason=t.ai_match_reasoning||t.description||'';
+      h+='<div class="ops-doccheck-row" data-ops-doccheck-id="'+esc(t.id)+'">';
+      h+='<div class="todo-avatar">'+esc(ini(t.gp_name||''))+'</div>';
+      h+='<div class="ops-doccheck-main">';
+      h+='<div class="ops-doccheck-name">'+esc(t.gp_name||'Unknown candidate')+'</div>';
+      h+='<div class="ops-doccheck-doc">'+esc(docLabel)+'</div>';
+      if(reason)h+='<div class="ops-doccheck-reason">'+esc(reason)+'</div>';
+      h+='<div class="ops-doccheck-routed">Routed to you \u2014 fewest open tasks</div>';
+      h+='</div>';
+      h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(t.id)+'\')">Review Document</button>';
+      h+='</div>';
+    });
+    h+='</div>';
+    return h;
+  }
   function renderOpsTable(){
     if(!S._opsCollapsed)S._opsCollapsed=new Set();
     var container=document.getElementById("opsTableBody");
     var now=new Date();
-    if(!S.opsTasks||!S.opsTasks.length){container.innerHTML='<div class="ops-empty-msg">No tasks match the current filters.</div>';return;}
+    var allOpsTasks=S.opsTasks||[];
+    if(!allOpsTasks.length){container.innerHTML='<div class="ops-empty-msg">No tasks match the current filters.</div>';return;}
+
+    // Split into "Document checks" (case_assigned===false \u2014 routed via task.assignee to
+    // this RSO on a candidate with no case owner) and the normal per-GP caseload list
+    // (case_assigned===true). Document checks render in their own section and must never
+    // also appear below in the caseload grouping.
+    var opsDocCheckTasks=allOpsTasks.filter(function(t){return t.case_assigned===false;});
+    var opsCaseloadTasks=allOpsTasks.filter(function(t){return t.case_assigned!==false;});
+    var opsSectionsHtml=opsDocCheckTasks.length?renderOpsDocChecksSection(opsDocCheckTasks):'';
+
+    if(!opsCaseloadTasks.length){
+      container.innerHTML=opsSectionsHtml||'<div class="ops-empty-msg">No tasks match the current filters.</div>';
+      allOpsTasks.forEach(function(t){
+        if(S.opsExpandedId===t.id){setTimeout(function(){renderExpandedOpsRow(t);},0);}
+      });
+      return;
+    }
 
     // Sort tasks: overdue first, then by days-until-due ascending (nulls last), then Hazel's ball first
-    var sorted=S.opsTasks.slice().sort(function(a,b){
+    var sorted=opsCaseloadTasks.slice().sort(function(a,b){
       var aDD=a.due_date||a.sla_due_date,bDD=b.due_date||b.sla_due_date;
       var aOver=aDD&&new Date(aDD)<now&&a.status!=="completed"&&a.status!=="cancelled"?1:0;
       var bOver=bDD&&new Date(bDD)<now&&b.status!=="completed"&&b.status!=="cancelled"?1:0;
@@ -4520,10 +4588,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       });
       html+='</div>';
     });
-    container.innerHTML=html;
+    container.innerHTML=opsSectionsHtml+html;
 
-    // Async render expanded content after DOM renders
-    sorted.forEach(function(t){
+    // Async render expanded content after DOM renders (covers every task, including
+    // Document-check rows, which don't offer expand-in-place today but are included
+    // here for safety in case S.opsExpandedId still points at one).
+    allOpsTasks.forEach(function(t){
       if(S.opsExpandedId===t.id){setTimeout(function(){renderExpandedOpsRow(t);},0);}
     });
   }
