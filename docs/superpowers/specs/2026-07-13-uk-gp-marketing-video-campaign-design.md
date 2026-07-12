@@ -19,7 +19,7 @@ consumes this spec.
 |-------|--------------|--------|
 | 1. Plan (this doc) | Opus | Settings, reference-asset list, per-video briefs |
 | 2. Reference build | Higgsfield `generate_image` + `media_upload` | Character portraits, location plates, uploaded real logo + app screenshots |
-| 3. Prompt writing | **Claude Fable 5** | Exact per-shot `generate_video` prompts referencing the locked assets |
+| 3. Prompt writing | **Claude Fable 5** | Exact per-shot `generate_video` prompts, written **video-by-video** so Fable calibrates (see Execution rhythm) |
 | 4. Generation | Higgsfield `generate_video` | Raw clips |
 | 5. Assembly | (editor) | Final videos with captions, VO, logo end-card, per-format exports |
 
@@ -178,6 +178,33 @@ per-shot `generate_video` prompts:
   cta: "Create your free account · free forever for doctors"
 }
 ```
+
+## Execution rhythm (video-by-video)
+
+Videos are produced **one at a time in a single Fable 5 session**, not batched.
+Each video runs the loop:
+
+1. Fable drafts the per-shot prompts from that video's brief packet.
+2. Review + feedback (owner + Opus) — tighten hook, look, pacing, captions.
+3. Refine → Higgsfield `generate_video` → review clips → lock the video.
+
+Because Fable keeps the whole session in context, every round of feedback teaches
+it our house style — grade, character direction, caption voice, CTA, what
+"on brand" means. **By roughly video 3–4 it is calibrated and can take the
+remaining videos with lighter review** (owner spot-checks rather than full review).
+
+**Suggested calibration order** — cover each creative *mode* early, so Fable has
+seen the full range before it runs largely solo:
+
+1. A **cinematic lifestyle** ad — locks the visual grade + character/location look
+   (e.g. #1 "The 4pm Finish").
+2. A **UGC testimonial** — locks the selfie / talking-head style
+   (e.g. #4 "I left the NHS").
+3. An **app-ease** video — locks handling of the real UI on-device
+   (e.g. B "Australia, handled").
+
+After those three modes are nailed, the remaining seven are variations on
+patterns Fable has already proven, so it self-drives with owner spot-checks.
 
 ## Competitor research
 
