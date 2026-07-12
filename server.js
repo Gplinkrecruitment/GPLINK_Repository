@@ -517,6 +517,23 @@ async function ensureAdminCaseAccess(adminCtx, caseRow, res) {
   return false;
 }
 
+// Task-aware access guard. Like ensureAdminCaseAccess, but also allows the caller
+// when they are the TASK's assignee — i.e. an un-placed-candidate document check
+// routed to them (whose case is unassigned, so pure case-scoping would 403). Used
+// by per-task action endpoints (e.g. document preview) so the routed RSO can act on
+// the check they were shown. `caseRow` needs only assigned_rso/assigned_va.
+async function ensureAdminTaskAccess(adminCtx, taskId, res) {
+  const scope = await resolveAdminGpScope(adminCtx);
+  const tid = String(taskId || '').trim();
+  const tr = tid ? await supabaseDbRequest('registration_tasks',
+    'select=case_id,assignee&id=eq.' + encodeURIComponent(tid) + '&limit=1') : { ok: false };
+  const task = (tr.ok && Array.isArray(tr.data) && tr.data[0]) ? tr.data[0] : null;
+  const caseRow = task && task.case_id ? await fetchCaseAssignmentById(task.case_id) : null;
+  if (task && taskVisibleToRso(scope, task, caseRow)) return true;
+  sendJson(res, 403, { ok: false, message: 'This GP is not assigned to you.' });
+  return false;
+}
+
 // The set of GP user_ids whose case is assigned to this RSO — used to scope the
 // dashboard candidate list (built from user records, not case rows).
 async function fetchAssignedCaseUserIds(rsoUserId) {
@@ -49565,7 +49582,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const taskId = url.searchParams.get('task_id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
-    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(taskId), res))) return;
+    if (!(await ensureAdminTaskAccess(adminCtx, taskId, res))) return;
 
     const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
     if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
