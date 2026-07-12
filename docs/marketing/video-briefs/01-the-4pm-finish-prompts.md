@@ -129,12 +129,19 @@ locked before motion is added.
 > ocean. Warm cinematic golden grade, vast open vertical framing.
 > Ultra-photorealistic.
 
-### App screenshot for Shot 4 — ⚠️ open dependency
-The brief's shot 4 shows the GP Link app on a phone. Guardrail: **UI must be
-genuine** — we don't generate fake UI. Needs one live screenshot captured
-(recommended: the 6-step journey tracker — it *is* "every step handled").
-**Fallback if unavailable:** shoot S4 as plan B below (screen washed out by
-sun flare, no readable UI) and let the caption carry the brand line.
+### App screenshot for Shot 4 — ✅ RESOLVED (owner-supplied, uploaded)
+Real screenshot of the app home/journey screen ("Your Journey" progress card,
+"Find Your Practice / Browse jobs", "The Journey" with Secure Placement
+CURRENT) supplied by the owner from `IMG_0112.jpg` and uploaded via
+`media_upload` → **`media_id: 1dd84e3d-388c-4ce7-9c8a-74424c5e0fbb`**
+(`gp-link-app-home-journey.jpg`). Shot 4 runs **Plan A** with this reference.
+
+⚠️ **Naming note for review:** the screenshot greets **"Welcome Back, Dr
+Helen"** — a real client's first name — and S4 is a close-up where the screen
+is legible. Options: (a) use as-is; (b) recapture the same screen from a demo
+account named **Dr James** (matches the ad's character — cleanest); (c) keep
+this capture but frame/flare S4 so the greeting line sits off-screen while the
+journey card stays readable. Recommendation: **(b)**, else (c).
 
 ---
 
@@ -215,8 +222,8 @@ Caption: **"You didn't train ten years to burn out."**
 ### S4 — BRIDGE, brand touch (beat 10–14s · generate 4s)
 Caption: **"Move to Australia. GP Link handles every step — free."**
 
-**Plan A (real screenshot available)** — `image_references:` uploaded app
-screenshot
+**Plan A (locked — real screenshot uploaded)** — `image_references:`
+`1dd84e3d-388c-4ce7-9c8a-74424c5e0fbb` (app home/journey screen)
 > Close-up of two hands holding a phone in bright warm morning light beside a
 > large window, sun flare gently sweeping across the frame. On the phone
 > screen: the GP Link app exactly as in the attached reference screenshot —
@@ -294,8 +301,9 @@ guarantees zero warp on the one asset that must never look "AI".
 2. Dr James portrait prompt — happy with the look?
 3. Clock strategy: time baked into seed stills (F2c 7:00 / F5b 4:00), hands
    pinned in the prompts, dedicated rhymed inserts. OK?
-4. Shot 4: capture the live journey-tracker screenshot (Plan A), or run
-   Plan B sun-flare fallback for the calibration pass?
+4. Shot 4: screenshot supplied & uploaded (Plan A locked). Decide the
+   "Dr Helen" naming question above — as-is / recapture as Dr James /
+   frame the greeting off-screen.
 5. End-card built in edit from the real logo (no generated logo). OK?
 6. Any caption copy changes before we generate?
 
