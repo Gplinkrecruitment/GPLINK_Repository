@@ -179,6 +179,14 @@ per-shot `generate_video` prompts:
 }
 ```
 
+## Competitor research
+
+Competitor ads (UK-targeted "GP → Australia" recruiters) are used as *pattern*
+inspiration — hooks, offers, length, pacing, CTA — never cloned. Today this is
+manual (owner supplies competitor Facebook / Ad Library URLs → teardown). The
+repeatable process, watch-list, and optional future API automation live in
+`docs/marketing/competitor-ad-monitoring-playbook.md`.
+
 ## Authenticity guardrail
 
 Characters are AI-generated and **illustrative**, not real GP Link clients.
