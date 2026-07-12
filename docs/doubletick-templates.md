@@ -33,10 +33,19 @@ Sent by the app the **first time a GP is assigned to an RSO** (`ensureRsoWelcome
 
 | Template Name | Purpose | Placeholders | Status |
 |---|---|---|---|
-| `gp_link_app_rso_welcome` | Welcome + connect GP to their assigned RSO | `{{1}}` = GP first name, `{{2}}` = RSO first name | PENDING |
+| `gp_link_app_rso_welcome` | Welcome + connect GP to their assigned RSO | `{{1}}` = GP first name; `{{2}}` + `{{3}}` = RSO first name (distinct slots, same value — WhatsApp-safe, avoids a repeated variable) | PENDING (owner-approved copy, submitted for WhatsApp approval) |
 
-**Draft copy (awaiting owner sign-off + WhatsApp approval):**
-> Hi {{1}}, welcome to GP Link 👋 You're now connected with {{2}}, your dedicated Registration Support Officer. {{2}} will guide you through every step of getting registered to work as a GP in Australia. Whenever you have a question or need a hand, just reply to this message — we're here to help.
+**Final copy (owner-approved 2026-07-13):**
+> Hi Dr {{1}}, welcome to GP Link 👋
+>
+> I'm {{2}}, your dedicated Registration Support Officer. I'll be your main point of contact and will guide you through every step of getting registered to work as a GP in Australia.
+>
+> Whenever you have a question or need a hand, just shoot me a message. Excited to be working with you and in helping you start this next chapter in life!
+>
+> Warm regards,
+> {{3}}
+> Registration Support Officer
+> GP Link
 
 Template map: `DOUBLETICK_RSO_WELCOME_TEMPLATE` (server.js). Wired into every assignment path (admin reassign, CEO reassign, bulk reassign, and the `/api/admin/ops/resync-dt-assignment` trigger) — but NOT the inbound webhook (the GP already has a live chat there). If the owner picks the generic 1-placeholder wording instead, drop `{{2}}` and the `rsoFirstName` placeholder.
 

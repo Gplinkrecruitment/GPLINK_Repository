@@ -215,7 +215,9 @@ const DOUBLETICK_STAGE_TEMPLATES = {
 // time a GP is assigned to an RSO, to MATERIALIZE their DoubleTick conversation so
 // it shows up in that RSO's assigned inbox (a first-contact message to a GP who has
 // never messaged us MUST be an approved template). {{1}} = GP first name,
-// {{2}} = RSO first name. Pending WhatsApp approval — sends fail-soft until live.
+// {{2}} = RSO first name (intro), {{3}} = RSO first name (sign-off — a distinct
+// slot with the same value, since WhatsApp is safest without a repeated variable).
+// Pending WhatsApp approval — sends fail-soft until live.
 const DOUBLETICK_RSO_WELCOME_TEMPLATE = { templateName: 'gp_link_app_rso_welcome', language: 'en' };
 // Direct text messages used while templates are pending approval
 const DOUBLETICK_STAGE_MESSAGES = {
@@ -14272,7 +14274,7 @@ async function ensureRsoWelcomeSent(opts) {
         content: {
           templateName: DOUBLETICK_RSO_WELCOME_TEMPLATE.templateName,
           language: DOUBLETICK_RSO_WELCOME_TEMPLATE.language,
-          templateData: { body: { placeholders: [gpFirstName || 'there', rsoFirstName] } }
+          templateData: { body: { placeholders: [gpFirstName || 'there', rsoFirstName, rsoFirstName] } }
         }
       }]
     });
