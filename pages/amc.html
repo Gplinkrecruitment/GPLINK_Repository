@@ -316,6 +316,13 @@
     .warn.hidden { display: none; }
     .warn-title { font-size: 13px; font-weight: 600; color: var(--warn-text); margin-bottom: 2px; }
     .warn-text { font-size: 12px; color: var(--warn-text); line-height: 1.45; opacity: 0.8; }
+    .warn.warn-danger {
+      border: 1px solid var(--gp-red-border);
+      border-left: 3px solid var(--gp-red);
+      background: var(--gp-red-soft);
+    }
+    .warn.warn-danger .warn-title,
+    .warn.warn-danger .warn-text { color: var(--gp-red-ink); opacity: 1; }
 
     /* ---- INFO ROWS ---- */
     .info-rows { margin-bottom: var(--sp-7); }
@@ -1216,6 +1223,18 @@
     </div>
   </div>
 
+  <!-- NAME CHANGE EVIDENCE MODAL -->
+  <div class="modal" id="nameChangeModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="nameChangeModalTitle">
+      <h4 id="nameChangeModalTitle">Where to upload your evidence</h4>
+      <p>On the AMC portal, upload your name-change evidence at step 2.4 Evidence, shown below.</p>
+      <img src="/media/images/amc-name-change-reference.png" alt="AMC portal step 2.4 Evidence — where to upload name-change evidence" style="width:100%;border-radius:var(--gp-r-md)">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-outline" data-close="nameChangeModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
@@ -1439,6 +1458,7 @@
     // ─── DOM REFS ────────────────────────────────────────────────
     const toastEl = document.getElementById("toast");
     const supportModalEl = document.getElementById("supportModal");
+    const nameChangeModalEl = document.getElementById("nameChangeModal");
     const supportCategoryEl = document.getElementById("supportCategory");
     const supportSummaryEl = document.getElementById("supportSummary");
     const supportMessageEl = document.getElementById("supportMessage");
@@ -1449,6 +1469,7 @@
     const stepTabsEl = document.getElementById("stepTabs");
 
     let currentTabKey = null; // tracks which tab is selected/viewed
+    let nameChangeDetected = false; // /api/state.nameChangeDetected — gates the Establishment-step evidence notice
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -1699,12 +1720,23 @@
 
       // Warning
       const warning = document.getElementById("stepWarning");
-      if (isAction) {
+      // Name-change evidence notice takes priority over the generic Establishment
+      // warning whenever it applies — gated purely on tab + flag (Task 8 spec),
+      // independent of step-completion status.
+      const showNameChangeNotice = key === "upload_credentials" && !!nameChangeDetected;
+      if (showNameChangeNotice) {
         warning.classList.remove("hidden");
+        warning.classList.add("warn-danger");
+        document.getElementById("stepWarningTitle").textContent = "Name change detected — extra evidence required";
+        document.getElementById("stepWarningText").textContent = "The name on your qualifications is different from your account name. The AMC will ask you to prove the difference before your portfolio can be verified.";
+      } else if (isAction) {
+        warning.classList.remove("hidden");
+        warning.classList.remove("warn-danger");
         document.getElementById("stepWarningTitle").textContent = "Account setup required";
         document.getElementById("stepWarningText").textContent = "Complete your AMC Candidate Portfolio setup and upload your specialist qualifications.";
       } else {
         warning.classList.add("hidden");
+        warning.classList.remove("warn-danger");
       }
 
       // Info rows
@@ -1715,6 +1747,25 @@
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
+      // Name-change evidence block — appended into the action card so the GP sees
+      // exactly what documents AMC will require, plus a screenshot of where to
+      // upload them (Task 8 spec).
+      let nameChangeBlockHtml = '';
+      if (showNameChangeNotice) {
+        nameChangeBlockHtml = `
+            <div class="warn warn-danger" id="nameChangeActionBlock" style="margin-top:14px;">
+              <div class="warn-title">Evidence of name change required</div>
+              <div class="warn-text">We've detected your name was changed at some point. You'll need to provide legal evidence of your name change or difference:</div>
+              <ul style="margin:8px 0 10px 18px;padding:0;font-size:12px;color:var(--gp-red-ink);line-height:1.6;">
+                <li>Marriage Certificate</li>
+                <li>Change of Name legal document</li>
+                <li>Deed Poll</li>
+                <li>Birth Certificate</li>
+              </ul>
+              <button class="btn-modern btn-outline" id="nameChangeShowMeBtn" type="button">Show me where</button>
+            </div>`;
+      }
+
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="action-card">
           <div class="action-card-body">
@@ -1723,7 +1774,7 @@
             <div class="action-card-meta">
               <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
             </div>
-            ${actionBtnHtml}
+            ${actionBtnHtml}${nameChangeBlockHtml}
           </div>
         </div>
       `;
@@ -1791,6 +1842,13 @@
       if (prevBtn) {
         prevBtn.addEventListener("click", () => {
           rewindToPreviousStep(progress, key);
+        });
+      }
+
+      const nameChangeShowBtn = document.getElementById("nameChangeShowMeBtn");
+      if (nameChangeShowBtn) {
+        nameChangeShowBtn.addEventListener("click", () => {
+          openModal(document.getElementById("nameChangeModal"), nameChangeShowBtn);
         });
       }
 
@@ -2225,6 +2283,28 @@
       }
     });
 
+    nameChangeModalEl.addEventListener("click", e => { if (e.target === nameChangeModalEl) closeModal(nameChangeModalEl); });
+    nameChangeModalEl.addEventListener("keydown", e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeModal(nameChangeModalEl);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = [...nameChangeModalEl.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])")]
+        .filter(el => !el.hasAttribute("disabled"));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+
     // Touch drag for mobile reg sheet
     let startY = 0, deltaY = 0, dragging = false;
     if (mobileRegSheet) {
@@ -2436,6 +2516,27 @@
       });
     }
 
+    // ─── NAME-CHANGE EVIDENCE FLAG ──────────────────────────────
+    // /api/state (server.js) now returns nameChangeDetected/nameChangeNote,
+    // read from user_profiles and set when an RSO approves a qualification
+    // document whose name differs from the account. state-sync.js only
+    // round-trips its fixed STATE_KEYS list into localStorage, so this flag
+    // never lands there — read it directly, the same way pages/index.html and
+    // pages/account.html already read other top-level /api/state fields that
+    // aren't part of the tracked-key sync.
+    function loadNameChangeFlag() {
+      fetch("/api/state", { credentials: "same-origin" })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          const s = d && d.state && typeof d.state === "object" ? d.state : {};
+          const next = !!s.nameChangeDetected;
+          if (next === nameChangeDetected) return;
+          nameChangeDetected = next;
+          if (currentTabKey === "upload_credentials") renderPage(loadProgress());
+        })
+        .catch(() => {});
+    }
+
     if (!redirectToAllowedStage()) {
       if (shouldShowMyintealthGate()) {
         showMyintealthGate();
@@ -2443,6 +2544,7 @@
         showAmcContent();
         initAmcPage();
       }
+      loadNameChangeFlag();
 
       // Re-render after state-sync hydrates the current user's data
       window.addEventListener("gp-state-hydrated", function () {
