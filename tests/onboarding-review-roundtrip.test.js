@@ -210,6 +210,10 @@ function httpReq(method, p, { cookie, body, headers } = {}) {
 }
 function postJson(p, body, cookie) { return httpReq('POST', p, { cookie, body }); }
 function getJson(p, cookie) { return httpReq('GET', p, { cookie }); }
+function putJson(p, body, cookie) { return httpReq('PUT', p, { cookie, body }); }
+
+// Real 1x1 PNG (passes lib/file-sanitise.js validateFileUpload magic-byte checks).
+const ONE_PX_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 let realFetch;
 const resendCalls = [];
@@ -305,5 +309,22 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(alert).toBeTruthy();
     const onboardingLeak = (st.state.gp_link_updates || []).find((a) => a.target === '/pages/onboarding.html?reupload=cscst_certified');
     expect(onboardingLeak).toBeFalsy();
+  });
+
+  it('re-uploading a rejected onboarding doc synchronously creates a fresh RSO review task', async () => {
+    const r = await putJson('/api/onboarding-documents', {
+      country: 'GB', key: 'onboarding_specialist_qualification',
+      fileName: 'mrcgp-fixed.png', mimeType: 'image/png', fileSize: 0, fileDataUrl: ONE_PX_PNG
+    }, gpCookie());
+    expect(r.status).toBe(200);
+    const open = db.registration_tasks.filter(t =>
+      t.case_id === 'case-ob-1' &&
+      (t.task_type === 'doc_review' || t.task_type === 'flagged_doc') &&
+      t.related_document_key === 'specialist_qualification' &&
+      ['open', 'in_progress', 'waiting'].includes(t.status));
+    expect(open.length).toBeGreaterThan(0);
+    expect(open[0].related_stage).toBe('onboarding');
+    const row = db.user_documents.find(d => d.document_key === 'onboarding_specialist_qualification');
+    expect(row.status).not.toBe('rejected');
   });
 });

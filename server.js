@@ -43197,10 +43197,22 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // Re-review guarantee: if this upload REPLACES a rejected document, an RSO must
+    // see the corrected file. The hourly reconcile sweep intentionally skips docs
+    // that already have a (completed) review task, and the background AI pipeline is
+    // best-effort on serverless — so create the review task synchronously here.
+    const priorRow = await getOnboardingDocumentRow(userId, payload.country, payload.key);
+    const priorStatus = priorRow ? String(priorRow.status || '') : '';
+
     const saved = await saveOnboardingDocumentForUser(userId, email, payload);
     if (!saved) {
       sendJson(res, 502, { ok: false, message: 'Failed to persist onboarding document.' });
       return;
+    }
+
+    var onboardDocLabel = getDocumentLabelForKey(payload.key) || payload.key;
+    if (priorStatus === 'rejected') {
+      await ensureDocReviewOnUpload(userId, payload.key, onboardDocLabel, 'onboarding');
     }
 
     sendJson(res, 200, {
@@ -43212,7 +43224,6 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Background: run document pipeline. These are genuine onboarding-wizard
     // uploads, so any review/flag task is filed under the "onboarding" stage.
-    var onboardDocLabel = getDocumentLabelForKey(payload.key) || payload.key;
     processDocumentUpload(userId, payload.key, onboardDocLabel, payload.country, payload.mimeType, 'onboarding').catch(function (err) {
       console.error('[DocumentPipeline] background error:', err.message);
     });
