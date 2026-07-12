@@ -1469,7 +1469,7 @@
     const stepTabsEl = document.getElementById("stepTabs");
 
     let currentTabKey = null; // tracks which tab is selected/viewed
-    let nameChangeDetected = false; // /api/state.nameChangeDetected — gates the Establishment-step evidence notice
+    let nameChangeDetected = false; // /api/gp/name-change-flag.nameChangeDetected — gates the Establishment-step evidence notice
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -2517,19 +2517,16 @@
     }
 
     // ─── NAME-CHANGE EVIDENCE FLAG ──────────────────────────────
-    // /api/state (server.js) now returns nameChangeDetected/nameChangeNote,
+    // /api/gp/name-change-flag returns { nameChangeDetected, nameChangeNote },
     // read from user_profiles and set when an RSO approves a qualification
-    // document whose name differs from the account. state-sync.js only
-    // round-trips its fixed STATE_KEYS list into localStorage, so this flag
-    // never lands there — read it directly, the same way pages/index.html and
-    // pages/account.html already read other top-level /api/state fields that
-    // aren't part of the tracked-key sync.
+    // document whose name differs from the account. It's a dedicated lightweight
+    // endpoint (not /api/state) so reading this flag never adds a per-request DB
+    // lookup to the hot state path.
     function loadNameChangeFlag() {
-      fetch("/api/state", { credentials: "same-origin" })
+      fetch("/api/gp/name-change-flag", { credentials: "same-origin" })
         .then(r => (r.ok ? r.json() : null))
         .then(d => {
-          const s = d && d.state && typeof d.state === "object" ? d.state : {};
-          const next = !!s.nameChangeDetected;
+          const next = !!(d && d.nameChangeDetected);
           if (next === nameChangeDetected) return;
           nameChangeDetected = next;
           if (currentTabKey === "upload_credentials") renderPage(loadProgress());

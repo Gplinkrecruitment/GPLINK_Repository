@@ -43221,6 +43221,34 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Name-change evidence flag for the session GP. When an RSO approves a
+  // qualification whose name differs from the account name,
+  // /api/admin/va/task/review-flagged-doc sets user_profiles.name_change_detected.
+  // The AMC "Establishment" step reads this flag to prompt for the extra name-change
+  // evidence AMC requires. Kept as its own lightweight endpoint (not folded into
+  // /api/state) so the state fast-path stays a pure cache read with no per-request
+  // user_profiles lookup.
+  if (pathname === '/api/gp/name-change-flag' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, nameChangeDetected: false, nameChangeNote: '' }); return; }
+    const ncEmail = getSessionEmail(session);
+    const ncUserId = getSessionSupabaseUserId(session) || (ncEmail ? await getSupabaseUserIdByEmail(ncEmail) : null);
+    if (!ncUserId) { sendJson(res, 200, { ok: true, nameChangeDetected: false, nameChangeNote: '' }); return; }
+    let ncDetected = false, ncNote = '';
+    try {
+      const ncRes = await supabaseDbRequest('user_profiles',
+        'select=name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(ncUserId) + '&limit=1');
+      const ncRow = ncRes.ok && Array.isArray(ncRes.data) && ncRes.data[0] ? ncRes.data[0] : null;
+      if (ncRow) {
+        ncDetected = ncRow.name_change_detected === true;
+        ncNote = typeof ncRow.name_change_note === 'string' ? ncRow.name_change_note : '';
+      }
+    } catch (ncErr) { console.error('[api/gp/name-change-flag] read failed:', ncErr && ncErr.message); }
+    sendJson(res, 200, { ok: true, nameChangeDetected: ncDetected, nameChangeNote: ncNote });
+    return;
+  }
+
   // ── Cross-device alert read-state sync ──
   // The bell panel (js/updates-sync.js) is local-first: read/unread state lives
   // in localStorage so it keeps working offline. This endpoint is the merge
@@ -43335,37 +43363,11 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Name-change evidence flag (from user_profiles) — surfaced to the AMC
-    // "Establishment" step so a GP whose approved qualification carried a different
-    // name is prompted for the extra evidence AMC requires. Read once and merged into
-    // every /api/state response shape below (warm-cache, remote, empty, and local).
-    var nameChangeDetected = false;
-    var nameChangeNote = '';
-    try {
-      const stateProfileUserId = getSessionSupabaseUserId(session)
-        || (isSupabaseDbConfigured() && email ? await getSupabaseUserIdByEmail(email) : null);
-      if (stateProfileUserId && isSupabaseDbConfigured()) {
-        const ncRes = await supabaseDbRequest('user_profiles',
-          'select=name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(stateProfileUserId) + '&limit=1');
-        const ncRow = ncRes.ok && Array.isArray(ncRes.data) && ncRes.data[0] ? ncRes.data[0] : null;
-        if (ncRow) {
-          nameChangeDetected = ncRow.name_change_detected === true;
-          nameChangeNote = typeof ncRow.name_change_note === 'string' ? ncRow.name_change_note : '';
-        }
-      }
-    } catch (ncErr) { console.error('[api/state] name-change read failed:', ncErr && ncErr.message); }
-    const withNameChange = function (s) {
-      return Object.assign({}, (s && typeof s === 'object') ? s : {}, {
-        nameChangeDetected: nameChangeDetected,
-        nameChangeNote: nameChangeNote
-      });
-    };
-
     // Check auth pre-warm cache first
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      sendJson(res, 200, { ok: true, state: withNameChange(warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      sendJson(res, 200, { ok: true, state: warmedState, resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -43376,7 +43378,7 @@ Return ONLY valid JSON with no markdown formatting:
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
-          state: withNameChange(filtered),
+          state: filtered,
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
         });
@@ -43385,7 +43387,7 @@ Return ONLY valid JSON with no markdown formatting:
 
       sendJson(res, 200, {
         ok: true,
-        state: withNameChange({}),
+        state: {},
         updatedAt: null,
         resetAt: 0
       });
@@ -43398,7 +43400,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      state: withNameChange(filtered),
+      state: filtered,
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
     });
