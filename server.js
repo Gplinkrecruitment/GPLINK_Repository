@@ -29735,12 +29735,20 @@ async function handleApi(req, res, pathname) {
         var rdtCombo = rdtCase.id + '::' + rdtCanon;
         if (rdtHandled[rdtCombo]) continue;
 
-        // Skip if an open review/flag task already covers this (case, canonical doc key).
-        var rdtOpen = await supabaseDbRequest('registration_tasks',
+        // Skip if ANY review/flag task (open OR already-resolved) has ever covered this
+        // (case, canonical doc key). The sweep's ONLY job is to catch a document whose
+        // review task was never created (a silent upload-pipeline failure) — NOT to
+        // re-open a document an RSO already approved or rejected. A flagged doc stays
+        // status='under_review' after its task is completed (approve/reject doesn't
+        // clear it), so checking only OPEN tasks re-created a fresh task every hour for
+        // every already-reviewed document. A genuine re-upload gets its own fresh task
+        // synchronously from the upload path (ensureDocReviewOnUpload), so the sweep
+        // never needs to re-create for a document that already has review history.
+        var rdtExisting = await supabaseDbRequest('registration_tasks',
           'select=id&case_id=eq.' + encodeURIComponent(rdtCase.id) +
           '&task_type=in.(flagged_doc,doc_review)&related_document_key=eq.' + encodeURIComponent(rdtCanon) +
-          '&status=in.(open,in_progress,waiting)&limit=1');
-        if (rdtOpen.ok && Array.isArray(rdtOpen.data) && rdtOpen.data.length) continue;
+          '&limit=1');
+        if (rdtExisting.ok && Array.isArray(rdtExisting.data) && rdtExisting.data.length) continue;
 
         var rdtLabel = getDocumentLabelForKey(rdtKey) || rdtKey;
         var rdtReason = rdtDoc.rejection_reason ||
