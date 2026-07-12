@@ -12804,8 +12804,39 @@ async function _createRegTask(caseId, data) {
     await supabaseDbRequest('task_timeline', '', {
       method: 'POST', body: [{ task_id: task.id, case_id: caseId, event_type: 'created', title: 'Task created', detail: task.title, actor: actor }]
     });
+    return task;
   }
-  return task;
+  // createDocReviewTask/createFlaggedDocTask dedupe with a read-then-insert
+  // SELECT, which can race under serverless burst load (observed in prod:
+  // three identical open doc_review tasks created ~18 minutes apart by
+  // concurrent upload pipelines whose dedupe SELECTs and task_timeline writes
+  // silently failed). supabase/migrations/20260713100000_unique_open_doc_review_tasks.sql
+  // makes the duplicate insert impossible at the DB level (23505 -> PostgREST
+  // 409) for the two document-check task types. Degrade gracefully here:
+  // find the task the index says already exists, reopen it, and hand it back
+  // instead of losing the upload's review entirely.
+  const guardedType = payload.task_type === 'doc_review' || payload.task_type === 'flagged_doc';
+  if (r.status === 409 && payload.related_document_key && guardedType) {
+    const existingRes = await supabaseDbRequest('registration_tasks',
+      'select=*&case_id=eq.' + encodeURIComponent(caseId) +
+      '&task_type=eq.' + encodeURIComponent(payload.task_type) +
+      '&related_document_key=eq.' + encodeURIComponent(payload.related_document_key) +
+      '&status=in.(open,in_progress,waiting)&limit=1');
+    const existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
+    if (existing) {
+      const nowIso = new Date().toISOString();
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existing.id), {
+        method: 'PATCH', body: { status: 'open', updated_at: nowIso }
+      });
+      existing.status = 'open';
+      existing.updated_at = nowIso;
+      await supabaseDbRequest('task_timeline', '', {
+        method: 'POST', body: [{ task_id: existing.id, case_id: caseId, event_type: 'system', title: 'Duplicate task creation blocked — existing task reused', detail: payload.title, actor: actor }]
+      });
+      return existing;
+    }
+  }
+  return null;
 }
 
 // ── Support ticket identity + grouping helpers ─────────────────────────────
@@ -59244,6 +59275,7 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  _createRegTask,
   supportDisplayName,
   isWithinGroupingWindow,
   extractEmailAddress,
