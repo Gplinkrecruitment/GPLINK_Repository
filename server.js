@@ -467,6 +467,16 @@ function gpScopeAllowsCase(scope, caseRow) {
   return caseAssignedToRso(caseRow, scope && scope.rsoUserId);
 }
 
+// May this admin see a TASK? Case-scoping is the default (gpScopeAllowsCase), but a
+// task routed to this RSO via registration_tasks.assignee — a candidate "document
+// check" whose case is NOT assigned to anyone — is visible to that RSO even though
+// the case isn't theirs. Super admins always see everything.
+function taskVisibleToRso(scope, task, caseRow) {
+  if (gpScopeAllowsCase(scope, caseRow)) return true;
+  if (scope && scope.superAdmin) return true;
+  return !!(task && task.assignee && scope && scope.rsoUserId && task.assignee === scope.rsoUserId);
+}
+
 // Fetch a single registration_cases row's assignment fields by case id (for
 // per-GP detail/mutation endpoints that receive a case_id). Returns null on miss.
 async function fetchCaseAssignmentById(caseId) {
@@ -45180,9 +45190,10 @@ Return ONLY valid JSON with no markdown formatting:
       const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va,assigned_rso&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
       if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
     }
-    // Authorization: a regular admin (RSO) only sees tasks for their assigned GPs.
+    // Authorization: a regular admin (RSO) only sees tasks for their assigned GPs,
+    // PLUS candidate document checks routed to them via task.assignee (unassigned case).
     if (!tasksGpScope.superAdmin) {
-      tasks = tasks.filter(function (t) { return gpScopeAllowsCase(tasksGpScope, caseMap[t.case_id]); });
+      tasks = tasks.filter(function (t) { return taskVisibleToRso(tasksGpScope, t, caseMap[t.case_id]); });
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
@@ -52433,11 +52444,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
     }
     // Authorization: a regular admin (RSO) only sees ops-queue tasks for their
-    // assigned GPs. Fail-closed — a task whose case is missing/unassigned is dropped.
-    // Honors ?pov_rso for the super-admin "View RSO POV" preview (url in scope).
+    // assigned GPs, PLUS candidate document checks routed to them via task.assignee
+    // (case unassigned). Fail-closed — a task whose case is missing/unassigned AND not
+    // routed to this RSO is dropped. Honors ?pov_rso for the super-admin "View RSO POV".
     const opsScope = await resolveAdminGpScope(adminCtx, url);
     if (!opsScope.superAdmin) {
-      tasks = tasks.filter(function (t) { return gpScopeAllowsCase(opsScope, caseMap[t.case_id]); });
+      tasks = tasks.filter(function (t) { return taskVisibleToRso(opsScope, t, caseMap[t.case_id]); });
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
@@ -52460,6 +52472,12 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
+        // Candidate "Document checks" separation: `assignee` is the task-level RSO this
+        // check was routed to (may be null); `case_assigned` is whether the parent case
+        // is owned by an RSO/VA. A row with assignee===me but case_assigned===false is a
+        // document check (verify only), not part of that RSO's guided caseload.
+        assignee: t.assignee || null,
+        case_assigned: !!(c.assigned_rso || c.assigned_va),
         case_stage: c.stage || '',
         case_status: c.status || '',
         practice_name: c.practice_name || '',
@@ -58848,6 +58866,7 @@ module.exports.__testUtils = {
   resolveAdminGpScope,
   caseAssignedToRso,
   gpScopeAllowsCase,
+  taskVisibleToRso,
   scopeDashboardToUserIds,
   sendEmail,
   buildMatchEmailHtml,
