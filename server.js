@@ -52994,6 +52994,30 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops diagnostic: inspect a phone's DoubleTick customer record
+  // (which WABA it's on + who it's assigned to) to debug inbox visibility. Same
+  // auth as resync above (admin session OR x-gp-ops-key == service-role key).
+  if (pathname === '/api/admin/ops/dt-customer-diag' && req.method === 'POST') {
+    const dgOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    const dgSvc = !!(dgOpsKey && SUPABASE_SERVICE_ROLE_KEY && dgOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    if (!dgSvc) { const dgA = requireAdminSession(req, res); if (!dgA) return; }
+    let dgBody; try { dgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const dgPhone = normalizePhone(String(dgBody.phone || '')).replace(/[^\d]/g, '');
+    if (!dgPhone) { sendJson(res, 400, { ok: false, message: 'phone required.' }); return; }
+    const dgWaba = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    async function dgGetDetails(qs) {
+      try {
+        const dr = await fetch(DOUBLETICK_BASE_URL + '/customer/details?' + qs, { headers: { 'Authorization': DOUBLETICK_API_KEY } });
+        return { status: dr.status, body: await dr.json().catch(() => null) };
+      } catch (e) { return { error: String(e && e.message) }; }
+    }
+    const dgEmbed = await fetchDoubleTickCustomerId(dgPhone);
+    const dgBaseDetails = await dgGetDetails('phoneNumber=' + encodeURIComponent(dgPhone));
+    const dgWabaDetails = dgWaba ? await dgGetDetails('phoneNumber=' + encodeURIComponent(dgPhone) + '&wabaNumber=' + encodeURIComponent(dgWaba)) : null;
+    sendJson(res, 200, { ok: true, wabaUsed: dgWaba, base: DOUBLETICK_BASE_URL, embed: dgEmbed, detailsNoWaba: dgBaseDetails, detailsWithWaba: dgWabaDetails });
+    return;
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // Visa Questionnaire Endpoints
   // ══════════════════════════════════════════════════════════════════
