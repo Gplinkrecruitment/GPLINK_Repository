@@ -23585,7 +23585,7 @@ async function uploadDocumentToDrive(userId, docRow, fileBuffer, mimeType) {
 }
 
 async function createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult, reviewStage) {
-  var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
@@ -23617,7 +23617,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
   var profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
   var gpName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || 'GP';
 
-  return _createRegTask(gpCase.id, {
+  var docReviewPayload = {
     task_type: 'doc_review',
     title: 'Review uploaded ' + (expectedLabel || documentKey) + ' for Dr ' + gpName,
     priority: 'normal',
@@ -23628,12 +23628,55 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     ai_match_confidence: confidence,
     ai_match_reasoning: aiResult.reason || '',
     _actor: 'system'
-  });
+  };
+  // Un-placed candidate (unassigned case) → route this check to the least-loaded RSO
+  // (mirrors createFlaggedDocTask); assigned cases keep assignee unset (case-scoped).
+  var docReviewAssignee = await resolveCandidateCheckAssignee(gpCase);
+  if (docReviewAssignee) docReviewPayload.assignee = docReviewAssignee;
+  return _createRegTask(gpCase.id, docReviewPayload);
+}
+
+// Decide the task-level assignee for a document check. When the parent case is
+// UNassigned (no assigned_rso and no assigned_va) the candidate is not yet placed
+// and has no guiding RSO, so we route the check to the least-loaded RSO via the
+// task's `assignee` — WITHOUT assigning the whole case (Task 5 makes assignee-owned
+// tasks visible to that RSO's "Document checks"). When the case IS assigned, the
+// existing case scoping already surfaces the task, so we return null (assignee unset).
+// The hello@ master-archive mailbox is never a routing target. Fail-safe: any error
+// returns null, so a task is still created (just case-scoped) rather than lost.
+async function resolveCandidateCheckAssignee(caseRow) {
+  if (!caseRow) return null;
+  if (caseRow.assigned_rso || caseRow.assigned_va) return null; // assigned → case scoping covers it
+  try {
+    const [casesRes, tasksRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=id,assigned_rso,assigned_va&status=eq.active'),
+      supabaseDbRequest('registration_tasks', 'select=id,case_id,status,assignee&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)')
+    ]);
+    const activeCases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
+    const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    // computeRsoWorkload (inside pickLeastLoadedRso) seeds candidate buckets from
+    // rso_id/rso_name; loadRsoTeam rows carry user_id/name (as every other
+    // computeRsoWorkload caller maps). Enrich so zero-case RSOs are still eligible
+    // while eligibility (keyed by user_id) and archive-exclusion still resolve.
+    const rosterRows = await loadRsoTeam();
+    const roster = (rosterRows || []).map(function (r) {
+      return Object.assign({}, r, { rso_id: r.user_id, rso_name: r.name });
+    });
+    // Never route candidate document checks to the hello@ master-archive mailbox.
+    const archiveUserId = (roster.find(function (r) {
+      return String(r.email || '').trim().toLowerCase() === MASTER_ARCHIVE_EMAIL;
+    }) || {}).user_id || null;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return ceoMetrics.pickLeastLoadedRso(activeCases, tasks, roster, todayStr, { excludeUserIds: [archiveUserId] }) || null;
+  } catch (e) {
+    console.error('[candidate-check] assignee resolution failed:', e && e.message);
+    return null;
+  }
 }
 
 // Create (or reopen) a normal-priority manual-review task for a flagged qualification doc.
 async function createFlaggedDocTask(userId, documentKey, label, reason, reviewStage) {
-  var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
   if (!gpCase) return null;
 
@@ -23671,7 +23714,7 @@ async function createFlaggedDocTask(userId, documentKey, label, reason, reviewSt
     return existing;
   }
 
-  return _createRegTask(gpCase.id, {
+  var flaggedTaskPayload = {
     task_type: 'flagged_doc',
     title: 'Review flagged qualification: ' + (label || documentKey),
     description: reason,
@@ -23684,7 +23727,12 @@ async function createFlaggedDocTask(userId, documentKey, label, reason, reviewSt
     related_stage: reviewStage || 'onboarding',
     related_document_key: canonKey,
     _actor: 'system'
-  });
+  };
+  // Un-placed candidate (unassigned case) → route this check to the least-loaded RSO;
+  // assigned cases return null so the assignee stays unset (case scoping covers it).
+  var flaggedAssignee = await resolveCandidateCheckAssignee(gpCase);
+  if (flaggedAssignee) flaggedTaskPayload.assignee = flaggedAssignee;
+  return _createRegTask(gpCase.id, flaggedTaskPayload);
 }
 
 async function autoCloseDocReviewTask(userId, documentKey) {
