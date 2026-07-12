@@ -52966,6 +52966,34 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops: re-push a case's DoubleTick chat ownership to its CURRENTLY-
+  // assigned RSO without needing an assigned_va change. Covers GPs whose RSO was
+  // written directly to the DB (hand-created placements) or whose WhatsApp chat
+  // didn't exist at assignment time, so the normal on-change auto-assign (case
+  // PATCH / inbound webhook) never fired. Auth: admin session OR the Supabase
+  // service-role key via x-gp-ops-key (a server-side secret that already grants
+  // full DB access, so this adds no privilege). Backs a future one-click
+  // "Sync WhatsApp → RSO" button.
+  if (pathname === '/api/admin/ops/resync-dt-assignment' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const rdaOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    const rdaViaServiceKey = !!(rdaOpsKey && SUPABASE_SERVICE_ROLE_KEY && rdaOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    if (!rdaViaServiceKey) { const rdaAdmin = requireAdminSession(req, res); if (!rdaAdmin) return; }
+    let rdaBody; try { rdaBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const rdaCaseId = String(rdaBody.case_id || '').trim();
+    if (!rdaCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+    const rdaCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,assigned_va&id=eq.' + encodeURIComponent(rdaCaseId) + '&limit=1');
+    const rdaRow = (rdaCaseRes.ok && Array.isArray(rdaCaseRes.data) && rdaCaseRes.data[0]) ? rdaCaseRes.data[0] : null;
+    if (!rdaRow || !rdaRow.user_id) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!rdaRow.assigned_va) { sendJson(res, 400, { ok: false, message: 'Case has no assigned RSO.' }); return; }
+    const rdaGpPhone = await getGpWhatsAppPhone(rdaRow.user_id);
+    if (!rdaGpPhone) { sendJson(res, 400, { ok: false, message: 'GP has no WhatsApp phone on file.' }); return; }
+    const rdaResult = await syncCaseChatAssignment({ gpPhone: rdaGpPhone, assignedVaUserId: rdaRow.assigned_va });
+    const rdaOk = !!(rdaResult && rdaResult.ok);
+    sendJson(res, rdaOk ? 200 : 502, { ok: rdaOk, assigned_va: rdaRow.assigned_va, result: rdaResult });
+    return;
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // Visa Questionnaire Endpoints
   // ══════════════════════════════════════════════════════════════════
