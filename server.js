@@ -7354,6 +7354,7 @@ const CRON_SCHEDULES = {
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'reconcile-doc-tasks': { schedule: '30 * * * *', cadenceMinutes: 60 },
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
   'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
@@ -25303,16 +25304,26 @@ async function getGpEmailContextByCaseId(caseId) {
   return getGpEmailContext(cr.data[0].user_id);
 }
 
-async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ctaUrl, footer) {
-  if (!isEmailConfigured()) return;
+// opts (all optional): { from: {email,name}, replyTo } — lets a caller send a GP notification
+// under the case's registration-hub identity (Hazel — GP Link <registration@…>) instead of the
+// default automated sender, so the doctor's reply lands in the watched hub inbox and files
+// itself back onto the case. Returns the address it went TO and the address it went FROM, so
+// the caller can record an honest outbound row in the conversation thread.
+async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ctaUrl, footer, opts) {
+  if (!isEmailConfigured()) return { ok: false, to: '', from: '' };
   const gp = await getGpEmailContext(userId);
-  if (!gp || !gp.email) return;
+  if (!gp || !gp.email) return { ok: false, to: '', from: '' };
+  opts = opts || {};
   const nameVal = gp.firstName || 'there';
   const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
   const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
-  await sendEmail({
+  const fromEmail = (opts.from && opts.from.email)
+    || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
+  const result = await sendEmail({
     to: gp.email,
     subject: subject.replace(/\{\{name\}\}/g, nameVal),
+    from: opts.from || undefined,
+    replyTo: opts.replyTo || undefined,
     html: buildCareerEmailHtml({
       title: personalTitle,
       body: personalBody,
@@ -25320,7 +25331,8 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
       ctaUrl: ctaUrl || APP_BASE_URL + '/pages/index.html',
       footer: footer || ''
     })
-  }).catch((e) => console.error('[email-notify] Send failed:', e && e.error));
+  }).catch((e) => { console.error('[email-notify] Send failed:', e && e.error); return { ok: false }; });
+  return { ok: !!(result && result.ok), to: gp.email, from: fromEmail };
 }
 
 // 1. Welcome Email — sent on first successful login
@@ -36865,6 +36877,12 @@ async function handleApi(req, res, pathname) {
     var emailInReplyTo = body.inReplyTo ? String(body.inReplyTo).trim() : null;
     var emailTaskId = body.taskId ? String(body.taskId).trim() : null;
     var emailCaseId = body.caseId ? String(body.caseId).trim() : null;
+    // newThread:true — "thread this email using ONLY what I passed explicitly". Set by the Inbox
+    // composer when no thread is selected (a brand-new email), and when replying into a group of
+    // notifications that has no Gmail thread of its own. Without it, the auto-derivation below
+    // reaches for the case's / task's most recent Message-ID and silently grafts the email onto
+    // an unrelated older thread.
+    var emailNewThread = (body.newThread === true || body.newThread === 'true');
 
     // Validate required fields
     if (!emailTo) { sendJson(res, 400, { ok: false, message: 'to is required.' }); return; }
@@ -36876,7 +36894,7 @@ async function handleApi(req, res, pathname) {
     // Gmail threadId (which can't be reused when we reply from a different mailbox than the one
     // the original arrived in). This is DB-based, so it never 404s on a wrong-mailbox lookup.
     var emailReferences = '';
-    if (!emailInReplyTo && (emailThreadId || emailCaseId)) {
+    if (!emailNewThread && !emailInReplyTo && (emailThreadId || emailCaseId)) {
       try {
         var _irq = 'select=rfc822_message_id,rfc822_references&channel=eq.email&direction=eq.inbound&rfc822_message_id=not.is.null'
           + (emailThreadId ? ('&gmail_thread_id=eq.' + encodeURIComponent(emailThreadId)) : ('&case_id=eq.' + encodeURIComponent(emailCaseId)))
@@ -36891,7 +36909,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Auto-resolve threading from task when threadId not explicitly provided
-    if (!emailThreadId && emailTaskId) {
+    if (!emailNewThread && !emailThreadId && emailTaskId) {
       try {
         var threadTaskRes = await supabaseDbRequest('registration_tasks', 'select=gmail_thread_id,case_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
         var threadTask = threadTaskRes.ok && Array.isArray(threadTaskRes.data) && threadTaskRes.data[0] ? threadTaskRes.data[0] : null;
@@ -36991,11 +37009,32 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Log to task_messages if taskId provided
-    if (emailTaskId) {
+    // Adopt a thread-less group into the Gmail thread this send just created.
+    // The Inbox groups a case's thread-less notifications ("Document verified", "Re-upload
+    // requested" — sent via Resend, so they never had a Gmail thread) by subject. When an RSO
+    // replies into one of those groups, Gmail mints a real thread for it: stamp that thread id
+    // onto the group's existing rows so the whole conversation — the notification, our reply,
+    // and the doctor's answer — stays in ONE place instead of splitting into a second one.
+    var adoptIds = Array.isArray(body.adoptMessageIds)
+      ? body.adoptMessageIds.map(function (v) { return String(v || '').trim(); }).filter(Boolean).slice(0, 200)
+      : [];
+    if (adoptIds.length && emailCaseId && sendResult.threadId) {
+      try {
+        await supabaseDbRequest('task_messages',
+          'case_id=eq.' + encodeURIComponent(emailCaseId) + '&gmail_thread_id=is.null&id=in.(' + adoptIds.map(encodeURIComponent).join(',') + ')',
+          { method: 'PATCH', body: { gmail_thread_id: sendResult.threadId } });
+      } catch (adoptErr) {
+        console.error('[AdminEmailSend] thread adoption failed:', adoptErr.message);
+      }
+    }
+
+    // Log to task_messages. A conversation reply often has no task behind it (an automated
+    // notification, or a thread the candidate started), so a caseId is enough to record it —
+    // gating this on taskId alone silently dropped those sends out of the Inbox thread.
+    if (emailTaskId || emailCaseId) {
       try {
         var msgRecord = {
-          task_id: emailTaskId,
+          task_id: emailTaskId || null,
           case_id: emailCaseId || null,
           direction: 'outbound',
           channel: 'email',
@@ -37031,7 +37070,7 @@ async function handleApi(req, res, pathname) {
       // email and our reply stay ONE conversation in the hub even across mailboxes. For a
       // brand-new conversation (no thread to reply into) we fall back to the sent thread.
       var canonicalThread = emailThreadId || sendResult.threadId;
-      if (canonicalThread) {
+      if (canonicalThread && emailTaskId) {
         try {
           await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(emailTaskId), {
             method: 'PATCH', body: { gmail_thread_id: canonicalThread }
@@ -37051,7 +37090,7 @@ async function handleApi(req, res, pathname) {
       }
 
       // Update practice_doc_ops when emailing practice for a document
-      if (emailCaseId) {
+      if (emailCaseId && emailTaskId) {
         try {
           var emailTask = await supabaseDbRequest('registration_tasks', 'select=task_type,related_document_key&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
           var et = emailTask.ok && Array.isArray(emailTask.data) && emailTask.data[0] ? emailTask.data[0] : null;
@@ -45990,6 +46029,13 @@ Return ONLY valid JSON with no markdown formatting:
     if (tLatest) {
       tTo = (tLatest.direction === 'inbound') ? (tLatest.sender || '') : (tLatest.recipient || '');
     }
+    // Older outbound rows (automated notifications) were stored without a recipient, which left
+    // the whole conversation with no reply address and a dead composer. On a doctor conversation
+    // the reply address is knowable — it's the candidate — so fall back to that rather than
+    // refusing to send. Practice threads always carry their own recipient, so they never land here.
+    if (!tTo && tCase.gp_email && !(tCase.practice_name && String(tCase.practice_name).trim())) {
+      tTo = tCase.gp_email;
+    }
     var tLatestTaskId = null;
     for (var tI = tMsgs.length - 1; tI >= 0; tI--) {
       if (tMsgs[tI] && tMsgs[tI].task_id) { tLatestTaskId = tMsgs[tI].task_id; break; }
@@ -46001,6 +46047,10 @@ Return ONLY valid JSON with no markdown formatting:
       counterparty: tTo, gpEmail: tCase.gp_email,
       practiceName: tCase.practice_name, gpName: tCase.gp_name
     });
+    // Split the conversation into the separate email threads inside it, so the UI can collapse
+    // each one to its latest message (titled by what it was ORIGINALLY about) and reply into the
+    // right one. The flat `messages` array stays for anything still reading it.
+    var tThreads = registrationHubInbox.groupThreadMessages({ messages: tMsgs, fallbackTo: tTo });
     sendJson(res, 200, {
       ok: true,
       header: {
@@ -46014,8 +46064,10 @@ Return ONLY valid JSON with no markdown formatting:
         to: tTo,
         counterparty: tTo,
         latestTaskId: tLatestTaskId,
-        lastSubject: tLastSubject
+        lastSubject: tLastSubject,
+        senderEmail: (await resolveCaseSenderInfo(tCase.id, tCase.assigned_va)).from || REGISTRATION_HUB_EMAIL || ''
       },
+      threads: tThreads,
       messages: tMsgs
     });
     return;
@@ -50015,24 +50067,33 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    // Email the GP.
+    // Email the GP — FROM the case's registration-hub identity (e.g. "Hazel — GP Link"
+    // <registration@mygplink.com.au>), not the default automated sender, so a reply from the
+    // doctor lands in the watched hub inbox and files itself back onto this case.
+    var rfSender = await resolveCaseSenderInfo(rfTask.case_id);
+    var rfFromEmail = (rfSender && rfSender.from) ? rfSender.from : '';
+    var rfSentTo = '';
     if (rfUserId) {
+      var rfMailOpts = rfFromEmail
+        ? { from: { email: rfFromEmail, name: rfSender.fromName }, replyTo: rfFromEmail }
+        : {};
+      var rfSent;
       if (rfDecision === 'approve') {
-        await sendGpNotificationEmail(rfUserId,
+        rfSent = await sendGpNotificationEmail(rfUserId,
           'Document Verified — GP Link',
           'Your ' + rfDocLabel + ' has been verified, {{name}}',
           'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
-          'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
+          'View Dashboard', APP_BASE_URL + '/pages/index.html', '', rfMailOpts);
       } else {
         // Deep-link straight to the document's re-upload card in My Documents
         // (?reupload=<key> opens the right tab, scrolls to and highlights the card).
         var rfReuploadUrl = APP_BASE_URL + '/pages/my-documents.html'
           + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
-        await sendGpNotificationEmail(rfUserId,
+        rfSent = await sendGpNotificationEmail(rfUserId,
           'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
-          'Re-upload Document', rfReuploadUrl, '');
+          'Re-upload Document', rfReuploadUrl, '', rfMailOpts);
         // F3: matching in-app alert (bell) with the same re-upload deep link, so
         // the rejection isn't email-only.
         await pushDocumentNotificationToUser(rfUserId, {
@@ -50042,9 +50103,17 @@ Return ONLY valid JSON with no markdown formatting:
           target: '/pages/my-documents.html' + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '')
         });
       }
+      if (rfSent) {
+        if (rfSent.to) rfSentTo = rfSent.to;
+        if (rfSent.from) rfFromEmail = rfSent.from;
+      }
     }
 
     // Timeline + outbound message record so the conversation thread reflects it.
+    // sender/recipient must be the addresses the email ACTUALLY went from and to — not the
+    // login of whoever clicked Approve/Reject. Stamping the admin's own account here is what
+    // made the Inbox read "sent from <admin's personal gmail>" and left the thread with no
+    // reply address (the composer then refused to send).
     await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change',
       rfDecision === 'approve' ? 'Flagged document approved' : 'Flagged document rejected — re-upload requested',
       (rfNote ? 'Note: ' + rfNote + ' — ' : '') + 'GP emailed.', adminCtx.email);
@@ -50055,7 +50124,8 @@ Return ONLY valid JSON with no markdown formatting:
         case_id: rfTask.case_id,
         direction: 'outbound',
         channel: 'email',
-        sender: adminCtx.email,
+        sender: rfFromEmail || REGISTRATION_HUB_EMAIL || 'registration@mygplink.com.au',
+        recipient: rfSentTo || null,
         subject: rfDecision === 'approve' ? (rfDocLabel + ' verified') : ('Re-upload requested: ' + rfDocLabel),
         body_text: rfDecision === 'approve' ? ('Approved.' + (rfNote ? ' Note: ' + rfNote : '')) : ('Rejected. Reason: ' + rfNote),
         created_at: new Date().toISOString()
