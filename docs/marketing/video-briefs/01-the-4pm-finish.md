@@ -71,6 +71,29 @@ viewer directly.
 | 6 | 18–25s | **PAYOFF.** Coastal path → golden-hour beach; he walks toward the water, exhales, ocean glittering. | Warm golden, cinematic | "Here, 4pm means the ocean." |
 | 7 | 25–28s | **END-CARD.** GP Link logo on clean white/brand-blue; chain mark. | Brand | "Your career upgrade is also a life upgrade. · Create your free account — free forever for doctors." |
 
+## Performance & realism (per shot)
+
+**Follow the campaign-wide Realism & performance standard in the spec** —
+ultra-realistic people and scenery, and a *living* face (natural blinking,
+gaze shifts, micro-expressions, breathing) in every shot, never one frozen look.
+Dr James carries a visible emotional arc across the film — exhausted → a flicker
+of hope → free. Concretely:
+
+- **Shot 1:** heavy, slow blink; a tired eye-rub; gaze drifts up to the clock
+  then down; brow tension; a weary exhale through the nose.
+- **Shot 2:** on the eye/detail close-ups — reddened tired eyes, one slow blink,
+  a small flick of the gaze; subtle.
+- **Shot 3:** the first lift — eyes widen a touch, an intake of breath, a blink,
+  then focus toward the warm light; tension starts leaving the jaw.
+- **Shot 4:** if in frame — the face softens, the beginnings of a faint smile.
+- **Shot 5:** relief — squints into the sun, a genuine easy smile *forming*
+  (not held), a glance at the watch, a small nod to himself, a natural blink.
+- **Shot 6:** freedom — a deep exhale, shoulders drop, an unguarded smile that
+  *builds*, eyes on the horizon, hair moving in the breeze, blinks against the wind.
+
+Write these performance cues explicitly into each shot's `generate_video` prompt,
+and upscale to 2K/4K so skin and eyes read real.
+
 ## Optional voiceover (warm male, British accent)
 
 > "In the NHS, four o'clock meant three more hours. You didn't train ten years to

@@ -49,6 +49,43 @@ variety, but all resolve to the same CTA and end-card.
 - **Captions:** brand-blue, bold, high-contrast, baked in (sound-off autoplay).
 - **CTA:** "Create your free account · free forever for doctors" (2-minute sign-up).
 
+## Realism & performance standard (all videos)
+
+**Non-negotiable: everything must read as ultra-realistic — real people, real
+places — never "AI".** The most common tells of AI video are dead, unblinking
+eyes, a single frozen expression, waxy skin and warping motion. Every video must
+actively defeat these.
+
+**People — living, dynamic performance (never a frozen face):**
+- Natural, irregular **blinking** throughout; eyes that shift and re-focus
+  (micro-saccades, gaze changes), not a fixed stare.
+- **Micro-expressions and an emotional arc within each shot** — e.g. weary → a
+  flicker of relief → an easy exhale. The face should keep changing.
+- Continuous involuntary life: breathing, small head/weight shifts, a swallow, a
+  half-smile forming — what a real person always does.
+- Photoreal skin with real texture (pores, faint lines, subtle sheen), realistic
+  teeth and hair, believable hand/finger anatomy.
+
+**Scenery & world:** photographic realism — real-world lighting and soft
+shadows, natural depth of field, lens/film characteristics, correct scale and
+physics, authentic Australian and UK detail. No CGI sheen, no over-smoothing,
+no over-saturation.
+
+**Motion:** natural body mechanics with weight and momentum; hair and clothing
+move believably; camera carries subtle real-world imperfection, not robotic glide.
+
+**Avoid-list (prompt against these AI tells):** frozen/unblinking stare, single
+locked expression, waxy or plastic skin, morphing or warping faces/hands, extra
+or fused fingers, flicker, teeth artifacts, glassy uncanny eyes, unnatural
+smooth "drift", plastic CGI look.
+
+**Higgsfield levers:** pick a **photoreal** model via
+`models_explore(action:'recommend')`; seed shots **image-to-video from the
+photoreal portraits/plates** for control; write **explicit per-shot performance
+direction** (blink, gaze shift, the expression change) into every
+`generate_video` prompt; **`upscale_video` to 2K/4K** for skin/detail crispness;
+keep the character reference attached for face consistency.
+
 ## Reusable reference kit (built once in Phase 2, reused across all 10)
 
 ### A. Characters — a DISTINCT GP per video
