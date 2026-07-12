@@ -125,7 +125,7 @@ Style mix across the seven: 3 cinematic · 2 UGC · 2 day-in-life.
 ### 3 app-ease videos
 
 - **A — "The Whole Move, One App"** *(flagship hybrid · Dr Nadia + RSO Sarah)* —
-  45–60s · 9:16 + 1:1 + 16:9. Moving to Australia with the app featured
+  ≤30s · 9:16 + 1:1 + 16:9. Moving to Australia with the app featured
   throughout: apply to a position → guided through the real 6-step journey on
   the phone → RSO Sarah supporting the whole way. Emotional + product. Runs
   everywhere (paid social, YouTube, site hero).
@@ -138,11 +138,13 @@ Style mix across the seven: 3 cinematic · 2 UGC · 2 day-in-life.
 
 ## Format & export matrix
 
+**Hard constraint: no video exceeds 30 seconds.**
+
 | Video | 9:16 | 1:1 | 16:9 | Duration |
 |-------|:----:|:---:|:----:|----------|
 | 1–7 (lifestyle) | ✅ | ✅ | — | 15–30s |
 | 3 (also LinkedIn) | ✅ | ✅ | ✅ | 15–30s |
-| A (flagship) | ✅ | ✅ | ✅ | 45–60s |
+| A (flagship) | ✅ | ✅ | ✅ | ≤30s |
 | B (commercial) | ✅ | ✅ | ✅ | ~30s |
 | C (short cut) | ✅ | ✅ | — | 15–20s |
 
