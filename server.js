@@ -53096,6 +53096,31 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops: proxy a template-create call to DoubleTick (POST /template),
+  // so our WhatsApp templates can be created + submitted for Meta approval from the
+  // server side (the DoubleTick key is prod-only). Forwards the posted `template`
+  // JSON verbatim. Same auth as resync (admin session OR x-gp-ops-key). One-off.
+  if (pathname === '/api/admin/ops/dt-create-template' && req.method === 'POST') {
+    const ctOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    const ctSvc = !!(ctOpsKey && SUPABASE_SERVICE_ROLE_KEY && ctOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    if (!ctSvc) { const ctA = requireAdminSession(req, res); if (!ctA) return; }
+    if (!DOUBLETICK_API_KEY) { sendJson(res, 503, { ok: false, message: 'DoubleTick not configured.' }); return; }
+    let ctBody; try { ctBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const ctTemplate = (ctBody && ctBody.template) ? ctBody.template : ctBody;
+    try {
+      const ctResp = await fetch(DOUBLETICK_BASE_URL + '/template', {
+        method: 'POST',
+        headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(ctTemplate)
+      });
+      const ctData = await ctResp.json().catch(function () { return null; });
+      sendJson(res, ctResp.ok ? 200 : (ctResp.status || 502), { ok: ctResp.ok, status: ctResp.status, data: ctData });
+    } catch (e) {
+      sendJson(res, 502, { ok: false, error: String(e && e.message) });
+    }
+    return;
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // Visa Questionnaire Endpoints
   // ══════════════════════════════════════════════════════════════════
