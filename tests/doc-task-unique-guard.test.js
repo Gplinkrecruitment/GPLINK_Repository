@@ -317,4 +317,18 @@ describe('migration: uniq_open_doc_check_task partial unique index', () => {
   it('is partial: excludes null document keys', () => {
     expect(sql).toContain('related_document_key IS NOT NULL');
   });
+
+  it('dedupes existing active duplicates BEFORE creating the index (keeps oldest, completes the rest)', () => {
+    // The migration must be safe standalone (e.g. re-applied on a restored
+    // backup): the UPDATE completes all-but-the-oldest of any active
+    // duplicate group so CREATE UNIQUE INDEX can never fail to apply.
+    const updatePos = sql.indexOf('UPDATE public.registration_tasks');
+    const indexPos = sql.indexOf('CREATE UNIQUE INDEX');
+    expect(updatePos).toBeGreaterThan(-1);
+    expect(indexPos).toBeGreaterThan(-1);
+    expect(updatePos).toBeLessThan(indexPos);
+    expect(sql).toContain("completed_by = 'ops-dedupe-migration'");
+    expect(sql).toContain('ORDER BY created_at ASC');
+    expect(sql).toContain('r.rn > 1');
+  });
 });

@@ -12815,6 +12815,11 @@ async function _createRegTask(caseId, data) {
   // 409) for the two document-check task types. Degrade gracefully here:
   // find the task the index says already exists, reopen it, and hand it back
   // instead of losing the upload's review entirely.
+  // Accepted edge: this branch runs for EVERY caller of _createRegTask, so
+  // manual creators (e.g. POST /api/admin/tasks with a guarded task_type +
+  // document key) also get idempotent reuse instead of a second task. That is
+  // deliberate — two open review tasks for the same document are never
+  // wanted, however they're created.
   const guardedType = payload.task_type === 'doc_review' || payload.task_type === 'flagged_doc';
   if (r.status === 409 && payload.related_document_key && guardedType) {
     const existingRes = await supabaseDbRequest('registration_tasks',
