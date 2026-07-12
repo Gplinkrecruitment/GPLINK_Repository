@@ -10,10 +10,18 @@
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  // Allow clearing onboarding state via ?reset=1 query param
+  // Allow clearing onboarding state via ?reset=1 query param. stateWasReset records
+  // that the GP explicitly asked to start the wizard over. Without it, the
+  // cross-device restore below (mergeServerOnboarding) would re-adopt the server's
+  // wizard blob right after we clear localStorage here — local state is
+  // default-fresh by construction immediately after a reset, which is exactly the
+  // condition mergeServerOnboarding treats as "safe to adopt the server copy" —
+  // making ?reset=1 silently re-persist the old blob and do nothing.
+  var stateWasReset = false;
   if (new URLSearchParams(window.location.search).get("reset") === "1") {
     localStorage.removeItem(STORAGE_KEY);
     window.history.replaceState({}, "", window.location.pathname);
+    stateWasReset = true;
   }
 
   const COUNTRIES = [
@@ -906,12 +914,18 @@
   // cross-device base (adopted wholesale only when this browser has nothing); the
   // authoritative review decision per document ALWAYS wins over the local cache.
   function mergeServerOnboarding(serverBlob, serverCountryName) {
-    if (serverBlob && typeof serverBlob === "object" && isDefaultLocalState(state)) {
+    // A fresh ?reset=1 means "start the wizard over" — never re-adopt the server's
+    // wizard blob (that would silently undo the reset) or re-populate the country
+    // from the cached gp_selected_country (that would skip the country step). The
+    // per-document review-decision overlay (applyServerDocStatuses) is unaffected by
+    // stateWasReset — it stays gated on state.country, which a genuine reset leaves
+    // empty, so it naturally has nothing to overlay until the GP re-picks a country.
+    if (!stateWasReset && serverBlob && typeof serverBlob === "object" && isDefaultLocalState(state)) {
       state = { ...defaultState(), ...serverBlob, _version: 2 };
-      currentStep = state.currentStep || 0;
+      currentStep = Math.min(Math.max(state.currentStep || 0, 0), TOTAL_STEPS - 1);
       childrenCount = state.childrenCount || 1;
     }
-    if (!state.country && serverCountryName) {
+    if (!stateWasReset && !state.country && serverCountryName) {
       var c = COUNTRIES.find(function (x) { return x.name === serverCountryName || x.code === serverCountryName; });
       if (c) state.country = c.code;
     }
@@ -930,9 +944,13 @@
         state.qualDocs[wizardKey] = { ...local, fileName: local.fileName || serverDoc.fileName || "", status: "approved", rejectionReason: "" };
       } else if (serverStatus === "rejected") {
         state.qualDocs[wizardKey] = { ...local, fileName: local.fileName || serverDoc.fileName || "", status: "rejected", rejectionReason: serverDoc.rejection_reason || "" };
-      } else if (!local.status && (serverStatus === "under_review" || serverStatus === "pending") && serverDoc.fileName) {
-        // This browser has no memory of the upload (new device) — show it as
-        // with-our-team rather than an empty required slot.
+      } else if ((!local.status || local.status === "rejected") && (serverStatus === "under_review" || serverStatus === "pending") && serverDoc.fileName) {
+        // This browser has no memory of the upload (new device), OR this device's
+        // only memory is a stale "rejected" — which is always server-derived, so a
+        // newer server "under_review" (e.g. the GP re-uploaded on ANOTHER device)
+        // must replace it rather than keep showing "Needs re-upload" forever. Local
+        // in-progress statuses (e.g. "scanning"/"verified" from an upload in
+        // progress on THIS device) are untouched since they aren't "rejected".
         state.qualDocs[wizardKey] = { fileName: serverDoc.fileName, status: "under_review", rejectionReason: "" };
       }
     });
@@ -1588,6 +1606,11 @@
       // (removed auto-redirect to dashboard so users can redo onboarding via button)
 
       var eligibilityScreenShown = false;
+      // Guards the terminal-.catch safety net below against double-rendering: set
+      // true right after this chain successfully paints something (the eligibility
+      // screen or the wizard step), so a throw later in the chain never re-renders
+      // on top of what's already on screen.
+      var initRendered = false;
 
       // Cross-device restore: the server holds the wizard blob (user_state.gp_onboarding)
       // and the authoritative per-document review statuses (user_documents). Restore
@@ -1601,6 +1624,7 @@
             try { localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, typeof flag === "string" ? flag : JSON.stringify(flag)); } catch (e) {}
             eligibilityScreenShown = true;
             showEligibilityScreen(true);
+            initRendered = true;
             return null;
           }
           var blob = st.gp_onboarding;
@@ -1629,7 +1653,15 @@
           if (reuploadKey) currentStep = 1;
           saveState();
           goToStep(currentStep);
+          initRendered = true;
           if (reuploadKey) highlightQualSlot(reuploadKey);
+        })
+        .catch(function (e) {
+          // Safety net: a throw anywhere in the restore chain above (e.g. during
+          // render) must not leave an unhandled rejection with nothing on screen.
+          // Only paint the wizard here if nothing was rendered yet — avoids
+          // double-rendering over an already-shown eligibility screen or wizard step.
+          try { if (!initRendered) goToStep(currentStep); } catch (e2) {}
         });
     })
     .catch(() => {

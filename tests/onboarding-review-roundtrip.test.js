@@ -311,6 +311,38 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(onboardingLeak).toBeFalsy();
   });
 
+  it('an AHPRA-stage rejection sharing a canonical document_key must NOT mirror onto the onboarding row (critical)', async () => {
+    // Seed: the onboarding wizard's primary-degree row is already approved
+    // (this mirrors real life after the earlier onboarding review passed).
+    const obDegreeRow = db.user_documents.find((d) => d.document_key === 'onboarding_primary_med_degree');
+    obDegreeRow.status = 'approved';
+    obDegreeRow.rejection_reason = '';
+
+    // Seed an OPEN AHPRA-stage certified-copy review task that happens to
+    // share the same canonical related_document_key as the onboarding
+    // qualification upload (primary_medical_degree).
+    db.registration_tasks.push({
+      id: 't-ahpra-flag-2', case_id: 'case-ob-1', task_type: 'doc_review', status: 'open',
+      related_stage: 'ahpra', related_document_key: 'primary_medical_degree',
+      title: 'Review certified copy: Primary Medical Degree', created_at: NOW
+    });
+
+    const r = await postJson('/api/admin/va/task/review-flagged-doc',
+      { task_id: 't-ahpra-flag-2', decision: 'reject', note: 'Certified copy illegible.' }, adminCookie());
+    expect(r.status).toBe(200);
+
+    // The onboarding wizard's row must be untouched by an AHPRA-stage
+    // decision — the mirror is gated to onboarding-origin tasks only.
+    expect(obDegreeRow.status).toBe('approved');
+    expect(obDegreeRow.rejection_reason).toBe('');
+
+    // The canonical (AHPRA-facing) row IS rejected as normal.
+    const canonRow = db.user_documents.find((d) => d.document_key === 'primary_medical_degree');
+    expect(canonRow).toBeTruthy();
+    expect(canonRow.status).toBe('rejected');
+    expect(canonRow.rejection_reason).toBe('Certified copy illegible.');
+  });
+
   it('re-uploading a rejected onboarding doc synchronously creates a fresh RSO review task', async () => {
     const r = await putJson('/api/onboarding-documents', {
       country: 'GB', key: 'onboarding_specialist_qualification',
@@ -342,6 +374,9 @@ describe('onboarding wizard client wiring (source-level)', () => {
     expect(src).toContain('"rejected"');
     expect(src).toContain('"under_review"');
     expect(src).toContain('rejectionReason');
+  });
+  it('a genuine ?reset=1 is not silently undone by the cross-device restore', () => {
+    expect(src).toContain('stateWasReset');
   });
   it('handles the ?reupload deep link for canonical keys', () => {
     expect(src).toContain('resolveReuploadParamKey');

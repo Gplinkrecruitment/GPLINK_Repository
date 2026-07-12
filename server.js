@@ -49917,6 +49917,11 @@ Return ONLY valid JSON with no markdown formatting:
     // no row for a flagged qualification because the file was uploaded via onboarding (a
     // separate key namespace) — so UPSERT a row (a PATCH would no-op). Without this the
     // slot stays "Pending" forever even after approval.
+    // Whether this task originated from the onboarding wizard (as opposed to, e.g., an
+    // AHPRA-stage certified-copy review that happens to share a canonical
+    // related_document_key like primary_medical_degree). Used below to gate the
+    // onboarding-row mirror so an AHPRA decision never corrupts the wizard's state.
+    var rfIsOnboardingDoc = String(rfTask.related_stage || '') === 'onboarding';
     if (rfUserId && rfTask.related_document_key) {
       // Resolve the country the documents view queries by (registration country; defaults to uk).
       let rfRawCountry = 'uk';
@@ -49975,8 +49980,12 @@ Return ONLY valid JSON with no markdown formatting:
       // Mirror the decision onto the onboarding-key row (separate key namespace).
       // The onboarding wizard reads its documents back via GET /api/onboarding-documents,
       // which only sees onboarding_* rows — without this the wizard shows a rejected
-      // document as "under review" forever.
-      if (rfObKey) {
+      // document as "under review" forever. Gated to onboarding-origin tasks only
+      // (rfIsOnboardingDoc): a non-onboarding task (e.g. an AHPRA-stage certified-copy
+      // review) can share the same canonical related_document_key without being about
+      // the onboarding upload at all — mirroring for those would corrupt the wizard's
+      // already-decided state (e.g. showing an approved onboarding degree as rejected).
+      if (rfObKey && rfIsOnboardingDoc) {
         await supabaseDbRequest('user_documents',
           'user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfObKey), {
           method: 'PATCH',
@@ -50057,7 +50066,7 @@ Return ONLY valid JSON with no markdown formatting:
         // (?reupload= opens the qualification step and highlights the slot) — the
         // my-documents page shows a DIFFERENT document set (AHPRA-stage certified
         // copies) whose card keys don't match onboarding qualification keys.
-        var rfIsOnboardingDoc = String(rfTask.related_stage || '') === 'onboarding';
+        // (rfIsOnboardingDoc is computed once, above, before the canonical upsert.)
         var rfReuploadTarget = (rfIsOnboardingDoc ? '/pages/onboarding.html' : '/pages/my-documents.html')
           + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
         var rfReuploadUrl = APP_BASE_URL + rfReuploadTarget;
