@@ -53074,55 +53074,6 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── Internal ops diagnostic: inspect a phone's DoubleTick customer record
-  // (which WABA it's on + who it's assigned to) to debug inbox visibility. Same
-  // auth as resync above (admin session OR x-gp-ops-key == service-role key).
-  if (pathname === '/api/admin/ops/dt-customer-diag' && req.method === 'POST') {
-    const dgOpsKey = String(req.headers['x-gp-ops-key'] || '');
-    const dgSvc = !!(dgOpsKey && SUPABASE_SERVICE_ROLE_KEY && dgOpsKey === SUPABASE_SERVICE_ROLE_KEY);
-    if (!dgSvc) { const dgA = requireAdminSession(req, res); if (!dgA) return; }
-    let dgBody; try { dgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const dgPhone = normalizePhone(String(dgBody.phone || '')).replace(/[^\d]/g, '');
-    if (!dgPhone) { sendJson(res, 400, { ok: false, message: 'phone required.' }); return; }
-    const dgWaba = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
-    async function dgGetDetails(qs) {
-      try {
-        const dr = await fetch(DOUBLETICK_BASE_URL + '/customer/details?' + qs, { headers: { 'Authorization': DOUBLETICK_API_KEY } });
-        return { status: dr.status, body: await dr.json().catch(() => null) };
-      } catch (e) { return { error: String(e && e.message) }; }
-    }
-    const dgEmbed = await fetchDoubleTickCustomerId(dgPhone);
-    const dgBaseDetails = await dgGetDetails('phoneNumber=' + encodeURIComponent(dgPhone));
-    const dgWabaDetails = dgWaba ? await dgGetDetails('phoneNumber=' + encodeURIComponent(dgPhone) + '&wabaNumber=' + encodeURIComponent(dgWaba)) : null;
-    sendJson(res, 200, { ok: true, wabaUsed: dgWaba, base: DOUBLETICK_BASE_URL, embed: dgEmbed, detailsNoWaba: dgBaseDetails, detailsWithWaba: dgWabaDetails });
-    return;
-  }
-
-  // ── Internal ops: proxy a template-create call to DoubleTick (POST /template),
-  // so our WhatsApp templates can be created + submitted for Meta approval from the
-  // server side (the DoubleTick key is prod-only). Forwards the posted `template`
-  // JSON verbatim. Same auth as resync (admin session OR x-gp-ops-key). One-off.
-  if (pathname === '/api/admin/ops/dt-create-template' && req.method === 'POST') {
-    const ctOpsKey = String(req.headers['x-gp-ops-key'] || '');
-    const ctSvc = !!(ctOpsKey && SUPABASE_SERVICE_ROLE_KEY && ctOpsKey === SUPABASE_SERVICE_ROLE_KEY);
-    if (!ctSvc) { const ctA = requireAdminSession(req, res); if (!ctA) return; }
-    if (!DOUBLETICK_API_KEY) { sendJson(res, 503, { ok: false, message: 'DoubleTick not configured.' }); return; }
-    let ctBody; try { ctBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const ctTemplate = (ctBody && ctBody.template) ? ctBody.template : ctBody;
-    try {
-      const ctResp = await fetch(DOUBLETICK_BASE_URL + '/template', {
-        method: 'POST',
-        headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify(ctTemplate)
-      });
-      const ctData = await ctResp.json().catch(function () { return null; });
-      sendJson(res, ctResp.ok ? 200 : (ctResp.status || 502), { ok: ctResp.ok, status: ctResp.status, data: ctData });
-    } catch (e) {
-      sendJson(res, 502, { ok: false, error: String(e && e.message) });
-    }
-    return;
-  }
-
   // ══════════════════════════════════════════════════════════════════
   // Visa Questionnaire Endpoints
   // ══════════════════════════════════════════════════════════════════
