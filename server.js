@@ -43318,11 +43318,37 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // Name-change evidence flag (from user_profiles) — surfaced to the AMC
+    // "Establishment" step so a GP whose approved qualification carried a different
+    // name is prompted for the extra evidence AMC requires. Read once and merged into
+    // every /api/state response shape below (warm-cache, remote, empty, and local).
+    var nameChangeDetected = false;
+    var nameChangeNote = '';
+    try {
+      const stateProfileUserId = getSessionSupabaseUserId(session)
+        || (isSupabaseDbConfigured() && email ? await getSupabaseUserIdByEmail(email) : null);
+      if (stateProfileUserId && isSupabaseDbConfigured()) {
+        const ncRes = await supabaseDbRequest('user_profiles',
+          'select=name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(stateProfileUserId) + '&limit=1');
+        const ncRow = ncRes.ok && Array.isArray(ncRes.data) && ncRes.data[0] ? ncRes.data[0] : null;
+        if (ncRow) {
+          nameChangeDetected = ncRow.name_change_detected === true;
+          nameChangeNote = typeof ncRow.name_change_note === 'string' ? ncRow.name_change_note : '';
+        }
+      }
+    } catch (ncErr) { console.error('[api/state] name-change read failed:', ncErr && ncErr.message); }
+    const withNameChange = function (s) {
+      return Object.assign({}, (s && typeof s === 'object') ? s : {}, {
+        nameChangeDetected: nameChangeDetected,
+        nameChangeNote: nameChangeNote
+      });
+    };
+
     // Check auth pre-warm cache first
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      sendJson(res, 200, { ok: true, state: warmedState, resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      sendJson(res, 200, { ok: true, state: withNameChange(warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -43333,7 +43359,7 @@ Return ONLY valid JSON with no markdown formatting:
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
-          state: filtered,
+          state: withNameChange(filtered),
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
         });
@@ -43342,7 +43368,7 @@ Return ONLY valid JSON with no markdown formatting:
 
       sendJson(res, 200, {
         ok: true,
-        state: {},
+        state: withNameChange({}),
         updatedAt: null,
         resetAt: 0
       });
@@ -43355,7 +43381,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      state: filtered,
+      state: withNameChange(filtered),
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
     });
@@ -49282,6 +49308,26 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     await _completeRegTask(taskId, task.case_id, adminCtx.email);
+
+    // Name-change evidence flag: if this qualification's cached AI scan found a name
+    // on the document that does NOT match the account name, approving it records a
+    // genuine name change (e.g. marriage / deed poll). The GP's AMC "Establishment"
+    // step then prompts for the extra name-change evidence AMC requires. Set only on
+    // a real mismatch; a match or an un-scanned doc changes nothing. Best-effort.
+    try {
+      var approveScan = (task && task.metadata && task.metadata.ai_scan && task.metadata.ai_scan.scan) || null;
+      if (approveScan && approveScan.nameMatch === 'mismatch') {
+        await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+          method: 'PATCH',
+          body: {
+            name_change_detected: true,
+            name_change_note: 'Document name: ' + (approveScan.nameFound || '')
+          }
+        });
+      }
+    } catch (nameChangeErr) {
+      console.error('[doc-review/approve] name-change flag failed:', nameChangeErr && nameChangeErr.message);
+    }
 
     var docLabel = getDocumentLabelForKey(docKey) || docKey;
     // Mirror the reject path's explicit timeline row so the audit trail records
