@@ -22,7 +22,48 @@ reference, so no name can ever render.
 | F6 S6 seed (beach walk) | job `d384faeb-b0a4-4ef8-937e-2bf08ab6e121` | |
 | App screen CROPPED (S4) | media `44f29cf5-d11b-40ed-8aaa-c3bb6ac41378` | greeting header removed pre-upload |
 | App screen original (unused) | media `1dd84e3d-388c-4ce7-9c8a-74424c5e0fbb` | shows "Dr Helen" — do not use in shots |
-| S1 video take 1 | job `ec9cfd08-2140-440a-a1d2-2246744d81a0` | seedance_2_0 std 1080p 4s, audio off. **COMPLETED + frame-QA'd:** performance arc lands (rub → clock glance → sag, push-in mid→CU, clock pinned 7:00, grade right). Nit: lanyard print mirrors ("SHN") in final CU — passable as strap reverse, monitor in edit. **Awaiting owner calibration verdict before S2–S6 run.** |
+| S1 video take 1 (9:16, silent) | job `ec9cfd08-2140-440a-a1d2-2246744d81a0` | calibration take. Owner verdict: good, with 4 changes → v2 recipe below. |
+
+## v2 recipe (owner changes 2026-07-13, applied to ALL clips)
+
+Owner: "slower + steadier zoom · 1:1 · sound effects · hyper realistic".
+Implemented: `aspect_ratio 1:1` (seeds outpainted to square — original pixels
+preserved, sides extended; inserts re-cropped square from verified plates),
+`generate_audio: true` + per-shot sound design written into every prompt (no
+music/speech — added in edit), camera language "extremely slow, perfectly
+smooth, no shake", "hyper-realistic, indistinguishable from real cinema
+footage", `bitrate_mode: high`. 4K = native 88cr/clip vs 36cr at 1080p →
+pipeline = 1080p + `upscale_video` (bytedance, aigc preset, 4k) on picks.
+
+### Square seed assets (v2)
+
+| Asset | ID |
+|-------|----|
+| F1-sq (outpaint) | job `69d11bef-dda7-4b67-a69b-edfbeffeef43` |
+| F3-sq (outpaint) | job `1aec92b5-b60e-420d-a00d-a88412295b0e` |
+| F5-sq (outpaint) | job `6819b0dd-f153-4403-8938-669e55b4ccca` |
+| F6-sq (outpaint) | job `b8e98ba0-4632-4189-8df6-fd3e6f5b5ea7` |
+| F2b-sq rain window (crop of R3) | media `ddb75953-3d35-47a6-9699-768dc3fcb550` |
+| F2c-sq clock (crop of R3) | media `e5a03db0-8ff0-46bc-9677-8b1d27708991` |
+| F5b-sq watch (crop) | media `c4c8f18a-1b3a-4612-9b5a-28e0a499b158` |
+
+### FINAL v2 clip set (all 1:1 · 1080p · high bitrate · native SFX audio · frame-QA'd)
+
+| Shot | Job ID | QA |
+|------|--------|----|
+| S1 take 2 (4s) | `7ef4ce17-2e09-41f8-a70f-134fd5c1b762` | PASS — slower wider push-in, clock 7:00, audio ✓ |
+| S2a eyes (4s) | `bd8f792d-7800-4892-8993-d7a76854c76b` | PASS — hyper-real skin, natural blink |
+| S2b rain (4s) | `a90c33f1-653e-4dab-99e6-fc2c54fab6a3` | PASS |
+| S2c clock take 2 (4s) | `8f3ffe6c-efb0-4772-b400-2172d3b01407` | PASS — hands FROZEN at 7:00, only second hand ticks. (take 1 `251b77be…` REJECTED — hands drifted 7:00→6:00→7:04) |
+| S3 turn (4s) | `a515347c-75fb-4921-8924-61fe0322e4f8` | PASS — lifts glowing phone, warm bloom ending |
+| S4 app (4s) | `409d4f46-eeb8-466c-86aa-b07b924f695c` | PASS — REAL UI faithful+legible, no greeting, fingers correct |
+| S5 arrival (5s) | `f5b1995f-3a7b-4481-be6b-4d6ffa8a6341` | PASS — smile + watch glance, sign clean |
+| S5b watch (4s) | `70035629-a7fe-4eaa-bff5-3e31a9ec97cf` | PASS — dial settles 4:00 |
+| S6 beach (8s) | `ca9614ab-3c50-423d-b226-2b1c2f8ddc8b` | PASS — smile builds, hair in breeze |
+| S1t2 4K upscale test | `be70ebc5-0b3e-4cdc-abaf-111e3f6214da` | pending validation |
+
+S7 end-card: built in edit from real logo (no generation).
+Balance after full v2 shoot: **2,015 credits** (started 2,492.7).
 
 **Costs (actual):** portrait 0.12 cr · NBP 2k plate 2 cr · Seedance 4s/1080p/std
 36 cr. Balance at production start: 2,492.7 (Ultra).
