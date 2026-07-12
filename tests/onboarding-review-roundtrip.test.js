@@ -360,3 +360,16 @@ describe('onboarding wizard client wiring (source-level)', () => {
     expect(fn).not.toContain('"rejected"');
   });
 });
+
+describe('my-documents legacy onboarding reupload redirect (source-level)', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'pages', 'my-documents.html'), 'utf8');
+  it('forwards onboarding qualification keys to the onboarding wizard', () => {
+    expect(html).toContain('LEGACY_ONBOARDING_REUPLOAD');
+    expect(html).toContain('/pages/onboarding?reupload=');
+    expect(html).toContain('onboarding_specialist_qualification');
+  });
+  it('does not forward primary_medical_degree (real card on this page)', () => {
+    const block = html.slice(html.indexOf('LEGACY_ONBOARDING_REUPLOAD'), html.indexOf('LEGACY_ONBOARDING_REUPLOAD') + 600);
+    expect(block).not.toMatch(/^\s*primary_medical_degree\s*:/m);
+  });
+});
