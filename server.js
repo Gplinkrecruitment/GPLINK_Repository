@@ -211,6 +211,12 @@ const DOUBLETICK_STAGE_TEMPLATES = {
   ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' }
   // career and visa templates not yet created in DoubleTick
 };
+// One-time "you're now connected with your RSO" welcome. Sent by the app the first
+// time a GP is assigned to an RSO, to MATERIALIZE their DoubleTick conversation so
+// it shows up in that RSO's assigned inbox (a first-contact message to a GP who has
+// never messaged us MUST be an approved template). {{1}} = GP first name,
+// {{2}} = RSO first name. Pending WhatsApp approval — sends fail-soft until live.
+const DOUBLETICK_RSO_WELCOME_TEMPLATE = { templateName: 'gp_link_app_rso_welcome', language: 'en' };
 // Direct text messages used while templates are pending approval
 const DOUBLETICK_STAGE_MESSAGES = {
   myintealth: 'Hi {{name}}, welcome to GP Link! 🎉 Your first step is creating your MyIntealth account. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
@@ -14231,6 +14237,67 @@ async function syncCaseChatAssignment(opts) {
     return await assignDoubleTickChat({ gpPhone: gpPhone, rsoPhone: rsoPhone });
   } catch (err) {
     console.error('[doubletick-assign] syncCaseChatAssignment error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
+// Send the one-time RSO-welcome template to a GP when they're assigned to an RSO,
+// which MATERIALIZES their DoubleTick conversation so it lands in that RSO's
+// assigned inbox. Idempotent per case (task_timeline sentinel — never double-
+// welcomes a GP), template-only, fail-soft. Skips owner/archive RSOs (no phone).
+async function ensureRsoWelcomeSent(opts) {
+  try {
+    if (!DOUBLETICK_API_KEY) return { ok: false, skipped: true };
+    const caseId = (opts && opts.caseId) || '';
+    const gpUserId = (opts && opts.gpUserId) || '';
+    const gpPhone = normalizePhone((opts && opts.gpPhone) || '');
+    const rsoUserId = (opts && opts.rsoUserId) || '';
+    if (!caseId || !gpPhone || !rsoUserId) return { ok: false, skipped: true };
+    const roster = await loadRsoTeam({ includeInactive: true });
+    const rso = Array.isArray(roster) ? roster.find(function (r) { return r && r.user_id === rsoUserId; }) : null;
+    if (!rso || !normalizePhone(rso.phone || '')) return { ok: false, skipped: true };
+    const rsoFirstName = (String(rso.name || '').trim().split(/\s+/)[0]) || 'your GP Link team';
+    // One welcome per GP, ever — sentinel stamped in task_timeline on success.
+    if (await _hasDoubleTickBeenSent(caseId, 'RSO welcome')) return { ok: true, alreadySent: true };
+    let gpFirstName = '';
+    try {
+      const pr = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+      if (pr && pr.ok && Array.isArray(pr.data) && pr.data[0]) gpFirstName = String(pr.data[0].first_name || '').trim();
+    } catch (_) { /* name is best-effort */ }
+    const fromNumber = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
+    const reqBody = JSON.stringify({
+      messages: [{
+        to: gpPhone,
+        from: fromNumber,
+        content: {
+          templateName: DOUBLETICK_RSO_WELCOME_TEMPLATE.templateName,
+          language: DOUBLETICK_RSO_WELCOME_TEMPLATE.language,
+          templateData: { body: { placeholders: [gpFirstName || 'there', rsoFirstName] } }
+        }
+      }]
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+        body: reqBody
+      });
+      if (!resp.ok) {
+        const t = await resp.text().catch(function () { return ''; });
+        console.warn('[doubletick-rso-welcome] send failed', resp.status, String(t).slice(0, 200), '(template may be pending WhatsApp approval)');
+        return { ok: false, status: resp.status };
+      }
+      // Stamp the sentinel only AFTER a successful send, so a not-yet-approved
+      // template never permanently marks the GP as welcomed.
+      await _logCaseEvent(caseId, null, 'system', 'RSO welcome started — WhatsApp template sent', null, 'system');
+      console.log('[doubletick-rso-welcome] sent to', maskPhone(gpPhone), 'rso:', rsoFirstName);
+      return { ok: true };
+    } finally { clearTimeout(timeout); }
+  } catch (err) {
+    console.error('[doubletick-rso-welcome] error:', err && err.message);
     return { ok: false, error: err && err.message };
   }
 }
@@ -38531,6 +38598,7 @@ async function handleApi(req, res, pathname) {
       // DoubleTick chat ownership follows the case owner (best-effort, like the single path).
       try {
         const bGpPhone = await getGpWhatsAppPhone(bCase.user_id);
+        if (bGpPhone) await ensureRsoWelcomeSent({ caseId: bCase.id, gpUserId: bCase.user_id, gpPhone: bGpPhone, rsoUserId: toRso.user_id });
         if (bGpPhone) await syncCaseChatAssignment({ gpPhone: bGpPhone, assignedVaUserId: toRso.user_id });
       } catch (dtErr) { console.error('[bulk-reassign] DoubleTick sync failed for case', bCase.id, ':', dtErr && dtErr.message); }
       // Gmail label transfer — the SAME helper the single-case path uses. Time-boxed:
@@ -44584,6 +44652,7 @@ Return ONLY valid JSON with no markdown formatting:
         if (_dtUserId) {
           const _dtGpPhone = await getGpWhatsAppPhone(_dtUserId);
           if (_dtGpPhone) {
+            await ensureRsoWelcomeSent({ caseId: caseId, gpUserId: _dtUserId, gpPhone: _dtGpPhone, rsoUserId: patch.assigned_va });
             await syncCaseChatAssignment({ gpPhone: _dtGpPhone, assignedVaUserId: patch.assigned_va });
           }
         }
@@ -52996,9 +53065,10 @@ Return ONLY valid JSON with no markdown formatting:
     if (!rdaRow.assigned_va) { sendJson(res, 400, { ok: false, message: 'Case has no assigned RSO.' }); return; }
     const rdaGpPhone = await getGpWhatsAppPhone(rdaRow.user_id);
     if (!rdaGpPhone) { sendJson(res, 400, { ok: false, message: 'GP has no WhatsApp phone on file.' }); return; }
+    const rdaWelcome = await ensureRsoWelcomeSent({ caseId: rdaCaseId, gpUserId: rdaRow.user_id, gpPhone: rdaGpPhone, rsoUserId: rdaRow.assigned_va });
     const rdaResult = await syncCaseChatAssignment({ gpPhone: rdaGpPhone, assignedVaUserId: rdaRow.assigned_va });
     const rdaOk = !!(rdaResult && rdaResult.ok);
-    sendJson(res, rdaOk ? 200 : 502, { ok: rdaOk, assigned_va: rdaRow.assigned_va, result: rdaResult });
+    sendJson(res, rdaOk ? 200 : 502, { ok: rdaOk, assigned_va: rdaRow.assigned_va, result: rdaResult, welcome: rdaWelcome });
     return;
   }
 
@@ -53423,6 +53493,7 @@ Return ONLY valid JSON with no markdown formatting:
         if (_dtUserId2) {
           const _dtGpPhone2 = await getGpWhatsAppPhone(_dtUserId2);
           if (_dtGpPhone2) {
+            await ensureRsoWelcomeSent({ caseId: caseId, gpUserId: _dtUserId2, gpPhone: _dtGpPhone2, rsoUserId: patch.assigned_va });
             await syncCaseChatAssignment({ gpPhone: _dtGpPhone2, assignedVaUserId: patch.assigned_va });
           }
         }
