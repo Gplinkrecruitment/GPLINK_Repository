@@ -2254,6 +2254,23 @@
       var key;
       try { key = new URLSearchParams(window.location.search).get("reupload"); } catch (e) { return; }
       if (!key || !/^[a-z0-9_]+$/i.test(key)) return;
+      // Legacy onboarding-rejection links (emails sent before 2026-07-13) pointed
+      // here, but onboarding qualification keys have no card on this page — the
+      // onboarding wizard owns them. Forward to the wizard's own deep link.
+      var LEGACY_ONBOARDING_REUPLOAD = {
+        specialist_qualification: "specialist_qualification",
+        onboarding_specialist_qualification: "specialist_qualification",
+        onboarding_primary_med_degree: "primary_medical_degree"
+      };
+      if (LEGACY_ONBOARDING_REUPLOAD[key]) {
+        _reuploadDeepLinkDone = true;
+        var obTarget = "/pages/onboarding?reupload=" + encodeURIComponent(LEGACY_ONBOARDING_REUPLOAD[key]);
+        try {
+          if (window.top !== window.self) { window.top.location.href = obTarget; return; }
+        } catch (e) { /* cross-origin top — fall through */ }
+        window.location.replace(obTarget);
+        return;
+      }
       var card = document.querySelector('[data-doc-card="' + key + '"]');
       if (!card) return; // cards not rendered yet — a later render will retry
       _reuploadDeepLinkDone = true;
