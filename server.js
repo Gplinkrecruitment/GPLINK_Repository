@@ -6536,18 +6536,24 @@ async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType
 // Supabase Storage, bypassing Vercel's ~4.5 MB serverless request-body limit
 // (a base64-in-JSON upload of a multi-MB scanned contract is rejected before the
 // function even runs). Returns an absolute URL the browser PUTs the raw file to.
-async function supabaseStorageCreateSignedUploadUrl(bucket, objectPath) {
+async function supabaseStorageCreateSignedUploadUrl(bucket, objectPath, options = {}) {
   if (!isSupabaseDbConfigured()) return '';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
+    const signHeaders = {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    };
+    // Allow overwriting an existing object (e.g. re-uploading / replacing an
+    // offer contract that was already stored). Without x-upsert, Supabase's
+    // sign endpoint returns 409 "The resource already exists" and the upload
+    // can never be prepared.
+    if (options && options.upsert) signHeaders['x-upsert'] = 'true';
     const response = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      }
+      headers: signHeaders
     }).catch(() => null);
     if (!response || !response.ok) return '';
     const data = await response.json().catch(() => null);
@@ -52882,7 +52888,7 @@ Return ONLY valid JSON with no markdown formatting:
     const ocsuUserId = (ocsuCaseRes.ok && Array.isArray(ocsuCaseRes.data) && ocsuCaseRes.data[0]) ? ocsuCaseRes.data[0].user_id : '';
     if (!ocsuUserId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
     const ocsuPath = ['users', sanitizeStoragePathSegment(ocsuUserId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
-    const ocsuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, ocsuPath);
+    const ocsuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, ocsuPath, { upsert: true });
     if (!ocsuUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
     sendJson(res, 200, { ok: true, uploadUrl: ocsuUrl, storagePath: ocsuPath });
     return;
