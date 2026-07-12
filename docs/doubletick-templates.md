@@ -27,6 +27,21 @@ Sent automatically when a GP progresses to a new registration stage.
 
 ---
 
+## RSO Welcome Template (PENDING approval)
+
+Sent by the app the **first time a GP is assigned to an RSO** (`ensureRsoWelcomeSent` in server.js). Purpose: **materialise the GP's DoubleTick conversation** so it appears in that RSO's assigned inbox — a first-contact message to a GP who has never messaged us must be an approved template. Sent once per GP (idempotent via a `task_timeline` sentinel), fail-soft until approved.
+
+| Template Name | Purpose | Placeholders | Status |
+|---|---|---|---|
+| `gp_link_app_rso_welcome` | Welcome + connect GP to their assigned RSO | `{{1}}` = GP first name, `{{2}}` = RSO first name | PENDING |
+
+**Draft copy (awaiting owner sign-off + WhatsApp approval):**
+> Hi {{1}}, welcome to GP Link 👋 You're now connected with {{2}}, your dedicated Registration Support Officer. {{2}} will guide you through every step of getting registered to work as a GP in Australia. Whenever you have a question or need a hand, just reply to this message — we're here to help.
+
+Template map: `DOUBLETICK_RSO_WELCOME_TEMPLATE` (server.js). Wired into every assignment path (admin reassign, CEO reassign, bulk reassign, and the `/api/admin/ops/resync-dt-assignment` trigger) — but NOT the inbound webhook (the GP already has a live chat there). If the owner picks the generic 1-placeholder wording instead, drop `{{2}}` and the `rsoFirstName` placeholder.
+
+---
+
 ## Nudge Templates (TODO)
 
 Sent by VA admins when a GP appears stalled. Currently using direct text mode as a fallback until these are approved.
