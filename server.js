@@ -49960,6 +49960,23 @@ Return ONLY valid JSON with no markdown formatting:
           updated_at: new Date().toISOString()
         }]
       });
+
+      // Mirror the decision onto the onboarding-key row (separate key namespace).
+      // The onboarding wizard reads its documents back via GET /api/onboarding-documents,
+      // which only sees onboarding_* rows — without this the wizard shows a rejected
+      // document as "under review" forever.
+      if (rfObKey) {
+        await supabaseDbRequest('user_documents',
+          'user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfObKey), {
+          method: 'PATCH',
+          body: {
+            status: rfDecision === 'approve' ? 'approved' : 'rejected',
+            rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+            flag_reason: '',
+            updated_at: new Date().toISOString()
+          }
+        });
+      }
     }
 
     // Complete the task (both approve and reject close it).
@@ -50024,22 +50041,27 @@ Return ONLY valid JSON with no markdown formatting:
           'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
           'View Dashboard', APP_BASE_URL + '/pages/index.html', '');
       } else {
-        // Deep-link straight to the document's re-upload card in My Documents
-        // (?reupload=<key> opens the right tab, scrolls to and highlights the card).
-        var rfReuploadUrl = APP_BASE_URL + '/pages/my-documents.html'
+        // Deep-link straight to the document's re-upload surface. Onboarding-origin
+        // documents (related_stage 'onboarding') go back into the onboarding wizard
+        // (?reupload= opens the qualification step and highlights the slot) — the
+        // my-documents page shows a DIFFERENT document set (AHPRA-stage certified
+        // copies) whose card keys don't match onboarding qualification keys.
+        var rfIsOnboardingDoc = String(rfTask.related_stage || '') === 'onboarding';
+        var rfReuploadTarget = (rfIsOnboardingDoc ? '/pages/onboarding.html' : '/pages/my-documents.html')
           + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
+        var rfReuploadUrl = APP_BASE_URL + rfReuploadTarget;
         await sendGpNotificationEmail(rfUserId,
           'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
-          'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document from your dashboard and we’ll review it again.',
+          'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document and we’ll review it again.',
           'Re-upload Document', rfReuploadUrl, '');
         // F3: matching in-app alert (bell) with the same re-upload deep link, so
         // the rejection isn't email-only.
         await pushDocumentNotificationToUser(rfUserId, {
           type: 'action',
           title: rfDocLabel + ' needs attention',
-          detail: (rfNote ? rfNote + ' ' : '') + 'Please re-upload from My Documents.',
-          target: '/pages/my-documents.html' + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '')
+          detail: (rfNote ? rfNote + ' ' : '') + (rfIsOnboardingDoc ? 'Please re-upload from your onboarding checklist.' : 'Please re-upload from My Documents.'),
+          target: rfReuploadTarget
         });
       }
     }
