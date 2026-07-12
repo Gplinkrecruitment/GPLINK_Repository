@@ -49326,26 +49326,6 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _completeRegTask(taskId, task.case_id, adminCtx.email);
 
-    // Name-change evidence flag: if this qualification's cached AI scan found a name
-    // on the document that does NOT match the account name, approving it records a
-    // genuine name change (e.g. marriage / deed poll). The GP's AMC "Establishment"
-    // step then prompts for the extra name-change evidence AMC requires. Set only on
-    // a real mismatch; a match or an un-scanned doc changes nothing. Best-effort.
-    try {
-      var approveScan = (task && task.metadata && task.metadata.ai_scan && task.metadata.ai_scan.scan) || null;
-      if (approveScan && approveScan.nameMatch === 'mismatch') {
-        await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
-          method: 'PATCH',
-          body: {
-            name_change_detected: true,
-            name_change_note: 'Document name: ' + (approveScan.nameFound || '')
-          }
-        });
-      }
-    } catch (nameChangeErr) {
-      console.error('[doc-review/approve] name-change flag failed:', nameChangeErr && nameChangeErr.message);
-    }
-
     var docLabel = getDocumentLabelForKey(docKey) || docKey;
     // Mirror the reject path's explicit timeline row so the audit trail records
     // WHAT was approved (the generic "Task completed" row above doesn't name the doc).
@@ -49899,6 +49879,27 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (restoreErr) {
         console.error('[ReviewFlaggedDoc] account restore error:', restoreErr.message);
+      }
+
+      // Name-change evidence flag: if this qualification's cached AI scan found a
+      // name on the document that does NOT match the account name, approving it
+      // records a genuine name change (e.g. marriage / deed poll). The GP's AMC
+      // "Establishment" step then prompts for the extra name-change evidence AMC
+      // requires. Set only on a real mismatch; a match or an un-scanned doc changes
+      // nothing. Best-effort — a failure must never break the approval.
+      try {
+        var rfApproveScan = (rfTask && rfTask.metadata && rfTask.metadata.ai_scan && rfTask.metadata.ai_scan.scan) || null;
+        if (rfApproveScan && rfApproveScan.nameMatch === 'mismatch') {
+          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(rfUserId), {
+            method: 'PATCH',
+            body: {
+              name_change_detected: true,
+              name_change_note: 'Document name: ' + (rfApproveScan.nameFound || '')
+            }
+          });
+        }
+      } catch (rfNameChangeErr) {
+        console.error('[ReviewFlaggedDoc] name-change flag failed:', rfNameChangeErr && rfNameChangeErr.message);
       }
     }
 
