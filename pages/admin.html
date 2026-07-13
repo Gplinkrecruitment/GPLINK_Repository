@@ -1463,8 +1463,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div id="reviewDocAiBody"></div>
     </div>
     <div style="padding:14px 18px;border-top:1px solid #e5e7eb;">
-      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject)</span></label>
-      <textarea id="reviewDocNote" rows="2" placeholder="Reason for rejection / note to the GP…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject — the email sends exactly what you type here)</span></label>
+      <!-- Formatting toolbar: same [data-fmt] delegation as the Inbox composer (fmtToolbarHtml). -->
+      <div class="fmt-toolbar" data-fmt-target="reviewDocNote" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 6px;">
+        <button type="button" data-fmt="bold" title="Bold the selected text" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;font-weight:800;">B</button>
+        <button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;">• Dot point</button>
+        <span style="font-size:11px;color:#9ca3af;">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span>
+      </div>
+      <textarea id="reviewDocNote" rows="5" placeholder="Reason for rejection / note to the GP — sent as the email body exactly as typed…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
       <div id="reviewDocError" style="color:#dc2626;font-size:12px;margin-top:6px;display:none;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
         <button onclick="closeReviewDocModal()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;color:#374151;">Cancel</button>
@@ -7845,6 +7851,44 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     target.focus();
   });
 
+  // ── Formatting toolbar for plain-text boxes that become formatted emails ──
+  // Used above the reject-note box and the Inbox / GP-file reply box. The send path keeps
+  // what's typed: blank line = new paragraph, "- " at line start = dot point, **text** =
+  // bold. The buttons just type that syntax around the current selection.
+  function fmtToolbarHtml(targetId,marginStyle){
+    var btn='background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit';
+    return '<div class="fmt-toolbar" data-fmt-target="'+targetId+'" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;'+(marginStyle||'margin:0 0 6px')+'">'
+      +'<button type="button" data-fmt="bold" title="Bold the selected text" style="'+btn+';font-weight:800">B</button>'
+      +'<button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="'+btn+'">• Dot point</button>'
+      +'<span style="font-size:11px;color:#9ca3af">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span></div>';
+  }
+  document.addEventListener("click",function(e){
+    var b=e.target&&e.target.closest&&e.target.closest(".fmt-toolbar [data-fmt]");
+    if(!b)return;
+    var bar=b.closest(".fmt-toolbar");
+    // Resolve the textarea within the same composer first — both hub panels use
+    // id="hubReply", so a bare getElementById could hit the other (hidden) panel.
+    var wrap=bar.closest(".hub-composer");
+    var ta=wrap?wrap.querySelector("textarea"):null;
+    if(!ta&&bar.getAttribute("data-fmt-target"))ta=document.getElementById(bar.getAttribute("data-fmt-target"));
+    if(!ta||ta.disabled)return;
+    var v=ta.value,s=ta.selectionStart||0,en=ta.selectionEnd||0;
+    if(b.getAttribute("data-fmt")==="bold"){
+      var selTxt=v.slice(s,en)||"bold text";
+      ta.value=v.slice(0,s)+"**"+selTxt+"**"+v.slice(en);
+      ta.focus();ta.setSelectionRange(s+2,s+2+selTxt.length);
+    }else{
+      var ls=v.lastIndexOf("\n",Math.max(0,s-1))+1;
+      var end=Math.max(en,ls);
+      var lines=v.slice(ls,end).split("\n").map(function(l){return /^\s*[-*•]\s/.test(l)?l:("- "+l);});
+      var repl=lines.join("\n");
+      ta.value=v.slice(0,ls)+repl+v.slice(end);
+      var caret=ls+repl.length;
+      ta.focus();ta.setSelectionRange(caret,caret);
+    }
+    ta.dispatchEvent(new Event("input",{bubbles:true}));
+  });
+
   // Reusable email-conversation view. Used twice:
   //   • global Inbox tab  → createHubEmailView({panelId:"hubInboxPanel",showFilters:true})
   //   • GP-profile Emails → createHubEmailView({panelId:"gpEmailsPanel",caseId:<case id>,showFilters:false})
@@ -7996,6 +8040,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(((sel&&sel.latestTaskId)||header.latestTaskId)?'':' disabled')+'>✦ Suggest a reply</button>'+
         '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
+        fmtToolbarHtml("","margin:2px 12px 6px")+
         '<textarea id="hubReply" placeholder="'+(sel?"Type your reply…":"Type your new email…")+'"'+(canSend?"":" disabled")+'></textarea>'+
         '<div class="hub-composer-foot">'+
           (canSend?"":'<span class="hub-nosend">No reply address found for this conversation — open the case to reply.</span>')+
@@ -8086,13 +8131,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     function hubFmtTime(v){var d=v?new Date(v):null;return (d&&!isNaN(d.getTime()))?d.toLocaleString():"";}
     // Convert a plain-text reply into tidy HTML for the OUTBOUND email: blank lines become
-    // paragraphs, single newlines become <br>, **bold** is rendered. Without this the email
-    // client collapses every line break into one wall-of-text paragraph.
+    // paragraphs, single newlines become <br>, lines starting with "-", "*" or "•" become
+    // dot points, **bold** is rendered. Without this the email client collapses every line
+    // break into one wall-of-text paragraph.
     function hubTextToHtml(t){
       var blocks=String(t||"").replace(/\r\n/g,"\n").replace(/\n{3,}/g,"\n\n").split(/\n{2,}/);
       return blocks.map(function(b){
-        var safe=esc(b).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>");
-        return '<p style="margin:0 0 12px;line-height:1.5">'+safe+'</p>';
+        var out=[],para=[],list=[];
+        var flushPara=function(){if(para.length){out.push('<p style="margin:0 0 12px;line-height:1.5">'+para.join("<br>")+'</p>');para=[];}};
+        var flushList=function(){if(list.length){out.push('<ul style="margin:0 0 12px;padding-left:22px;line-height:1.5">'+list.map(function(li){return '<li style="margin:0 0 4px">'+li+'</li>';}).join("")+'</ul>');list=[];}};
+        b.split("\n").forEach(function(line){
+          var safe=esc(line).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+          var bullet=safe.match(/^\s*(?:[-*•])\s+(.*)$/);
+          if(bullet){flushPara();list.push(bullet[1]);}
+          else if(safe.trim()){flushList();para.push(safe);}
+        });
+        flushPara();flushList();
+        return out.join("");
       }).join("")||'<p></p>';
     }
     var _hubHdr=null; // set by renderThread so msgHtml can name who an outbound was sent as

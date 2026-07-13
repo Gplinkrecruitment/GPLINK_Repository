@@ -25702,7 +25702,44 @@ async function sendPushNotification(userId, { title, body, data, url } = {}) {
   } catch {}
 }
 
+// Render plain text (an RSO's rejection reason, a templated notification body) as email
+// HTML that keeps the formatting the writer typed: a blank line starts a new paragraph, a
+// single newline becomes a line break, lines starting with "-", "*" or "•" become dot
+// points, and **text** renders bold. The text is HTML-escaped first, so nothing an admin
+// types can inject markup into the email.
+function formatPlainTextEmailHtml(text) {
+  // Escape & only when it isn't already an entity (&lt; &amp; &#39; …) — some callers
+  // pass bodies whose interpolated values are esc()'d upstream, and re-escaping those
+  // would render literal "&lt;" text in the email.
+  var escaped = String(text == null ? '' : text)
+    .replace(/&(?!#\d{1,7};|#x[0-9a-fA-F]{1,6};|[a-zA-Z][a-zA-Z0-9]{1,31};)/g, '&amp;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  var blocks = escaped.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').split(/\n{2,}/);
+  var html = blocks.map(function (block) {
+    var out = [], para = [], list = [];
+    var flushPara = function () { if (para.length) { out.push('<p style="margin:0 0 12px">' + para.join('<br>') + '</p>'); para = []; } };
+    var flushList = function () { if (list.length) { out.push('<ul style="margin:0 0 12px;padding-left:22px">' + list.map(function (li) { return '<li style="margin:0 0 4px">' + li + '</li>'; }).join('') + '</ul>'); list = []; } };
+    block.split('\n').forEach(function (line) {
+      var bullet = line.match(/^\s*(?:[-*•])\s+(.*)$/);
+      if (bullet) { flushPara(); list.push(bullet[1]); }
+      else if (line.trim()) { flushList(); para.push(line); }
+    });
+    flushPara(); flushList();
+    return out.join('');
+  }).join('');
+  return '<div style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">' + html + '</div>';
+}
+
 function buildCareerEmailHtml({ title, body, bodyHtml, ctaText, ctaUrl, secondaryCtaText, secondaryCtaUrl, signatureHtml, footer }) {
+  // Plain-text bodies (no HTML tags) get their typed formatting converted — newlines,
+  // dot points, **bold** — instead of collapsing into one wall-of-text paragraph.
+  // Bodies that already contain HTML keep the legacy single-<p> wrap untouched.
+  var bodyBlock = bodyHtml
+    ? bodyHtml
+    : (/<[a-z][^>]*>/i.test(String(body || ''))
+      ? '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">' + (body || '') + '</p>'
+      : formatPlainTextEmailHtml(body));
   var ctaHtml = '';
   if (ctaText && ctaUrl) {
     ctaHtml += '<div style="text-align:center;margin:24px 0">';
@@ -25720,7 +25757,7 @@ function buildCareerEmailHtml({ title, body, bodyHtml, ctaText, ctaUrl, secondar
 <span style="font-size:22px;font-weight:800;color:#0f172a">GP Link</span>
 </div>
 ${title ? '<h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px">' + title + '</h1>' : ''}
-${bodyHtml ? bodyHtml : '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">' + (body || '') + '</p>'}
+${bodyBlock}
 ${ctaHtml}
 ${signatureHtml || ''}
 ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px">' + footer + '</p>' : ''}
@@ -49986,7 +50023,9 @@ Return ONLY valid JSON with no markdown formatting:
     let rfBody; try { rfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
     const rfTaskId = rfBody && rfBody.task_id ? String(rfBody.task_id).trim() : '';
     const rfDecision = rfBody && rfBody.decision ? String(rfBody.decision).trim().toLowerCase() : '';
-    const rfNote = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 1000) : '';
+    // 4000, not 1000: the note IS the rejection email body now (it's no longer squeezed
+    // into a boilerplate "Reason:" slot), so a full structured message must fit.
+    const rfNote = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 4000) : '';
     if (!rfTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
     if (rfDecision !== 'approve' && rfDecision !== 'reject') { sendJson(res, 400, { ok: false, message: 'decision must be approve or reject.' }); return; }
     if (rfDecision === 'reject' && !rfNote) { sendJson(res, 400, { ok: false, message: 'A reason is required when rejecting — the GP will see it.' }); return; }
@@ -50167,10 +50206,15 @@ Return ONLY valid JSON with no markdown formatting:
         var rfReuploadTarget = (rfIsOnboardingDoc ? '/pages/onboarding.html' : '/pages/my-documents.html')
           + (rfTask.related_document_key ? '?reupload=' + encodeURIComponent(rfTask.related_document_key) : '');
         var rfReuploadUrl = APP_BASE_URL + rfReuploadTarget;
+        // The email body is ONLY what the reviewer typed (formatted — paragraphs, dot
+        // points, **bold** all survive). No auto "Our team reviewed…Reason:" prefix or
+        // "Please upload a corrected document…" suffix: the note usually is a complete
+        // message, and the wrapper turned it into one boilerplate-sandwiched paragraph.
+        // The generic sentence only appears as a fallback when no note was typed.
         rfSent = await sendGpNotificationEmail(rfUserId,
           'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
-          'Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nReason: ' + rfNote + '\n\nPlease upload a corrected document and we’ll review it again.',
+          rfNote || ('Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nPlease upload a corrected document and we’ll review it again.'),
           'Re-upload Document', rfReuploadUrl, '', rfMailOpts);
         // F3: matching in-app alert (bell) with the same re-upload deep link, so
         // the rejection isn't email-only.
@@ -53276,7 +53320,9 @@ Return ONLY valid JSON with no markdown formatting:
       subject: 'Action needed: re-upload your ' + rdrDocLabel + ' — GP Link',
       html: buildCareerEmailHtml({
         title: 'Please re-upload your ' + rdrDocLabel + ', ' + rdrName,
-        body: 'Our team reviewed your ' + rdrDocLabel + ' and it needs to be re-uploaded before we can continue your registration.' + (rdrNote ? '\n\nReason: ' + rdrNote : '') + '\n\nPlease upload a corrected document and we’ll review it again.',
+        // Same shape as the live rejection email: the body is the reviewer's stored
+        // note only (formatted), with the generic sentence as a no-note fallback.
+        body: rdrNote || ('Our team reviewed your ' + rdrDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nPlease upload a corrected document and we’ll review it again.'),
         ctaText: 'Re-upload Document',
         ctaUrl: APP_BASE_URL + rdrTarget,
         footer: ''

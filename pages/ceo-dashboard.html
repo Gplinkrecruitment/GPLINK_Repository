@@ -6320,9 +6320,16 @@
       var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
       if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
       html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
-      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP</label>';
+      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP — the email sends exactly what you type</label>';
+      // Formatting toolbar: same [data-fmt] delegation pattern as admin.html — the email
+      // keeps line breaks, renders **text** bold and "- " lines as dot points.
+      var fmtBtn = 'background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:var(--text);font-family:inherit';
+      html += '<div class="fmt-toolbar" data-fmt-target="ceoReviewDocNote" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0">'
+        + '<button type="button" data-fmt="bold" title="Bold the selected text" style="' + fmtBtn + ';font-weight:800">B</button>'
+        + '<button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="' + fmtBtn + '">• Dot point</button>'
+        + '<span style="font-size:11px;color:var(--text-muted)">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span></div>';
       // Pre-fill the note with the full AI explanation so it can be sent to the GP as-is (or edited).
-      html += '<textarea id="ceoReviewDocNote" rows="2" style="width:100%;margin-top:4px;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box">' + esc(ceoReason) + '</textarea></div>';
+      html += '<textarea id="ceoReviewDocNote" rows="5" style="width:100%;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box">' + esc(ceoReason) + '</textarea></div>';
       html += '<div id="ceoReviewDocError" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>';
       html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject — request re-upload</button>';
@@ -6362,6 +6369,32 @@
         refreshGpDetailTasks();
       }).catch(function(e) { if (err) { err.textContent = 'Network error: ' + e.message; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; });
     }
+
+    // Formatting-toolbar clicks (the .fmt-toolbar above the reject-note box). B wraps the
+    // selection in **…**; • Dot point prefixes the selected lines with "- ". The server
+    // renders that syntax in the outgoing email (bold / dot points / kept line breaks).
+    document.addEventListener('click', function(e) {
+      var b = e.target && e.target.closest && e.target.closest('.fmt-toolbar [data-fmt]');
+      if (!b) return;
+      var bar = b.closest('.fmt-toolbar');
+      var ta = bar.getAttribute('data-fmt-target') ? document.getElementById(bar.getAttribute('data-fmt-target')) : null;
+      if (!ta || ta.disabled) return;
+      var v = ta.value, s = ta.selectionStart || 0, en = ta.selectionEnd || 0;
+      if (b.getAttribute('data-fmt') === 'bold') {
+        var selTxt = v.slice(s, en) || 'bold text';
+        ta.value = v.slice(0, s) + '**' + selTxt + '**' + v.slice(en);
+        ta.focus(); ta.setSelectionRange(s + 2, s + 2 + selTxt.length);
+      } else {
+        var ls = v.lastIndexOf('\n', Math.max(0, s - 1)) + 1;
+        var end = Math.max(en, ls);
+        var lines = v.slice(ls, end).split('\n').map(function(l) { return /^\s*[-*•]\s/.test(l) ? l : ('- ' + l); });
+        var repl = lines.join('\n');
+        ta.value = v.slice(0, ls) + repl + v.slice(end);
+        var caret = ls + repl.length;
+        ta.focus(); ta.setSelectionRange(caret, caret);
+      }
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    });
 
     // Render this GP file's call history newest-first. Each card shows a status pill,
     // scheduled time, assigned RSO, admin notes, a meeting summary for completed calls,
