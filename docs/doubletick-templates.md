@@ -1,20 +1,6 @@
 # DoubleTick WhatsApp Templates
 
-## The rule (2026-07-13)
-
-**The RSO welcome is the only WhatsApp message the app sends on its own.**
-
-Every other automated send was removed — stage introductions, the support-ticket
-confirmation, call and interview reminders, the no-show re-invite, and the PEP
-waitlist confirmation. Those notifications still go out **by email**; they just no
-longer fire a WhatsApp.
-
-WhatsApp is now one of exactly two things:
-
-1. the one-time RSO welcome, sent automatically when a GP is first assigned to an RSO; or
-2. a message a human deliberately sends from the dashboard.
-
-If you are adding a new WhatsApp send, it must fall into one of those two buckets.
+Templates that need to be created in the DoubleTick dashboard and approved by WhatsApp before switching from direct text mode to template mode.
 
 ## Status Legend
 - **LIVE** — Created in DoubleTick, approved, and wired up in code
@@ -23,7 +9,35 @@ If you are adding a new WhatsApp send, it must fall into one of those two bucket
 
 ---
 
-## RSO Welcome Template (PENDING approval) — the only automatic send
+## Stage Introduction Templates — REMOVED 2026-07-13
+
+**The app no longer WhatsApps a GP when they reach a new registration stage.** All five
+stage introductions were removed (owner decision, 2026-07-13). The stage **emails** still
+send exactly as before — only the WhatsApp copy went.
+
+Do not re-add a stage-intro send without asking. The templates below may still exist and
+be approved in the DoubleTick dashboard, but nothing in the code calls them.
+
+| Template Name | Was sent when | Status in code |
+|---|---|---|
+| `gp_link_app_myintealth_introductiory_message_` | GP started MyIntealth | REMOVED |
+| `gp_link_app_amc_introductiory_message_` | GP started AMC | REMOVED |
+| `gp_link_app_ahpra_introductiory_message` | GP started AHPRA | REMOVED |
+| `gp_link_app_career_introductiory_message` | GP started Career/Documents | REMOVED (never existed) |
+| `gp_link_app_visa_introductiory_message` | GP started Visa | REMOVED (never existed) |
+
+The stage-start sentinels in `task_timeline` are still stamped (`_hasStageSentinel`,
+formerly `_hasDoubleTickBeenSent`) because they now dedupe the stage **emails**. The helper
+still matches the legacy `— WhatsApp template sent` titles so GPs stamped before the
+removal are recognised and never get a duplicate email.
+
+Every other automated WhatsApp send is unchanged and still fires: the RSO welcome,
+support-ticket confirmation, interview reminders, call reminders, the no-show alert,
+the automatic Zoom re-invite, and the PEP waitlist confirmation.
+
+---
+
+## RSO Welcome Template (PENDING approval)
 
 Sent by the app the **first time a GP is assigned to an RSO** (`ensureRsoWelcomeSent` in server.js). Purpose: **materialise the GP's DoubleTick conversation** so it appears in that RSO's assigned inbox — a first-contact message to a GP who has never messaged us must be an approved template. Sent once per GP (idempotent via a `task_timeline` sentinel), fail-soft until approved.
 
@@ -43,24 +57,13 @@ Sent by the app the **first time a GP is assigned to an RSO** (`ensureRsoWelcome
 > Registration Support Officer
 > GP Link
 
-Template map: `DOUBLETICK_RSO_WELCOME_TEMPLATE` (server.js). Wired into every assignment path (admin reassign, CEO reassign, bulk reassign, and the `/api/admin/ops/resync-dt-assignment` trigger) — but NOT the inbound webhook (the GP already has a live chat there).
+Template map: `DOUBLETICK_RSO_WELCOME_TEMPLATE` (server.js). Wired into every assignment path (admin reassign, CEO reassign, bulk reassign, and the `/api/admin/ops/resync-dt-assignment` trigger) — but NOT the inbound webhook (the GP already has a live chat there). If the owner picks the generic 1-placeholder wording instead, drop `{{2}}` and the `rsoFirstName` placeholder.
 
 ---
 
-## Human-triggered sends (kept — a person presses the button)
+## Nudge Templates (TODO)
 
-These are not automatic: an RSO chooses to send them from the dashboard.
-
-| Sender (server.js) | Trigger |
-|---|---|
-| `/api/admin/whatsapp/send` | RSO types a freeform WhatsApp message |
-| `sendDoubleTickZoomCallInvite` | RSO schedules, reschedules, or resends a Zoom call invite |
-| `sendDoubleTickNudge` | RSO clicks "Send Nudge" on a stalled GP |
-| `sendWhatsappText` (PEP launch) | Owner presses the "launch PEP pathway" button |
-
-### Nudge templates (TODO — still direct text)
-
-`sendDoubleTickNudge` always uses direct text mode; these templates were never created.
+Sent by VA admins when a GP appears stalled. Currently using direct text mode as a fallback until these are approved.
 
 | Template Name | Purpose | Placeholders | Status |
 |---|---|---|---|
@@ -72,38 +75,40 @@ These are not automatic: an RSO chooses to send them from the dashboard.
 | `gp_link_nudge_pbs` | Check-in during PBS step | `{{1}}` = GP first name | TODO |
 | `gp_link_nudge_checkin` | Generic check-in (no specific stage) | `{{1}}` = GP first name | TODO |
 
+### Suggested copy for nudge templates:
+
+**Stage-specific (e.g. `gp_link_nudge_amc`):**
+> Hi {{1}}, just checking in on your AMC progress. Need any help with your current step? Reply here or reach out to your support expert Hazel for assistance.
+
+**Generic (`gp_link_nudge_checkin`):**
+> Hi {{1}}, just checking in — how are you going with your current step? If you're stuck or need help, reply here and we'll get you sorted.
+
 ---
 
-## Removed on 2026-07-13 (do not re-add without asking)
+## How Templates Are Used in Code
 
-The stage-introduction templates below are **no longer sent by the app**. They may
-still exist and be approved in the DoubleTick dashboard, but nothing in the code
-calls them. `sendDoubleTickTemplate`, `DOUBLETICK_STAGE_TEMPLATES` and
-`DOUBLETICK_STAGE_MESSAGES` were deleted.
+### `sendDoubleTickTemplate` in server.js
+- The stage introductions that used to call this were removed on 2026-07-13
+- Its only remaining caller is the `support_ticket_received` confirmation
+- Template map: `DOUBLETICK_STAGE_TEMPLATES` — now empty. Because `DOUBLETICK_USE_DIRECT_TEXT`
+  is `false`, `sendDoubleTickTemplate` looks for an approved template, finds none for
+  `support_ticket_received`, and returns `{ok:false}` with a "No template configured"
+  warning. **So the support-ticket WhatsApp does not currently reach the GP** — that was
+  already true before this change, not caused by it. To make it send, either create the
+  template in DoubleTick and add it to `DOUBLETICK_STAGE_TEMPLATES`, or flip
+  `DOUBLETICK_USE_DIRECT_TEXT` to `true` (which uses the copy in `DOUBLETICK_STAGE_MESSAGES`).
 
-| Template Name | Was sent when |
-|---|---|
-| `gp_link_app_myintealth_introductiory_message_` | GP started MyIntealth |
-| `gp_link_app_amc_introductiory_message_` | GP started AMC |
-| `gp_link_app_ahpra_introductiory_message` | GP started AHPRA |
-
-Also removed (these were direct-text, not templates):
-
-- support-ticket-received confirmation to the GP
-- "your interview times are ready" to the GP (both the practice-decision and availability-reply paths)
-- interview reminder to the GP, and to the RSO
-- 10-minutes-until-your-call reminder to the RSO
-- no-show / cancellation alert to the RSO
-- automatic Zoom re-invite to the GP after a no-show
-- PEP waitlist confirmation to the GP
-
-The **email** version of each of these still sends. The stage-start sentinels in
-`task_timeline` are still stamped (`_hasStageSentinel`) because they now dedupe the
-stage emails.
+### Nudges (`sendDoubleTickNudge` in server.js)
+- Triggered manually by VA admin clicking "Send Nudge" in admin dashboard
+- Template map: `nudgeTemplateMap` inside `sendDoubleTickNudge` function
+- Currently always uses direct text mode until templates are approved
+- To switch to template mode: update `sendDoubleTickNudge` to try template first, fall back to text
 
 ---
 
 ## Adding New Templates
+
+When adding a new template:
 
 1. Create the template in DoubleTick dashboard
 2. Wait for WhatsApp approval (usually 24-48 hours)
@@ -113,4 +118,4 @@ stage emails.
 
 ---
 
-*Last updated: 2026-07-13*
+*Last updated: 2026-04-29*
