@@ -202,15 +202,11 @@ const DOUBLETICK_WEBHOOK_RATE_MAX = 60; // max 60 deliveries per minute per sour
 const DOUBLETICK_WEBHOOK_RATE_WINDOW_MS = 60 * 1000;
 const DOUBLETICK_CONVERSATION_URL_PREFIX = 'https://app.doubletick.io/';
 const DOUBLETICK_MESSAGE_BODY_MAX_LEN = 4096;
-// Stage → DoubleTick approved WhatsApp template name mapping.
-// These template names must match exactly what is configured in the DoubleTick dashboard.
-const DOUBLETICK_USE_DIRECT_TEXT = false; // templates are approved
-const DOUBLETICK_STAGE_TEMPLATES = {
-  myintealth: { templateName: 'gp_link_app_myintealth_introductiory_message_', language: 'en' },
-  amc: { templateName: 'gp_link_app_amc_introductiory_message_', language: 'en' },
-  ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' }
-  // career and visa templates not yet created in DoubleTick
-};
+// The RSO welcome below is the ONLY WhatsApp message the app sends on its own.
+// Every other automated send (stage introductions, support-ticket confirmations,
+// call/interview reminders) was removed — WhatsApp is now either this one welcome
+// or a message an RSO deliberately sends from the dashboard.
+//
 // One-time "you're now connected with your RSO" welcome. Sent by the app the first
 // time a GP is assigned to an RSO, to MATERIALIZE their DoubleTick conversation so
 // it shows up in that RSO's assigned inbox (a first-contact message to a GP who has
@@ -219,15 +215,6 @@ const DOUBLETICK_STAGE_TEMPLATES = {
 // slot with the same value, since WhatsApp is safest without a repeated variable).
 // Pending WhatsApp approval — sends fail-soft until live.
 const DOUBLETICK_RSO_WELCOME_TEMPLATE = { templateName: 'gp_link_app_rso_welcome', language: 'en' };
-// Direct text messages used while templates are pending approval
-const DOUBLETICK_STAGE_MESSAGES = {
-  myintealth: 'Hi {{name}}, welcome to GP Link! 🎉 Your first step is creating your MyIntealth account. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
-  amc: 'Hi {{name}}, you\'ve moved on to the AMC step! 🎉 You\'ll need to create your AMC portfolio and upload your credentials. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
-  career: 'Hi {{name}}, your AMC step is complete — now it\'s time for the Career & Documents stage! 🎉 We\'ll help you find and secure a placement. If you need any help, just reply to this message.',
-  ahpra: 'Hi {{name}}, great progress — you\'ve unlocked the AHPRA step! 🎉 This involves registering with the Australian Health Practitioner Regulation Agency. If you need any help, just reply to this message.',
-  visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.',
-  support_ticket_received: 'Hi {{name}}, we\'ve received your support request. One of our registration support agents will be in touch shortly via email or WhatsApp to help resolve this for you.'
-};
 const CAREER_HERO_IMAGE_VERSION = 4;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -8442,13 +8429,11 @@ async function markPepNotifyRequested(email) {
   return true;
 }
 
-// Send the "you're on the PEP waitlist" confirmation via WhatsApp + email.
+// Send the "you're on the PEP waitlist" confirmation by email.
+// Email only — the automatic WhatsApp confirmation was removed.
 async function sendPepWaitlistConfirmation(row) {
   const firstName = String((row && row.name) || '').trim().split(/\s+/)[0] || 'there';
   const escHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const waBody = 'Hi ' + firstName + ' — you\'re on the GP Link PEP (Substantially Comparable) pathway waitlist. '
-    + 'We\'re opening this pathway within the next 30 days and will message you the moment it\'s available. — GP Link';
-  if (row && row.phone) { try { await sendWhatsappText(row.phone, waBody); } catch (e) { console.error('[PEP] WA confirm failed:', e.message); } }
   if (row && row.email) {
     try {
       await sendEmail({
@@ -14012,10 +13997,17 @@ async function _hasOpenTask(caseId, stage, type) {
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
-async function _hasDoubleTickBeenSent(caseId, stageTitle) {
+// Has a "this stage already fired once" sentinel been stamped for this case?
+// Stage-start sentinels gate the stage EMAILS (the stage WhatsApps were removed);
+// the 'RSO welcome' sentinel gates the one WhatsApp the app still sends on its own.
+// Matches the legacy "— WhatsApp template sent" titles too, so cases stamped before
+// the WhatsApp removal are still recognised and never get a duplicate email.
+async function _hasStageSentinel(caseId, stageTitle) {
   if (!isSupabaseDbConfigured()) return false;
-  const exactTitle = stageTitle + ' started — WhatsApp template sent';
-  const titles = [exactTitle];
+  const titles = [
+    stageTitle + ' started',
+    stageTitle + ' started — WhatsApp template sent'
+  ];
   // Backward compat: AHPRA was previously logged as "unlocked" instead of "started"
   if (stageTitle === 'AHPRA stage') titles.push('AHPRA stage unlocked — WhatsApp template sent');
   const titleFilter = titles.length === 1
@@ -14206,8 +14198,7 @@ function buildDoubleTickAssignBody(opts) {
 }
 
 // POST /team-member/assign — assign a GP's WhatsApp chat to an RSO in DoubleTick.
-// Fail-soft: never throws; returns a result object. Mirrors the auth/timeout
-// convention used by sendDoubleTickTemplate.
+// Fail-soft: never throws; returns a result object.
 async function assignDoubleTickChat(opts) {
   if (!DOUBLETICK_API_KEY) {
     console.warn('[doubletick-assign] DOUBLETICK_API_KEY not set — skipping assign');
@@ -14297,7 +14288,7 @@ async function ensureRsoWelcomeSent(opts) {
     if (!rso || !normalizePhone(rso.phone || '')) return { ok: false, skipped: true };
     const rsoFirstName = (String(rso.name || '').trim().split(/\s+/)[0]) || 'your GP Link team';
     // One welcome per GP, ever — sentinel stamped in task_timeline on success.
-    if (await _hasDoubleTickBeenSent(caseId, 'RSO welcome')) return { ok: true, alreadySent: true };
+    if (await _hasStageSentinel(caseId, 'RSO welcome')) return { ok: true, alreadySent: true };
     let gpFirstName = '';
     try {
       const pr = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
@@ -14341,104 +14332,6 @@ async function ensureRsoWelcomeSent(opts) {
   }
 }
 
-/**
- * Send a WhatsApp template message via DoubleTick API.
- * Non-blocking: logs failures but does not throw, so caller workflows are not interrupted.
- *
- * @param {string} toPhone - GP phone number (will be normalised to E.164)
- * @param {string} stage - Registration stage key (e.g. 'amc', 'visa')
- * @param {string} gpFirstName - GP first name for template personalisation
- * @returns {Promise<{ok:boolean, messageId?:string}>}
- */
-async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
-  console.log('[doubletick] sendDoubleTickTemplate called:', { toPhone, stage, gpFirstName, hasApiKey: !!DOUBLETICK_API_KEY, baseUrl: DOUBLETICK_BASE_URL });
-  if (!DOUBLETICK_API_KEY) {
-    console.warn('[doubletick] DOUBLETICK_API_KEY not set — skipping send');
-    return { ok: false };
-  }
-  const normalised = normalizePhone(toPhone);
-  if (!normalised) {
-    console.warn('[doubletick] Cannot normalise phone:', toPhone);
-    return { ok: false };
-  }
-
-  let apiPath, reqBody;
-
-  const fromNumber = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
-
-  if (DOUBLETICK_USE_DIRECT_TEXT) {
-    // Direct text message — no template approval needed (testing mode)
-    const msgTpl = DOUBLETICK_STAGE_MESSAGES[stage];
-    if (!msgTpl) {
-      console.warn('[doubletick] No direct message configured for stage:', stage);
-      return { ok: false };
-    }
-    const text = msgTpl.replace(/\{\{name\}\}/g, gpFirstName || 'there');
-    apiPath = '/whatsapp/message/text';
-    reqBody = JSON.stringify({
-      messages: [{
-        to: normalised,
-        from: fromNumber,
-        content: { text: text }
-      }]
-    });
-  } else {
-    // Approved template message (production mode)
-    const tpl = DOUBLETICK_STAGE_TEMPLATES[stage];
-    if (!tpl) {
-      console.warn('[doubletick] No template configured for stage:', stage);
-      return { ok: false };
-    }
-    apiPath = '/whatsapp/message/template';
-    reqBody = JSON.stringify({
-      messages: [{
-        to: normalised,
-        from: fromNumber,
-        content: {
-          templateName: tpl.templateName,
-          language: tpl.language || 'en',
-          templateData: {
-            body: {
-              placeholders: [gpFirstName || 'there']
-            }
-          }
-        }
-      }]
-    });
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const fullUrl = DOUBLETICK_BASE_URL + apiPath;
-    console.log('[doubletick] POST', fullUrl, 'body:', reqBody.slice(0, 500));
-    const resp = await fetch(fullUrl, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Authorization': DOUBLETICK_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: reqBody
-    });
-    const rawText = await resp.text();
-    console.log('[doubletick] Response status:', resp.status, 'bodyLength:', rawText.length);
-    let data = {};
-    try { data = JSON.parse(rawText); } catch (_) {}
-    if (!resp.ok) {
-      console.error('[doubletick] Send failed:', resp.status, 'bodyLength:', rawText.length);
-      return { ok: false };
-    }
-    const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
-    console.log('[doubletick]', DOUBLETICK_USE_DIRECT_TEXT ? 'Text' : 'Template', 'sent to', maskPhone(normalised), 'stage:', stage, 'msgId:', messageId || 'n/a');
-    return { ok: true, messageId: messageId || null };
-  } catch (err) {
-    console.error('[doubletick] Send error:', err && err.name ? err.name : 'Error');
-    return { ok: false };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 // Send a Zoom call invite via DoubleTick WhatsApp — direct text message with booking URL
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
@@ -14601,14 +14494,6 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     if (!regCase) { console.log('[task-automation] No regCase found — exiting'); return; }
     const caseId = regCase.id;
 
-    // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
-    let _gpProfile = null;
-    const _gpRes = await supabaseDbRequest('user_profiles', 'select=first_name,phone,phone_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    if (_gpRes.ok && Array.isArray(_gpRes.data) && _gpRes.data[0]) _gpProfile = _gpRes.data[0];
-    const _gpPhone = _gpProfile ? (_gpProfile.phone || _gpProfile.phone_number || '') : '';
-    const _gpFirstName = _gpProfile ? (_gpProfile.first_name || '') : '';
-    console.log('[task-automation] profile:', JSON.stringify({ phone: _gpPhone, firstName: _gpFirstName, profileFound: !!_gpProfile }));
-
     console.log('[task-automation] prevState.gp_epic_progress type:', typeof prevState.gp_epic_progress, 'value:', JSON.stringify(prevState.gp_epic_progress).slice(0, 200));
     console.log('[task-automation] nextState.gp_epic_progress type:', typeof nextState.gp_epic_progress, 'value:', JSON.stringify(nextState.gp_epic_progress).slice(0, 200));
 
@@ -14632,21 +14517,6 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const pc = prev.epic.completed || {};
     const nc = nxt.epic.completed || {};
 
-    // ── MyIntealth welcome — send ONLY on transition (prev has no epic stage, next does) ──
-    const prevHasEpic = prev.epic && prev.epic.stage;
-    const nextHasEpic = nxt.epic && nxt.epic.stage;
-    if (!prevHasEpic && nextHasEpic && _gpPhone) {
-      const alreadySent = await _hasDoubleTickBeenSent(caseId, 'MyIntealth');
-      console.log('[task-automation] DoubleTick myintealth check: prevHasEpic=', prevHasEpic, 'nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
-      if (!alreadySent) {
-        // Log sentinel BEFORE sending to prevent concurrent calls from racing past the guard
-        await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
-        console.log('[task-automation] SENDING DoubleTick template for myintealth to', _gpPhone);
-        const dtResult = await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
-        console.log('[task-automation] DoubleTick result:', JSON.stringify(dtResult));
-      }
-    }
-
     // ── MyIntealth substep transitions ──
     const epicLabels = { account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
     for (const key of ['account_establishment', 'upload_qualifications', 'verification_issued']) {
@@ -14654,10 +14524,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template + email only if not already sent for this case
-          if (!(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
-            await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
-            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
+          // Send the stage email only if it has not already been sent for this case
+          if (!(await _hasStageSentinel(caseId, 'AMC stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'AMC stage started', null, 'system');
             sendMyintealthCompleteEmail(userId).catch(err => console.error('[Email] MyIntealth complete failed:', err.message));
           }
         }
@@ -14673,10 +14542,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'qualifications_verified') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template + email only if not already sent for this case
-          if (!(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
-            await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
-            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
+          // Send the stage email only if it has not already been sent for this case
+          if (!(await _hasStageSentinel(caseId, 'Career stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'Career stage started', null, 'system');
             // Check if GP already has a secured placement to send the right email variant
             var _amcCareerSecured = nxt.career.career_secured === true || nxt.career.secured === true;
             if (!_amcCareerSecured && Array.isArray(nxt.career.applications)) { _amcCareerSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
@@ -14786,10 +14654,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
 
 
-      // Send WhatsApp template + email only if not already sent for this case
-      if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
-        await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
-        if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
+      // Send the stage email only if it has not already been sent for this case
+      if (!(await _hasStageSentinel(caseId, 'AHPRA stage'))) {
+        await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started', null, 'system');
         sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
       }
 
@@ -14840,10 +14707,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.ahpra&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template + email only if not already sent for this case
-          if (!(await _hasDoubleTickBeenSent(caseId, 'Visa stage'))) {
-            await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
-            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
+          // Send the stage email only if it has not already been sent for this case
+          if (!(await _hasStageSentinel(caseId, 'Visa stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'Visa stage started', null, 'system');
             sendAhpraCompleteEmail(userId).catch(err => console.error('[Email] AHPRA complete failed:', err.message));
           }
         }
@@ -14857,12 +14723,6 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       for (const ticket of nxt.tickets) {
         if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
           await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'normal', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
-          // Send WhatsApp confirmation to the GP
-          if (_gpPhone) {
-            sendDoubleTickTemplate(_gpPhone, 'support_ticket_received', _gpFirstName).catch(function (err) {
-              console.error('[SupportTickets] WhatsApp confirmation failed:', err && err.message);
-            });
-          }
         }
         // Dual-write (idempotent) into support_tickets so VA dashboard + closed tab work against a real table
         if (ticket && ticket.id) {
@@ -17941,7 +17801,6 @@ async function notifyRsoOfCallOutcome(opts) {
         + '<p style="color:#334155;font-size:14px;line-height:1.6"><strong>' + gpName + '</strong> ' + missWord + ' their <strong>' + stageDisplay + '</strong> Zoom call.</p>'
         + '<p style="color:#334155;font-size:14px;line-height:1.6">' + outcomeLine + '</p></div>';
       await sendEmail({ to: rso.email, subject: gpName + ' ' + missWord + ' their ' + stageDisplay + ' call', html: html, text: gpName + ' ' + missWord + ' their ' + stageDisplay + ' call. ' + outcomeLine });
-      if (rso.phone) await sendWhatsappText(rso.phone, gpName + ' ' + missWord + ' their ' + stageDisplay + ' call. ' + outcomeLine);
     }
     const existing = await supabaseDbRequest('registration_tasks',
       'case_id=eq.' + encodeURIComponent(call.case_id) + '&task_type=eq.chase&related_stage=eq.' + encodeURIComponent(call.stage || '') +
@@ -18022,9 +17881,8 @@ async function handleScheduledCallFailure(call, kind, opts) {
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
 
   if (!autoClose) {
+    // Re-invite by email only — the automatic WhatsApp re-invite was removed.
     const gpEmail = String(gp.email || '').trim();
-    const gpPhone = String(gp.phone_number || gp.phone || '').trim();
-    if (gpPhone) await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, patch.calendly_booking_url);
     if (gpEmail) await sendEmail(Object.assign({
       to: gpEmail,
       subject: 'Please re-book your ' + stageDisplay + ' Zoom call — GP Link',
@@ -30158,13 +30016,7 @@ async function handleApi(req, res, pathname) {
               whenPhrase: irScPhrase,
               applicationId: irSc.application_id || ''
             });
-            // WhatsApp the GP the same nudge with the join link.
-            try {
-              var irScGpPhone = await getGpWhatsAppPhone(irScUserId);
-              if (irScGpPhone) {
-                await sendWhatsappText(irScGpPhone, 'GP Link: your interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.' + (irScJoin ? ' Join: ' + irScJoin : ' We\'ll send the link shortly.'));
-              }
-            } catch (irScGpWaErr) { /* WhatsApp best-effort */ }
+            // Email only — the automatic WhatsApp interview reminder was removed.
             irScRem[irScWindow] = new Date().toISOString();
             irScChanged = true;
             irScSent++;
@@ -30233,11 +30085,7 @@ async function handleApi(req, res, pathname) {
                 });
                 irScRsoAny = true;
               }
-              var irScRsoPhone = (irScRso && irScRso.phone) ? normalizePhone(irScRso.phone) : '';
-              if (irScRsoPhone) {
-                await sendWhatsappText(irScRsoPhone, 'GP Link: ' + irScRsoGpName + '’s interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.' + (irScJoin ? ' Join: ' + irScJoin : ''));
-                irScRsoAny = true;
-              }
+              // Email only — the automatic WhatsApp reminder to the RSO was removed.
               if (irScRsoAny) {
                 irScRem['rso_' + irScWindow] = new Date().toISOString();
                 irScChanged = true;
@@ -31420,7 +31268,6 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 200, { ok: true, message: 'No reminders needed', reminded: 0 });
         return;
       }
-      const rsoRoster = await loadRsoTeam({ includeInactive: true });
       let reminded = 0;
       for (const call of needsReminder) {
         let gpName = 'the GP';
@@ -31433,21 +31280,7 @@ async function handleApi(req, res, pathname) {
           gpName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || 'the GP';
         } catch (e) { /* fallback */ }
         const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage || '';
-        const rso = rsoRoster.find(r => r.email.toLowerCase() === (call.assigned_rso_email || '').toLowerCase());
-        const rsoPhone = rso ? rso.phone : '';
-        if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
-          const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
-          try {
-            await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: rsoPhone, body: waText }),
-              signal: AbortSignal.timeout(10000)
-            });
-          } catch (waErr) {
-            console.error('[call-reminders] WhatsApp send failed for call ' + call.id + ':', waErr.message);
-          }
-        }
+        // Email only — the automatic 10-minute WhatsApp reminder to the RSO was removed.
         try {
           const notesSection = call.admin_notes ? '<p style="margin:12px 0 4px"><strong>Admin Notes:</strong></p><p style="margin:0;padding:8px 12px;background:#fef3c7;border-radius:6px">' + (call.admin_notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>' : '';
           const inviteeNotesSection = call.invitee_notes ? '<p style="margin:12px 0 4px"><strong>GP\'s Booking Notes:</strong></p><p style="margin:0;padding:8px 12px;background:#eff6ff;border-radius:6px;border-left:3px solid #2563eb">' + (call.invitee_notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>' : '';
@@ -33484,7 +33317,8 @@ async function handleApi(req, res, pathname) {
     }
 
     // Notify the GP — best-effort, mirrors ingestPracticeAvailabilityReply's
-    // step-4 notify block (WhatsApp + email "your interview times are ready").
+    // step-4 notify block ("your interview times are ready"). Email only: the
+    // automatic WhatsApp version of this notification was removed.
     (async () => {
       try {
         const gpUserId = ctx && ctx.userId;
@@ -33492,26 +33326,12 @@ async function handleApi(req, res, pathname) {
         const pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
         const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
         if (!pRow) return;
-        const firstName = pRow.first_name || 'there';
         // appRow.id is the gp_applications PK the practice token resolved to —
         // and exactly the id /api/career/interview/slots expects. (interviewRef
         // here only carries {id,status}, and atsGetApplicationContext exposes no
         // applicationId key, so both of those resolve to '' — use appRow.id.)
         const gpAppId = String((appRow && appRow.id) || (ctx && ctx.app && ctx.app.id) || '');
         const secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
-        // Carry the deep link in the WhatsApp copy so "pick a slot" is one tap.
-        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
-        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
-          const dtPhone = normalizePhone(pRow.phone);
-          if (dtPhone) {
-            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
-              method: 'POST',
-              headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
-              signal: AbortSignal.timeout(10000)
-            }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
-          }
-        }
         // Email gets a real CTA button (buildCareerEmailHtml) that deep-links to
         // the slot picker, instead of the old bare-text "open the app" line.
         if (isEmailConfigured()) {
@@ -59112,18 +58932,9 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
         var gpFirstName = pRow.first_name || 'there';
         var gpAppId = String(row.application_id || '');
         var secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
+        // Email only — the automatic WhatsApp "your interview times are ready" was removed.
+        // notifyMsg is still the body of the plain-email fallback below.
         var notifyMsg = 'Hi ' + gpFirstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
-        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
-          var dtPhone = normalizePhone(pRow.phone);
-          if (dtPhone) {
-            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
-              signal: AbortSignal.timeout(10000)
-            }).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
-          }
-        }
         if (isEmailConfigured()) {
           // A real CTA button beats bare text. sendGpNotificationEmail needs a
           // user id; when the interview row only has a case id, fall back to a
