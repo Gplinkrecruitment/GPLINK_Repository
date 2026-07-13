@@ -4209,6 +4209,16 @@
       return !!(t && (t.task_type === 'review' || t.task_type === 'doc_review') && t.related_document_key && QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
     }
 
+    // The ONLY documents we chase FROM a medical practice. Mirror of admin.html
+    // PRACTICE_DOC_KEYS. The practice-document branch below used to fire on `dk` alone — on
+    // ANY task carrying a related_document_key — so a task about a document the GP owes US
+    // rendered "Email Practice — requesting the Supervisor CV". A GP-side document key must
+    // never route to the practice.
+    var PRACTICE_DOC_KEYS = new Set(['sppa_00', 'section_g', 'position_description', 'supervisor_cv', 'offer_contract']);
+    function isPracticeDocKey(k) {
+      return !!k && (PRACTICE_DOC_KEYS.has(k) || /^alt_supervisor_cv_\d+$/.test(k));
+    }
+
     // Port of admin.html getGuidedAction (2608–2676): the per-task guided prompt + primary
     // action button. Reads only task fields (all present in gpDetailCache.tasks rows).
     function getGuidedAction(t) {
@@ -4219,7 +4229,8 @@
       if (t.task_type === 'flagged_doc') {
         return { prompt: 'Review the document, then approve or reject (the GP is emailed)', label: 'Review Document', action: 'reviewFlaggedDoc', taskId: t.id };
       }
-      if (isQualDocReviewTask(t)) {
+      // Any doc_review task is, by definition, a document the GP uploaded to us — review it.
+      if (isQualDocReviewTask(t) || t.task_type === 'doc_review') {
         return { prompt: 'Review the uploaded document, then approve or reject (the GP is emailed)', label: 'Review Document', action: 'reviewFlaggedDoc', taskId: t.id };
       }
       // Alternate-supervisor CV REQUEST tracker (carries related_document_key='sppa_00'):
@@ -4229,7 +4240,7 @@
         if (t.status === 'completed') return { prompt: 'Alternate supervisor CV received', label: 'Done', action: null, taskId: t.id };
         return { prompt: 'Send the practice a request for the alternate supervisor’s CV', label: 'Waiting', action: null, taskId: t.id };
       }
-      if (t.task_type === 'practice_pack_child' || dk) {
+      if (t.task_type === 'practice_pack_child' || isPracticeDocKey(dk)) {
         if (dk === 'sppa_00') {
           return { prompt: 'Send SPPA-00 to candidate via email', label: 'Send SPPA', action: 'sendSppa', taskId: t.id };
         }

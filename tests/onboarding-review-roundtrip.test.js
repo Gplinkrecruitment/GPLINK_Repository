@@ -300,6 +300,22 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(obDegreeRow.rejection_reason).toBe('');
   });
 
+  // Prod incident (2026-07-13): approving the onboarding degree scan above marked the GP's
+  // AHPRA CERTIFIED-COPY slot "approved" for a GP who had never uploaded a certified copy —
+  // the admin Documents grid showed an accepted certified degree while her own My Documents
+  // page still showed the slot as not uploaded, and the stored row pointed at the onboarding
+  // scan file. An onboarding upload is name-checked ONLY; it is never certification-checked
+  // (requireCertification is false for onboarding uploads), so its decision must never be
+  // written into the canonical certified-copy key.
+  it('approving an onboarding qualification must NOT approve the canonical certified-copy slot (critical)', () => {
+    const canonRow = db.user_documents.find((d) => d.document_key === 'primary_medical_degree');
+    // Either no canonical row exists at all (nothing certified was ever uploaded), or it
+    // exists from a real certified upload — but it must NOT have been marked approved by the
+    // onboarding decision above.
+    if (canonRow) expect(canonRow.status).not.toBe('approved');
+    else expect(canonRow).toBeUndefined();
+  });
+
   it('a NON-onboarding rejection still deep-links to my-documents (regression)', async () => {
     const r = await postJson('/api/admin/va/task/review-flagged-doc',
       { task_id: 't-ahpra-flag-1', decision: 'reject', note: 'Needs a certified copy.' }, adminCookie());

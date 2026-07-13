@@ -2520,6 +2520,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return !!(t&&(t.task_type==='review'||t.task_type==='doc_review')&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
   }
 
+  // The ONLY documents we chase FROM a medical practice. The practice-document branch in
+  // getGuidedAction used to fire on `dk` alone — i.e. on ANY task carrying a
+  // related_document_key — so a task about a document the GP owes US (e.g. the certified
+  // copy of their primary medical degree) fell through to the branch's default and rendered
+  // "Email Practice — requesting the Supervisor CV". A GP-side document key must never route
+  // to the practice.
+  var PRACTICE_DOC_KEYS=new Set(['sppa_00','section_g','position_description','supervisor_cv','offer_contract']);
+  function isPracticeDocKey(k){
+    return !!k&&(PRACTICE_DOC_KEYS.has(k)||/^alt_supervisor_cv_\d+$/.test(k));
+  }
+
   function getGuidedAction(t){
     const dk=t.related_document_key;
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
@@ -2537,7 +2548,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // uploaded: open it and approve/reject (the GP is emailed). Intercept before
     // the practice-doc branch (a related_document_key would otherwise route it to
     // "Email Practice") and before the plain 'review' branch ("Mark Complete").
-    if(isQualDocReviewTask(t)){
+    // Any doc_review task is, by definition, a document the GP uploaded to us — review it.
+    // (isQualDocReviewTask only matches a fixed key list; a doc_review for a key outside that
+    // list would otherwise fall through to the practice branch.)
+    if(isQualDocReviewTask(t)||t.task_type==='doc_review'){
       return{prompt:'Review the uploaded document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
     }
 
@@ -2551,7 +2565,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return{prompt:'Send the practice a request for the alternate supervisor’s CV',label:'Waiting',action:null,taskId:t.id};
     }
 
-    if(t.task_type==='practice_pack_child'||dk){
+    if(t.task_type==='practice_pack_child'||isPracticeDocKey(dk)){
       if(dk==='sppa_00'){
         var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
         var _sppaSt=(_sppaMeta&&_sppaMeta.sppa_state)||'';
