@@ -14031,13 +14031,6 @@ async function _hasStageSentinel(caseId, stageTitle) {
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
-async function _hasOpenTaskForDoc(caseId, docKey) {
-  if (!isSupabaseDbConfigured()) return false;
-  const q = await supabaseDbRequest('registration_tasks',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated,deferred,completed)&limit=1');
-  return q.ok && Array.isArray(q.data) && q.data.length > 0;
-}
-
 // ══════════════════════════════════════════════
 // VA Dashboard helpers — WhatsApp, nudges, ticket mirror, qualification lookup
 // ══════════════════════════════════════════════
@@ -14797,25 +14790,16 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
     }
 
-    // ── Document uploads (skip institution docs — they are status flags, not file uploads) ──
-    const prevDocs = prev.docs.docs || {};
-    const nextDocs = nxt.docs.docs || {};
-    for (const key of Object.keys(nextDocs)) {
-      if (INSTITUTION_DOCUMENT_KEYS.has(key)) continue;
-      // Qualification documents are captured + reviewed through the onboarding flow
-      // (flagged_doc / doc_review under the "onboarding" stage, with the GP's file
-      // attached and the AI reason recorded). Creating a second generic
-      // "Review uploaded: X" task here duplicated them under the AHPRA stage with no
-      // reason and no openable file — skip them.
-      if (isQualificationDocKey(key)) continue;
-      const pv = prevDocs[key] || {};
-      const nv = nextDocs[key] || {};
-      if (nv.uploaded === true && !pv.uploaded) {
-        if (!(await _hasOpenTaskForDoc(caseId, key))) {
-          await _createRegTask(caseId, { task_type: 'review', title: 'Review uploaded: ' + key.replace(/_/g, ' '), source_trigger: 'doc_upload', related_stage: 'ahpra', related_document_key: key, _actor: 'system' });
-        }
-      }
-    }
+    // ── Document uploads ──
+    // Nothing to do here. Every document upload endpoint awaits ensureDocReviewOnUpload(),
+    // which creates the proper doc_review task (real title, correct stage, AI scan result,
+    // openable file). This block used to ALSO raise a generic "Review uploaded: <raw_key>"
+    // task off the state change, which produced two tasks for one upload: the two creators
+    // look for different task_types (this one wrote 'review', the pipeline writes
+    // 'doc_review'), so neither could see the other, and whichever ran first won the race.
+    // Qualification docs were already excluded for exactly that reason; the same duplication
+    // still hit every non-qualification doc (e.g. a CV came out as "Review uploaded: cv
+    // signed dated" under AHPRA *and* "Review uploaded CV (Signed and dated)" under Career).
 
     // ── AHPRA transitions ──
     const phc = prev.ahpra.completed || {};
@@ -43194,14 +43178,18 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Default path. This is the "prepare my documents" page — NOT onboarding — so a
-    // qualification cert that needs review is filed under the AHPRA stage, not the
-    // onboarding stage. Non-qualification prepared docs keep their own inferred stage.
+    // Default path. This is the "prepare my documents" page — NOT onboarding — and that page
+    // IS the AHPRA document pack, so everything uploaded from it is reviewed under the AHPRA
+    // stage. Review stage follows WHERE the file was uploaded, not what the file is: the same
+    // CV uploaded from the Career page is a career document and stays under Career (that
+    // endpoint passes no stage), while a CV uploaded here belongs to the AHPRA pack. Only
+    // qualification keys used to be stamped 'ahpra' here, so every other prepared doc fell
+    // through to inferStageFromDocKey() and a CV landed under Career.
     // Create the RSO review task NOW (awaited) so the document is never left invisible
     // if the best-effort AI pipeline below fails to complete (it runs fire-and-forget
     // and is unreliable on serverless). The pipeline, when it succeeds, auto-approves
     // (closing this task) or reopens it idempotently.
-    var preparedReviewStage = isQualificationDocKey(payload.key) ? 'ahpra' : undefined;
+    var preparedReviewStage = 'ahpra';
     await ensureDocReviewOnUpload(userId, payload.key, docLabel, preparedReviewStage);
 
     // Successful (scan-passed) upload — wipe the server-side scan-failure streak.
@@ -50035,23 +50023,37 @@ Return ONLY valid JSON with no markdown formatting:
         if (rfExist) rfFileUrl = rfExist.storage_path || rfExist.file_url;
       }
 
-      await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: [{
-          user_id: rfUserId,
-          country_code: rfCountry,
-          document_key: rfTask.related_document_key,
-          status: rfDecision === 'approve' ? 'approved' : 'rejected',
-          flag_reason: '',
-          rejection_reason: rfDecision === 'approve' ? '' : rfNote,
-          file_name: rfDocLabel,
-          file_url: rfFileUrl,
-          storage_path: rfFileUrl,
-          storage_bucket: SUPABASE_DOCUMENT_BUCKET,
-          updated_at: new Date().toISOString()
-        }]
-      });
+      // An onboarding qualification upload is collected ONLY to name-match the GP and to store
+      // the file — the AI scan explicitly does NOT check whether it is a CERTIFIED true copy
+      // (see requireCertification in processDocumentUpload, which is false for onboarding
+      // uploads). The canonical key (e.g. primary_medical_degree) is the GP's AHPRA
+      // CERTIFIED-COPY slot. Upserting an onboarding decision into it marked that slot
+      // "approved" for a GP who had never uploaded a certified copy at all — the admin
+      // Documents grid showed an accepted certified degree while her My Documents page still
+      // showed the slot as not uploaded. So for a certification-required key, an
+      // onboarding-origin decision writes ONLY to the onboarding row (mirrored below); the
+      // certified-copy slot stays untouched until the GP uploads one from My Documents and it
+      // is reviewed on its own merits.
+      var rfSkipCanonical = rfIsOnboardingDoc && isCertificationRequiredDocKey(rfTask.related_document_key);
+      if (!rfSkipCanonical) {
+        await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: [{
+            user_id: rfUserId,
+            country_code: rfCountry,
+            document_key: rfTask.related_document_key,
+            status: rfDecision === 'approve' ? 'approved' : 'rejected',
+            flag_reason: '',
+            rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+            file_name: rfDocLabel,
+            file_url: rfFileUrl,
+            storage_path: rfFileUrl,
+            storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+            updated_at: new Date().toISOString()
+          }]
+        });
+      }
 
       // Mirror the decision onto the onboarding-key row (separate key namespace).
       // The onboarding wizard reads its documents back via GET /api/onboarding-documents,
