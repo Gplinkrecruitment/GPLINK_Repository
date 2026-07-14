@@ -10071,6 +10071,34 @@ async function handleFacebookLeadWebhook(req, res) {
     return;
   }
 
+  // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
+  // site_enquiries as consult leads instead of the practice pipeline.
+  const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
+  const gpLead = gpFormIds.length ? consultLead.normalizeFacebookGpLead(body, gpFormIds) : null;
+  if (gpLead) {
+    const gpDup = await checkAndRecordWebhookEvent('facebook_lead', gpLead.leadId, 'gp_lead', {
+      event: 'gp_lead', created_at: new Date().toISOString()
+    });
+    if (gpDup) { sendJson(res, 200, { ok: true, action: 'duplicate_ignored' }); return; }
+    const gpRow = buildConsultLeadRow({
+      name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
+      isGp: gpLead.isGp === true, country: gpLead.country, question: gpLead.question,
+      source: 'meta_lead_ad', leadId: gpLead.leadId, ip: getClientIp(req),
+      userAgent: req.headers['user-agent']
+    });
+    const gpStored = await insertSiteEnquiryRow(gpRow);
+    if (!gpStored) { sendJson(res, 500, { ok: false, error: 'store_failed' }); return; }
+    // Speed-to-lead: owner alert (uses SITE_ENQUIRY_NOTIFY_EMAIL; no-op if unset)
+    await maybeNotifySiteEnquiry(gpRow);
+    // Magic link so they can book with zero re-typing (qualified leads only)
+    if (gpRow.metadata.consult.qualified) {
+      try { await sendConsultMagicLinkEmail(gpRow); }
+      catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
+    }
+    sendJson(res, 200, { ok: true, kind: 'gp_lead', lead_id: gpRow.id });
+    return;
+  }
+
   const lead = practicePipeline.normalizeFacebookLeadPayload(body);
   if (!lead) {
     sendJson(res, 400, { ok: false, error: 'unrecognized_payload' });
@@ -19505,6 +19533,33 @@ function buildConsultLeadRow(input) {
       consult
     }
   };
+}
+
+// Magic-link email sent to a qualified FB-webhook GP lead (Task 3): re-uses
+// the token buildConsultLeadRow already generated so booking a call takes no
+// re-typing. Best-effort — caller (handleFacebookLeadWebhook) wraps this in
+// its own try/catch so a send failure never fails the webhook response.
+async function sendConsultMagicLinkEmail(row) {
+  const consult = row.metadata && row.metadata.consult;
+  if (!consult || !consult.token) return { ok: false, error: 'no token' };
+  const displayName = consultLead.consultDisplayName(row.name);
+  const bookUrl = CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book';
+  const body = 'Hi ' + displayName + ',\n\n' +
+    'Thanks for reaching out about working as a GP in Australia. The next step is a free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.\n\n' +
+    'Your details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.';
+  return sendEmail({
+    to: row.email,
+    subject: 'Ready when you are — book your free GP Link call',
+    html: buildCareerEmailHtml({
+      title: 'Your free call is ready to book',
+      body,
+      ctaText: 'Pick a time',
+      ctaUrl: bookUrl,
+      footer: 'Questions in the meantime? Just reply to this email.'
+    }),
+    text: body + '\n\nBook here: ' + bookUrl,
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
 }
 
 // Enquiry list — consumed by the CEO CSV export (exportRowsForEnquiries). Same
