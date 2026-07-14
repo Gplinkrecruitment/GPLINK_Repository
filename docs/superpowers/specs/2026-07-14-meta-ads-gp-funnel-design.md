@@ -63,11 +63,21 @@ Organic visitor ─────────────────────�
 - On insert: send the magic-link email immediately (Resend, existing outbound
   machinery): "Ready when you are, Dr <LastName>" + `/start?lead=<token>`.
   WhatsApp copy of the same link is a later option, not in scope.
+- **Speed-to-lead alert:** the same insert also emails the owner
+  (hello@mygplink.com.au) instantly — name, country, phone, their optional
+  question — so hot leads can be called/WhatsApped personally within minutes.
+  Sender for all lead-facing mail is hello@ (replies land in the owner's
+  inbox and are read manually; hello@ is deliberately never auto-processed).
 
 ### 3.3 Landing page `/start` (new `pages/site-start.html`)
 
 - Registered in `SITE_PAGE_ROUTES` (same mechanism as `/employers`, `/faq`);
-  marketing-site look (reuse site-home styling patterns).
+  marketing-site look (reuse site-home styling patterns). Mobile-first —
+  effectively 100% of Meta ad clicks are phones.
+- **All existing marketing-site "Book a call" buttons are repointed from the
+  external Calendly link to `/start#book`**, so every consultation — ad-driven
+  or organic — flows through the same tracked funnel. Raw Calendly links
+  disappear from the public site.
 - Content: ad-continuity hero (UK/IE/NZ GP → practising in Australia, whole
   journey handled, free for doctors), 3-step "how it works", small trust strip,
   then the two doors with equal visual weight.
@@ -88,6 +98,10 @@ Organic visitor ─────────────────────�
     New Zealand / Somewhere else), optional question. Saved via the existing
     `POST /api/public/enquiry` (kind `gp`) **before** Calendly is shown —
     honeypot + 5/hr/IP rate limit already built in.
+  - Consent: the form carries a link to `/pages/privacy` and one honest line —
+    "We'll contact you about your enquiry" — covering the follow-up emails
+    under UK/EU data rules. (Meta separately requires the same privacy URL on
+    the lead form itself; see activation checklist.)
 
 ### 3.4 Screening & turn-down
 
@@ -125,7 +139,9 @@ State lives in `metadata.consult`: `{ call_booked, call_booked_at, nudges: [ {ki
   "Still want that chat?" + booking link (magic link where available).
   Stops when: booked, signed up, unsubscribed, or screened out.
 - **Sequence B — booked, never signed up**: at ~3 d and ~7 d after
-  `call_booked_at` — "Ready to get started?" + signup link.
+  `call_booked_at` — "Ready to get started?" + signup link. Copy is no-show
+  tolerant: it also says "if we missed each other, grab another time" with the
+  booking link, since we don't know whether the call actually happened.
   Stops the moment their email exists in `users` (case-insensitive match),
   or on unsubscribe.
 - De-dupe by email across rows (a person who submits twice gets one sequence).
@@ -146,7 +162,10 @@ State lives in `metadata.consult`: `{ call_booked, call_booked_at, nudges: [ {ki
 - Meta Pixel / Conversions API on `/start` (worth a later pass so Meta's
   delivery optimises toward bookings/signups).
 - Attribution stamped onto user accounts for Door-1 direct signups.
-- WhatsApp copy of the magic-link message.
+- A funnel stats view (leads → booked → signed up per source) — the CSV export
+  covers v1.
+- Pre-filling the onboarding wizard from lead-form answers.
+- WhatsApp copy of the magic-link message (DoubleTick).
 - Any change to the existing signup/onboarding/approval flow beyond the
   optional email-prefill param on the signin page.
 
@@ -175,9 +194,15 @@ State lives in `metadata.consult`: `{ call_booked, call_booked_at, nudges: [ {ki
 
 ## 7. Owner activation checklist (one-time, guided at ship time)
 
-1. Create the Meta lead form with the two qualifying questions; note its form ID.
+1. Create the Meta lead form with the two qualifying questions; choose the
+   **"higher intent"** form type (adds a review step — cuts junk leads); attach
+   the privacy policy URL (`https://mygplink.com.au/pages/privacy`) — Meta
+   requires it; note the form ID.
 2. Connect the webhook in Meta's developer settings; set `FB_LEAD_VERIFY_TOKEN`,
    `FB_LEAD_WEBHOOK_SECRET`, `FB_GP_LEAD_FORM_IDS` in Vercel.
 3. Point every ad's destination / thank-you button at
    `https://mygplink.com.au/start?src=fb#book`.
-4. Calendly: no changes needed.
+4. Calendly: no config changes — but **check your availability windows map to
+   sane UK hours** (UK is 9–10 h behind AEST: their 9am–12pm ≈ your 6–10pm).
+   If no UK-friendly slots exist, UK leads will see an empty calendar and the
+   funnel stalls at the last step. NZ (+2 h) needs nothing special.
