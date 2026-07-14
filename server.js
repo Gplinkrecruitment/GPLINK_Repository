@@ -30782,25 +30782,41 @@ async function handleApi(req, res, pathname) {
           nowMs: Date.now()
         });
         // Nothing due right now. Either the active sequence is fully sent —
-        // write a terminal 'exhausted' stop so this lead is skipped by the
+        // this lead is about to get a terminal stop so it's skipped by the
         // stopped-check above forever after (no more hourly re-scans, and in
         // Supabase mode no more getSupabaseUserIdByEmail HTTP calls) — or it
-        // just isn't time yet, so leave it alone for next hour.
+        // just isn't time yet, so leave it alone for next hour. Since the
+        // terminal stop is permanent, this is the LAST chance to notice a
+        // signup (the final nudge's CTA is the signup link, so post-final-
+        // email conversions land exactly here): run the existence check once
+        // more before choosing between 'signed_up'/converted and 'exhausted'.
         if (!cnDue) {
           if (consultLead.isConsultExhausted(cnConsult)) {
-            var cnMetaExhausted = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'exhausted' }) });
-            await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaExhausted });
+            var cnExhUserExists = false;
+            if (isSupabaseDbConfigured()) {
+              cnExhUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
+            } else {
+              cnExhUserExists = !!(dbState.users && dbState.users[String(cnRow.email || '').toLowerCase()]);
+            }
+            if (cnExhUserExists) {
+              var cnMetaExhConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
+              await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaExhConv });
+            } else {
+              var cnMetaExhausted = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'exhausted' }) });
+              await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaExhausted });
+            }
             cnStopped++;
           } else {
             cnSkipped++;
           }
           continue;
         }
-        // A nudge is actually due — only now is the "did they sign up?"
-        // existence check worth its cost (a real HTTP call in Supabase mode),
-        // since a quiet lead with nothing due costs nothing. This means the
-        // 'converted' stop is written at next-due time rather than eagerly,
-        // which is intended.
+        // A nudge is actually due — worth the "did they sign up?" existence
+        // check (a real HTTP call in Supabase mode). Existence is checked
+        // when a nudge is due AND once at exhaustion (above), so the cohort
+        // converted by the last email still gets stamped 'converted', at the
+        // cost of exactly one extra check per lead lifetime; quiet leads in
+        // between cost nothing.
         var cnUserExists = false;
         if (isSupabaseDbConfigured()) {
           cnUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));

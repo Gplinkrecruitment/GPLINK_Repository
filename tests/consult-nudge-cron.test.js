@@ -217,4 +217,33 @@ describe('GET /api/cron/consult-nudge', () => {
     expect(res3.json.stopped).toBe(0);
     expect(res3.json.skipped).toBe(1);
   });
+
+  it('a lead who signed up after the final nudge is stamped converted at exhaustion, not exhausted', async () => {
+    resendCaptured.length = 0;
+    // Fully-sent not_booked sequence + an account created after the last
+    // email (its CTA is the signup link) — the exhaustion pass must notice
+    // the signup and write converted/signed_up, never the terminal exhausted
+    // stop, and must not email them.
+    seedLocalUser('lastemail-signup@example.co.uk');
+    testUtils.__seedSiteEnquiriesForTest([seedLead({
+      id: 'l4', email: 'lastemail-signup@example.co.uk', created_at: new Date(Date.now() - 80 * H).toISOString(),
+      metadata: {
+        source: 'meta_lead_ad',
+        consult: {
+          token: 'TOKY', qualified: true, is_gp: true, country: 'uk', call_booked: false,
+          nudges: [
+            { seq: 'not_booked', step: 0, sent_at: new Date(Date.now() - 78 * H).toISOString() },
+            { seq: 'not_booked', step: 1, sent_at: new Date(Date.now() - 30 * H).toISOString() },
+          ],
+        },
+      },
+    })]);
+    const res = await get(CRON, AUTH);
+    expect(res.json.stopped).toBe(1);
+    expect(res.json.sent).toBe(0);
+    expect(resendCaptured.length).toBe(0);
+    const row = readDb().siteEnquiries[0];
+    expect(row.status).toBe('converted');
+    expect(row.metadata.consult.stopped).toBe('signed_up');
+  });
 });
