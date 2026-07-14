@@ -203,8 +203,7 @@ describe('POST /api/public/consult-lead/booked', () => {
 });
 
 describe('GET /start', () => {
-  // un-skip in Task 5
-  it.skip('serves the landing page shell', async () => {
+  it('serves the landing page shell', async () => {
     const res = await get('/start');
     expect(res.status).toBe(200); // page file lands in Task 5; a 404 here means route not registered
   });
