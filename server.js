@@ -58346,6 +58346,36 @@ const SITE_PUBLIC_ROUTES = {
   '/exclusive-placements': 'pages/site-exclusive.html',
 };
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
+
+// ── Which host is the REAL marketing site? ─────────────────────────────
+// The marketing pages answer on every host this app serves — the real site,
+// preview.mygplink.com.au, app.mygplink.com.au/jobs, and *.vercel.app — as
+// byte-identical copies. Left alone, each one tells Google "index me", so
+// Google chooses the canonical itself and can rank a copy (e.g. the preview
+// host) above the real site, while the duplicates dilute the ranking.
+// Only these hosts may be indexed; every other host gets X-Robots-Tag: noindex.
+//
+// Both the apex and the www form are canonical by default, so the final
+// apex-vs-www decision is a DNS/redirect choice (one 301s to the other), not a
+// code change. MARKETING_CANONICAL_HOSTS (comma-separated) overrides the list.
+// Read per-request rather than at boot so it stays testable and env-flippable.
+function getCanonicalMarketingHosts() {
+  const configured = String(process.env.MARKETING_CANONICAL_HOSTS || '').trim();
+  if (configured) {
+    return new Set(configured.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean));
+  }
+  let base = '';
+  try { base = new URL(PUBLIC_BASE_URL).hostname.trim().toLowerCase(); } catch (err) { base = ''; }
+  if (!base) return new Set();
+  const apex = base.replace(/^www\./, '');
+  return new Set([apex, 'www.' + apex]);
+}
+
+function isCanonicalMarketingHost(req) {
+  const host = getRequestHostname(req);
+  if (!host) return false;
+  return getCanonicalMarketingHosts().has(host);
+}
 // Reverse map so a direct hit on the backing file (e.g. /pages/site-home.html)
 // 302s to its clean marketing URL instead of the generic /pages/* clean-URL rule.
 const SITE_PAGE_FILE_TO_ROUTE = Object.fromEntries(
@@ -58356,6 +58386,14 @@ async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // Duplicate-content guard. Anything served from a host that is not the real
+  // marketing site (preview, app, admin, *.vercel.app, loopback) is a copy and
+  // must never be indexed. Set once here so it applies to every response —
+  // headers set with setHeader are merged into later res.writeHead() calls.
+  if (!isCanonicalMarketingHost(req)) {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  }
 
   // ── Public marketing site clean-URL redirect ───────────────────────
   // /pages/site-home.html etc are internal placeholder files backing the
@@ -58396,7 +58434,15 @@ async function handleRequest(req, res) {
   // robots.txt / sitemap.xml, and the marketing pages other than '/' (which
   // is handled below alongside the existing host/session-aware root redirect).
   if (pathname === '/robots.txt') {
-    const body = `User-agent: *\nAllow: /\nSitemap: ${PUBLIC_BASE_URL}/sitemap.xml\n`;
+    // On a non-canonical host we still ALLOW the crawl and rely on the
+    // X-Robots-Tag: noindex header set above. Disallow would be worse, not
+    // better: it stops Google fetching the page, so it can never SEE the
+    // noindex — and a disallowed URL can still be indexed when another site
+    // links to it. Allow-the-crawl + noindex-header is the reliable pair. A
+    // copy just doesn't advertise a sitemap.
+    const body = isCanonicalMarketingHost(req)
+      ? `User-agent: *\nAllow: /\nSitemap: ${PUBLIC_BASE_URL}/sitemap.xml\n`
+      : `User-agent: *\nAllow: /\n`;
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(body);
     return;

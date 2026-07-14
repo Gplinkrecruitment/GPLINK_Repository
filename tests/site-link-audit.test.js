@@ -36,9 +36,11 @@ const ALLOWED_EXTERNAL = [
 ];
 const ALLOWED_MAILTO = new Set(['mailto:hello@mygplink.com.au']);
 
-function get(path) {
+function get(path, { host } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port: addrPort, path, method: 'GET' }, (res) => {
+    const headers = {};
+    if (host) headers.Host = host;
+    const req = http.request({ host: '127.0.0.1', port: addrPort, path, method: 'GET', headers }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({
@@ -263,8 +265,10 @@ describe('marketing site link audit (Task 14)', () => {
     });
   }
 
-  it('/robots.txt is 200 text/plain and points at the sitemap', async () => {
-    const res = await cachedGet('/robots.txt');
+  it('/robots.txt is 200 text/plain and points at the sitemap (on the canonical host)', async () => {
+    // Only the canonical marketing host advertises the sitemap; every other
+    // host serves a noindex copy. See tests/site-noindex-canonical-host.test.js.
+    const res = await get('/robots.txt', { host: 'www.mygplink.com.au' });
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/plain/);
     expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);

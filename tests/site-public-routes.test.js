@@ -136,8 +136,10 @@ describe('marketing site public routes', () => {
     expect(String(res.headers.location)).toMatch(/^\/pages\/signin/);
   });
 
-  it('/robots.txt is 200 text/plain and points at the sitemap', async () => {
-    const res = await get('/robots.txt');
+  it('/robots.txt is 200 text/plain and points at the sitemap (on the canonical host)', async () => {
+    // Only the canonical marketing host advertises the sitemap; every other
+    // host serves a noindex copy. See tests/site-noindex-canonical-host.test.js.
+    const res = await get('/robots.txt', { host: 'www.mygplink.com.au' });
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/plain/);
     expect(res.raw).toMatch(/Sitemap: https:\/\/www\.mygplink\.com\.au\/sitemap\.xml/);
