@@ -1638,6 +1638,17 @@ async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload)
   if (!inserted.ok && inserted.status === 409) return true;
   return false;
 }
+
+// Read-only half of checkAndRecordWebhookEvent — checks for an existing
+// dedupe marker without recording one. Lets a caller defer the record step
+// until after its own side effect (e.g. a DB insert) has succeeded, so a
+// failed side effect stays retryable instead of getting silently swallowed
+// by a marker that was written too early.
+async function hasRecordedWebhookEvent(provider, eventId) {
+  if (!eventId) return false;
+  const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
+  return existing.ok && Array.isArray(existing.data) && existing.data.length > 0;
+}
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
 async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType, opts) {
@@ -10076,18 +10087,23 @@ async function handleFacebookLeadWebhook(req, res) {
   const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
   const gpLead = gpFormIds.length ? consultLead.normalizeFacebookGpLead(body, gpFormIds) : null;
   if (gpLead) {
-    const gpDup = await checkAndRecordWebhookEvent('facebook_lead', gpLead.leadId, 'gp_lead', {
-      event: 'gp_lead', created_at: new Date().toISOString()
-    });
-    if (gpDup) { sendJson(res, 200, { ok: true, action: 'duplicate_ignored' }); return; }
+    if (await hasRecordedWebhookEvent('facebook_lead', gpLead.leadId)) {
+      sendJson(res, 200, { ok: true, action: 'duplicate_ignored' }); return;
+    }
     const gpRow = buildConsultLeadRow({
       name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
       isGp: gpLead.isGp === true, country: gpLead.country, question: gpLead.question,
-      source: 'meta_lead_ad', leadId: gpLead.leadId, ip: getClientIp(req),
+      source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
       userAgent: req.headers['user-agent']
     });
     const gpStored = await insertSiteEnquiryRow(gpRow);
     if (!gpStored) { sendJson(res, 500, { ok: false, error: 'store_failed' }); return; }
+    // Record the dedupe marker only after the store succeeds — recording
+    // after the store (not before) means a failed store is retryable; a
+    // race here duplicates a lead at worst, never loses one.
+    await checkAndRecordWebhookEvent('facebook_lead', gpLead.leadId, 'gp_lead', {
+      event: 'gp_lead', created_at: new Date().toISOString()
+    });
     // Speed-to-lead: owner alert (uses SITE_ENQUIRY_NOTIFY_EMAIL; no-op if unset)
     await maybeNotifySiteEnquiry(gpRow);
     // Magic link so they can book with zero re-typing (qualified leads only)

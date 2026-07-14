@@ -135,6 +135,7 @@ describe('facebook-lead webhook — GP form branch', () => {
       .map((f) => f.name.includes('registered_gp') ? { ...f, values: ['No'] } : f);
     body.entry[0].changes[0].value.leadgen_id = 'L-1002';
     const res = await post(WH, body);
+    expect(res.status).toBe(200);
     expect(res.json.kind).toBe('gp_lead');
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.qualified).toBe(false);
