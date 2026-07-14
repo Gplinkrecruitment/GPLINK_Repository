@@ -1,8 +1,8 @@
 /* ==========================================================================
-   GP Link marketing site — shared behaviours
+   GP Link marketing site - shared behaviours
    Auto-initializes on DOMContentLoaded. Exposes window.GPSite for
    page-local scripts (job search form, enquiry forms) to hook into.
-   Framework-free, no external imports — matches js/auth-guard.js idiom.
+   Framework-free, no external imports - matches js/auth-guard.js idiom.
    ========================================================================== */
 (function () {
   "use strict";
@@ -324,7 +324,7 @@
     wrap.className = "site-thanks";
     wrap.innerHTML =
       '<div class="ok">✓</div>' +
-      "<h4>Thanks — we've got it</h4>" +
+      "<h4>Thanks, we've got it</h4>" +
       "<p>Someone from the GP Link team will be in touch shortly.</p>";
     return wrap;
   }
@@ -380,7 +380,7 @@
           }
           errorEl = findOrCreateErrorEl(formEl);
           errorEl.textContent = (result.json && result.json.error) ||
-            "Something went wrong sending that — please try again.";
+            "Something went wrong sending that. Please try again.";
         }
       }).catch(function () {
         if (submitBtn) {
@@ -388,7 +388,7 @@
           submitBtn.textContent = originalLabel;
         }
         errorEl = findOrCreateErrorEl(formEl);
-        errorEl.textContent = "Something went wrong sending that — please try again.";
+        errorEl.textContent = "Something went wrong sending that. Please try again.";
       });
     });
   }

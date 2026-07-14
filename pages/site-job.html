@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GP Job Details | GP Link</title>
-<meta name="description" content="View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<meta name="description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
 <link rel="canonical" href="https://www.mygplink.com.au/jobs/view">
 <meta property="og:title" content="GP Job Details | GP Link">
-<meta property="og:description" content="View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<meta property="og:description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/jobs/view">
@@ -178,9 +178,9 @@
           <div class="job-handles">
             <h2>What GP Link handles for you</h2>
             <ul>
-              <li><span class="jh-dot">✓</span><span><b>Registration &amp; AHPRA paperwork</b> — we prepare and lodge it with you, so nothing gets missed.</span></li>
-              <li><span class="jh-dot">✓</span><span><b>Visa &amp; relocation</b> — we help you understand your visa options and support your move to Australia.</span></li>
-              <li><span class="jh-dot">✓</span><span><b>Contract &amp; onboarding support</b> — we help you review your contract and settle in at the practice.</span></li>
+              <li><span class="jh-dot">✓</span><span><b>Registration &amp; AHPRA paperwork:</b> we prepare and lodge it with you, so nothing gets missed.</span></li>
+              <li><span class="jh-dot">✓</span><span><b>Visa &amp; relocation:</b> we help you understand your visa options and support your move to Australia.</span></li>
+              <li><span class="jh-dot">✓</span><span><b>Contract &amp; onboarding support:</b> we help you review your contract and settle in at the practice.</span></li>
             </ul>
           </div>
 
@@ -201,7 +201,7 @@
         <div class="job-apply-card">
           <h3>Apply with a free account</h3>
           <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Apply now <span class="arr">→</span></a>
-          <p class="job-apply-sub">Takes 2 minutes — then apply directly in the GP Link app.</p>
+          <p class="job-apply-sub">Takes 2 minutes, then apply directly in the GP Link app.</p>
           <a class="btn ghost dark" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Ask us about this role</a>
         </div>
       </aside>
@@ -228,7 +228,7 @@
 
   // /api/public/jobs supports a server-side ?id= exact-match lookup (see
   // buildPublicJobsResponse in server.js), so this page resolves the target
-  // job with a single request instead of paging the whole board client-side —
+  // job with a single request instead of paging the whole board client-side -
   // that keeps job permalinks working no matter how large the live board gets.
   // The "related roles" rail is a secondary nicety, not a correctness
   // requirement, so it still draws from just the first page (up to the API's
@@ -292,7 +292,7 @@
   }
 
   // Escape the raw summary FIRST (as one string), then split the already-safe
-  // string on blank lines — every character that reaches innerHTML has been
+  // string on blank lines - every character that reaches innerHTML has been
   // through escapeHtml, since /api/public/jobs data is untrusted.
   function renderSummaryHtml(summaryRaw) {
     var escaped = escapeHtml(summaryRaw || "");
@@ -333,7 +333,7 @@
   }
 
   // "Practice Profile" block: DPA / MMM / billing rows plus a suburb-level
-  // (never exact-address) map preview — only ever the suburb, since this is
+  // (never exact-address) map preview - only ever the suburb, since this is
   // the public, no-session marketing site and the practice's real address is
   // never sent to /api/public/jobs.
   function renderPracticeProfile(job) {
@@ -371,7 +371,7 @@
   }
 
   function renderJob(job, allJobs) {
-    document.title = (job.title || "GP role") + " — " + (job.location_label || "Australia") + " | GP Link";
+    document.title = (job.title || "GP role") + " · " + (job.location_label || "Australia") + " | GP Link";
 
     titleEl.textContent = job.title || "GP role";
 
@@ -437,7 +437,7 @@
     });
   }
 
-  // Best-effort pool for the "related roles" rail — never blocks or fails the
+  // Best-effort pool for the "related roles" rail - never blocks or fails the
   // main job render; an empty pool just means no related-roles rail shows.
   function fetchRelatedPool() {
     var params = new URLSearchParams();
