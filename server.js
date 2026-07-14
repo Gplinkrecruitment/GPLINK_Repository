@@ -7367,6 +7367,7 @@ const CRON_SCHEDULES = {
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'consult-nudge': { schedule: '20 * * * *', cadenceMinutes: 60 },
   'reconcile-doc-tasks': { schedule: '30 * * * *', cadenceMinutes: 60 },
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
@@ -19578,6 +19579,37 @@ async function sendConsultMagicLinkEmail(row) {
   });
 }
 
+// Hourly nudge email (Task 4 of the Meta-ads GP funnel): sent by
+// /api/cron/consult-nudge for a lead whose nextConsultNudge() step is due —
+// either "started but never booked" (sequence A, anchored at lead creation)
+// or "booked but never signed up" (sequence B, anchored at call_booked_at).
+// category:'marketing' gives this the suppression-list check + auto
+// List-Unsubscribe headers that sendEmail() builds for marketing sends.
+async function sendConsultNudgeEmail(row, due) {
+  const consult = row.metadata.consult;
+  const displayName = consultLead.consultDisplayName(row.name);
+  const bookUrl = consult.token
+    ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
+    : CONSULT_START_BASE + '/start#book';
+  const signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1&email=' + encodeURIComponent(row.email);
+  const copy = consultLead.consultNudgeCopy(due.seq, due.step, { displayName, bookUrl, signupUrl });
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
+  return sendEmail({
+    to: row.email,
+    subject: copy.subject,
+    html: buildCareerEmailHtml({
+      title: copy.title,
+      body: copy.body,
+      ctaText: copy.ctaText,
+      ctaUrl: copy.ctaUrl,
+      footer: '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+    }),
+    text: copy.body + '\n\n' + copy.ctaText + ': ' + copy.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    category: 'marketing',
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
+}
+
 // Enquiry list — consumed by the CEO CSV export (exportRowsForEnquiries). Same
 // dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
 // in local-JSON-db dev/test mode. Always returns newest-first. (The in-admin
@@ -30706,6 +30738,80 @@ async function handleApi(req, res, pathname) {
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       await respondServerError(res, onbErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // ── Hourly: chase Meta-ads GP consult leads (Task 4 of the 2026-07-14
+  // Meta-ads GP funnel plan). Two independent sequences per lead, both driven
+  // by lib/consult-lead.js's nextConsultNudge():
+  //  - not_booked: started the consult flow (qualified lead row created) but
+  //    never booked a call — anchored at lead created_at, nudges at 2h/48h.
+  //  - booked_no_signup: booked a call but never created a GP Link account —
+  //    anchored at call_booked_at, nudges at 3d/7d.
+  // Stops forever once the lead's email shows up in dbState.users/Supabase
+  // auth (signed up — status flips to 'converted'), on suppression-list
+  // bounce/unsubscribe (send returns {suppressed:true}), or once both nudges
+  // in the active sequence have been sent (nextConsultNudge returns null).
+  // 45s time-box mirrors onboarding-nudge above — a rerun is idempotent since
+  // each lead's due-ness is independently recomputed from its own state.
+  if (req.method === 'GET' && pathname === '/api/cron/consult-nudge') {
+    var cnSecret = String(process.env.CRON_SECRET || '').trim();
+    var cnAuth = req.headers['authorization'] || '';
+    if (!cnSecret || cnAuth !== 'Bearer ' + cnSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var cnStart = Date.now();
+    var CN_TIME_BUDGET_MS = 45000;
+    var cnScanned = 0, cnSent = 0, cnStopped = 0, cnSkipped = 0, cnPartial = false;
+    try {
+      var cnRows = await listSiteEnquiryRows();
+      for (var cnRow of cnRows) {
+        if (Date.now() - cnStart > CN_TIME_BUDGET_MS) { cnPartial = true; break; }
+        var cnMeta = cnRow && cnRow.metadata;
+        if (!cnMeta || cnRow.kind !== 'gp' || !cnMeta.consult) continue;
+        var cnConsult = cnMeta.consult;
+        cnScanned++;
+        if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) { cnSkipped++; continue; }
+        // Signed up? → converted, stop forever.
+        var cnUserExists = false;
+        if (isSupabaseDbConfigured()) {
+          cnUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
+        } else {
+          cnUserExists = !!(dbState.users && dbState.users[String(cnRow.email || '').toLowerCase()]);
+        }
+        if (cnUserExists) {
+          var cnMetaConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
+          await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaConv });
+          cnStopped++;
+          continue;
+        }
+        var cnDue = consultLead.nextConsultNudge({
+          consult: cnConsult,
+          createdAtMs: new Date(cnRow.created_at).getTime(),
+          nowMs: Date.now()
+        });
+        if (!cnDue) { cnSkipped++; continue; }
+        var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
+        if (cnSendRes && cnSendRes.suppressed) {
+          var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed' }) });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
+          cnStopped++;
+          continue;
+        }
+        if (cnSendRes && cnSendRes.ok) {
+          var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([
+            { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString() }
+          ]);
+          var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
+          cnSent++;
+        } else {
+          cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
+        }
+      }
+      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, partial: cnPartial });
+    } catch (e) {
+      console.error('[ConsultNudge] cron failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'Internal error' });
     }
     return;
   }
@@ -59693,6 +59799,19 @@ module.exports.__testUtils = {
   findConsultLeadByToken,
   findRecentConsultLeadByEmail,
   buildConsultLeadRow,
+  sendConsultNudgeEmail,
+  // Test-only: seeds a signed-up account directly into dbState.users (local-
+  // JSON mode) — dbState is loaded once at module import, so a raw write to
+  // the DB file mid-test would never be seen by the running process; cron
+  // endpoints that gate on "has this lead signed up?" (consult-nudge) need
+  // this in-memory seed instead of a real signup flow.
+  __seedUserForTest: function (email, patch) {
+    const key = String(email || '').trim().toLowerCase();
+    if (!key) return;
+    dbState.users = dbState.users || {};
+    dbState.users[key] = Object.assign({ email: key }, patch || {});
+    saveDbState();
+  },
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
