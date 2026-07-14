@@ -140,6 +140,8 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+var consultLead = require('./lib/consult-lead.js');
+const CONSULT_START_BASE = (process.env.SITE_PUBLIC_BASE_URL || 'https://mygplink.com.au');
 const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -19399,6 +19401,112 @@ function __seedSiteEnquiriesForTest(rows) {
   saveDbState();
 }
 
+// ── Consult-lead helpers (Meta-ads GP funnel) ──────────────────────────────
+// Funnel state lives in site_enquiries.metadata.consult (jsonb) — no migration.
+async function updateSiteEnquiryRow(id, patch) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+    return !!r.ok;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  const row = rows.find((r) => String(r.id) === String(id));
+  if (!row) return false;
+  Object.assign(row, patch);
+  saveDbState();
+  return true;
+}
+
+function _consultRowHasToken(row, token) {
+  return !!(row && row.kind === 'gp' && row.metadata && row.metadata.consult &&
+    row.metadata.consult.token && row.metadata.consult.token === token);
+}
+
+async function findConsultLeadByToken(token) {
+  const tok = String(token || '').trim();
+  if (!tok || tok.length < 20) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&metadata->consult->>token=eq.' + encodeURIComponent(tok) + '&limit=1',
+      { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => _consultRowHasToken(row, tok)) || null;
+}
+
+const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+async function findRecentConsultLeadByEmail(email) {
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return null;
+  const cutoffIso = new Date(Date.now() - CONSULT_MATCH_WINDOW_MS).toISOString();
+  let rows = [];
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&email=ilike.' + encodeURIComponent(addr) +
+      '&created_at=gte.' + encodeURIComponent(cutoffIso) + '&order=created_at.desc&limit=10',
+      { method: 'GET' });
+    rows = r.ok && Array.isArray(r.data) ? r.data : [];
+  } else {
+    rows = (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [])
+      .filter((row) => row.kind === 'gp' && String(row.email || '').toLowerCase() === addr &&
+        new Date(row.created_at).getTime() >= Date.now() - CONSULT_MATCH_WINDOW_MS)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  return rows.find((row) =>
+    String(row.email || '').toLowerCase() === addr &&
+    row.metadata && row.metadata.source === 'meta_lead_ad' &&
+    row.metadata.consult && row.metadata.consult.token &&
+    row.metadata.consult.qualified === true &&
+    !row.metadata.consult.screened_out) || null;
+}
+
+function _capUtm(utm) {
+  const out = {};
+  if (utm && typeof utm === 'object') {
+    for (const key of Object.keys(utm)) {
+      if (!/^utm_[a-z_]{1,30}$/.test(key)) continue;
+      out[key] = String(utm[key] == null ? '' : utm[key]).slice(0, 200);
+      if (Object.keys(out).length >= 8) break;
+    }
+  }
+  return out;
+}
+
+function buildConsultLeadRow(input) {
+  const qualified = consultLead.screenConsultLead({ isGp: input.isGp, country: input.country });
+  const consult = {
+    qualified,
+    is_gp: input.isGp === true,
+    country: input.country || 'other',
+    call_booked: false,
+    nudges: []
+  };
+  if (qualified) consult.token = consultLead.generateConsultToken();
+  else consult.screened_out = true;
+  return {
+    id: crypto.randomUUID(),
+    created_at: new Date().toISOString(),
+    kind: 'gp',
+    name: input.name,
+    email: input.email,
+    phone: input.phone || null,
+    practice_name: null,
+    state: input.country || null,
+    message: input.question || null,
+    status: 'new',
+    metadata: {
+      source: input.source,
+      ip: input.ip || null,
+      user_agent: String(input.userAgent || '').slice(0, 300),
+      utm: _capUtm(input.utm),
+      fb_lead_id: input.leadId || null,
+      consult
+    }
+  };
+}
+
 // Enquiry list — consumed by the CEO CSV export (exportRowsForEnquiries). Same
 // dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
 // in local-JSON-db dev/test mode. Always returns newest-first. (The in-admin
@@ -33622,6 +33730,64 @@ async function handleApi(req, res, pathname) {
 
     await maybeNotifySiteEnquiry(row);
 
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Meta-ads GP consult funnel (public, no session) ──────────────────────
+  if (pathname === '/api/public/consult-lead' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    if (isSiteEnquiryHoneypotFilled(body)) { sendJson(res, 200, { ok: true, qualified: true }); return; }
+    const validated = consultLead.validateConsultLeadPayload(body);
+    if (!validated.ok) { sendJson(res, 400, { ok: false, error: validated.error }); return; }
+    const ip = getClientIp(req);
+    if (!checkSiteEnquiryRateLimit(ip)) { sendJson(res, 429, { ok: false, error: 'Too many requests from this address. Please try again later.' }); return; }
+    const row = buildConsultLeadRow(Object.assign({}, validated.value, {
+      source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
+    }));
+    const stored = await insertSiteEnquiryRow(row);
+    if (!stored) { sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' }); return; }
+    recordSiteEnquiryRateLimitHit(ip);
+    await maybeNotifySiteEnquiry(row);
+    const out = { ok: true, qualified: row.metadata.consult.qualified };
+    if (row.metadata.consult.token) out.token = row.metadata.consult.token;
+    sendJson(res, 200, out);
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead' && req.method === 'GET') {
+    const tok = String(url.searchParams.get('token') || '').trim();
+    const row = tok ? await findConsultLeadByToken(tok) : null;
+    if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false }); return; }
+    sendJson(res, 200, { ok: true, displayName: consultLead.consultDisplayName(row.name), email: row.email, qualified: true });
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead/match' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('consult_match:' + ip, 10, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, error: 'Too many attempts. Please try again later.' }); return; }
+    const row = await findRecentConsultLeadByEmail(body && body.email);
+    if (!row) { sendJson(res, 200, { ok: true, found: false }); return; }
+    // Privacy: display name + token only — never phone or answers.
+    sendJson(res, 200, { ok: true, found: true, displayName: consultLead.consultDisplayName(row.name), token: row.metadata.consult.token });
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead/booked' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const row = await findConsultLeadByToken(body && body.token);
+    if (!row) { sendJson(res, 404, { ok: false }); return; }
+    const metadata = Object.assign({}, row.metadata);
+    metadata.consult = Object.assign({}, metadata.consult, {
+      call_booked: true,
+      call_booked_at: metadata.consult.call_booked_at || new Date().toISOString()
+    });
+    await updateSiteEnquiryRow(row.id, { status: 'contacted', metadata });
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -58344,6 +58510,7 @@ const SITE_PUBLIC_ROUTES = {
   // the job board's zero-real-match locked teaser cards; not itself a nav
   // item.
   '/exclusive-placements': 'pages/site-exclusive.html',
+  '/start': 'pages/site-start.html',
 };
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
 // Reverse map so a direct hit on the backing file (e.g. /pages/site-home.html)
@@ -59451,6 +59618,10 @@ module.exports.__testUtils = {
   __seedSiteEnquiriesForTest,
   insertSiteEnquiryRow,
   listSiteEnquiryRows,
+  updateSiteEnquiryRow,
+  findConsultLeadByToken,
+  findRecentConsultLeadByEmail,
+  buildConsultLeadRow,
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
