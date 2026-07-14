@@ -30752,7 +30752,12 @@ async function handleApi(req, res, pathname) {
   // Stops forever once the lead's email shows up in dbState.users/Supabase
   // auth (signed up — status flips to 'converted'), on suppression-list
   // bounce/unsubscribe (send returns {suppressed:true}), or once both nudges
-  // in the active sequence have been sent (nextConsultNudge returns null).
+  // in the active sequence have been sent (isConsultExhausted → stopped:
+  // 'exhausted', a terminal state — see the loop body for why this matters
+  // for cost, not just tidiness). A late call_booked flip can re-open an
+  // exhausted not_booked lead into booked_no_signup (see the /booked
+  // endpoint, which clears the exhausted stop but never an unsubscribe or
+  // signed_up stop).
   // 45s time-box mirrors onboarding-nudge above — a rerun is idempotent since
   // each lead's due-ness is independently recomputed from its own state.
   if (req.method === 'GET' && pathname === '/api/cron/consult-nudge') {
@@ -30771,7 +30776,31 @@ async function handleApi(req, res, pathname) {
         var cnConsult = cnMeta.consult;
         cnScanned++;
         if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) { cnSkipped++; continue; }
-        // Signed up? → converted, stop forever.
+        var cnDue = consultLead.nextConsultNudge({
+          consult: cnConsult,
+          createdAtMs: new Date(cnRow.created_at).getTime(),
+          nowMs: Date.now()
+        });
+        // Nothing due right now. Either the active sequence is fully sent —
+        // write a terminal 'exhausted' stop so this lead is skipped by the
+        // stopped-check above forever after (no more hourly re-scans, and in
+        // Supabase mode no more getSupabaseUserIdByEmail HTTP calls) — or it
+        // just isn't time yet, so leave it alone for next hour.
+        if (!cnDue) {
+          if (consultLead.isConsultExhausted(cnConsult)) {
+            var cnMetaExhausted = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'exhausted' }) });
+            await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaExhausted });
+            cnStopped++;
+          } else {
+            cnSkipped++;
+          }
+          continue;
+        }
+        // A nudge is actually due — only now is the "did they sign up?"
+        // existence check worth its cost (a real HTTP call in Supabase mode),
+        // since a quiet lead with nothing due costs nothing. This means the
+        // 'converted' stop is written at next-due time rather than eagerly,
+        // which is intended.
         var cnUserExists = false;
         if (isSupabaseDbConfigured()) {
           cnUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
@@ -30784,12 +30813,6 @@ async function handleApi(req, res, pathname) {
           cnStopped++;
           continue;
         }
-        var cnDue = consultLead.nextConsultNudge({
-          consult: cnConsult,
-          createdAtMs: new Date(cnRow.created_at).getTime(),
-          nowMs: Date.now()
-        });
-        if (!cnDue) { cnSkipped++; continue; }
         var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
         if (cnSendRes && cnSendRes.suppressed) {
           var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed' }) });
@@ -33964,6 +33987,10 @@ async function handleApi(req, res, pathname) {
       call_booked: true,
       call_booked_at: metadata.consult.call_booked_at || new Date().toISOString()
     });
+    // A late booking after the not_booked sequence exhausted itself should
+    // re-open booked_no_signup rather than stay stopped forever — but a real
+    // unsubscribe/signed_up stop must still hold, so only 'exhausted' clears.
+    if (metadata.consult.stopped === 'exhausted') delete metadata.consult.stopped;
     await updateSiteEnquiryRow(row.id, { status: 'contacted', metadata });
     sendJson(res, 200, { ok: true });
     return;

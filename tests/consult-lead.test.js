@@ -13,6 +13,7 @@ const {
   normalizeFacebookGpLead,
   validateConsultLeadPayload,
   nextConsultNudge,
+  isConsultExhausted,
   consultNudgeCopy,
   consultDisplayName,
 } = require('../lib/consult-lead.js');
@@ -162,6 +163,39 @@ describe('nextConsultNudge', () => {
     expect(nextConsultNudge({ consult: { stopped: 'signed_up', nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
     expect(nextConsultNudge({ consult: { screened_out: true, nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
     expect(nextConsultNudge({ consult: { qualified: false, nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
+  });
+});
+
+describe('isConsultExhausted', () => {
+  it('empty nudges → false', () => {
+    expect(isConsultExhausted({ call_booked: false, nudges: [] })).toBe(false);
+    expect(isConsultExhausted({})).toBe(false);
+  });
+  it('not_booked: exhausted once both steps 0 and 1 are recorded', () => {
+    expect(isConsultExhausted({ call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] })).toBe(false);
+    expect(isConsultExhausted({
+      call_booked: false,
+      nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
+    })).toBe(true);
+  });
+  it('booked_no_signup: exhausted once both steps 0 and 1 are recorded', () => {
+    expect(isConsultExhausted({ call_booked: true, nudges: [{ seq: 'booked_no_signup', step: 0 }] })).toBe(false);
+    expect(isConsultExhausted({
+      call_booked: true,
+      nudges: [{ seq: 'booked_no_signup', step: 0 }, { seq: 'booked_no_signup', step: 1 }],
+    })).toBe(true);
+  });
+  it('a finished not_booked run is NOT exhausted once call_booked flips the applicable sequence', () => {
+    const consult = {
+      call_booked: true,
+      nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
+    };
+    expect(isConsultExhausted(consult)).toBe(false);
+    // Only exhausted once the NOW-applicable booked_no_signup steps are sent too.
+    expect(isConsultExhausted({
+      call_booked: true,
+      nudges: consult.nudges.concat([{ seq: 'booked_no_signup', step: 0 }, { seq: 'booked_no_signup', step: 1 }]),
+    })).toBe(true);
   });
 });
 

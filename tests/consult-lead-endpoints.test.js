@@ -181,6 +181,25 @@ describe('POST /api/public/consult-lead/booked', () => {
   it('404s on unknown token', async () => {
     expect((await post('/api/public/consult-lead/booked', { token: 'nope' })).status).toBe(404);
   });
+  it('a late booking re-opens an exhausted lead (clears stopped:"exhausted")', async () => {
+    const token = 'exhausted-' + crypto.randomBytes(16).toString('hex');
+    testUtils.__seedSiteEnquiriesForTest([{
+      id: 'e-exhausted', created_at: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(), kind: 'gp',
+      name: 'Late Booker', email: 'late@example.co.uk', phone: '', status: 'new',
+      metadata: {
+        source: 'site_start_form',
+        consult: {
+          token, qualified: true, call_booked: false, stopped: 'exhausted',
+          nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
+        },
+      },
+    }]);
+    const res = await post('/api/public/consult-lead/booked', { token });
+    expect(res.json.ok).toBe(true);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.stopped).toBeUndefined();
+    expect(row.metadata.consult.call_booked).toBe(true);
+  });
 });
 
 describe('GET /start', () => {
