@@ -234,7 +234,7 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
     expect(currentMatches.length).toBe(2);
   });
 
-  it('GET /about has Talk to us CTAs (mailto, Calendly, ACN, signup)', async () => {
+  it('GET /about has Talk to us CTAs (mailto, /start#book booking, ACN, signup)', async () => {
     const res = await get('/about');
     expect(res.raw).toContain('href="mailto:hello@mygplink.com.au"');
     expect(res.raw).toContain('href="/start#book"');
@@ -319,7 +319,7 @@ describe('marketing site app page (Task 12)', () => {
     expect(currentMatches.length).toBe(2);
   });
 
-  it('GET /the-app CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+  it('GET /the-app CTAs point at real destinations (signup, jobs, /start#book booking)', async () => {
     const res = await get('/the-app');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('href="/jobs"');
@@ -369,7 +369,7 @@ describe('marketing site "For GPs" page (Task 15)', () => {
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
   });
 
-  it('GET /gp-jobs CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+  it('GET /gp-jobs CTAs point at real destinations (signup, jobs, /start#book booking)', async () => {
     const res = await get('/gp-jobs');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('href="/jobs"');
@@ -423,7 +423,7 @@ describe('marketing site "Exclusive placement" page (Task 19)', () => {
     expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/sydney-opera.jpg"');
   });
 
-  it('GET /exclusive-placements CTAs point at real destinations (signup, Calendly) and has no app-shell chrome', async () => {
+  it('GET /exclusive-placements CTAs point at real destinations (signup, /start#book booking) and has no app-shell chrome', async () => {
     const res = await get('/exclusive-placements');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('/start#book');
