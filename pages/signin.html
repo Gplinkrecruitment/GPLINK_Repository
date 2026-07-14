@@ -1664,6 +1664,14 @@
     }
 
     setPanel(GP_SIGNIN_SIGNUP ? "signup" : "signin");
+    // Meta-ads funnel: recognised leads arrive with ?signup=1&email=… — prefill only.
+    try {
+      var gpPrefillEmail = new URLSearchParams(window.location.search).get("email") || "";
+      if (GP_SIGNIN_SIGNUP && gpPrefillEmail) {
+        var gpSignupEmailEl = document.getElementById("signupEmail");
+        if (gpSignupEmailEl && !gpSignupEmailEl.value) gpSignupEmailEl.value = gpPrefillEmail.slice(0, 120);
+      }
+    } catch (e) { /* no-op */ }
     pickCountryDialFromLocale();
     setOAuthButtonsDisabled(true);
     ensureSupabaseClient().catch(() => {});
