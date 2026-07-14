@@ -74,6 +74,7 @@
   .book-consent{margin:14px 0 0;font-size:12.5px;color:var(--mut-2);line-height:1.6;}
   .book-consent a{color:var(--teal);}
   .book-kicker{margin:0 0 16px;font-size:15px;font-weight:700;color:var(--ink-2);}
+  .book-loading{margin:0;font-size:14.5px;color:var(--mut);}
   .turndown-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
   .turndown-row input{flex:1 1 220px;margin-bottom:0;}
   .turndown-row .btn{width:auto;flex:0 0 auto;}
@@ -174,36 +175,44 @@
     </div>
 
     <div class="book-panel reveal dl1">
+      <p class="book-loading" id="bookLoading" hidden>Loading your details…</p>
+
       <div id="bookRecognised" class="book-state" hidden>
         <h3 id="recogHeading">Welcome back</h3>
         <p>Your details are already saved. Anything you'd like us to cover on the call?</p>
+        <label for="recogQuestion">Your question (optional)</label>
         <textarea id="recogQuestion" maxlength="2000" placeholder="Optional — e.g. visa timing, pay, bringing family…"></textarea>
-        <button class="btn primary" id="recogContinue">Choose a time →</button>
+        <button class="btn primary" type="button" id="recogContinue">Choose a time →</button>
       </div>
 
       <div id="bookEmailMatch" class="book-state" hidden>
         <h3>Quick one — what's your email?</h3>
         <p>So we can match the details you gave us on Facebook.</p>
+        <label for="matchEmail">Email address</label>
         <input id="matchEmail" type="email" autocomplete="email" placeholder="you@example.com">
-        <button class="btn primary" id="matchBtn">Continue →</button>
-        <p class="book-err" id="matchErr" hidden></p>
+        <button class="btn primary" type="button" id="matchBtn">Continue →</button>
+        <p class="book-err" id="matchErr" role="alert" hidden></p>
       </div>
 
       <div id="bookForm" class="book-state" hidden>
         <h3>Book your free 30-minute call</h3>
         <p>Tell us a little about you — takes 30 seconds.</p>
         <form id="consultForm" novalidate>
+          <label for="cfName">Full name</label>
           <input id="cfName" type="text" autocomplete="name" maxlength="200" placeholder="Full name" required>
+          <label for="cfEmail">Email</label>
           <input id="cfEmail" type="email" autocomplete="email" maxlength="200" placeholder="Email" required>
+          <label for="cfPhone">Phone (optional)</label>
           <input id="cfPhone" type="tel" autocomplete="tel" maxlength="40" placeholder="Phone (with country code)">
-          <label>Are you a currently registered GP?</label>
+          <label for="cfIsGp">Are you a currently registered GP?</label>
           <select id="cfIsGp"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
-          <label>Where are you registered?</label>
+          <label for="cfCountry">Where are you registered?</label>
           <select id="cfCountry"><option value="">Choose…</option><option value="uk">United Kingdom</option><option value="ie">Ireland</option><option value="nz">New Zealand</option><option value="other">Somewhere else</option></select>
+          <label for="cfQuestion">Your main question (optional)</label>
           <textarea id="cfQuestion" maxlength="2000" placeholder="Optional — what's your main question?"></textarea>
           <input id="cfWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
-          <button class="btn primary" type="submit">Continue to booking →</button>
-          <p class="book-err" id="cfErr" hidden></p>
+          <button class="btn primary" type="submit" id="cfSubmit">Continue to booking →</button>
+          <p class="book-err" id="cfErr" role="alert" hidden></p>
           <p class="book-consent">We'll only contact you about your enquiry. <a href="/pages/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
         </form>
       </div>
@@ -211,9 +220,10 @@
       <div id="bookTurndown" class="book-state" hidden>
         <h3>We're sorry — we can't take this one on</h3>
         <p>Right now GP Link works with general practitioners registered in the <b>UK, Ireland or New Zealand</b>. If that changes, we'd love to let you know.</p>
+        <label for="tdEmail">Email (optional)</label>
         <div class="turndown-row">
           <input id="tdEmail" type="email" placeholder="Your email (optional)">
-          <button class="btn ghost dark" id="tdSave">Keep me posted</button>
+          <button class="btn ghost dark" type="button" id="tdSave">Keep me posted</button>
         </div>
         <p id="tdThanks" hidden>Done — we'll be in touch if things change.</p>
       </div>
@@ -253,11 +263,16 @@
   var utm = {};
   params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
 
+  var FETCH_ERR_MSG = 'Something went wrong sending that — please check your connection and try again.';
+
   function show(id) {
+    document.getElementById('bookLoading').hidden = true;
     ['bookRecognised', 'bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
       .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
   }
 
+  // Rejects on network failure or a non-JSON response — callers surface
+  // FETCH_ERR_MSG in their .book-err element via .catch().
   function post(path, body) {
     return fetch(path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -288,7 +303,7 @@
   window.addEventListener('message', function (e) {
     if (e.origin !== 'https://calendly.com') return;
     if (!e.data || e.data.event !== 'calendly.event_scheduled') return;
-    if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token }); }
+    if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token }).catch(function () {}); }
     var su = document.getElementById('confirmedSignup');
     if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
     show('bookConfirmed');
@@ -311,6 +326,7 @@
   // Entry routing
   var tokenParam = params.get('lead');
   if (tokenParam) {
+    document.getElementById('bookLoading').hidden = false;
     fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
@@ -325,10 +341,14 @@
   }
 
   document.getElementById('matchBtn').onclick = function () {
+    var btn = this;
     var em = document.getElementById('matchEmail').value.trim();
     var err = document.getElementById('matchErr');
     if (!em) { err.textContent = 'Please enter your email.'; err.hidden = false; return; }
+    err.hidden = true;
+    btn.disabled = true;
     post('/api/public/consult-lead/match', { email: em }).then(function (r) {
+      btn.disabled = false;
       if (r.json && r.json.found) {
         lead.token = r.json.token; lead.name = r.json.displayName; lead.email = em;
         enterRecognised(r.json.displayName);
@@ -336,6 +356,10 @@
         document.getElementById('cfEmail').value = em;
         show('bookForm');
       }
+    }).catch(function () {
+      btn.disabled = false;
+      err.textContent = FETCH_ERR_MSG;
+      err.hidden = false;
     });
   };
 
@@ -358,7 +382,10 @@
       err.textContent = 'Please fill in your name, email and both dropdowns.'; err.hidden = false; return;
     }
     err.hidden = true;
+    var submitBtn = document.getElementById('cfSubmit');
+    submitBtn.disabled = true;
     post('/api/public/consult-lead', payload).then(function (r) {
+      submitBtn.disabled = false;
       if (r.status !== 200 || !r.json.ok) {
         err.textContent = (r.json && r.json.error) || 'Something went wrong — please try again.'; err.hidden = false; return;
       }
@@ -368,16 +395,21 @@
       } else {
         show('bookTurndown');
       }
+    }).catch(function () {
+      submitBtn.disabled = false;
+      err.textContent = FETCH_ERR_MSG;
+      err.hidden = false;
     });
   });
 
   document.getElementById('tdSave').onclick = function () {
     var em = document.getElementById('tdEmail').value.trim();
     if (em) {
+      // Fire-and-forget by design — the thanks line shows regardless.
       post('/api/public/consult-lead', {
         name: 'Future-country lead', email: em, isGp: false, country: 'other',
         question: 'Keep me posted when GP Link supports my country.', utm: utm
-      });
+      }).catch(function () {});
     }
     document.getElementById('tdThanks').hidden = false;
     this.disabled = true;
