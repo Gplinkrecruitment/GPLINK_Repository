@@ -11,7 +11,10 @@
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/the-app">
-<link rel="stylesheet" href="/css/site.css?v=20260703">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260714a">
 <style>
   /* ---------- apppage hero (ported app-push gradient) ---------- */
   .apppage-hero{background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 48%,#116dff 72%,#2b8ef0 100%);
@@ -131,8 +134,9 @@
 
   /* ---------- final cta ---------- */
   .apppage-final{position:relative;color:#fff;overflow:hidden;}
-  .apppage-final .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
-  .apppage-final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
+  .apppage-final .bgimg{position:absolute;top:-80px;left:0;width:100%;height:calc(100% + 160px);
+    object-fit:cover;object-position:center 60%;}
+  .apppage-final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.92) 20%,rgba(12,46,102,.78));}
   .apppage-final .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
   .apppage-final h2{font-size:clamp(28px,4.6vw,52px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
   .apppage-final p{color:#d3e4f6;max-width:52ch;margin:0 auto 20px;font-size:clamp(15px,1.8vw,18px);}
@@ -140,6 +144,9 @@
 
   @media (prefers-reduced-motion: reduce){
     .stage{animation:none !important;opacity:1 !important;transform:none !important;}
+    .pbar i,.scr-note{transition:none !important;}
+    .scr-note{opacity:1;transform:none;}
+    .apppage-fcard{transition:none;}
   }
 </style>
 </head>
@@ -169,16 +176,16 @@
 <section class="apppage-hero">
   <div class="container">
     <div class="apppage-hero-grid">
-      <div class="reveal">
-        <div class="eyebrow">The GP Link app</div>
-        <h1>Your whole move to Australia, in one&nbsp;app</h1>
-        <p class="sub">Create a free account and see your exact pathway in minutes — registration, documents, job matches and a real support officer, all tracked in one place.</p>
-        <div class="cta-row">
+      <div data-stagger="120">
+        <div class="eyebrow reveal">The GP Link app</div>
+        <h1 data-split="0.3">Your whole move to Australia, in one&nbsp;app</h1>
+        <p class="sub reveal">Create a free account and see your exact pathway in minutes — registration, documents, job matches and a real support officer, all tracked in one place.</p>
+        <div class="cta-row reveal">
           <a class="btn white" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
           <a class="btn ghost" href="/jobs">Browse jobs first</a>
         </div>
       </div>
-      <div class="phone-wrap reveal dl2">
+      <div class="phone-wrap reveal rv-right dl2">
         <div class="float-chip c1"><span class="ok">✓</span> CV verified</div>
         <div class="phone"><div class="screen">
           <div class="scr-top">
@@ -211,38 +218,38 @@
 
 <section class="block" id="whole-move">
   <div class="container">
-    <div class="reveal">
+    <div class="reveal rv-blur">
       <div class="sec-eyebrow">Your whole move, one place</div>
       <h2 class="sec-title">Everything you'd otherwise chase by email, in one&nbsp;app</h2>
       <p class="sec-sub">No more wondering where things stand. The app is the single place your registration, documents, job matches and support officer live.</p>
     </div>
-    <div class="apppage-fgrid">
-      <div class="apppage-fcard reveal dl1">
+    <div class="apppage-fgrid" data-stagger="90">
+      <div class="apppage-fcard reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
         <h3>Pathway tracking</h3>
         <p>Every step of your move, with a live status — you always know exactly what's next.</p>
       </div>
-      <div class="apppage-fcard reveal dl2">
+      <div class="apppage-fcard reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
         <h3>Document checks in minutes</h3>
         <p>Upload once — smart verification catches problems before the regulator does.</p>
       </div>
-      <div class="apppage-fcard reveal dl3">
+      <div class="apppage-fcard reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
         <h3>Matched jobs</h3>
         <p>Roles filtered to your visa situation and the life you want — apply straight from the app.</p>
       </div>
-      <div class="apppage-fcard reveal dl1 is-highlight">
+      <div class="apppage-fcard reveal is-highlight">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
         <h3>Your Registration Support Officer<span class="badge-free">Included free</span></h3>
         <p>A dedicated RSO guides you step by step, answers your questions and chases the paperwork — at no cost to you.</p>
       </div>
-      <div class="apppage-fcard reveal dl2">
+      <div class="apppage-fcard reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
         <h3>Notifications that matter</h3>
         <p>Push and email alerts the moment something needs you — nothing sits waiting in a queue.</p>
       </div>
-      <div class="apppage-fcard reveal dl3">
+      <div class="apppage-fcard reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l8 4v6c0 5.2-3.4 9.4-8 11-4.6-1.6-8-5.8-8-11V5z"/></svg></div>
         <h3>Secure by design</h3>
         <p>Your documents are encrypted and shared only with the people and bodies who need them.</p>
@@ -253,33 +260,33 @@
 
 <section class="apppage-stages" id="stages">
   <div class="container">
-    <div class="reveal" style="padding-top:44px;">
+    <div class="reveal rv-blur" style="padding-top:44px;">
       <div class="sec-eyebrow">The 6 stages we track for you</div>
       <h2 class="sec-title">Your real pathway, mapped end to end</h2>
       <p class="sec-sub">These are the actual stages the app tracks for every doctor — no guesswork, no vague "in progress" status.</p>
     </div>
-    <div class="apppage-timeline">
-      <div class="apppage-stage-row reveal dl1">
+    <div class="apppage-timeline" data-stagger="100">
+      <div class="apppage-stage-row reveal">
         <span class="num">1</span>
         <div class="body"><h3>Secure Placement</h3><p>We match you with a practice and lock in your offer.</p></div>
       </div>
-      <div class="apppage-stage-row reveal dl1">
+      <div class="apppage-stage-row reveal">
         <span class="num">2</span>
         <div class="body"><h3>MyIntealth</h3><p>Your identity and credentials set up with AHPRA's online system.</p></div>
       </div>
-      <div class="apppage-stage-row reveal dl2">
+      <div class="apppage-stage-row reveal">
         <span class="num">3</span>
         <div class="body"><h3>AMC</h3><p>Your medical qualifications verified by the Australian Medical Council.</p></div>
       </div>
-      <div class="apppage-stage-row reveal dl2">
+      <div class="apppage-stage-row reveal">
         <span class="num">4</span>
         <div class="body"><h3>AHPRA</h3><p>Your registration application, prepared and tracked to approval.</p></div>
       </div>
-      <div class="apppage-stage-row reveal dl3">
+      <div class="apppage-stage-row reveal">
         <span class="num">5</span>
         <div class="body"><h3>PBS &amp; Medicare</h3><p>Your prescriber and billing numbers, so you can actually practise.</p></div>
       </div>
-      <div class="apppage-stage-row reveal dl3">
+      <div class="apppage-stage-row reveal">
         <span class="num">6</span>
         <div class="body"><h3>Commencement</h3><p>Contracts, relocation and your first day.</p></div>
       </div>
@@ -290,34 +297,34 @@
 
 <section class="apppage-flow-section" id="get-started">
   <div class="container" style="padding-top:clamp(44px,6vw,84px);padding-bottom:clamp(44px,6vw,84px);">
-    <div class="reveal">
+    <div class="reveal rv-blur">
       <div class="sec-eyebrow">Getting started</div>
       <h2 class="sec-title">Four steps to your personal pathway</h2>
       <p class="sec-sub">No commitment, no guesswork — just two minutes to see exactly where you stand.</p>
     </div>
-    <div class="flow reveal">
-      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
-      <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
-      <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration step for your exact situation.</span></div>
-      <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
+    <div class="flow" data-stagger="100">
+      <div class="fstep reveal"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
+      <div class="fstep reveal"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
+      <div class="fstep reveal"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration step for your exact situation.</span></div>
+      <div class="fstep reveal"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
     </div>
   </div>
 </section>
 
 <div class="apppage-trust">
-  <div class="container apppage-trust-in reveal">
-    <div class="apppage-trust-copy">
+  <div class="container apppage-trust-in">
+    <div class="apppage-trust-copy reveal rv-left">
       <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l8 4v6c0 5.2-3.4 9.4-8 11-4.6-1.6-8-5.8-8-11V5z"/></svg></span>
       <p><b>Your documents stay private.</b> Everything you upload is stored securely and only ever shared with your own registration team and the bodies that need it — AHPRA, the AMC and your practice, and nobody else.</p>
     </div>
-    <a class="btn ghost" style="color:var(--teal);border-color:var(--line);background:#fff;" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Questions first? Book a call</a>
+    <span class="reveal rv-right dl1"><a class="btn ghost" style="color:var(--teal);border-color:var(--line);background:#fff;" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Questions first? Book a call</a></span>
   </div>
 </div>
 
 <section class="apppage-final" id="cta">
-  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <img class="bgimg" src="/media/images/site/doctor-family-beach.jpg" alt="A doctor walking with their children on an Australian beach at golden hour" loading="lazy" data-parallax="0.1" data-parallax-scale="1.05">
   <div class="shade"></div>
-  <div class="container reveal">
+  <div class="container reveal rv-scale">
     <h2>Create my free account</h2>
     <p>See your exact pathway to Australia in minutes — registration, documents, job matches and a real support officer, all in one app.</p>
     <div class="cta-row" style="justify-content:center">
@@ -339,6 +346,6 @@
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260703"></script>
+<script src="/js/site.js?v=20260714a"></script>
 </body>
 </html>

@@ -65,7 +65,17 @@
 
   // ---------- scroll reveal ----------
   function initReveal() {
-    var els = document.querySelectorAll(".reveal");
+    // Auto-stagger: children of a [data-stagger] container inherit an
+    // incremental transition delay so grids cascade without dl1-4 classes.
+    document.querySelectorAll("[data-stagger]").forEach(function (group) {
+      var kids = group.querySelectorAll(":scope > .reveal");
+      var step = Number(group.getAttribute("data-stagger")) || 90;
+      kids.forEach(function (el, i) {
+        el.style.transitionDelay = Math.min(i * step, 600) + "ms";
+      });
+    });
+
+    var els = document.querySelectorAll(".reveal, .img-reveal");
     if (!els.length) return;
 
     if (reduceMotion || typeof IntersectionObserver === "undefined") {
@@ -83,6 +93,131 @@
     }, { threshold: .16, rootMargin: "0px 0px -6% 0px" });
 
     els.forEach(function (el) { io.observe(el); });
+  }
+
+  // ---------- split-word headline rise ----------
+  function initSplitWords() {
+    var els = document.querySelectorAll("[data-split]");
+    if (!els.length || reduceMotion) return;
+
+    els.forEach(function (el) {
+      var text = el.textContent;
+      var words = text.split(/\s+/).filter(Boolean);
+      if (!words.length) return;
+      el.setAttribute("aria-label", text.replace(/\s+/g, " ").trim());
+      var base = Number(el.getAttribute("data-split")) || 0.12;
+      el.classList.add("split-words");
+      el.innerHTML = words.map(function (w, i) {
+        var safe = w.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        var delay = (base + i * 0.055).toFixed(3);
+        return '<span class="w" aria-hidden="true"><span style="--wd:' + delay + 's">' + safe + "</span></span>";
+      }).join(" ");
+    });
+  }
+
+  // ---------- parallax ----------
+  // [data-parallax="0.2"] drifts at 20% of scroll speed around its resting
+  // spot. transform-only; optional data-parallax-scale keeps cover images
+  // overscanned so drift never exposes edges.
+  function initParallax() {
+    if (reduceMotion) return;
+    var els = Array.prototype.slice.call(document.querySelectorAll("[data-parallax]"));
+    if (!els.length || typeof IntersectionObserver === "undefined") return;
+
+    var items = els.map(function (el) {
+      return {
+        el: el,
+        speed: parseFloat(el.getAttribute("data-parallax")) || 0.2,
+        scale: parseFloat(el.getAttribute("data-parallax-scale")) || 0,
+        vis: true
+      };
+    });
+
+    var vio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].el === entry.target) items[i].vis = entry.isIntersecting;
+        }
+      });
+    }, { rootMargin: "25% 0px 25% 0px" });
+    items.forEach(function (it) { vio.observe(it.el); });
+
+    var ticking = false;
+    function apply() {
+      ticking = false;
+      var vh = window.innerHeight || 1;
+      items.forEach(function (it) {
+        if (!it.vis) return;
+        var host = it.el.parentElement || it.el;
+        var r = host.getBoundingClientRect();
+        var mid = r.top + r.height / 2 - vh / 2;
+        var y = Math.round(-mid * it.speed * 100) / 100;
+        it.el.style.transform = "translate3d(0," + y + "px,0)" + (it.scale ? " scale(" + it.scale + ")" : "");
+      });
+    }
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(apply);
+      }
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    apply();
+  }
+
+  // ---------- scroll progress bar ----------
+  function initScrollProgress() {
+    if (reduceMotion) return;
+    var bar = document.createElement("div");
+    bar.className = "scroll-progress";
+    bar.setAttribute("aria-hidden", "true");
+    document.body.appendChild(bar);
+
+    var ticking = false;
+    function apply() {
+      ticking = false;
+      var doc = document.documentElement;
+      var max = (doc.scrollHeight - window.innerHeight) || 1;
+      var p = Math.min(Math.max((window.scrollY || 0) / max, 0), 1);
+      bar.style.transform = "scaleX(" + p.toFixed(4) + ")";
+    }
+    window.addEventListener("scroll", function () {
+      if (!ticking) { ticking = true; requestAnimationFrame(apply); }
+    }, { passive: true });
+    apply();
+  }
+
+  // ---------- page-transition veil ----------
+  // Internal navigations wipe a brand gradient up over the page, then
+  // navigate; the next page fades in via the shared body animation.
+  function initPageVeil() {
+    if (reduceMotion) return;
+    var veil = document.createElement("div");
+    veil.className = "page-veil";
+    veil.setAttribute("aria-hidden", "true");
+    document.body.appendChild(veil);
+
+    document.addEventListener("click", function (e) {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var a = e.target && e.target.closest ? e.target.closest("a") : null;
+      if (!a || a.target === "_blank" || a.hasAttribute("download") || a.hasAttribute("data-no-veil")) return;
+      var href = a.getAttribute("href");
+      if (!href || href.charAt(0) === "#") return;
+      var url;
+      try { url = new URL(a.href, window.location.href); } catch (err) { return; }
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.hash) return;
+
+      e.preventDefault();
+      veil.classList.add("cover");
+      setTimeout(function () { window.location.href = url.href; }, 430);
+    });
+
+    // Back/forward cache restores the old page with the veil still up.
+    window.addEventListener("pageshow", function (ev) {
+      if (ev.persisted) veil.classList.remove("cover");
+    });
   }
 
   // ---------- count-up stats ----------
@@ -267,9 +402,13 @@
   function init() {
     initHeaderScroll();
     initMobileMenu();
+    initSplitWords();
     initReveal();
     initCountUp();
     initFaqAccordion();
+    initParallax();
+    initScrollProgress();
+    initPageVeil();
   }
 
   if (document.readyState === "loading") {

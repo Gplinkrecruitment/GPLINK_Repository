@@ -11,7 +11,10 @@
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/">
-<link rel="stylesheet" href="/css/site.css?v=20260703">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260714a">
 <style>
   /* ---------- hero ---------- */
   .hero{position:relative;min-height:88svh;display:flex;flex-direction:column;justify-content:center;
@@ -162,6 +165,14 @@
   .oz-photo{border-radius:22px;overflow:hidden;box-shadow:0 40px 80px -40px rgba(0,0,0,.8);position:relative;}
   .oz-photo img{width:100%;height:100%;object-fit:cover;transform:scale(1.06);transition:transform 1.2s ease;}
   .oz-photo:hover img{transform:scale(1.0);}
+  /* two-photo collage: beach life + the local wildlife */
+  .oz-collage{position:relative;margin-bottom:12%;}
+  .oz-collage .main{border-radius:22px;overflow:hidden;box-shadow:0 40px 80px -40px rgba(0,0,0,.8);}
+  .oz-collage .main img{width:100%;display:block;object-fit:cover;}
+  .oz-collage .float{position:absolute;right:-4%;bottom:-13%;width:44%;border-radius:18px;overflow:hidden;
+    box-shadow:0 30px 60px -22px rgba(0,0,0,.8);border:4px solid rgba(255,255,255,.14);transform:rotate(2deg);}
+  .oz-collage .float img{width:100%;display:block;}
+  @media(max-width:880px){.oz-collage{margin-bottom:14%;}.oz-collage .float{right:2%;}}
   .perks{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:13px;}
   .perks li{display:flex;gap:14px;align-items:flex-start;background:rgba(255,255,255,.05);
     border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:15px 18px;font-size:15px;}
@@ -194,34 +205,11 @@
   .partners .container{padding-top:30px;padding-bottom:30px;}
   .partners .lbl{text-align:center;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
     color:var(--mut-2);font-weight:700;margin-bottom:26px;}
-  .logo-marquee{position:relative;width:100%;overflow:hidden;
-    -webkit-mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);
-    mask-image:linear-gradient(to right,transparent,#000 8%,#000 92%,transparent);}
-  .logo-track{display:flex;align-items:center;width:max-content;
-    animation:logoMarqueeLtr 24s linear infinite;}
-  .logo-marquee:hover .logo-track{animation-play-state:paused;}
-  .logo-seq{display:flex;align-items:center;flex-shrink:0;
-    gap:clamp(26px,6vw,72px);padding-right:clamp(26px,6vw,72px);}
-  .logo-seq img{height:52px;width:auto;filter:grayscale(1);opacity:.6;transition:filter .3s, opacity .3s, transform .3s;}
-  .logo-seq img:hover{filter:none;opacity:1;transform:translateY(-3px);}
-  /* Animate rightward (owner-requested): start shifted left by exactly one
-     sequence width, end at rest — content appears to flow toward the right.
-     3 identical .logo-seq copies of equal width make -33.3334% == -1 sequence,
-     so the loop restarts with zero visible seam. */
-  @keyframes logoMarqueeLtr{
-    from{transform:translateX(-33.3334%);}
-    to{transform:translateX(0);}
-  }
-  @media (prefers-reduced-motion: reduce){
-    .logo-marquee{-webkit-mask-image:none;mask-image:none;}
-    .logo-track{animation:none;transform:none;width:auto;flex-wrap:wrap;justify-content:center;}
-    .logo-seq[aria-hidden="true"]{display:none;}
-    .logo-seq{padding-right:0;}
-  }
+  /* logo marquee styles now live in the shared css/site.css */
 
   /* ---------- final cta ---------- */
   .final{position:relative;color:#fff;overflow:hidden;}
-  .final .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
+  .final .bgimg{position:absolute;inset:-80px 0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
   .final .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
   .final .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
   .final h2{font-size:clamp(28px,4.6vw,52px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
@@ -262,9 +250,9 @@
   </video>
   <div class="vfallback" style="background:url('/media/images/site/beach-poster.jpg') center/cover;display:none;" role="img" aria-label="Australian coastline"></div>
   <div class="shade"></div>
-  <div class="inner">
+  <div class="inner" data-parallax="0.14">
     <div class="eyebrow stage d1">Move to Australia as a GP</div>
-    <h1 class="stage d2">Take your GP career to&nbsp;Australia</h1>
+    <h1 class="stage d2" data-split="0.3">Take your GP career to&nbsp;Australia</h1>
     <p class="sub stage d3">Expert, end-to-end support with AHPRA registration, visa sponsorship and finding the right practice — completely free for doctors.</p>
     <div class="hero-card stage d4">
       <form class="job-search" id="jobSearch">
@@ -306,29 +294,29 @@
       <p class="sec-sub">One team manages your whole move — registration, visa, placement and relocation — so you can focus on the decision, not the paperwork.</p>
     </div>
     <div class="help-grid">
-      <div class="help-cards">
-        <div class="hcard reveal dl1">
+      <div class="help-cards" data-stagger="90">
+        <div class="hcard reveal">
           <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
           <h4>Completely free</h4>
           <p>Our service costs you nothing — with job matching tailored to you from day one.</p>
         </div>
-        <div class="hcard reveal dl2">
+        <div class="hcard reveal">
           <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1"/></svg></div>
           <h4>Every practice, every option</h4>
           <p>Private, corporate, large or small — we work across the whole market, not one book of clients.</p>
         </div>
-        <div class="hcard reveal dl3">
+        <div class="hcard reveal">
           <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
           <h4>Medicare &amp; pathways, simplified</h4>
           <p>We navigate exemptions and registration pathways for you — no guesswork, no dead ends.</p>
         </div>
-        <div class="hcard reveal dl4">
+        <div class="hcard reveal">
           <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/></svg></div>
           <h4>Matched to your life</h4>
           <p>We match on skills, values and the way you want to live — not just the vacancy list.</p>
         </div>
       </div>
-      <div class="doc-visual reveal dl2">
+      <div class="doc-visual reveal rv-right dl2">
         <div class="blob-bg"></div>
         <img src="/media/images/site/doctor-sydney.png" alt="A GP beginning her career in Sydney">
       </div>
@@ -386,11 +374,11 @@
         <div class="float-chip c2">🇦🇺 Visa step unlocked</div>
       </div>
     </div>
-    <div class="flow reveal">
-      <div class="fstep"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
-      <div class="fstep"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
-      <div class="fstep"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration and visa step for your exact situation.</span></div>
-      <div class="fstep"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
+    <div class="flow" data-stagger="100">
+      <div class="fstep reveal"><span class="num">1</span><b>Create your free account</b><span>Two minutes to sign up — then we tell you exactly which documents you'll need.</span></div>
+      <div class="fstep reveal"><span class="num">2</span><b>Tell us about you</b><span>Your qualifications, family and where you'd love to live.</span></div>
+      <div class="fstep reveal"><span class="num">3</span><b>Get your personal pathway</b><span>We map every registration and visa step for your exact situation.</span></div>
+      <div class="fstep reveal"><span class="num">4</span><b>Track it all to touchdown</b><span>Follow progress, upload documents and accept your job — all in the app.</span></div>
     </div>
   </div>
 </section>
@@ -402,15 +390,55 @@
         <div class="sec-eyebrow">Why Australia</div>
         <h2 class="sec-title">A career upgrade that's also a life&nbsp;upgrade</h2>
         <p class="sec-sub">Australia needs GPs — especially in outer metropolitan and regional communities. That demand works in your favour.</p>
-        <ul class="perks">
-          <li class="reveal dl1"><span class="tick">✓</span><div><b>Visa sponsorship</b> <span class="note">— employer-backed pathways for you and your family</span></div></li>
-          <li class="reveal dl2"><span class="tick">✓</span><div><b>Higher earnings</b> <span class="note">— top GPs earn up to $1M</span></div></li>
-          <li class="reveal dl3"><span class="tick">✓</span><div><b>Better climate &amp; lifestyle</b> <span class="note">— beaches, sunshine and space</span></div></li>
-          <li class="reveal dl4"><span class="tick">✓</span><div><b>Flexible work–life balance</b> <span class="note">— build the roster around your life</span></div></li>
-          <li class="reveal dl4"><span class="tick">✓</span><div><b>Pathway to citizenship</b> <span class="note">— a permanent future, not just a posting</span></div></li>
+        <ul class="perks" data-stagger="90">
+          <li class="reveal"><span class="tick">✓</span><div><b>Visa sponsorship</b> <span class="note">— employer-backed pathways for you and your family</span></div></li>
+          <li class="reveal"><span class="tick">✓</span><div><b>Higher earnings</b> <span class="note">— top GPs earn up to $1M</span></div></li>
+          <li class="reveal"><span class="tick">✓</span><div><b>Better climate &amp; lifestyle</b> <span class="note">— beaches, sunshine and space</span></div></li>
+          <li class="reveal"><span class="tick">✓</span><div><b>Flexible work–life balance</b> <span class="note">— build the roster around your life</span></div></li>
+          <li class="reveal"><span class="tick">✓</span><div><b>Pathway to citizenship</b> <span class="note">— a permanent future, not just a posting</span></div></li>
         </ul>
       </div>
-      <div class="oz-photo reveal dl2"><img src="/media/images/site/kangaroo.jpg" alt="Kangaroo on an Australian beach"></div>
+      <div class="oz-collage reveal rv-right dl2">
+        <div class="main img-reveal"><img src="/media/images/site/doctor-family-beach.jpg" alt="A doctor and their family on an Australian beach at sunset"></div>
+        <div class="float"><img src="/media/images/site/kangaroo.jpg" alt="Kangaroo on an Australian beach"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="live">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Where you could live</div>
+      <h2 class="sec-title">Big cities, beach towns or wine country — your&nbsp;call</h2>
+      <p class="sec-sub">We place GPs in every state and territory. Tell us the life you want and we'll match the practice to it — not the other way round.</p>
+    </div>
+    <div class="dest-grid" data-stagger="80">
+      <a class="dest-card reveal" href="/jobs?state=NSW">
+        <img src="/media/images/site/dest-sydney.jpg" alt="Sydney Harbour, the Opera House and Harbour Bridge at golden hour" loading="lazy">
+        <span class="dveil"></span>
+        <span class="dmeta"><b>Sydney, NSW</b><span>Harbour views and big-city medicine</span></span>
+      </a>
+      <a class="dest-card reveal" href="/jobs?state=VIC">
+        <img src="/media/images/site/dest-melbourne.jpg" alt="A Melbourne laneway with cafés and a tram" loading="lazy">
+        <span class="dveil"></span>
+        <span class="dmeta"><b>Melbourne, VIC</b><span>Coffee, culture and world-class clinics</span></span>
+      </a>
+      <a class="dest-card reveal" href="/jobs?state=QLD">
+        <img src="/media/images/site/dest-goldcoast.jpg" alt="Aerial view of the Gold Coast beaches and skyline" loading="lazy">
+        <span class="dveil"></span>
+        <span class="dmeta"><b>Gold Coast, QLD</b><span>Surf before clinic, sunshine all year</span></span>
+      </a>
+      <a class="dest-card reveal" href="/jobs?state=WA">
+        <img src="/media/images/site/dest-perth.jpg" alt="Cottesloe Beach in Perth at sunset" loading="lazy">
+        <span class="dveil"></span>
+        <span class="dmeta"><b>Perth, WA</b><span>Indian Ocean sunsets, relaxed pace</span></span>
+      </a>
+      <a class="dest-card reveal" href="/jobs">
+        <img src="/media/images/site/dest-regional.jpg" alt="A heritage main street in a regional Australian wine town" loading="lazy">
+        <span class="dveil"></span>
+        <span class="dmeta"><b>Regional &amp; rural</b><span>Wine country, community and DPA demand</span></span>
+      </a>
     </div>
   </div>
 </section>
@@ -422,12 +450,12 @@
       <h2 class="sec-title">A track record you can check</h2>
     </div>
     <div class="why-grid">
-      <div class="metrics">
-        <div class="metric reveal dl1"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed across Australia</div></div>
-        <div class="metric reveal dl2"><div class="n"><span data-count="100">0</span>%</div><div class="t">satisfaction rate from placed doctors</div></div>
-        <div class="metric reveal dl3"><div class="n"><span data-count="30">0</span></div><div class="t">days — our record placement, start to finish</div></div>
+      <div class="metrics" data-stagger="110">
+        <div class="metric reveal rv-left"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed across Australia</div></div>
+        <div class="metric reveal rv-left"><div class="n"><span data-count="100">0</span>%</div><div class="t">satisfaction rate from placed doctors</div></div>
+        <div class="metric reveal rv-left"><div class="n"><span data-count="30">0</span></div><div class="t">days — our record placement, start to finish</div></div>
       </div>
-      <div class="quote-card reveal dl2">
+      <div class="quote-card reveal rv-right dl2">
         <div class="qmark">“</div>
         <blockquote>GP Link made the whole move feel simple. From registration to finding the right practice in Sydney, someone was across every detail — I just had to say yes.</blockquote>
         <div class="who"><div class="avatar">DR</div><div><b style="color:#fff">Dr Daniel R.</b><br>NZ-trained GP, now practising in Sydney</div></div>
@@ -465,7 +493,7 @@
 </div>
 
 <section class="final" id="cta">
-  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <div class="bgimg" data-parallax="0.1" data-parallax-scale="1.05" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
   <div class="shade"></div>
   <div class="container reveal">
     <h2>Create your free account — see your pathway in minutes</h2>
@@ -488,7 +516,7 @@
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260703"></script>
+<script src="/js/site.js?v=20260714a"></script>
 <script>
 (function () {
   "use strict";

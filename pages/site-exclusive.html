@@ -11,26 +11,44 @@
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/sydney-opera.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/exclusive-placements">
-<link rel="stylesheet" href="/css/site.css?v=20260703">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260714a">
 <style>
   /* ---------- hero (navy, image background) ---------- */
   .excl-hero{position:relative;color:#fff;overflow:hidden;
     padding:clamp(128px,15vw,168px) 0 clamp(64px,8vw,92px);}
-  .excl-hero .bgimg{position:absolute;inset:0;background:url('/media/images/site/sydney-opera.jpg') center/cover;transform:scale(1.04);}
+  .excl-hero .bgimg{position:absolute;inset:-80px 0;background:url('/media/images/site/sydney-opera.jpg') center/cover;transform:scale(1.04);}
   .excl-hero .shade{position:absolute;inset:0;
     background:linear-gradient(115deg,rgba(12,32,56,.94) 34%,rgba(13,42,58,.76) 64%,rgba(17,109,255,.44));}
   .excl-hero .container{position:relative;z-index:1;}
   .excl-hero .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;
     text-transform:uppercase;font-weight:700;color:#9fd1ff;margin-bottom:16px;}
-  .excl-hero .eyebrow .lock{font-size:14px;line-height:1;}
+  .excl-hero .eyebrow .lock{display:inline-flex;align-items:center;line-height:1;}
   .excl-hero h1{font-size:clamp(34px,5.6vw,58px);line-height:1.06;letter-spacing:-.02em;font-weight:730;
     margin:0 0 .32em;max-width:18ch;text-wrap:balance;text-shadow:0 2px 24px rgba(13,42,58,.5);}
   .excl-hero .sub{font-size:clamp(15.5px,1.9vw,19.5px);color:#dcebee;max-width:56ch;margin:0;
     text-shadow:0 1px 12px rgba(13,42,58,.5);}
+  /* hero staged entrance (matches site-home) */
+  .stage{opacity:0;transform:translateY(26px);animation:rise .9s cubic-bezier(.2,.7,.2,1) forwards;}
+  .stage.d1{animation-delay:.15s}.stage.d2{animation-delay:.3s}.stage.d3{animation-delay:.5s}
+  @keyframes rise{to{opacity:1;transform:none}}
 
   /* ---------- honest explainer ---------- */
   .excl-explain p{font-size:clamp(15px,1.7vw,17px);color:var(--mut);line-height:1.7;max-width:68ch;margin:0 0 16px;}
   .excl-explain p:last-child{margin-bottom:0;}
+  .excl-grid{display:grid;grid-template-columns:1.05fr .85fr;gap:clamp(26px,4.5vw,60px);align-items:center;}
+  .excl-visual{position:relative;}
+  .excl-visual .frame{position:relative;border-radius:24px;overflow:hidden;aspect-ratio:3/4;
+    box-shadow:0 44px 88px -40px rgba(12,32,56,.7);}
+  .excl-visual .frame::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(180deg,rgba(12,32,56,0) 62%,rgba(12,32,56,.42) 100%);pointer-events:none;}
+  .excl-visual img{width:100%;height:100%;object-fit:cover;display:block;}
+  @media(max-width:880px){
+    .excl-grid{grid-template-columns:1fr;gap:30px;}
+    .excl-visual{max-width:440px;}
+  }
 
   /* ---------- free RSO highlight strip ---------- */
   .excl-rso{margin-top:30px;background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);
@@ -58,6 +76,10 @@
   .excl-final h2{font-size:clamp(28px,4.4vw,48px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
   .excl-final p{color:#d3e4f6;max-width:54ch;margin:0 auto 26px;font-size:clamp(15px,1.8vw,18px);}
   .excl-final .cta-subtext{margin:14px 0 0;font-size:12.5px;color:#b9d6ff;}
+
+  @media (prefers-reduced-motion: reduce){
+    .stage{animation:none !important;opacity:1 !important;transform:none !important;}
+  }
 </style>
 </head>
 <body data-page="exclusive">
@@ -84,43 +106,50 @@
 </header>
 
 <section class="excl-hero">
-  <div class="bgimg" role="img" aria-label="Sydney Opera House at sunrise"></div>
+  <div class="bgimg" data-parallax="0.1" data-parallax-scale="1.05" role="img" aria-label="Sydney Opera House at sunrise"></div>
   <div class="shade"></div>
   <div class="container">
-    <div class="eyebrow reveal"><span class="lock" aria-hidden="true">🔒</span> Exclusive opportunities</div>
-    <h1 class="reveal">The best GP roles are never advertised</h1>
-    <p class="sub reveal">Many practices ask us to place doctors discreetly — so these roles only reach members inside the GP Link app.</p>
+    <div class="eyebrow stage d1"><span class="lock" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span> Exclusive opportunities</div>
+    <h1 class="stage d2" data-split="0.3">The best GP roles are never advertised</h1>
+    <p class="sub stage d3">Many practices ask us to place doctors discreetly — so these roles only reach members inside the GP Link app.</p>
   </div>
 </section>
 
 <section class="block excl-explain">
   <div class="container">
-    <div class="reveal">
-      <div class="sec-eyebrow">Why some roles never go public</div>
-      <h2 class="sec-title">Practices come to us to fill roles privately</h2>
-      <p>A lot of practice-owner recruitment simply never reaches a public job board. Practices often prefer a quiet, managed search — over an open ad that brings unqualified enquiries, tips off staff or competitors, or takes months to sort through. So they come to GP Link and ask us to handle it discreetly instead.</p>
-      <p>Those roles aren't posted anywhere public — including on this website. The only way to be considered for them is to be inside the GP Link app, where your dedicated Registration Support Officer can match you directly.</p>
-      <p>Create a free account and your Registration Support Officer will match you to exclusive opportunities that fit your skills, visa status and the life you want to build — then you choose which ones you actually want to apply for. Nothing is applied for on your behalf without your say-so.</p>
+    <div class="excl-grid">
+      <div class="reveal rv-left">
+        <div class="sec-eyebrow">Why some roles never go public</div>
+        <h2 class="sec-title">Practices come to us to fill roles privately</h2>
+        <p>A lot of practice-owner recruitment simply never reaches a public job board. Practices often prefer a quiet, managed search — over an open ad that brings unqualified enquiries, tips off staff or competitors, or takes months to sort through. So they come to GP Link and ask us to handle it discreetly instead.</p>
+        <p>Those roles aren't posted anywhere public — including on this website. The only way to be considered for them is to be inside the GP Link app, where your dedicated Registration Support Officer can match you directly.</p>
+        <p>Create a free account and your Registration Support Officer will match you to exclusive opportunities that fit your skills, visa status and the life you want to build — then you choose which ones you actually want to apply for. Nothing is applied for on your behalf without your say-so.</p>
+      </div>
+      <div class="excl-visual reveal rv-right dl2">
+        <div class="frame img-reveal">
+          <img src="/media/images/site/doctor-portrait-sydney.jpg" alt="A female GP standing at Sydney Harbour" loading="lazy">
+        </div>
+      </div>
     </div>
-    <div class="excl-rso reveal">
+    <div class="excl-rso reveal rv-blur">
       <div>
         <h3>Your own Registration Support Officer — free of charge</h3>
         <p>Every GP Link doctor is paired with a dedicated Registration Support Officer from day one, at no cost to you.</p>
       </div>
     </div>
-    <div class="excl-points">
-      <div class="excl-point reveal dl1">
-        <div class="ic" aria-hidden="true">🔒</div>
+    <div class="excl-points" data-stagger="90">
+      <div class="excl-point reveal">
+        <div class="ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
         <h3>Unadvertised roles</h3>
         <p>These opportunities are never posted publicly — they only reach doctors inside the GP Link app.</p>
       </div>
-      <div class="excl-point reveal dl2">
-        <div class="ic" aria-hidden="true">👤</div>
+      <div class="excl-point reveal">
+        <div class="ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
         <h3>Matched to you by a real RSO — free</h3>
         <p>A real Registration Support Officer reviews your profile and matches you personally, at no cost.</p>
       </div>
-      <div class="excl-point reveal dl3">
-        <div class="ic" aria-hidden="true">✓</div>
+      <div class="excl-point reveal">
+        <div class="ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-4-4"/></svg></div>
         <h3>You decide which to apply for</h3>
         <p>You see the details and choose. Nothing is submitted on your behalf without your agreement.</p>
       </div>
@@ -153,6 +182,6 @@
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260703"></script>
+<script src="/js/site.js?v=20260714a"></script>
 </body>
 </html>
