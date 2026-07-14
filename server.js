@@ -58340,6 +58340,8 @@ const SITE_PUBLIC_ROUTES = {
   // Matches the owner's old Wix page (www.mygplink.com.au/gp-jobs) so
   // existing inbound links keep working after the DNS cutover.
   '/gp-jobs': 'pages/site-gp-jobs.html',
+  // Matches the old Wix /visa page — same URL, rebuilt copy (482 → 186/189).
+  '/visa': 'pages/site-visa.html',
   // Task 19: honest "exclusive placement" scarcity/teaser page. Linked from
   // the job board's zero-real-match locked teaser cards; not itself a nav
   // item.

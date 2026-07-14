@@ -274,7 +274,10 @@ h2.sec-title {
   z-index: 200;
   pointer-events: none;
   background: linear-gradient(135deg, #0c2e66 0%, #0d5ee0 55%, #116dff 100%);
-  transform: translateY(103%);
+  /* Rest fully off-screen: the ::after dome arcs 15vh above the veil's top
+     edge, so anything under ~115% leaves a blue sliver visible at the bottom
+     of every page. 120% keeps the dome clear of the viewport at rest. */
+  transform: translateY(120%);
   transition: transform .42s var(--ease-wipe);
 }
 .page-veil::after {
