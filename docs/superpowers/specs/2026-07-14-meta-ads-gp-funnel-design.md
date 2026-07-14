@@ -42,7 +42,9 @@ Organic visitor ─────────────────────�
 - Qualifying questions (multiple choice):
   - "Are you a currently registered GP?" — No ends the form politely.
   - "Where are you registered?" — UK / Ireland / New Zealand / Somewhere else.
-- Thank-you screen button: "Book your call" → `https://mygplink.com.au/start?src=fb#book`.
+- Thank-you screen button: "Book your call" → `https://app.mygplink.com.au/start?src=fb#book`
+  (use the app host until the www/apex DNS cutover — checklist item 0 in §7;
+  after cutover, switch to the public-site host).
   Meta cannot inject per-lead identity into this URL (platform limitation) —
   hence the two bridges in 3.3.
 
@@ -208,12 +210,16 @@ State lives in `metadata.consult`: `{ call_booked, call_booked_at, nudges: [ {ki
    `metadata` PATCH actually lands on the row.
 1. Create the Meta lead form with the two qualifying questions; choose the
    **"higher intent"** form type (adds a review step — cuts junk leads); attach
-   the privacy policy URL (`https://mygplink.com.au/pages/privacy`) — Meta
-   requires it; note the form ID.
+   the privacy policy URL (`https://app.mygplink.com.au/pages/privacy` — app
+   host until the DNS cutover, same caveat as items 0/3) — Meta requires it;
+   note the form ID.
 2. Connect the webhook in Meta's developer settings; set `FB_LEAD_VERIFY_TOKEN`,
    `FB_LEAD_WEBHOOK_SECRET`, `FB_GP_LEAD_FORM_IDS` in Vercel.
 3. Point every ad's destination / thank-you button at
-   `https://mygplink.com.au/start?src=fb#book`.
+   `https://app.mygplink.com.au/start?src=fb#book` — the same host as item 0.
+   ⚠️ Do NOT use the bare `mygplink.com.au` address yet: until the DNS cutover
+   it still serves the old website, and ad clicks would dead-end there. After
+   the cutover, update the ads to the public-site host.
 4. Calendly: no config changes — but **check your availability windows map to
    sane UK hours** (UK is 9–10 h behind AEST: their 9am–12pm ≈ your 6–10pm).
    If no UK-friendly slots exist, UK leads will see an empty calendar and the
