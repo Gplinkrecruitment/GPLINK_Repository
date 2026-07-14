@@ -287,7 +287,8 @@ describe('marketing site link audit (Task 14)', () => {
     expect(paths).toContain('/blog');
     // Everything else in the sitemap is only ever a blog post or a public
     // masked job URL — nothing internal.
-    const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog']);
+    // /start page file lands with the meta-ads funnel build
+    const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog', '/start']);
     for (const p of paths) {
       if (known.has(p)) continue;
       expect(p, `unexpected sitemap path ${p}`).toMatch(/^(\/blog\/[a-z0-9-]+|\/jobs\/view\?id=)/);
