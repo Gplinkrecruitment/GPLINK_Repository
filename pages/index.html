@@ -1355,14 +1355,15 @@
         return bTime - aTime;
       });
 
-      const actionUpdates = updates.filter((item) => {
+      // Recent Updates is a read-only news feed: it NEVER shows action cards.
+      // Anything that asks the GP to do something surfaces in the bell panel
+      // (js/updates-sync.js, "Actions" filter) and on the stage card it belongs to.
+      const isActionUpdate = (item) => {
         const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
         return t.includes("action");
-      });
-      const regularUpdates = updates.filter((item) => {
-        const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
-        return !t.includes("action");
-      });
+      };
+      const actionUpdates = updates.filter(isActionUpdate);
+      const regularUpdates = updates.filter((item) => !isActionUpdate(item));
       const supportCases = dbCases.length ? dbCases : parseStorage("gpLinkSupportCases");
       const openCases = Array.isArray(supportCases)
         ? supportCases
@@ -1373,11 +1374,10 @@
             .sort((a, b) => (Date.parse(b.updatedAt || "") || 0) - (Date.parse(a.updatedAt || "") || 0))
         : [];
 
-      const priorityItems = [
-        ...actionUpdates.map((item) => ({ kind: "update", item })),
-        ...openCases.map((item) => ({ kind: "case", item }))
-      ];
-      const displayItems = (priorityItems.length ? priorityItems : regularUpdates.map((item) => ({ kind: "update", item }))).slice(0, MAX_ITEMS);
+      const displayItems = [
+        ...openCases.map((item) => ({ kind: "case", item })),
+        ...regularUpdates.map((item) => ({ kind: "update", item }))
+      ].slice(0, MAX_ITEMS);
 
       // Count actions for stat pill
       updateActionCount(actionUpdates.length);
@@ -1408,7 +1408,7 @@
       if (!displayItems.length && !liveAppCards.length) {
         const empty = document.createElement("div");
         empty.className = "updates-empty";
-        empty.textContent = "No updates yet. We'll post here when something changes or if we need anything from you.";
+        empty.textContent = "No updates yet. We'll post here when something changes.";
         listEl.appendChild(empty);
         return;
       }
@@ -1441,11 +1441,12 @@
         }
 
         const item = entry.item || {};
+        if (isActionUpdate(item)) return; // action cards never render here
         const type = item && typeof item.type === "string" ? item.type : "info";
         const title = item && typeof item.title === "string" ? item.title : "Update available.";
         const detail = item && typeof item.detail === "string" ? item.detail : "";
         const tsText = formatUpdateTimestamp(item && item.ts ? item.ts : "");
-        const href = type === "action" ? "messages#tab-action" : "messages#tab-updates";
+        const href = "messages#tab-updates";
 
         const row = document.createElement("a");
         row.href = href;
