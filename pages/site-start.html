@@ -258,7 +258,7 @@
 (function () {
   var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
   var params = new URLSearchParams(window.location.search);
-  var lead = { token: null, name: '', email: '' };
+  var lead = { token: null, name: '', email: '', question: '' };
 
   var utm = {};
   params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
@@ -303,7 +303,7 @@
   window.addEventListener('message', function (e) {
     if (e.origin !== 'https://calendly.com') return;
     if (!e.data || e.data.event !== 'calendly.event_scheduled') return;
-    if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token }).catch(function () {}); }
+    if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token, question: lead.question || '' }).catch(function () {}); }
     var su = document.getElementById('confirmedSignup');
     if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
     show('bookConfirmed');
@@ -313,7 +313,11 @@
     document.getElementById('recogHeading').textContent = 'Welcome back, ' + displayName + '.';
     show('bookRecognised');
     document.getElementById('recogContinue').onclick = function () {
-      loadCalendly(displayName); // the optional question stays client-side; the lead row already exists
+      // Captured now so it rides along on the /booked POST once Calendly fires
+      // the booked signal (the lead row already exists — this just adds the
+      // typed question to it, see the calendly.event_scheduled handler above).
+      lead.question = document.getElementById('recogQuestion').value.trim();
+      loadCalendly(displayName);
     };
     // Door 1 also gets the email prefill for recognised leads
     if (lead.email) {

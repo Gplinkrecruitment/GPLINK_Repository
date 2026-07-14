@@ -218,6 +218,26 @@ describe('GET /api/cron/consult-nudge', () => {
     expect(res3.json.skipped).toBe(1);
   });
 
+  it('de-dupes by email: two due rows for the same person send exactly one nudge, to the newest row', async () => {
+    // Spec §3.6: "a person who submits twice gets one sequence; newest row
+    // wins." listSiteEnquiryRows orders created_at desc, so the newer row
+    // (id 'newer') is scanned first and must be the one that gets nudged;
+    // the older duplicate ('older') must be skipped entirely this pass.
+    resendCaptured.length = 0;
+    testUtils.__seedSiteEnquiriesForTest([
+      seedLead({ id: 'newer', email: 'dup@example.co.uk', created_at: new Date(Date.now() - 3 * H).toISOString() }),
+      seedLead({ id: 'older', email: 'DUP@example.co.uk', created_at: new Date(Date.now() - 5 * H).toISOString() }),
+    ]);
+    const res = await get(CRON, AUTH);
+    expect(res.json.sent).toBe(1);
+    expect(resendCaptured.length).toBe(1);
+    const rows = readDb().siteEnquiries;
+    const newerRow = rows.find((r) => r.id === 'newer');
+    const olderRow = rows.find((r) => r.id === 'older');
+    expect(newerRow.metadata.consult.nudges.length).toBe(1);
+    expect(olderRow.metadata.consult.nudges.length).toBe(0);
+  });
+
   it('a lead who signed up after the final nudge is stamped converted at exhaustion, not exhausted', async () => {
     resendCaptured.length = 0;
     // Fully-sent not_booked sequence + an account created after the last

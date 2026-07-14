@@ -141,7 +141,11 @@ const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
-const CONSULT_START_BASE = (process.env.SITE_PUBLIC_BASE_URL || 'https://mygplink.com.au');
+// apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
+// app.mygplink.com.au is guaranteed to serve /start, so consult-lead links must not
+// depend on the apex. process.env read directly here (not the APP_BASE_URL const below)
+// to avoid any const-ordering hazard. See docs/superpowers/specs/2026-07-14-meta-ads-gp-funnel-design.md §7.
+const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -8954,13 +8958,14 @@ const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
+    // /start's Calendly embed loads assets.calendly.com's widget script and iframes calendly.com — see script-src/frame-src below.
+    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
-    "frame-src 'self' blob: *.google.com https://scribehow.com",
+    "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     "base-uri 'self'",
@@ -19488,8 +19493,11 @@ async function findRecentConsultLeadByEmail(email) {
   const cutoffIso = new Date(Date.now() - CONSULT_MATCH_WINDOW_MS).toISOString();
   let rows = [];
   if (isSupabaseDbConfigured()) {
+    // Escape LIKE wildcards so an email containing % or _ is matched literally,
+    // not as a pattern — mirrors markCandidateLeadUnsubscribed's ilike escaping.
+    const addrPattern = addr.replace(/([\\%_])/g, '\\$1');
     const r = await supabaseDbRequest('site_enquiries',
-      'select=*&kind=eq.gp&email=ilike.' + encodeURIComponent(addr) +
+      'select=*&kind=eq.gp&email=ilike.' + encodeURIComponent(addrPattern) +
       '&created_at=gte.' + encodeURIComponent(cutoffIso) + '&order=created_at.desc&limit=10',
       { method: 'GET' });
     rows = r.ok && Array.isArray(r.data) ? r.data : [];
@@ -19602,6 +19610,8 @@ async function sendConsultNudgeEmail(row, due) {
       body: copy.body,
       ctaText: copy.ctaText,
       ctaUrl: copy.ctaUrl,
+      secondaryCtaText: copy.secondaryCtaText,
+      secondaryCtaUrl: copy.secondaryCtaUrl,
       footer: '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
     }),
     text: copy.body + '\n\n' + copy.ctaText + ': ' + copy.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
@@ -19614,15 +19624,17 @@ async function sendConsultNudgeEmail(row, due) {
 // dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
 // in local-JSON-db dev/test mode. Always returns newest-first. (The in-admin
 // "Website" tab that used to render this list was removed.)
-async function listSiteEnquiryRows(status) {
+async function listSiteEnquiryRows(status, kind) {
   if (isSupabaseDbConfigured()) {
     let query = 'select=*&order=created_at.desc';
     if (status) query += '&status=eq.' + encodeURIComponent(status);
+    if (kind) query += '&kind=eq.' + encodeURIComponent(kind);
     const r = await supabaseDbRequest('site_enquiries', query, { method: 'GET' });
     return r.ok && Array.isArray(r.data) ? r.data : [];
   }
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries.slice() : [];
-  const filtered = status ? rows.filter((r) => r.status === status) : rows;
+  let filtered = status ? rows.filter((r) => r.status === status) : rows;
+  if (kind) filtered = filtered.filter((r) => r.kind === kind);
   return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
@@ -30767,12 +30779,22 @@ async function handleApi(req, res, pathname) {
     var cnStart = Date.now();
     var CN_TIME_BUDGET_MS = 45000;
     var cnScanned = 0, cnSent = 0, cnStopped = 0, cnSkipped = 0, cnPartial = false;
+    // Spec §3.6: "a person who submits twice gets one sequence; newest row
+    // wins." listSiteEnquiryRows orders created_at desc, so the first row
+    // seen per (lowercased) email in this pass is the newest — track seen
+    // emails and skip every older duplicate row for the same person.
+    var cnSeenEmails = new Set();
     try {
-      var cnRows = await listSiteEnquiryRows();
+      var cnRows = await listSiteEnquiryRows('', 'gp');
       for (var cnRow of cnRows) {
         if (Date.now() - cnStart > CN_TIME_BUDGET_MS) { cnPartial = true; break; }
         var cnMeta = cnRow && cnRow.metadata;
         if (!cnMeta || cnRow.kind !== 'gp' || !cnMeta.consult) continue;
+        var cnEmailLower = String(cnRow.email || '').trim().toLowerCase();
+        if (cnEmailLower) {
+          if (cnSeenEmails.has(cnEmailLower)) { cnSkipped++; continue; }
+          cnSeenEmails.add(cnEmailLower);
+        }
         var cnConsult = cnMeta.consult;
         cnScanned++;
         if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) { cnSkipped++; continue; }
@@ -33998,16 +34020,25 @@ async function handleApi(req, res, pathname) {
     try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
     const row = await findConsultLeadByToken(body && body.token);
     if (!row) { sendJson(res, 404, { ok: false }); return; }
+    // A recognised lead can type a question right before booking (Door 2
+    // skips the enquiry form entirely, so this is the first chance to
+    // capture it) — sanitize the same way validateConsultLeadPayload does.
+    const question = String((body && body.question) || '').trim().replace(/[<>&]/g, '').slice(0, 2000);
     const metadata = Object.assign({}, row.metadata);
     metadata.consult = Object.assign({}, metadata.consult, {
       call_booked: true,
       call_booked_at: metadata.consult.call_booked_at || new Date().toISOString()
     });
+    if (question) metadata.consult.call_question = question;
     // A late booking after the not_booked sequence exhausted itself should
     // re-open booked_no_signup rather than stay stopped forever — but a real
     // unsubscribe/signed_up stop must still hold, so only 'exhausted' clears.
     if (metadata.consult.stopped === 'exhausted') delete metadata.consult.stopped;
-    await updateSiteEnquiryRow(row.id, { status: 'contacted', metadata });
+    const patch = { status: 'contacted', metadata };
+    // Also surface it as the row's own message so the owner sees it in the
+    // lead browser, but never clobber a question already captured at signup.
+    if (question && !row.message) patch.message = question;
+    await updateSiteEnquiryRow(row.id, patch);
     sendJson(res, 200, { ok: true });
     return;
   }

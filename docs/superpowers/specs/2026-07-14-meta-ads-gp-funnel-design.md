@@ -123,6 +123,12 @@ Organic visitor ─────────────────────�
   generic not-found. Rate-limited like the enquiry endpoint. Deliberately
   returns nothing beyond first name (privacy: an email guess must not expose
   phone or answers).
+  - **Implemented deviation:** the response is actually
+    `{ displayName, token }`, not `{ displayName }` alone — the page needs
+    the token client-side to send the booked signal (below) and to prefill
+    Calendly the same way the magic-link path does. This does not widen the
+    privacy guarantee: every token endpoint in this section still only ever
+    reveals `displayName` + `email`, never phone, answers, or anything else.
 - Booked signal: the Calendly inline embed fires a `calendly.event_scheduled`
   browser event; the page then calls
   `POST /api/public/consult-lead/booked` `{ token | enquiryId }` which flips
@@ -194,6 +200,12 @@ State lives in `metadata.consult`: `{ call_booked, call_booked_at, nudges: [ {ki
 
 ## 7. Owner activation checklist (one-time, guided at ship time)
 
+0. Set `SITE_PUBLIC_BASE_URL=https://app.mygplink.com.au` in Vercel (verified
+   2026-07-15: apex and www still serve the legacy site; only app. serves
+   this app). Revisit after the www DNS cutover — then switch ads + links to
+   the public site host. Also do a one-time prod smoke test after the first
+   deploy: hit the consult-lead token lookup endpoint and confirm a
+   `metadata` PATCH actually lands on the row.
 1. Create the Meta lead form with the two qualifying questions; choose the
    **"higher intent"** form type (adds a review step — cuts junk leads); attach
    the privacy policy URL (`https://mygplink.com.au/pages/privacy`) — Meta

@@ -181,6 +181,27 @@ describe('POST /api/public/consult-lead/booked', () => {
   it('404s on unknown token', async () => {
     expect((await post('/api/public/consult-lead/booked', { token: 'nope' })).status).toBe(404);
   });
+  it('stores an optional typed question: metadata.consult.call_question, and backfills row.message when it was empty', async () => {
+    const created = await post('/api/public/consult-lead', { ...goodLead(), question: '' });
+    expect(readDb().siteEnquiries[0].message).toBeFalsy();
+    const res = await post('/api/public/consult-lead/booked', {
+      token: created.json.token, question: 'What about visa timing <script>alert(1)</script> & pay?',
+    });
+    expect(res.json.ok).toBe(true);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.call_question).not.toMatch(/[<>&]/);
+    expect(row.metadata.consult.call_question).toContain('visa timing');
+    expect(row.message).toBe(row.metadata.consult.call_question);
+  });
+  it('never clobbers a message the lead already gave at signup', async () => {
+    const created = await post('/api/public/consult-lead', goodLead()); // goodLead() has question: 'Visa timing?'
+    const before = readDb().siteEnquiries[0].message;
+    expect(before).toBe('Visa timing?');
+    await post('/api/public/consult-lead/booked', { token: created.json.token, question: 'A different question' });
+    const row = readDb().siteEnquiries[0];
+    expect(row.message).toBe(before);
+    expect(row.metadata.consult.call_question).toBe('A different question');
+  });
   it('a late booking re-opens an exhausted lead (clears stopped:"exhausted")', async () => {
     const token = 'exhausted-' + crypto.randomBytes(16).toString('hex');
     testUtils.__seedSiteEnquiriesForTest([{

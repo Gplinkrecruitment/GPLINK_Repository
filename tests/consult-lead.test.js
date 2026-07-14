@@ -118,6 +118,19 @@ describe('normalizeFacebookGpLead', () => {
     const body = nativeFbBody({ field_data: [{ name: 'full_name', values: ['X'] }] });
     expect(normalizeFacebookGpLead(body, ['F-77'])).toBe(null);
   });
+  it('strips <, >, & from name and question (HTML-injection guard)', () => {
+    const body = nativeFbBody({
+      field_data: [
+        { name: 'full_name', values: ['Khan <b>evil</b>'] },
+        { name: 'email', values: ['aisha@example.co.uk'] },
+        { name: 'whats_your_main_question?', values: ['<img src=x onerror=alert(1)> & more'] },
+      ],
+    });
+    const lead = normalizeFacebookGpLead(body, ['F-77']);
+    expect(lead.name).not.toMatch(/[<>&]/);
+    expect(lead.name).toBe('Khan bevil/b');
+    expect(lead.question).not.toMatch(/[<>&]/);
+  });
 });
 
 describe('validateConsultLeadPayload', () => {
@@ -137,6 +150,16 @@ describe('validateConsultLeadPayload', () => {
     const r = validateConsultLeadPayload({ ...good, question: 'x'.repeat(3000) });
     expect(r.ok).toBe(true);
     expect(r.value.question.length).toBe(2000);
+  });
+  it('strips <, >, & from name and question (HTML-injection guard)', () => {
+    const r = validateConsultLeadPayload({ ...good, name: 'Khan <b>evil</b>', question: '<img src=x> & bye' });
+    expect(r.ok).toBe(true);
+    expect(r.value.name).not.toMatch(/[<>&]/);
+    expect(r.value.name).toBe('Khan bevil/b');
+    expect(r.value.question).not.toMatch(/[<>&]/);
+  });
+  it('rejects a name that is only angle-bracket/ampersand characters (empty after sanitizing)', () => {
+    expect(validateConsultLeadPayload({ ...good, name: '<<<>>>' }).ok).toBe(false);
   });
 });
 
@@ -215,9 +238,28 @@ describe('consultNudgeCopy + consultDisplayName', () => {
     const c = consultNudgeCopy('booked_no_signup', 0, { displayName: 'Dr K', bookUrl: 'https://b', signupUrl: 'https://s' });
     expect(c.body.toLowerCase()).toContain('another time');
   });
+  it('booked_no_signup copy (both steps) carries the booking link as a secondary CTA', () => {
+    const opts = { displayName: 'Dr K', bookUrl: 'https://x/start?lead=T#book', signupUrl: 'https://x/pages/signin?signup=1' };
+    for (const step of [0, 1]) {
+      const c = consultNudgeCopy('booked_no_signup', step, opts);
+      expect(c.secondaryCtaUrl).toBe(opts.bookUrl);
+      expect(c.secondaryCtaText).toMatch(/another/i);
+    }
+  });
+  it('not_booked copy carries no secondary CTA', () => {
+    const opts = { displayName: 'Dr K', bookUrl: 'https://x/start?lead=T#book', signupUrl: 'https://x/pages/signin?signup=1' };
+    expect(consultNudgeCopy('not_booked', 0, opts).secondaryCtaUrl).toBeUndefined();
+    expect(consultNudgeCopy('not_booked', 1, opts).secondaryCtaUrl).toBeUndefined();
+  });
   it('consultDisplayName uses the last word', () => {
     expect(consultDisplayName('Aisha Khan')).toBe('Dr Khan');
     expect(consultDisplayName('Cher')).toBe('Dr Cher');
     expect(consultDisplayName('')).toBe('there');
+  });
+  it('consultDisplayName of a sanitized (angle-bracket-stripped) name stays sensible', () => {
+    const sanitized = validateConsultLeadPayload({
+      name: 'Khan <b>evil</b>', email: 'a@b.co', isGp: true, country: 'uk',
+    }).value.name;
+    expect(consultDisplayName(sanitized)).toBe('Dr bevil/b');
   });
 });
