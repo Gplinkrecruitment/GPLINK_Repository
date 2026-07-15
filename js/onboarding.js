@@ -316,8 +316,14 @@
     if (!clean) {
       return "We could not complete the scan. Please try again with a clear image of the full document.";
     }
+    // A name that differs from the account on a genuine qualification is a name change
+    // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
+    // document — a certificate can only carry the name it was issued in.
+    if (/looks like a previous name|changed your name|name change|previous name/.test(lower)) {
+      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine — we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
+    }
     if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
-      return "The name on this document does not match the name on your account. Upload a document showing the same full name, or update your account details first.";
+      return "The name on this document is different from the name on your account. If you've changed your name, that's fine — we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
     }
     if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
       return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
@@ -654,14 +660,26 @@
       return;
     }
 
+    // Both certificates agree on the SAME name, but it differs from the account name:
+    // a consistent NAME CHANGE (e.g. the maiden name appears on every qualification).
+    // This is strong name-change evidence, not a problem — accept both as name-pending.
+    // The server already recorded the name change from the per-document scan and the
+    // AMC step will ask for proof; do NOT force manual review or tell the GP to change
+    // their account name.
+    if (docsMatchEachOther) {
+      specDoc.status = "verified_name_pending";
+      medDoc.status = "verified_name_pending";
+      state.accountReviewFlag = true;
+      return;
+    }
+
+    // The documents disagree with each other — that genuinely needs a human.
     specDoc.status = "manual_review";
     medDoc.status = "manual_review";
     specDoc.scanResult = specDoc.scanResult || {};
     medDoc.scanResult = medDoc.scanResult || {};
 
-    var msg = docsMatchEachOther
-      ? "Your documents show the same name, but it does not match your account profile. Please update your account details or contact support for manual review."
-      : "Names on your specialist qualification and medical degree do not match each other.";
+    var msg = "Names on your specialist qualification and medical degree do not match each other.";
     specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
     medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
     state.accountReviewFlag = true;
@@ -806,10 +824,15 @@
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
         } else if (v.nameMatch === "mismatch") {
-          state.qualDocs[docKey].status = "failed";
-          state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
-          var nameIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Name on document doesn't match your profile."];
-          state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameIssues, { documentTitle: doc.label, mode: "qualification" }) };
+          // A different name on a genuine qualification is a NAME CHANGE (e.g.
+          // marriage), not a failure. Accept the document — verified_name_pending
+          // counts as verified for progression and shows a "Verified" badge — and do
+          // NOT burn a retry or demand a re-upload. The server records the name change
+          // so the AMC step asks for proof; an RSO still sees it for confirmation.
+          state.qualDocs[docKey].status = "verified_name_pending";
+          var nameChangeIssues = (v.issues && v.issues.length > 0) ? v.issues : ["This looks like a name change — we'll ask you for proof at a later step."];
+          state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameChangeIssues, { documentTitle: doc.label, mode: "qualification" }) };
+          state.qualDocs[docKey].nameMatch = v.nameMatch;
           state.accountReviewFlag = true;
         } else {
           state.qualDocs[docKey].status = "failed";

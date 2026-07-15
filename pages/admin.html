@@ -3296,8 +3296,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     // flag_reason overrides the status badge for candidate-prepared docs
     var flagBadgeHtml='';
-    if(doc.flag_reason==='name_mismatch'){
-      flagBadgeHtml='<span class="doc-placeholder-status s-rejected">Name mismatch</span>';
+    if(doc.flag_reason==='name_change'||doc.flag_reason==='name_mismatch'){
+      flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Name change</span>';
     }else if(doc.flag_reason==='failed_verification'){
       flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
     }
@@ -4126,10 +4126,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderAiScan(s,scannedAt,cached){
     var ok=!!s.verified;
     var nameMatch=s.nameMatch;
+    // A name mismatch on an otherwise-genuine document is a name change to confirm —
+    // not a failed scan. Frame the header accordingly instead of the generic warning.
+    var isNameChange=nameMatch==='mismatch';
     var rows=[];
-    var headColor=ok?'#15803d':'#b45309';
+    var headColor=ok?'#15803d':(isNameChange?'#a16207':'#b45309');
     var headIcon=ok?'✓':'⚠';
-    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving';
+    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):(isNameChange?('Name change to confirm — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving');
     rows.push('<div style="font-weight:700;color:'+headColor+';margin-bottom:6px;">'+headIcon+' '+headText+'</div>');
     var line=function(lbl,val,color){return '<div style="margin:2px 0;"><span style="color:#6b7280;">'+lbl+':</span> <span style="color:'+(color||'#111827')+';font-weight:600;">'+esc(val)+'</span></div>';};
     if(s.documentType)rows.push(line('Identified as',s.documentType));
