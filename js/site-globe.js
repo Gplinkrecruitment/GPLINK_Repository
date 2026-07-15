@@ -23,6 +23,11 @@
   var BLUE = "#1d52db", RAD = Math.PI / 180;
   var TILT = -22 * RAD, ST = Math.sin(TILT), CT = Math.cos(TILT);
   var CX = 1000, CY = 462, R = 330, START_LON = -20, W = 1600, H = 900;
+  // Tight view box around the globe + arcs (measured across a full loop:
+  // content spans x[558,1442] y[29,792], centred on x=1000) so the globe fills
+  // the frame instead of floating in empty margin. The container's css
+  // aspect-ratio matches VB's ratio (910/786).
+  var VB = { x: 545, y: 16, w: 910, h: 786 };
 
   var clamp01 = function (v) { return Math.max(0, Math.min(1, v)); };
   var ss = function (a, b, x) { var t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -277,14 +282,13 @@
         ), outline);
     }
 
-    return h("svg", { width: "100%", height: "100%", viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "xMidYMid meet" },
+    return h("svg", { width: "100%", height: "100%", viewBox: VB.x + " " + VB.y + " " + VB.w + " " + VB.h, preserveAspectRatio: "xMidYMid meet" },
       h("defs", null,
         h("radialGradient", { id: "sphereHi", cx: "38%", cy: "30%", r: "75%" },
           h("stop", { offset: "0%", stopColor: theme.hi }),
           h("stop", { offset: "60%", stopColor: "rgba(255,255,255,0)" })
         )
       ),
-      h("ellipse", { cx: CX, cy: CY + R + 46, rx: R * 0.78, ry: 20, fill: theme.shadow }),
       h("circle", { cx: CX, cy: CY, r: R, fill: theme.sea, stroke: theme.seaEdge, strokeWidth: 1.5 }),
       h("path", { d: landPath, fill: theme.dot }),
       h("path", { d: borderPath, fill: theme.border }),
