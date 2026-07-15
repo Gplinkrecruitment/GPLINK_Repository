@@ -33186,6 +33186,19 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Execution-page identity details — the legal entity is who the contract
+    // binds (a trading name is not enforceable on its own), so these are
+    // required and stamped onto the signed PDF alongside the trading name.
+    const legalEntityName = String((body && body.legal_entity_name) || '').trim();
+    const abnAcnDigits = String((body && body.abn_acn) || '').replace(/[^0-9]/g, '');
+    const signerJobTitle = String((body && body.signer_job_title) || '').trim();
+    if (!legalEntityName || legalEntityName.length > 200 || !signerJobTitle || signerJobTitle.length > 120 ||
+        (abnAcnDigits.length !== 11 && abnAcnDigits.length !== 9)) {
+      sendJson(res, 400, { ok: false, error: 'Please complete the legal entity name, ABN/ACN (11 or 9 digits) and your job title. If you cannot see those fields, refresh this page.' });
+      return;
+    }
+    const abnAcnLabel = (abnAcnDigits.length === 11 ? 'ABN ' : 'ACN ') + abnAcnDigits;
+
     if (!_agreementPdfBytes) {
       try {
         _agreementPdfBytes = fs.readFileSync(path.join(process.cwd(), 'assets/legal/gp-link-practice-agreement-2026.pdf'));
@@ -33206,6 +33219,9 @@ async function handleApi(req, res, pathname) {
         signaturePngDataUrl: signaturePngDataUrl,
         signedName: signedName,
         practiceName: practice.name || '',
+        legalEntityName: legalEntityName,
+        abnAcn: abnAcnLabel,
+        signerJobTitle: signerJobTitle,
         dateLabel: dateLabel,
         ipAddress: clientIp,
         token: token
@@ -33248,7 +33264,17 @@ async function handleApi(req, res, pathname) {
       agreement_signed_by: signedName,
       agreement_signed_pdf_key: signedKey
     };
-    let savedPractice = await atsUpdatePracticeRow(practice.id, practicePatch);
+    // The legal entity / ABN-ACN / job title captured at signing live under
+    // metadata (no dedicated columns), merged so intake and other stashes
+    // are preserved.
+    const metadataWithSigning = Object.assign({}, practice.metadata || {}, {
+      agreement_signing: {
+        legal_entity_name: legalEntityName,
+        abn_acn: abnAcnLabel,
+        signer_job_title: signerJobTitle
+      }
+    });
+    let savedPractice = await atsUpdatePracticeRow(practice.id, Object.assign({}, practicePatch, { metadata: metadataWithSigning }));
     if (!savedPractice && isSupabaseDbConfigured()) {
       // Missing-column tolerance: agreement_status/agreement_signed_* columns
       // may not exist yet (migration 20260705100000 not applied). Fall back
@@ -33257,7 +33283,7 @@ async function handleApi(req, res, pathname) {
       // still durably persisted. Local mode (dev/tests) never hits this path.
       console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
       savedPractice = await atsUpdatePracticeRow(practice.id, {
-        metadata: Object.assign({}, practice.metadata || {}, { pipeline_agreement: practicePatch })
+        metadata: Object.assign({}, metadataWithSigning, { pipeline_agreement: practicePatch })
       });
     }
     if (!savedPractice) {
@@ -33295,7 +33321,7 @@ async function handleApi(req, res, pathname) {
       subject: 'New signed practice: ' + (practice.name || '') + ' — job pending approval',
       html: buildCareerEmailHtml({
         title: 'New signed practice',
-        body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval).',
+        body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval). Signed by ' + signedName + ' (' + signerJobTitle + ') for ' + legalEntityName + ' (' + abnAcnLabel + ').',
         ctaText: 'View in CEO dashboard',
         ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard#practice=' + practice.id
       })

@@ -326,9 +326,9 @@
     <h1>Sign your recruitment agreement</h1>
     <p class="lede">Please review the agreement below, then sign to confirm you'd like GP Link to start sourcing candidates for you.</p>
 
-    <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf" title="GP Link Recruitment Services Agreement"></iframe>
+    <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260715" title="GP Link Recruitment Services Agreement"></iframe>
     <div class="pdf-fallback">
-      Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf" target="_blank" rel="noopener">Download the agreement (PDF)</a>
+      Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260715" target="_blank" rel="noopener">Download the agreement (PDF)</a>
     </div>
 
     <h2>Your signature</h2>
@@ -349,6 +349,21 @@
     <div class="field">
       <label for="signedName">Printed name<span class="req-star">*</span></label>
       <input type="text" id="signedName" maxlength="200" placeholder="Full name of signatory">
+    </div>
+
+    <div class="field">
+      <label for="legalEntityName">Full legal registered entity name<span class="req-star">*</span></label>
+      <input type="text" id="legalEntityName" maxlength="200" placeholder="e.g. Sunshine Medical Group Pty Ltd">
+    </div>
+
+    <div class="field">
+      <label for="abnAcn">ABN or ACN<span class="req-star">*</span></label>
+      <input type="text" id="abnAcn" maxlength="20" inputmode="numeric" placeholder="11-digit ABN or 9-digit ACN">
+    </div>
+
+    <div class="field">
+      <label for="signerJobTitle">Your job title<span class="req-star">*</span></label>
+      <input type="text" id="signerJobTitle" maxlength="120" placeholder="e.g. Practice Manager, Director">
     </div>
 
     <p class="date-line">Date: <span id="todayDateLabel"></span></p>
@@ -629,14 +644,28 @@
   });
 
   var signedNameInput = document.getElementById('signedName');
+  var legalEntityInput = document.getElementById('legalEntityName');
+  var abnAcnInput = document.getElementById('abnAcn');
+  var signerJobTitleInput = document.getElementById('signerJobTitle');
   var authorisedCheckbox = document.getElementById('authorisedCheckbox');
   var signBtn = document.getElementById('signBtn');
 
+  function abnAcnDigits() {
+    return abnAcnInput.value.replace(/[^0-9]/g, '');
+  }
+
   function updateSignEnabled() {
     var nameFilled = signedNameInput.value.trim().length > 0;
-    signBtn.disabled = !(hasInk && nameFilled && authorisedCheckbox.checked);
+    var entityFilled = legalEntityInput.value.trim().length > 0;
+    var abnDigits = abnAcnDigits();
+    var abnValid = abnDigits.length === 11 || abnDigits.length === 9;
+    var titleFilled = signerJobTitleInput.value.trim().length > 0;
+    signBtn.disabled = !(hasInk && nameFilled && entityFilled && abnValid && titleFilled && authorisedCheckbox.checked);
   }
   signedNameInput.addEventListener('input', updateSignEnabled);
+  legalEntityInput.addEventListener('input', updateSignEnabled);
+  abnAcnInput.addEventListener('input', updateSignEnabled);
+  signerJobTitleInput.addEventListener('input', updateSignEnabled);
   authorisedCheckbox.addEventListener('change', updateSignEnabled);
 
   function todayLabel() {
@@ -678,6 +707,9 @@
       token: token,
       signature_data_url: signatureDataUrl,
       signed_name: signedNameInput.value.trim(),
+      legal_entity_name: legalEntityInput.value.trim(),
+      abn_acn: abnAcnDigits(),
+      signer_job_title: signerJobTitleInput.value.trim(),
       authorised: authorisedCheckbox.checked === true
     };
 
