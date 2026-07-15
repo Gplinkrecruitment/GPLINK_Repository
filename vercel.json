@@ -16,6 +16,7 @@
     { "path": "/api/cron/recompute-intent", "schedule": "0 2 * * *" },
     { "path": "/api/cron/organize-drive", "schedule": "0 3 * * *" },
     { "path": "/api/cron/onboarding-nudge", "schedule": "0 * * * *" },
+    { "path": "/api/cron/consult-nudge", "schedule": "20 * * * *" },
     { "path": "/api/cron/match-lifecycle", "schedule": "0 * * * *" },
     { "path": "/api/cron/sla-sweep", "schedule": "30 20 * * *" },
     { "path": "/api/cron/chase-nonresponders", "schedule": "0 21 * * *" },

@@ -77,17 +77,17 @@ describe('classifyQualificationOutcome', () => {
     const r = classifyQualificationOutcome({ nameMatch: 'fuzzy', verified: true });
     expect(r.action).toBe('approve');
   });
-  it('flags a name mismatch', () => {
+  it('flags a name mismatch as a name change', () => {
     const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: true });
-    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'name_mismatch' });
+    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'name_change' });
   });
   it('flags when verification failed (wrong type / illegible)', () => {
     const r = classifyQualificationOutcome({ nameMatch: 'exact', verified: false });
     expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
   });
-  it('prioritises name mismatch over failed verification', () => {
+  it('prioritises name change over failed verification', () => {
     const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: false });
-    expect(r.reasonKind).toBe('name_mismatch');
+    expect(r.reasonKind).toBe('name_change');
   });
   it('treats unknown nameMatch as failed_verification when not verified', () => {
     const r = classifyQualificationOutcome({ nameMatch: 'unknown', verified: false });
@@ -100,17 +100,21 @@ describe('classifyQualificationOutcome', () => {
 });
 
 describe('buildFlagReason', () => {
-  it('builds a name mismatch reason naming both parties', () => {
-    const r = buildFlagReason('name_mismatch', {
+  it('builds a name change reason naming both parties', () => {
+    const r = buildFlagReason('name_change', {
       nameFound: 'Mohammed Avais Hussain',
       profileName: 'Smith Miller',
       expectedLabel: 'Primary Medical Degree'
     });
-    expect(r).toBe('Name on document ("Mohammed Avais Hussain") does not match account ("Smith Miller").');
+    expect(r).toBe('The name on this document ("Mohammed Avais Hussain") differs from the account name ("Smith Miller") — this looks like a name change to confirm and record. The document itself does not need to be re-uploaded.');
   });
   it('handles a missing document name gracefully', () => {
-    const r = buildFlagReason('name_mismatch', { nameFound: '', profileName: 'Smith Miller', expectedLabel: 'Primary Medical Degree' });
-    expect(r).toBe('The name on the document does not match the account holder ("Smith Miller").');
+    const r = buildFlagReason('name_change', { nameFound: '', profileName: 'Smith Miller', expectedLabel: 'Primary Medical Degree' });
+    expect(r).toBe('The name on this document differs from the account name ("Smith Miller") — this looks like a name change to confirm and record.');
+  });
+  it('still maps the legacy name_mismatch kind to name-change wording', () => {
+    const r = buildFlagReason('name_mismatch', { nameFound: 'Mercy Dzungwem', profileName: 'Mercy Obanimoh', expectedLabel: 'Primary Medical Degree' });
+    expect(r).toContain('looks like a name change');
   });
   it('builds a failed verification reason with the expected label', () => {
     const r = buildFlagReason('failed_verification', { expectedLabel: 'MRCGP Certificate', issues: ['This appears to be a passport.'] });

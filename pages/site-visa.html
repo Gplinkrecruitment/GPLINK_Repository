@@ -109,7 +109,10 @@
   .v-support{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(22px,3.5vw,44px);align-items:center;}
   .v-photo{border-radius:22px;overflow:hidden;box-shadow:0 34px 70px -36px rgba(20,50,76,.6);}
   .v-photo img{width:100%;display:block;object-fit:cover;}
-  @media(max-width:880px){.v-support{grid-template-columns:1fr}}
+  /* network-globe animation (js/site-globe.js injects the SVG) */
+  .v-globe{position:relative;width:100%;aspect-ratio:16/10;}
+  .v-globe svg{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  @media(max-width:880px){.v-support{grid-template-columns:1fr}.v-globe{aspect-ratio:4/3;max-width:460px;margin:0 auto;}}
 
   /* ---------- final cta ---------- */
   .v-final{position:relative;color:#fff;overflow:hidden;}
@@ -239,12 +242,11 @@
         <p class="sec-sub">When GP Link places you, employer-backed visa sponsorship is arranged as part of the role, and your visa steps are tracked in the GP Link app right alongside your AHPRA registration, so you always know what's next.</p>
         <div class="cta-row" style="margin-top:22px">
           <a class="btn primary" href="/pages/signin?signup=1">Begin my journey <span class="arr">→</span></a>
-          <a class="btn ghost" style="color:var(--ink);border-color:var(--line);background:#fff" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Talk to us about your situation</a>
+          <a class="btn ghost" style="color:var(--ink);border-color:var(--line);background:#fff" href="/start#book">Talk to us about your situation</a>
         </div>
       </div>
-      <div class="v-photo reveal rv-right dl2 img-reveal">
-        <img src="/media/images/site/doctor-family-beach.jpg" alt="A doctor and their family settling into life in Australia" loading="lazy">
-      </div>
+      <div class="v-globe reveal rv-right dl2" data-globe role="img"
+           aria-label="Animated globe showing routes from the UK, Ireland and New Zealand converging on Australia"></div>
     </div>
   </div>
 </section>
@@ -257,7 +259,7 @@
     <p>Create a free account and we'll map the registration and visa steps for your exact situation, before you commit to anything.</p>
     <div class="cta-row" style="justify-content:center">
       <a class="btn white" href="/pages/signin?signup=1">Begin my journey <span class="arr">→</span></a>
-      <a class="btn ghost" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Prefer to talk first? Book a call</a>
+      <a class="btn ghost" href="/start#book">Prefer to talk first? Book a call</a>
     </div>
   </div>
 </section>
@@ -269,10 +271,11 @@
     <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
     <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
     <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
-    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="/start#book">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
 <script src="/js/site.js?v=20260714a"></script>
+<script src="/js/site-globe.js?v=20260715a"></script>
 </body>
 </html>

@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start your journey — GP Link</title>
+<meta name="description" content="Create your free GP Link account or book a free 30-minute call — we'll walk you from where you are now to practising in an Australian clinic, at no cost to you.">
+<link rel="canonical" href="https://www.mygplink.com.au/start">
+<meta property="og:title" content="Start your journey — GP Link">
+<meta property="og:description" content="Create your free GP Link account or book a free 30-minute call — we'll walk you from where you are now to practising in an Australian clinic, at no cost to you.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mygplink.com.au/start">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260715b">
+<style>
+  /* ---------- hero ---------- */
+  .start-hero{position:relative;color:#fff;overflow:hidden;
+    padding:clamp(128px,15vw,168px) 0 clamp(56px,7vw,80px);
+    background:linear-gradient(120deg,#0c2036 0%,#0d3a6e 46%,#116dff 100%);}
+  .start-hero .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;
+    text-transform:uppercase;font-weight:700;color:#9fd1ff;margin-bottom:16px;}
+  .start-hero h1{font-size:clamp(32px,5.2vw,54px);line-height:1.08;letter-spacing:-.02em;font-weight:730;
+    margin:0 0 .32em;max-width:20ch;text-wrap:balance;text-shadow:0 2px 24px rgba(13,42,58,.5);}
+  .start-hero .sub{font-size:clamp(15.5px,1.9vw,18.5px);color:#dcebee;max-width:56ch;margin:0 0 26px;
+    text-shadow:0 1px 12px rgba(13,42,58,.5);}
+  .start-hero .cta-row{display:flex;gap:14px;flex-wrap:wrap;}
+
+  /* ---------- how it works ---------- */
+  .how-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px;}
+  .how-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:24px 22px;transition:transform .3s ease, box-shadow .3s ease;}
+  .how-card:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
+  .how-card h3{margin:0;font-size:16.5px;font-weight:720;color:var(--ink-2);line-height:1.5;}
+  @media(max-width:820px){.how-grid{grid-template-columns:1fr}}
+
+  /* ---------- trust strip ---------- */
+  .trust-strip{background:var(--ink-2);padding:28px 0;}
+  .trust-in{display:flex;justify-content:center;gap:clamp(28px,6vw,72px);flex-wrap:wrap;text-align:center;}
+  .trust-stat{display:flex;flex-direction:column;gap:2px;}
+  .trust-stat .n{font-size:clamp(22px,3vw,30px);font-weight:760;color:#fff;letter-spacing:-.01em;}
+  .trust-stat .t{font-size:12.5px;color:#a9c3da;max-width:16ch;}
+
+  /* ---------- two doors ---------- */
+  .doors-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:34px;}
+  .door-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:clamp(26px,3.4vw,34px) clamp(24px,3.2vw,30px);display:flex;flex-direction:column;align-items:flex-start;
+    transition:transform .3s ease, box-shadow .3s ease;}
+  .door-card:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
+  .door-ic{width:44px;height:44px;border-radius:12px;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;margin-bottom:14px;font-size:20px;}
+  .door-card h3{margin:0 0 8px;font-size:19px;font-weight:730;color:var(--ink-2);}
+  .door-card p{margin:0 0 20px;font-size:14.5px;color:var(--mut);line-height:1.65;}
+  .door-card .btn{margin-top:auto;}
+  .btn.ghost.dark{background:#fff;color:var(--teal);border:1px solid var(--line);box-shadow:none;}
+  .btn.ghost.dark:hover{background:var(--teal-soft);}
+  @media(max-width:820px){.doors-grid{grid-template-columns:1fr}}
+
+  /* ---------- booking panel ---------- */
+  .book-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:clamp(26px,3.6vw,40px);max-width:640px;margin:34px auto 0;}
+  .book-state h3{margin:0 0 8px;font-size:21px;font-weight:730;color:var(--ink-2);}
+  .book-state > p{margin:0 0 20px;font-size:14.5px;color:var(--mut);line-height:1.6;}
+  .book-state input,
+  .book-state select,
+  .book-state textarea{display:block;width:100%;font:inherit;font-size:15px;color:var(--ink-2);
+    border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff;margin-bottom:14px;}
+  .book-state textarea{resize:vertical;min-height:96px;line-height:1.5;}
+  .book-state label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--mut-2);margin:0 0 6px;}
+  .book-state input:focus,
+  .book-state select:focus,
+  .book-state textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal);}
+  .book-state .btn{width:100%;justify-content:center;}
+  .book-err{color:#c0392b;font-size:13.5px;margin:-4px 0 14px;}
+  .book-consent{margin:14px 0 0;font-size:12.5px;color:var(--mut-2);line-height:1.6;}
+  .book-consent a{color:var(--teal);}
+  .book-kicker{margin:0 0 16px;font-size:15px;font-weight:700;color:var(--ink-2);}
+  .book-loading{margin:0;font-size:14.5px;color:var(--mut);}
+  .turndown-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .turndown-row input{flex:1 1 220px;margin-bottom:0;}
+  .turndown-row .btn{width:auto;flex:0 0 auto;}
+  #bookTurndown #tdThanks{margin:12px 0 0;font-size:14px;color:var(--teal);font-weight:660;}
+  #bookConfirmed .btn{width:100%;justify-content:center;}
+
+  @media(max-width:640px){
+    .start-hero .cta-row .btn{width:100%;justify-content:center;}
+    .doors-grid .btn{width:100%;justify-content:center;}
+    .turndown-row{flex-direction:column;}
+    .turndown-row .btn{width:100%;}
+  }
+</style>
+</head>
+<body data-page="start">
+
+<header class="site-header" id="siteHeader">
+  <div class="nav-in container">
+    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
+    <nav class="nav-links">
+      <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
+      <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="nav-signin" href="/pages/signin">Sign in</a>
+      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+  <nav class="site-mobile-menu" id="siteMobileMenu">
+    <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
+    <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
+    <a class="nav-signin" href="/pages/signin">Sign in</a>
+    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
+  </nav>
+</header>
+
+<section class="start-hero">
+  <div class="container">
+    <div class="eyebrow reveal">For UK, Irish &amp; NZ GPs</div>
+    <h1 class="reveal">Your medicine. Australia's lifestyle. We handle the in-between.</h1>
+    <p class="sub reveal">GP Link walks you from where you are now to practising in an Australian clinic — registration, visa, placement — at no cost to you.</p>
+    <div class="cta-row reveal dl1">
+      <a class="btn primary" id="doorSignupTop" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+      <a class="btn ghost" href="#book">Have questions? Book a free 30-min call</a>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <div class="how-grid">
+      <div class="how-card reveal dl1"><h3>1 · Free account or free call — start whichever way suits</h3></div>
+      <div class="how-card reveal dl2"><h3>2 · We run your registration, visa and paperwork</h3></div>
+      <div class="how-card reveal dl3"><h3>3 · You choose your practice and start work</h3></div>
+    </div>
+  </div>
+</section>
+
+<div class="trust-strip">
+  <div class="container trust-in reveal">
+    <div class="trust-stat"><span class="n"><span data-count="150">0</span>+</span><span class="t">GPs placed across Australia</span></div>
+    <div class="trust-stat"><span class="n"><span data-count="230">0</span>+</span><span class="t">locations we place doctors into</span></div>
+    <div class="trust-stat"><span class="n"><span data-count="22">0</span></span><span class="t">days — our average placement time</span></div>
+  </div>
+</div>
+
+<section class="block" id="doors">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Two ways to start</div>
+      <h2 class="sec-title">However you like to start, we're ready</h2>
+      <p class="sec-sub">Jump straight into your free account, or talk it through with us first — either way, nothing costs you a cent.</p>
+    </div>
+    <div class="doors-grid">
+      <div class="door-card reveal dl1">
+        <div class="door-ic" aria-hidden="true">📝</div>
+        <h3>Create your free account</h3>
+        <p>Set up your profile in two minutes and we'll map your exact pathway — registration, visa and placement — before you talk to anyone.</p>
+        <a class="btn primary" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+      </div>
+      <div class="door-card reveal dl2">
+        <div class="door-ic" aria-hidden="true">📞</div>
+        <h3>Book a free call</h3>
+        <p>Prefer to talk it through first? Tell us a little about you and pick a time that suits — no pressure, no cost.</p>
+        <a class="btn ghost dark" href="#book">Book a free call <span class="arr">→</span></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="book">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Book your call</div>
+      <h2 class="sec-title">Let's find a time that works</h2>
+      <p class="sec-sub">Answer a couple of quick questions and pick a slot — it only takes a minute.</p>
+    </div>
+
+    <div class="book-panel reveal dl1">
+      <p class="book-loading" id="bookLoading" hidden>Loading your details…</p>
+
+      <div id="bookRecognised" class="book-state" hidden>
+        <h3 id="recogHeading">Welcome back</h3>
+        <p>Your details are already saved. Anything you'd like us to cover on the call?</p>
+        <label for="recogQuestion">Your question (optional)</label>
+        <textarea id="recogQuestion" maxlength="2000" placeholder="Optional — e.g. visa timing, pay, bringing family…"></textarea>
+        <button class="btn primary" type="button" id="recogContinue">Choose a time →</button>
+      </div>
+
+      <div id="bookEmailMatch" class="book-state" hidden>
+        <h3>Quick one — what's your email?</h3>
+        <p>So we can match the details you gave us on Facebook.</p>
+        <label for="matchEmail">Email address</label>
+        <input id="matchEmail" type="email" autocomplete="email" placeholder="you@example.com">
+        <button class="btn primary" type="button" id="matchBtn">Continue →</button>
+        <p class="book-err" id="matchErr" role="alert" hidden></p>
+      </div>
+
+      <div id="bookForm" class="book-state" hidden>
+        <h3>Book your free 30-minute call</h3>
+        <p>Tell us a little about you — takes 30 seconds.</p>
+        <form id="consultForm" novalidate>
+          <label for="cfName">Full name</label>
+          <input id="cfName" type="text" autocomplete="name" maxlength="200" placeholder="Full name" required>
+          <label for="cfEmail">Email</label>
+          <input id="cfEmail" type="email" autocomplete="email" maxlength="200" placeholder="Email" required>
+          <label for="cfPhone">Phone (optional)</label>
+          <input id="cfPhone" type="tel" autocomplete="tel" maxlength="40" placeholder="Phone (with country code)">
+          <label for="cfIsGp">Are you a currently registered GP?</label>
+          <select id="cfIsGp"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+          <label for="cfCountry">Where are you registered?</label>
+          <select id="cfCountry"><option value="">Choose…</option><option value="uk">United Kingdom</option><option value="ie">Ireland</option><option value="nz">New Zealand</option><option value="other">Somewhere else</option></select>
+          <label for="cfQuestion">Your main question (optional)</label>
+          <textarea id="cfQuestion" maxlength="2000" placeholder="Optional — what's your main question?"></textarea>
+          <input id="cfWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
+          <button class="btn primary" type="submit" id="cfSubmit">Continue to booking →</button>
+          <p class="book-err" id="cfErr" role="alert" hidden></p>
+          <p class="book-consent">We'll only contact you about your enquiry. <a href="/pages/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
+        </form>
+      </div>
+
+      <div id="bookTurndown" class="book-state" hidden>
+        <h3>We're sorry — we can't take this one on</h3>
+        <p>Right now GP Link works with general practitioners registered in the <b>UK, Ireland or New Zealand</b>. If that changes, we'd love to let you know.</p>
+        <label for="tdEmail">Email (optional)</label>
+        <div class="turndown-row">
+          <input id="tdEmail" type="email" placeholder="Your email (optional)">
+          <button class="btn ghost dark" type="button" id="tdSave">Keep me posted</button>
+        </div>
+        <p id="tdThanks" hidden>Done — we'll be in touch if things change.</p>
+      </div>
+
+      <div id="bookCalendly" class="book-state" hidden>
+        <p class="book-kicker" id="calGreeting"></p>
+        <div id="calendlyEmbed" style="min-width:320px;height:760px"></div>
+      </div>
+
+      <div id="bookConfirmed" class="book-state" hidden>
+        <h3>You're booked — talk soon 🎉</h3>
+        <p>A calendar invite is on its way to your inbox. In the meantime, why not set up your free account so we can hit the ground running?</p>
+        <a class="btn primary" id="confirmedSignup" href="/pages/signin?signup=1">Create my free account →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="foot-in container">
+    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
+      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
+    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
+    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
+    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="#book">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
+  </div>
+  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
+</footer>
+<script src="/js/site.js?v=20260714a"></script>
+<script>
+(function () {
+  var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
+  var params = new URLSearchParams(window.location.search);
+  var lead = { token: null, name: '', email: '', question: '' };
+
+  var utm = {};
+  params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
+
+  var FETCH_ERR_MSG = 'Something went wrong sending that — please check your connection and try again.';
+
+  function show(id) {
+    document.getElementById('bookLoading').hidden = true;
+    ['bookRecognised', 'bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
+      .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
+  }
+
+  // Rejects on network failure or a non-JSON response — callers surface
+  // FETCH_ERR_MSG in their .book-err element via .catch().
+  function post(path, body) {
+    return fetch(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { status: r.status, json: j }; }); });
+  }
+
+  function loadCalendly(displayName) {
+    document.getElementById('calGreeting').textContent = displayName
+      ? displayName + ', pick a time that suits you — your details are pre-filled.'
+      : 'Pick a time that suits you.';
+    show('bookCalendly');
+    var mount = function () {
+      window.Calendly.initInlineWidget({
+        url: CAL_BASE + '?hide_gdpr_banner=1',
+        parentElement: document.getElementById('calendlyEmbed'),
+        prefill: { name: lead.name || '', email: lead.email || '' }
+      });
+    };
+    if (window.Calendly) { mount(); return; }
+    var s = document.createElement('script');
+    s.src = 'https://assets.calendly.com/assets/external/widget.js';
+    s.async = true; s.onload = mount;
+    document.head.appendChild(s);
+  }
+
+  // Booked signal: Calendly inline widget posts calendly.event_scheduled
+  window.addEventListener('message', function (e) {
+    if (e.origin !== 'https://calendly.com') return;
+    if (!e.data || e.data.event !== 'calendly.event_scheduled') return;
+    if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token, question: lead.question || '' }).catch(function () {}); }
+    var su = document.getElementById('confirmedSignup');
+    if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
+    show('bookConfirmed');
+  });
+
+  function enterRecognised(displayName) {
+    document.getElementById('recogHeading').textContent = 'Welcome back, ' + displayName + '.';
+    show('bookRecognised');
+    document.getElementById('recogContinue').onclick = function () {
+      // Captured now so it rides along on the /booked POST once Calendly fires
+      // the booked signal (the lead row already exists — this just adds the
+      // typed question to it, see the calendly.event_scheduled handler above).
+      lead.question = document.getElementById('recogQuestion').value.trim();
+      loadCalendly(displayName);
+    };
+    // Door 1 also gets the email prefill for recognised leads
+    if (lead.email) {
+      document.querySelectorAll('a[href="/pages/signin?signup=1"]').forEach(function (a) {
+        a.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
+      });
+    }
+  }
+
+  // Entry routing
+  var tokenParam = params.get('lead');
+  if (tokenParam) {
+    document.getElementById('bookLoading').hidden = false;
+    fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (j && j.ok) { lead.token = tokenParam; lead.name = j.displayName; lead.email = j.email; enterRecognised(j.displayName); }
+        else { show('bookForm'); }
+      })
+      .catch(function () { show('bookForm'); });
+  } else if (params.get('src') === 'fb') {
+    show('bookEmailMatch');
+  } else {
+    show('bookForm');
+  }
+
+  document.getElementById('matchBtn').onclick = function () {
+    var btn = this;
+    var em = document.getElementById('matchEmail').value.trim();
+    var err = document.getElementById('matchErr');
+    if (!em) { err.textContent = 'Please enter your email.'; err.hidden = false; return; }
+    err.hidden = true;
+    btn.disabled = true;
+    post('/api/public/consult-lead/match', { email: em }).then(function (r) {
+      btn.disabled = false;
+      if (r.json && r.json.found) {
+        lead.token = r.json.token; lead.name = r.json.displayName; lead.email = em;
+        enterRecognised(r.json.displayName);
+      } else {
+        document.getElementById('cfEmail').value = em;
+        show('bookForm');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      err.textContent = FETCH_ERR_MSG;
+      err.hidden = false;
+    });
+  };
+
+  document.getElementById('consultForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var err = document.getElementById('cfErr');
+    var isGpRaw = document.getElementById('cfIsGp').value;
+    var country = document.getElementById('cfCountry').value;
+    var payload = {
+      name: document.getElementById('cfName').value.trim(),
+      email: document.getElementById('cfEmail').value.trim(),
+      phone: document.getElementById('cfPhone').value.trim(),
+      isGp: isGpRaw === 'yes',
+      country: country,
+      question: document.getElementById('cfQuestion').value.trim(),
+      website: document.getElementById('cfWebsite').value,
+      utm: utm
+    };
+    if (!payload.name || !payload.email || !isGpRaw || !country) {
+      err.textContent = 'Please fill in your name, email and both dropdowns.'; err.hidden = false; return;
+    }
+    err.hidden = true;
+    var submitBtn = document.getElementById('cfSubmit');
+    submitBtn.disabled = true;
+    post('/api/public/consult-lead', payload).then(function (r) {
+      submitBtn.disabled = false;
+      if (r.status !== 200 || !r.json.ok) {
+        err.textContent = (r.json && r.json.error) || 'Something went wrong — please try again.'; err.hidden = false; return;
+      }
+      if (r.json.qualified) {
+        lead.token = r.json.token; lead.name = payload.name; lead.email = payload.email;
+        loadCalendly('Dr ' + payload.name.split(/\s+/).pop());
+      } else {
+        show('bookTurndown');
+      }
+    }).catch(function () {
+      submitBtn.disabled = false;
+      err.textContent = FETCH_ERR_MSG;
+      err.hidden = false;
+    });
+  });
+
+  document.getElementById('tdSave').onclick = function () {
+    var em = document.getElementById('tdEmail').value.trim();
+    if (em) {
+      // Fire-and-forget by design — the thanks line shows regardless.
+      post('/api/public/consult-lead', {
+        name: 'Future-country lead', email: em, isGp: false, country: 'other',
+        question: 'Keep me posted when GP Link supports my country.', utm: utm
+      }).catch(function () {});
+    }
+    document.getElementById('tdThanks').hidden = false;
+    this.disabled = true;
+  };
+})();
+</script>
+</body>
+</html>
