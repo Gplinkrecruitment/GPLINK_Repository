@@ -3,15 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>About GP Link — GP Recruitment & Registration for Australia | GP Link</title>
-<meta name="description" content="GP Link is a specialist recruitment and registration service for overseas-trained GPs moving to Australia — free for doctors, end to end.">
+<title>About GP Link: GP Recruitment & Registration for Australia | GP Link</title>
+<meta name="description" content="GP Link is a specialist recruitment and registration service for overseas-trained GPs moving to Australia. Free for doctors, end to end.">
 <link rel="canonical" href="https://www.mygplink.com.au/about">
-<meta property="og:title" content="About GP Link — GP Recruitment & Registration for Australia | GP Link">
-<meta property="og:description" content="GP Link is a specialist recruitment and registration service for overseas-trained GPs moving to Australia — free for doctors, end to end.">
+<meta property="og:title" content="About GP Link: GP Recruitment & Registration for Australia | GP Link">
+<meta property="og:description" content="GP Link is a specialist recruitment and registration service for overseas-trained GPs moving to Australia. Free for doctors, end to end.">
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/about">
-<link rel="stylesheet" href="/css/site.css?v=20260703">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260715b">
 <style>
   /* ---------- about hero (navy) ---------- */
   .about-hero{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;
@@ -31,8 +34,14 @@
   .about-mission p{margin:0 0 18px;font-size:clamp(15.5px,1.7vw,17.5px);line-height:1.7;color:var(--ink);}
   .about-mission p:last-child{margin-bottom:0;}
 
-  /* ---------- what we handle grid ---------- */
-  .about-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:30px;}
+  /* ---------- what we handle (team photo + 2x2 card grid) ---------- */
+  .about-team{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(20px,3.5vw,44px);
+    margin-top:30px;align-items:stretch;}
+  .about-team-photo{position:relative;display:flex;border-radius:26px;
+    box-shadow:0 34px 68px -34px rgba(13,58,79,.5);}
+  .about-team-photo .img-reveal{flex:1;border-radius:26px;overflow:hidden;background:var(--ink-2);}
+  .about-team-photo img{width:100%;height:100%;object-fit:cover;min-height:340px;}
+  .about-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:0;}
   .about-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;
     transition:transform .3s ease, box-shadow .3s ease;}
   .about-card:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);}
@@ -40,7 +49,8 @@
     display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
   .about-card h3{margin:0 0 6px;font-size:16.5px;font-weight:720;color:var(--ink-2);}
   .about-card p{margin:0;font-size:14px;color:var(--mut);line-height:1.55;}
-  @media(max-width:980px){.about-grid{grid-template-columns:1fr 1fr;}}
+  @media(max-width:880px){.about-team{grid-template-columns:1fr;}
+    .about-team-photo img{min-height:0;aspect-ratio:4/3;}}
   @media(max-width:560px){.about-grid{grid-template-columns:1fr;}}
 
   /* ---------- numbers strip ---------- */
@@ -56,7 +66,7 @@
   /* ---------- talk to us ---------- */
   .about-talk{position:relative;color:#fff;overflow:hidden;}
   .about-talk .bgimg{position:absolute;inset:0;background-size:cover;background-position:center 65%;transform:scale(1.05);}
-  .about-talk .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.9) 20%,rgba(17,109,255,.62));}
+  .about-talk .shade{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,50,76,.92) 18%,rgba(12,32,56,.78) 55%,rgba(12,46,102,.76));}
   .about-talk .container{position:relative;z-index:2;padding-top:clamp(52px,7vw,86px);padding-bottom:clamp(52px,7vw,86px);text-align:center;}
   .about-talk h2{font-size:clamp(26px,4.2vw,46px);font-weight:740;letter-spacing:-.02em;margin:0 0 .35em;text-wrap:balance;}
   .about-talk p{color:#d3e4f6;max-width:54ch;margin:0 auto 26px;font-size:clamp(15px,1.8vw,18px);}
@@ -69,7 +79,7 @@
   <div class="nav-in container">
     <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
     <nav class="nav-links">
-      <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+      <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
       <a href="/employers">Employers</a><a href="/about" aria-current="page">About</a><a href="/faq">FAQ</a>
     </nav>
     <div class="nav-right">
@@ -79,7 +89,7 @@
     </div>
   </div>
   <nav class="site-mobile-menu" id="siteMobileMenu">
-    <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a>
+    <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
     <a href="/employers">Employers</a><a href="/about" aria-current="page">About</a><a href="/faq">FAQ</a>
     <a class="nav-signin" href="/pages/signin">Sign in</a>
     <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
@@ -89,8 +99,8 @@
 <section class="about-hero">
   <div class="container">
     <div class="eyebrow reveal">About GP Link</div>
-    <h1 class="reveal">We move GP careers to Australia</h1>
-    <p class="sub reveal">GP Link is a specialist recruitment and registration service for overseas-trained GPs — free for doctors, end to end.</p>
+    <h1 data-split="0.3">We move GP careers to Australia</h1>
+    <p class="sub reveal">GP Link is a specialist recruitment and registration service for overseas-trained GPs. Free for doctors, end to end.</p>
   </div>
 </section>
 
@@ -98,11 +108,11 @@
   <div class="container">
     <div class="reveal">
       <div class="sec-eyebrow">Why we exist</div>
-      <h2 class="sec-title">A maze, run for you — not by you</h2>
+      <h2 class="sec-title">A maze, run for you, not by you</h2>
     </div>
-    <div class="about-mission reveal">
-      <p>Australia needs GPs — especially outer-metro and regional communities, where the shortage is most acute. At the same time, overseas-trained doctors face a genuine maze to get here: AHPRA registration, AMC verification, English requirements, visa sponsorship and Medicare provider number rules, each with its own process and its own way to go wrong. GP Link exists to run that whole pathway for you, so a qualified doctor can actually arrive and start work, not just receive a job offer on paper.</p>
-      <p>Our service is completely free for doctors, always. Practices engage GP Link to find, vet and register the GPs they need — so as a doctor, you never pay us a fee, and you get the same team managing your registration, visa and relocation from your first call through to your first day.</p>
+    <div class="about-mission reveal rv-blur">
+      <p>Australia needs GPs, especially in outer-metro and regional communities, where the shortage is most acute. At the same time, overseas-trained doctors face a genuine maze to get here: AHPRA registration, AMC verification, English requirements, visa sponsorship and Medicare provider number rules, each with its own process and its own way to go wrong. GP Link exists to run that whole pathway for you, so a qualified doctor can actually arrive and start work, not just receive a job offer on paper.</p>
+      <p>Our service is completely free for doctors, always. Practices engage GP Link to find, vet and register the GPs they need, which means that as a doctor, you never pay us a fee, and you get the same team managing your registration, visa and relocation from your first call through to your first day.</p>
     </div>
   </div>
 </section>
@@ -113,44 +123,51 @@
       <div class="sec-eyebrow">What we handle</div>
       <h2 class="sec-title">One team, every step of the move</h2>
     </div>
-    <div class="about-grid">
-      <div class="about-card reveal dl1">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
-        <h3>Registration &amp; AHPRA</h3>
-        <p>AMC verification, your AHPRA application and English requirements — managed and tracked for you.</p>
+    <div class="about-team">
+      <div class="about-team-photo reveal rv-left">
+        <div class="img-reveal">
+          <img src="/media/images/site/clinic-team.jpg" alt="A team of doctors talking together in a modern practice reception" loading="lazy">
+        </div>
       </div>
-      <div class="about-card reveal dl2">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/></svg></div>
-        <h3>Visa &amp; migration</h3>
-        <p>Employer-backed sponsorship coordination for you and your family, handled alongside registration.</p>
-      </div>
-      <div class="about-card reveal dl3">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
-        <h3>Placement &amp; contracts</h3>
-        <p>Matching to the right practice, interviews arranged and offers negotiated on your behalf.</p>
-      </div>
-      <div class="about-card reveal dl4">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1"/></svg></div>
-        <h3>Relocation &amp; settling in</h3>
-        <p>From booking flights to your first day at the practice, we help you and your family settle in.</p>
+      <div class="about-grid" data-stagger="90">
+        <div class="about-card reveal">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+          <h3>Registration &amp; AHPRA</h3>
+          <p>AMC verification, your AHPRA application and English requirements, all managed and tracked for you.</p>
+        </div>
+        <div class="about-card reveal">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z"/></svg></div>
+          <h3>Visa &amp; migration</h3>
+          <p>Employer-backed sponsorship coordination for you and your family, handled alongside registration.</p>
+        </div>
+        <div class="about-card reveal">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
+          <h3>Placement &amp; contracts</h3>
+          <p>Matching to the right practice, interviews arranged and offers negotiated on your behalf.</p>
+        </div>
+        <div class="about-card reveal">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1"/></svg></div>
+          <h3>Relocation &amp; settling in</h3>
+          <p>From booking flights to your first day at the practice, we help you and your family settle in.</p>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
 <section class="about-stats">
-  <div class="container reveal" style="padding-top:34px;padding-bottom:34px;">
-    <div class="about-stats-grid">
-      <div class="about-stat"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed across Australia</div></div>
-      <div class="about-stat"><div class="n"><span data-count="230">0</span>+</div><div class="t">locations we place doctors into</div></div>
-      <div class="about-stat"><div class="n"><span data-count="22">0</span></div><div class="t">days — our average placement time</div></div>
-      <div class="about-stat"><div class="n"><span id="aboutJobsCount" data-count="240">0</span></div><div class="t">live jobs available right now</div></div>
+  <div class="container" style="padding-top:34px;padding-bottom:34px;">
+    <div class="about-stats-grid" data-stagger="90">
+      <div class="about-stat reveal"><div class="n"><span data-count="150">0</span>+</div><div class="t">GPs placed across Australia</div></div>
+      <div class="about-stat reveal"><div class="n"><span data-count="230">0</span>+</div><div class="t">locations we place doctors into</div></div>
+      <div class="about-stat reveal"><div class="n"><span data-count="22">0</span></div><div class="t">days: our average placement time</div></div>
+      <div class="about-stat reveal"><div class="n"><span id="aboutJobsCount" data-count="240">0</span></div><div class="t">live jobs available right now</div></div>
     </div>
   </div>
 </section>
 
 <section class="about-talk">
-  <div class="bgimg" style="background-image:url('/media/images/site/beach-poster.jpg')"></div>
+  <div class="bgimg" data-parallax="0.1" data-parallax-scale="1.08" style="background-image:url('/media/images/site/doctor-family-beach.jpg')"></div>
   <div class="shade"></div>
   <div class="container reveal">
     <h2>Talk to us</h2>
@@ -168,14 +185,14 @@
   <div class="foot-in container">
     <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
       <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
-    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
     <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
     <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
     <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="/start#book">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260703"></script>
+<script src="/js/site.js?v=20260714a"></script>
 <script>
 (function () {
   "use strict";
@@ -197,7 +214,7 @@
     var jobs = Number(data.jobsCount);
     if (Number.isFinite(jobs)) applyCount("aboutJobsCount", jobs);
   }).catch(function () {
-    // Network/API failure — keep the hardcoded prototype number.
+    // Network/API failure: keep the hardcoded prototype number.
   });
 })();
 </script>

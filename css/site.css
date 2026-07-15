@@ -19,14 +19,24 @@
   --mut-2: #64829b;
   --gold: #116dff;
   --sky: #4eb7f5;
-  --sys: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Figtree is loaded per-page from Google Fonts (display=swap); the system
+     stack below is both the fallback and the pre-swap render. */
+  --sys: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --pad: clamp(22px, 5vw, 72px);
   --r: 18px;
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+  --ease-wipe: cubic-bezier(.7, 0, .3, 1);
 }
 
 /* ---------- base / reset ---------- */
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+/* Kill sideways panning at the root. Directional reveals (rv-right) and
+   overscanned parallax layers poke past the right edge until they animate;
+   overflow-x on <body> alone isn't honoured reliably by iOS Safari.
+   `clip` (with `hidden` as the older-browser fallback) blocks user scroll
+   without creating a new scroll container. */
+html, body { overflow-x: hidden; overflow-x: clip; }
 body {
   margin: 0;
   background: var(--bg);
@@ -34,7 +44,12 @@ body {
   font-family: var(--sys);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+}
+/* Soft page entrance — opacity only (a transform on <body> would break the
+   fixed header), paired with each page's own hero stage animation. */
+@media (prefers-reduced-motion: no-preference) {
+  body { animation: gpPageIn .5s ease-out; }
+  @keyframes gpPageIn { from { opacity: 0; } to { opacity: 1; } }
 }
 img { max-width: 100%; display: block; }
 .container {
@@ -200,6 +215,7 @@ img { max-width: 100%; display: block; }
 .btn.white { background: #fff; color: #0d5ee0; box-shadow: 0 14px 34px -14px rgba(9, 30, 50, .7); }
 .btn.white:hover { transform: translateY(-2px); }
 .btn:disabled { opacity: .6; cursor: not-allowed; transform: none !important; }
+.btn:active { transform: translateY(0) scale(.97); }
 .btn .arr { transition: transform .2s; }
 .btn:hover .arr { transform: translateX(3px); }
 
@@ -207,10 +223,10 @@ img { max-width: 100%; display: block; }
 section.block { padding: clamp(44px, 6vw, 84px) 0; }
 .sec-eyebrow { color: var(--teal); font-size: 12.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 750; }
 h2.sec-title {
-  font-size: clamp(27px, 3.8vw, 44px);
-  font-weight: 720;
-  letter-spacing: -.02em;
-  line-height: 1.08;
+  font-size: clamp(28px, 4vw, 46px);
+  font-weight: 800;
+  letter-spacing: -.025em;
+  line-height: 1.06;
   margin: .4em 0 .35em;
   text-wrap: balance;
   color: var(--ink-2);
@@ -221,13 +237,81 @@ h2.sec-title {
 .reveal {
   opacity: 0;
   transform: translateY(34px);
-  transition: opacity .8s cubic-bezier(.2, .7, .2, 1), transform .8s cubic-bezier(.2, .7, .2, 1);
+  transition: opacity .8s var(--ease-out), transform .8s var(--ease-out), filter .8s var(--ease-out);
 }
-.reveal.in { opacity: 1; transform: none; }
+/* Directional / scale / blur variants — combine with .reveal */
+.reveal.rv-left { transform: translateX(-44px); }
+.reveal.rv-right { transform: translateX(44px); }
+.reveal.rv-scale { transform: scale(.92) translateY(18px); }
+.reveal.rv-blur { transform: translateY(24px); filter: blur(10px); }
+.reveal.in { opacity: 1; transform: none; filter: none; }
+/* Narrow screens: gentler slide offsets so waiting elements can't reach far
+   past the viewport edge even before the root-level clip catches them. */
+@media (max-width: 680px) {
+  .reveal.rv-left { transform: translateX(-20px); }
+  .reveal.rv-right { transform: translateX(20px); }
+}
 .reveal.dl1 { transition-delay: .08s; }
 .reveal.dl2 { transition-delay: .16s; }
 .reveal.dl3 { transition-delay: .24s; }
 .reveal.dl4 { transition-delay: .32s; }
+
+/* Image unmask — the picture scales down while its frame opens up.
+   JS toggles .in with the same IntersectionObserver as .reveal. */
+.img-reveal {
+  clip-path: inset(10% 10% 10% 10% round 26px);
+  transform: scale(1.08);
+  transition: clip-path 1.1s var(--ease-out), transform 1.3s var(--ease-out);
+}
+.img-reveal.in { clip-path: inset(0 0 0 0 round 0px); transform: none; }
+
+/* Split-headline word rise — js/site.js wraps [data-split] words in spans */
+.split-words .w { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .08em; margin-bottom: -.08em; }
+.split-words .w > span {
+  display: inline-block;
+  transform: translateY(112%);
+  animation: gpWordUp .75s var(--ease-out) forwards;
+  animation-delay: var(--wd, 0s);
+}
+@keyframes gpWordUp { to { transform: none; } }
+
+/* Parallax hook — js/site.js drives translate3d; keep layout-stable */
+[data-parallax] { will-change: transform; }
+
+/* ---------- page-transition veil + scroll progress ---------- */
+.page-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  background: linear-gradient(135deg, #0c2e66 0%, #0d5ee0 55%, #116dff 100%);
+  /* Rest fully off-screen: the ::after dome arcs 15vh above the veil's top
+     edge, so anything under ~115% leaves a blue sliver visible at the bottom
+     of every page. 120% keeps the dome clear of the viewport at rest. */
+  transform: translateY(120%);
+  transition: transform .42s var(--ease-wipe);
+}
+.page-veil::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -14vh;
+  height: 15vh;
+  background: inherit;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+.page-veil.cover { transform: translateY(0); pointer-events: all; }
+
+.scroll-progress {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%;
+  height: 3px;
+  z-index: 210;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--teal), var(--sky));
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
 
 /* ---------- toast ---------- */
 .toast {
@@ -419,7 +503,91 @@ label.site-label {
   color: #7391ac;
 }
 
+/* ---------- destination cards (Where you could live) ---------- */
+.dest-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-top: 30px;
+}
+.dest-card {
+  position: relative;
+  display: block;
+  border-radius: 18px;
+  overflow: hidden;
+  aspect-ratio: 3 / 4.1;
+  background: var(--ink-2);
+  text-decoration: none;
+  transform: translateZ(0);
+  transition: transform .45s var(--ease-out), box-shadow .45s var(--ease-out);
+  box-shadow: 0 18px 40px -26px rgba(13, 58, 79, .5);
+}
+.dest-card:hover { transform: translateY(-7px); box-shadow: 0 30px 60px -28px rgba(13, 58, 79, .65); }
+.dest-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 1s var(--ease-out);
+}
+.dest-card:hover img { transform: scale(1.08); }
+.dest-card .dveil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(12, 32, 56, 0) 42%, rgba(12, 32, 56, .82) 100%);
+}
+.dest-card .dmeta {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 16px 16px 15px;
+  color: #fff;
+}
+.dest-card .dmeta b { display: block; font-size: 17px; font-weight: 750; letter-spacing: -.01em; }
+.dest-card .dmeta span { display: block; font-size: 12.5px; color: #cfe2ff; margin-top: 3px; line-height: 1.4; }
+@media (max-width: 1080px) { .dest-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 680px) {
+  .dest-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 10px;
+    margin-left: calc(var(--pad) * -1);
+    margin-right: calc(var(--pad) * -1);
+    padding-left: var(--pad);
+    padding-right: var(--pad);
+  }
+  .dest-card { flex: 0 0 68vw; scroll-snap-align: center; }
+}
+
+/* ---------- partner logo marquee (shared) ---------- */
+.logo-marquee {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+.logo-track { display: flex; align-items: center; width: max-content; animation: logoMarqueeLtr 24s linear infinite; }
+.logo-marquee:hover .logo-track { animation-play-state: paused; }
+.logo-seq { display: flex; align-items: center; flex-shrink: 0; gap: clamp(26px, 6vw, 72px); padding-right: clamp(26px, 6vw, 72px); }
+.logo-seq img { height: 52px; width: auto; filter: grayscale(1); opacity: .6; transition: filter .3s, opacity .3s, transform .3s; }
+.logo-seq img:hover { filter: none; opacity: 1; transform: translateY(-3px); }
+/* Rightward flow (owner-requested): 3 identical .logo-seq copies make
+   -33.3334% exactly one sequence, so the loop restarts seamlessly. */
+@keyframes logoMarqueeLtr {
+  from { transform: translateX(-33.3334%); }
+  to { transform: translateX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .reveal { transition: none !important; opacity: 1 !important; transform: none !important; }
+  .reveal, .img-reveal { transition: none !important; opacity: 1 !important; transform: none !important; filter: none !important; clip-path: none !important; }
+  .split-words .w > span { animation: none !important; transform: none !important; }
+  .page-veil, .scroll-progress { display: none !important; }
+  .logo-marquee { -webkit-mask-image: none; mask-image: none; }
+  .logo-track { animation: none; transform: none; width: auto; flex-wrap: wrap; justify-content: center; }
+  .logo-seq[aria-hidden="true"] { display: none; }
+  .logo-seq { padding-right: 0; }
   html { scroll-behavior: auto; }
 }

@@ -3,15 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GP Jobs in Australia — Browse 1,400+ Roles | GP Link</title>
-<meta name="description" content="Browse GP jobs across Australia — VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
+<title>GP Jobs in Australia: Browse 1,400+ Roles | GP Link</title>
+<meta name="description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
 <link rel="canonical" href="https://www.mygplink.com.au/jobs">
-<meta property="og:title" content="GP Jobs in Australia — Browse 1,400+ Roles | GP Link">
-<meta property="og:description" content="Browse GP jobs across Australia — VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
+<meta property="og:title" content="GP Jobs in Australia: Browse 1,400+ Roles | GP Link">
+<meta property="og:description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/jobs">
-<link rel="stylesheet" href="/css/site.css?v=20260703">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/css/site.css?v=20260715b">
 <style>
   /* ---------- compact jobs hero ---------- */
   .jobs-hero{background:var(--ink-2);color:#fff;padding:clamp(46px,7vw,72px) 0 clamp(30px,4vw,40px);position:relative;overflow:hidden;}
@@ -51,13 +54,16 @@
 
   .job-card{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--line);
     border-radius:var(--r);padding:22px 24px;text-decoration:none;color:inherit;
-    transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease;}
-  .job-card:hover{transform:translateY(-4px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);border-color:var(--teal);}
+    box-shadow:0 6px 16px -14px rgba(13,58,79,.14);
+    transition:transform .3s ease, box-shadow .3s ease, border-color .3s ease;}
+  .job-card:hover{transform:translateY(-5px);box-shadow:0 22px 44px -26px rgba(13,58,79,.45);border-color:var(--teal);}
   .job-card:focus-visible{outline:2px solid var(--teal);outline-offset:3px;}
   .jc-title{font-size:18px;font-weight:730;color:var(--ink-2);letter-spacing:-.01em;line-height:1.3;}
   .jc-practice{font-size:13.5px;color:var(--mut-2);font-weight:600;}
-  .jc-hero{margin:-4px 0 2px;}
-  .jc-hero img{width:100%;height:120px;object-fit:cover;border-radius:10px;display:block;}
+  .jc-hero{margin:-4px 0 2px;border-radius:10px;overflow:hidden;}
+  .jc-hero img{width:100%;height:120px;object-fit:cover;border-radius:10px;display:block;
+    transition:transform .5s ease;}
+  .job-card:hover .jc-hero img{transform:scale(1.04);}
   .jc-loc{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--mut);flex-wrap:wrap;}
   .jc-loc .state-chip{background:var(--teal-soft);color:var(--teal);font-weight:700;font-size:11.5px;
     letter-spacing:.03em;padding:3px 9px;border-radius:999px;}
@@ -69,6 +75,8 @@
   .jc-summary{margin:0;font-size:14px;line-height:1.55;color:var(--mut);
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
   .jc-link{margin-top:auto;padding-top:6px;font-size:13.5px;font-weight:700;color:var(--teal);}
+  .jc-link .arr{display:inline-block;transition:transform .25s ease;}
+  .job-card:hover .jc-link .arr{transform:translateX(4px);}
 
   .job-card.skeleton{min-height:198px;border-color:var(--line);
     background:linear-gradient(100deg,#eef4fa 20%,#f7fafd 40%,#eef4fa 60%);background-size:200% 100%;
@@ -85,7 +93,7 @@
     animation:jc-shimmer 1.5s ease-in-out infinite;}
   .job-card.skeleton-teaser .teaser-lock{color:var(--mut);opacity:.5;}
 
-  .filtered-cta-panel{grid-column:1/-1;padding:0;border:0;}
+  .filtered-cta-panel{grid-column:1/-1;padding:0;border:0;box-shadow:none;}
   .fcp-inner{background:linear-gradient(120deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);color:#fff;
     border-radius:var(--r);padding:clamp(30px,4.5vw,44px) clamp(24px,4vw,36px);text-align:center;
     display:flex;flex-direction:column;align-items:center;gap:14px;}
@@ -94,7 +102,7 @@
   .fcp-inner .btn{margin-top:2px;}
   .fcp-subtext{font-size:12.5px;color:#b9d6ff;}
 
-  .job-card.signup-interstitial{grid-column:1/-1;padding:0;border:0;cursor:default;}
+  .job-card.signup-interstitial{grid-column:1/-1;padding:0;border:0;cursor:default;box-shadow:none;}
   .job-card.signup-interstitial:hover{transform:none;box-shadow:none;}
   .si-inner{background:linear-gradient(120deg,#0c2e66 0%,#0d5ee0 55%,#2b8ef0 100%);color:#fff;
     border-radius:var(--r);padding:26px 28px;display:flex;align-items:center;justify-content:space-between;
@@ -121,7 +129,7 @@
   .single-match-panel p{margin:0 auto 18px;font-size:14.5px;line-height:1.55;color:var(--mut);max-width:56ch;}
 
   /* ---------- filtered search, ZERO real matches: honest "exclusive placement"
-     scarcity teaser (Task 19). Real, focusable links to /exclusive-placements —
+     scarcity teaser (Task 19). Real, focusable links to /exclusive-placements -
      never a fabricated job, never a numeric hidden-roles count. ---------- */
   .job-card.exclusive-teaser{display:flex;flex-direction:column;align-items:flex-start;gap:10px;
     background:linear-gradient(180deg,#f7fafd 0%,#eef4fa 100%);border:1px dashed var(--line);
@@ -136,7 +144,7 @@
   .excl-teaser-blur .bl1{width:82%}.excl-teaser-blur .bl2{width:60%}.excl-teaser-blur .bl3{width:70%}
   .excl-teaser-sub{margin:0;font-size:13px;color:var(--mut);line-height:1.5;}
 
-  .exclusive-cta-panel{grid-column:1/-1;padding:0;border:0;}
+  .exclusive-cta-panel{grid-column:1/-1;padding:0;border:0;box-shadow:none;}
 
   @media (prefers-reduced-motion: reduce){
     .job-card.skeleton,.job-card.skeleton-teaser{animation:none;}
@@ -149,7 +157,7 @@
   <div class="nav-in container">
     <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
     <nav class="nav-links">
-      <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs" aria-current="page">Jobs</a><a href="/the-app">The app</a>
+      <a href="/gp-jobs">For GPs</a><a href="/jobs" aria-current="page">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
       <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
     </nav>
     <div class="nav-right">
@@ -159,7 +167,7 @@
     </div>
   </div>
   <nav class="site-mobile-menu" id="siteMobileMenu">
-    <a href="/#help">How it works</a><a href="/gp-jobs">For GPs</a><a href="/jobs" aria-current="page">Jobs</a><a href="/the-app">The app</a>
+    <a href="/gp-jobs">For GPs</a><a href="/jobs" aria-current="page">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
     <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
     <a class="nav-signin" href="/pages/signin">Sign in</a>
     <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
@@ -168,8 +176,8 @@
 
 <section class="jobs-hero">
   <div class="container">
-    <div class="eyebrow">GP jobs</div>
-    <h1>GP jobs across Australia</h1>
+    <div class="eyebrow reveal">GP jobs</div>
+    <h1 data-split="0.3">GP jobs across Australia</h1>
     <p class="count-line" id="heroCountLine">Loading current openings…</p>
     <form class="jobs-filter-card" id="jobSearch">
       <label class="kw">Keyword or suburb
@@ -210,14 +218,14 @@
   <div class="foot-in container">
     <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
       <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
-    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/#help">How it works</a><a href="/faq">FAQ</a></div>
+    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
     <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
     <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
     <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="/start#book">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260703"></script>
+<script src="/js/site.js?v=20260714a"></script>
 <script>
 (function () {
   "use strict";
@@ -269,7 +277,7 @@
   // ---------- hero count line ----------
   // Documented choice: the hero line always reflects the OVERALL open-role
   // count (via /api/public/stats), independent of any filters applied on
-  // this page load — filters describe the results grid below, not the
+  // this page load - filters describe the results grid below, not the
   // headline "how many roles do you have" claim.
   function renderHeroCount(n) {
     if (!heroCountLine) return;
@@ -503,7 +511,7 @@
         paginationEl.innerHTML = "";
       } else {
         if (window.GPSite && typeof window.GPSite.toast === "function") {
-          window.GPSite.toast("Could not load more roles — please try again.");
+          window.GPSite.toast("Could not load more roles. Please try again.");
         }
         isLoadingMore = false;
       }
@@ -511,9 +519,9 @@
   }
 
   // ---------- filtered-search conversion flow ----------
-  // When the visitor has active filters (q/state/type in the URL — they
+  // When the visitor has active filters (q/state/type in the URL - they
   // searched), only the first real matching job is shown as a clickable
-  // card. Everything else is a locked visual teaser plus a signup CTA —
+  // card. Everything else is a locked visual teaser plus a signup CTA -
   // the "unlock the rest" pattern lives entirely client-side and never
   // fabricates job data or a hidden-roles count.
   var filteredLoadMoreCount = 0;
@@ -540,7 +548,7 @@
   }
 
   function renderFilteredMatch(job) {
-    if (resultsCountEl) resultsCountEl.textContent = "Top match shown — create a free account to unlock the rest";
+    if (resultsCountEl) resultsCountEl.textContent = "Top match shown. Create a free account to unlock the rest";
     grid.innerHTML = "";
     grid.appendChild(buildTopMatchCard(job));
     appendTeaserBatch(TEASER_BATCH, TEASER_CTA_AFTER);
@@ -549,7 +557,7 @@
   }
 
   // total<=1: there is nothing hidden to unlock, so no locked teaser cards
-  // and no "unlock the rest" claim — just the one real match plus an honest
+  // and no "unlock the rest" claim - just the one real match plus an honest
   // invitation to widen the search to roles that aren't live/public yet.
   function buildSingleMatchPanel() {
     var wrap = document.createElement("div");
@@ -574,17 +582,17 @@
   // placement" scarcity flow (Task 19) ----------
   // When a FILTERED search has no real public listing at all, we don't show
   // the generic dead-end empty state. Instead we show 2 locked "Exclusive
-  // placement" teaser cards — real, focusable links to the dedicated
+  // placement" teaser cards - real, focusable links to the dedicated
   // /exclusive-placements page, NOT fabricated jobs. They carry no invented
   // practice name, suburb, salary or vacancy detail, and no numeric claim
-  // about how many exclusive roles exist — just an honest invitation to
+  // about how many exclusive roles exist - just an honest invitation to
   // create a free account so a Registration Support Officer can match the
   // visitor to unadvertised roles.
   function buildExclusiveCard() {
     var a = document.createElement("a");
     a.className = "job-card exclusive-teaser";
     a.href = "/exclusive-placements?from=jobs";
-    a.setAttribute("aria-label", "Exclusive placement — create a free account to view");
+    a.setAttribute("aria-label", "Exclusive placement. Create a free account to view");
     a.innerHTML =
       '<span class="excl-teaser-lock">' + LOCK_ICON_SVG + "</span>" +
       '<div class="excl-teaser-label">Exclusive placement<span class="dot">&middot;</span>Members only</div>' +
@@ -610,7 +618,7 @@
   function renderExclusiveZeroMatch() {
     if (resultsCountEl) {
       resultsCountEl.textContent =
-        "No public listings match your search — but many of our best roles are never advertised.";
+        "No public listings match your search, but many of our best roles are never advertised.";
     }
     grid.innerHTML = "";
     grid.appendChild(buildExclusiveCard());
