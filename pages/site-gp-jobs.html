@@ -66,17 +66,29 @@
   .gpj-rso h2.sec-title{color:#fff;}
   .gpj-rso p.lede{color:#d6e7ff;font-size:clamp(15px,1.8vw,17.5px);max-width:54ch;margin:14px 0 26px;}
   .gpj-rso-photo{align-self:end;position:relative;display:flex;justify-content:center;}
+  /* soft halo behind her so the cutout has depth and reads as intentional,
+     not pasted-on */
   .gpj-rso-photo .ring{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
-    width:116%;height:86%;border-radius:46% 46% 0 0;
-    background:radial-gradient(58% 68% at 50% 82%,rgba(255,255,255,.20),transparent 72%);}
+    width:120%;height:90%;border-radius:46% 46% 0 0;
+    background:radial-gradient(60% 70% at 50% 80%,rgba(255,255,255,.28),transparent 72%);}
+  /* the stacked white drop-shadows draw a crisp ~2px white outline around the
+     silhouette; the last shadow is the soft ground shadow for depth */
   .gpj-rso-photo img{position:relative;z-index:1;display:block;width:min(430px,100%);height:auto;
     margin-bottom:calc(-1 * clamp(44px,6vw,84px));
-    filter:drop-shadow(0 20px 32px rgba(6,20,40,.42));}
+    filter:
+      drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff)
+      drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff)
+      drop-shadow(1.5px 1.5px 0 #fff) drop-shadow(-1.5px 1.5px 0 #fff)
+      drop-shadow(1.5px -1.5px 0 #fff) drop-shadow(-1.5px -1.5px 0 #fff)
+      drop-shadow(0 22px 34px rgba(6,20,40,.45));}
   @media(max-width:880px){
     .gpj-rso-grid{grid-template-columns:1fr}
-    .gpj-rso-photo{order:-1;align-self:center;}
+    .gpj-rso-photo{order:-1;align-self:center;padding-bottom:6px;}
     .gpj-rso-photo img{margin-bottom:0;width:min(300px,78%);}
-    .gpj-rso-photo .ring{height:92%;}
+    /* fuller halo on mobile so she sits on a soft glow rather than floating on
+       flat blue */
+    .gpj-rso-photo .ring{width:150%;height:96%;
+      background:radial-gradient(56% 62% at 50% 74%,rgba(255,255,255,.30),transparent 70%);}
   }
 
   /* ---------- how we help trio ---------- */
