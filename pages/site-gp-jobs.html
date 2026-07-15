@@ -57,16 +57,27 @@
   .gpj-rso::before{content:"";position:absolute;width:520px;height:520px;border-radius:50%;
     background:radial-gradient(circle,rgba(78,183,245,.32),transparent 68%);top:-180px;right:-120px;}
   .gpj-rso .container{position:relative;z-index:1;}
-  .gpj-rso-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(26px,4vw,56px);align-items:center;}
+  /* Bottom-align the cutout to the blue band: the image escapes the section's
+     bottom padding via a negative margin equal to the .block padding clamp,
+     so the consultant stands flush on the section's lower edge. */
+  .gpj-rso-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(26px,4vw,56px);align-items:stretch;}
+  .gpj-rso-grid > div:first-child{display:flex;flex-direction:column;justify-content:center;}
   .gpj-rso .sec-eyebrow{color:#9fd1ff;}
   .gpj-rso h2.sec-title{color:#fff;}
   .gpj-rso p.lede{color:#d6e7ff;font-size:clamp(15px,1.8vw,17.5px);max-width:54ch;margin:14px 0 26px;}
-  .gpj-rso-photo{position:relative;display:flex;justify-content:center;}
-  .gpj-rso-photo .ring{position:absolute;inset:6% 10%;border-radius:50%;
-    background:radial-gradient(70% 70% at 50% 40%,rgba(255,255,255,.16),transparent 70%);}
-  .gpj-rso-photo img{position:relative;z-index:1;max-width:min(340px,86%);border-radius:26px;
-    box-shadow:0 40px 80px -32px rgba(6,20,40,.75);}
-  @media(max-width:880px){.gpj-rso-grid{grid-template-columns:1fr}.gpj-rso-photo{order:-1}}
+  .gpj-rso-photo{align-self:end;position:relative;display:flex;justify-content:center;}
+  .gpj-rso-photo .ring{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+    width:116%;height:86%;border-radius:46% 46% 0 0;
+    background:radial-gradient(58% 68% at 50% 82%,rgba(255,255,255,.20),transparent 72%);}
+  .gpj-rso-photo img{position:relative;z-index:1;display:block;width:min(430px,100%);height:auto;
+    margin-bottom:calc(-1 * clamp(44px,6vw,84px));
+    filter:drop-shadow(0 20px 32px rgba(6,20,40,.42));}
+  @media(max-width:880px){
+    .gpj-rso-grid{grid-template-columns:1fr}
+    .gpj-rso-photo{order:-1;align-self:center;}
+    .gpj-rso-photo img{margin-bottom:0;width:min(300px,78%);}
+    .gpj-rso-photo .ring{height:92%;}
+  }
 
   /* ---------- how we help trio ---------- */
   .gpj-help-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px;}
@@ -189,7 +200,7 @@
       </div>
       <div class="gpj-rso-photo reveal rv-right dl2">
         <div class="ring"></div>
-        <img src="/media/images/site/gp-headshot.png" alt="A GP Link Registration Support Officer">
+        <img src="/media/images/site/rso-consultant.webp" alt="A GP Link Registration Support Officer">
       </div>
     </div>
   </div>
