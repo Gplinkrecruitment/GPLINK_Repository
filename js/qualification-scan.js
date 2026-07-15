@@ -223,8 +223,14 @@
     if (/too large|request entity too large|payload too large|image too large|file too large/.test(lower)) {
       return "This file is too large to scan. Please upload a smaller photo, or the PDF version, and try again.";
     }
+    // A name that differs from the account on a genuine qualification is a name change
+    // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
+    // document — a certificate can only carry the name it was issued in.
+    if (/looks like a previous name|changed your name|name change|previous name/.test(lower)) {
+      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine — we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
+    }
     if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
-      return "The name on this document does not match the name on your account. Upload a document showing the same full name, or update your account details first.";
+      return "The name on this document is different from the name on your account. If you've changed your name, that's fine — we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
     }
     if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
       return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
@@ -390,7 +396,12 @@
         mode: "qualification"
       });
 
-      if (!qualVerification.verified || !nameConfirmed) {
+      // A name that differs from the account is a NAME CHANGE, not a bad document — the
+      // certificate legitimately carries the holder's former name. Let it proceed to the
+      // certification check so a genuinely certified copy is still accepted; the server
+      // records the name change and the AMC step collects the proof.
+      var isNameChange = qualVerification.nameChange === true;
+      if (!isNameChange && (!qualVerification.verified || !nameConfirmed)) {
         return {
           ok: true,
           certified: false,
@@ -827,7 +838,7 @@
             state.docs[key] = {
               uploaded: true,
               fileName: file.name,
-              status: verified ? "verified" : (nameMismatch ? "name_mismatch" : "under_review"),
+              status: verified ? "verified" : (nameMismatch ? "verified_name_pending" : "under_review"),
               source: "ai_scan",
               docType: docType,
               nameFound: nameFound,
@@ -863,15 +874,15 @@
           if (resultEl) {
             var issuesHtml = "";
             if (friendlyIssues && friendlyIssues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
+              issuesHtml = '<p style="color:' + (nameMismatch ? '#a16207' : '#dc2626') + ';font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
             }
-            var nameColor = nameMismatch ? "#dc2626" : "#64748b";
-            var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
+            var nameColor = nameMismatch ? "#a16207" : "#64748b";
+            var nameLabel = nameMismatch ? "Name (name change): " : "Name: ";
             resultEl.innerHTML =
-              '<div class="' + (verified ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
-              (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
+              '<div class="' + (verified || nameMismatch ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
+              (verified || nameMismatch ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
               '</svg></div>' +
-              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
+              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name change recorded" : "Needs Review")) + '</h4>' +
               '<p>Identified as: <strong>' + esc(docType) + '</strong></p>' +
               (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + esc(nameFound) + (dateFound ? ' &middot; Date: ' + esc(dateFound) : '') + '</p>' : '') +
               issuesHtml +
@@ -922,7 +933,7 @@
             state.docs[key] = {
               uploaded: true,
               fileName: file.name,
-              status: verified ? "verified" : (nameMismatch ? "name_mismatch" : "under_review"),
+              status: verified ? "verified" : (nameMismatch ? "verified_name_pending" : "under_review"),
               source: "ai_scan",
               docType: docType,
               nameFound: nameFound,
@@ -958,15 +969,15 @@
           if (resultEl) {
             var issuesHtml = "";
             if (friendlyIssues && friendlyIssues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
+              issuesHtml = '<p style="color:' + (nameMismatch ? '#a16207' : '#dc2626') + ';font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
             }
-            var nameColor = nameMismatch ? "#dc2626" : "#64748b";
-            var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
+            var nameColor = nameMismatch ? "#a16207" : "#64748b";
+            var nameLabel = nameMismatch ? "Name (name change): " : "Name: ";
             resultEl.innerHTML =
-              '<div class="' + (verified ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
-              (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
+              '<div class="' + (verified || nameMismatch ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
+              (verified || nameMismatch ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
               '</svg></div>' +
-              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
+              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name change recorded" : "Needs Review")) + '</h4>' +
               '<p>Identified as: <strong>' + esc(docType) + '</strong></p>' +
               (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + esc(nameFound) + (dateFound ? ' &middot; Date: ' + esc(dateFound) : '') + '</p>' : '') +
               issuesHtml +

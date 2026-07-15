@@ -8045,10 +8045,21 @@ function applyQualificationNameMatchPolicy(verification, profileName, verifiedNa
   }
 
   if (nameCheck.match === 'mismatch') {
+    // A name that differs from the account is almost always a NAME CHANGE (e.g.
+    // marriage or deed poll), NOT a wrong/fraudulent document. A qualification
+    // certificate can only ever carry the holder's name at the time it was issued
+    // (their former/maiden name), so telling the user to "upload a matching document"
+    // is impossible advice. If the AI otherwise read this as a genuine document, tag
+    // it as a suspected name change so callers can record it and ask for name-change
+    // evidence later instead of rejecting it. We still flip verified=false so it can
+    // never silently auto-pass without a human (or the AMC name-change step) confirming.
+    verification.nameChange = verification.verified === true;
     verification.verified = false;
     pushVerificationIssue(
       verification,
-      'The name on this document does not match your account name. Please upload a document with the name matching your profile.'
+      verification.nameChange
+        ? 'The name on this document (' + (verification.nameFound || 'the document') + ') looks like a previous name — it is different from your account name' + (normalizedProfileName ? ' (' + normalizedProfileName + ')' : '') + '. If you have changed your name, for example after marriage, that is fine: we will record it and ask you for proof of your name change at a later step. You do not need to upload a different document.'
+        : 'The name on this document is different from your account name, and we could not confirm the document itself. Please check you have uploaded the correct document.'
     );
     return;
   }
@@ -24005,7 +24016,13 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
             body: { status: 'under_review', flag_reason: outcome.reasonKind, rejection_reason: reason, updated_at: new Date().toISOString() }
           });
           await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason, reviewStage);
-          await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
+          if (outcome.reasonKind === 'name_change') {
+            // A name change is not a rejection — tell the GP their document was
+            // received and that we're confirming the name change, not that it failed.
+            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' received — confirming your name change', detail: reason });
+          } else {
+            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
+          }
           return; // handled — skip the generic type-only pipeline
         }
         // approve path: clear any stale flag.
@@ -39943,7 +39960,12 @@ async function handleApi(req, res, pathname) {
     if (qualDocKey && result.verification) {
       const vq = result.verification;
       const qNameOk = vq.nameMatch === 'exact' || vq.nameMatch === 'fuzzy';
-      if (!(vq.verified === true && qNameOk)) {
+      // A suspected name change is NOT a scan failure: the certificate genuinely
+      // carries the GP's former name and can never be re-issued in the new name.
+      // Don't burn a retry or demand a re-upload — the client accepts it as
+      // "Verified (name change pending)" and we record the change below.
+      const qNameChange = vq.nameChange === true;
+      if (!qNameChange && !(vq.verified === true && qNameOk)) {
         const qRaw = stripBase64DataUrlPrefix(imageBase64);
         qualScanMeta = await handleServerScanFailure(session, {
           docKey: qualDocKey,
@@ -39954,6 +39976,22 @@ async function handleApi(req, res, pathname) {
           reason: Array.isArray(vq.issues) && vq.issues.length ? vq.issues.join(' ') : 'The document details could not be verified against your account.'
         });
       }
+    }
+
+    // Record a suspected name change proactively so the AMC "Establishment" step
+    // asks the GP for their name-change evidence (e.g. marriage certificate). A
+    // qualification whose name differs from the account is almost always a name
+    // change — set the flag now rather than waiting for an RSO to approve a flag.
+    if (result.verification && result.verification.nameChange === true && verifyEmail && isSupabaseDbConfigured()) {
+      try {
+        const ncUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail);
+        if (ncUserId) {
+          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(ncUserId), {
+            method: 'PATCH',
+            body: { name_change_detected: true, name_change_note: 'Document name: ' + (result.verification.nameFound || '') }
+          });
+        }
+      } catch (ncErr) { console.error('[verify-qualification] name-change flag failed:', ncErr && ncErr.message); }
     }
 
     sendJson(res, 200, {
