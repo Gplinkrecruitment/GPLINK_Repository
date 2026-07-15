@@ -198,7 +198,7 @@ describe('marketing site homepage (Task 7)', () => {
   it('GET / CTAs point at real destinations, not in-page-only placeholders', async () => {
     const res = await get('/');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
-    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+    expect(res.raw).toContain('href="/start#book"');
   });
 
   it('GET / calls out the free Registration Support Officer and has the partner-logo marquee carousel', async () => {
@@ -236,10 +236,10 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
     expect(currentMatches.length).toBe(2);
   });
 
-  it('GET /about has Talk to us CTAs (mailto, Calendly, ACN, signup)', async () => {
+  it('GET /about has Talk to us CTAs (mailto, /start#book booking, ACN, signup)', async () => {
     const res = await get('/about');
     expect(res.raw).toContain('href="mailto:hello@mygplink.com.au"');
-    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+    expect(res.raw).toContain('href="/start#book"');
     expect(res.raw).toContain('ACN 693 259 737');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
   });
@@ -321,11 +321,11 @@ describe('marketing site app page (Task 12)', () => {
     expect(currentMatches.length).toBe(2);
   });
 
-  it('GET /the-app CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+  it('GET /the-app CTAs point at real destinations (signup, jobs, /start#book booking)', async () => {
     const res = await get('/the-app');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('href="/jobs"');
-    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+    expect(res.raw).toContain('href="/start#book"');
   });
 
   it('GET /the-app has no app-shell/nav-shell-bridge chrome (marketing pages are standalone)', async () => {
@@ -371,11 +371,11 @@ describe('marketing site "For GPs" page (Task 15)', () => {
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
   });
 
-  it('GET /gp-jobs CTAs point at real destinations (signup, jobs, Calendly)', async () => {
+  it('GET /gp-jobs CTAs point at real destinations (signup, jobs, /start#book booking)', async () => {
     const res = await get('/gp-jobs');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
     expect(res.raw).toContain('href="/jobs"');
-    expect(res.raw).toContain('href="https://calendly.com/hello-mygplink/30min"');
+    expect(res.raw).toContain('href="/start#book"');
   });
 
   it('GET /gp-jobs has no app-shell/nav-shell-bridge chrome (marketing pages are standalone)', async () => {
@@ -425,10 +425,10 @@ describe('marketing site "Exclusive placement" page (Task 19)', () => {
     expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/sydney-opera.jpg"');
   });
 
-  it('GET /exclusive-placements CTAs point at real destinations (signup, Calendly) and has no app-shell chrome', async () => {
+  it('GET /exclusive-placements CTAs point at real destinations (signup, /start#book booking) and has no app-shell chrome', async () => {
     const res = await get('/exclusive-placements');
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
-    expect(res.raw).toContain('https://calendly.com/hello-mygplink/30min');
+    expect(res.raw).toContain('/start#book');
     expect(res.raw).not.toMatch(/app-shell/);
     expect(res.raw).not.toMatch(/nav-shell-bridge/);
   });

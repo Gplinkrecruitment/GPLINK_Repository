@@ -6086,7 +6086,7 @@
       if (doc.file_name) meta += '<div class="ceo-doc-card-meta">' + esc(doc.file_name) + '</div>';
       if (doc.updated_at) meta += '<div class="ceo-doc-card-meta">' + esc(relativeTime(doc.updated_at)) + '</div>';
       var badge;
-      if (doc.flag_reason === 'name_mismatch') badge = '<span class="ceo-doc-status s-rejected">Name mismatch</span>';
+      if (doc.flag_reason === 'name_change' || doc.flag_reason === 'name_mismatch') badge = '<span class="ceo-doc-status s-under_review">Name change</span>';
       else if (doc.flag_reason === 'failed_verification') badge = '<span class="ceo-doc-status s-under_review">Needs review</span>';
       else badge = '<span class="ceo-doc-status s-' + (status || 'pending') + '">' + docStatusLabel(status) + '</span>';
       return '<div class="ceo-doc-card' + (viewable ? ' is-clickable' : '') + '"' + viewAttrs + '>' + thumb +
