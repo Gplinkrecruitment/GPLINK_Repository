@@ -1348,6 +1348,38 @@ git commit -m "feat(agreement): Schedule 1 - one signature covers every practice
 
 ---
 
+## ⚠️ MERGE BLOCKER — discovered during execution, 2026-07-16
+
+**Task 4 and Task 8 are coupled. Do not merge this branch with Task 4 done and Task 8 unfinished.**
+
+Task 4 makes `urgency`, `employment_type` and `gps_needed` **required**. The currently-live `pages/practice-intake.html` sends none of them (grep: 0 hits) — Task 8 is what makes the form send them. Verified by hand on this branch:
+
+```
+validatePracticeIntakePayload(<payload the live form actually sends>)
+  -> {"ok":false,"error":"urgency is required"}
+```
+
+Merging before Task 8 lands would **400 every practice intake submission in production** — the front door for every paying client.
+
+**Ordering that is safe:**
+1. Apply the Task 3 migration **first** (before any code that writes the new columns), or the intake POST 503s with `pipeline_migration_required`.
+2. Land Tasks 4 and 8 **together**.
+
+**Also note:** Tasks 5, 6, 7, 9 and 10 all modify `server.js`. Run them **sequentially** — parallel implementers will conflict.
+
+## Measured test baseline (do not misread these as regressions)
+
+Full suite on **pristine `origin/main` @ `e91c128`**, measured 2026-07-16:
+
+```
+Test Files  8 failed | 196 passed (204)
+     Tests  30 failed | 2916 passed (2946)
+```
+
+Already failing on main, untouched by this branch: `eligibility-waitlist`, `onboarding-review-roundtrip`, `practice-intake-endpoints`, `practice-status-page`, `site-enquiry`, `site-jobs-page`, `site-link-audit`, `site-public-routes`.
+
+**Judge regressions against `30 failed`, not against zero.** Note `tests/practice-intake-endpoints.test.js` already fails on main (the sign happy-path and `already_signed` cases) — Task 7 extends that file, so characterise those two failures before adding to it.
+
 ## Shipping
 
 After Task 10, in this order:
